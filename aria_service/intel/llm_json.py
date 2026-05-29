@@ -474,4 +474,12 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
             _r472_key, _R472_TOTAL_FAILS, str(e)[:120], candidate[:200],
         )
 
-        return default
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="llm_json",
+        summary="Parse Llm Json",
+        source_id="llm_json:R-F1001",
+    )
+
+    return default

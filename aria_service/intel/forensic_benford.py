@@ -234,6 +234,14 @@ def benford_test(values: Iterable[Any]) -> dict[str, Any]:
 
     narrative = _build_narrative(grade, chi2, valid, observed_pct, expected_pct)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="forensic_benford",
+        summary="Benford Test",
+        source_id="forensic_benford:R-F1001",
+    )
+
     return {
         "applicable":          True,
         "reason_inapplicable": None,

@@ -282,6 +282,14 @@ async def propose_batch(max_candidates: int = 20) -> dict:
     by_market_pending: dict[str, int] = {}
     for c in proposed:
         by_market_pending[c["market"]] = by_market_pending.get(c["market"], 0) + 1
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="golden_autogen",
+        summary="Propose Batch",
+        source_id="golden_autogen:R-F1001",
+    )
+
     return {
         "auto_promoted": len(auto_promoted),
         "pending": len(proposed),

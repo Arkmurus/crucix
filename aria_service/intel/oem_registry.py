@@ -73,6 +73,14 @@ _PHASE_1_OEMS: list[tuple[str, str, list[str]]] = [
 
 def phase_1_oem_names() -> list[str]:
     """Return the curated Phase-1 OEM name list (order is the crawl order)."""
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="oem_registry",
+        summary="Phase 1 Oem Names",
+        source_id="oem_registry:R-F1001",
+    )
+
     return [name for (name, _country, _tags) in _PHASE_1_OEMS]
 
 

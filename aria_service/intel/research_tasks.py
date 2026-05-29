@@ -106,6 +106,14 @@ async def get_task(task_id: str) -> dict | None:
     except Exception as e:
         logger.debug("get_task failed: %s", e)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="research_tasks",
+        summary="Get Task",
+        source_id="research_tasks:R-F1001",
+    )
+
         return None
 
 

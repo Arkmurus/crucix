@@ -86,6 +86,14 @@ async def get_effective_threshold(name: str, base_value: float) -> float:
     except Exception as e:
         logger.debug("[auto_tune] threshold read failed: %s", e)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="calibration_auto_tune",
+        summary="Get Effective Threshold",
+        source_id="calibration_auto_tune:R-F1001",
+    )
+
         return base_value
 
 

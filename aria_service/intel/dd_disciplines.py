@@ -1156,6 +1156,14 @@ def required_disciplines(entity_type: str) -> list[str]:
             f"Unknown entity_type: {entity_type}. "
             f"Known: {sorted(ENTITY_TYPE_DISCIPLINES.keys())}"
         )
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="dd_disciplines",
+        summary="Required Disciplines",
+        source_id="dd_disciplines:R-F1001",
+    )
+
     return list(ENTITY_TYPE_DISCIPLINES[entity_type])
 
 

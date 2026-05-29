@@ -171,6 +171,14 @@ def looks_like_correction(message: str) -> bool:
     facts from these, not just block caching."""
     if not message or len(message) < 30:
         return False
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="correction_learner",
+        summary="Looks Like Correction",
+        source_id="correction_learner:R-F1001",
+    )
+
     return bool(_CORRECTION_DETECTOR_RE.search(message))
 
 

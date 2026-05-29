@@ -97,6 +97,14 @@ if TYPE_CHECKING:
 def is_enabled() -> bool:
     """Default ON. Set ARIA_MEM0_ENABLED=0 to disable."""
     val = os.getenv("ARIA_MEM0_ENABLED", "1") or "1"
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="mem0",
+        summary="Is Enabled",
+        source_id="mem0:R-F1001",
+    )
+
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 

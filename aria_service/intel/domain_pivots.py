@@ -149,6 +149,14 @@ async def crtsh_lookup(
             break
     out["ok"] = True
     out["records"] = records
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="domain_pivots",
+        summary="Crtsh Lookup",
+        source_id="domain_pivots:R-F1001",
+    )
+
     return out
 
 

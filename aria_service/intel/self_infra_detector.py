@@ -97,6 +97,14 @@ def is_self_infra_query(message: str | None) -> bool:
     """
     if not message:
         return False
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="self_infra_detector",
+        summary="Is Self Infra Query",
+        source_id="self_infra_detector:R-F1001",
+    )
+
     return bool(SELF_INFRA_INTROSPECTION_RE.search(message))
 
 

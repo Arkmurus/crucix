@@ -35,4 +35,12 @@ def search(query: str, limit: int = 5) -> list[dict[str, Any]]:
         return []
     if not ctx or not str(ctx).strip():
         return []
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="mem0_notebook",
+        summary="Search",
+        source_id="mem0_notebook:R-F1001",
+    )
+
     return [{"context": str(ctx)[:2000], "query": query}]

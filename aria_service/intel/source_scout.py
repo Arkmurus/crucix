@@ -96,6 +96,14 @@ async def run(
         )
     except Exception:
         pass
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="source_scout",
+        summary="Run",
+        source_id="source_scout:R-F1001",
+    )
+
     return result
 
 

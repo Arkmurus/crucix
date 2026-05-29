@@ -270,6 +270,14 @@ async def get_latest() -> dict | None:
         return await rs.get_json(_K_COMPOSITE)
     except Exception:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="autonomy_scorer",
+        summary="Get Latest",
+        source_id="autonomy_scorer:R-F1001",
+    )
+
         return None
 
 

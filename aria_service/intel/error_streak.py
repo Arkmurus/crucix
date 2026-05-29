@@ -166,4 +166,12 @@ async def compute_error_streak(
     out["phase_a_gate_3_pass"] = (
         out["consecutive_clean_days"] >= threshold_days
     )
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="error_streak",
+        summary="Compute Error Streak",
+        source_id="error_streak:R-F1001",
+    )
+
     return out

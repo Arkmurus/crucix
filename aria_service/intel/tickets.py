@@ -347,6 +347,14 @@ async def raise_ticket(
             result.get("github", {}).get("reason"),
             result.get("airtable", {}).get("reason"),
         )
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="tickets",
+        summary="Raise Ticket",
+        source_id="tickets:R-F1001",
+    )
+
     return result
 
 

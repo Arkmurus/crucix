@@ -112,6 +112,14 @@ async def get_status(response_hash: str) -> dict | None:
         return entry if isinstance(entry, dict) else None
     except Exception:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="verification_accumulator",
+        summary="Get Status",
+        source_id="verification_accumulator:R-F1001",
+    )
+
         return None
 
 

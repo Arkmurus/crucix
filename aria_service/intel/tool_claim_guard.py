@@ -369,6 +369,14 @@ async def guard(
         except Exception:
             pass
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="tool_claim_guard",
+        summary="Guard",
+        source_id="tool_claim_guard:R-F1001",
+    )
+
     return out
 
 

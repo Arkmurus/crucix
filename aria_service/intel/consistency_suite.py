@@ -473,6 +473,14 @@ async def get_latest_scores() -> dict | None:
         return await rs.get_json(_KEY_LATEST)
     except Exception:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="consistency_suite",
+        summary="Get Latest Scores",
+        source_id="consistency_suite:R-F1001",
+    )
+
         return None
 
 

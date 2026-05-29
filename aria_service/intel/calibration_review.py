@@ -421,4 +421,12 @@ async def get_baseline() -> dict | None:
         return await rs.get_json(_K_BASELINE)
     except Exception:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="calibration_review",
+        summary="Get Baseline",
+        source_id="calibration_review:R-F1001",
+    )
+
         return None

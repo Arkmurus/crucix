@@ -237,4 +237,12 @@ async def forecast(
     except Exception:
         pass
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="predictor",
+        summary="Forecast",
+        source_id="predictor:R-F1001",
+    )
+
     return report

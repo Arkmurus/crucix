@@ -68,6 +68,14 @@ async def run_in_thread_throttled(
     sem = _get_semaphore()
     async with sem:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="_snapshot_throttle",
+        summary="Run In Thread Throttled",
+        source_id="_snapshot_throttle:R-F1001",
+    )
+
         return await asyncio.to_thread(fn, *args, **kwargs)
 
 

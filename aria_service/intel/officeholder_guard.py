@@ -116,6 +116,14 @@ _DEMOTION_REASON_STALE_DATE = "cited date older than 12 months"
 def is_enabled() -> bool:
     """Feature flag — default ON. Set ARIA_OFFICEHOLDER_GUARD=0 to disable."""
     val = os.getenv("ARIA_OFFICEHOLDER_GUARD", "1") or "1"
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="officeholder_guard",
+        summary="Is Enabled",
+        source_id="officeholder_guard:R-F1001",
+    )
+
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 

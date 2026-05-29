@@ -346,6 +346,14 @@ async def convert(
             logger.warning("airtable_pipeline.create_opportunity failed: %s", e)
             airtable_result = {"ok": False, "reason": f"exception:{type(e).__name__}"}
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="opportunity_converter",
+        summary="Convert",
+        source_id="opportunity_converter:R-F1001",
+    )
+
     return {
         "ok": True,
         "opportunity_name": opp_name,

@@ -310,6 +310,14 @@ def match_typologies(profile: dict[str, Any]) -> dict[str, Any]:
     else:
         narrative = "FATF typology — no matches detected on the encoded library."
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="fatf_typologies",
+        summary="Match Typologies",
+        source_id="fatf_typologies:R-F1001",
+    )
+
     return {
         "matches":   matched,
         "weak":      weak,

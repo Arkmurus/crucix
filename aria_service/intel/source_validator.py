@@ -604,6 +604,14 @@ async def validate(
         domain, cand.tier_proposed, cand.overall_quality_score * 100,
         cand.validation_status.value,
     )
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="source_validator",
+        summary="Validate",
+        source_id="source_validator:R-F1001",
+    )
+
     return cand
 
 

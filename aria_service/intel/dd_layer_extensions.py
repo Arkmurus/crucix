@@ -109,6 +109,14 @@ async def run_court_records_check(
     except Exception as e:
         logger.debug("[R-F584] court_records wire failed (non-fatal): %s", e)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="dd_layer_extensions",
+        summary="Run Court Records Check",
+        source_id="dd_layer_extensions:R-F1001",
+    )
+
         return None
 
 

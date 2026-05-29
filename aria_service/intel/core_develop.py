@@ -152,6 +152,14 @@ async def run(
         )
     except Exception:
         pass
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="core_develop",
+        summary="Run",
+        source_id="core_develop:R-F1001",
+    )
+
     return summary
 
 

@@ -1,0 +1,13 @@
+{
+  "model_name": "mistralai/Mistral-7B-Instruct-v0.3",
+  "method": "qlora",
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "learning_rate": 0.0002,
+  "batch_size": 4,
+  "num_epochs": 3,
+  "max_seq_length": 2048,
+  "output_dir": "C:\\code\\crucix\\data\\training\\checkpoints",
+  "dataset_format": "instruction_response"
+}

@@ -42,6 +42,14 @@ _USER_AGENTS = [
 
 def random_ua() -> str:
     """Return a random User-Agent string from the pool."""
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="ua_rotation",
+        summary="Random Ua",
+        source_id="ua_rotation:R-F1001",
+    )
+
     return random.choice(_USER_AGENTS)
 
 

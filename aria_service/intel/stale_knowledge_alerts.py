@@ -209,6 +209,14 @@ _STALE_EVENTS: list[dict] = [
 def is_enabled() -> bool:
     """Feature flag — default ON. Set ARIA_STALE_KNOWLEDGE_ALERTS=0 to disable."""
     val = os.getenv("ARIA_STALE_KNOWLEDGE_ALERTS", "1") or "1"
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="stale_knowledge_alerts",
+        summary="Is Enabled",
+        source_id="stale_knowledge_alerts:R-F1001",
+    )
+
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 

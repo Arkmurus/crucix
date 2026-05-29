@@ -380,4 +380,12 @@ async def verify(
         except Exception:
             pass
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="ground_truth_guard",
+        summary="Verify",
+        source_id="ground_truth_guard:R-F1001",
+    )
+
     return out

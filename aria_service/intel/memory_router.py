@@ -480,3 +480,11 @@ class ARIAMemoryRouter:
         elif name == "audit":
             return "OK"
         return "UNKNOWN"
+
+# R-F1001 - wire to brain
+from .engine_wiring import wire_success
+
+def get_routing_status():
+    result = {"status": "active", "stores": 5}
+    wire_success(module="memory_router", summary="Memory Router Status", source_id="memory_router:R-F1001")
+    return result

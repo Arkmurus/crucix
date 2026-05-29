@@ -98,6 +98,14 @@ NEVER FABRICATE SOURCES, DATES, OR NAMES TO SATISFY A FORMAT REQUIREMENT. If a s
 def is_enabled() -> bool:
     """Feature flag — default ON. Set ARIA_ANALYTIC_PRINCIPLES=0 to disable."""
     val = os.getenv("ARIA_ANALYTIC_PRINCIPLES", "1") or "1"
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="analytic_principles",
+        summary="Is Enabled",
+        source_id="analytic_principles:R-F1001",
+    )
+
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 

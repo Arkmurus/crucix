@@ -157,6 +157,14 @@ def derive() -> dict:
         "sanctions_sources": {"count": len(sanctions_sources), "items": sanctions_sources},
     }
     manifest["content_hash"] = _hash_manifest(manifest)
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="capability_manifest",
+        summary="Derive",
+        source_id="capability_manifest:R-F1001",
+    )
+
     return manifest
 
 

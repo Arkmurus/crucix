@@ -263,6 +263,14 @@ def list_recent_wedges(limit: int = 50) -> dict[str, Any]:
             e["mtime"], tz=timezone.utc,
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="wedge_introspect",
+        summary="List Recent Wedges",
+        source_id="wedge_introspect:R-F1001",
+    )
+
     return {
         "wedge_dir": wedge_dir,
         "total_files": total,

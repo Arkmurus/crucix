@@ -99,6 +99,14 @@ def reserve(
         data["next_available"] = n + 1
         _save_atomic(data, path)
         logger.info("r_number_reserved: %s by=%s title=%s", r_num, agent, title)
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="r_number_registry",
+        summary="Reserve",
+        source_id="r_number_registry:R-F1001",
+    )
+
         return r_num
 
 

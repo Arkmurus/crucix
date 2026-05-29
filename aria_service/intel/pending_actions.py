@@ -219,6 +219,14 @@ async def record(
     except Exception:
         pass
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="pending_actions",
+        summary="Record",
+        source_id="pending_actions:R-F1001",
+    )
+
     return entry
 
 

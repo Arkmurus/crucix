@@ -399,6 +399,14 @@ async def get_judgment(jid: str) -> dict | None:
         return await rs.get_json(f"{JUDGMENT_KEY_PREFIX}{jid}")
     except Exception:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="honesty_judge",
+        summary="Get Judgment",
+        source_id="honesty_judge:R-F1001",
+    )
+
         return None
 
 

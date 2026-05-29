@@ -142,6 +142,14 @@ def lookup_by_canonical_id(canonical_entity_id: str) -> list[dict]:
     except Exception as e:
         logger.debug("dd_case_archive.lookup_by_canonical_id failed: %s", e)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="dd_case_archive",
+        summary="Lookup By Canonical Id",
+        source_id="dd_case_archive:R-F1001",
+    )
+
         return []
 
 

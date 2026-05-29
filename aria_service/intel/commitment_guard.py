@@ -152,6 +152,14 @@ def guard_commitments(response_text: str) -> dict:
             len(violations),
         )
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="commitment_guard",
+        summary="Guard Commitments",
+        source_id="commitment_guard:R-F1001",
+    )
+
     return {
         "original": response_text,
         "guarded": guarded,

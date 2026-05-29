@@ -573,6 +573,14 @@ def lookup(prime: str, product: str = "") -> dict[str, Any]:
         matched = [name for name in families if _product_matches(product, name)]
         if not matched:
             matched = sorted(families.keys())   # fall back to "all"
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="prime_sub_map",
+        summary="Lookup",
+        source_id="prime_sub_map:R-F1001",
+    )
+
     return {
         "ok": True,
         "prime_key": key,

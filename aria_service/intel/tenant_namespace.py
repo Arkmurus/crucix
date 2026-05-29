@@ -126,6 +126,14 @@ def visibility_for_request(user: dict[str, Any] | None) -> dict[str, Any]:
         # caller side; we don't refuse admin reads here.
         allowed.update(ALL_VISIBILITY_CLASSES)
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="tenant_namespace",
+        summary="Visibility For Request",
+        source_id="tenant_namespace:R-F1001",
+    )
+
     return {
         "tenant_id":         tenant_id,
         "sector":             sector,

@@ -362,6 +362,14 @@ def classify(query: str) -> QueryIntent:
     except Exception:
         pass
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="query_decomposer",
+        summary="Classify",
+        source_id="query_decomposer:R-F1001",
+    )
+
     return result
 
 

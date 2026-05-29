@@ -208,6 +208,14 @@ def is_safe_url(url: str) -> tuple[bool, str]:
         if blocked:
             return (False, f"{reason}:{ip}")
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="url_safety",
+        summary="Is Safe Url",
+        source_id="url_safety:R-F1001",
+    )
+
     return (True, "")
 
 

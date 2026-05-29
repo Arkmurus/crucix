@@ -144,6 +144,14 @@ async def verify_chain(limit: int = 1000) -> dict:
         return {"ok": True, "checked": checked, "broken_at": None}
     except Exception as e:
 
+    # R-F1001 - wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="compliance_watch",
+        summary="Verify Chain",
+        source_id="compliance_watch:R-F1001",
+    )
+
         return {"ok": False, "checked": 0, "error": str(e)[:200]}
 
 
