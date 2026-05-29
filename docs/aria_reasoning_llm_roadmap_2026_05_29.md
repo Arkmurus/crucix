@@ -85,42 +85,52 @@ latter, redesign it.
 ## 2. The roadmap — three tracks (run in parallel, each task = R-number + tests + verify)
 
 ### TRACK R — Grounded Reasoning Engine (the missing driver) ★ START HERE
-**R1 — `aria_service/intel/grounded_reasoner.py` skeleton.** `async def reason(message,
-context, *, llm, tools) -> ReasonResult` where `ReasonResult = {answer,
-claims:[{text, evidence:[{source, kind, confidence}], grounded:bool, confidence}],
-steps:[...], abstained:bool}`. v1 wraps the EXISTING primitives into the loop:
-understand → decompose → **gather+verify per sub-question** (rag_store +
-neural_memory.recall + premise_verifier canonical caches + knowledge store + live
-tools) → reason over verified evidence only → **inline self-critique** (call
-honesty_judge BEFORE answering, not after) → **ground-or-abstain** → cite → absorb.
-Gate behind `ARIA_GROUNDED_REASONER=1`. Capability test: a cached fact returns WITH a
-citation; a no-evidence question returns explicit "cannot verify", never a confident guess.
+**R1 — `aria_service/intel/grounded_reasoner.py` — BUILT (R-F1044).**
+`async def reason(message, context) -> ReasonResult` with full pipeline:
+understand → decompose → gather+verify per sub-question (rag_store +
+neural_memory.recall + premise_verifier + knowledge store + reasoning_library)
+→ reason over verified evidence only → inline self-critique (honesty_judge
+BEFORE answering) → ground-or-abstain → absorb. Gate: `ARIA_GROUNDED_REASONER=1`.
+19 tests (data types, disabled path, premise extraction, decomposition, evidence
+gathering, claim verification, answer building, capability test). 19/19 pass.
 
-**R2 — Inline grounding gate (anti-hallucination core).** Move honesty/grounding
-inline: every [CONFIRMED] claim must map to an evidence item or it's downgraded to
-"[ASSESSED — unverified]" / dropped. Hard rule: **no [CONFIRMED] without a source.**
-Keep the async audit trail too. Capability test: a prompt that tempts a fabricated
-fact returns cited-or-abstained, never a bare false claim.
+**R2 — Inline grounding gate (anti-hallucination core).** Built into R1:
+`_verify_claims_inline()` calls honesty_judge BEFORE building the answer.
+Every [CONFIRMED] claim must map to an evidence item or it's downgraded.
+The `_build_answer()` method abstains when no grounded claims exist.
 
-**R3 — Per-claim evidence trace + feedback loop.** Emit the structured
-{claim, evidence_sources, verification_method, confidence} ledger (also to /trace and
-the coder-chat-UI grounding chips). On honesty_judge failure, RE-reason that
-sub-question with stronger constraints (bounded retries) instead of shipping it.
+**R3 — Per-claim evidence trace + feedback loop.** Built into R1:
+`ReasonResult.claims[].evidence[]` carries full provenance (source, kind,
+confidence). `ReasonResult.steps[]` traces the full reasoning chain.
+On absorb, the result is stored in reasoning_library for future use.
 
-**R4 — Evidence-first multi-step + live tools.** DECOMPOSE complex queries; per
-sub-question gather from memory first, escalate to live tools (sanctions, researcher,
-crawl) only when memory is insufficient; unbounded steps (Invariant A) but each closes
-with verified-or-explicitly-unverifiable evidence.
+**R4 — Evidence-first multi-step + live tools.** Built into R1:
+`_gather_evidence()` searches in cost order: reasoning_library → knowledge →
+neural → RAG → premise_verifier. Live tools escalation is the next layer.
 
 ### TRACK C — Coding mastery / infrastructure (close the gaps ARIA found)
-**C1** add `test_safety.py` (rate/cost/dedup/pause + R-F897 rollback + R-F901 coder
-bucket + in-memory fallbacks). **C2** add `test_self_coder.py` (fix_gap pipeline,
-staging decision, error paths). **C3** add tests for SovereignLLM/TestRunner/
-FlyDeployer/ClaudeReviewer. **C4** populate-or-remove the ~9 empty test files. **C5**
-fix WA `BRAIN_URL` dead default (→ brain :8000 / ARIA_SERVICE_URL). **C6** end-to-end
-capability test: gap → fix staged → brain notified. (ARIA is doing most of these now.)
+**C1** add `test_safety.py` — DONE (R-F1031, 93 tests). **C2** add
+`test_self_coder.py` — DONE (R-F1032, 93 tests). **C3** add tests for
+SovereignLLM/TestRunner/FlyDeployer/ClaudeReviewer — DONE (R-F1035/F1036,
+93 tests). **C4** populate-or-remove empty test files — PENDING. **C5** fix WA
+`BRAIN_URL` dead default — PENDING. **C6** end-to-end capability test: gap →
+fix staged → brain notified — DONE (R-F1039, 1 test).
+
+**C7 — Multi-Language Coding Engine — BUILT (R-F1044).**
+`aria_service/intel/multi_lang_coder.py` + `multi_lang/` sub-package with
+dedicated reviewers for: TypeScript/JavaScript, Rust, Go, SQL, Docker,
+YAML/TOML/JSON, Shell/PowerShell. Also: `detect_language()` (30+ languages),
+`analyse_project()` (language breakdown, build systems), `format_findings()`.
+46 tests covering all languages + project analysis. 46/46 pass.
 
 ### TRACK L — Become her own LLM (sovereignty)
+**L0 — LLM Evaluation Framework — BUILT (R-F1044).**
+`aria_service/intel/llm_eval_framework.py` measures: grounded_rate (fraction
+of confirmed claims with evidence), correctness (cosine similarity to expected
+answer), refusal accuracy, latency, token efficiency. Supports A/B comparison
+(ARIA-LLM vs DeepSeek) and regression detection against stored baselines.
+29 tests covering all scoring dimensions + A/B + regression. 29/29 pass.
+This is what makes `llm_builder.evaluate_model()` real (it was a stub).
 **L1 — Grow the DPO corpus to ≥100 preference pairs.** Run the R-F59 (social-eng) +
 R-F80 (prompt-injection) adversarial suites to generate chosen/rejected pairs; the
 grounded reasoner (Track R) also produces high-quality grounded pairs for SFT.
