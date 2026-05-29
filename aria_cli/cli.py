@@ -12,6 +12,7 @@ import argparse
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 from . import __version__
@@ -99,6 +100,10 @@ class TerminalUI(AgentUI):
         self._spin_thread: threading.Thread | None = None
         self._stream_active = False        # currently streaming an assistant msg
         self._streamed_this_turn = False   # did this LLM response stream content?
+        self._spin_label = "thinking"
+        self._spin_start = 0.0
+        self._last_output = ""             # latest live tool-output line (shown in spinner)
+        self._last_static = 0.0            # throttle for non-tty heartbeat prints
 
     def assistant(self, text: str) -> None:
         print("\n" + self.c.cyan("aria") + "  " + text)
@@ -135,24 +140,35 @@ class TerminalUI(AgentUI):
     def info(self, text: str) -> None:
         print(self.c.dim("  " + text))
 
-    # ── live "thinking" spinner ─────────────────────────────────────────────
-    def thinking_start(self) -> None:
+    # ── always-on activity indicator (ticks during LLM calls AND tools) ──────
+    def thinking_start(self, label: str = "thinking") -> None:
         self._streamed_this_turn = False  # reset per LLM response
-        if not self._can_animate or self._spin_thread is not None:
+        if self._spin_thread is not None:
             return
-        self._spin_stop = threading.Event()
-        self._spin_thread = threading.Thread(target=self._spin, daemon=True)
-        self._spin_thread.start()
+        self._spin_label = label
+        self._spin_start = time.monotonic()
+        self._last_output = ""
+        if self._can_animate:
+            self._spin_stop = threading.Event()
+            self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+            self._spin_thread.start()
+        else:
+            # No TTY animation — emit a one-time visible signal so it's never blank.
+            self._last_static = time.monotonic()
+            print(self.c.dim(f"  * {label}..."), flush=True)
 
     def _spin(self) -> None:
-        frames = "-\\|/"
+        frames = "|/-\\"
         i = 0
         while self._spin_stop is not None and not self._spin_stop.is_set():
-            sys.stdout.write("\r  " + self.c.dim(f"{frames[i % 4]} thinking..."))
+            elapsed = int(time.monotonic() - self._spin_start)
+            tail = f"  {self._last_output[:54]}" if self._last_output else ""
+            line = f"  {frames[i % 4]} {self._spin_label} ({elapsed}s){tail}"
+            sys.stdout.write("\r\033[K" + self.c.dim(line[:110]))
             sys.stdout.flush()
             i += 1
-            self._spin_stop.wait(0.12)
-        sys.stdout.write("\r" + " " * 24 + "\r")
+            self._spin_stop.wait(0.2)
+        sys.stdout.write("\r\033[K")  # clear the line
         sys.stdout.flush()
 
     def thinking_stop(self) -> None:
@@ -161,6 +177,18 @@ class TerminalUI(AgentUI):
             self._spin_thread.join(timeout=1.0)
             self._spin_thread = None
             self._spin_stop = None
+
+    def tool_output(self, line: str) -> None:
+        """Live output line from a running command — feeds the spinner status, and
+        on non-TTY prints a throttled heartbeat so long commands are never silent."""
+        if not line:
+            return
+        self._last_output = line
+        if not self._can_animate:
+            now = time.monotonic()
+            if now - self._last_static >= 2.0:  # heartbeat at most every 2s
+                self._last_static = now
+                print(self.c.dim(f"    | {line[:80]}"), flush=True)
 
     def approve(self, name: str, args: dict) -> bool:
         if self.auto_approve or self.approve_all:
@@ -250,6 +278,7 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
         root=cwd, self_mode=self_mode, constitution_active=guard.constitution_active,
         repo_root=repo_root)
     ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color)
+    toolbox.on_output = ui.tool_output  # R-F1030: stream live command output to the UI
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,
                   auto_approve=args.auto)
 

@@ -41,8 +41,9 @@ class AgentUI:
     def tool_call(self, name: str, args: dict) -> None: ...
     def tool_result(self, name: str, result: ToolResult) -> None: ...
     def info(self, text: str) -> None: ...
-    def thinking_start(self) -> None: ...   # model call begins (show activity)
-    def thinking_stop(self) -> None: ...    # model call returned
+    def thinking_start(self, label: str = "thinking") -> None: ...  # blocking op begins
+    def thinking_stop(self) -> None: ...    # blocking op returned
+    def tool_output(self, line: str) -> None: ...   # live line from a running command
     def stream_delta(self, text: str) -> None: ...  # a streamed content token
     def stream_end(self) -> None: ...               # streamed message complete
 
@@ -199,7 +200,13 @@ class Agent:
                         self._record_tool(tc, result)
                         continue
 
-                result = self._dispatch(name, args)
+                # Show a ticking activity indicator during tool execution too —
+                # a long `run` (pytest/build/deploy) must never look frozen.
+                self.ui.thinking_start(label=("running" if name == "run" else name))
+                try:
+                    result = self._dispatch(name, args)
+                finally:
+                    self.ui.thinking_stop()
                 self.ui.tool_result(name, result)
                 self._record_tool(tc, result)
 

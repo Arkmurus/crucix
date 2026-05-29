@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +50,9 @@ class Toolbox:
         # Base dir for the Claude<->ARIA mailbox (the repo root in self-mode);
         # None disables the bridge tools.
         self.bridge_base = bridge_base
+        # R-F1030: live-output callback — run() calls this for each output line so
+        # the UI can show progress during long commands (never silent).
+        self.on_output = None
 
     # ── path helpers ──────────────────────────────────────────────────────
     def _resolve(self, path: str) -> Path:
@@ -265,30 +271,73 @@ class Toolbox:
 
         try:
             proc = subprocess.Popen(
-                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, cwd=str(workdir), **popen_kwargs,
+                argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, cwd=str(workdir), **popen_kwargs,
             )
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"error running command: {exc}", is_error=True)
 
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-            returncode = proc.returncode
-        except subprocess.TimeoutExpired:
-            self._kill_tree(proc)
+        # R-F1030: drain output on a reader thread and stream each line to the UI
+        # live (on_output), so a long command (pytest, build, deploy) shows
+        # progress instead of a silent cursor. The main loop enforces the timeout
+        # and kills the whole tree if it's exceeded.
+        q: "queue.Queue" = queue.Queue()
+
+        def _reader():
             try:
-                stdout, stderr = proc.communicate(timeout=5)
+                for line in proc.stdout:  # type: ignore[union-attr]
+                    q.put(line)
             except Exception:  # noqa: BLE001
-                stdout, stderr = "", ""
-            tail = (stdout or "") + (("\n[stderr]\n" + stderr) if stderr else "")
-            tail = ("\n" + tail.strip()[-2000:]) if tail.strip() else ""
+                pass
+            finally:
+                q.put(None)
+
+        threading.Thread(target=_reader, daemon=True).start()
+
+        captured: list[str] = []
+        total = 0
+        truncated = False
+        deadline = time.monotonic() + timeout
+        timed_out = False
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                line = q.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue  # lets us re-check the deadline (and keeps the UI ticking)
+            if line is None:
+                break  # process output closed → command finished
+            if total < _MAX_OUTPUT_CHARS:
+                captured.append(line)
+                total += len(line)
+            else:
+                truncated = True
+            if self.on_output is not None:
+                try:
+                    self.on_output(line.rstrip("\n"))
+                except Exception:  # noqa: BLE001 — UI must never break the run
+                    pass
+
+        if timed_out:
+            self._kill_tree(proc)
+            out = "".join(captured).strip()
+            tail = ("\n" + out[-2000:]) if out else ""
             return ToolResult(
                 f"error: command timed out after {timeout}s (process tree killed){tail}",
                 is_error=True, mutation=f"ran (timeout): {command[:80]}")
 
-        out = ((stdout or "") + (("\n[stderr]\n" + stderr) if stderr else "")).strip()
-        if len(out) > _MAX_OUTPUT_CHARS:
-            out = out[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(out)} chars total)"
+        try:
+            proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            self._kill_tree(proc)
+        returncode = proc.returncode if proc.returncode is not None else -1
+
+        out = "".join(captured).strip()
+        if truncated or len(out) > _MAX_OUTPUT_CHARS:
+            out = out[:_MAX_OUTPUT_CHARS] + "\n... (truncated)"
         header = f"exit code: {returncode}"
         return ToolResult(f"{header}\n{out}" if out else header,
                           is_error=returncode != 0,

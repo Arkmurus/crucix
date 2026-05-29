@@ -38,3 +38,19 @@ def test_run_nonzero_exit_is_error(tmp_path):
     box = _box(tmp_path)
     r = box.run('python -c "import sys; sys.exit(3)"')
     assert r.is_error and "exit code: 3" in r.output
+
+
+def test_run_streams_output_live(tmp_path):
+    """R-F1030 — run() emits each output line via on_output as it is produced,
+    so the UI shows progress during long commands (never silent)."""
+    box = _box(tmp_path)
+    seen: list[str] = []
+    box.on_output = lambda ln: seen.append(ln)
+    if sys.platform == "win32":
+        cmd = "Write-Output line-a; Write-Output line-b; Write-Output line-c"
+    else:
+        cmd = "printf 'line-a\\nline-b\\nline-c\\n'"
+    r = box.run(cmd, timeout=30)
+    assert "exit code: 0" in r.output
+    assert "line-a" in seen and "line-c" in seen, f"output not streamed live: {seen}"
+    assert "line-a" in r.output and "line-c" in r.output  # also captured for the model
