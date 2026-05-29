@@ -389,7 +389,7 @@ def _article_hash(url: str) -> str:
 async def _is_seen(url: str) -> bool:
     """Check if URL has been processed before."""
     h = _article_hash(url)
-    # R-F1068: rs.sismember doesn't exist — use hgetall on a hash key
+    # R-F1068: rs.sismember doesn't exist — use get_json on a JSON key
     seen_data = await rs.get_json(_SEEN_URLS_KEY)
     if isinstance(seen_data, dict):
         return h in seen_data

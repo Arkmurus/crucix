@@ -545,10 +545,18 @@ class AutoRecoveryEngine:
             return {"success": True, "message": f"Connection reset for {action.target}"}
 
         elif action.action == RecoveryActionType.CLEAR_CACHE:
-            # Clear cache for the subsystem
+            # Clear cache for the subsystem — scan for matching keys then delete each
             try:
-                await rs.delete(f"crucix:{action.target}:*")
-                return {"success": True, "message": f"Cache cleared for {action.target}"}
+                pattern = f"crucix:{action.target}:*"
+                keys = await rs.scan_keys(pattern)
+                deleted = 0
+                for k in keys:
+                    try:
+                        await rs.delete(k)
+                        deleted += 1
+                    except Exception:
+                        pass
+                return {"success": True, "message": f"Cache cleared for {action.target}: {deleted} keys deleted"}
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
