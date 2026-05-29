@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1002,
+  "next_available": 1003,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4529,9 +4529,18 @@
       "claimed_at": "2026-05-29T00:11:31Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "e5bb8a4",
+      "commit_sha": "e85a410",
       "notes": null,
-      "shipped_at": "2026-05-29T00:16:57Z"
+      "shipped_at": "2026-05-29T00:20:35Z"
+    },
+    {
+      "r_number": "R-F1002",
+      "title": "ARIA multi-user OS: task visibility, concurrent processing, team collaboration",
+      "claimed_at": "2026-05-29T00:33:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
