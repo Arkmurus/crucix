@@ -88,6 +88,13 @@ def _env_int(name: str, default: int) -> int:
 LLM_MAX_ATTEMPTS = max(1, _env_int("ARIA_CODER_LLM_RETRIES", 4))
 AUTO_RESUME_MAX = max(0, _env_int("ARIA_CODER_AUTO_RESUME", 4))
 
+# Loop guard: the step cap is effectively unlimited (R-F992), so a model that
+# repeats the SAME tool call with identical args would run nearly forever (the
+# grep('safety') x200 incident). Nudge after this many identical calls, abort after
+# the hard cap. R-F1042.
+LOOP_NUDGE_AT = max(2, _env_int("ARIA_CODER_LOOP_NUDGE", 3))
+LOOP_ABORT_AT = max(LOOP_NUDGE_AT + 1, _env_int("ARIA_CODER_LOOP_ABORT", 8))
+
 
 class Agent:
     def __init__(self, *, llm: LLMClient, toolbox: Toolbox, system_prompt: str,
@@ -149,6 +156,7 @@ class Agent:
     def run_turn(self, user_text: str) -> TurnResult:
         self.messages.append({"role": "user", "content": user_text})
         steps = 0
+        sig_counts: dict[str, int] = {}  # R-F1042 loop guard (per turn)
         while steps < MAX_STEPS:
             # Show "thinking" while we wait on the first token, then stream the
             # answer live so the UI is never silent.
@@ -184,6 +192,31 @@ class Agent:
                     result = ToolResult(
                         f"error: could not parse arguments as JSON: {raw_args[:200]}",
                         is_error=True)
+                    self._record_tool(tc, result)
+                    continue
+
+                # R-F1042 loop guard: a model repeating the SAME tool call with
+                # identical args (the grep('safety') x200 incident) would run nearly
+                # forever now that the step cap is effectively unlimited. Nudge, then
+                # abort, so a degenerate loop self-breaks instead of burning the run.
+                sig = f"{name}|{raw_args}"
+                sig_counts[sig] = sig_counts.get(sig, 0) + 1
+                rep = sig_counts[sig]
+                if rep >= LOOP_ABORT_AT:
+                    msg = (f"Stopped: tool '{name}' was called {rep}x with identical "
+                           f"arguments — a loop. The result will not change; redirect "
+                           f"needed (different tool/args, or answer with what you have).")
+                    self.ui.info(f"[loop-guard] {msg}")
+                    return TurnResult(final_text=msg, steps=steps, aborted=True,
+                                      resumable=False)
+                if rep >= LOOP_NUDGE_AT:
+                    self.ui.tool_call(name, args)
+                    result = ToolResult(
+                        f"LOOP GUARD: you have already called {name} with these exact "
+                        f"arguments {rep} times and the result is unchanged. Do NOT call "
+                        f"it again — use different arguments or a different tool, or "
+                        f"proceed with what you already have.", is_error=True)
+                    self.ui.tool_result(name, result)
                     self._record_tool(tc, result)
                     continue
 

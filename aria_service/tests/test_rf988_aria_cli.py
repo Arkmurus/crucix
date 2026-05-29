@@ -610,3 +610,25 @@ def test_agent_handles_bad_tool_arguments(tmp_path):
     assert "Recovered" in result.final_text
     assert any("could not parse arguments" in m.get("content", "")
                for m in agent.messages if m.get("role") == "tool")
+
+
+def test_loop_guard_breaks_repeated_identical_tool_calls(tmp_path):
+    """R-F1042 — a model that repeats the SAME tool call with identical args must
+    not loop forever; the guard nudges then aborts the turn (non-resumable)."""
+    import aria_cli.agent as ag
+    box = _general_box(tmp_path)
+
+    class _LoopLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+        def chat(self, messages, tools=None):
+            return _assistant(tool_calls=[_tool_call("c", "grep", '{"pattern": "safety"}')])
+        def close(self): pass
+
+    agent = Agent(llm=_LoopLLM(), toolbox=box, system_prompt="s",
+                  ui=_CollectUI(), auto_approve=True)
+    result = agent.run_turn("loop please")
+    assert result.aborted and not result.resumable
+    assert "loop" in result.final_text.lower()
+    # aborted at the hard cap, not after thousands of calls
+    assert result.steps <= ag.LOOP_ABORT_AT + 1
