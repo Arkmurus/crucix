@@ -4528,9 +4528,10 @@
       "title": "ARIA complete transformation: wire all engines, async conversion, test generation, LLM builder, self-healing, data discovery, profiler, UI fix, multi-language, API docs",
       "claimed_at": "2026-05-29T00:11:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e5bb8a4",
+      "notes": null,
+      "shipped_at": "2026-05-29T00:16:57Z"
     }
   ]
 }

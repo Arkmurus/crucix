@@ -111,14 +111,8 @@ async def get_status(response_hash: str) -> dict | None:
         entry = await rs.get_json(_KEY_PREFIX + response_hash)
         return entry if isinstance(entry, dict) else None
     except Exception:
+        pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="verification_accumulator",
-        summary="Get Status",
-        source_id="verification_accumulator:R-F1001",
-    )
 
         return None
 
@@ -234,6 +228,7 @@ async def stats() -> dict:
                 pending += 1
         state = await rs.get_json(_STATE_KEY) or {}
     except Exception:
+        pass
         pending = upgraded = 0
         state = {}
     return {
@@ -248,4 +243,5 @@ async def _persist_state(diag: dict) -> None:
         from . import redis_store as rs
         await rs.set_json(_STATE_KEY, diag, ex=_QUEUE_TTL_S)
     except Exception:
+        pass
         pass

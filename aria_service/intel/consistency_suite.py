@@ -426,6 +426,7 @@ async def run_all(llm, limit: int | None = None) -> dict:
                 )
     except Exception:
         pass
+        pass
 
     # Feed the brain — success=overall >= 0.65 globally, topic attribution
     # per domain so weak domains downgrade their mastery automatically.
@@ -462,6 +463,7 @@ def _safe_json(obj: Any) -> str:
         s = json.dumps(obj, default=str)
         return s[:200_000]
     except Exception:
+        pass
         return "{}"
 
 
@@ -472,14 +474,8 @@ async def get_latest_scores() -> dict | None:
     try:
         return await rs.get_json(_KEY_LATEST)
     except Exception:
+        pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="consistency_suite",
-        summary="Get Latest Scores",
-        source_id="consistency_suite:R-F1001",
-    )
 
         return None
 

@@ -237,13 +237,6 @@ async def open_question(
         return qid
     except Exception as exc:
         logger.warning("open_question: insert failed: %s", exc)
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="dialogue_state",
-        summary="Open Question",
-        source_id="dialogue_state:R-F1001",
-    )
 
         return None
 

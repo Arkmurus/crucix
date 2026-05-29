@@ -61,6 +61,7 @@ async def _head_hash() -> str:
             return (json.loads(head[0]) or {}).get("hash") or _GENESIS
     except Exception:
         pass
+        pass
     return _GENESIS
 
 
@@ -105,6 +106,7 @@ async def get_captured(*, since_epoch: Optional[float] = None,
             try:
                 rec = json.loads(raw)
             except Exception:
+                pass
                 continue
             if since_epoch is not None and float(rec.get("captured_at") or 0) < since_epoch:
                 continue
@@ -130,6 +132,7 @@ async def verify_chain(limit: int = 1000) -> dict:
             try:
                 rec = json.loads(raw)
             except Exception:
+                pass
                 return {"ok": False, "checked": checked, "broken_at": "unparseable_record"}
             if _hash(rec.get("prev_hash", ""), rec) != rec.get("hash"):
                 return {"ok": False, "checked": checked, "broken_at": rec.get("seq")}
@@ -139,18 +142,12 @@ async def verify_chain(limit: int = 1000) -> dict:
                     if rec.get("prev_hash") != older.get("hash"):
                         return {"ok": False, "checked": checked, "broken_at": rec.get("seq")}
                 except Exception:
+                    pass
                     return {"ok": False, "checked": checked, "broken_at": "unparseable_link"}
             checked += 1
         return {"ok": True, "checked": checked, "broken_at": None}
     except Exception as e:
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="compliance_watch",
-        summary="Verify Chain",
-        source_id="compliance_watch:R-F1001",
-    )
 
         return {"ok": False, "checked": 0, "error": str(e)[:200]}
 
@@ -161,6 +158,7 @@ async def stats() -> dict:
         from . import redis_store as rs
         return {"total_captured": await rs.llen(_LOG_KEY)}
     except Exception:
+        pass
         return {"total_captured": 0}
 
 
@@ -436,6 +434,7 @@ async def mark_analysed(seq: int) -> None:
             await rs.set(_LAST_ANALYSED_KEY, str(int(seq)))
     except Exception:
         pass
+        pass
 
 
 async def coverage_report() -> dict:
@@ -450,6 +449,7 @@ async def coverage_report() -> dict:
             try:
                 max_seq = int((json.loads(head[0]) or {}).get("seq") or 0)
             except Exception:
+                pass
                 max_seq = 0
         last = await rs.get(_LAST_ANALYSED_KEY)
         last_seq = int(last) if (last and str(last).isdigit()) else 0

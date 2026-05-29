@@ -69,6 +69,7 @@ async def run_calibration_review() -> dict:
             or report.get("overall_mastery", 0.5)
         )
     except Exception:
+        pass
         overall_mastery = 0.5
 
     # 2. Get honesty judge accuracy (ground truth)
@@ -78,6 +79,7 @@ async def run_calibration_review() -> dict:
         stats = await honesty_judge.get_honesty_stats()
         honesty_accuracy = stats.get("avg_honesty_score")
     except Exception:
+        pass
         pass
 
     # 3. Get adversarial score (ground truth for manipulation resistance)
@@ -108,6 +110,7 @@ async def run_calibration_review() -> dict:
             adversarial_accuracy = last.get("overall_score")
     except Exception:
         pass
+        pass
 
     # 4. Get mistake count (ground truth for error rate).
     # The denominator is REAL chat interactions (chat_audit_log entries),
@@ -129,6 +132,7 @@ async def run_calibration_review() -> dict:
         if total_interactions > 0:
             mistake_rate = total_mistakes / total_interactions
     except Exception:
+        pass
         pass
 
     # R-F169 (2026-05-11): pull eval_runner's most-recent pass_rate
@@ -162,6 +166,7 @@ async def run_calibration_review() -> dict:
                 elif isinstance(_pr, (int, float)) and 0.0 <= float(_pr) <= 1.0:
                     eval_pass_rate = float(_pr)
     except Exception:
+        pass
         pass
 
     # 5. Compute calibration deltas
@@ -230,6 +235,7 @@ async def run_calibration_review() -> dict:
         from . import redis_store as rs
         await rs.set_json(_K_REVIEW, review, ex=30 * 86400)
     except Exception:
+        pass
         pass
 
     # Signal brain if calibration is off
@@ -411,6 +417,7 @@ async def save_baseline() -> dict:
         await rs.set_json(_K_BASELINE, baseline, ex=365 * 86400)
     except Exception:
         pass
+        pass
     return review
 
 
@@ -420,13 +427,7 @@ async def get_baseline() -> dict | None:
         from . import redis_store as rs
         return await rs.get_json(_K_BASELINE)
     except Exception:
+        pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="calibration_review",
-        summary="Get Baseline",
-        source_id="calibration_review:R-F1001",
-    )
 
         return None

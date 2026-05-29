@@ -178,6 +178,7 @@ def _parse_judge_response(text: str, claim_count: int) -> list[dict] | None:
     try:
         data = json.loads(blob)
     except Exception:
+        pass
         return None
     verdicts = data.get("verdicts")
     if not isinstance(verdicts, list):
@@ -241,6 +242,7 @@ async def judge_response(llm: Any, response_text: str, tool_context: str) -> dic
         from . import cost_tracker
         token = cost_tracker.set_feature("honesty_judge")
     except Exception:
+        pass
         token = None
 
     try:
@@ -392,20 +394,15 @@ def _wire_honesty_judge_success(score, judgment):
         _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
     except Exception:
         pass
+        pass
 
 
 async def get_judgment(jid: str) -> dict | None:
     try:
         return await rs.get_json(f"{JUDGMENT_KEY_PREFIX}{jid}")
     except Exception:
+        pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="honesty_judge",
-        summary="Get Judgment",
-        source_id="honesty_judge:R-F1001",
-    )
 
         return None
 
@@ -428,6 +425,7 @@ async def list_judgments(
             ]
         return index[: max(1, min(limit, 500))]
     except Exception:
+        pass
         return []
 
 

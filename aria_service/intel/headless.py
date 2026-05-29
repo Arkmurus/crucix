@@ -124,13 +124,14 @@ async def fetch_rendered_html(
     # spawn Lightpanda on the same port; only one wins.
     async with _get_render_lock():
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="headless",
-        summary="Fetch Rendered Html",
-        source_id="headless:R-F1001",
-    )
+
+        # R-F1001 - wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="headless",
+            summary="Fetch Rendered Html",
+            source_id="headless:R-F1001",
+        )
 
         return await _fetch_rendered_html_locked(url, timeout)
 

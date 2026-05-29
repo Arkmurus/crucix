@@ -773,13 +773,6 @@ Respond with JSON:
 
     def _get_clause(self, clause_id: str) -> Optional[ConstitutionClause]:
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="ground_truth_loop",
-        summary="Get Prediction Class",
-        source_id="ground_truth_loop:R-F1001",
-    )
 
         return next(
             (c for c in self._load_clauses() if c.clause_id == clause_id),

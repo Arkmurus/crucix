@@ -87,13 +87,6 @@ def detect_self_capability_question(message: str) -> bool:
     except Exception:
         pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="self_introspect_guard",
-        summary="Detect Self Capability Question",
-        source_id="self_introspect_guard:R-F1001",
-    )
 
         return False
 

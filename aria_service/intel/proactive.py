@@ -182,13 +182,14 @@ async def detect_knowledge_gaps(question: str) -> None:
         topics = student.detect_topics(question)
         if not topics or topics == ["general"]:
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="proactive",
-        summary="Detect Knowledge Gaps",
-        source_id="proactive:R-F1001",
-    )
+
+            # R-F1001 - wire to brain
+            from .engine_wiring import wire_success
+            wire_success(
+                module="proactive",
+                summary="Detect Knowledge Gaps",
+                source_id="proactive:R-F1001",
+            )
 
             return
 

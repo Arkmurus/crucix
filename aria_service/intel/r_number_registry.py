@@ -107,7 +107,7 @@ def reserve(
         source_id="r_number_registry:R-F1001",
     )
 
-        return r_num
+    return r_num
 
 
 def mark_shipped(

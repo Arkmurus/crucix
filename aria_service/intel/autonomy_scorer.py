@@ -259,6 +259,7 @@ async def compute_composite() -> dict:
         await rs.set_json(_K_HISTORY, history[:720], ex=30 * 86400)  # 30 days hourly
     except Exception:
         pass
+        pass
 
     return result
 
@@ -269,14 +270,8 @@ async def get_latest() -> dict | None:
         from . import redis_store as rs
         return await rs.get_json(_K_COMPOSITE)
     except Exception:
+        pass
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="autonomy_scorer",
-        summary="Get Latest",
-        source_id="autonomy_scorer:R-F1001",
-    )
 
         return None
 
@@ -288,6 +283,7 @@ async def get_history(limit: int = 168) -> list[dict]:
         history = await rs.get_json(_K_HISTORY) or []
         return history[:limit]
     except Exception:
+        pass
         return []
 
 
@@ -305,6 +301,7 @@ async def save_baseline() -> dict:
         await rs.set_json(_K_BASELINE, baseline, ex=365 * 86400)
     except Exception:
         pass
+        pass
     return result
 
 
@@ -314,6 +311,7 @@ async def get_baseline() -> dict | None:
         from . import redis_store as rs
         return await rs.get_json(_K_BASELINE)
     except Exception:
+        pass
         return None
 
 

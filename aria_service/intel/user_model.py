@@ -388,13 +388,6 @@ async def get_user(user_id: str) -> Optional[dict[str, Any]]:
     except Exception as exc:
         logger.warning("get_user(%s): failed: %s", user_id, exc)
 
-    # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="user_model",
-        summary="Get User",
-        source_id="user_model:R-F1001",
-    )
 
         return None
 
