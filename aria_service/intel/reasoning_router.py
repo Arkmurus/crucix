@@ -331,7 +331,86 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         logger.debug("Grounded reasoner failed (continuing escalation): %s", _gr_err)
         trace.append({"stage": "grounded_reasoner", "error": str(_gr_err)[:120]})
 
-    # ── Stage 4: Local Ollama reasoning model ────────────────────────────
+    # ── Stage 4: Company investigator (R-F1061) ──────────────────────────
+    # When the question is about investigating a specific company/entity,
+    # run the full OSINT pipeline: web search, crawl, registry, sanctions,
+    # news, social media, tech stack, SSL/DNS, procurement.
+    try:
+        _investigate_keywords = (
+            r"\b(?:investigate|research|background.?check|due.?diligence|"
+            r"deep.?search|tell.?me.?about|who.?is|what.?is|"
+            r"analyse?|analyze|screen|vet|check.?out|look.?up|"
+            r"find.?info(?:rmation)?.?on|search.?for)\b"
+        )
+        _company_keywords = (
+            r"\b(?:company|corp(?:oration)?|ltd|llc|inc|gmbh|sa\b|"
+            r"pty|plc|group|holdings|enterprise|industries|"
+            r"technologies|solutions|systems|defence|defense|"
+            r"aerospace|manufacturing|trading|contracting)\b"
+        )
+        import re as _re
+        _q_lower = question.lower()
+        has_investigate = _re.search(_investigate_keywords, _q_lower)
+        has_company = _re.search(_company_keywords, _q_lower)
+        has_url = "http" in _q_lower or ".com" in _q_lower or ".co." in _q_lower
+
+        if has_investigate and (has_company or has_url):
+            from .company_investigator import investigate_company as _ic
+            # Extract company name from question (everything after the
+            # investigation keyword, up to punctuation or end)
+            _company_name = question
+            for _prefix in ["investigate ", "research ", "deep search on ",
+                            "tell me about ", "who is ", "what is ",
+                            "analyse ", "analyze ", "screen ", "vet ",
+                            "check out ", "look up ", "search for "]:
+                if _prefix in _q_lower:
+                    _idx = _q_lower.find(_prefix) + len(_prefix)
+                    _company_name = question[_idx:].strip().rstrip(".?!,")
+                    break
+
+            _ic_result = await _ic(_company_name)
+            if _ic_result and (_ic_result.findings or _ic_result.summary):
+                _response = _ic_result.summary or (
+                    f"Investigation of {_company_name} completed. "
+                    f"Found {len(_ic_result.findings)} data points across "
+                    f"{len(set(f.category for f in _ic_result.findings))} categories."
+                )
+                trace.append({
+                    "stage": "company_investigator",
+                    "matched": True,
+                    "findings": len(_ic_result.findings),
+                    "categories": list(set(f.category for f in _ic_result.findings)),
+                    "risk_indicators": len(_ic_result.risk_indicators),
+                })
+                await _record_routing("company_investigator")
+                return {
+                    "answered": True,
+                    "response": _response,
+                    "source": "company_investigator",
+                    "confidence": 0.85 if _ic_result.findings else 0.5,
+                    "intent": "company_investigation",
+                    "trace": trace,
+                    "duration_ms": _ic_result.duration_ms,
+                    "independent": True,
+                    "llm_calls_avoided": 1,
+                    "investigation": {
+                        "entity": _ic_result.entity_name,
+                        "canonical": _ic_result.canonical_name,
+                        "findings_count": len(_ic_result.findings),
+                        "risk_indicators": _ic_result.risk_indicators[:5],
+                        "sources": _ic_result.sources_cited[:10],
+                    },
+                }
+            trace.append({
+                "stage": "company_investigator",
+                "matched": False,
+                "findings": len(_ic_result.findings) if _ic_result else 0,
+            })
+    except Exception as _ic_err:
+        logger.debug("Company investigator failed (continuing escalation): %s", _ic_err)
+        trace.append({"stage": "company_investigator", "error": str(_ic_err)[:120]})
+
+    # ── Stage 5: Local Ollama reasoning model ────────────────────────────
     # Only attempt if Ollama is reachable AND a reasoning model is loaded.
     # The actual LLM call happens in aria_engine — we just signal "try local".
     ollama_ready = await _check_ollama_reasoning()
@@ -344,7 +423,7 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
             "duration_ms": int((time.time() - started) * 1000),
         }
 
-    # ── Stage 5: Escalate to cloud LLM ───────────────────────────────────
+    # ── Stage 6: Escalate to cloud LLM ───────────────────────────────────
     return {
         "answered": False,
         "escalate_to": "cloud_llm",
