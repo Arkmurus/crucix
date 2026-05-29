@@ -108,13 +108,13 @@ def test_legacy_redis_blob_migrates_to_disk_on_first_load(
         "version": 1,
     }
 
-    # Stub the redis_store.get_json call kn._load() makes on the
-    # disk-empty fallback path.
-    async def fake_get_json(key):
+    # Stub the redis_store.get call kn._load() makes on the
+    # disk-empty fallback path (line 574: rs.get(KEY)).
+    async def fake_get(key):
         assert key == kn.KEY
         return legacy_payload
 
-    monkeypatch.setattr(kn.rs, "get_json", fake_get_json)
+    monkeypatch.setattr(kn.rs, "get", fake_get)
 
     async def go():
         loaded = await kn._load()

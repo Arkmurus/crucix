@@ -175,6 +175,9 @@ def test_recorded_file_is_project_relative_path_F96():
             / "aria_service" / "intel" / "knowledge.py")
     )
     assert sample_resolved == "aria_service/intel/knowledge.py"
+    # Ensure MODIFIABLE_FILES is populated (R-F1032: dynamically populated at boot)
+    import asyncio as _aio
+    _aio.run(self_improve._ensure_modifiable_files())
     assert sample_resolved in self_improve.MODIFIABLE_FILES
 
 

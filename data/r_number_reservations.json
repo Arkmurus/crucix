@@ -5264,18 +5264,20 @@
       "title": "Fix CI guardrails - pre-commit hook, --check-all, ecosystem_audit",
       "claimed_at": "2026-05-29T23:07:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6dd18987",
+      "notes": null,
+      "shipped_at": "2026-05-29T23:14:03Z"
     },
     {
       "r_number": "R-F1076",
       "title": "Fix bd_strategy failure path dark + engagement.py dead module",
       "claimed_at": "2026-05-29T23:11:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6dd18987",
+      "notes": null,
+      "shipped_at": "2026-05-29T23:14:05Z"
     }
   ]
 }

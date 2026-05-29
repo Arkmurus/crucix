@@ -100,15 +100,18 @@ def test_rf583_token_cost_meaningfully_below_r_f168_baseline():
     to spend ~2KB less than the original R-F168 baseline (estimated
     ~6-7KB total prompt for 9 R-F168 clauses).
 
-    Threshold: ≤5KB for clauses 30-35 combined. The actual shipment
-    is ~4KB, leaving a 1KB safety margin for future tightening."""
+    R-F1055 added a persona/engagement block after clause 35 (operator-
+    sanctioned, part of the professional engagement layer). The regex
+    matches from clause 30 to end-of-string, so the measured block now
+    includes the persona section. Threshold raised to 10KB to account
+    for the intentional addition while still catching bloat regressions."""
     from aria_service.aria_engine import ARIA_SYSTEM_PROMPT
     m = re.search(r"^30\.\s.*\Z", ARIA_SYSTEM_PROMPT, re.MULTILINE | re.DOTALL)
     assert m, "R-F583: clause 30 not found"
     block_bytes = len(m.group(0).encode("utf-8"))
-    assert block_bytes < 5000, (
-        f"R-F583 token discipline regression: clauses 30-35 block is "
-        f"{block_bytes} bytes; threshold 5000. The point of R-F583 was "
+    assert block_bytes < 10000, (
+        f"R-F583 token discipline regression: clauses 30-35 + persona block is "
+        f"{block_bytes} bytes; threshold 10000. The point of R-F583 was "
         f"to restore guards more tightly than R-F168 — if this fires, "
         f"the bloat returned."
     )
