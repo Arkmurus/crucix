@@ -946,7 +946,9 @@ def test_self_improve_widened_whitelist_includes_autonomy_files():
     """The Core Self-Development Loop requires these three files in the
     self_improve whitelist — otherwise ARIA cannot exercise the
     auto-allowed rights from aria_autonomy_doctrine.md."""
-    from aria_service.intel.self_improve import MODIFIABLE_FILES
+    from aria_service.intel.self_improve import MODIFIABLE_FILES, _ensure_modifiable_files
+    import asyncio
+    asyncio.run(_ensure_modifiable_files())
     required = {
         "aria_service/intel/corpus_registry.yaml",
         "aria_service/autonomous/tasks.yaml",
