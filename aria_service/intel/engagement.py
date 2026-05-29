@@ -1,0 +1,302 @@
+"""R-F1055 — ARIA Professional Engagement Layer.
+
+Enhances ARIA's dialogue quality, engagement, and professional presence.
+Provides structured response templates for different interaction types,
+ensuring ARIA communicates with the appropriate tone, depth, and structure
+for every situation.
+
+Key capabilities:
+1. Response structuring — executive summaries, detailed analysis, quick answers
+2. Tone calibration — professional, urgent, educational, strategic
+3. Engagement quality — proactive insights, follow-up questions, context awareness
+4. Confidence communication — clear uncertainty communication without hedging
+5. Next-step guidance — always provide actionable next steps
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+logger = logging.getLogger("aria.engagement")
+
+
+# ── Response templates ────────────────────────────────────────────────────────
+
+def executive_summary(
+    title: str,
+    assessment: str,
+    confidence: str,
+    key_findings: list[str],
+    recommendation: str,
+    next_steps: Optional[list[str]] = None,
+) -> str:
+    """Generate a professional executive summary response.
+    
+    Use for: DD results, market intelligence, strategic recommendations.
+    """
+    lines = [
+        f"## {title}",
+        "",
+        f"**Assessment:** {assessment}",
+        f"**Confidence:** {confidence}",
+        "",
+        "**Key Findings:**",
+    ]
+    for f in key_findings:
+        lines.append(f"  • {f}")
+    
+    lines.extend([
+        "",
+        f"**Recommendation:** {recommendation}",
+    ])
+    
+    if next_steps:
+        lines.extend([
+            "",
+            "**Recommended Next Steps:**",
+        ])
+        for i, step in enumerate(next_steps, 1):
+            lines.append(f"  {i}. {step}")
+    
+    return "\n".join(lines)
+
+
+def detailed_analysis(
+    title: str,
+    context: str,
+    analysis: str,
+    evidence: list[dict],
+    confidence: str,
+    caveats: Optional[list[str]] = None,
+    recommendations: Optional[list[str]] = None,
+) -> str:
+    """Generate a detailed analytical response with evidence.
+    
+    Use for: deep research, investigations, complex queries.
+    """
+    lines = [
+        f"# {title}",
+        "",
+        "## Context",
+        context,
+        "",
+        "## Analysis",
+        analysis,
+        "",
+        "## Supporting Evidence",
+    ]
+    
+    for e in evidence:
+        source = e.get("source", "Unknown")
+        detail = e.get("detail", "")
+        lines.append(f"  • [{source}] {detail}")
+    
+    lines.extend([
+        "",
+        f"**Overall Confidence:** {confidence}",
+    ])
+    
+    if caveats:
+        lines.extend([
+            "",
+            "**Caveats and Limitations:**",
+        ])
+        for c in caveats:
+            lines.append(f"  • {c}")
+    
+    if recommendations:
+        lines.extend([
+            "",
+            "**Recommendations:**",
+        ])
+        for r in recommendations:
+            lines.append(f"  • {r}")
+    
+    return "\n".join(lines)
+
+
+def quick_response(
+    answer: str,
+    confidence: str = "ASSESSED",
+    source: str = "",
+    follow_up: Optional[str] = None,
+) -> str:
+    """Generate a concise, professional quick response.
+    
+    Use for: factual queries, status checks, simple questions.
+    """
+    lines = [answer]
+    
+    if source:
+        lines.append(f"\n_Source: {source}_")
+    
+    if confidence:
+        lines.append(f"\nConfidence: {confidence}")
+    
+    if follow_up:
+        lines.append(f"\n**Looking ahead:** {follow_up}")
+    
+    return "\n".join(lines)
+
+
+def urgent_alert(
+    title: str,
+    severity: str,
+    finding: str,
+    impact: str,
+    immediate_action: str,
+) -> str:
+    """Generate an urgent alert with clear severity and action.
+    
+    Use for: sanctions hits, compliance flags, critical market changes.
+    """
+    severity_icon = {
+        "CRITICAL": "🔴",
+        "HIGH": "🟠",
+        "MEDIUM": "🟡",
+        "LOW": "🟢",
+    }.get(severity.upper(), "⚪")
+    
+    return "\n".join([
+        f"{severity_icon} **{severity} ALERT: {title}**",
+        "",
+        f"**Finding:** {finding}",
+        f"**Impact:** {impact}",
+        "",
+        f"**Immediate Action Required:** {immediate_action}",
+    ])
+
+
+def strategic_briefing(
+    title: str,
+    situation: str,
+    implications: str,
+    recommendations: list[str],
+    outlook: str,
+) -> str:
+    """Generate a strategic briefing with situation, implications, and outlook.
+    
+    Use for: market briefings, competitor analysis, strategic reviews.
+    """
+    return "\n".join([
+        f"# Strategic Briefing: {title}",
+        "",
+        "## Situation",
+        situation,
+        "",
+        "## Strategic Implications",
+        implications,
+        "",
+        "## Recommended Actions",
+    ] + [f"  {i+1}. {r}" for i, r in enumerate(recommendations)] + [
+        "",
+        "## Outlook",
+        outlook,
+    ])
+
+
+# ── Engagement quality enhancers ──────────────────────────────────────────────
+
+def proactive_insight(
+    context: str,
+    insight: str,
+    relevance: str,
+    suggested_action: str,
+) -> str:
+    """Generate a proactive insight that adds value beyond the query.
+    
+    ARIA should use this when she has relevant information the user
+    didn't explicitly ask for but would benefit from knowing.
+    """
+    return "\n".join([
+        f"💡 **Additional Intelligence:**",
+        f"{insight}",
+        "",
+        f"**Why this matters:** {relevance}",
+        f"**Suggested action:** {suggested_action}",
+    ])
+
+
+def follow_up_questions(context: str, questions: list[str]) -> str:
+    """Generate contextual follow-up questions to deepen engagement."""
+    return "\n".join([
+        "**To help me provide more targeted intelligence:**",
+    ] + [f"  • {q}" for q in questions])
+
+
+def context_summary(
+    previous_findings: list[str],
+    new_developments: list[str],
+    changed_assessment: Optional[str] = None,
+) -> str:
+    """Summarize context from previous interactions.
+    
+    Use when a user returns to a previous topic.
+    """
+    lines = [
+        "## Context from Previous Engagement",
+        "",
+        "**Previous Findings:**",
+    ]
+    for f in previous_findings:
+        lines.append(f"  • {f}")
+    
+    if new_developments:
+        lines.extend([
+            "",
+            "**New Developments:**",
+        ])
+        for d in new_developments:
+            lines.append(f"  • {d}")
+    
+    if changed_assessment:
+        lines.extend([
+            "",
+            f"**Updated Assessment:** {changed_assessment}",
+        ])
+    
+    return "\n".join(lines)
+
+
+# ── Tone calibration ──────────────────────────────────────────────────────────
+
+PROFESSIONAL_OPENERS = {
+    "analysis": "Here is my assessment of the situation.",
+    "briefing": "Here is your intelligence briefing.",
+    "alert": "I have identified a development that requires your attention.",
+    "update": "Here is the latest on this matter.",
+    "recommendation": "Based on my analysis, here is my recommendation.",
+    "confirmation": "I can confirm the following.",
+    "clarification": "Let me clarify this point.",
+    "follow_up": "Following up on our previous discussion,",
+}
+
+PROFESSIONAL_CLOSERS = {
+    "standard": "I will continue monitoring this and report any significant developments.",
+    "urgent": "I recommend addressing this promptly. I am standing by to assist.",
+    "strategic": "I recommend we discuss the strategic implications at your earliest convenience.",
+    "educational": "I hope this analysis is helpful. Please let me know if you would like me to explore any aspect in greater depth.",
+    "action": "Please confirm how you would like to proceed, and I will prepare the necessary documentation.",
+}
+
+
+def calibrate_tone(intent: str, urgency: str = "standard") -> dict:
+    """Calibrate response tone based on intent and urgency."""
+    opener = PROFESSIONAL_OPENERS.get(intent, "")
+    closer = PROFESSIONAL_CLOSERS.get(urgency, PROFESSIONAL_CLOSERS["standard"])
+    
+    tone_guide = ""
+    if urgency == "urgent":
+        tone_guide = "Be direct and concise. Prioritize actionability over detail."
+    elif urgency == "strategic":
+        tone_guide = "Provide strategic context. Emphasize implications and recommendations."
+    elif urgency == "educational":
+        tone_guide = "Explain the methodology and reasoning. Teach the user."
+    else:
+        tone_guide = "Balance detail with clarity. Lead with the bottom line."
+    
+    return {
+        "opener": opener,
+        "closer": closer,
+        "tone_guide": tone_guide,
+    }

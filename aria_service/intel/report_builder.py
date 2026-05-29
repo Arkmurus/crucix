@@ -46,51 +46,196 @@ REPORT_TYPES: dict[str, dict[str, Any]] = {
             "litigation history, financial health, regulatory standing, "
             "reputational red flags, operational footprint"
         ),
-        "skeleton": """ARKMURUS DUE DILIGENCE — DRAFT
+        "skeleton": """ARKMURUS DUE DILIGENCE REPORT
+Classification: CONFIDENTIAL - CLIENT EYES ONLY
+Prepared for: {client}
+Date: {today}
+Reference: ARK-DD-{ref}
+
+EXECUTIVE SUMMARY
 
 Subject: {subject}
-Prepared: {today}
-Classification: INTERNAL · CLIENT-EYES-ONLY
+Risk Classification: [GREEN / AMBER-LIGHT / AMBER-DARK / RED / HARD STOP]
+Confidence Level: [CONFIRMED / PROBABLE / ASSESSED]
 
-1. EXECUTIVE SUMMARY
-   - Net assessment (1-2 sentences) with confidence tag
-   - Headline risks (3 bullets max)
-   - Recommendation: PROCEED / PROCEED WITH CONDITIONS / DO NOT PROCEED
+Net Assessment:
+{assessment}
 
-2. SUBJECT IDENTIFICATION
-   - Legal name(s) and trading names
-   - Registration number / jurisdiction
-   - Registered address
-   - Date of incorporation / DOB
-   - Sources verified: [...]
+Headline Risks:
+. {risk_1}
+. {risk_2}
+. {risk_3}
 
-3. OWNERSHIP & CONTROL
-   - Direct shareholders
-   - Ultimate beneficial owners (UBOs)
-   - Group structure
-   - PEP / sanctions screening of controllers
+Recommendation: [PROCEED / PROCEED WITH CONDITIONS / DO NOT PROCEED]
 
-4. REGULATORY & SANCTIONS
-   - OFAC / OFSI / EU / UN list checks
-   - Adverse media review
-   - Litigation history
-   - Regulatory enforcement actions
+----------------------------------------------------------------
 
-5. COMMERCIAL PROFILE
-   - Activities and sectors
-   - Key customers / counterparties (where known)
-   - Financial indicators
-   - Geographic footprint
+1. SUBJECT IDENTIFICATION AND VERIFICATION
 
-6. RED FLAGS & GAPS
-   - Confirmed concerns (with confidence tags)
-   - Information gaps Antonio should resolve before proceeding
-   - Recommended verification steps
+1.1 Legal Identity
+. Registered Name: {legal_name}
+. Trading As: {trading_names}
+. Registration Number: {reg_number}
+. Jurisdiction: {jurisdiction}
+. Date of Incorporation: {inc_date}
+. Legal Form: {legal_form}
+. Status: [Active / Dormant / Dissolved]
 
-7. RECOMMENDATION
-   - Final risk rating
-   - Conditions for proceeding (if any)
-   - Monitoring requirements
+1.2 Registered Address
+{registered_address}
+
+1.3 Verification Status
+. Identity Confirmed: [Yes / No / Partial]
+. Source: [Companies House / Commercial Registry / Self-Declaration]
+. Verification Date: {verification_date}
+
+----------------------------------------------------------------
+
+2. OWNERSHIP AND CONTROL STRUCTURE
+
+2.1 Beneficial Ownership Chain
+{ownership_chain}
+
+2.2 Ultimate Beneficial Owners (UBOs)
+{ubo_table}
+
+2.3 Opacity Assessment
+. Ownership Structure: [Transparent / Partially Opaque / Fully Opaque]
+. Nominee Directors Flagged: [Yes / No]
+. Shell Company Indicators: [None / Low / Medium / High]
+. Recommended Enhanced Due Diligence: [Yes / No]
+
+----------------------------------------------------------------
+
+3. SANCTIONS AND EXPORT CONTROL SCREENING
+
+3.1 Sanctions List Checks
+. OFAC SDN List: [No Match / Potential Match / Confirmed Match]
+. EU Consolidated List: [No Match / Potential Match / Confirmed Match]
+. UK OFSI List: [No Match / Potential Match / Confirmed Match]
+. UN Security Council: [No Match / Potential Match / Confirmed Match]
+
+3.2 Export Control Considerations
+. ITAR/EAR Exposure: [None / Low / Medium / High]
+. Dual-Use Classification: {dual_use_classification}
+. Controlled Goods: {controlled_goods}
+
+3.3 Sanctions Risk Rating: [Low / Medium / High / Critical]
+
+----------------------------------------------------------------
+
+4. POLITICAL EXPOSURE AND REPUTATIONAL RISK
+
+4.1 Politically Exposed Persons (PEP)
+. PEP Status: [Yes / No / Possible]
+. Name(s): {pep_names}
+. Position(s): {pep_positions}
+. Relationship to Subject: {pep_relationship}
+
+4.2 Adverse Media Screening
+. Negative News: [None / Minor / Significant / Critical]
+. Key Findings: {adverse_media_findings}
+. Source Tiers: {adverse_media_sources}
+
+4.3 Legal and Regulatory History
+. Litigation: [None / Active / Resolved]
+. Regulatory Actions: [None / Pending / Historical]
+. Key Cases: {legal_cases}
+
+----------------------------------------------------------------
+
+5. FINANCIAL ASSESSMENT
+
+5.1 Financial Standing
+. Reported Revenue: {revenue}
+. Financial Health: [Strong / Stable / Weak / Unknown]
+. Credit Risk: [Low / Medium / High]
+
+5.2 Transaction Pattern Analysis
+. Typical Deal Size: {deal_size_range}
+. Payment History: [Clean / Minor Issues / Significant Issues]
+. Banking Relationships: {banking_info}
+
+----------------------------------------------------------------
+
+6. OPERATIONAL FOOTPRINT
+
+6.1 Operational Presence
+. Headquarters: {hq_location}
+. Key Markets: {key_markets}
+. Employees: {employee_count}
+. Physical Premises Verified: [Yes / No / Partial]
+
+6.2 Sector Expertise
+. Primary Sector: {primary_sector}
+. Secondary Sectors: {secondary_sectors}
+. Relevant Licenses/Certifications: {licenses}
+
+----------------------------------------------------------------
+
+7. NETWORK ANALYSIS
+
+7.1 Key Relationships
+. Directors: {directors}
+. Shareholders: {shareholders}
+. Subsidiaries: {subsidiaries}
+. Known Business Partners: {partners}
+
+7.2 Network Risk Indicators
+. Cross-Border Exposure: {cross_border_exposure}
+. Jurisdiction Risk: {jurisdiction_risk}
+. Concentration Risk: {concentration_risk}
+
+----------------------------------------------------------------
+
+8. COMPLIANCE AND REGULATORY
+
+8.1 Regulatory Status
+. Regulatory Body: {regulatory_body}
+. Registration Status: [Active / Suspended / Revoked / None Required]
+. Compliance Record: [Clean / Minor Issues / Significant Issues]
+
+8.2 AML/KYC Status
+. AML Procedures in Place: [Yes / No / Unknown]
+. KYC Documentation: [Complete / Partial / Not Obtained]
+. Source of Funds Verification: [Verified / Pending / Not Possible]
+
+----------------------------------------------------------------
+
+9. INTELLIGENCE GAPS
+
+The following information could not be obtained during this review:
+{data_gaps}
+
+----------------------------------------------------------------
+
+10. CONCLUSION AND RECOMMENDATION
+
+10.1 Overall Assessment
+{conclusion}
+
+10.2 Risk Mitigation Measures
+{mitigation_measures}
+
+10.3 Recommended Actions
+. {action_1}
+. {action_2}
+. {action_3}
+
+10.4 Conditions for Proceeding
+{conditions}
+
+----------------------------------------------------------------
+
+This report is based on information available as of {report_date}.
+Sources are cited where applicable. Where information could not be
+independently verified, this is noted in Section 9.
+
+Report prepared by ARIA (Arkmurus Research Intelligence Agent)
+Arkmurus Ltd - Defence Intelligence and Compliance
+{report_footer}
+
+END OF REPORT
 """,
     },
     "compliance": {
