@@ -262,6 +262,14 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "grounded_reasoner":    ["general", "osint", "compliance", "legal"],
     # R-F1049 -- news monitor: RSS/feed polling for defence, geopolitics, finance
     "news_monitor":         ["osint", "market_intel", "geopolitics", "general"],
+    # R-F1051 -- self-healing infrastructure
+    "self_healing":         ["general", "compliance"],
+    # R-F1046 -- honesty judge, self-introspect guard, ground truth loop
+    "honesty_judge":        ["general", "compliance"],
+    "self_introspect_guard": ["general", "compliance"],
+    "ground_truth_loop":    ["general", "compliance", "osint"],
+    # R-F1046 -- eliminated weapons watchlist
+    "eliminated_weapons_watchlist": ["compliance", "legal"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -420,6 +428,14 @@ _MODULE_WEIGHT: dict[str, float] = {
     "grounded_reasoner":    0.20,
     # R-F1049 -- news monitor: moderate weight per feed poll
     "news_monitor":         0.10,
+    # R-F1051 -- self-healing: low weight per check
+    "self_healing":         0.05,
+    # R-F1046 -- honesty guards: moderate weight per judgment
+    "honesty_judge":        0.15,
+    "self_introspect_guard": 0.10,
+    "ground_truth_loop":    0.15,
+    # R-F1046 -- eliminated weapons: high weight per hit (compliance-critical)
+    "eliminated_weapons_watchlist": 0.25,
 }
 
 
