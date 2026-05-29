@@ -19865,3 +19865,30 @@ async def list_tickets_ep(limit: int = 20) -> dict:
     """List open tickets (for ARIA's dedup + for operator inspection)."""
     from ..intel import tickets
     return await tickets.list_open_tickets(limit=limit)
+
+
+# ===== News Monitor (R-F1050) =====
+
+@router.get("/news/recent")
+async def news_recent_ep(limit: int = 50) -> dict:
+    """Return recent news articles from the news monitor."""
+    from ..intel import news_monitor
+    articles = await news_monitor.get_recent_articles(limit=limit)
+    return {"articles": articles, "count": len(articles)}
+
+
+@router.get("/news/stats")
+async def news_stats_ep() -> dict:
+    """Return news monitor statistics."""
+    from ..intel import news_monitor
+    return await news_monitor.get_stats()
+
+
+@router.post("/news/poll")
+async def news_poll_ep(categories: str = "") -> dict:
+    """Manually trigger a news feed poll. Optionally filter by comma-separated categories."""
+    from ..intel import news_monitor
+    cats = [c.strip() for c in categories.split(",")] if categories else None
+    return await news_monitor.poll_feeds(categories=cats)
+
+

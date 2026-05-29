@@ -235,6 +235,7 @@ const Sidebar = {
       <nav class="sidebar-nav">
         <div class="sidebar-section">Intelligence</div>
         ${link('brief',       '/dashboard.html',         'bi-radar',          'Intelligence Brief')}
+        ${link('news',        '/news.html',              'bi-newspaper',      'News Monitor')}
         ${link('opportunities','/opportunities.html',     'bi-briefcase',      'Opportunities')}
         ${link('bd',           '/bd-intelligence.html',   'bi-graph-up-arrow', 'BD Intelligence')}
         ${link('explorer',     '/explorer.html',          'bi-globe2',         'Explorer')}
