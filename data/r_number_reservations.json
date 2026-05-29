@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1026,
+  "next_available": 1028,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4771,6 +4771,26 @@
       "commit_sha": "6a2d284",
       "notes": null,
       "shipped_at": "2026-05-29T11:15:23Z"
+    },
+    {
+      "r_number": "R-F1026",
+      "title": "Bulletproof: cross-process file lock on r_number_registry (reserve/ship/abandon) — no dup/corruption under concurrency",
+      "claimed_at": "2026-05-29T11:23:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c27f738",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:28:26Z"
+    },
+    {
+      "r_number": "R-F1027",
+      "title": "Bulletproof: aria CLI run() kills hung child process TREE on timeout (no orphaned grandchildren)",
+      "claimed_at": "2026-05-29T11:23:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c27f738",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:28:26Z"
     }
   ]
 }
