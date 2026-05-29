@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1068,
+  "next_available": 1069,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5184,6 +5184,16 @@
       "r_number": "R-F1067",
       "title": "Fix remaining P1-2 bd_strategy + P0-2 RESTART/ROLLBACK + add capability tests",
       "claimed_at": "2026-05-29T22:08:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8e3d5619",
+      "notes": null,
+      "shipped_at": "2026-05-29T22:11:16Z"
+    },
+    {
+      "r_number": "R-F1068",
+      "title": "Full 360 ecosystem audit — every module, function, test, and wiring point",
+      "claimed_at": "2026-05-29T22:14:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -47,14 +47,8 @@ async def _mem0_snapshot() -> dict:
         from . import mem0 as _m
     except ImportError:
         return {"tier": "mem0", "count": 0, "note": "module not present"}
-    # mem0 exposes counts via a stats helper if present
-    if hasattr(_m, "get_stats"):
-        try:
-            stats = await _m.get_stats()  # type: ignore[func-returns-value]
-            return {"tier": "mem0", **stats}
-        except Exception as e:
-            return {"tier": "mem0", "count": -1, "error": str(e)[:200]}
-    return {"tier": "mem0", "count": -1, "note": "no get_stats()"}
+    # R-F1068: mem0.get_stats() doesn't exist — use is_enabled() as a probe
+    return {"tier": "mem0", "enabled": _m.is_enabled() if hasattr(_m, "is_enabled") else False}
 
 
 async def _neural_snapshot() -> dict:

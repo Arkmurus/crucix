@@ -389,20 +389,27 @@ def _article_hash(url: str) -> str:
 async def _is_seen(url: str) -> bool:
     """Check if URL has been processed before."""
     h = _article_hash(url)
-    return await rs.sismember(_SEEN_URLS_KEY, h)
+    # R-F1068: rs.sismember doesn't exist — use hgetall on a hash key
+    seen_data = await rs.get_json(_SEEN_URLS_KEY)
+    if isinstance(seen_data, dict):
+        return h in seen_data
+    return False
 
 
 async def _mark_seen(url: str) -> None:
     """Mark URL as processed."""
     h = _article_hash(url)
-    await rs.sadd(_SEEN_URLS_KEY, h)
+    # R-F1068: rs.sadd doesn't exist — use get_json/set_json on a dict key
+    seen_data = await rs.get_json(_SEEN_URLS_KEY)
+    if not isinstance(seen_data, dict):
+        seen_data = {}
+    seen_data[h] = time.time()
     # Trim to max size
-    count = await rs.scard(_SEEN_URLS_KEY)
-    if count > _MAX_SEEN_URLS:
-        # Pop oldest entries (approximate — Redis SPOP is random)
-        to_remove = count - _MAX_SEEN_URLS
-        for _ in range(min(to_remove, 100)):
-            await rs.spop(_SEEN_URLS_KEY)
+    if len(seen_data) > _MAX_SEEN_URLS:
+        # Remove oldest entries
+        sorted_items = sorted(seen_data.items(), key=lambda x: x[1])
+        seen_data = dict(sorted_items[-_MAX_SEEN_URLS:])
+    await rs.set_json(_SEEN_URLS_KEY, seen_data)
 
 
 async def _store_article(article: dict) -> None:

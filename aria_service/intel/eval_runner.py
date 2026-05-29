@@ -234,6 +234,18 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     if not items:
         return {"ok": False, "reason": "no golden entries to run"}
 
+    # R-F1068: also run through llm_eval_framework for deeper analysis
+    try:
+        from .llm_eval_framework import evaluate as _framework_evaluate
+        _framework_result = await _framework_evaluate(llm, items)
+        if _framework_result:
+            logger.info(
+                "[eval_runner] Framework eval: %s",
+                _framework_result.get("summary", ""),
+            )
+    except Exception as _fe:
+        logger.debug("[eval_runner] Framework eval skipped: %s", _fe)
+
     # Lazy import to avoid a circular dep at module load
     from .. import routes  # noqa: F401  ensure routes package importable
     from ..routes.aria import _aria_chat_session  # see below — we'll add it
