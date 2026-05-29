@@ -1,0 +1,9 @@
+# R-F1024 — test/dev dependencies (kept out of the prod image).
+# Without pytest-asyncio every `async def` test errored with "async def
+# functions are not natively supported", inflating the apparent failure count
+# (a large share of the "225 failures" the self-coder chased were phantom).
+# pytest.ini sets asyncio_mode = auto and timeout = 120 (the latter needs
+# pytest-timeout).
+pytest>=8.0
+pytest-asyncio>=0.23
+pytest-timeout>=2.1
