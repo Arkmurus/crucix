@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -389,6 +390,63 @@ class TestPipelineTimeout:
 
         assert result.abstained
         assert result.answer == ""  # empty = fast fallthrough signal
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# R-F1070 — Capability test: concurrent gathering is faster than serial
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestConcurrentPerformance:
+    """Capability test: concurrent evidence gathering must be faster than serial."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_faster_than_serial(self) -> None:
+        """With mocked slow sources, concurrent gather must complete before
+        serial gather would have finished."""
+        reasoner = GroundedReasoner()
+
+        # Mock sources with artificial delays
+        async def _slow_search(*args: object, **kwargs: object) -> dict:
+            await asyncio.sleep(0.1)
+            return {"id": "test", "response": "test", "confidence_score": 0.9}
+
+        async def _slow_query(*args: object, **kwargs: object) -> list:
+            await asyncio.sleep(0.1)
+            return [{"fact": "test", "source": "test", "confidence": 0.9}]
+
+        async def _slow_recall(*args: object, **kwargs: object) -> list:
+            await asyncio.sleep(0.1)
+            return []
+
+        mock_rl = AsyncMock()
+        mock_rl.search = _slow_search
+        mock_knowledge = AsyncMock()
+        mock_knowledge.query = _slow_query
+        mock_neural = AsyncMock()
+        mock_neural.recall = _slow_recall
+        mock_rag = AsyncMock()
+        mock_rag.search = AsyncMock(return_value=[])
+        mock_pv = MagicMock()
+        mock_pv.verify_premises.return_value = MagicMock(premises=[], verdicts=[])
+
+        reasoner._reasoning_library = mock_rl
+        reasoner._knowledge = mock_knowledge
+        reasoner._neural = mock_neural
+        reasoner._rag = mock_rag
+        reasoner._premise_verifier = mock_pv
+
+        # Time concurrent gather (5 sources x 0.1s each = 0.5s serial, ~0.1s concurrent)
+        start = time.monotonic()
+        evidence = await reasoner._gather_evidence_concurrent("test question")
+        elapsed = time.monotonic() - start
+
+        # With 5 sources at 0.1s each, concurrent should be ~0.1-0.2s
+        # Serial would be ~0.5s+. Allow 2x for overhead.
+        assert elapsed < 0.3, (
+            f"Concurrent gather took {elapsed:.3f}s — expected <0.3s "
+            f"(5 sources x 0.1s = 0.5s serial)"
+        )
+        assert len(evidence) >= 1
 
 
 # ════════════════════════════════════════════════════════════════════════════
