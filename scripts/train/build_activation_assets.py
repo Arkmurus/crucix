@@ -34,14 +34,29 @@ async def export_eval_set(output_path: str) -> int:
     golden = await er.get_golden_set()
     if not golden:
         logger.info("No golden set in Redis, using seed entries")
-        golden = [
-            {
-                "question": entry.get("question", ""),
-                "expected_keywords": entry.get("expected_keywords", []),
-                "topic": entry.get("topic", "general"),
-            }
-            for entry in egs.SEED_ENTRIES
-        ]
+        golden = []
+        for entry in egs.SEED_ENTRIES:
+            question = entry.get("question", "")
+            expected_answer = entry.get("expected_answer", "")
+            category = entry.get("category", "general")
+
+            # R-F1066: extract keywords from expected_answer (top 10 significant words)
+            import re as _re
+            answer_words = _re.findall(r"[A-Za-z]{4,}", expected_answer)
+            # Filter common words, take top 10
+            _common = {"this", "that", "with", "from", "have", "been", "would",
+                       "should", "could", "their", "there", "which", "what",
+                       "about", "into", "than", "then", "also", "more", "some",
+                       "such", "without", "after", "other", "over", "very"}
+            keywords = list(dict.fromkeys(  # unique, preserve order
+                w for w in answer_words if w.lower() not in _common
+            ))[:10]
+
+            golden.append({
+                "question": question,
+                "expected_keywords": keywords,
+                "topic": category,
+            })
 
     # Write to JSONL
     count = 0

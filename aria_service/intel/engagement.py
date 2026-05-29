@@ -31,9 +31,12 @@ def executive_summary(
     next_steps: Optional[list[str]] = None,
 ) -> str:
     """Generate a professional executive summary response.
-    
+
+    R-F1066: wired to brain on use.
+
     Use for: DD results, market intelligence, strategic recommendations.
     """
+    _wire_engagement_use("executive_summary")
     lines = [
         f"## {title}",
         "",
@@ -282,6 +285,7 @@ PROFESSIONAL_CLOSERS = {
 
 def calibrate_tone(intent: str, urgency: str = "standard") -> dict:
     """Calibrate response tone based on intent and urgency."""
+    _wire_engagement_use("calibrate_tone")
     opener = PROFESSIONAL_OPENERS.get(intent, "")
     closer = PROFESSIONAL_CLOSERS.get(urgency, PROFESSIONAL_CLOSERS["standard"])
     
@@ -300,3 +304,24 @@ def calibrate_tone(intent: str, urgency: str = "standard") -> dict:
         "closer": closer,
         "tone_guide": tone_guide,
     }
+
+
+# ── Brain wiring ───────────────────────────────────────────────────────
+
+_ENGAGEMENT_USES = 0
+
+
+def _wire_engagement_use(function_name: str) -> None:
+    """Fire-and-forget brain signal on engagement function use."""
+    global _ENGAGEMENT_USES
+    _ENGAGEMENT_USES += 1
+    try:
+        from .engine_wiring import wire_success as _ws
+        _ws(
+            module="engagement",
+            summary=f"Engagement: {function_name} used",
+            detail=f"Total uses: {_ENGAGEMENT_USES}",
+            source_id=f"engagement:{function_name}",
+        )
+    except Exception:
+        pass

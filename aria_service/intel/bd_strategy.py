@@ -86,6 +86,7 @@ async def generate_market_intelligence() -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] intel_ledger failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"intel_ledger failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # 2. Competitor intelligence
     try:
@@ -101,6 +102,7 @@ async def generate_market_intelligence() -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] competitor_tracker failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"competitor_tracker failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # 3. Procurement highlights
     try:
@@ -117,6 +119,7 @@ async def generate_market_intelligence() -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] tender_monitor failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"tender_monitor failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # 4. Risk assessment
     try:
