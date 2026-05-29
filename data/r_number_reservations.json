@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1031,
+  "next_available": 1041,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4821,6 +4821,96 @@
       "commit_sha": "905a678",
       "notes": null,
       "shipped_at": "2026-05-29T12:10:53Z"
+    },
+    {
+      "r_number": "R-F1031",
+      "title": "Safety module unit tests",
+      "claimed_at": "2026-05-29T12:15:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1032",
+      "title": "Self-coder orchestrator unit tests",
+      "claimed_at": "2026-05-29T12:15:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1033",
+      "title": "Fix WA listener BRAIN_URL default to aria-intel",
+      "claimed_at": "2026-05-29T12:15:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1034",
+      "title": "Fix test_only_modifiable_gaps_attempted for R-F996",
+      "claimed_at": "2026-05-29T12:15:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1035",
+      "title": "SovereignLLM unit tests with mocked HTTP",
+      "claimed_at": "2026-05-29T12:16:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1036",
+      "title": "TestRunner unit tests with mocked subprocess",
+      "claimed_at": "2026-05-29T12:16:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1037",
+      "title": "Populate empty test files or remove dead ones",
+      "claimed_at": "2026-05-29T12:16:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1038",
+      "title": "Normalize uppercase ARIA.* logger names to lowercase",
+      "claimed_at": "2026-05-29T12:16:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1039",
+      "title": "Add end-to-end coder pipeline capability test",
+      "claimed_at": "2026-05-29T12:16:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1040",
+      "title": "Restore NO_AUTODEPLOY_FILES guard (revert R-F996 emptying) — constitution files must not auto-deploy unreviewed",
+      "claimed_at": "2026-05-29T12:18:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

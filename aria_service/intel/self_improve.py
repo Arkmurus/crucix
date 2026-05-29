@@ -109,8 +109,22 @@ CHANGE_TYPES = {
 # ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 live — re-opening auto-deploy for EVERY
 # modifiable file, including these. R-F851 re-closes it for the critical set
 # only, leaving autonomous self-improvement intact for ordinary files.
-# R-F996 — No files are excluded from auto-deploy. ARIA is trusted.
-NO_AUTODEPLOY_FILES: set[str] = set()
+# R-F1040 — operator principle: ARIA is FREE TO CODE with no restrictions, but must
+# not be able to HARM HERSELF. She may edit and STAGE any file (MODIFIABLE = all
+# files, R-F996), but the files below — where an unreviewed auto-deploy could brick
+# her boot, rewrite her constitution/verification gate, or disable her own safety
+# guards — require a HUMAN to deploy. Anti-self-harm, not a coding limit.
+# (Reverts R-F996's emptying of this set; restores R-F851/F902 + boot/guard files.)
+NO_AUTODEPLOY_FILES: set[str] = {
+    "aria_service/main.py",                                  # boot path (CLAUDE.md §9)
+    "aria_service/aria_engine.py",                           # constitution + system prompt
+    "aria_service/routes/aria.py",                           # verification gate + injection detection
+    "aria_service/intel/v3_prompts.py",                      # prompt refinements
+    "aria_service/autonomous/tasks.yaml",                    # scheduled safety/adversarial tasks
+    "aria_service/autonomous/safety.py",                     # autonomy guardrails
+    "aria_service/autonomous/constitutional_validator.py",   # the code-safety validator
+    "aria_service/intel/self_improve.py",                    # this file — the deploy/guard config itself
+}
 
 
 # R-F996 — dynamically populate MODIFIABLE_FILES with ALL project files
@@ -139,12 +153,14 @@ async def _ensure_modifiable_files() -> None:
 def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
     """Whether a staged change may AUTO-deploy (no human in the loop).
 
-    Honesty-critical files (NO_AUTODEPLOY_FILES) always require explicit
-    human approval — they can be staged and human-deployed, never auto-
-    deployed — independent of change_type or the env flag. For all other
-    files the per-change-type auto_deploy policy applies. R-F851.
+    Self-harm-critical files (NO_AUTODEPLOY_FILES — boot, constitution,
+    verification gate, prompts, safety guards, the deploy config itself) always
+    require explicit human approval: they can be staged and human-deployed, never
+    auto-deployed, independent of change_type or the env flag. Every OTHER file is
+    free to auto-deploy (ARIA codes without restriction). R-F851 / R-F1040.
     """
-    # R-F996 — all files are auto-deployable. ARIA is trusted.
+    if file_path in NO_AUTODEPLOY_FILES:
+        return False
     return True
 
 
