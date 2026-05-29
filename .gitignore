@@ -107,3 +107,7 @@ data/learned_attack_signatures.json
 
 # R-F990 — Claude<->ARIA mailbox (runtime messages, not source)
 .agent_bridge/
+
+# stray/scratch from ARIA sessions
+/exit
+/_*.py
