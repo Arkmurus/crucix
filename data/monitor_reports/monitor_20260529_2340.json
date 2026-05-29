@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-05-29T23:40:53.588769+00:00",
+  "apps": {
+    "aria-intel": {
+      "app": "aria-intel",
+      "timestamp": "2026-05-29T23:40:54.221246+00:00",
+      "error_count": 0,
+      "warning_count": 0,
+      "critical_count": 0,
+      "errors": [],
+      "warnings": [],
+      "patterns": {}
+    },
+    "aria-web": {
+      "app": "aria-web",
+      "timestamp": "2026-05-29T23:40:54.455125+00:00",
+      "error_count": 0,
+      "warning_count": 0,
+      "critical_count": 0,
+      "errors": [],
+      "warnings": [],
+      "patterns": {}
+    },
+    "aria-wa": {
+      "app": "aria-wa",
+      "timestamp": "2026-05-29T23:40:54.724528+00:00",
+      "error_count": 0,
+      "warning_count": 0,
+      "critical_count": 0,
+      "errors": [],
+      "warnings": [],
+      "patterns": {}
+    }
+  },
+  "health": {
+    "aria-intel": {
+      "app": "aria-intel",
+      "status_code": 200,
+      "body_preview": "{\"status\":\"operational\",\"service\":\"aria\",\"llm_provider\":\"deepseek\",\"llm_configured\":true,\"llm_chain\":{},\"llm_fallback_stats\":{\"rate_limiter\":{\"rpm_limit\":50,\"burst\":10,\"requests_last_60s\":0,\"headroom\":50,\"background_waiting\":0}},\"autonomous\":{\"enabled\":true,\"running\":true,\"dry_run\":false,\"autonomy_l",
+      "healthy": true
+    },
+    "aria-web": {
+      "app": "aria-web",
+      "status_code": 200,
+      "body_preview": "ok",
+      "healthy": true
+    },
+    "aria-wa": {
+      "app": "aria-wa",
+      "status_code": 200,
+      "body_preview": "{\"status\":\"connected\"}",
+      "healthy": true
+    }
+  },
+  "summary": {
+    "total_errors": 0,
+    "total_warnings": 0,
+    "total_criticals": 0,
+    "unhealthy_apps": [],
+    "patterns_found": []
+  }
+}
