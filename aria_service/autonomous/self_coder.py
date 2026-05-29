@@ -54,7 +54,7 @@ from .constitutional_validator import (
 from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
 from .r_counter import RNumberCounter
-from .sovereign_llm import SovereignLLM
+from ..intel.autonomous_coder import AutonomousCoder  # R-F1003: no external LLM
 from .test_runner import TestResult, TestRunner
 
 logger = logging.getLogger("aria.autonomous.self_coder")
@@ -181,7 +181,7 @@ class ARIACoder:
         brain_hook: Optional[Any] = None,
         output_harvester: Optional[Any] = None,
         gap_detector: Optional[GapDetector] = None,
-        llm: Optional[SovereignLLM] = None,
+        llm: Optional[AutonomousCoder] = None,  # R-F1003: no external LLM
         validator: Optional[ConstitutionalValidator] = None,
         codebase: Optional[CodebaseReader] = None,
         test_runner: Optional[TestRunner] = None,
@@ -198,7 +198,7 @@ class ARIACoder:
 
         # Allow injection for tests; default to constructing from scratch
         self.gap_detector = gap_detector or GapDetector(redis_client)
-        self.llm = llm or SovereignLLM(aria_service_url)
+        self.llm = llm or AutonomousCoder()  # R-F1003: no external LLM
         self.validator = validator or ConstitutionalValidator()
         self.codebase = codebase or CodebaseReader(aria_service_url)
         self.test_runner = test_runner or TestRunner(redis_client)
