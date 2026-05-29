@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1008,
+  "next_available": 1009,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4587,6 +4587,16 @@
       "r_number": "R-F1007",
       "title": "ARIA full penetration test: adversarial testing, security hardening, antivirus, frontend/backend audit, data output validation",
       "claimed_at": "2026-05-29T01:35:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9280db3",
+      "notes": null,
+      "shipped_at": "2026-05-29T01:38:38Z"
+    },
+    {
+      "r_number": "R-F1008",
+      "title": "ARIA 360 ecosystem review + massive intel source expansion: 100+ new data sources, quality improvements, ahead-of-game intelligence",
+      "claimed_at": "2026-05-29T07:44:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
