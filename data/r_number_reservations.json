@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1004,
+  "next_available": 1005,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4547,6 +4547,16 @@
       "r_number": "R-F1003",
       "title": "ARIA fully autonomous: replace SovereignLLM with SelfCodingOS, no external LLM for coding",
       "claimed_at": "2026-05-29T00:36:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "11f48bb",
+      "notes": null,
+      "shipped_at": "2026-05-29T00:39:03Z"
+    },
+    {
+      "r_number": "R-F1004",
+      "title": "ARIA expert coder: complete self-sufficiency audit, gap closure, and hardening",
+      "claimed_at": "2026-05-29T00:40:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
