@@ -1,7 +1,6 @@
 # ARIA-LLM v0.1 — activation runbook (R-F837)
 
-**Status: NOT ACTIVE.** Adapter trained but unwired. This file is the
-flip-the-switch procedure for when activation criteria are met.
+**Status: READY TO ACTIVATE.** RunPod credit available. Follow the steps below.
 
 ## When to activate
 
