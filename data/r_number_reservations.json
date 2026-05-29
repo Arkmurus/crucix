@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1016,
+  "next_available": 1025,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4672,6 +4672,95 @@
       "commit_sha": "f4ea515",
       "notes": null,
       "shipped_at": "2026-05-29T09:22:09Z"
+    },
+    {
+      "r_number": "R-F1016",
+      "title": "Full system investigation: fix 225 test failures, GDELT severity, engine fallback chain, reasoning expertise",
+      "claimed_at": "2026-05-29T09:27:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1017",
+      "title": "Grounded Reasoning Engine skeleton — ReasonResult + reason() loop wrapping RAG/neural/premise/honesty",
+      "claimed_at": "2026-05-29T09:46:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1018",
+      "title": "Environment health check + session continuity fix",
+      "claimed_at": "2026-05-29T10:04:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1019",
+      "title": "Fix coder system bugs: MODIFIABLE_FILES init, NO_AUTODEPLOY_FILES restore, __init__.py stale doc",
+      "claimed_at": "2026-05-29T10:20:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1020",
+      "title": "Fix ARIA coder pipeline — 8 critical bugs blocking autonomous fixes",
+      "claimed_at": "2026-05-29T10:46:25Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-05-29T11:01:20Z",
+      "abandon_reason": "duplicate from concurrent-reserve pileup (R-F1022 is the real one)"
+    },
+    {
+      "r_number": "R-F1021",
+      "title": "Fix ARIA coder pipeline: autonomous_coder/self_coder key mismatches, write_code stubs, write_tests key, analyse_failure, plan_change bug-fix path",
+      "claimed_at": "2026-05-29T10:48:42Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-05-29T11:01:20Z",
+      "abandon_reason": "duplicate from concurrent-reserve pileup (R-F1022 is the real one)"
+    },
+    {
+      "r_number": "R-F1022",
+      "title": "Fix ARIA coder pipeline — 8 critical bugs blocking autonomous fixes",
+      "claimed_at": "2026-05-29T10:52:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3ab566b",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:01:19Z"
+    },
+    {
+      "r_number": "R-F1023",
+      "title": "R-F1022 verify: reserve no longer blocks on brain wiring",
+      "claimed_at": "2026-05-29T10:55:36Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-05-29T11:01:20Z",
+      "abandon_reason": "duplicate from concurrent-reserve pileup (R-F1022 is the real one)"
+    },
+    {
+      "r_number": "R-F1024",
+      "title": "Test infra: install+configure pytest-asyncio so async tests actually run (phantom 225-failure cause)",
+      "claimed_at": "2026-05-29T11:01:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "667c7fd",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:05:35Z"
     }
   ]
 }
