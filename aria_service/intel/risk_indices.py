@@ -41,7 +41,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-logger = logging.getLogger("ARIA.RiskIndices")
+logger = logging.getLogger("aria.risk_indices")
 
 
 # =============================================================================

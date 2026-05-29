@@ -3305,7 +3305,7 @@ async def _aria_chat_impl(
             )
         except Exception as inner:
             logger.warning("Failed to record LLM error for self-improvement: %s", inner)
-        logger.error("ARIA LLM error: %s — falling back to local_brain", e)
+        logger.warning("ARIA LLM error: %s — falling back to local_brain (all providers exhausted)", e)
 
         # ── INDEPENDENCE: degraded fallback instead of error ────────────
         # When the LLM fails (rate limit, network, key revoked), serve a
@@ -4032,7 +4032,7 @@ async def _aria_chat_stream_impl(
             yield _emit("chunk", text=chunk)
 
     except Exception as e:
-        logger.error("ARIA stream LLM error: %s — falling back to local_brain", e)
+        logger.warning("ARIA stream LLM error: %s — falling back to local_brain (all providers exhausted)", e)
         try:
             await self_improve.record_error("llm_error", str(e), "aria_engine.py", "aria_chat_stream")
         except Exception:

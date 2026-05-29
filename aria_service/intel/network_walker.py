@@ -30,7 +30,7 @@ import asyncio
 import logging
 from typing import Any
 
-logger = logging.getLogger("ARIA.NetworkWalker")
+logger = logging.getLogger("aria.network_walker")
 
 
 # =============================================================================

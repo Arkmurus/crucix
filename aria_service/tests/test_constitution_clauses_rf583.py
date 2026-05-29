@@ -29,8 +29,8 @@ def test_rf583_constitution_clause_count_is_35():
     clause_nums = sorted({
         int(n) for n in re.findall(r"^([0-9]+)\.\s", ARIA_SYSTEM_PROMPT, re.MULTILINE)
     })
-    assert clause_nums == list(range(1, 36)), (
-        f"R-F583 REGRESSION: clauses {clause_nums!r}, expected 1..35"
+    assert clause_nums == list(range(1, 38)), (
+        f"R-F583 REGRESSION: clauses {clause_nums!r}, expected 1..37"
     )
 
 

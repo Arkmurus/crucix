@@ -101,7 +101,7 @@ import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
 const AUTH_DIR      = process.env.WA_LISTENER_AUTH_DIR  || './wa-listener-auth';
 const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
-const BRAIN_URL     = process.env.BRAIN_SERVICE_URL      || 'http://localhost:3117';
+const BRAIN_URL     = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';

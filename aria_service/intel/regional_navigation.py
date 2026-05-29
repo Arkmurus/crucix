@@ -31,7 +31,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
-logger = logging.getLogger("ARIA.RegionalNavigation")
+logger = logging.getLogger("aria.regional_navigation")
 
 
 # =============================================================================

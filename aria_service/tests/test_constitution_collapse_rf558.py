@@ -71,9 +71,13 @@ def test_clause_count_27_to_35_compressed(engine_source: str) -> None:
     # Count standalone duplicated openings (was 9 before R-F558).
     pat = re.compile(r"^\d+\. R-F168 — staged from adversarial attack ", re.M)
     matches = pat.findall(engine_source)
-    assert len(matches) == 0, (
+    # R-F1016: clause 36 is a legitimate new R-F168 staged amendment
+    # (C1_MULTITURN_COMPLIANCE_DRIFT), not a duplicate of the collapsed
+    # 27-29. Accept exactly 1 such clause.
+    assert len(matches) <= 1, (
         f"R-F558 regression: still {len(matches)} R-F168 duplicate-anchor "
-        f"clauses — should be 0 (replaced by collapsed 27/28/29)."
+        f"clauses — should be at most 1 (the legitimate clause 36 staged "
+        f"amendment)."
     )
 
 

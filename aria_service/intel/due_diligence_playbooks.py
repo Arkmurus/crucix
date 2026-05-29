@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-logger = logging.getLogger("ARIA.DueDiligencePlaybooks")
+logger = logging.getLogger("aria.due_diligence_playbooks")
 
 
 # =============================================================================

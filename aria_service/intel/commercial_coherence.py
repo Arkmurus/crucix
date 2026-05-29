@@ -38,7 +38,7 @@ from .dd_schema import (
     SectionMeta,
 )
 
-logger = logging.getLogger("ARIA.CommercialCoherence")
+logger = logging.getLogger("aria.commercial_coherence")
 
 
 # =============================================================================

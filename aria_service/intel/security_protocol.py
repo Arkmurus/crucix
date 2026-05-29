@@ -29,7 +29,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-logger = logging.getLogger("ARIA.SecurityProtocol")
+logger = logging.getLogger("aria.security_protocol")
 
 
 # =============================================================================

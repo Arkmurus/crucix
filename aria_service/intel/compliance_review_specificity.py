@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import re
 
-logger = logging.getLogger("ARIA.ComplianceReviewSpecificity")
+logger = logging.getLogger("aria.compliance_review_specificity")
 
 
 # ── Trigger detection ────────────────────────────────────────────────────────

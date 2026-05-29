@@ -68,7 +68,7 @@ from .dd_schema import (
     weakest_confidence,
 )
 
-logger = logging.getLogger("ARIA.DDOrchestrator")
+logger = logging.getLogger("aria.dd_orchestrator")
 
 
 # R-F896 — flag-level DD goods-screening severities worth recording to the brain

@@ -19,7 +19,7 @@ All sources: open-source, publicly verifiable.
 from __future__ import annotations
 
 import logging
-logger = logging.getLogger("ARIA.ProcurementKnowledge")
+logger = logging.getLogger("aria.procurement_knowledge")
 
 
 # =============================================================================

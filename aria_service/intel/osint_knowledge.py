@@ -20,7 +20,7 @@ doctrine and best practice.
 from __future__ import annotations
 
 import logging
-logger = logging.getLogger("ARIA.OSINTKnowledge")
+logger = logging.getLogger("aria.osint_knowledge")
 
 
 # =============================================================================

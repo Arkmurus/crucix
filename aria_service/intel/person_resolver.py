@@ -39,7 +39,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-logger = logging.getLogger("ARIA.PersonResolver")
+logger = logging.getLogger("aria.person_resolver")
 
 
 # =============================================================================

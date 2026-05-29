@@ -28,7 +28,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
-logger = logging.getLogger("ARIA.InternationalLaw")
+logger = logging.getLogger("aria.international_law")
 
 # Placeholder to be replaced after initial sections are defined
 _SECTIONS_PENDING = True

@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Any
 
-logger = logging.getLogger("ARIA.MemoryRouter")
+logger = logging.getLogger("aria.memory_router")
 
 
 # =============================================================================

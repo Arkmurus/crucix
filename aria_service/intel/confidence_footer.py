@@ -1,5 +1,4 @@
 """ARIA confidence-tagged reply foot
-from .engine_wiring import wire_success
 er.
 
 Wires the existing observability signals (confidence tags, source verifier,
@@ -33,6 +32,7 @@ in time. The /honesty command surfaces it after the fact.
 """
 from __future__ import annotations
 
+from .engine_wiring import wire_success
 import logging
 import os
 import re

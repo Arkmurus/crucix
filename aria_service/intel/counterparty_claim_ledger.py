@@ -50,7 +50,7 @@ class _ConfigShim:
 
 config = _ConfigShim()
 
-logger = logging.getLogger("ARIA.ClaimLedger")
+logger = logging.getLogger("aria.counterparty_claim_ledger")
 
 
 # =============================================================================

@@ -71,7 +71,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
-logger = logging.getLogger("ARIA.LinkInvestigator")
+logger = logging.getLogger("aria.link_investigator")
 
 
 # =============================================================================

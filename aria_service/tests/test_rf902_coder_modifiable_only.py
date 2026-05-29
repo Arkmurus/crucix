@@ -1,12 +1,12 @@
 """R-F902 — the coder only attempts gaps in MODIFIABLE_FILES.
 
-Live 2026-05-26: after R-F901 gave the coder its own budget it ran the pipeline
-but STAGED=0 / DISCARDED=0. Root cause: _one_cycle picked the top gaps by
-severity + auto_fixable only, and the top-severity error gaps were ALL in
-NON-modifiable files (brain_hook.py=155 errors, fallback.py, safety.py) — which
-stage_improvement rejects. So the coder burned its whole budget on un-stageable
-gaps. R-F902: keep only gaps whose file is in self_improve.MODIFIABLE_FILES;
-skip the cycle if none. (The "prioritise auto-deployable gaps" residual.)
+R-F996 made ALL project files modifiable, so the MODIFIABLE_FILES filter
+is now a pass-through. These tests verify that the filter still works
+correctly (all files pass) and that the coder doesn't skip cycles.
+
+The original test (2026-05-26) checked that non-modifiable files were
+skipped; that behaviour was removed by R-F996. These tests now verify
+the R-F996 invariant: every project file is modifiable.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import types
 
 from aria_service.autonomous import self_coder
 from aria_service.autonomous.gap_detector import Gap, GapType, GapSeverity
+from aria_service.intel.self_improve import _ensure_modifiable_files
 
 
 def _mk_coder(scan_gaps):
@@ -47,23 +48,27 @@ def _gap(module, sev):
                title=f"Error in {module}", description="x", module=module)
 
 
-def test_only_modifiable_gaps_attempted():
-    # brain_hook is HIGHER severity but NON-modifiable; researcher is modifiable
+def test_all_gaps_are_modifiable():
+    """R-F996: every project file is modifiable, so all gaps pass the filter."""
+    asyncio.run(_ensure_modifiable_files())
     gaps = [
-        _gap("aria_service/intel/brain_hook.py", GapSeverity.CRITICAL),   # non-modifiable
-        _gap("aria_service/intel/researcher.py", GapSeverity.HIGH),       # modifiable
-        _gap("aria_service/llm/fallback.py", GapSeverity.HIGH),           # non-modifiable
+        _gap("aria_service/autonomous/self_coder.py", GapSeverity.CRITICAL),
+        _gap("aria_service/intel/researcher.py", GapSeverity.HIGH),
+        _gap("aria_service/autonomous/safety.py", GapSeverity.HIGH),
     ]
     c, attempted = _mk_coder(gaps)
     asyncio.run(c._one_cycle())
-    assert attempted == ["aria_service/intel/researcher.py"], attempted   # only the modifiable one
+    # All 3 gaps should be attempted (all files are modifiable per R-F996)
+    assert len(attempted) == 3, f"Expected 3 attempts, got {attempted}"
 
 
-def test_skips_cycle_when_no_modifiable_gaps():
+def test_skips_cycle_when_no_actionable_gaps():
+    """LOW severity gaps are not actionable regardless of modifiability."""
+    asyncio.run(_ensure_modifiable_files())
     gaps = [
-        _gap("aria_service/intel/brain_hook.py", GapSeverity.CRITICAL),
-        _gap("aria_service/intel/safety.py", GapSeverity.HIGH),
+        _gap("aria_service/autonomous/self_coder.py", GapSeverity.LOW),
+        _gap("aria_service/autonomous/safety.py", GapSeverity.LOW),
     ]
     c, attempted = _mk_coder(gaps)
     asyncio.run(c._one_cycle())
-    assert attempted == []   # nothing the coder can stage → no budget burned
+    assert attempted == []   # LOW severity → not actionable → no budget burned

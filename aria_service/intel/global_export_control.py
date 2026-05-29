@@ -28,7 +28,7 @@
 
 import logging
 
-logger = logging.getLogger("ARIA.GlobalExportControl")
+logger = logging.getLogger("aria.global_export_control")
 
 
 # =============================================================================

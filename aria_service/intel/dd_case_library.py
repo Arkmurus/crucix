@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger("ARIA.DDCaseLibrary")
+logger = logging.getLogger("aria.dd_case_library")
 
 
 # =============================================================================

@@ -110,6 +110,19 @@ async def start_aria_coder(
     from .gap_detector import GapDetector
     from .self_coder import ARIACoder
 
+    # R-F1032: ensure MODIFIABLE_FILES is populated before the coder starts.
+    # _one_cycle imports MODIFIABLE_FILES but it's dynamically populated by
+    # _ensure_modifiable_files() and is EMPTY until that function runs.
+    # Without this call, the coder sees an empty set and skips every cycle.
+    try:
+        from ..intel.self_improve import _ensure_modifiable_files
+        await _ensure_modifiable_files()
+    except Exception as e:
+        logger.warning(
+            "[coder_entrypoint] _ensure_modifiable_files failed: %s — "
+            "coder may see empty MODIFIABLE_FILES", e,
+        )
+
     url = aria_service_url or os.environ.get(
         "ARIA_SELF_URL", "http://localhost:8000",
     )

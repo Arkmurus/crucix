@@ -28,7 +28,7 @@
 
 import logging
 
-logger = logging.getLogger("ARIA.RegionalCompliance")
+logger = logging.getLogger("aria.regional_compliance")
 
 
 # =============================================================================

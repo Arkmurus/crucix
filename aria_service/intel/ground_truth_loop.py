@@ -68,7 +68,7 @@ class _ConfigShim:
 
 config = _ConfigShim()
 
-logger = logging.getLogger("ARIA.GroundTruth")
+logger = logging.getLogger("aria.ground_truth_loop")
 
 
 # =============================================================================

@@ -48,7 +48,7 @@ from typing import Optional
 from enum import Enum
 from urllib.parse import urlparse
 
-logger = logging.getLogger("ARIA.VerifiedIntel")
+logger = logging.getLogger("aria.verified_intel")
 
 
 # =============================================================================

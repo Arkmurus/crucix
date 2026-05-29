@@ -63,7 +63,7 @@ class _ConfigShim:
 
 config = _ConfigShim()
 
-logger = logging.getLogger("ARIA.ActiveChallenge")
+logger = logging.getLogger("aria.active_challenge_engine")
 
 
 # =============================================================================
