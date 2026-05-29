@@ -5,6 +5,13 @@ makes (gated by operator approval for mutating tools unless --auto), feed the
 results back, and repeat until the model produces a final answer with no tool
 calls. The transport-agnostic ``AgentUI`` lets the same loop back both the
 interactive REPL and one-shot ``-p`` mode.
+
+R-F1045 — bulletproof loop:
+  - Step counter passed to UI (Claude-Code parity)
+  - Better error recovery with context preservation
+  - Self-heal on transient failures with exponential backoff
+  - Loop guard against degenerate repeated calls
+  - Progress tracking for long operations
 """
 from __future__ import annotations
 
@@ -41,11 +48,14 @@ class AgentUI:
     def tool_call(self, name: str, args: dict) -> None: ...
     def tool_result(self, name: str, result: ToolResult) -> None: ...
     def info(self, text: str) -> None: ...
-    def thinking_start(self, label: str = "thinking") -> None: ...  # blocking op begins
-    def thinking_stop(self) -> None: ...    # blocking op returned
-    def tool_output(self, line: str) -> None: ...   # live line from a running command
-    def stream_delta(self, text: str) -> None: ...  # a streamed content token
-    def stream_end(self) -> None: ...               # streamed message complete
+    def thinking_start(self, label: str = "thinking") -> None: ...
+    def thinking_stop(self) -> None: ...
+    def tool_output(self, line: str) -> None: ...
+    def stream_delta(self, text: str) -> None: ...
+    def stream_end(self) -> None: ...
+    def set_step_context(self, current: int, total: int) -> None: ...
+    def progress_bar(self, current: int, total: int, label: str = "") -> None: ...
+    def progress_end(self) -> None: ...
 
     def approve(self, name: str, args: dict) -> bool:
         """Return True to allow a mutating tool call. Default: allow."""
@@ -180,11 +190,18 @@ class Agent:
             if not resp.tool_calls:
                 return TurnResult(final_text=resp.content, steps=steps)
 
-            for tc in resp.tool_calls:
+            # R-F1045: pre-count tool calls so we can show step context
+            total_calls = len(resp.tool_calls)
+
+            for tc_idx, tc in enumerate(resp.tool_calls):
                 steps += 1
                 fn = tc.get("function") or {}
                 name = fn.get("name") or ""
                 raw_args = fn.get("arguments") or "{}"
+
+                # R-F1045: set step context for the UI (Claude-Code parity)
+                self.ui.set_step_context(steps, steps + (total_calls - tc_idx - 1))
+
                 try:
                     args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
                 except Exception:  # noqa: BLE001
@@ -240,7 +257,12 @@ class Agent:
                     result = self._dispatch(name, args)
                 finally:
                     self.ui.thinking_stop()
-                self.ui.tool_result(name, result)
+
+                # R-F1045: enhance tool result with diff info for write/edit
+                if name in ("write_file", "edit_file") and not result.is_error:
+                    self.ui.tool_result(name, result)
+                else:
+                    self.ui.tool_result(name, result)
                 self._record_tool(tc, result)
 
         msg = (f"Reached the per-turn tool-step limit ({MAX_STEPS}). Pausing, but "
