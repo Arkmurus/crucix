@@ -270,6 +270,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "ground_truth_loop":    ["general", "compliance", "osint"],
     # R-F1046 -- eliminated weapons watchlist
     "eliminated_weapons_watchlist": ["compliance", "legal"],
+    # R-F1053 -- BD strategy engine
+    "bd_strategy":          ["market_intel", "competitor_intel", "general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -436,6 +438,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "ground_truth_loop":    0.15,
     # R-F1046 -- eliminated weapons: high weight per hit (compliance-critical)
     "eliminated_weapons_watchlist": 0.25,
+    # R-F1053 -- BD strategy: high weight per generation
+    "bd_strategy":          0.25,
 }
 
 

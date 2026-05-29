@@ -19950,3 +19950,34 @@ async def self_healing_recovery_ep(limit: int = 20) -> dict:
     return {"recoveries": orch.recovery_engine.get_recovery_history(limit=limit)}
 
 
+# ===== BD Strategy (R-F1053) =====
+
+@router.get("/bd/strategy")
+async def bd_strategy_ep() -> dict:
+    """Get the latest BD market intelligence strategy."""
+    from ..intel import bd_strategy
+    return await bd_strategy.get_latest_strategy()
+
+
+@router.post("/bd/strategy/generate")
+async def bd_strategy_generate_ep() -> dict:
+    """Generate fresh BD market intelligence."""
+    from ..intel import bd_strategy
+    return await bd_strategy.generate_market_intelligence()
+
+
+@router.get("/bd/strategy/history")
+async def bd_strategy_history_ep(limit: int = 20) -> dict:
+    """Get BD strategy generation history."""
+    from ..intel import bd_strategy
+    history = await bd_strategy.get_strategy_history(limit=limit)
+    return {"history": history}
+
+
+@router.get("/bd/strategy/deal/{deal_id}")
+async def bd_deal_strategy_ep(deal_id: str) -> dict:
+    """Generate a specific deal strategy."""
+    from ..intel import bd_strategy
+    return await bd_strategy.generate_deal_strategy(deal_id)
+
+

@@ -1420,6 +1420,27 @@ tasks:
     escalate_if: ["feed_failure", "high_value_article"]
     mem0_tags: [news, monitoring, intelligence, hourly, autonomous]
 
+  # ===== BD STRATEGY (R-F1053) =====
+  - id: DAILY-BD-STRATEGY
+    name: BD market intelligence strategy
+    description: |
+      Daily 06:00 UTC — generate comprehensive BD market intelligence from
+      all available data sources. Synthesizes intel_ledger signals,
+      competitor activity, tender opportunities, political risk, and deal
+      pipeline data into actionable strategic recommendations. Output feeds
+      the BD Intelligence dashboard and WhatsApp briefing.
+    cron: "0 6 * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.05
+    tool_chain:
+      - tool: bd_strategy_generate
+    delivery_channels: [intel_ledger, mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["high_value_opportunity", "critical_competitor_move", "market_disruption"]
+    mem0_tags: [bd, strategy, intelligence, daily, autonomous]
+
   - id: WEEKLY-TLD-PROBE
     name: TLD probe — gov/mil subdomain sweep
     description: |

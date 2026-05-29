@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1053,
+  "next_available": 1054,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5034,6 +5034,16 @@
       "r_number": "R-F1052",
       "title": "ARIA-LLM v0.1 activation: DPO training + eval + deploy + air-gap validation",
       "claimed_at": "2026-05-29T14:14:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d039b234",
+      "notes": null,
+      "shipped_at": "2026-05-29T14:17:54Z"
+    },
+    {
+      "r_number": "R-F1053",
+      "title": "Live site audit + BD strategy + data monetization",
+      "claimed_at": "2026-05-29T14:24:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
