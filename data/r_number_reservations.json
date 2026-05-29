@@ -5075,9 +5075,10 @@
       "title": "Full system audit — logs, errors, bugs, non-responsive components",
       "claimed_at": "2026-05-29T15:03:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "87e9f664",
+      "notes": null,
+      "shipped_at": "2026-05-29T15:06:20Z"
     }
   ]
 }

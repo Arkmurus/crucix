@@ -395,7 +395,7 @@ async function readDocumentAsync(payload, chatId, filename) {
   await sendReply(chatId,
     `📥 Reading *${filename}* — a large or scanned document takes a minute. `
     + `I'll send the overview as soon as it's ready.`).catch(() => {});
-  const POLL_MS = 5000, MAX_POLLS = 120;   // R-F943: 5s × 120 = up to 10 minutes (was 8)
+  const POLL_MS = 5000, MAX_POLLS = 180;   // R-F1056: 5s x 180 = up to 15 minutes (was 10) × 120 = up to 10 minutes (was 8)
   // R-F880 — 8-min window (was 4): with document_intelligence deferred server-
   // side, a text-layer doc resolves in seconds, but a LENGTHY SCANNED PDF still
   // needs full multi-page OCR (no shortcuts) which can run several minutes. The
@@ -411,7 +411,7 @@ async function readDocumentAsync(payload, chatId, filename) {
     if (st.status === 'not_found') throw new Error('extraction job expired');
     // status === 'processing' → keep polling
   }
-  throw new Error('extraction timed out after 10 minutes');
+  throw new Error('extraction timed out after 15 minutes');
 }
 
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
@@ -484,7 +484,7 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   // Total window 10 min (operator: "give her the time she needs"); the brain job
   // has NO server-side cap (line ~338), so this client poll window is the only bound.
   const FAST_MS = 1000, SLOW_MS = 5000, FAST_PHASE_MS = 30000;
-  const INTERIM_AFTER_MS = 7000, MAX_MS = 600000;
+  const INTERIM_AFTER_MS = 7000, MAX_MS = 900000;   // R-F1056: 15 min (was 10)
   const t0 = Date.now();
   let interimSent = false;
   while (Date.now() - t0 < MAX_MS) {
@@ -496,6 +496,11 @@ async function askARIAAsync(message, senderJid, chatId = null) {
         '🔎 Working on that — this one needs a deeper look. I\'ll reply here the '
         + 'moment it\'s ready (a full document or contract review can take a few minutes).'
       ).catch(() => {});
+    }
+    // R-F1056 -- send progress updates for long-running jobs (every 2 min)
+    if (chatId && interimSent && (Date.now() - t0) > 120000 && Math.floor((Date.now() - t0) / 120000) > Math.floor(((Date.now() - t0) - 5000) / 120000)) {
+      const mins = Math.floor((Date.now() - t0) / 60000);
+      sendReply(chatId, 'Still working on it (' + mins + ' min) - this is a complex one. I will reply as soon as I have the full picture.').catch(() => {});
     }
     let st;
     try { st = await brainGet(`/api/aria/chat/result/${jobId}`); }
@@ -509,7 +514,7 @@ async function askARIAAsync(message, senderJid, chatId = null) {
     if (st.status === 'not_found') throw new Error('chat job expired');
     // status === 'processing' → keep polling
   }
-  throw new Error('chat job timed out after 10 minutes');
+  throw new Error('chat job timed out after 15 minutes');
 }
 
 // ── Split long messages into chunks for WhatsApp ────────────────────────────
