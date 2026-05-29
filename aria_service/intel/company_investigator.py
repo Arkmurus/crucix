@@ -437,29 +437,116 @@ async def _phase_ssl_dns(
     report: InvestigationReport,
     website: str,
 ) -> None:
-    """Check SSL certificate and DNS records."""
+    """Check SSL certificate, DNS records, and WHOIS data."""
     if not website:
         return
-    try:
-        from .sources import cert_transparency as _ct
-        domain = website.replace("https://", "").replace("http://", "").split("/")[0]
-        certs = await asyncio.wait_for(
-            _ct.search(domain),
-            timeout=_PHASE_TIMEOUTS["ssl_dns"],
-        )
-        if certs:
-            report.findings.append(InvestigationFinding(
-                category="ssl",
-                title=f"SSL certificates for {domain}",
-                summary=f"{len(certs)} certificates found",
-                source=f"crt.sh/{domain}",
-                confidence=0.8,
-                tags=["ssl", "certificate_transparency"],
-            ))
-    except asyncio.TimeoutError:
-        logger.debug("[company_investigator] SSL check timed out")
-    except Exception as e:
-        logger.debug("[company_investigator] SSL check failed: %s", e)
+    domain = website.replace("https://", "").replace("http://", "").split("/")[0]
+
+    async def _check_certificates() -> None:
+        """Check SSL certificates via certificate transparency."""
+        try:
+            from .sources import cert_transparency as _ct
+            certs = await asyncio.wait_for(
+                _ct.search(domain),
+                timeout=_PHASE_TIMEOUTS["ssl_dns"] * 0.4,
+            )
+            if certs:
+                report.findings.append(InvestigationFinding(
+                    category="ssl",
+                    title=f"SSL certificates for {domain}",
+                    summary=f"{len(certs)} certificates found",
+                    source=f"crt.sh/{domain}",
+                    confidence=0.8,
+                    tags=["ssl", "certificate_transparency"],
+                ))
+        except asyncio.TimeoutError:
+            logger.debug("[company_investigator] SSL check timed out")
+        except Exception as e:
+            logger.debug("[company_investigator] SSL check failed: %s", e)
+
+    async def _check_whois() -> None:
+        """Check WHOIS record for the domain."""
+        try:
+            import socket as _sock
+            loop = asyncio.get_running_loop()
+            # Use whois via socket (no external dependency — pure Python stdlib)
+            whois_server = "whois.verisign-grs.com"
+            whois_port = 43
+
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(whois_server, whois_port),
+                timeout=5.0,
+            )
+            writer.write(f"{domain}\r\n".encode("utf-8"))
+            await writer.drain()
+
+            response = await asyncio.wait_for(
+                reader.read(4096), timeout=5.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            text = response.decode("utf-8", errors="replace")
+            # Extract key fields
+            import re as _re
+            fields = {}
+            for pattern, key in [
+                (r"Registry Domain ID:\s*(.+)", "domain_id"),
+                (r"Registrar:\s*(.+)", "registrar"),
+                (r"Creation Date:\s*(.+)", "created"),
+                (r"Registry Expiry Date:\s*(.+)", "expires"),
+                (r"Registrant Organization:\s*(.+)", "org"),
+                (r"Registrant Country:\s*(.+)", "country"),
+                (r"Name Server:\s*(.+)", "nameserver"),
+                (r"DNSSEC:\s*(.+)", "dnssec"),
+            ]:
+                m = _re.search(pattern, text, _re.IGNORECASE)
+                if m:
+                    fields[key] = m.group(1).strip()
+
+            if fields:
+                summary_parts = []
+                if fields.get("org"):
+                    summary_parts.append(f"Registrant: {fields['org']}")
+                if fields.get("country"):
+                    summary_parts.append(f"Country: {fields['country']}")
+                if fields.get("created"):
+                    summary_parts.append(f"Created: {fields['created']}")
+                if fields.get("expires"):
+                    summary_parts.append(f"Expires: {fields['expires']}")
+                if fields.get("registrar"):
+                    summary_parts.append(f"Registrar: {fields['registrar']}")
+
+                report.findings.append(InvestigationFinding(
+                    category="whois",
+                    title=f"WHOIS: {domain}",
+                    summary=" | ".join(summary_parts) if summary_parts else f"WHOIS record found for {domain}",
+                    source=f"whois:{domain}",
+                    confidence=0.9,
+                    tags=["whois", "domain_registration"],
+                ))
+            else:
+                report.findings.append(InvestigationFinding(
+                    category="whois",
+                    title=f"WHOIS: {domain}",
+                    summary=f"WHOIS record retrieved but key fields not parseable for {domain}",
+                    source=f"whois:{domain}",
+                    confidence=0.5,
+                    tags=["whois", "domain_registration"],
+                ))
+        except asyncio.TimeoutError:
+            logger.debug("[company_investigator] WHOIS check timed out")
+        except ConnectionRefusedError:
+            logger.debug("[company_investigator] WHOIS server refused connection")
+        except Exception as e:
+            logger.debug("[company_investigator] WHOIS check failed: %s", e)
+
+    # Run SSL cert check and WHOIS concurrently
+    await asyncio.gather(
+        _check_certificates(),
+        _check_whois(),
+        return_exceptions=True,
+    )
 
 
 async def _phase_procurement(
