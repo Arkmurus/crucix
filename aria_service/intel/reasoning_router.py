@@ -294,6 +294,43 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         logger.warning("local_brain failed: %s", e)
         trace.append({"stage": "local_brain", "error": str(e)})
 
+    # R-F1047 -- try grounded reasoner BEFORE cloud LLM escalation.
+    # The grounded reasoner decomposes the question, gathers evidence from
+    # all available sources, reasons over verified evidence only, and
+    # ground-or-abstains. If it produces a grounded answer, serve it.
+    try:
+        from .grounded_reasoner import reason as _gr_reason
+        _gr_result = await _gr_reason(question)
+        if _gr_result and not _gr_result.abstained and _gr_result.answer:
+            trace.append({
+                "stage": "grounded_reasoner",
+                "matched": True,
+                "claims": len(_gr_result.claims),
+                "grounded": sum(1 for c in _gr_result.claims if c.grounded),
+            })
+            await _record_routing("grounded_reasoner")
+            return {
+                "answered": True,
+                "response": _gr_result.answer,
+                "source": "grounded_reasoner",
+                "confidence": (
+                    _gr_result.claims[0].confidence if _gr_result.claims else 0.8
+                ),
+                "intent": "grounded_reasoning",
+                "trace": trace,
+                "duration_ms": _gr_result.duration_ms,
+                "independent": True,
+                "llm_calls_avoided": 1,
+            }
+        trace.append({
+            "stage": "grounded_reasoner",
+            "matched": False,
+            "abstained": getattr(_gr_result, 'abstained', True),
+        })
+    except Exception as _gr_err:
+        logger.debug("Grounded reasoner failed (continuing escalation): %s", _gr_err)
+        trace.append({"stage": "grounded_reasoner", "error": str(_gr_err)[:120]})
+
     # ── Stage 4: Local Ollama reasoning model ────────────────────────────
     # Only attempt if Ollama is reachable AND a reasoning model is loaded.
     # The actual LLM call happens in aria_engine — we just signal "try local".

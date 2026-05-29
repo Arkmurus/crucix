@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1047,
+  "next_available": 1048,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4974,6 +4974,16 @@
       "r_number": "R-F1046",
       "title": "360 wiring fix-pass: autonomous loop, logger namespace, compliance wiring, Node bridge, WA env",
       "claimed_at": "2026-05-29T13:28:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "63595b81",
+      "notes": null,
+      "shipped_at": "2026-05-29T13:35:22Z"
+    },
+    {
+      "r_number": "R-F1047",
+      "title": "Activate grounded reasoner + wire remaining dark modules",
+      "claimed_at": "2026-05-29T13:36:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

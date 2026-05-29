@@ -66,14 +66,22 @@ class TestDataTypes:
 
 class TestDisabledPath:
     def test_returns_disabled_message_when_gate_off(self) -> None:
-        # ARIA_GROUNDED_REASONER is not set (defaults to "0")
-        reasoner = GroundedReasoner()
-        result = reasoner.reason("test question")
-        # Need to await
-        import asyncio
-        r = asyncio.run(result)
-        assert r.abstained
-        assert "disabled" in r.answer.lower()
+        # R-F1047: gate defaults to "1" (enabled). Test by setting _ENABLED directly.
+        from aria_service.intel.grounded_reasoner import GroundedReasoner, _ENABLED as _orig_enabled
+        
+        # Temporarily disable
+        import aria_service.intel.grounded_reasoner as gr_mod
+        gr_mod._ENABLED = False
+        
+        try:
+            reasoner = GroundedReasoner()
+            result = reasoner.reason("test question")
+            import asyncio
+            r = asyncio.run(result)
+            assert r.abstained
+            assert "disabled" in r.answer.lower()
+        finally:
+            gr_mod._ENABLED = True
 
 
 # ════════════════════════════════════════════════════════════════════════════

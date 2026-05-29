@@ -62,8 +62,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.grounded_reasoner")
 
-# Gate
-_ENABLED = os.getenv("ARIA_GROUNDED_REASONER", "0") == "1"
+# Gate — R-F1047: enabled by default. The grounded reasoner is the primary
+# response path for all chat queries. Set ARIA_GROUNDED_REASONER=0 to disable.
+_ENABLED = os.getenv("ARIA_GROUNDED_REASONER", "1") == "1"
 
 
 # ── Data types ──────────────────────────────────────────────────────────────
