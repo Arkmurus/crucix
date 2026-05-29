@@ -137,6 +137,17 @@ class FallbackProvider(LLMProvider):
         # don't re-apply a stale cooldown after the operator topped up.
         if had_hard_cooldown:
             self._clear_redis_cooldown(provider.name)
+        # R-F1059 — wire provider recovery to brain
+        try:
+            from ..intel.engine_wiring import wire_success as _ws
+            _ws(
+                module="llm_fallback",
+                summary=f"Provider recovered: {provider.name}",
+                detail=f"kind={stats.get('last_kind', 'unknown')}",
+                source_id=f"llm_fallback:recovered:{provider.name}",
+            )
+        except Exception:
+            pass
 
     def _record_failure(self, provider, stats: dict, error: Exception):
         stats["failures"] = stats.get("failures", 0) + 1
@@ -228,6 +239,18 @@ class FallbackProvider(LLMProvider):
                     "Provider %s failed (%d): %s — trying next",
                     provider.name, stats["failures"], str(error)[:200],
                 )
+        # R-F1059 — wire provider failure to brain (debounced: only on first
+        # failure or when kind changes, not on every burst retry)
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="llm_fallback",
+                detail=f"Provider {provider.name} failed: kind={kind} failures={stats['failures']} error={error}",
+                gap_type="llm_provider_failure",
+                source="llm_fallback",
+            )
+        except Exception:
+            pass
 
     # ── F68: Redis cooldown mirror (HARD cooldowns only) ────────────────
 

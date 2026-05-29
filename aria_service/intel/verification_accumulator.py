@@ -178,6 +178,17 @@ async def reconcile(batch_size: int = _DEFAULT_RECONCILE_BATCH) -> dict:
         logger.warning("verification_accumulator.reconcile failed: %s", exc)
     diag["finished_at"] = time.time()
     await _persist_state(diag)
+    # R-F1059 — wire reconcile result to brain
+    try:
+        from .engine_wiring import wire_success as _ws
+        _ws(
+            module="verification_accumulator",
+            summary=f"Reconciled: {diag['scanned']} scanned, {diag['upgraded']} upgraded",
+            detail=f"still_pending={diag['still_pending']} errors={diag['errors']}",
+            source_id="verification_accumulator",
+        )
+    except Exception:
+        pass
     return diag
 
 

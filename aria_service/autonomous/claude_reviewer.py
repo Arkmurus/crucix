@@ -251,6 +251,17 @@ class ClaudeReviewer:
             "[claude_reviewer] no LLM reviewer reachable — running ARIA "
             "self-check (deterministic). Change cannot auto-deploy unreviewed."
         )
+        # R-F1059 — wire reviewer exhaustion to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="claude_reviewer",
+                detail="No LLM reviewer reachable — fell back to deterministic self-check",
+                gap_type="reviewer_exhaustion",
+                source="claude_reviewer",
+            )
+        except Exception:
+            pass
         return self._self_check(diff=diff, files=files)
 
     # ──────────────────────────────────────────────────────────────────

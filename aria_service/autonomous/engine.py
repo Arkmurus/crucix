@@ -1,5 +1,8 @@
 """ARIA Layer 3 — autonomous engine bootstrap, polling loop, lifecycle.
 
+R-F1059 — wired to brain: task fire/skip/error events reach brain via
+wire_success/wire_failure so the coder can see engine behaviour.
+
 This is the heartbeat of the autonomous research engine. The whole
 module is ~150 lines because it leans entirely on the existing
 aria_engine.aria_chat() pipeline for the heavy lifting:
@@ -366,11 +369,33 @@ async def _engine_loop(llm) -> None:
                         llm=llm,
                         dry_run=is_dry_run(),
                     )
+                    # R-F1059 — wire task success to brain
+                    try:
+                        from ..intel.engine_wiring import wire_success as _ws
+                        _ws(
+                            module="autonomous_engine",
+                            summary=f"Task fired: {task_id}",
+                            detail=f"cron={task.cron} dry_run={is_dry_run()}",
+                            source_id=f"autonomous_engine:task:{task_id}",
+                        )
+                    except Exception:
+                        pass
                 except Exception as e:
                     logger.warning(
                         "[autonomous engine] task %s execution raised: %s: %s",
                         task_id, type(e).__name__, e,
                     )
+                    # R-F1059 — wire task failure to brain
+                    try:
+                        from ..intel.engine_wiring import wire_failure as _wf
+                        _wf(
+                            module="autonomous_engine",
+                            detail=f"Task {task_id} failed: {type(e).__name__}: {e}",
+                            gap_type="engine_failure",
+                            source="autonomous_engine",
+                        )
+                    except Exception:
+                        pass
         except asyncio.CancelledError:
             logger.info("[autonomous engine] cancelled — exiting loop")
             raise
@@ -402,6 +427,17 @@ def start_engine(llm) -> bool:
         logger.warning(
             "[autonomous engine] not started — LLM provider is not configured",
         )
+        # R-F1059 — wire the skip to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="autonomous_engine",
+                detail="Engine not started: LLM not configured",
+                gap_type="engine_failure",
+                source="autonomous_engine",
+            )
+        except Exception:
+            pass
         return False
     # Load tasks.yaml NOW so the "started" log line is accurate AND the
     # engine's first tick has tasks ready. Previously load_tasks() ran
@@ -434,6 +470,17 @@ def _on_engine_done(t: asyncio.Task) -> None:
             "[autonomous engine] task ended with exception: %s: %s",
             type(exc).__name__, exc,
         )
+        # R-F1059 — wire engine crash to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="autonomous_engine",
+                detail=f"Engine loop crashed: {type(exc).__name__}: {exc}",
+                gap_type="engine_failure",
+                source="autonomous_engine",
+            )
+        except Exception:
+            pass
     else:
         logger.warning("[autonomous engine] task ended without exception (unexpected)")
 

@@ -264,6 +264,17 @@ class RateLimitedProvider(LLMProvider):
             "Background request (priority=%s) waited %.0fs, proceeding anyway",
             priority.name, waited,
         )
+        # R-F1059 — wire rate limit pressure to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="rate_limiter",
+                detail=f"Background request (priority={priority.name}) waited {waited:.0f}s — RPM={self._rpm}",
+                gap_type="rate_limit_pressure",
+                source="rate_limiter",
+            )
+        except Exception:
+            pass
 
     def get_stats(self) -> dict:
         """Return rate limiter stats."""

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1059,
+  "next_available": 1060,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5085,14 +5085,25 @@
       "title": "Fix grounded reasoner latency + meta-preamble leak",
       "claimed_at": "2026-05-29T15:14:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8907abcc",
+      "notes": null,
+      "shipped_at": "2026-05-29T15:20:43Z"
     },
     {
       "r_number": "R-F1058",
       "title": "Defer heavy boot tasks to after /health; batch deploy policy",
       "claimed_at": "2026-05-29T15:18:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8907abcc",
+      "notes": null,
+      "shipped_at": "2026-05-29T15:20:46Z"
+    },
+    {
+      "r_number": "R-F1059",
+      "title": "Ecosystem-wide brain wiring sweep — 28 dark modules",
+      "claimed_at": "2026-05-29T21:25:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

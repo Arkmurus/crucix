@@ -202,7 +202,17 @@ def route_for_intent(
         if provider and (not available or _provider_available(provider, available)):
             return provider
 
-    # Last resort
+    # Last resort — R-F1059: wire tier exhaustion to brain
+    try:
+        from ..intel.engine_wiring import wire_failure as _wf
+        _wf(
+            module="tier_router",
+            detail=f"No provider available for intent={intent} tier={tier} available={available}",
+            gap_type="tier_exhaustion",
+            source="tier_router",
+        )
+    except Exception:
+        pass
     return "anthropic"
 
 

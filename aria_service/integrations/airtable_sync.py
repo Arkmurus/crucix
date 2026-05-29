@@ -274,6 +274,16 @@ async def sync_record(entry: dict) -> dict[str, Any]:
         return {"ok": False, "reason": f"http_{resp.status_code}",
                 "http_status": resp.status_code, "body": resp.text[:200]}
     reason = "created" if mode == _MODE_COMPACT else "upserted"
+    # R-F1059 — wire sync success to brain
+    try:
+        from ..intel.engine_wiring import wire_success as _ws
+        _ws(
+            module="airtable_sync",
+            summary=f"Airtable sync: {action_id} ({reason})",
+            source_id=f"airtable_sync:{action_id}",
+        )
+    except Exception:
+        pass
     return {"ok": True, "reason": reason, "http_status": resp.status_code}
 
 

@@ -78,8 +78,30 @@ class OpenAICompatProvider(LLMProvider):
         except ProviderError:
             raise
         except httpx.TimeoutException as e:
+            # R-F1059 — wire timeout to brain
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(
+                    module=f"llm_{self.name}",
+                    detail=f"Provider {self.name} timeout: {e}",
+                    gap_type="llm_provider_failure",
+                    source=f"llm_{self.name}",
+                )
+            except Exception:
+                pass
             raise ProviderError(self.name, "timeout", kind="timeout", retryable=True, cause=e)
         except httpx.HTTPError as e:
+            # R-F1059 — wire network error to brain
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(
+                    module=f"llm_{self.name}",
+                    detail=f"Provider {self.name} network error: {e}",
+                    gap_type="llm_provider_failure",
+                    source=f"llm_{self.name}",
+                )
+            except Exception:
+                pass
             raise ProviderError(self.name, f"network error: {e}", kind="other", retryable=True, cause=e)
 
         choice = data.get("choices", [{}])[0]

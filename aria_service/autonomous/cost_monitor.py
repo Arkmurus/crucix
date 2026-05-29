@@ -435,6 +435,17 @@ class ARIACostMonitor:
                     f"Manual queries via WhatsApp/chat still permitted."
                 )
             logger.error("Daily cost cap exhausted — circuit OPEN")
+            # R-F1059 — wire circuit open to brain
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(
+                    module="cost_monitor",
+                    detail=f"Daily cost cap ${self.daily_cap:.2f} exhausted (${state.total_spent_usd:.2f} spent)",
+                    gap_type="cost_cap_hit",
+                    source="cost_monitor",
+                )
+            except Exception:
+                pass
 
     def _get_today_state(self) -> DailyBudgetState:
         today_str = date.today().isoformat()

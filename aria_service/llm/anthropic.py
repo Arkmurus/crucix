@@ -121,6 +121,17 @@ class AnthropicProvider(LLMProvider):
                     )
                     await asyncio.sleep(wait)
 
+        # R-F1059 — wire Anthropic failure to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="llm_anthropic",
+                detail=f"Anthropic all retries exhausted: {last_error}",
+                gap_type="llm_provider_failure",
+                source="llm_anthropic",
+            )
+        except Exception:
+            pass
         raise last_error or RuntimeError("Anthropic provider: all retries exhausted")
 
     # ── Streaming — token-by-token SSE ───────────────────────────────

@@ -291,10 +291,31 @@ def send_email(
         }
         _append_log({"kind": "send", **{k: v for k, v in out.items()}})
         logger.info("R-F597 outbound send → %s (subject=%r)", to, subject[:80])
+        # R-F1059 — wire send success to brain
+        try:
+            from ..intel.engine_wiring import wire_success as _ws
+            _ws(
+                module="email_outbound",
+                summary=f"Email sent to {to}: {subject[:80]}",
+                source_id=f"email_outbound:{to}",
+            )
+        except Exception:
+            pass
         return out
     except Exception as exc:
         msg = f"SMTP send failed: {str(exc)[:200]}"
         logger.warning("R-F597 %s", msg)
+        # R-F1059 — wire send failure to brain
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="email_outbound",
+                detail=f"Email to {to} failed: {msg}",
+                gap_type="integration_failure",
+                source="email_outbound",
+            )
+        except Exception:
+            pass
         d = compose_draft(
             to=to, subject=subject, body=body, cc=cc,
             attachments=attachments,

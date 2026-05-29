@@ -257,6 +257,17 @@ async def _run_task(task_id: str, llm: Any) -> None:
         await _push_completion_alert(task_id, task, result)
 
         logger.info("Research task %s complete in %dms", task_id, duration)
+        # R-F1059 — wire task completion to brain
+        try:
+            from .engine_wiring import wire_success as _ws
+            _ws(
+                module="research_tasks",
+                summary=f"Research task complete: {task_id} ({task_type})",
+                detail=f"duration={duration}ms",
+                source_id=f"research_tasks:{task_id}",
+            )
+        except Exception:
+            pass
 
     except Exception as e:
         logger.warning("Research task %s failed: %s", task_id, e)

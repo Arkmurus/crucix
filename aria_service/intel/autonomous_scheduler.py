@@ -63,10 +63,31 @@ class AutonomousScheduler:
         while self._running:
             try:
                 await func()
+                # R-F1059 — wire scheduler tick to brain
+                try:
+                    from ..intel.engine_wiring import wire_success as _ws
+                    _ws(
+                        module="autonomous_scheduler",
+                        summary=f"Scheduler tick: {name}",
+                        source_id=f"scheduler:{name}",
+                    )
+                except Exception:
+                    pass
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.error("[scheduler] %s failed: %s", name, e)
+                # R-F1059 — wire scheduler failure to brain
+                try:
+                    from ..intel.engine_wiring import wire_failure as _wf
+                    _wf(
+                        module="autonomous_scheduler",
+                        detail=f"Scheduler {name} failed: {e}",
+                        gap_type="engine_failure",
+                        source="autonomous_scheduler",
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(interval)
 
     async def _fix_gaps(self) -> None:

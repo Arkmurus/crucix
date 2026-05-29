@@ -259,6 +259,19 @@ async def compute_composite() -> dict:
         await rs.set_json(_K_HISTORY, history[:720], ex=30 * 86400)  # 30 days hourly
     except Exception:
         pass
+
+    # R-F1059 — wire composite score to brain
+    try:
+        from .engine_wiring import wire_success as _ws
+        _ws(
+            module="autonomy_scorer",
+            summary=f"Composite score: {composite:.3f} (tier={tier.name})",
+            detail=f"mastery={signals['mastery']} verification={signals['verification']} "
+                   f"predictor={signals['predictor_gate']} honesty={signals['honesty_rate']} "
+                   f"override={override}",
+            source_id="autonomy_scorer",
+        )
+    except Exception:
         pass
 
     return result
