@@ -15,6 +15,34 @@ Supersedes/extends `docs/aria_own_reasoning_review_2026_05_29.md`.
 - Goal: reasoning robust enough that **ARIA becomes her own LLM** (replaces DeepSeek),
   and coding knowledge/infrastructure good enough that **she can build anything asked**.
 
+## 0.5 NORTH STAR — FULL INDEPENDENCE (everything must build toward this)
+Operator directive: this roadmap exists so ARIA becomes **independent on everything** —
+the canonical anchor is `docs/aria_independence_roadmap.md` (sovereign model + memory +
+judgement; no external LLM on the hot path; air-gappable). **Every task on this roadmap
+must reduce external dependence, never add it.** Independence is reached when all
+chat/DD/autonomous/coding output is produced by a model on Arkmurus-controlled compute,
+weights on Arkmurus storage, and an air-gapped ARIA behaves identically. External
+providers (DeepSeek/Groq/Anthropic) may remain only as break-glass fallbacks.
+
+How each track moves the dependency needle:
+- **Track R (reasoning) → independence of *judgement*.** A grounded reasoner that
+  reasons over ARIA's OWN verified evidence (knowledge/neural/RAG — all already
+  self-hosted, §6) means the rented LLM becomes a text-generator over her own facts,
+  not the source of truth. Pay-once-remember-forever (reasoning_library/neural) cuts
+  per-query LLM reliance over time. Model-agnostic, so it runs unchanged on ARIA-LLM.
+- **Track L (own LLM) → independence of *mind*.** Replaces the DEEP dependency (the 3
+  rented LLM providers) with ARIA-LLM on Arkmurus GPU. This is THE independence move.
+- **Track C (coding) → independence of *evolution*.** Her own coder improves herself
+  without an external dev — and (Track L) without an external LLM for coding.
+- **Shallow deps already self-hostable** (embeddings/chromadb/OCR/sanctions cache are
+  zero-runtime-dependency; search via SearXNG candidate). Don't add new paid deps (§6);
+  prefer building her own corpus/crawl over leaning on flaky free APIs (the
+  DDG/archive/wayback/semantic_scholar breaker cluster is a dependence smell to reduce).
+
+The litmus test for anything given to ARIA: *does this make her MORE able to run on her
+own model, her own data, her own compute — or does it deepen a dependency?* If the
+latter, redesign it.
+
 ## 1. Current state (grounded — DONE / PENDING / MISSING)
 
 ### Reasoning
