@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1064,
+  "next_available": 1065,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5144,6 +5144,16 @@
       "r_number": "R-F1063",
       "title": "Portal registration system — ARIA registers for data access accounts",
       "claimed_at": "2026-05-29T21:51:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "66e2afa5",
+      "notes": null,
+      "shipped_at": "2026-05-29T21:53:17Z"
+    },
+    {
+      "r_number": "R-F1064",
+      "title": "Email reading + portal registration expansion + cost-free continuous learning",
+      "claimed_at": "2026-05-29T21:56:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
