@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1015,
+  "next_available": 1016,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4662,6 +4662,15 @@
       "commit_sha": "6a2b4cd",
       "notes": null,
       "shipped_at": "2026-05-29T09:20:13Z"
+    },
+    {
+      "r_number": "R-F1015",
+      "title": "ARIA coder-chat-UI build spec doc",
+      "claimed_at": "2026-05-29T09:21:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
