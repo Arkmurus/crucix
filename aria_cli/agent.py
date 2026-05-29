@@ -43,6 +43,8 @@ class AgentUI:
     def info(self, text: str) -> None: ...
     def thinking_start(self) -> None: ...   # model call begins (show activity)
     def thinking_stop(self) -> None: ...    # model call returned
+    def stream_delta(self, text: str) -> None: ...  # a streamed content token
+    def stream_end(self) -> None: ...               # streamed message complete
 
     def approve(self, name: str, args: dict) -> bool:
         """Return True to allow a mutating tool call. Default: allow."""
@@ -96,11 +98,15 @@ class Agent:
         self.retry_backoff = 2.0  # seconds, exponential; overridden to 0 in tests
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
-    def _chat_with_retry(self, steps: int):
+    def _chat_with_retry(self, steps: int, on_delta=None):
         """Call the LLM, retrying transient failures with exponential backoff.
+        Streams tokens via on_delta when the provider supports it (never silent).
         Returns the LLMResponse, or a TurnResult on unrecoverable failure."""
+        stream_fn = getattr(self.llm, "chat_stream", None)
         for attempt in range(LLM_MAX_ATTEMPTS):
             try:
+                if stream_fn is not None and on_delta is not None:
+                    return stream_fn(self.messages, tools=TOOL_SCHEMAS, on_delta=on_delta)
                 return self.llm.chat(self.messages, tools=TOOL_SCHEMAS)
             except LLMError as exc:
                 last = attempt == LLM_MAX_ATTEMPTS - 1
@@ -143,12 +149,14 @@ class Agent:
         self.messages.append({"role": "user", "content": user_text})
         steps = 0
         while steps < MAX_STEPS:
-            # Show "thinking" while we wait on the model so it's never silent.
+            # Show "thinking" while we wait on the first token, then stream the
+            # answer live so the UI is never silent.
             self.ui.thinking_start()
             try:
-                resp = self._chat_with_retry(steps)
+                resp = self._chat_with_retry(steps, on_delta=self.ui.stream_delta)
             finally:
                 self.ui.thinking_stop()
+            self.ui.stream_end()
             if isinstance(resp, TurnResult):  # unrecoverable / retries exhausted
                 return resp
 
@@ -156,7 +164,8 @@ class Agent:
             # tool_calls so the follow-up tool messages match).
             self.messages.append(resp.raw_message or {"role": "assistant", "content": resp.content})
 
-            if resp.content:
+            # If the provider did NOT stream (no chat_stream), print the content now.
+            if resp.content and not getattr(self.ui, "_streamed_this_turn", False):
                 self.ui.assistant(resp.content)
 
             if not resp.tool_calls:

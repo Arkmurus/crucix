@@ -177,3 +177,89 @@ class LLMClient:
             input_tokens=in_tok,
             output_tokens=out_tok,
         )
+
+    def chat_stream(self, messages: list[dict], tools: list[dict] | None = None,
+                    on_delta=None) -> LLMResponse:
+        """Streaming chat (SSE). Calls on_delta(text) for each content token as it
+        arrives so the UI is never silent, accumulates tool_call deltas, and
+        returns the same LLMResponse shape as chat(). Falls back semantics match
+        chat() on errors (raises LLMError)."""
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
+        payload: dict = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        url = f"{self.config.base_url}/chat/completions"
+        content_parts: list[str] = []
+        tool_acc: dict[int, dict] = {}
+        in_tok = out_tok = 0
+
+        try:
+            with self._client.stream("POST", url, json=payload, headers=headers) as resp:
+                if resp.status_code >= 400:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    raise LLMError(f"LLM endpoint {url} returned HTTP {resp.status_code}: {body[:500]}")
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    if line == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(line)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    usage = chunk.get("usage")
+                    if usage:
+                        in_tok = int(usage.get("prompt_tokens", 0) or 0) or in_tok
+                        out_tok = int(usage.get("completion_tokens", 0) or 0) or out_tok
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    piece = delta.get("content")
+                    if piece:
+                        content_parts.append(piece)
+                        if on_delta is not None:
+                            try:
+                                on_delta(piece)
+                            except Exception:  # noqa: BLE001 — UI must never break the stream
+                                pass
+                    for tc in (delta.get("tool_calls") or []):
+                        idx = tc.get("index", 0)
+                        slot = tool_acc.setdefault(
+                            idx, {"id": "", "type": "function",
+                                  "function": {"name": "", "arguments": ""}})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["function"]["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            slot["function"]["arguments"] += fn["arguments"]
+        except httpx.HTTPError as exc:
+            raise LLMError(f"could not reach LLM endpoint {url}: {exc}") from exc
+
+        content = "".join(content_parts)
+        tool_calls = [tool_acc[i] for i in sorted(tool_acc)]
+        raw_message: dict = {"role": "assistant", "content": content}
+        if tool_calls:
+            raw_message["tool_calls"] = tool_calls
+        self.total_input_tokens += in_tok
+        self.total_output_tokens += out_tok
+        return LLMResponse(
+            content=content, tool_calls=tool_calls, raw_message=raw_message,
+            input_tokens=in_tok, output_tokens=out_tok,
+        )

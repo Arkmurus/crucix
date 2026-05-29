@@ -255,6 +255,56 @@ def test_autonomous_mode_never_asks_approval(tmp_path):
     assert (tmp_path / "a.txt").read_text() == "x"
 
 
+def test_agent_streams_tokens_and_does_not_double_print(tmp_path):
+    """R-F1028 — when the provider supports chat_stream, the agent streams each
+    token to the UI (never silent) and does NOT also call assistant() (no dupe)."""
+    class _StreamLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        def chat_stream(self, messages, tools=None, on_delta=None):
+            for ch in ["hel", "lo ", "wor", "ld"]:
+                if on_delta:
+                    on_delta(ch)
+            return LLMResponse(content="hello world", tool_calls=[],
+                               raw_message={"role": "assistant", "content": "hello world"})
+
+        def close(self):
+            pass
+
+    class _StreamUI(AgentUI):
+        def __init__(self):
+            self.deltas = []
+            self.assistant_calls = []
+            self._streamed_this_turn = False
+
+        def thinking_start(self):
+            self._streamed_this_turn = False
+
+        def stream_delta(self, text):
+            self.deltas.append(text)
+            self._streamed_this_turn = True
+
+        def assistant(self, text):
+            self.assistant_calls.append(text)
+
+    ui = _StreamUI()
+    agent = Agent(llm=_StreamLLM(), toolbox=_general_box(tmp_path),
+                  system_prompt="s", ui=ui, auto_approve=True)
+    result = agent.run_turn("hi")
+    assert "".join(ui.deltas) == "hello world", "tokens must stream live"
+    assert ui.assistant_calls == [], "must not double-print streamed content"
+    assert result.final_text == "hello world"
+
+
+def test_prompt_carries_engineering_standard():
+    prompt = build_system_prompt(root=Path.cwd(), self_mode=False,
+                                 constitution_active=False, repo_root=None)
+    low = prompt.lower()
+    assert "engineering standard" in low
+    assert "timeout" in low and "idempotent" in low and "capability test" in low
+
+
 def test_prompt_declares_full_autonomy():
     repo_root = find_repo_root(Path(__file__).resolve().parent)
     prompt = build_system_prompt(root=repo_root, self_mode=True,

@@ -97,9 +97,27 @@ class TerminalUI(AgentUI):
         self._can_animate = sys.stdout.isatty()
         self._spin_stop: threading.Event | None = None
         self._spin_thread: threading.Thread | None = None
+        self._stream_active = False        # currently streaming an assistant msg
+        self._streamed_this_turn = False   # did this LLM response stream content?
 
     def assistant(self, text: str) -> None:
         print("\n" + self.c.cyan("aria") + "  " + text)
+
+    # ── live token streaming (never silent — output appears as she generates) ──
+    def stream_delta(self, text: str) -> None:
+        if not self._stream_active:
+            self.thinking_stop()  # stop the spinner the instant the first token lands
+            sys.stdout.write("\n" + self.c.cyan("aria") + "  ")
+            self._stream_active = True
+            self._streamed_this_turn = True
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def stream_end(self) -> None:
+        if self._stream_active:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._stream_active = False
 
     def tool_call(self, name: str, args: dict) -> None:
         detail = self._summarize(name, args)
@@ -119,6 +137,7 @@ class TerminalUI(AgentUI):
 
     # ── live "thinking" spinner ─────────────────────────────────────────────
     def thinking_start(self) -> None:
+        self._streamed_this_turn = False  # reset per LLM response
         if not self._can_animate or self._spin_thread is not None:
             return
         self._spin_stop = threading.Event()

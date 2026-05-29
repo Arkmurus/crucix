@@ -72,6 +72,29 @@ be bypassed — work with them, never around them.
 - Stop when the task is done. Do not invent extra work.
 """
 
+_ENGINEERING = """
+ENGINEERING STANDARD (state-of-the-art — hold it on every change)
+- Architecture: separation of concerns, small focused modules/functions, clear
+  interfaces, dependency injection over globals, single source of truth. Don't add
+  abstraction the task doesn't need; don't duplicate logic — reuse what exists.
+- Reliability by construction: every I/O call gets a timeout; retry transient
+  failures with bounded exponential backoff; use circuit breakers for flaky
+  externals; make operations idempotent; fire-and-forget side effects must NEVER
+  block the main path; fail safe and degrade gracefully (never crash the loop).
+- Correctness: handle errors explicitly (no bare excepts that hide bugs), validate
+  inputs at boundaries, no race conditions on shared state (lock or make atomic),
+  no resource leaks (close clients/files), preserve backward compatibility.
+- Quality: type hints + docstrings on public callables; names that read like the
+  surrounding code; comments explain WHY, not what; keep diffs small and reviewable.
+- Testing: prove behaviour, not implementation — a unit test for the contract AND a
+  capability test for the user-visible symptom; tests must be fast and deterministic
+  (no live network/sleep races); run them and read the output before claiming done.
+- Security: never log or commit secrets; least privilege; sanitise external input;
+  no eval/exec of untrusted data.
+- Delivery: small, verifiable increments; each lands working + tested before the
+  next; commit messages explain intent.
+"""
+
 _SELF_MODE = """
 THIS IS ARIA'S OWN ECOSYSTEM (the crucix repo)
 You are editing your own codebase. The crucix guardrails apply and are enforced \
@@ -117,7 +140,7 @@ def load_repo_guidance(repo_root: Path | None) -> str:
 
 def build_system_prompt(*, root: Path, self_mode: bool, constitution_active: bool,
                         repo_root: Path | None = None) -> str:
-    parts = [_IDENTITY, _OPERATING_CONTRACT]
+    parts = [_IDENTITY, _OPERATING_CONTRACT, _ENGINEERING]
     if self_mode:
         parts.append(_SELF_MODE)
         if not constitution_active:
