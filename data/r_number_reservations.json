@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1028,
+  "next_available": 1029,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4791,6 +4791,16 @@
       "commit_sha": "c27f738",
       "notes": null,
       "shipped_at": "2026-05-29T11:28:26Z"
+    },
+    {
+      "r_number": "R-F1028",
+      "title": "aria CLI: streaming output (never silent) — live token stream + always-on activity, full coder UI",
+      "claimed_at": "2026-05-29T11:49:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c48bb0e",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:53:46Z"
     }
   ]
 }
