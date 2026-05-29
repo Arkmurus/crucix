@@ -440,11 +440,12 @@ async def build_report(
     template_text, n_template_chunks = await _retrieve_tier_d_template(report_type, subject)
     template_source = "tier_d" if template_text else "fallback_skeleton"
     if not template_text:
-        from datetime import date
-        template_text = spec["skeleton"].format(
-            subject=subject,
-            today=date.today().isoformat(),
-        )
+        # R-F1065: don't .format() the skeleton — it contains ~40 LLM-facing
+        # placeholders ({client}, {ref}, {assessment}, ...) that are instructions
+        # for the LLM fill step, not Python format strings. Passing only
+        # subject+today would raise KeyError on the first unknown placeholder.
+        # Pass the raw skeleton to the LLM to populate.
+        template_text = spec["skeleton"]
 
     # ── 3. LLM template fill ──────────────────────────────────────────
     system_prompt = (

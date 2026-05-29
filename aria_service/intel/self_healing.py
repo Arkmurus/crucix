@@ -64,7 +64,7 @@ class CircuitState(Enum):
     DISABLED = "disabled"      # Manually disabled
 
 
-class RecoveryAction(Enum):
+class RecoveryActionType(Enum):
     RESTART = "restart"
     ROLLBACK = "rollback"
     RECONNECT = "reconnect"
@@ -155,7 +155,7 @@ class CircuitBreaker:
 @dataclass
 class RecoveryAction:
     """A recovery action to execute."""
-    action: RecoveryAction
+    action: RecoveryActionType
     target: str
     reason: str = ""
     executed_at: float = 0.0
@@ -349,7 +349,8 @@ class CircuitBreakerManager:
     async def load_from_redis(self) -> None:
         """Restore circuit breaker states from Redis after restart."""
         try:
-            keys = await rs.keys(_CIRCUIT_KEY_PREFIX + "*")
+            # R-F1065: rs.keys() doesn't exist — use scan_keys instead
+            keys = await rs.scan_keys(_CIRCUIT_KEY_PREFIX + "*")
             for key in keys:
                 data = await rs.get_json(key)
                 if data:
@@ -523,35 +524,35 @@ class AutoRecoveryEngine:
         error_lower = error.lower()
 
         if "connection" in error_lower or "refused" in error_lower or "timeout" in error_lower:
-            return RecoveryAction(action=RecoveryAction.RECONNECT, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.RECONNECT, target=subsystem, reason=error[:200])
         elif "memory" in error_lower or "oom" in error_lower:
-            return RecoveryAction(action=RecoveryAction.RESTART, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.RESTART, target=subsystem, reason=error[:200])
         elif "corrupt" in error_lower or "integrity" in error_lower:
-            return RecoveryAction(action=RecoveryAction.REBUILD, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.REBUILD, target=subsystem, reason=error[:200])
         elif "cache" in error_lower or "stale" in error_lower:
-            return RecoveryAction(action=RecoveryAction.CLEAR_CACHE, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.CLEAR_CACHE, target=subsystem, reason=error[:200])
         elif "deploy" in error_lower or "regression" in error_lower:
-            return RecoveryAction(action=RecoveryAction.ROLLBACK, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.ROLLBACK, target=subsystem, reason=error[:200])
         else:
-            return RecoveryAction(action=RecoveryAction.NOTIFY, target=subsystem, reason=error[:200])
+            return RecoveryAction(action=RecoveryActionType.NOTIFY, target=subsystem, reason=error[:200])
 
     async def _execute_action(self, action: RecoveryAction) -> dict:
         """Execute a recovery action."""
         action.executed_at = time.time()
 
-        if action.action == RecoveryAction.RECONNECT:
+        if action.action == RecoveryActionType.RECONNECT:
             # Clear connection pool — next request will create new connections
             return {"success": True, "message": f"Connection reset for {action.target}"}
 
-        elif action.action == RecoveryAction.CLEAR_CACHE:
-            # Clear Redis cache for the subsystem
+        elif action.action == RecoveryActionType.CLEAR_CACHE:
+            # Clear cache for the subsystem
             try:
                 await rs.delete(f"crucix:{action.target}:*")
                 return {"success": True, "message": f"Cache cleared for {action.target}"}
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
-        elif action.action == RecoveryAction.REBUILD:
+        elif action.action == RecoveryActionType.REBUILD:
             # Signal rebuild — the subsystem will rebuild on next access
             try:
                 await rs.set(f"crucix:rebuild:{action.target}", "1", ex=3600)
@@ -559,7 +560,7 @@ class AutoRecoveryEngine:
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
-        elif action.action == RecoveryAction.NOTIFY:
+        elif action.action == RecoveryActionType.NOTIFY:
             # Log the issue — the autonomous loop will pick it up
             logger.warning("[self_healing] Recovery needed for %s: %s", action.target, action.reason)
             return {"success": True, "message": f"Notification logged for {action.target}"}
@@ -642,10 +643,10 @@ class SelfDiagnostic:
         """Run a full diagnostic of the entire system."""
         results = {}
 
-        # 1. Redis connectivity
+        # 1. Redis connectivity — R-F1065: rs.ping() doesn't exist, probe with get_json
         try:
-            pong = await rs.ping()
-            results["redis"] = {"status": "ok" if pong else "error", "latency_ms": 0}
+            _probe = await rs.get_json("crucix:self_healing:probe")
+            results["redis"] = {"status": "ok", "latency_ms": 0}
         except Exception as e:
             results["redis"] = {"status": "error", "error": str(e)}
 

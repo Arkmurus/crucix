@@ -66,7 +66,7 @@ async def generate_market_intelligence() -> dict:
 
     # 1. Market opportunities from intel ledger
     try:
-        signals = await il.get_recent_signals(limit=200)
+        signals = await il.get_recent(limit=200)
         report["sources_consulted"].append("intel_ledger")
         # Group signals by region/country
         by_region: dict[str, list[dict]] = {}
@@ -89,7 +89,7 @@ async def generate_market_intelligence() -> dict:
 
     # 2. Competitor intelligence
     try:
-        competitors = await ct.get_recent_activity(limit=50)
+        competitors = await ct.get_competitor_activity(limit=50)
         report["sources_consulted"].append("competitor_tracker")
         for comp in competitors[:10]:
             report["competitor_intelligence"].append({
@@ -104,7 +104,7 @@ async def generate_market_intelligence() -> dict:
 
     # 3. Procurement highlights
     try:
-        tenders = await tm.get_active_tenders(limit=50)
+        tenders = await tm.get_new_tenders(since_hours=72)
         report["sources_consulted"].append("tender_monitor")
         for t in tenders[:10]:
             report["procurement_highlights"].append({
@@ -120,7 +120,7 @@ async def generate_market_intelligence() -> dict:
 
     # 4. Risk assessment
     try:
-        risks = await pri.get_current_risks()
+        risks = await pri.get_current_state()
         report["sources_consulted"].append("political_risk_index")
         for risk in risks[:10]:
             report["risk_assessment"].append({
@@ -258,7 +258,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
     from . import competitor_tracker as ct
     from . import commercial_coherence as cc
 
-    deal = await dp.get_deal(deal_id)
+    deal = await dp.get_lead(deal_id)
     if not deal:
         return {"error": f"Deal {deal_id} not found"}
 
@@ -285,7 +285,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
 
     # Competitive landscape
     try:
-        competitors = await ct.get_competitors_for_deal(deal_id, limit=5)
+        competitors = await ct.get_competitor_activity(firm=deal.get("name", ""))
         for comp in competitors:
             strategy["competitive_landscape"].append({
                 "competitor": comp.get("name", "unknown"),
@@ -306,7 +306,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
     # Risk factors
     try:
         from . import political_risk_index as pri
-        risks = await pri.get_country_risks(country)
+        risks = await pri.get_current_state()
         for risk in risks:
             strategy["risk_factors"].append({
                 "type": risk.get("type", "political"),
