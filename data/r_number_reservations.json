@@ -5235,9 +5235,10 @@
       "title": "Full-stack improvement: web UI, DD storage, auth, email, reports, customer support",
       "claimed_at": "2026-05-29T22:39:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "688c1aba",
+      "notes": null,
+      "shipped_at": "2026-05-29T22:42:13Z"
     }
   ]
 }

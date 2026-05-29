@@ -547,13 +547,32 @@ async def dd_report_ep(run_id: str, format: str = "json"):
     if not report:
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     if format == "markdown":
-        # Re-hydrate a lightweight renderer by re-importing the schema
         from ..intel import dd_schema
         try:
             rebuilt = _rebuild_report_from_dict(report, dd_schema)
             return {"run_id": run_id, "markdown": rebuilt.render_markdown(concise=False)}
         except Exception as e:
             _log.debug("dd report markdown rebuild failed (falling back to raw): %s", e)
+    if format == "download":
+        from ..intel import dd_schema
+        from starlette.responses import Response as _Resp
+        try:
+            rebuilt = _rebuild_report_from_dict(report, dd_schema)
+            md = rebuilt.render_markdown(concise=False)
+            entity = report.get("identity", {}).get("entity_name", run_id)
+            filename = f"dd_report_{entity}_{run_id[:8]}.md".replace(" ", "_").lower()
+            return _Resp(
+                content=md,
+                media_type="text/markdown",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        except Exception as e:
+            _log.debug("dd report download failed (falling back to raw): %s", e)
+            return _Resp(
+                content=str(report),
+                media_type="application/json",
+                headers={"Content-Disposition": f'attachment; filename="dd_report_{run_id[:8]}.json"'},
+            )
     return report
 
 
@@ -12289,8 +12308,8 @@ async def autonomous_enable_ep(request: Request):
             "override": override,
             "note": (
                 "Runtime override set via Redis. To survive a full "
-                "container rebuild, also run: "
-                "flyctl secrets set ARIA_AUTONOMOUS_ENABLED=1 -a aria-intel"
+                "container rebuild, set ARIA_AUTONOMOUS_ENABLED=1 "
+                "via the fly.io dashboard or CLI"
             ),
         }
     except Exception as e:
