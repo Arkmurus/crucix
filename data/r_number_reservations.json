@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1013,
+  "next_available": 1014,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4460,9 +4460,9 @@
       "claimed_at": "2026-05-28T23:08:59Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "549aff0",
+      "commit_sha": "fbc705c",
       "notes": null,
-      "shipped_at": "2026-05-28T23:18:26Z"
+      "shipped_at": "2026-05-29T09:10:44Z"
     },
     {
       "r_number": "R-F995",
@@ -4637,6 +4637,16 @@
       "r_number": "R-F1012",
       "title": "ARIA WhatsApp professional messaging: clean formatting, relevant responses, jargon-free communication",
       "claimed_at": "2026-05-29T08:25:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a2b6062",
+      "notes": null,
+      "shipped_at": "2026-05-29T08:26:46Z"
+    },
+    {
+      "r_number": "R-F1013",
+      "title": "ARIA own-reasoning review + buildout spec doc",
+      "claimed_at": "2026-05-29T09:10:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
