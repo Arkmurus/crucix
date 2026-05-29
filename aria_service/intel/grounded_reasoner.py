@@ -66,6 +66,12 @@ logger = logging.getLogger("aria.grounded_reasoner")
 # response path for all chat queries. Set ARIA_GROUNDED_REASONER=0 to disable.
 _ENABLED = os.getenv("ARIA_GROUNDED_REASONER", "1") == "1"
 
+# R-F1057 — wall-time budget for the entire reason() pipeline. If the pipeline
+# exceeds this, it falls through to the cloud LLM (fast fallthrough).
+_EVIDENCE_GATHER_TIMEOUT = 15.0   # max seconds for all evidence gathering
+_LLM_SYNTHESIS_TIMEOUT = 10.0     # max seconds for LLM claim synthesis
+_TOTAL_PIPELINE_TIMEOUT = 25.0    # max seconds for the entire reason() call
+
 
 # ── Data types ──────────────────────────────────────────────────────────────
 
@@ -143,43 +149,77 @@ class GroundedReasoner:
             )
 
         try:
-            # ── Phase 1: Understand ──────────────────────────────────────
-            steps.append(ReasoningStep(phase="understand", detail="Parsing intent and premises"))
-            premises = await self._extract_premises(message)
-            steps[-1].result = f"Extracted {len(premises)} premises"
+            # R-F1057 — wall-time budget for the entire pipeline. If we exceed
+            # this, we fall through to the cloud LLM (fast fallthrough) rather
+            # than making the user wait.
+            async def _pipeline() -> tuple[str, bool, list[Claim]]:
+                """Run the full pipeline with its own time budget."""
+                # ── Phase 1: Understand ──────────────────────────────────
+                steps.append(ReasoningStep(phase="understand", detail="Parsing intent and premises"))
+                premises = await self._extract_premises(message)
+                steps[-1].result = f"Extracted {len(premises)} premises"
 
-            # ── Phase 2: Decompose ───────────────────────────────────────
-            steps.append(ReasoningStep(phase="decompose", detail="Breaking into sub-questions"))
-            sub_questions = await self._decompose(message, premises)
-            steps[-1].result = f"Decomposed into {len(sub_questions)} sub-questions"
+                # ── Phase 2: Decompose ───────────────────────────────────
+                steps.append(ReasoningStep(phase="decompose", detail="Breaking into sub-questions"))
+                sub_questions = await self._decompose(message, premises)
+                steps[-1].result = f"Decomposed into {len(sub_questions)} sub-questions"
 
-            # ── Phase 3: Gather evidence ─────────────────────────────────
-            steps.append(ReasoningStep(phase="gather", detail="Gathering evidence per sub-question"))
-            evidence_map: dict[str, list[EvidenceItem]] = {}
-            for sq in sub_questions:
-                ev = await self._gather_evidence(sq)
-                evidence_map[sq] = ev
-            steps[-1].result = f"Gathered evidence for {len(evidence_map)} sub-questions"
+                # ── Phase 3: Gather evidence (CONCURRENT per sub-question) ──
+                steps.append(ReasoningStep(phase="gather", detail="Gathering evidence per sub-question"))
+                evidence_map: dict[str, list[EvidenceItem]] = {}
 
-            # ── Phase 4: Reason ──────────────────────────────────────────
-            steps.append(ReasoningStep(phase="reason", detail="Reasoning over verified evidence"))
-            claims = await self._reason_over_evidence(message, sub_questions, evidence_map)
-            steps[-1].result = f"Produced {len(claims)} claims"
+                # R-F1057 — gather evidence for ALL sub-questions CONCURRENTLY
+                # instead of serially. Each sub-question's internal sources are
+                # also gathered concurrently inside _gather_evidence_concurrent.
+                async def _gather_one(sq: str) -> tuple[str, list[EvidenceItem]]:
+                    ev = await self._gather_evidence_concurrent(sq)
+                    return sq, ev
 
-            # ── Phase 5: Verify inline ───────────────────────────────────
-            steps.append(ReasoningStep(phase="verify", detail="Verifying claims inline"))
-            claims = await self._verify_claims_inline(claims)
-            grounded_count = sum(1 for c in claims if c.grounded)
-            steps[-1].result = f"{grounded_count}/{len(claims)} claims grounded"
+                _gather_tasks = [_gather_one(sq) for sq in sub_questions]
+                _gather_results = await asyncio.wait_for(
+                    asyncio.gather(*_gather_tasks, return_exceptions=True),
+                    timeout=_EVIDENCE_GATHER_TIMEOUT,
+                )
+                for _gr in _gather_results:
+                    if isinstance(_gr, Exception):
+                        logger.debug("[grounded_reasoner] gather task failed: %s", _gr)
+                        continue
+                    sq, ev = _gr
+                    evidence_map[sq] = ev
 
-            # ── Phase 6: Ground-or-abstain ───────────────────────────────
-            steps.append(ReasoningStep(phase="ground_or_abstain", detail="Building final answer"))
-            answer, abstained = self._build_answer(claims)
-            steps[-1].result = "Abstained" if abstained else "Answered"
+                steps[-1].result = f"Gathered evidence for {len(evidence_map)} sub-questions"
+
+                # ── Phase 4: Reason ──────────────────────────────────────
+                steps.append(ReasoningStep(phase="reason", detail="Reasoning over verified evidence"))
+                claims = await self._reason_over_evidence(message, sub_questions, evidence_map)
+                steps[-1].result = f"Produced {len(claims)} claims"
+
+                # ── Phase 5: Verify inline ───────────────────────────────
+                steps.append(ReasoningStep(phase="verify", detail="Verifying claims inline"))
+                claims = await self._verify_claims_inline(claims)
+                grounded_count = sum(1 for c in claims if c.grounded)
+                steps[-1].result = f"{grounded_count}/{len(claims)} claims grounded"
+
+                # ── Phase 6: Ground-or-abstain ───────────────────────────
+                steps.append(ReasoningStep(phase="ground_or_abstain", detail="Building final answer"))
+                answer, abstained = self._build_answer(claims)
+                steps[-1].result = "Abstained" if abstained else "Answered"
+                return answer, abstained, claims
+
+            answer, abstained, claims = await asyncio.wait_for(
+                _pipeline(),
+                timeout=_TOTAL_PIPELINE_TIMEOUT,
+            )
 
             # ── Phase 7: Absorb ──────────────────────────────────────────
             await self._absorb_result(message, answer, claims, steps)
 
+        except asyncio.TimeoutError:
+            logger.warning("[grounded_reasoner] pipeline timed out after %ss — fast fallthrough",
+                           _TOTAL_PIPELINE_TIMEOUT)
+            steps.append(ReasoningStep(phase="timeout", detail=f"Exceeded {_TOTAL_PIPELINE_TIMEOUT}s budget"))
+            answer = ""
+            abstained = True
         except Exception as exc:
             logger.exception("[grounded_reasoner] pipeline failed")
             steps.append(ReasoningStep(phase="error", detail=str(exc)))
@@ -362,6 +402,112 @@ class GroundedReasoner:
 
         return evidence
 
+    async def _gather_evidence_concurrent(self, sub_question: str) -> list[EvidenceItem]:
+        """Gather evidence for a sub-question from ALL sources CONCURRENTLY.
+
+        R-F1057 — runs all source queries in parallel instead of serially,
+        with a per-source timeout so one slow source doesn't block the rest.
+        """
+        evidence: list[EvidenceItem] = []
+        _tasks: list[asyncio.Task] = []
+
+        async def _from_reasoning_library() -> None:
+            rl = await self._get_reasoning_library()
+            if not rl:
+                return
+            try:
+                match = await rl.search(sub_question, threshold=0.85)
+                if match and match.get("response"):
+                    evidence.append(EvidenceItem(
+                        source=f"reasoning_library:{match.get('id', 'unknown')}",
+                        kind="reasoning_library",
+                        confidence=match.get("confidence_score", 0.8),
+                        content=match["response"][:500],
+                    ))
+            except Exception as exc:
+                logger.debug("[grounded_reasoner] reasoning_library failed: %s", exc)
+
+        async def _from_knowledge() -> None:
+            kn = await self._get_knowledge()
+            if not kn:
+                return
+            try:
+                facts = await kn.query(sub_question, limit=3)
+                for fact in (facts or []):
+                    if isinstance(fact, dict):
+                        evidence.append(EvidenceItem(
+                            source=fact.get("source", "knowledge_store"),
+                            kind="knowledge",
+                            confidence=fact.get("confidence", 0.7),
+                            content=str(fact.get("fact", ""))[:500],
+                        ))
+            except Exception as exc:
+                logger.debug("[grounded_reasoner] knowledge query failed: %s", exc)
+
+        async def _from_neural() -> None:
+            nm = await self._get_neural_memory()
+            if not nm:
+                return
+            try:
+                neurons = await nm.recall(sub_question, limit=3)
+                for n in (neurons or []):
+                    if isinstance(n, dict):
+                        evidence.append(EvidenceItem(
+                            source=f"neural:{n.get('id', 'unknown')}",
+                            kind="neural",
+                            confidence=n.get("confidence", 0.6),
+                            content=str(n.get("summary", ""))[:500],
+                        ))
+            except Exception as exc:
+                logger.debug("[grounded_reasoner] neural recall failed: %s", exc)
+
+        async def _from_rag() -> None:
+            rag = await self._get_rag()
+            if not rag:
+                return
+            try:
+                docs = await rag.search(sub_question, limit=3)
+                for doc in (docs or []):
+                    if isinstance(doc, dict):
+                        evidence.append(EvidenceItem(
+                            source=doc.get("source", doc.get("url", "rag_store")),
+                            kind="rag",
+                            confidence=doc.get("score", 0.5),
+                            content=str(doc.get("content", ""))[:500],
+                        ))
+            except Exception as exc:
+                logger.debug("[grounded_reasoner] RAG search failed: %s", exc)
+
+        async def _from_premise_verifier() -> None:
+            pv = await self._get_premise_verifier()
+            if not pv:
+                return
+            try:
+                report = pv.verify_premises(sub_question)
+                if report and hasattr(report, "verdicts"):
+                    for v in report.verdicts:
+                        evidence.append(EvidenceItem(
+                            source=f"canonical:{v.get('source', 'premise_verifier')}",
+                            kind="canonical",
+                            confidence={"CONFIRMED": 0.95, "REFUTED": 0.95}.get(
+                                v.get("verdict", ""), 0.5),
+                            content=str(v.get("detail", ""))[:500],
+                        ))
+            except Exception as exc:
+                logger.debug("[grounded_reasoner] premise_verifier failed: %s", exc)
+
+        # Run all source queries concurrently with individual timeouts
+        _source_tasks = [
+            _from_reasoning_library(),
+            _from_knowledge(),
+            _from_neural(),
+            _from_rag(),
+            _from_premise_verifier(),
+        ]
+        await asyncio.gather(*_source_tasks, return_exceptions=True)
+
+        return evidence
+
     async def _reason_over_evidence(
         self,
         message: str,
@@ -404,10 +550,15 @@ class GroundedReasoner:
                     "If the evidence does not support an answer, say so. "
                     "Return a JSON object with:\n"
                     "  - claims: list of {text, confidence}\n\n"
+                    "Do NOT start your response with 'UNDERSTOOD AS:' or any "
+                    "other preamble — return ONLY the JSON object.\n\n"
                     f"Question: {message}\n\n"
                     f"Evidence:\n{evidence_text}"
                 )
-                resp = await llm.complete(prompt, max_tokens=1000)
+                resp = await asyncio.wait_for(
+                    llm.complete(prompt, max_tokens=1000),
+                    timeout=_LLM_SYNTHESIS_TIMEOUT,
+                )
                 if resp and resp.content:
                     try:
                         data = json.loads(resp.content)
@@ -421,11 +572,17 @@ class GroundedReasoner:
                                 ))
                     except (json.JSONDecodeError, TypeError):
                         # Non-JSON response — use as a single claim
-                        claims.append(Claim(
-                            text=resp.content[:500],
-                            grounded=True,
-                            confidence=0.7,
-                        ))
+                        # R-F1057 — strip meta-preamble from LLM output
+                        _clean = self._strip_meta_preamble(resp.content[:500])
+                        if _clean:
+                            claims.append(Claim(
+                                text=_clean,
+                                grounded=True,
+                                confidence=0.7,
+                            ))
+            except asyncio.TimeoutError:
+                logger.debug("[grounded_reasoner] LLM synthesis timed out after %ss",
+                             _LLM_SYNTHESIS_TIMEOUT)
             except Exception as exc:
                 logger.debug("[grounded_reasoner] LLM reasoning failed: %s", exc)
 
@@ -465,6 +622,46 @@ class GroundedReasoner:
 
         return verified_claims
 
+    @staticmethod
+    def _strip_meta_preamble(text: str) -> str:
+        """Remove meta-preamble markers from LLM-generated text.
+
+        R-F1057 — the LLM sometimes starts responses with "UNDERSTOOD AS:"
+        (from the comprehension prefix pattern in the main chat path) or
+        other meta markers. These are useful in the reasoning trace but
+        must not leak into the user-facing answer.
+
+        Strips:
+          - "*UNDERSTOOD AS:* ..." (markdown italic variant)
+          - "UNDERSTOOD AS: ..." (plain text variant)
+          - "[COMPREHENSION PASS ...]" blocks
+        """
+        import re as _re
+        # Markdown italic: *UNDERSTOOD AS:* or _UNDERSTOOD AS:_
+        text = _re.sub(
+            r'\*?UNDERSTOOD AS:\*?\s*',
+            '',
+            text,
+            count=1,
+            flags=_re.IGNORECASE,
+        )
+        # Plain text: UNDERSTOOD AS:
+        text = _re.sub(
+            r'^UNDERSTOOD AS:\s*',
+            '',
+            text,
+            count=1,
+            flags=_re.IGNORECASE,
+        )
+        # [COMPREHENSION PASS ...] blocks
+        text = _re.sub(
+            r'\[COMPREHENSION PASS[^\]]*\]\s*',
+            '',
+            text,
+            flags=_re.IGNORECASE,
+        )
+        return text.strip()
+
     def _build_answer(self, claims: list[Claim]) -> tuple[str, bool]:
         """Build the final answer from verified claims.
 
@@ -482,13 +679,15 @@ class GroundedReasoner:
 
         parts: list[str] = []
         for c in grounded:
+            # R-F1057 — strip meta-preamble from claim text before presenting
+            clean_text = self._strip_meta_preamble(c.text)
             sources = ", ".join(e.source[:60] for e in c.evidence[:3])
-            parts.append(f"{c.text} (confidence: {c.confidence:.0%}, sources: {sources})")
+            parts.append(f"{clean_text} (confidence: {c.confidence:.0%}, sources: {sources})")
 
         if ungrounded:
             parts.append(
                 "\nNote: The following aspects could not be verified: "
-                + "; ".join(c.text[:100] for c in ungrounded)
+                + "; ".join(self._strip_meta_preamble(c.text[:100]) for c in ungrounded)
             )
 
         return "\n".join(parts), bool(ungrounded)

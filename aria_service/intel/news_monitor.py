@@ -526,6 +526,16 @@ async def poll_feeds(
             logger.warning("[news_monitor] Feed poll failed for %s: %s", name, e)
             total_failed += 1
             feed_results.append({"name": name, "status": "error", "error": str(e)[:100]})
+            # R-F1057 — wire failure to brain so ARIA sees it
+            try:
+                wire_failure(
+                    module="news_monitor",
+                    summary=f"Feed poll failed: {name}",
+                    detail=str(e)[:300],
+                    source_id=f"news_monitor:feed:{name}",
+                )
+            except Exception:
+                pass
 
     summary = {
         "feeds_polled": len(sources),
