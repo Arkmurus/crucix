@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1049,
+  "next_available": 1050,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4994,6 +4994,16 @@
       "r_number": "R-F1048",
       "title": "Wire grounded_reasoner into brain_hook module registry",
       "claimed_at": "2026-05-29T13:44:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ee90bb77",
+      "notes": null,
+      "shipped_at": "2026-05-29T13:46:26Z"
+    },
+    {
+      "r_number": "R-F1049",
+      "title": "Full stack audit + intel source expansion + news monitoring",
+      "claimed_at": "2026-05-29T13:51:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

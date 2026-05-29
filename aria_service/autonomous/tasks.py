@@ -1062,6 +1062,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import narrative_monitor
         return await narrative_monitor.scan_narratives()
 
+    elif tool_kind == "news_monitor_poll":
+        from ..intel import news_monitor
+        return await news_monitor.poll_feeds()
+
     elif tool_kind == "pipeline_dormancy_check":
         from ..intel import deal_pipeline
         dormant = await deal_pipeline.check_dormant_leads()

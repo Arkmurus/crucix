@@ -260,6 +260,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "ingest_sweep":         ["osint", "market_intel"],
     # R-F1048 -- grounded reasoner: evidence-traced, ground-or-abstain answers.
     "grounded_reasoner":    ["general", "osint", "compliance", "legal"],
+    # R-F1049 -- news monitor: RSS/feed polling for defence, geopolitics, finance
+    "news_monitor":         ["osint", "market_intel", "geopolitics", "general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -416,6 +418,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "self_assess":          0.10,  # daily briefing composer
     # R-F1048 -- grounded reasoner: moderate weight per grounded answer
     "grounded_reasoner":    0.20,
+    # R-F1049 -- news monitor: moderate weight per feed poll
+    "news_monitor":         0.10,
 }
 
 

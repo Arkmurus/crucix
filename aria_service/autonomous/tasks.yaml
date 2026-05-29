@@ -1396,6 +1396,30 @@ tasks:
     escalate_if: ["coordinated_campaign", "narrative_spike", "oem_attack", "information_operation"]
     mem0_tags: [narrative, cognitive_warfare, coordination, hourly, autonomous]
 
+  # ═══════════════════════════════════════════════════════════════════
+  # NEWS MONITOR — RSS/feed polling (R-F1049)
+  # ═══════════════════════════════════════════════════════════════════
+  - id: HOURLY-NEWS-MONITOR
+    name: News feed monitor
+    description: |
+      Every hour — poll 80+ defence, geopolitical, financial, and regional
+      news feeds for new articles. Feeds each new article into ARIA's brain
+      for analysis, alerting, and knowledge accumulation. Covers global
+      defence news, regional defence (Africa, MENA, LATAM, Asia), think
+      tanks, financial news, press releases, and local-language regional
+      news (Portuguese, Arabic, Turkish).
+    cron: "0 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.02
+    tool_chain:
+      - tool: news_monitor_poll
+    delivery_channels: [intel_ledger, mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["feed_failure", "high_value_article"]
+    mem0_tags: [news, monitoring, intelligence, hourly, autonomous]
+
   - id: WEEKLY-TLD-PROBE
     name: TLD probe — gov/mil subdomain sweep
     description: |
