@@ -84,6 +84,8 @@ async def investigate_company(
     jurisdiction: str = "",
     website: str = "",
     max_depth: int = 2,
+    uei: str = "",
+    ncage: str = "",
 ) -> InvestigationReport:
     """Run the full investigation pipeline on a company.
 
@@ -92,6 +94,8 @@ async def investigate_company(
         jurisdiction: Optional jurisdiction hint (e.g. "UK", "UAE").
         website: Optional website URL to start from.
         max_depth: Max crawl depth (default 2).
+        uei: Optional SAM.gov UEI for contract lookup.
+        ncage: Optional NCAGE code for additional verification.
 
     Returns:
         InvestigationReport with all findings.
@@ -109,7 +113,7 @@ async def investigate_company(
             # Phase 1: Entity resolution
             await _phase_entity_resolution(report, company_name, jurisdiction, website)
 
-            # Phase 2-11: Run ALL data-gathering phases CONCURRENTLY
+            # Phase 2-13: Run ALL data-gathering phases CONCURRENTLY
             gather_tasks = [
                 _phase_web_search(report, company_name, website),
                 _phase_deep_crawl(report, company_name, website, max_depth),
@@ -121,10 +125,11 @@ async def investigate_company(
                 _phase_tech_stack(report, website),
                 _phase_ssl_dns(report, website),
                 _phase_procurement(report, company_name, jurisdiction),
+                _phase_contract_lookup(report, company_name, uei=uei),
             ]
             await asyncio.gather(*gather_tasks, return_exceptions=True)
 
-            # Phase 12: Synthesis
+            # Phase 13: Synthesis
             await _phase_synthesis(report, company_name)
 
         await asyncio.wait_for(_run_pipeline(), timeout=_TOTAL_TIMEOUT)
@@ -575,6 +580,100 @@ async def _phase_procurement(
         logger.debug("[company_investigator] procurement search timed out")
     except Exception as e:
         logger.debug("[company_investigator] procurement search failed: %s", e)
+
+
+async def _phase_contract_lookup(
+    report: InvestigationReport,
+    company_name: str,
+    uei: str = "",
+) -> None:
+    """Look up US government contract awards via USASpending.gov API.
+
+    Uses the free, open USASpending.gov API — no registration required.
+    If a UEI is available, does a targeted lookup by UEI.
+    Otherwise searches by company name.
+    """
+    try:
+        from .portal_registry import lookup_contracts_by_uei
+
+        if uei:
+            data = await asyncio.wait_for(
+                lookup_contracts_by_uei(uei),
+                timeout=15.0,
+            )
+            if data:
+                awards = data.get("results") or data.get("awards") or []
+                total_obligated = 0
+                agency_count: dict[str, int] = {}
+                for award in awards[:20]:
+                    agency = award.get("funding_agency", award.get("agency", "unknown"))
+                    agency_count[agency] = agency_count.get(agency, 0) + 1
+                    total_obligated += award.get("obligated_amount", 0)
+
+                report.findings.append(InvestigationFinding(
+                    category="contracts",
+                    title=f"USASpending.gov: {len(awards)} contract awards found",
+                    summary=(
+                        f"Total obligated: ${total_obligated:,.2f}. "
+                        f"Agencies: {', '.join(sorted(agency_count.keys())[:5])}. "
+                        f"UEI: {uei}"
+                    ),
+                    source=f"usaspending.gov/recipient/{uei}",
+                    confidence=0.95,
+                    tags=["contracts", "usaspending", "federal_awards"],
+                ))
+
+                # Add individual awards
+                for award in awards[:5]:
+                    report.findings.append(InvestigationFinding(
+                        category="contracts",
+                        title=award.get("title", "Contract award")[:200],
+                        summary=(
+                            f"Agency: {award.get('funding_agency', award.get('agency', 'unknown'))}. "
+                            f"Amount: ${award.get('obligated_amount', 0):,.2f}. "
+                            f"Date: {award.get('period_of_performance_start_date', award.get('date', 'unknown'))}"
+                        ),
+                        source=award.get("url", f"usaspending.gov/award/{award.get('id', '')}"),
+                        confidence=0.95,
+                        tags=["contracts", "award"],
+                    ))
+
+                # Check for red flags
+                if total_obligated < 100000:
+                    report.risk_indicators.append(
+                        f"Low contract volume: ${total_obligated:,.2f} total — "
+                        f"claims may exceed verified past performance"
+                    )
+                if len(agency_count) < 2:
+                    report.risk_indicators.append(
+                        f"Single-agency dependency: only {list(agency_count.keys())[0] if agency_count else 'unknown'} — "
+                        f"limited agency diversity"
+                    )
+                return
+
+        # No UEI or lookup failed — try name-based search
+        from . import web_search as _ws
+        query = f"{company_name} site:usaspending.gov contract award"
+        results = await asyncio.wait_for(
+            _ws.search(query, num_results=5),
+            timeout=10.0,
+        )
+        for r in (results or [])[:3]:
+            url = r.get("url", "") or r.get("link", "")
+            if url:
+                report.findings.append(InvestigationFinding(
+                    category="contracts",
+                    title=r.get("title", "")[:200],
+                    summary=(r.get("snippet", "")[:300] or "USASpending.gov result"),
+                    source=url,
+                    confidence=0.5,
+                    tags=["contracts", "web_search"],
+                ))
+
+    except asyncio.TimeoutError:
+        logger.debug("[company_investigator] contract lookup timed out")
+    except Exception as e:
+        logger.debug("[company_investigator] contract lookup failed: %s", e)
 
 
 async def _phase_synthesis(

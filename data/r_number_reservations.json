@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1063,
+  "next_available": 1064,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5134,6 +5134,16 @@
       "r_number": "R-F1062",
       "title": "Add WHOIS lookup to company investigator SSL/DNS phase",
       "claimed_at": "2026-05-29T21:41:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "67ee0d3e",
+      "notes": null,
+      "shipped_at": "2026-05-29T21:41:51Z"
+    },
+    {
+      "r_number": "R-F1063",
+      "title": "Portal registration system — ARIA registers for data access accounts",
+      "claimed_at": "2026-05-29T21:51:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
