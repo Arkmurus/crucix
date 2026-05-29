@@ -54,7 +54,8 @@ from .constitutional_validator import (
 from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
 from .r_counter import RNumberCounter
-from ..intel.autonomous_coder import AutonomousCoder  # R-F1003: no external LLM
+from ..intel.autonomous_coder import AutonomousCoder  # R-F1003 (kept for injection/back-compat)
+from .sovereign_llm import SovereignLLM  # R-F1025: real LLM-backed coder (the contract self_coder reads)
 from .test_runner import TestResult, TestRunner
 
 logger = logging.getLogger("aria.autonomous.self_coder")
@@ -181,7 +182,7 @@ class ARIACoder:
         brain_hook: Optional[Any] = None,
         output_harvester: Optional[Any] = None,
         gap_detector: Optional[GapDetector] = None,
-        llm: Optional[AutonomousCoder] = None,  # R-F1003: no external LLM
+        llm: Optional["SovereignLLM"] = None,  # R-F1025: LLM-backed coder provider
         validator: Optional[ConstitutionalValidator] = None,
         codebase: Optional[CodebaseReader] = None,
         test_runner: Optional[TestRunner] = None,
@@ -198,7 +199,16 @@ class ARIACoder:
 
         # Allow injection for tests; default to constructing from scratch
         self.gap_detector = gap_detector or GapDetector(redis_client)
-        self.llm = llm or AutonomousCoder()  # R-F1003: no external LLM
+        # R-F1025: default to the LLM-backed SovereignLLM, NOT the template-only
+        # AutonomousCoder stub. The stub ignored existing_code (emitted fresh
+        # stubs), returned the wrong test key, and never produced corrected code
+        # in analyse_failure — so the coder could not actually fix bugs. SovereignLLM
+        # returns exactly the keys this class reads (approach/target_files/risk_level,
+        # code, test_code/test_filepath, corrected code) and is model-agnostic
+        # (DeepSeek now via /api/aria/coder/llm, ARIA-LLM once ARIA_LLM_URL is set).
+        self.llm = llm or SovereignLLM(
+            aria_service_url=aria_service_url or "http://localhost:8000",
+        )
         self.validator = validator or ConstitutionalValidator()
         self.codebase = codebase or CodebaseReader(aria_service_url)
         self.test_runner = test_runner or TestRunner(redis_client)
