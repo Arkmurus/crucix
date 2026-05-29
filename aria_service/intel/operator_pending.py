@@ -145,8 +145,8 @@ _PENDING_CATALOGUE: list[dict[str, Any]] = [
     {
         "key": "phase_a_design_partners",
         "kind": "manual",
-        "title": "Identify + start ≥4 design-partner conversations",
-        "why": "Phase A gate #7: B2B sales cycles 3-6 months; warm leads must precede Phase D.",
+        "title": "4 design-partner targets identified (pipeline at data/design_partner_pipeline.json)",
+        "why": "Phase A gate #7: B2B sales cycles 3-6 months; warm leads must precede Phase D. 4 targets identified — needs operator to reach out.",
         "priority": 1,
         "memory_ref": "memory/platform_buildout_north_star.md (Phase A gate #7)",
     },
