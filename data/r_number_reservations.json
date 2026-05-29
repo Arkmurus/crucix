@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1051,
+  "next_available": 1052,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5014,6 +5014,16 @@
       "r_number": "R-F1050",
       "title": "News monitoring dashboard UI + API endpoint",
       "claimed_at": "2026-05-29T13:57:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e29b4099",
+      "notes": null,
+      "shipped_at": "2026-05-29T13:59:22Z"
+    },
+    {
+      "r_number": "R-F1051",
+      "title": "Self-healing infrastructure + brain durability + remove limitations",
+      "claimed_at": "2026-05-29T14:01:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

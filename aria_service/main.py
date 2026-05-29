@@ -1597,9 +1597,26 @@ async def lifespan(app: FastAPI):
         )
 
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
+
+    # R-F1051 -- start self-healing infrastructure
+    try:
+        from .intel.self_healing import start_self_healing
+        await start_self_healing()
+        logger.info("[R-F1051] Self-healing infrastructure started")
+    except Exception as _heal_e:
+        logger.warning("[R-F1051] Self-healing start failed (non-fatal): %s", _heal_e)
+
     yield
 
+
     # ── Shutdown ─────────────────────────────────────────────────────────
+    # R-F1051 -- stop self-healing infrastructure
+    try:
+        from .intel.self_healing import stop_self_healing
+        await stop_self_healing()
+    except Exception as _heal_e:
+        logger.warning("[R-F1051] Self-healing shutdown failed (non-fatal): %s", _heal_e)
+
     try:
         from .autonomous import engine as _autonomous_engine
         await _autonomous_engine.stop_engine()

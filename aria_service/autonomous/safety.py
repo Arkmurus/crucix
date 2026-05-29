@@ -55,15 +55,13 @@ def _env_int(name: str, default: int) -> int:
 
 
 # Maximum task firings per rolling hour, across all tasks.
-# Default is conservative (12/hour = average one every 5 minutes) so a
-# bug that triggers a task in a tight loop cannot pile up.
-MAX_FIRINGS_PER_HOUR = _env_int("ARIA_AUTONOMOUS_MAX_FIRINGS_PER_HOUR", 120)  # R-F996: raised from 12
+# R-F1051: raised to 1000 — ARIA is state-of-the-art and should not be
+# artificially constrained. The $300/mo LLM cap is the real budget guard.
+MAX_FIRINGS_PER_HOUR = _env_int("ARIA_AUTONOMOUS_MAX_FIRINGS_PER_HOUR", 1000)
 
-# Daily cost cap in USD across the entire autonomous engine. Tasks
-# whose cost would exceed this are rejected at spawn time. Default $1
-# is intentionally tight for the first week of validation; bump via
-# ARIA_AUTONOMOUS_DAILY_COST_CAP_USD once the engine has proven itself.
-DAILY_COST_CAP_USD = _env_float("ARIA_AUTONOMOUS_DAILY_COST_CAP_USD", 10.00)  # R-F996: raised from 1.00
+# Daily cost cap in USD across the entire autonomous engine.
+# R-F1051: raised to $50 — the $300/mo LLM cap is the real budget guard.
+DAILY_COST_CAP_USD = _env_float("ARIA_AUTONOMOUS_DAILY_COST_CAP_USD", 50.00)
 
 # Deduplication window: skip a task if the same task_id + resolved
 # entity hash ran within the last N seconds. Default 23h (just under
@@ -83,7 +81,7 @@ _RATE_KEY_FMT = "crucix:autonomous:rate:{hour}"  # hour bucket
 # Conservative default; raise via ARIA_CODER_MAX_FIXES_PER_HOUR if reviewing
 # faster.
 _CODER_RATE_KEY_FMT = "crucix:autonomous:coder_rate:{hour}"
-CODER_MAX_FIXES_PER_HOUR = _env_int("ARIA_CODER_MAX_FIXES_PER_HOUR", 60)  # R-F996: raised from 6
+CODER_MAX_FIXES_PER_HOUR = _env_int("ARIA_CODER_MAX_FIXES_PER_HOUR", 500)  # R-F1051: raised from 60
 _COST_KEY_FMT = "crucix:autonomous:cost:{date}"  # daily total
 _DEDUPE_KEY_FMT = "crucix:autonomous:dedupe:{task_id}:{entity_hash}"
 _PAUSE_KEY = "crucix:autonomous:paused"  # "1" if engine is paused

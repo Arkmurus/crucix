@@ -19892,3 +19892,61 @@ async def news_poll_ep(categories: str = "") -> dict:
     return await news_monitor.poll_feeds(categories=cats)
 
 
+# ===== Self-Healing (R-F1051) =====
+
+@router.get("/self-healing/status")
+async def self_healing_status_ep() -> dict:
+    """Get the current status of all self-healing layers."""
+    from ..intel.self_healing import get_status
+    return get_status()
+
+
+@router.post("/self-healing/diagnostic")
+async def self_healing_diagnostic_ep() -> dict:
+    """Run a full self-diagnostic."""
+    from ..intel.self_healing import SelfDiagnostic
+    diagnostic = SelfDiagnostic()
+    return await diagnostic.run_full_diagnostic()
+
+
+@router.post("/self-healing/repair")
+async def self_healing_repair_ep() -> dict:
+    """Trigger ecosystem self-repair."""
+    from ..intel.self_healing import get_orchestrator
+    orch = get_orchestrator()
+    return await orch.ecosystem_repair.check_and_repair()
+
+
+@router.get("/self-healing/circuit-breakers")
+async def self_healing_circuits_ep() -> dict:
+    """Get all circuit breaker states."""
+    from ..intel.self_healing import get_orchestrator
+    orch = get_orchestrator()
+    return {"circuit_breakers": orch.circuit_breaker_manager.get_all_states()}
+
+
+@router.post("/self-healing/circuit-breakers/{subsystem}/reset")
+async def self_healing_circuit_reset_ep(subsystem: str) -> dict:
+    """Reset a circuit breaker."""
+    from ..intel.self_healing import get_orchestrator
+    orch = get_orchestrator()
+    orch.circuit_breaker_manager.reset(subsystem)
+    return {"status": "ok", "subsystem": subsystem}
+
+
+@router.get("/self-healing/wal")
+async def self_healing_wal_ep() -> dict:
+    """Get write-ahead log statistics."""
+    from ..intel.self_healing import get_orchestrator
+    orch = get_orchestrator()
+    return await orch.wal.get_stats()
+
+
+@router.get("/self-healing/recovery-history")
+async def self_healing_recovery_ep(limit: int = 20) -> dict:
+    """Get recovery action history."""
+    from ..intel.self_healing import get_orchestrator
+    orch = get_orchestrator()
+    return {"recoveries": orch.recovery_engine.get_recovery_history(limit=limit)}
+
+

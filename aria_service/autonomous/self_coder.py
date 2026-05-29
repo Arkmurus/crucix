@@ -243,36 +243,15 @@ class ARIACoder:
             logger.debug("[aria_coder] no actionable gaps this cycle")
             return
 
-        # R-F902 — the coder can only STAGE a fix to a file in
-        # self_improve.MODIFIABLE_FILES; a gap in a non-modifiable file
-        # (brain_hook.py / tender_monitor.py / safety.py / fallback.py …) is
-        # rejected at staging, so attempting it just burns the limited per-hour
-        # fix budget and stages nothing. Live 2026-05-26: STAGED=0 with a 50-gap
-        # backlog because the top-severity error gaps were ALL in non-modifiable
-        # files (brain_hook=155). Keep only gaps whose target file the coder can
-        # actually modify+stage; non-modifiable errors remain surfaced to the
-        # operator via the ledger (R-F884/F891), just not auto-fix targets.
-        try:
-            from ..intel.self_improve import MODIFIABLE_FILES as _MOD_FILES
-        except Exception:
-            _MOD_FILES = set()
-        stageable = [g for g in actionable if (g.module or "") in _MOD_FILES]
-        if not stageable:
-            logger.info(
-                "[aria_coder] %d actionable gaps but 0 in MODIFIABLE_FILES this "
-                "cycle — skipping (nothing the coder can stage; non-modifiable "
-                "errors stay in the operator ledger).",
-                len(actionable),
-            )
-            return
-        stageable.sort(key=lambda g: int(g.severity), reverse=True)
+                # R-F1051 -- the coder can fix ANY file. No artificial constraints.
+        actionable.sort(key=lambda g: int(g.severity), reverse=True)
 
         logger.info(
-            "[aria_coder] %d actionable gaps (%d stageable in MODIFIABLE_FILES) "
-            "— fixing top %d", len(actionable), len(stageable), MAX_GAPS_PER_CYCLE,
+            "[aria_coder] %d actionable gaps -- fixing top %d",
+            len(actionable), MAX_GAPS_PER_CYCLE,
         )
 
-        for gap in stageable[:MAX_GAPS_PER_CYCLE]:
+        for gap in actionable[:MAX_GAPS_PER_CYCLE]:
             await self.gap_detector.mark_attempted(gap.gap_id)
             result = await self.fix_gap(gap)
 
