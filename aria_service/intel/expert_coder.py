@@ -49,6 +49,16 @@ class CodeReview:
         ("function_too_long", "Function exceeds 100 lines", "LOW"),
         ("missing_error_handling", "Async function missing try/except", "MEDIUM"),
         ("no_return_annotation", "Function missing return type annotation", "LOW"),
+        ("sql_injection", "Possible SQL injection (use parameterized queries)", "CRITICAL"),
+        ("path_traversal", "Possible path traversal (validate file paths)", "HIGH"),
+        ("exec_usage", "Use of exec() or eval() is dangerous", "CRITICAL"),
+        ("infinite_loop", "Possible infinite loop (while True without break)", "MEDIUM"),
+        ("shell_injection", "Possible shell injection (use shlex.quote)", "CRITICAL"),
+        ("assert_usage", "assert statements disabled in optimized mode", "LOW"),
+        ("mutable_default", "Mutable default argument (use None instead)", "MEDIUM"),
+        ("comparison_with_self", "Comparing variable to itself", "MEDIUM"),
+        ("unreachable_code", "Code after return/raise is unreachable", "MEDIUM"),
+        ("shadowing_builtin", "Variable shadows Python builtin", "LOW"),
     ]
 
     def review(self, code: str, file_path: str = "") -> list[dict]:
@@ -143,6 +153,39 @@ class CodeReview:
                         "line": node.lineno,
                         "message": "Bare except clause (use except Exception:)",
                     })
+            
+            # Check for infinite loops
+            if isinstance(node, ast.While):
+                if isinstance(node.test, ast.Constant) and node.test.value is True:
+                    has_break = any(isinstance(n, ast.Break) for n in ast.walk(node))
+                    if not has_break:
+                        findings.append({
+                            "rule": "infinite_loop",
+                            "severity": "MEDIUM",
+                            "line": node.lineno,
+                            "message": "Possible infinite loop - while True without break",
+                        })
+            
+            # Check for mutable default arguments
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for default in node.args.defaults:
+                    if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                        findings.append({
+                            "rule": "mutable_default",
+                            "severity": "MEDIUM",
+                            "line": node.lineno,
+                            "message": f"Mutable default argument in '{node.name}' - use None instead",
+                        })
+                
+                # Check for shadowing builtins
+                for arg in node.args.args:
+                    if arg.arg in ("list", "dict", "set", "str", "int", "float", "bool", "tuple", "type", "object", "file", "input", "open", "exec", "eval", "compile", "locals", "globals", "hash", "id", "repr", "all", "any", "filter", "map", "max", "min", "range", "sorted", "sum", "zip", "print", "len", "abs", "round"):
+                        findings.append({
+                            "rule": "shadowing_builtin",
+                            "severity": "LOW",
+                            "line": node.lineno,
+                            "message": f"Parameter '{arg.arg}' in '{node.name}' shadows Python builtin",
+                        })
         
         # 3. Text-based checks
         lines = code.split("\n")
@@ -165,6 +208,42 @@ class CodeReview:
                     "severity": "MEDIUM",
                     "line": i + 1,
                     "message": "Debug print statement in production code",
+                })
+            
+            # SQL injection
+            if re.search(r'execute\(\s*[fF]\s*["\x27]\s*SELECT\s|execute\(\s*[fF]\s*["\x27]\s*INSERT\s|execute\(\s*[fF]\s*["\x27]\s*UPDATE\s|execute\(\s*[fF]\s*["\x27]\s*DELETE\s', stripped):
+                findings.append({
+                    "rule": "sql_injection",
+                    "severity": "CRITICAL",
+                    "line": i + 1,
+                    "message": "Possible SQL injection - use parameterized queries instead of f-strings",
+                })
+            
+            # Path traversal
+            if re.search(r'open\(\s*[fF]\s*["\x27]\s*/', stripped):
+                findings.append({
+                    "rule": "path_traversal",
+                    "severity": "HIGH",
+                    "line": i + 1,
+                    "message": "Possible path traversal - validate and sanitize file paths",
+                })
+            
+            # exec/eval usage
+            if re.search(r'\beval\(|\bexec\(|\bcompile\(', stripped):
+                findings.append({
+                    "rule": "exec_usage",
+                    "severity": "CRITICAL",
+                    "line": i + 1,
+                    "message": "Use of eval()/exec()/compile() is dangerous",
+                })
+            
+            # Shell injection
+            if re.search(r'subprocess\.(run|call|popen|check_output)\s*\(\s*[\["\x27]', stripped):
+                findings.append({
+                    "rule": "shell_injection",
+                    "severity": "CRITICAL",
+                    "line": i + 1,
+                    "message": "Possible shell injection - use shlex.quote() for arguments",
                 })
         
         return findings
@@ -354,6 +433,122 @@ class DebugEngine:
         "RuntimeWarning": {
             "fix": "fix_warning",
             "advice": "Runtime warning. Check for unawaited coroutines or resource leaks.",
+        },
+        "StopIteration": {
+            "fix": "fix_iterator",
+            "advice": "StopIteration should not be raised manually. Use return in generators.",
+        },
+        "NotImplementedError": {
+            "fix": "fix_implementation",
+            "advice": "Abstract method not implemented. Provide a concrete implementation.",
+        },
+        "OSError": {
+            "fix": "fix_os_operation",
+            "advice": "Operating system error. Check file permissions, disk space, or system resources.",
+        },
+        "PermissionError": {
+            "fix": "fix_permissions",
+            "advice": "Permission denied. Check file/directory permissions.",
+        },
+        "UnicodeDecodeError": {
+            "fix": "fix_encoding",
+            "advice": "Unicode decode error. Specify the correct encoding (e.g., encoding='utf-8').",
+        },
+        "UnicodeEncodeError": {
+            "fix": "fix_encoding",
+            "advice": "Unicode encode error. Use .encode('utf-8', errors='replace') to handle special characters.",
+        },
+        "AssertionError": {
+            "fix": "fix_assertion",
+            "advice": "Assertion failed. Check the condition being asserted.",
+        },
+        "EOFError": {
+            "fix": "fix_eof",
+            "advice": "Unexpected end of file. Check input data completeness.",
+        },
+        "OverflowError": {
+            "fix": "fix_overflow",
+            "advice": "Numeric overflow. Use a larger data type or reduce value size.",
+        },
+        "TabError": {
+            "fix": "fix_indentation",
+            "advice": "Inconsistent tabs and spaces. Use 4 spaces for indentation.",
+        },
+        "BrokenPipeError": {
+            "fix": "fix_pipe",
+            "advice": "Broken pipe. The receiving end of the pipe closed unexpectedly.",
+        },
+        "ConnectionRefusedError": {
+            "fix": "fix_connection",
+            "advice": "Connection refused. The server is not running or the port is wrong.",
+        },
+        "ConnectionAbortedError": {
+            "fix": "fix_connection",
+            "advice": "Connection aborted by the remote host.",
+        },
+        "ConnectionResetError": {
+            "fix": "fix_connection",
+            "advice": "Connection reset by peer. The remote host closed the connection.",
+        },
+        "FileExistsError": {
+            "fix": "fix_file_exists",
+            "advice": "File already exists. Use a different filename or delete the existing file.",
+        },
+        "IsADirectoryError": {
+            "fix": "fix_file_path",
+            "advice": "Expected a file but found a directory. Check the path.",
+        },
+        "NotADirectoryError": {
+            "fix": "fix_file_path",
+            "advice": "Expected a directory but found a file. Check the path.",
+        },
+        "ProcessLookupError": {
+            "fix": "fix_process",
+            "advice": "Process not found. The process may have already terminated.",
+        },
+        "InterruptedError": {
+            "fix": "fix_retry",
+            "advice": "System call interrupted. Retry the operation.",
+        },
+        "BlockingIOError": {
+            "fix": "fix_io",
+            "advice": "Operation would block. Use non-blocking I/O or increase timeout.",
+        },
+        "ChildProcessError": {
+            "fix": "fix_process",
+            "advice": "Child process operation failed. Check the child process status.",
+        },
+        "ReferenceError": {
+            "fix": "fix_reference",
+            "advice": "Weak reference accessed after object was garbage collected.",
+        },
+        "FloatingPointError": {
+            "fix": "fix_float",
+            "advice": "Floating point operation failed. Check for division by zero or overflow.",
+        },
+        "SystemError": {
+            "fix": "fix_system",
+            "advice": "Internal Python error. This is likely a bug in Python itself.",
+        },
+        "KeyboardInterrupt": {
+            "fix": "fix_interrupt",
+            "advice": "Operation cancelled by user (Ctrl+C). Add graceful shutdown handling.",
+        },
+        "SystemExit": {
+            "fix": "fix_exit",
+            "advice": "sys.exit() was called. Remove or handle the exit call.",
+        },
+        "GeneratorExit": {
+            "fix": "fix_generator",
+            "advice": "Generator closed externally. Handle GeneratorExit in generator functions.",
+        },
+        "LookupError": {
+            "fix": "fix_lookup",
+            "advice": "Lookup operation failed. Check that the key/index exists.",
+        },
+        "UnicodeError": {
+            "fix": "fix_encoding",
+            "advice": "Unicode encoding/decoding error. Specify the correct encoding.",
         },
     }
 

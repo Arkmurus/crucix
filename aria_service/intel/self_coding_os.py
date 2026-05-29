@@ -46,6 +46,14 @@ class SelfCodingOS:
         self.root = pathlib.Path(__file__).parent.parent.parent
         self._pattern_library: dict[str, list[dict]] = {}
         self._load_pattern_library()
+        self._pattern_learner = None
+        
+    @property
+    def pattern_learner(self):
+        if self._pattern_learner is None:
+            from .expert_coder import PatternLearner
+            self._pattern_learner = PatternLearner()
+        return self._pattern_learner
 
     def _load_pattern_library(self) -> None:
         intel_dir = self.root / "aria_service" / "intel"

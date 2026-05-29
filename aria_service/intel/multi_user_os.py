@@ -309,11 +309,42 @@ class MultiUserOS:
                 logger.error("[multi_user_os] worker error: %s", e)
 
     async def _process_task(self, task: Task) -> None:
-        """Process a single task. Override this in subclasses."""
+        """Process a single task using ARIA's actual capabilities."""
         self.update_task_progress(task.id, f"Processing {task.type}: {task.description}")
-        # Simulate processing — subclasses should override
-        await asyncio.sleep(0.1)
-        self.complete_task(task.id, {"status": "processed", "type": task.type})
+        
+        try:
+            if task.type == "code":
+                from .self_coding_os import SelfCodingOS
+                os = SelfCodingOS()
+                plan = os.plan_change(task.description)
+                result = await os.execute_plan(plan)
+                self.complete_task(task.id, result)
+                
+            elif task.type == "review":
+                from .expert_coder import CodeReview
+                reviewer = CodeReview()
+                findings = reviewer.review(task.description)
+                self.complete_task(task.id, {"findings": findings})
+                
+            elif task.type == "debug":
+                from .expert_coder import DebugEngine
+                debug = DebugEngine()
+                diagnosis = debug.diagnose(task.description)
+                self.complete_task(task.id, diagnosis)
+                
+            elif task.type == "research":
+                from .self_sufficient import KnowledgeAugmentedResponder
+                responder = KnowledgeAugmentedResponder()
+                result = await responder.answer(task.description)
+                self.complete_task(task.id, result)
+                
+            else:
+                # Generic processing
+                await asyncio.sleep(0.1)
+                self.complete_task(task.id, {"status": "processed", "type": task.type})
+                
+        except Exception as e:
+            self.fail_task(task.id, str(e))
 
     # ── Status Broadcasting ────────────────────────────────────────────────
 
