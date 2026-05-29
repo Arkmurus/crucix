@@ -59,16 +59,20 @@
 - Coder rate-limited (8 gaps detected, 0 fixed)
 - Brain concurrency cap warnings present
 
-### Check 2 (00:10 UTC) — pending
-### Check 3 (00:40 UTC) — pending
-### Check 4 (01:10 UTC) — pending
-### Check 5 (01:40 UTC) — pending
-### Check 6 (02:10 UTC) — pending
-### Check 7 (02:40 UTC) — pending
-### Check 8 (03:10 UTC) — pending
-### Check 9 (03:40 UTC) — pending
-### Check 10 (04:10 UTC) — pending
-### Check 11 (04:40 UTC) — pending
+### Check 2 (23:47 UTC)
+- All 3 apps healthy
+- No errors or warnings detected
+- R-F1080 shipped: ProcessPool encode, canary deploy, circuit breakers, profiler, cost anomaly
+
+### Check 3 (00:10 UTC) — pending
+### Check 4 (00:40 UTC) — pending
+### Check 5 (01:10 UTC) — pending
+### Check 6 (01:40 UTC) — pending
+### Check 7 (02:10 UTC) — pending
+### Check 8 (02:40 UTC) — pending
+### Check 9 (03:10 UTC) — pending
+### Check 10 (03:40 UTC) — pending
+### Check 11 (04:10 UTC) — pending
 ### Check 12 (05:10 UTC) — pending
 ### Check 13 (05:40 UTC) — pending
 ### Check 14 (06:10 UTC) — pending
@@ -258,67 +262,62 @@ State-of-the-art:
 
 ## 7. Recommended Improvements (Priority Order)
 
-### P0 — Fix This Week
+### P0 — Fixed This Session (R-F1080)
 
-#### 1. Fix coder rate-bucket increment on blocked attempts
-**File**: `aria_service/autonomous/safety.py`
-**Problem**: `check_and_increment_rate` increments the hourly bucket on every attempt including blocked ones. With a 43-gap backlog, the 12 slots exhaust and the counter climbs indefinitely.
-**Fix**: Only increment the rate bucket when the fix is actually executed (not when it's blocked by the rate limiter itself).
-**Capability test**: Seed N>12 gaps, assert executed fixes == budget and counter doesn't run away.
+#### 1. Coder rate-bucket — already fixed (R-F897)
+**Status**: ✅ Already fixed. `check_and_increment_rate` rolls back speculative increments on blocked attempts. The live cap of 12/hr was from an old env var — the code default is now 500/hr (R-F1051). Next deploy will pick up the new default.
 
-#### 2. Add canary deployment + automated rollback
-**Files**: `.github/workflows/deploy-fly.yml`, `scripts/deploy.sh`
-**Problem**: Every deploy goes to the single production machine. A bad deploy takes down all traffic.
-**Fix**: 
-- Add a second Fly machine as canary
-- Deploy to canary first, run synthetic health check for 60s
-- If canary passes, deploy to primary
-- If canary fails, `flyctl deploy --image <previous>` to roll back
-- Add `ARIA_CANARY_ENABLED` env var to gate
+#### 2. Canary deployment + automated rollback ✅
+**Status**: ✅ **FIXED** in `.github/workflows/deploy-fly.yml`
+- When 2+ Fly machines exist, deploys to canary first
+- Verifies canary health for 180s before full deploy
+- Automated rollback to previous image on canary/verify failure
+- Uses `flyctl deploy --image <previous>` (no force-push)
 
-#### 3. Move CPU-bound encode off the event loop
-**File**: `aria_service/intel/semantic_search.py`
-**Problem**: `model.encode()` is a GIL-holding C call that blocks the event loop for 200-700ms per call.
-**Fix**: 
-- Move encode to a separate process via `concurrent.futures.ProcessPoolExecutor`
-- Or use `loop.run_in_executor(None, model.encode, texts)` with a dedicated thread pool
-- Add `_encode_executor` with max_workers=1 (serialise GIL-bound work, but off the event loop)
+#### 3. CPU-bound encode off event loop ✅
+**Status**: ✅ **FIXED** in `aria_service/intel/semantic_search.py`
+- Added `ProcessPoolExecutor(max_workers=1)` for model.encode()
+- Primary path: process pool (no GIL contention — child process has its own GIL)
+- Fallback path: thread-level lock (existing, kept for sync callers)
+- Timeout: 15s for process pool, 10s for thread lock
+- Graceful degradation to TF-IDF on timeout
 
-### P1 — Fix This Sprint
+### P1 — Fixed This Session (R-F1080)
 
-#### 4. Add continuous profiling
-**New file**: `aria_service/intel/continuous_profiler.py`
-**Implementation**: Use `py-spy` or `Austin` to sample stack traces every 100ms. Log CPU hotspots correlated with event-loop stalls. Wire to brain_hook on stall detection.
+#### 4. Continuous profiling ✅
+**Status**: ✅ **FIXED** in `aria_service/intel/continuous_profiler.py`
+- Daemon thread samples `sys._current_frames()` every 100ms
+- Aggregates into flamegraph-style report every 60s
+- Emits `capability_gap` when a single frame dominates >50%
+- Wired into `coder_entrypoint.start_aria_coder()` startup
+- Gated by `ARIA_CONTINUOUS_PROFILER_ENABLED=1` (default: on)
 
-#### 5. Add per-source circuit breakers
-**File**: `lib/observability/errorTracker.mjs`
-**Implementation**: For each external source (GDELT, ACLED, etc.), add a circuit breaker with:
-- 3 consecutive failures → OPEN (stop calling)
-- 300s cooldown → HALF_OPEN (probe)
-- Success → CLOSED (resume)
-- Wire state changes to brain via `/api/aria/brain/signal`
+#### 5. Per-source circuit breakers ✅
+**Status**: ✅ **FIXED** in `lib/observability/errorTracker.mjs`
+- Each external source gets a `CircuitBreaker` instance
+- Threshold: 3 consecutive failures → OPEN
+- Cooldown: 5 minutes → HALF_OPEN (probe)
+- Success → CLOSED (resume normal operation)
+- State transitions reported to brain via `/api/aria/brain/signal`
+- Exposed via `errorTracker.getCircuitBreakerStates()`
 
-#### 6. Add synthetic monitoring
-**New file**: `scripts/synthetic_monitor.py`
-**Implementation**: Every 5 minutes, run a Playwright script that:
-- Hits `/health` (aria-intel, aria-web, aria-wa)
-- Sends a test chat message
-- Verifies response within 30s
-- Reports results to brain_hook
+#### 6. Synthetic monitoring
+**Status**: ⏳ Deferred — needs Playwright/browser automation. The monitor script (`scripts/monitor_aria.py`) runs every 30 min checking health endpoints. Full synthetic user-journey testing requires a browser automation framework.
 
-### P2 — Fix This Month
+### P2 — Fixed This Session (R-F1080)
 
-#### 7. Add cost anomaly detection
-**File**: `aria_service/intel/cost_monitor.py`
-**Implementation**: Track daily spend per feature. If any single day exceeds 2x the 7-day rolling average, emit a brain signal and log WARNING.
+#### 7. Cost anomaly detection ✅
+**Status**: ✅ **FIXED** in `aria_service/autonomous/cost_monitor.py`
+- Flags any single task exceeding 50% of daily cap
+- Emits brain signal via `wire_failure` with `gap_type="cost_anomaly"`
+- Tracks `anomaly_sent` per task to avoid duplicate alerts
+- Integrates with existing cost monitor circuit breaker
 
-#### 8. Add static fallback page
-**File**: `server.mjs` or CDN config
-**Implementation**: Serve a static HTML page from a CDN (Cloudflare Pages / GitHub Pages) that shows "ARIA is temporarily unavailable — intelligence operations continue in the background."
+#### 8. Static fallback page
+**Status**: ⏳ Deferred — needs CDN deployment (Cloudflare Pages / GitHub Pages)
 
-#### 9. Add dependency health dashboard
-**New route**: `GET /api/aria/sources/health`
-**Implementation**: Aggregate per-source health from errorTracker.mjs + brain_hook signals. Return JSON with per-source status (healthy/degraded/down), last success, last failure, consecutive failures.
+#### 9. Dependency health dashboard
+**Status**: ⏳ Deferred — needs new API route aggregating per-source health from errorTracker.mjs + brain_hook signals
 
 ---
 
