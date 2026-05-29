@@ -4658,9 +4658,10 @@
       "title": "Restore ConstitutionalValidator (revert R-F995 pass-through) + fix re.compile false positive",
       "claimed_at": "2026-05-29T09:16:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6a2b4cd",
+      "notes": null,
+      "shipped_at": "2026-05-29T09:20:13Z"
     }
   ]
 }
