@@ -223,35 +223,75 @@ class Toolbox:
         return ToolResult("\n".join(results) or f"no matches for {pattern}")
 
     # ── run (shell) ───────────────────────────────────────────────────────
-    def run(self, command: str, timeout: int = 300, cwd: str = "") -> ToolResult:
-        workdir = self._resolve(cwd) if cwd else self.root
-        # Use the platform shell — PowerShell on Windows, /bin/sh elsewhere —
-        # so the model can use the same commands the operator would.
+    @staticmethod
+    def _kill_tree(proc: "subprocess.Popen") -> None:
+        """R-F1027 — kill a process AND all descendants, so an orphaned
+        grandchild (e.g. a python spawned by powershell, or a hung pytest)
+        cannot linger and wedge the agent. Windows: taskkill /T /F; POSIX:
+        kill the process group."""
         try:
             if sys.platform == "win32":
-                # Propagate the child command's real exit code: a bare
-                # `powershell -Command` returns 0/1 for its own success, not the
-                # exit code of the program it ran — which the model needs to know
-                # whether tests/builds actually passed. $LASTEXITCODE is set by
-                # the last native exe; it stays $null (→ exit 0) for pure cmdlets.
-                wrapped = f"{command}\nif ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
-                full = ["powershell", "-NoProfile", "-NonInteractive", "-Command", wrapped]
-                proc = subprocess.run(full, capture_output=True, text=True,
-                                      timeout=timeout, cwd=str(workdir))
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True, timeout=15)
             else:
-                proc = subprocess.run(command, shell=True, capture_output=True,
-                                      text=True, timeout=timeout, cwd=str(workdir))
-        except subprocess.TimeoutExpired:
-            return ToolResult(f"error: command timed out after {timeout}s", is_error=True)
+                import os as _os
+                import signal as _signal
+                try:
+                    _os.killpg(_os.getpgid(proc.pid), _signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        except Exception:  # noqa: BLE001 — last resort
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    def run(self, command: str, timeout: int = 300, cwd: str = "") -> ToolResult:
+        workdir = self._resolve(cwd) if cwd else self.root
+        # Use the platform shell — PowerShell on Windows, /bin/sh elsewhere — so
+        # the model can use the same commands the operator would. We use Popen (not
+        # subprocess.run) so that on timeout we can kill the WHOLE process tree:
+        # subprocess.run's timeout only kills the direct child, leaving orphaned
+        # grandchildren running (that orphaned-process pattern wedged ARIA's loop).
+        if sys.platform == "win32":
+            # Propagate the child command's real exit code: $LASTEXITCODE is set by
+            # the last native exe; it stays $null (→ exit 0) for pure cmdlets.
+            wrapped = f"{command}\nif ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
+            argv = ["powershell", "-NoProfile", "-NonInteractive", "-Command", wrapped]
+            popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            argv = command
+            popen_kwargs = {"shell": True, "start_new_session": True}
+
+        try:
+            proc = subprocess.Popen(
+                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, cwd=str(workdir), **popen_kwargs,
+            )
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"error running command: {exc}", is_error=True)
-        out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
-        out = out.strip()
+
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            returncode = proc.returncode
+        except subprocess.TimeoutExpired:
+            self._kill_tree(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except Exception:  # noqa: BLE001
+                stdout, stderr = "", ""
+            tail = (stdout or "") + (("\n[stderr]\n" + stderr) if stderr else "")
+            tail = ("\n" + tail.strip()[-2000:]) if tail.strip() else ""
+            return ToolResult(
+                f"error: command timed out after {timeout}s (process tree killed){tail}",
+                is_error=True, mutation=f"ran (timeout): {command[:80]}")
+
+        out = ((stdout or "") + (("\n[stderr]\n" + stderr) if stderr else "")).strip()
         if len(out) > _MAX_OUTPUT_CHARS:
             out = out[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(out)} chars total)"
-        header = f"exit code: {proc.returncode}"
+        header = f"exit code: {returncode}"
         return ToolResult(f"{header}\n{out}" if out else header,
-                          is_error=proc.returncode != 0,
+                          is_error=returncode != 0,
                           mutation=f"ran: {command[:80]}")
 
     # ── update_plan (multi-step planning, like a Claude Code todo list) ─────

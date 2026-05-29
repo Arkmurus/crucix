@@ -29,6 +29,8 @@ import logging
 import os
 import re
 import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,58 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# R-F1026 — cross-process lock for the read-modify-write critical section.
+# The threading.Lock above only serialises threads in ONE process; ARIA's coder
+# and Claude (and concurrent tasks) reserve from SEPARATE processes, which raced
+# and produced duplicate reservations. This atomic lock-file serialises across
+# processes. CRITICAL: it MUST NEVER hang the caller (the whole point is no
+# stalls) — so it times out and proceeds WITHOUT the lock rather than block
+# forever, and it steals a stale lock left by a crashed holder.
+_FILE_LOCK_TIMEOUT_S = float(os.getenv("ARIA_RNUM_LOCK_TIMEOUT", "10"))
+_FILE_LOCK_STALE_S = float(os.getenv("ARIA_RNUM_LOCK_STALE", "30"))
+
+
+@contextmanager
+def _file_lock(path: Path | None = None):
+    lockp = (path or _RESERVATIONS_PATH).with_suffix(".json.lock")
+    acquired = False
+    start = time.monotonic()
+    while True:
+        try:
+            fd = os.open(str(lockp), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            acquired = True
+            break
+        except FileExistsError:
+            # Steal a stale lock (crashed holder), else wait briefly.
+            try:
+                if time.time() - os.path.getmtime(lockp) > _FILE_LOCK_STALE_S:
+                    os.unlink(lockp)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() - start > _FILE_LOCK_TIMEOUT_S:
+                logger.warning(
+                    "[r_number_registry] lock wait > %.0fs — proceeding WITHOUT "
+                    "the file lock to avoid a stall", _FILE_LOCK_TIMEOUT_S)
+                break
+            time.sleep(0.05)
+        except OSError as exc:
+            logger.debug("[r_number_registry] lock error %s — proceeding", exc)
+            break
+    try:
+        yield
+    finally:
+        if acquired:
+            try:
+                os.unlink(lockp)
+            except OSError:
+                pass
+
+
 def reserve(
     title: str,
     agent: str = "claude",
@@ -75,7 +129,7 @@ def reserve(
     """
     if not title or not title.strip():
         raise ValueError("title required")
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         data = _load(path)
         n = int(data.get("next_available", 555))
         # Defend against a partial write that left next_available trailing existing entries
@@ -119,7 +173,7 @@ def mark_shipped(
     """Stamp an R-number as shipped with the commit SHA. Idempotent."""
     if not _R_NUMBER_RE.match(r_number):
         raise ValueError(f"invalid r_number: {r_number}")
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         data = _load(path)
         for r in data.get("reservations", []):
             if r["r_number"] == r_number:
@@ -136,7 +190,7 @@ def mark_abandoned(r_number: str, reason: str, *, path: Path | None = None) -> N
     """Stamp an R-number as abandoned (work cancelled before ship)."""
     if not _R_NUMBER_RE.match(r_number):
         raise ValueError(f"invalid r_number: {r_number}")
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         data = _load(path)
         for r in data.get("reservations", []):
             if r["r_number"] == r_number:
