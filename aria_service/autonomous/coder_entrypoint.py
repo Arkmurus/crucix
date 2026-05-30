@@ -140,6 +140,25 @@ class _RedisStoreAdapter:
         return await self._rs.delete(key)
 
 
+async def _heartbeat_ticker() -> None:
+    """Background task that ticks the coder's heartbeat every 30s.
+
+    The blackout detector (R-F1146) monitors this heartbeat. If it goes
+    stale beyond the threshold, a blackout is declared and recovery is
+    triggered. This ticker ensures the heartbeat stays fresh even when
+    the coder is between cycles (e.g. waiting for SCAN_INTERVAL_S).
+    """
+    try:
+        from ..intel.self_restart import tick_heartbeat
+        while True:
+            await asyncio.sleep(30)
+            tick_heartbeat("aria_coder")
+    except ImportError:
+        pass
+    except asyncio.CancelledError:
+        pass
+
+
 async def start_aria_coder(
     app_state: Any,
     aria_service_url: Optional[str] = None,
@@ -303,6 +322,15 @@ async def start_aria_coder(
     except Exception as e:
         logger.debug("[coder_entrypoint] could not stash coder on app_state: %s", e)
 
+    # R-F1146 — start blackout detector and tick heartbeat for the coder
+    try:
+        from ..intel.self_restart import start_blackout_detector, tick_heartbeat, save_checkpoint
+        start_blackout_detector()
+        tick_heartbeat("aria_coder")
+        logger.info("[coder_entrypoint] Self-restart blackout detector started")
+    except ImportError as _sr_e:
+        logger.debug("[coder_entrypoint] Self-restart not available: %s", _sr_e)
+
     tasks = [
         # R-F1046 — gap_detector.run_forever REMOVED (was double-scanning).
         # self_coder._one_cycle already calls gap_detector.scan() on every
@@ -312,6 +340,12 @@ async def start_aria_coder(
         asyncio.create_task(
             coder.run_forever(),
             name="aria_coder.self_coder",
+        ),
+        # R-F1146 — heartbeat ticker for the coder (ticks every 30s so the
+        # blackout detector knows the coder is alive)
+        asyncio.create_task(
+            _heartbeat_ticker(),
+            name="aria_coder.heartbeat_ticker",
         ),
     ]
 

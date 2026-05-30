@@ -366,7 +366,7 @@ class Toolbox:
         sym = {"completed": "[x]", "in_progress": "[~]", "pending": "[ ]"}
         return "\n".join(f"{sym.get(p['status'], '[ ]')} {p['step']}" for p in self.plan)
 
-        # ── fetch_url (read a web page / API, like Claude Code's WebFetch) ───────
+    # ── fetch_url (read a web page / API, like Claude Code's WebFetch) ───────
     def fetch_url(self, url: str, max_chars: int = 10000) -> ToolResult:
         if not url.lower().startswith(("http://", "https://")):
             return ToolResult("error: url must start with http:// or https://", is_error=True)
@@ -565,21 +565,8 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_url",
-            "description": "HTTP GET a URL and return its text (docs, an API response, a raw file). Read-only.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "max_chars": {"type": "integer", "description": "Max chars to return (optional)."},
-                },
-                "required": ["url"],
-            },
-        },
-    },
+    # fetch_url removed here because it's already defined in coder_tools.py
+    # to avoid "Tool names must be unique" error with DeepSeek API
     {
         "type": "function",
         "function": {

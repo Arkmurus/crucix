@@ -244,10 +244,23 @@ async def _engine_loop(llm) -> None:
     except Exception as e:
         logger.error("[autonomous engine] initial tasks load failed: %s", e)
 
+    # R-F1146 — start the blackout detector and tick heartbeat
+    try:
+        from ..intel.self_restart import start_blackout_detector, tick_heartbeat, save_checkpoint
+        start_blackout_detector()
+    except ImportError:
+        pass
+
     while True:
         try:
             _last_tick_at = time.time()
             _tick_count += 1
+
+            # R-F1146 — tick heartbeat so the blackout detector knows we're alive
+            try:
+                tick_heartbeat("autonomous_engine")
+            except Exception:
+                pass
 
             # Refresh the runtime override so /autonomous/disable takes
             # effect within one tick without restarting the service.
@@ -380,6 +393,15 @@ async def _engine_loop(llm) -> None:
                         )
                     except Exception:
                         pass
+                    # R-F1146 — save checkpoint after successful task
+                    try:
+                        await save_checkpoint(
+                            agent_id="autonomous_engine",
+                            current_task=f"Task completed: {task_id}",
+                            error_context="",
+                        )
+                    except Exception:
+                        pass
                 except Exception as e:
                     logger.warning(
                         "[autonomous engine] task %s execution raised: %s: %s",
@@ -393,6 +415,15 @@ async def _engine_loop(llm) -> None:
                             detail=f"Task {task_id} failed: {type(e).__name__}: {e}",
                             gap_type="engine_failure",
                             source="autonomous_engine",
+                        )
+                    except Exception:
+                        pass
+                    # R-F1146 — save checkpoint with error context on failure
+                    try:
+                        await save_checkpoint(
+                            agent_id="autonomous_engine",
+                            current_task=f"Task failed: {task_id}",
+                            error_context=f"{type(e).__name__}: {e}",
                         )
                     except Exception:
                         pass

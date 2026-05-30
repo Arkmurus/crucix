@@ -1606,6 +1606,15 @@ async def lifespan(app: FastAPI):
     except Exception as _heal_e:
         logger.warning("[R-F1051] Self-healing start failed (non-fatal): %s", _heal_e)
 
+    # R-F1146 -- start self-restart blackout detector
+    try:
+        from .intel.self_restart import start_blackout_detector, tick_heartbeat
+        start_blackout_detector()
+        tick_heartbeat("aria_main")
+        logger.info("[R-F1146] Self-restart blackout detector started")
+    except Exception:
+        logger.warning("[R-F1146] Self-restart start failed (non-fatal)")
+
     yield
 
 
@@ -1616,6 +1625,14 @@ async def lifespan(app: FastAPI):
         await stop_self_healing()
     except Exception as _heal_e:
         logger.warning("[R-F1051] Self-healing shutdown failed (non-fatal): %s", _heal_e)
+
+    # R-F1146 -- stop self-restart blackout detector
+    try:
+        from .intel.self_restart import stop_blackout_detector
+        stop_blackout_detector()
+        logger.info("[R-F1146] Self-restart blackout detector stopped")
+    except Exception:
+        logger.warning("[R-F1146] Self-restart shutdown failed (non-fatal)")
 
     try:
         from .autonomous import engine as _autonomous_engine

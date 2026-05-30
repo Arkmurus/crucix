@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1143,
+  "next_available": 1147,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5925,6 +5925,45 @@
       "r_number": "R-F1142",
       "title": "Wire DD trigger pipeline into autonomous scheduler",
       "claimed_at": "2026-05-30T17:42:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1143",
+      "title": "ARIA full autonomy infrastructure — self-review, git, deploy, test, R-number, memory tools",
+      "claimed_at": "2026-05-30T17:59:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8824e1e8",
+      "notes": null,
+      "shipped_at": "2026-05-30T18:10:37Z"
+    },
+    {
+      "r_number": "R-F1144",
+      "title": "CLI UI cleanup + standalone JS rendering",
+      "claimed_at": "2026-05-30T18:28:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e1978149",
+      "notes": null,
+      "shipped_at": "2026-05-30T18:29:15Z"
+    },
+    {
+      "r_number": "R-F1145",
+      "title": "Windows deploy script + shipping sequence fix",
+      "claimed_at": "2026-05-30T18:46:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5642c7e9",
+      "notes": null,
+      "shipped_at": "2026-05-30T18:56:07Z"
+    },
+    {
+      "r_number": "R-F1146",
+      "title": "Self-restart + blackout recovery system",
+      "claimed_at": "2026-05-30T19:38:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

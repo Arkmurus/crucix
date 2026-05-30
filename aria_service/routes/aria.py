@@ -19974,6 +19974,64 @@ async def self_healing_recovery_ep(limit: int = 20) -> dict:
     return {"recoveries": orch.recovery_engine.get_recovery_history(limit=limit)}
 
 
+# ===== Self-Restart (R-F1146) =====
+
+
+@router.get("/self-restart/status")
+async def self_restart_status_ep() -> dict:
+    """Get blackout/recovery status for all agents."""
+    from ..intel.self_restart import get_blackout_status
+    return get_blackout_status()
+
+
+@router.post("/self-restart/checkpoint")
+async def self_restart_checkpoint_ep(
+    agent_id: str = "aria_main",
+    current_task: str = "",
+    error_context: str = "",
+) -> dict:
+    """Save a session checkpoint."""
+    from ..intel.self_restart import save_checkpoint
+    return await save_checkpoint(
+        agent_id=agent_id,
+        current_task=current_task,
+        error_context=error_context,
+    )
+
+
+@router.post("/self-restart/trigger")
+async def self_restart_trigger_ep(agent_id: str = "aria_main") -> dict:
+    """Trigger a self-restart for the given agent."""
+    from ..intel.self_restart import trigger_self_restart
+    return await trigger_self_restart(agent_id=agent_id)
+
+
+@router.get("/self-restart/checkpoints")
+async def self_restart_checkpoints_ep(agent_id: str = "aria_main", limit: int = 10) -> dict:
+    """List recent checkpoints for an agent."""
+    from ..intel.self_restart import list_checkpoints
+    checkpoints = await list_checkpoints(agent_id=agent_id, limit=limit)
+    return {"agent_id": agent_id, "checkpoints": checkpoints}
+
+
+@router.get("/self-restart/latest-checkpoint")
+async def self_restart_latest_ep(agent_id: str = "aria_main") -> dict:
+    """Load the latest checkpoint for an agent."""
+    from ..intel.self_restart import load_latest_checkpoint
+    cp = await load_latest_checkpoint(agent_id=agent_id)
+    if cp is None:
+        return {"found": False, "agent_id": agent_id}
+    return {"found": True, "agent_id": agent_id, "checkpoint": cp}
+
+
+@router.post("/self-restart/heartbeat")
+async def self_restart_heartbeat_ep(agent_id: str = "aria_main") -> dict:
+    """Tick the heartbeat for an agent."""
+    from ..intel.self_restart import tick_heartbeat
+    tick_heartbeat(agent_id=agent_id)
+    return {"status": "ok", "agent_id": agent_id}
+
+
 # ===== BD Strategy (R-F1053) =====
 
 @router.get("/bd/strategy")
