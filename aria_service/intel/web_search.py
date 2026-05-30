@@ -1549,6 +1549,13 @@ async def get_search_health() -> dict:
                 except Exception:
                     continue
     except Exception:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="web_search",
+            detail="get_search_health searxng probe failed",
+            gap_type="engine_failure",
+            source="web_search:get_search_health",
+        )
         pass
     # Google News RSS is almost always available
     health["google_news"] = True

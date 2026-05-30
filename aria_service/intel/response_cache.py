@@ -72,6 +72,13 @@ async def get_cached(query: str, context: str = "") -> dict | None:
         stats["misses"] = stats.get("misses", 0) + 1
         await rs.set_json(_K_STATS, stats, ex=30 * 86400)
     except Exception:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="response_cache",
+            detail="redis stats update failed in get_cached",
+            gap_type="engine_failure",
+            source="response_cache:get_cached",
+        )
         pass
     # R-F996 — wire to brain
     from .engine_wiring import wire_success

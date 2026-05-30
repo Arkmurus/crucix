@@ -335,6 +335,13 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
                     lambda t: t.result() if not t.cancelled() and not t.exception() else None
                 )
             except Exception:
+                from .engine_wiring import wire_failure as _wf
+                _wf(
+                    module="sanctions_divergence",
+                    detail="brain_hook.absorb failed in analyze_divergence",
+                    gap_type="engine_failure",
+                    source="sanctions_divergence:analyze_divergence",
+                )
                 try:
                     coro.close()
                 except Exception:

@@ -178,6 +178,13 @@ def extract(response_text: str, tool_context: str = "") -> list[dict[str, Any]]:
 
     except Exception:
         # Fail-soft: extraction must never break the chat response.
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="chat_sources",
+            detail="extract failed in chat_sources",
+            gap_type="engine_failure",
+            source="chat_sources:extract",
+        )
         return sources
 
     # R-F1001 - wire to brain

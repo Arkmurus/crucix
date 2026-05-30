@@ -850,6 +850,13 @@ async def explore_and_remember(*args, **kwargs) -> ExplorationResult:
             ))
     except Exception as e:
         logger.debug("explore_and_remember brain_hook absorb failed: %s", e)
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="web_explorer",
+            detail=f"brain_hook.absorb failed in explore_and_remember: {e}",
+            gap_type="engine_failure",
+            source="web_explorer:explore_and_remember",
+        )
 
     # R-F996 — wire to brain
     wire_success(

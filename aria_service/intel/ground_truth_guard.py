@@ -378,6 +378,13 @@ async def verify(
                 confidence="CONFIRMED",
             )
         except Exception:
+            from .engine_wiring import wire_failure as _wf
+            _wf(
+                module="ground_truth_guard",
+                detail="brain_hook.absorb failed in verify",
+                gap_type="engine_failure",
+                source="ground_truth_guard:verify",
+            )
             pass
 
     # R-F1001 - wire to brain

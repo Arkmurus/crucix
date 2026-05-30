@@ -360,6 +360,13 @@ def classify(query: str) -> QueryIntent:
         except RuntimeError:
             pass
     except Exception:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="query_decomposer",
+            detail="brain_hook.absorb failed in classify",
+            gap_type="engine_failure",
+            source="query_decomposer:classify",
+        )
         pass
 
     # R-F1001 - wire to brain

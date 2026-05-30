@@ -421,6 +421,13 @@ class ARIADeceptionAnalyser:
                 confidence="ASSESSED",
             )
         except Exception:
+            from .engine_wiring import wire_failure as _wf
+            _wf(
+                module="deception_detection",
+                detail="brain_hook.absorb failed in analyse_async",
+                gap_type="engine_failure",
+                source="deception_detection:analyse_async",
+            )
             pass
         # R-F996 — wire to brain
         from .engine_wiring import wire_success

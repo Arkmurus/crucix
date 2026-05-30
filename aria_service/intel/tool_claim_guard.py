@@ -367,6 +367,13 @@ async def guard(
                 confidence="CONFIRMED",
             )
         except Exception:
+            from .engine_wiring import wire_failure as _wf
+            _wf(
+                module="tool_claim_guard",
+                detail="brain_hook.absorb failed in guard",
+                gap_type="engine_failure",
+                source="tool_claim_guard:guard",
+            )
             pass
 
     # R-F1001 - wire to brain

@@ -263,6 +263,13 @@ def guard(response_text: str) -> dict:
         except RuntimeError:
             pass
     except Exception:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="propaganda_guard",
+            detail="brain_hook.absorb failed in guard",
+            gap_type="engine_failure",
+            source="propaganda_guard:guard",
+        )
         pass
 
     # R-F1001 - wire to brain

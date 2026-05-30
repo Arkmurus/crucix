@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1098,
+  "next_available": 1099,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5423,59 +5423,75 @@
       "title": "ARIA wiring monitor agents — G1-G4 gap detection + ongoing surveillance",
       "claimed_at": "2026-05-30T08:17:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:00Z"
     },
     {
       "r_number": "R-F1092",
       "title": "G2 — wire_failure in compliance screeners (eliminated_weapons, weapon_origin, goods_list, evasion, end_user, security_protocol)",
       "claimed_at": "2026-05-30T08:20:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:03Z"
     },
     {
       "r_number": "R-F1093",
       "title": "G3 — Wire WA auth-loss/disconnect to brain via brainPost",
       "claimed_at": "2026-05-30T08:20:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:06Z"
     },
     {
       "r_number": "R-F1094",
       "title": "G4 — Fix zoom dead brain signal path /api/brain/signal → /api/aria/brain/signal",
       "claimed_at": "2026-05-30T08:20:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:08Z"
     },
     {
       "r_number": "R-F1095",
       "title": "G1 — Failure-branch wiring sweep: add wire_failure to except blocks across intel modules",
       "claimed_at": "2026-05-30T08:20:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:11Z"
     },
     {
       "r_number": "R-F1096",
       "title": "Config review — lower MAX_FIXES_PER_HOUR, disable AUTO_DEPLOY_AND_TICKET",
       "claimed_at": "2026-05-30T08:20:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:14Z"
     },
     {
       "r_number": "R-F1097",
       "title": "Fix stale docs — MEMORY.md RUN-EVAL-DAILY status + gap_detector.py docstring",
       "claimed_at": "2026-05-30T08:20:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2473a0b9",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:36:17Z"
+    },
+    {
+      "r_number": "R-F1098",
+      "title": "G1 sweep — wire_failure in except blocks across 10 highest-risk intel modules",
+      "claimed_at": "2026-05-30T08:43:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

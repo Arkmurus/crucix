@@ -229,6 +229,13 @@ def draft_protective_reply(inp: ProtectiveReplyInput) -> dict[str, Any]:
             pass
     except Exception as exc:
         logger.debug("protective_reply brain dispatch failed: %s", exc)
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="protective_reply_drafter",
+            detail=f"brain dispatch failed: {exc}",
+            gap_type="engine_failure",
+            source="protective_reply_drafter:draft_protective_reply",
+        )
 
     # R-F996 — wire to brain
     from .engine_wiring import wire_success

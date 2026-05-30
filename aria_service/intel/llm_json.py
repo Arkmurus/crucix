@@ -473,6 +473,13 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
             "total_fails=%d): %s. Preview: %r",
             _r472_key, _R472_TOTAL_FAILS, str(e)[:120], candidate[:200],
         )
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="llm_json",
+            detail=f"All 5 JSON repair strategies failed for source={_r472_key}: {e}",
+            gap_type="engine_failure",
+            source=f"llm_json:parse_llm_json:{_r472_key}",
+        )
 
     # R-F1001 - wire to brain
     from .engine_wiring import wire_success

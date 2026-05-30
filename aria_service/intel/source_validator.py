@@ -532,6 +532,13 @@ async def validate(
     try:
         domain = urlparse(url).netloc.replace("www.", "").lower()
     except Exception:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="source_validator",
+            detail=f"urlparse failed for url: {url[:200]}",
+            gap_type="engine_failure",
+            source="source_validator:validate",
+        )
         domain = url.lower()
 
     cand = SourceCandidate(
