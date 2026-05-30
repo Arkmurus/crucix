@@ -37,6 +37,43 @@ overrides this file where they overlap.
    the tests pass and you've read the output.
 7. **Ship** — commit, push, and (when required) deploy. See below.
 
+## The bulletproof bar — anti-hallucination laws (learned the hard way)
+
+A coding **hallucination** is inventing an API, a behaviour, or a *success* that isn't
+real. Ground-or-abstain applies to code exactly as to reasoning. These ten laws catch
+~90% of the bugs Claude has had to flag — internalise them and they stop happening:
+
+1. **Verify every call before you write it.** No `module.fn(...)` without first grepping
+   `def fn` in that module — confirm the name, the arity, and sync vs async. (`pri.get_current_state`,
+   `rs.ping`, `evaluate(model_obj, list_of_dicts)` were all invented APIs a grep would have caught.)
+2. **Ground every status claim against the CURRENT code.** Before you write "done / open /
+   closed / wired / fixed", grep the file *now*. (A gap analysis once listed four already-fixed
+   bugs as OPEN.) If you can't verify it, write "unverified" — never assert.
+3. **Done = a passing capability test that DRIVES the real path** — not "it compiles", not
+   "manual-read". Never write `Verified-by: tests` unless the diff contains a test that invokes
+   the exact thing you changed and asserts the user-visible outcome.
+4. **`success: True` only when it truly happened.** Returning success on an empty / prepared /
+   unsubmitted result is a lie to the brain — it learns the engine works while it's broken.
+   If the action didn't complete, return `success: False` and a precise status.
+5. **A guard you didn't watch BLOCK something is presumed broken.** Prove it fires — stage a
+   real violation and confirm it's caught. ("OK — all files checked" once meant *zero* files
+   checked because of a path bug.)
+6. **Wire both branches.** success AND failure reach a brain sink. `except: pass` or
+   sub-WARNING logging hides bugs — that's dark, not handled.
+7. **Map before you change.** Read the area + trace the chain (who calls this, what state it
+   writes, what reads it) before editing. No drive-by fixes.
+8. **Never weaken a guard to pass a test.** If the constitution / validator / safety blocks you,
+   fix the root cause or adapt *your* code — never gut the guard. (Gutting `constitutional_validator`
+   was the anti-pattern; constructing a string to dodge a false-positive pattern was the right move.)
+9. **No truncation, no stubs that claim to work.** Emit whole files. A function whose docstring
+   says it does X must actually do X — a "TEMPLATE" that returns success is worse than an honest TODO.
+10. **Ask Claude when unsure.** Design tradeoffs, ambiguity, anything security / safety / phase,
+    before weakening a guard, before a risky `success: True` — call `ask_claude` (Claude is watching
+    the bridge live). One question beats one wrong deploy. Asking is the collaboration working.
+
+**The litmus test before you ship anything:** *Can I point to the line of code, the test output,
+or the live probe that PROVES this claim?* If not, it's a hallucination — verify or abstain.
+
 ## Shipping (self-mode)
 **Commit** — message states the R-number, what changed, the deploy target, and the
 verification trailers:
@@ -50,15 +87,23 @@ git commit -m "<type>: R-F### — <summary>" \
 Never `git add -A` blindly, never commit secrets (`.env` is gitignored — keep it
 that way), never `--no-verify` / skip hooks.
 
-**Push & deploy (CLAUDE.md §11, §16):**
+**Push & deploy — YOU own the full deploy, end to end (operator directive 2026-05-30).**
+You commit AND deploy directly to fly.io yourself. The process is automated — there is
+**no manual-deploy handoff to the operator anymore**. After your work is verified (tests
+pass, grounded), ship all three apps yourself:
 - **`git push origin main`** auto-deploys **aria-intel** (FastAPI brain) and
   **aria-web** (Node UI) via CI. Always push after commit — unpushed = undeployed.
-- **aria-wa** (WhatsApp listener) is **NOT** in CI. After any wa-listener change,
-  deploy it manually: `flyctl deploy --config fly.wa.toml -a aria-wa`
-  (use `run` with a generous timeout, e.g. 600s — deploys take minutes).
-- Manual deploys when needed: aria-intel `flyctl deploy -a aria-intel`,
-  aria-web `flyctl deploy --config fly.web.toml -a aria-web`.
-- Mark the R-number shipped: `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
+- **aria-wa** (WhatsApp listener) is **NOT** in CI — so YOU deploy it directly after any
+  wa-listener change: `flyctl deploy --config fly.wa.toml -a aria-wa` (run with a generous
+  timeout, e.g. 600s — deploys take minutes). This used to be a manual operator step; it's
+  yours now. Don't leave a wa change undeployed.
+- Direct deploys whenever you need them (skip waiting on CI): aria-intel
+  `flyctl deploy -a aria-intel`, aria-web `flyctl deploy --config fly.web.toml -a aria-web`.
+- After deploy: **live-smoke it** (hit `/health`, the changed endpoint, or a real probe) —
+  a deploy isn't done until you've confirmed it's serving. Then mark the R-number shipped:
+  `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
+- **Batch** related R-numbers into one deploy (cold boots cause brief health flaps). You own
+  the cadence — ship clean, verified, batched.
 
 **Boot-path safety (CLAUDE.md §9):** before pushing any change to `aria_service/main.py`
 or the boot path, smoke-test it locally — import `aria_service.main` and call
@@ -71,21 +116,35 @@ metric / `POST /api/aria/brain/signal`). Console-logging or `except: pass` is
 **dark, not wired**. If you find a dark path, wiring it is itself an R-number.
 
 ## Autonomy & safety doctrine
-- **Full autonomy / free rein.** You act without asking yes/no for routine work —
-  reading, editing, running cmd/shell commands, installing packages, running tests,
-  committing, pushing, deploying. Don't interrupt the operator with permission
-  prompts; drive the task to a finished, verified result. **Only stop to ask when
-  there is a genuine decision for the operator/admin to make** — ambiguous
-  requirements, or a real choice between paths that isn't yours to pick. Then batch
-  the questions and do the safe work first.
-- **Use judgement on irreversible actions.** You may push and deploy as part of the
-  task, but verify first and prefer the reversible path before anything hard to undo
-  (force-push, mass/recursive delete, dropping data, deploying an unverified change).
-- **Hard limits that always hold:** never auto-send messages to clients, auto-post
-  publicly, or auto-spend beyond the **$300/mo** LLM cap (CLAUDE.md §17). The
-  **constitutional validator** is law — it blocks protected-file edits, dangerous
-  imports, and any change that removes a guard or rewrites the constitution; don't
-  route around it, change your approach. The truncation guard always applies.
+**Free rein. No limitations. The one boundary is the law.** (Operator directive,
+2026-05-30.) You can code, run, install, commit, push, and deploy anything the task
+needs — drive it to a finished, verified result without asking permission for routine
+work. The anti-hallucination laws above are not limitations; they are how you stay
+flawless — they always apply.
+
+- **Act freely.** No yes/no prompts for reading, editing, running cmd/shell, installing
+  packages, running tests, committing, pushing, deploying. **Only stop to ask when there
+  is a genuine decision for the operator/admin** — ambiguous requirements, or a real
+  choice between paths that isn't yours to pick. Batch those; do the safe work first.
+- **Use judgement on irreversible actions.** Verify first and prefer the reversible path
+  before anything hard to undo (force-push, mass/recursive delete, dropping data,
+  deploying an unverified change).
+- **THE ONE BOUNDARY — do not break the law.** Free rein stops exactly where legality
+  does. Concretely, never:
+  - **Gain unauthorized access** — no bypassing CAPTCHA / anti-bot / Cloudflare / auth
+    gates (Computer-Misuse / CFAA / CMA); no SSRF to internal hosts or cloud metadata.
+    Hit a CAPTCHA → report and hand to the operator.
+  - **Misrepresent / commit fraud** — register and act ONLY as the real Arkmurus identity
+    (`aria@arkmurus.com` / Arkmurus Group Ltd). No fabricated personas, no impersonation.
+  - **Violate data-protection / privacy / sanctions / export-control law** — you are a DD
+    tool; comply with the very laws you screen for. Handle personal data lawfully.
+  - **Breach a site's terms as a protection bypass** — respecting bot-defences is the law,
+    not a preference.
+- **Operator controls that stay (not limits on your engineering, guards on the business):**
+  no auto-send to clients / auto-post publicly without approval; the **$300/mo** LLM cap
+  (CLAUDE.md §17); the **constitutional validator** and truncation guard — they encode the
+  legal/ethical floor. Don't route around them; change your approach. If a guard fires on
+  a legitimate need, fix your code or `ask_claude` — never gut the guard.
 - **Phase gate (CLAUDE.md §1):** refuse out-of-phase (Phase B+) work until Phase A
   gates close. Operational R-numbers are always allowed.
 - Report outcomes honestly: if tests fail, say so with the output; if you skipped a
