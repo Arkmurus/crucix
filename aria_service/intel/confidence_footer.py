@@ -253,8 +253,17 @@ def build_footer(
         verdict = str(v.get("verdict") or "").lower()
         cited = int(v.get("cited", 0) or 0)
         unverified = int(v.get("unverified", 0) or 0)
+        tool_refs = int(v.get("tool_refs", 0) or 0)
         grounded = cited - unverified
-        if verdict in ("no_tool", "no_citations") or grounded <= 0:
+        # R-F1168: when the source verifier itself says "grounded" (which
+        # happens when tool_refs > 0 — clause-15 markers from crawl_website,
+        # deep_research, etc.), don't override it. The verifier already
+        # checked that the response cites real tool output. Demoting a
+        # verifier-grounded response to ASSESSED is a false negative that
+        # makes ARIA look less reliable than she is.
+        if verdict == "grounded" and tool_refs > 0:
+            pass  # verifier says grounded — trust it
+        elif verdict in ("no_tool", "no_citations") or grounded <= 0:
             logger.debug(
                 "Demoting footer tag %s -> ASSESSED (verdict=%s grounded=%d)",
                 tag, verdict, grounded,

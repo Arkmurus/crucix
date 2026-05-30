@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1169,
+  "next_available": 1170,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6184,6 +6184,16 @@
       "r_number": "R-F1168",
       "title": "URL-based research routing: prefer crawl_website when URL detected",
       "claimed_at": "2026-05-30T23:03:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "38702e81",
+      "notes": null,
+      "shipped_at": "2026-05-30T23:04:58Z"
+    },
+    {
+      "r_number": "R-F1169",
+      "title": "Wire ARIA's reasoning pipeline — grounded_reasoner, reasoning_library, symbolic_reasoner, and fix remaining quality gaps",
+      "claimed_at": "2026-05-30T23:06:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

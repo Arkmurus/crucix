@@ -5048,15 +5048,35 @@ def _no_data_warning(tool_name: str, target: str, *, blocking: bool = False) -> 
             f"({target}). An empty result is EXPECTED. Do NOT 'try harder by guessing'. The user "
             f"already knows scraping it doesn't work — they expect you to ask them for context."
         )
+    # R-F1168: suggest alternative approaches when a tool returns nothing.
+    # Instead of just saying "no data", offer concrete next steps.
+    alt_suggestions = ""
+    if "crawl" in tool_name.lower() or "extract" in tool_name.lower():
+        alt_suggestions = (
+            "\n"
+            "ALTERNATIVE APPROACHES TO OFFER:\n"
+            "  - Offer to run a web search for news and third-party mentions of the entity\n"
+            "  - Offer to check sanctions lists and corporate registries\n"
+            "  - Ask if they have any documents or context they can share\n"
+        )
+    elif "search" in tool_name.lower() or "research" in tool_name.lower():
+        alt_suggestions = (
+            "\n"
+            "ALTERNATIVE APPROACHES TO OFFER:\n"
+            "  - If a URL was provided, offer to crawl the website directly\n"
+            "  - Offer to check specific registries (Companies House, OpenCorporates, etc.)\n"
+            "  - Ask for more context: full name, country, sector, or a website URL\n"
+        )
     return (
-        f"\n\n⛔ NO USABLE DATA RETURNED — CONSTITUTION CLAUSE 9 ENFORCEMENT ⛔\n"
         f"The {tool_name} tool ran but returned no usable facts about: {target!r}\n"
         f"\n"
         f"YOU MUST reply approximately as follows (rephrase naturally, but keep the meaning):\n"
         f'  "I could not access {target!r}. I have no information about this entity beyond '
         f'what you have just shared with me. To build a useful profile, please tell me: '
         f'(1) who they work for, (2) their role or function, (3) any context about why '
-        f"you're asking — a deal, a meeting, a referral. With that I can run targeted research.\"\n"
+        f"you're asking -- a deal, a meeting, a referral. With that I can run targeted research."
+        f"{alt_suggestions}"
+        f'"\n'
         f"\n"
         f"YOU MUST NOT:\n"
         f"  - Invent a profile from the URL slug, username, or name pattern\n"
@@ -20305,6 +20325,68 @@ async def phase_gates_ep() -> dict:
             "unknown": sum(1 for g in gates if g["status"] == "unknown"),
             "total": len(gates),
         },
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@router.get("/quality/grounded-rate")
+async def grounded_rate_ep() -> dict:
+    """Grounded rate breakdown — citation verification quality.
+
+    Returns per-verification-status counts and the overall grounded_rate
+    from recent chat audit entries. R-F1169.
+    """
+    from ..intel import redis_store as _rs
+    from ..intel import chat_audit_log as _cal
+    from ..intel.engine_wiring import wire_success
+    import datetime
+
+    try:
+        entries = await _cal.get_recent(500)
+    except Exception as e:
+        return {"error": str(e), "total_entries": 0, "by_status": {}}
+
+    if not entries:
+        return {
+            "total_entries": 0,
+            "by_status": {},
+            "overall_grounded_rate": None,
+            "avg_grounded_rate": None,
+        }
+
+    by_status: dict[str, int] = {}
+    grounded_rates: list[float] = []
+    for e in entries:
+        status = e.get("verification_status", "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+        gr = e.get("grounded_rate")
+        if gr is not None:
+            try:
+                grounded_rates.append(float(gr))
+            except (TypeError, ValueError):
+                pass
+
+    total = len(entries)
+    grounded_count = by_status.get("grounded", 0)
+    overall_grounded_rate = round(grounded_count / total, 3) if total > 0 else None
+    avg_grounded_rate = (
+        round(sum(grounded_rates) / len(grounded_rates), 3)
+        if grounded_rates else None
+    )
+
+    # Wire to brain
+    wire_success(
+        module="grounded_rate",
+        summary=f"Grounded rate: {overall_grounded_rate} (avg {avg_grounded_rate}) over {total} entries",
+        source_id="grounded_rate:R-F1169",
+    )
+
+    return {
+        "total_entries": total,
+        "by_status": by_status,
+        "overall_grounded_rate": overall_grounded_rate,
+        "avg_grounded_rate": avg_grounded_rate,
+        "sample_size": len(grounded_rates),
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
