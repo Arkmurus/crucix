@@ -444,7 +444,9 @@ async def build_heatmap(
         # compute+persist path below takes over.
         if cache_key not in _HEATMAP_DISK_SEEDED:
             _HEATMAP_DISK_SEEDED.add(cache_key)
-            disk = _load_disk_cache(cache_key)
+            # R-F1117: offload sync json.load + file I/O to thread executor
+            # to avoid blocking the event loop (was causing heartbeat stalls).
+            disk = await asyncio.to_thread(_load_disk_cache, cache_key)
             if disk is not None:
                 _HEATMAP_CACHE[cache_key] = (time.time(), disk)
                 return dict(disk)
@@ -465,7 +467,9 @@ async def build_heatmap(
                 domains=domains, jurisdictions=jurisdictions,
             )
             _HEATMAP_CACHE[cache_key] = (time.time(), result)
-            _save_disk_cache(cache_key, result)  # R-F931 — persist for cold-start seed
+            # R-F1117: offload sync json.dump + file I/O to thread executor
+            # to avoid blocking the event loop (was causing heartbeat stalls).
+            await asyncio.to_thread(_save_disk_cache, cache_key, result)
             if not fut.done():
                 fut.set_result(result)
             return dict(result)
