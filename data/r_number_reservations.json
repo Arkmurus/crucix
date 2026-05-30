@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1113,
+  "next_available": 1143,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5628,6 +5628,303 @@
       "r_number": "R-F1112",
       "title": "ARIA fully autonomous self-coding — AST-aware code synthesis replaces SovereignLLM dependency",
       "claimed_at": "2026-05-30T10:49:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "85e0cef3",
+      "notes": null,
+      "shipped_at": "2026-05-30T11:09:30Z"
+    },
+    {
+      "r_number": "R-F1113",
+      "title": "Fix ARIA stalling after task completion — signal readiness for next instruction",
+      "claimed_at": "2026-05-30T11:14:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d19694a2",
+      "notes": null,
+      "shipped_at": "2026-05-30T11:29:08Z"
+    },
+    {
+      "r_number": "R-F1114",
+      "title": "Fix deploy pipeline — ARIA deploys directly to fly.io, no manual handoff",
+      "claimed_at": "2026-05-30T11:17:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a5a8379b",
+      "notes": null,
+      "shipped_at": "2026-05-30T11:18:39Z"
+    },
+    {
+      "r_number": "R-F1115",
+      "title": "Add deploy-verify live-smoke to shipping loop + fix container git-not-found",
+      "claimed_at": "2026-05-30T11:25:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b91fa599",
+      "notes": null,
+      "shipped_at": "2026-05-30T11:29:02Z"
+    },
+    {
+      "r_number": "R-F1116",
+      "title": "bulletproof deploy script — verify live build_rev, fail loud",
+      "claimed_at": "2026-05-30T11:45:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1ef16a0f",
+      "notes": null,
+      "shipped_at": "2026-05-30T11:45:40Z"
+    },
+    {
+      "r_number": "R-F1117",
+      "title": "Diagnose event-loop heartbeat stall regression — sync json.dump on loop + web_atlas de-burst",
+      "claimed_at": "2026-05-30T12:01:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "695e4cc9",
+      "notes": null,
+      "shipped_at": "2026-05-30T12:51:42Z"
+    },
+    {
+      "r_number": "R-F1118",
+      "title": "Fix R-F1080 process-pool encode timeout — revert to thread-level to_thread with GIL yield",
+      "claimed_at": "2026-05-30T12:37:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "695e4cc9",
+      "notes": null,
+      "shipped_at": "2026-05-30T12:52:12Z"
+    },
+    {
+      "r_number": "R-F1119",
+      "title": "Fix continuous_profiler heartbeat + internal monitor 401s",
+      "claimed_at": "2026-05-30T13:00:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4dcbbf61",
+      "notes": null,
+      "shipped_at": "2026-05-30T13:20:38Z"
+    },
+    {
+      "r_number": "R-F1120",
+      "title": "fix dangling tool_call wedge (loop-guard abort corrupts history -> HTTP 400)",
+      "claimed_at": "2026-05-30T13:44:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2058f9e7",
+      "notes": null,
+      "shipped_at": "2026-05-30T13:45:02Z"
+    },
+    {
+      "r_number": "R-F1121",
+      "title": "@wired decorator for brain sinks",
+      "claimed_at": "2026-05-30T13:49:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e77305d8",
+      "notes": null,
+      "shipped_at": "2026-05-30T14:32:34Z"
+    },
+    {
+      "r_number": "R-F1122",
+      "title": "@wired falsy-success detection",
+      "claimed_at": "2026-05-30T15:12:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "114991d5",
+      "notes": null,
+      "shipped_at": "2026-05-30T15:24:47Z"
+    },
+    {
+      "r_number": "R-F1123",
+      "title": "deploy.sh push guard + playbook upgrade",
+      "claimed_at": "2026-05-30T15:29:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1124",
+      "title": "capability test CI gate",
+      "claimed_at": "2026-05-30T15:44:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76925bb5",
+      "notes": null,
+      "shipped_at": "2026-05-30T15:57:24Z"
+    },
+    {
+      "r_number": "R-F1125",
+      "title": "live health regression suite",
+      "claimed_at": "2026-05-30T15:44:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76925bb5",
+      "notes": null,
+      "shipped_at": "2026-05-30T15:57:30Z"
+    },
+    {
+      "r_number": "R-F1126",
+      "title": "portal coverage auto-audit",
+      "claimed_at": "2026-05-30T15:45:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76925bb5",
+      "notes": null,
+      "shipped_at": "2026-05-30T15:57:33Z"
+    },
+    {
+      "r_number": "R-F1127",
+      "title": "refactor pre-commit into importable module",
+      "claimed_at": "2026-05-30T15:47:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76925bb5",
+      "notes": null,
+      "shipped_at": "2026-05-30T15:57:36Z"
+    },
+    {
+      "r_number": "R-F1128",
+      "title": "self_coder skip protected-file gaps",
+      "claimed_at": "2026-05-30T16:02:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4f1c8463",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:11:54Z"
+    },
+    {
+      "r_number": "R-F1129",
+      "title": "generative red-team drill — LLM-vs-ARIA adversarial loop",
+      "claimed_at": "2026-05-30T16:22:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1130",
+      "title": "ARIA threat model document",
+      "claimed_at": "2026-05-30T16:28:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8107201e",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:44:59Z"
+    },
+    {
+      "r_number": "R-F1131",
+      "title": "P1: malware content scanner + quarantine",
+      "claimed_at": "2026-05-30T16:29:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8107201e",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:45:03Z"
+    },
+    {
+      "r_number": "R-F1132",
+      "title": "self-innovated security improvements",
+      "claimed_at": "2026-05-30T16:33:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1133",
+      "title": "dependency integrity chain — hash-verify + SBOM",
+      "claimed_at": "2026-05-30T16:37:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8107201e",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:45:07Z"
+    },
+    {
+      "r_number": "R-F1134",
+      "title": "provenance watermarking — tamper-evident content tags",
+      "claimed_at": "2026-05-30T16:46:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f8c384a8",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:53:40Z"
+    },
+    {
+      "r_number": "R-F1135",
+      "title": "quarantine network — safe-first RESPOND capability",
+      "claimed_at": "2026-05-30T16:47:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f8c384a8",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:53:44Z"
+    },
+    {
+      "r_number": "R-F1136",
+      "title": "behavioural anomaly detection — self-baseline + alert",
+      "claimed_at": "2026-05-30T16:48:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f8c384a8",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:53:49Z"
+    },
+    {
+      "r_number": "R-F1137",
+      "title": "credential self-destruct — TTL + rotate + panic wipe",
+      "claimed_at": "2026-05-30T16:50:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f8c384a8",
+      "notes": null,
+      "shipped_at": "2026-05-30T16:53:54Z"
+    },
+    {
+      "r_number": "R-F1138",
+      "title": "EICAR runtime construction — AV-safe",
+      "claimed_at": "2026-05-30T17:01:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "71eaf23f",
+      "notes": null,
+      "shipped_at": "2026-05-30T17:01:55Z"
+    },
+    {
+      "r_number": "R-F1139",
+      "title": "real AV scanning — ClamAV integration for content_scanner",
+      "claimed_at": "2026-05-30T17:04:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7e896b6a",
+      "notes": null,
+      "shipped_at": "2026-05-30T17:09:05Z"
+    },
+    {
+      "r_number": "R-F1140",
+      "title": "automated DD trigger pipeline + intel-driven registration",
+      "claimed_at": "2026-05-30T17:11:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ef0514fd",
+      "notes": null,
+      "shipped_at": "2026-05-30T17:23:11Z"
+    },
+    {
+      "r_number": "R-F1141",
+      "title": "operator mid-task interject — stdin daemon thread",
+      "claimed_at": "2026-05-30T17:11:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "85702802",
+      "notes": null,
+      "shipped_at": "2026-05-30T17:16:50Z"
+    },
+    {
+      "r_number": "R-F1142",
+      "title": "Wire DD trigger pipeline into autonomous scheduler",
+      "claimed_at": "2026-05-30T17:42:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

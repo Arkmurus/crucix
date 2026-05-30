@@ -3,9 +3,10 @@
 R-F1005 — ARIA Autonomous Scheduler.
 
 Runs the coding cycle on a schedule:
+- Every 5 minutes: DD trigger monitor (signal check + watchlist match)
 - Every 15 minutes: scan for gaps, fix them
 - Every hour: run self-diagnostics
-- Every 6 hours: run adversarial suite
+- Every 6 hours: run adversarial suite + generative red-team drill
 - Every 24 hours: run full ecosystem optimization
 """
 from __future__ import annotations
@@ -31,6 +32,9 @@ class AutonomousScheduler:
             return
         self._running = True
         
+        self._tasks["dd_monitor"] = asyncio.create_task(
+            self._run_interval("dd_monitor", 300, self._run_dd_monitor),  # 5 min
+        )
         self._tasks["gap_fixer"] = asyncio.create_task(
             self._run_interval("gap_fixer", 900, self._fix_gaps),  # 15 min
         )
@@ -101,6 +105,20 @@ class AutonomousScheduler:
             # In production: gap_detector.scan() -> AutonomousCoder.full_fix_cycle()
         except Exception as e:
             logger.debug("[scheduler] gap fix skipped: %s", e)
+
+    async def _run_dd_monitor(self) -> None:
+        """Run DD trigger monitor — check signals and fire DD triggers."""
+        try:
+            from .dd_trigger_pipeline import monitor_and_trigger
+            result = await monitor_and_trigger()
+            logger.info(
+                "[scheduler] dd_monitor: %d signals, %d matches, %d triggers fired",
+                result.get("signals_found", 0),
+                result.get("matches_found", 0),
+                result.get("triggers_fired", 0),
+            )
+        except Exception as e:
+            logger.debug("[scheduler] dd_monitor skipped: %s", e)
 
     async def _run_diagnostics(self) -> None:
         """Run self-diagnostics."""
