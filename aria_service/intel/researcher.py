@@ -968,13 +968,17 @@ def _extract_structured_html(html: str) -> dict:
     }
 
 
-async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
+async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     """Fetch a URL and return STRUCTURED extracted content as a string.
 
     Uses _extract_structured_html() so the LLM sees title + headings + body +
     contact info + social links instead of a blob of regex-stripped text.
     Falls back to archive.is + Wayback Machine on paywalls and 4xx errors.
+    R-F1102: default timeout raised to 30s (was 15), configurable via
+    ARIA_FETCH_TIMEOUT env var.
     """
+    if timeout <= 0:
+        timeout = float(os.getenv("ARIA_FETCH_TIMEOUT", "30.0"))
     from .security import sanitise_url, scan_content, strip_dangerous_content
     url = sanitise_url(url)
     if not url:
@@ -1030,6 +1034,26 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
         rendered = await _headless.fetch_rendered_html(url, timeout=20)
         if rendered and len(rendered) > len(html):
             html = rendered
+
+    # ── Playwright JS-rendering fallback ──────────────────────────────
+    # If Lightpanda also returned thin content (or wasn't available),
+    # try the full Chromium Playwright engine for complex SPAs.
+    if _headless.is_thin_content(html):
+        try:
+            from .scraper.playwright_engine import fetch as _pw_fetch, is_available as _pw_avail
+            if _pw_avail():
+                logger.info("Still thin after Lightpanda (%d chars) — trying Playwright",
+                            len(html))
+                pw_result = await _pw_fetch(url, timeout=30.0, wait_for="networkidle")
+                if pw_result.ok and pw_result.html and len(pw_result.html) > len(html):
+                    logger.info("Playwright rendered %s: %d chars (was %d)",
+                                url[:80], len(pw_result.html), len(html))
+                    html = pw_result.html
+                elif pw_result.blocked:
+                    logger.info("Playwright blocked by bot-detection on %s: %s",
+                                url[:80], pw_result.block_reason)
+        except Exception as _pw_e:
+            logger.debug("Playwright fallback failed for %s: %s", url[:80], _pw_e)
 
     scan = scan_content(html, source=url[:100])
     if not scan["safe"]:
@@ -3338,8 +3362,10 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
 
     # Truncate heavy pages to prevent LLM timeout (past incident 2026-04-16:
     # UCDP downloads page returned 8,000+ chars causing synthesis timeout)
-    if len(body) > 6000:
-        body = body[:6000] + "\n\n[TRUNCATED — original content was " + str(len(body)) + " chars]"
+    # R-F1102: ARIA_ARTICLE_MAX_CHARS env var (default 50000) for DD reads.
+    _article_max_chars = int(os.getenv("ARIA_ARTICLE_MAX_CHARS", "50000"))
+    if len(body) > _article_max_chars:
+        body = body[:_article_max_chars] + "\n\n[TRUNCATED — original content was " + str(len(body)) + " chars]"
 
     existing_kb = search_knowledge(body[:200])
     hypotheses = await _load_hypotheses()

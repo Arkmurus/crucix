@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import re
 from urllib.parse import urlparse
 
@@ -71,6 +72,13 @@ MAX_CRAWL_PAGES = 30
 MAX_CONTENT_LENGTH = 500_000  # 500KB of text
 
 
+# R-F1102 — operator-gated relax flags for DD investigations.
+# These are OFF by default (safe mode). Set to "1" to relax for
+# legitimate due-diligence reading. NEVER bypass SSRF or CAPTCHA guards.
+_ALLOW_AUTH_REQUIRED_URLS = os.getenv("ARIA_ALLOW_AUTH_REQUIRED_URLS", "0") == "1"
+_ALLOW_SCRIPT_EXTENSIONS = os.getenv("ARIA_ALLOW_SCRIPT_EXTENSIONS", "0") == "1"
+
+
 def validate_url(url: str) -> tuple[bool, str]:
     """Validate a URL is safe to fetch. Returns (is_safe, reason)."""
     if not url or not isinstance(url, str):
@@ -106,16 +114,20 @@ def validate_url(url: str) -> tuple[bool, str]:
         pass  # Not an IP — hostname is fine
 
     # Check for dangerous file extensions
+    # R-F1102: ARIA_ALLOW_SCRIPT_EXTENSIONS=1 allows GET on .js/.py/.jar etc.
+    # (GET doesn't execute them — the block was overcautious for reads).
     path_lower = (parsed.path or "").lower()
-    for ext in _DANGEROUS_EXTENSIONS:
-        if path_lower.endswith(ext):
-            return False, f"Dangerous file type: {ext}"
+    if not _ALLOW_SCRIPT_EXTENSIONS:
+        for ext in _DANGEROUS_EXTENSIONS:
+            if path_lower.endswith(ext):
+                return False, f"Dangerous file type: {ext}"
 
     # Reject URLs that require auth — they 302 to a login page and we end up
     # ingesting login-page HTML as "article content". Live incident
     # 2026-04-27: LinkedIn admin URLs got into the research queue, redirected
     # to login, and 6 chunks of LinkedIn login HTML were written to RAG.
-    if _is_auth_required_url(hostname, path_lower):
+    # R-F1102: ARIA_ALLOW_AUTH_REQUIRED_URLS=1 bypasses this for DD investigations.
+    if not _ALLOW_AUTH_REQUIRED_URLS and _is_auth_required_url(hostname, path_lower):
         return False, f"Auth-required URL (would redirect to login): {hostname}{path_lower[:50]}"
 
     # R-F66b (2026-05-09): block known low-value navigational pages.

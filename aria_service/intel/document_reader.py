@@ -63,6 +63,14 @@ try:
 except ImportError:
     TESSERACT_AVAILABLE = False
 
+# R-F1104 — native .xlsx reading for DD spreadsheets
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+    logger.info("openpyxl not installed — .xlsx spreadsheet extraction unavailable")
+
 
 # ── Configuration from env vars (matches existing config.py pattern) ────────
 
@@ -161,6 +169,9 @@ async def read_document(
         return _read_html(filepath)
     if ext in (".docx",):
         return _read_docx(filepath)
+    # R-F1104 — native .xlsx reading for DD spreadsheets
+    if ext in (".xlsx", ".xls"):
+        return _read_xlsx(filepath)
     if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
         if llm:
             return await _strategy_vision_image(filepath, llm, query)
@@ -987,6 +998,57 @@ def _read_docx(filepath: str) -> ExtractionResult:
     except Exception as e:
         return ExtractionResult(method="DOCX", confidence=0.0,
                                 gap_description=f"DOCX error: {e}")
+
+
+# ── R-F1104: .xlsx spreadsheet reader ─────────────────────────────────────
+
+
+def _read_xlsx(filepath: str) -> ExtractionResult:
+    """Read a .xlsx spreadsheet and return all sheets as structured text.
+
+    Each sheet is rendered as:
+      === Sheet: <name> ===
+      | Col A | Col B | Col C |
+      | val1  | val2  | val3  |
+
+    Returns ExtractionResult with method="XLSX".
+    """
+    if not OPENPYXL_AVAILABLE:
+        return ExtractionResult(
+            method="XLSX", confidence=0.0,
+            gap_description="openpyxl not installed — install with: pip install openpyxl",
+        )
+    try:
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        parts: list[str] = []
+        total_rows = 0
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            parts.append(f"=== Sheet: {sheet_name} ===")
+            for row in ws.iter_rows(values_only=True):
+                # Filter fully-empty rows
+                cleaned = [str(c) if c is not None else "" for c in row]
+                if any(c.strip() for c in cleaned):
+                    parts.append(" | ".join(cleaned))
+                    total_rows += 1
+            parts.append("")  # blank line between sheets
+        wb.close()
+        text = "\n".join(parts)
+        if len(text) > 50:
+            return ExtractionResult(
+                text=text, method="XLSX", confidence=0.90,
+                pages_extracted=total_rows, total_pages=total_rows,
+            )
+        return ExtractionResult(
+            method="XLSX", confidence=0.10,
+            gap_description="XLSX file appears empty or all-blank",
+        )
+    except Exception as e:
+        logger.debug("XLSX read failed for %s: %s", filepath, e)
+        return ExtractionResult(
+            method="XLSX", confidence=0.0,
+            gap_description=f"XLSX error: {e}",
+        )
 
 
 # ── Utilities ───────────────────────────────────────────────────────────────

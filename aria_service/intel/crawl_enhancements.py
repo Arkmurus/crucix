@@ -592,7 +592,16 @@ async def fetch_with_fallbacks(
                     result["text"] = extracted.get("text", "") or ""
                 except Exception:
                     result["text"] = re.sub(r"<[^>]+>", " ", r.text)[:50000]
-                return result
+                # R-F1101 — check for thin JS-shell content and fall through
+                # to Playwright if the page is likely a JS SPA
+                from . import headless as _h1101
+                if _h1101.is_thin_content(r.text):
+                    logger.info("Thin 200 from %s (%d chars) — will try Playwright",
+                                url[:80], len(r.text))
+                    primary_failed = True
+                    primary_error = "thin JS shell (200 but no content)"
+                else:
+                    return result
             else:
                 primary_failed = True
                 primary_error = f"HTTP {r.status_code}"

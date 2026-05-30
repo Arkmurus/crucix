@@ -181,6 +181,7 @@ async def fetch(
     wait_for: str = _DEFAULT_WAIT_FOR,
     timeout: float = _DEFAULT_TIMEOUT_S,
     extract_selectors: dict[str, str] | None = None,
+    cookies: list[dict[str, str]] | None = None,
 ) -> ScrapeResult:
     """Fetch a URL with a full Chromium browser. Bounded concurrency.
 
@@ -193,6 +194,9 @@ async def fetch(
         extract_selectors: optional dict of {name: css_selector}. If
             provided, returns the matched element text for each in
             ScrapeResult._extracted (attached as attribute).
+        cookies: optional list of cookie dicts to inject before navigation.
+            Each dict must have 'name', 'value', and optionally 'domain',
+            'path'. Used for reading login-gated pages with stored creds.
 
     Returns ScrapeResult.
     """
@@ -206,6 +210,13 @@ async def fetch(
         page = None
         try:
             playwright, browser, context, page = await _launch_browser()
+
+            # R-F1103 — inject cookies before navigation for login-gated pages
+            if cookies:
+                try:
+                    await context.add_cookies(cookies)
+                except Exception as _ce:
+                    logger.debug("[playwright] cookie injection failed: %s", _ce)
 
             # Navigate
             try:
@@ -290,6 +301,7 @@ async def fetch_with_selectors(
     *,
     wait_for: str = _DEFAULT_WAIT_FOR,
     timeout: float = _DEFAULT_TIMEOUT_S,
+    cookies: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Convenience wrapper for adapter use. Returns a dict keyed by
     selector name with extracted text + meta about the fetch."""
@@ -298,6 +310,7 @@ async def fetch_with_selectors(
         wait_for=wait_for,
         timeout=timeout,
         extract_selectors=selectors,
+        cookies=cookies,
     )
     extracted = getattr(result, "_extracted", {}) or {}
     return {
