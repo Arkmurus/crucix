@@ -72,6 +72,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.intel.dialogue_state")
 
+# R-F1166 — wire to brain on dialogue state operations
+from .engine_wiring import wire_success, wire_failure
+
 # ─────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────
@@ -463,5 +466,18 @@ async def stats() -> dict[str, Any]:
         await cur.close()
     except Exception as exc:
         logger.warning("stats: failed: %s", exc)
+        wire_failure(
+            module="dialogue_state",
+            detail=f"stats failed: {exc}",
+            gap_type="dialogue_state_failure",
+            source="dialogue_state:stats",
+        )
         out["error"] = str(exc)[:120]
+    # R-F1166 — wire success to brain
+    if "error" not in out:
+        wire_success(
+            module="dialogue_state",
+            summary=f"Dialogue stats: {out['total']} questions, {out.get('by_status', {}).get('open', 0)} open",
+            source_id="dialogue_state:stats",
+        )
     return out

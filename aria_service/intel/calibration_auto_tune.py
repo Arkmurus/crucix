@@ -52,6 +52,9 @@ from typing import Any
 
 logger = logging.getLogger("aria.calibration_auto_tune")
 
+# R-F1166 — wire to brain on auto-tune operations
+from .engine_wiring import wire_success, wire_failure
+
 # Redis keys
 _K_DELTA = "crucix:calibration:threshold_delta"
 _K_HISTORY = "crucix:calibration:threshold_delta:history"
@@ -85,8 +88,12 @@ async def get_effective_threshold(name: str, base_value: float) -> float:
         return adjusted
     except Exception as e:
         logger.debug("[auto_tune] threshold read failed: %s", e)
-
-
+        wire_failure(
+            module="calibration_auto_tune",
+            detail=f"get_effective_threshold failed: {e}",
+            gap_type="auto_tune_failure",
+            source="calibration_auto_tune:get_effective_threshold",
+        )
         return base_value
 
 
@@ -116,6 +123,12 @@ async def get_current_state() -> dict:
             "history": history,
         }
     except Exception:
+        wire_failure(
+            module="calibration_auto_tune",
+            detail="get_current_state failed",
+            gap_type="auto_tune_failure",
+            source="calibration_auto_tune:get_current_state",
+        )
         return {"current_deltas": {}, "history": []}
 
 

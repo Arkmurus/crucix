@@ -446,6 +446,145 @@ class HealthPerfExtractor:
         return gaps
 
 
+class AdversarialStalenessExtractor:
+    """Detect when the adversarial score is stale (>48h since last run).
+
+    R-F1166 — the adversarial weekly task may fail due to transient LLM
+    issues (empty responses, rate limits). When the score is stale, the
+    calibration loop falls back to the last non-degraded run, but the
+    gap_detector should flag the staleness so the coder can investigate.
+    """
+
+    KEY = "aria:adversarial:last_run"
+    MAX_AGE_HOURS = 48
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        try:
+            raw = await self.redis.get(self.KEY)
+        except Exception as e:
+            logger.error("[gap_detector] adversarial last_run read failed: %s", e)
+            return gaps
+        if not raw:
+            # No adversarial run ever recorded — flag it
+            gaps.append(Gap(
+                gap_id="adversarial_never_run",
+                gap_type=GapType.INTROSPECTION_ERROR,
+                severity=GapSeverity.HIGH,
+                title="Adversarial suite has never run",
+                description="No adversarial last_run record found in Redis. "
+                            "The weekly adversarial audit may not be scheduled or may be failing silently.",
+                module="aria_service/intel/adversarial_challenge.py",
+                evidence={"key": self.KEY, "value": None},
+            ))
+            return gaps
+
+        try:
+            data = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return gaps
+
+        run_at = data.get("run_at")
+        if not run_at:
+            return gaps
+
+        try:
+            from datetime import datetime, timezone
+            run_dt = datetime.fromisoformat(run_at)
+            age_hours = (datetime.now(timezone.utc) - run_dt).total_seconds() / 3600
+        except (ValueError, TypeError):
+            return gaps
+
+        if age_hours > self.MAX_AGE_HOURS:
+            degraded = data.get("degraded", False)
+            invalid = data.get("invalid", False)
+            reason_parts = [f"Last run was {age_hours:.0f}h ago (max {self.MAX_AGE_HOURS}h)"]
+            if degraded:
+                reason_parts.append("run was degraded")
+            if invalid:
+                reason_parts.append("run was invalid (empty responses)")
+            gaps.append(Gap(
+                gap_id="adversarial_stale",
+                gap_type=GapType.INTROSPECTION_ERROR,
+                severity=GapSeverity.HIGH,
+                title=f"Adversarial score stale ({age_hours:.0f}h)",
+                description="; ".join(reason_parts),
+                module="aria_service/intel/adversarial_challenge.py",
+                evidence={
+                    "key": self.KEY,
+                    "age_hours": round(age_hours, 1),
+                    "max_age_hours": self.MAX_AGE_HOURS,
+                    "degraded": degraded,
+                    "invalid": invalid,
+                    "score": data.get("overall_score"),
+                },
+            ))
+        return gaps
+
+
+class GroundedRateExtractor:
+    """Detect when grounded_rate drops below threshold.
+
+    R-F1166 — grounded_rate measures the fraction of claims with verified
+    citations. A rate below 0.85 means >15% of claims lack source backing.
+    Reads from the health/perf metrics store.
+    """
+
+    KEY = "crucix:health:perf:latest"
+    THRESHOLD = 0.85
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        try:
+            raw = await self.redis.get(self.KEY)
+        except Exception as e:
+            logger.error("[gap_detector] grounded_rate read failed: %s", e)
+            return gaps
+        if not raw:
+            return gaps
+
+        try:
+            metrics = json.loads(
+                raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            )
+        except json.JSONDecodeError:
+            return gaps
+
+        rate = metrics.get("grounded_rate")
+        if rate is None:
+            return gaps
+
+        try:
+            rate_f = float(rate)
+        except (TypeError, ValueError):
+            return gaps
+
+        if rate_f < self.THRESHOLD:
+            gaps.append(Gap(
+                gap_id="grounded_rate_below_threshold",
+                gap_type=GapType.PERFORMANCE,
+                severity=GapSeverity.HIGH,
+                title=f"Grounded rate {rate_f:.1%} below threshold {self.THRESHOLD:.0%}",
+                description=(
+                    f"grounded_rate={rate_f:.3f}, threshold={self.THRESHOLD}. "
+                    f"{1.0 - rate_f:.1%} of claims lack verified citations."
+                ),
+                module="aria_service/aria_engine.py",
+                evidence={
+                    "metric": "grounded_rate",
+                    "value": rate_f,
+                    "threshold": self.THRESHOLD,
+                },
+            ))
+        return gaps
+
+
 class SourceHealthExtractor:
     """Detect source modules failing consecutive sweeps."""
 
@@ -1093,6 +1232,8 @@ class GapDetector:
             OpportunityExtractor(redis_client),       # R-F826: crucix:chat_audit:log
             StaticAnalysisExtractor(redis_client),    # R-F1147: AST-based code quality
             PortalCoverageExtractor(redis_client),    # R-F1154: portal registration gaps
+            AdversarialStalenessExtractor(redis_client),  # R-F1166: stale adversarial score
+            GroundedRateExtractor(redis_client),          # R-F1166: grounded rate below threshold
         ]
         self._active_gaps: dict[str, Gap] = {}
 

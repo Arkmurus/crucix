@@ -36,6 +36,9 @@ from typing import Any
 
 logger = logging.getLogger("aria.intel.dd_layer_extensions")
 
+# R-F1166 — wire to brain on layer extension operations
+from .engine_wiring import wire_success, wire_failure
+
 
 # ── R-F584: court_records → Layer 4 (compliance) ──────────────────────
 
@@ -381,6 +384,12 @@ async def run_all_extensions(
     for name, res in zip(coros.keys(), results):
         if isinstance(res, Exception):
             out["errors"].append(f"{name}: {type(res).__name__}: {res}")
+            wire_failure(
+                module="dd_layer_extensions",
+                detail=f"{name} failed: {res}",
+                gap_type="layer_extension_failure",
+                source=f"dd_layer_extensions:{name}",
+            )
             continue
         if res is None:
             out["skipped"].append(name)
@@ -390,4 +399,12 @@ async def run_all_extensions(
         sev = (res.get("severity") or "NONE").upper()
         if severity_rank.get(sev, 0) > severity_rank.get(out["max_severity"], 0):
             out["max_severity"] = sev
+
+    # R-F1166 — wire success to brain
+    if out["ran"]:
+        wire_success(
+            module="dd_layer_extensions",
+            summary=f"Ran {len(out['ran'])} layer extensions, max severity {out['max_severity']}",
+            source_id="dd_layer_extensions:run_all_extensions",
+        )
     return out

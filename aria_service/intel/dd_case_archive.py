@@ -33,6 +33,9 @@ from typing import Iterator
 
 logger = logging.getLogger("aria.dd_case_archive")
 
+# R-F1166 — wire to brain on archive operations
+from .engine_wiring import wire_success, wire_failure
+
 # Default 90-day TTL — well beyond the Redis 7-day. Operator can
 # extend via env if they want longer audit windows.
 _DEFAULT_RETENTION_DAYS = int(os.environ.get("ARIA_DD_CASE_ARCHIVE_DAYS", "90"))
@@ -118,6 +121,12 @@ def archive_entry(entry: dict) -> None:
             )
     except Exception as e:
         logger.debug("dd_case_archive.archive_entry failed: %s", e)
+        wire_failure(
+            module="dd_case_archive",
+            detail=f"archive_entry failed: {e}",
+            gap_type="archive_failure",
+            source="dd_case_archive:archive_entry",
+        )
 
 
 def lookup_by_canonical_id(canonical_entity_id: str) -> list[dict]:
@@ -211,4 +220,10 @@ def stats() -> dict:
         }
     except Exception as e:
         logger.debug("dd_case_archive.stats failed: %s", e)
+        wire_failure(
+            module="dd_case_archive",
+            detail=f"stats failed: {e}",
+            gap_type="archive_failure",
+            source="dd_case_archive:stats",
+        )
         return {"error": str(e)}

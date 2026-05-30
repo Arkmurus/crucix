@@ -51,6 +51,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.agent_registry")
 
+# R-F1166 — wire to brain on registry operations
+from .engine_wiring import wire_success, wire_failure
+
 # ── Redis key prefixes ────────────────────────────────────────────────────────
 
 _AGENT_REGISTRY_KEY = "crucix:agent:registry"          # hash: agent_id → json status
@@ -127,9 +130,23 @@ class AgentRegistry:
                 "[R-F1160] agent registered: %s (%s) — %s",
                 agent_id, agent_type, current_task,
             )
+            # R-F1166 — wire success to brain
+            wire_success(
+                module="agent_registry",
+                summary=f"Agent registered: {agent_id} ({agent_type})",
+                entity_name=agent_id,
+                source_id="agent_registry:register",
+            )
             return True
         except Exception as e:
             logger.warning("[R-F1160] agent registration failed for %s: %s", agent_id, e)
+            # R-F1166 — wire failure to brain
+            wire_failure(
+                module="agent_registry",
+                detail=f"register failed for {agent_id}: {e}",
+                gap_type="agent_registration_failure",
+                source="agent_registry:register",
+            )
             return False
 
     async def unregister(self, agent_id: str) -> bool:
@@ -403,30 +420,47 @@ class AgentRegistry:
 
     async def get_registry_stats(self) -> dict:
         """Get statistics about the agent registry."""
-        agents = await self.list_active_agents(include_stale=True)
-        active = [a for a in agents if a.get("status") == "active"]
-        stale = [a for a in agents if a.get("status") == "stale"]
-        by_type: dict[str, int] = {}
-        for a in agents:
-            at = a.get("agent_type", "unknown")
-            by_type[at] = by_type.get(at, 0) + 1
+        try:
+            agents = await self.list_active_agents(include_stale=True)
+            active = [a for a in agents if a.get("status") == "active"]
+            stale = [a for a in agents if a.get("status") == "stale"]
+            by_type: dict[str, int] = {}
+            for a in agents:
+                at = a.get("agent_type", "unknown")
+                by_type[at] = by_type.get(at, 0) + 1
 
-        return {
-            "total_agents": len(agents),
-            "active_agents": len(active),
-            "stale_agents": len(stale),
-            "by_type": by_type,
-            "agents": [
-                {
-                    "agent_id": a.get("agent_id"),
-                    "agent_type": a.get("agent_type"),
-                    "current_task": a.get("current_task"),
-                    "status": a.get("status"),
-                    "heartbeat_age_s": a.get("heartbeat_age_s"),
-                }
-                for a in agents
-            ],
-        }
+            result = {
+                "total_agents": len(agents),
+                "active_agents": len(active),
+                "stale_agents": len(stale),
+                "by_type": by_type,
+                "agents": [
+                    {
+                        "agent_id": a.get("agent_id"),
+                        "agent_type": a.get("agent_type"),
+                        "current_task": a.get("current_task"),
+                        "status": a.get("status"),
+                        "heartbeat_age_s": a.get("heartbeat_age_s"),
+                    }
+                    for a in agents
+                ],
+            }
+            # R-F1166 — wire success to brain
+            wire_success(
+                module="agent_registry",
+                summary=f"Registry stats: {result['active_agents']} active, {result['stale_agents']} stale",
+                source_id="agent_registry:get_registry_stats",
+            )
+            return result
+        except Exception as e:
+            logger.warning("get_registry_stats failed: %s", e)
+            wire_failure(
+                module="agent_registry",
+                detail=f"get_registry_stats failed: {e}",
+                gap_type="agent_registry_failure",
+                source="agent_registry:get_registry_stats",
+            )
+            return {"total_agents": 0, "active_agents": 0, "stale_agents": 0, "by_type": {}, "agents": []}
 
     async def cleanup_stale_agents(self) -> int:
         """Remove agents that haven't sent a heartbeat in too long.

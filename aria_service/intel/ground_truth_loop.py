@@ -46,6 +46,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from enum import Enum
 
+logger = logging.getLogger("aria.ground_truth_loop")
+
+# R-F1166 — wire to brain on ground truth operations
+from .engine_wiring import wire_success, wire_failure
+
 import os
 try:
     import anthropic

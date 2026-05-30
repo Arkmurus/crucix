@@ -63,6 +63,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.intel.user_model")
 
+# R-F1166 — wire to brain on user model operations
+from .engine_wiring import wire_success, wire_failure
+
 # Path defaults to the same DB as dialogue_state so lifespan/backup
 # discipline is shared. Overridable for tests.
 _DEFAULT_DB = "/data/aria_dialogue.db"
@@ -526,5 +529,18 @@ async def stats() -> dict[str, Any]:
             await cur.close()
     except Exception as exc:
         logger.warning("stats: failed: %s", exc)
+        wire_failure(
+            module="user_model",
+            detail=f"stats failed: {exc}",
+            gap_type="user_model_failure",
+            source="user_model:stats",
+        )
         out["error"] = str(exc)[:120]
+    # R-F1166 — wire success to brain
+    if "error" not in out:
+        wire_success(
+            module="user_model",
+            summary=f"User model stats: {out['total_users']} users, {out['active_24h']} active 24h",
+            source_id="user_model:stats",
+        )
     return out
