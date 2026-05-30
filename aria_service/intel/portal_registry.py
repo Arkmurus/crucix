@@ -604,27 +604,29 @@ def assert_real_identity(email: str, name: str) -> tuple[bool, str]:
 # visibility of every account created and every ToS accepted.
 
 
-async def _audit_registration(
+async def _audit_preparation(
     portal: PortalDef,
     identity_email: str,
     identity_name: str,
     tos_accepted: bool = False,
 ) -> None:
-    """Write a non-blocking audit record for a completed registration.
+    """Write a non-blocking audit record for a PREPARED (not completed) registration.
 
-    This is an informational NOTICE — it does NOT block or gate anything.
-    It gives the operator after-the-fact visibility.
+    The registration page was loaded and credentials stored, but the form
+    was NOT filled or submitted — that requires per-portal field schemas
+    (next iteration). This notice is informational, not a claim of completion.
     """
     try:
         from . import pending_actions as _pa
         await _pa.record(
-            promise=f"Registered on {portal.name} ({portal.id})",
+            promise=f"Registration prepared for {portal.name} ({portal.id}) — form fill deferred",
             reason=(
-                f"ARIA autonomously registered an account on {portal.name}.\n"
+                f"ARIA prepared registration on {portal.name} (page loaded, credentials stored).\n"
                 f"  Portal: {portal.url}\n"
                 f"  Identity: {identity_email} / {identity_name}\n"
                 f"  ToS accepted: {tos_accepted}\n"
                 f"  Terms URL: {portal.terms_url or 'N/A'}\n"
+                f"  Status: PREPARED (form NOT submitted — requires per-portal field schemas)\n"
                 f"  Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}"
             ),
             resolver_kind="informational_notice",
@@ -635,16 +637,17 @@ async def _audit_registration(
     except Exception as _pa_e:
         logger.debug("[portal_registry] audit notice failed (non-fatal): %s", _pa_e)
 
-    # Also emit a brain signal
+    # Also emit a brain signal — mark as PREPARED, not registered
     try:
         from .engine_wiring import wire_success
         wire_success(
             module="portal_registry",
-            summary=f"Registered on {portal.name} ({portal.id})",
+            summary=f"Registration prepared for {portal.name} ({portal.id}) — form fill deferred",
             detail=(
                 f"Identity: {identity_email}. "
                 f"ToS: {portal.terms_url or 'N/A'}. "
-                f"CAPTCHA: {portal.requires_captcha}"
+                f"CAPTCHA: {portal.requires_captcha}. "
+                f"Status: PREPARED (not submitted)"
             )[:600],
             source_id=f"portal_registry:{portal.id}",
         )
@@ -786,19 +789,21 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
             wait_for="networkidle",
         )
         if pw_result.ok and not pw_result.blocked:
-            # Portal registration page loaded — attempt form fill + submit
-            # For now, store the credential and audit; real form-POST
-            # requires per-portal field schemas (next iteration).
+            # Portal registration page loaded — form fill + submit is NOT yet
+            # implemented (requires per-portal field schemas). Store the
+            # credential and emit a PREPARED (not registered) audit notice.
             await store_credential(portal.id, registration_data)
-            await _audit_registration(
+            await _audit_preparation(
                 portal, _ARIA_EMAIL, _ARIA_NAME,
                 tos_accepted=bool(portal.terms_url),
             )
             return {
-                "success": True,
+                "success": False,
+                "requires_form_fill": True,
                 "message": (
                     f"Registration prepared for {portal.name}. "
                     f"Credentials stored in encrypted vault. "
+                    f"Form fill + submit requires per-portal field schemas (next iteration). "
                     f"Email verification: {'required' if portal.requires_email_verify else 'not required'}. "
                     f"ToS: {'accepted' if portal.terms_url else 'none noted'}."
                 ),
@@ -812,15 +817,17 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
             resp = await client.get(f"{portal.url}/register")
             if resp.status_code == 200:
                 await store_credential(portal.id, registration_data)
-                await _audit_registration(
+                await _audit_preparation(
                     portal, _ARIA_EMAIL, _ARIA_NAME,
                     tos_accepted=bool(portal.terms_url),
                 )
                 return {
-                    "success": True,
+                    "success": False,
+                    "requires_form_fill": True,
                     "message": (
                         f"Registration prepared for {portal.name}. "
-                        f"Credentials stored in encrypted vault."
+                        f"Credentials stored in encrypted vault. "
+                        f"Form fill + submit requires per-portal field schemas (next iteration)."
                     ),
                     "portal_id": portal.id,
                     "email": _ARIA_EMAIL,

@@ -366,7 +366,7 @@ class Toolbox:
         sym = {"completed": "[x]", "in_progress": "[~]", "pending": "[ ]"}
         return "\n".join(f"{sym.get(p['status'], '[ ]')} {p['step']}" for p in self.plan)
 
-    # ── fetch_url (read a web page / API, like Claude Code's WebFetch) ───────
+        # ── fetch_url (read a web page / API, like Claude Code's WebFetch) ───────
     def fetch_url(self, url: str, max_chars: int = 10000) -> ToolResult:
         if not url.lower().startswith(("http://", "https://")):
             return ToolResult("error: url must start with http:// or https://", is_error=True)
@@ -377,6 +377,13 @@ class Toolbox:
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"error fetching {url}: {exc}", is_error=True)
         body = resp.text or ""
+        # If httpx returned a thin JS shell (short body, no meaningful text),
+        # try Playwright for JS-rendered content
+        if resp.status_code == 200 and len(body.strip()) < 2000:
+            from .playwright_fetch import fetch_with_playwright
+            pw_text = fetch_with_playwright(url)
+            if pw_text is not None:
+                body = pw_text
         cap = max(500, min(int(max_chars or 10000), _MAX_OUTPUT_CHARS))
         if len(body) > cap:
             body = body[:cap] + f"\n... (truncated, {len(resp.text)} chars total)"

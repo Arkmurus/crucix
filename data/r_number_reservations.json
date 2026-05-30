@@ -5503,45 +5503,50 @@
       "title": "Phase 1a — Wire Playwright into chat path (_fetch_article_text) as fallback after Lightpanda",
       "claimed_at": "2026-05-30T08:48:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:58:29Z"
     },
     {
       "r_number": "R-F1100",
       "title": "Phase 1b — Wire Playwright into CLI fetch_url path",
       "claimed_at": "2026-05-30T08:48:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:58:32Z"
     },
     {
       "r_number": "R-F1101",
       "title": "Phase 1c — Trigger Playwright on thin-200 JS shells in crawl path",
       "claimed_at": "2026-05-30T08:48:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:58:35Z"
     },
     {
       "r_number": "R-F1102",
       "title": "Phase 1d — Operator-gated relax flags (robots, social blocklist, size, timeout)",
       "claimed_at": "2026-05-30T08:48:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:58:38Z"
     },
     {
       "r_number": "R-F1103",
       "title": "Phase 1e — Login/cookie/session support for fetch clients",
       "claimed_at": "2026-05-30T08:48:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": null,
+      "shipped_at": "2026-05-30T08:58:41Z"
     },
     {
       "r_number": "R-F1104",
