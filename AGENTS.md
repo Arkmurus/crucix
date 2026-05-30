@@ -35,7 +35,12 @@ overrides this file where they overlap.
    fields, conditions, regex, concurrency, env flags, imports. Pass 2: re-test the
    whole chain for regressions you may have introduced. Don't claim success until
    the tests pass and you've read the output.
-7. **Ship** — commit, push, and (when required) deploy. See below.
+7.5 **Self-critique (R-F1123)** — before declaring done, adversarially attack your
+   own work. Ask: *What is unverified? What could be a lie? What would Claude flag?*
+   If you cannot point to a line of code, a test output, or a live probe that PROVES
+   every claim you are about to make, you are not done yet. Ground every status claim
+   by grepping the current code — never assert from memory.
+8. **Ship** — commit, push, and (when required) deploy. See below.
 
 ## The bulletproof bar — anti-hallucination laws (learned the hard way)
 
@@ -74,7 +79,56 @@ real. Ground-or-abstain applies to code exactly as to reasoning. These ten laws 
 **The litmus test before you ship anything:** *Can I point to the line of code, the test output,
 or the live probe that PROVES this claim?* If not, it's a hallucination — verify or abstain.
 
+### Anti-hallucination law 11 — one tool, three ways (R-F1123)
+When a tool call fails or is blocked (loop guard, timeout, error), do NOT retry the same
+call more than once. Instead, try two alternative approaches immediately:
+- Different tool: `python -c "..."` instead of `curl`, `grep` instead of `read_file`
+- Different arguments: `--tb=short` instead of full traceback, `-k "pattern"` to filter
+- Different endpoint: `python -c "urllib..."` instead of `curl.exe`
+
+If all three fail, report the block. Never retry the same failing call 3+ times — that
+is what tripped the loop guard and wedged your session (R-F1120).
+
+### Anti-hallucination law 12 — failure → eval flywheel (R-F1123)
+Every recurring failure mode MUST produce a structural guard, not just a rule. The pattern:
+1. **Mistake happens** — caught by review or live incident
+2. **Capability test** — write a test that would have caught it
+3. **Structural guard** — add a hook, CI gate, or script check that prevents recurrence
+4. **Playbook update** — codify the lesson in AGENTS.md
+
+Examples from today:
+- Deploy-without-push → push guard in `scripts/deploy.sh` (structural, not willpower)
+- Loop-poll wedge → `_repair_dangling_tool_calls()` in agent.py (structural fix)
+- False-success reporting → `check_falsy_success` in @wired decorator (structural fix)
+
+If a rule exists but you keep breaking it, the rule is not enough — it needs a guard.
+
 ## Shipping (self-mode)
+
+### THE SHIPPING SEQUENCE — non-negotiable, never skip a step (rules set 2026-05-30)
+Every shippable change goes through ALL of these, in order. Skipping any one is how
+work gets lost or "done" becomes a lie:
+1. **Reserve an R-number** (`reserve_r_number.py reserve`).
+2. **Code + test** — a capability test that DRIVES the real path (anti-hallucination law #3).
+3. **Commit** — only the files you changed (never `git add -A`), with the trailers below.
+4. **PUSH to origin — ALWAYS, every time.** `flyctl deploy` builds from your LOCAL working
+   tree, so a deploy SUCCEEDS even when you never pushed — which is exactly the trap: the
+   live server runs your code while `origin/main` stays behind and your work is **NOT
+   backed up on GitHub**. **Unpushed = unbacked-up + source-of-truth diverges from live.**
+   `git push origin main` is mandatory after every commit. No exceptions.
+5. **Deploy via `scripts/deploy.sh`** — it deploys directly AND verifies the live build_rev
+   matches your commit, failing loud if not. (Push alone does NOT deploy; CI/`[deploy]` is
+   unreliable. The script is your reliable path.)
+6. **Live-smoke** — confirm `/health/live` `build_rev` == your commit sha. A deploy is NOT
+   done until you've proven it live (anti-hallucination law #4). Report `success` ONLY then.
+7. **Ship-mark** the R-number (`reserve_r_number.py ship R-F### <sha>`).
+
+### Waiting on a long job (build/deploy) — do NOT loop-poll
+Hammering the same status command (`flyctl apps releases`, `tasklist`, etc.) in a tight loop
+trips the loop guard and wastes the run. Instead: run ONE check; if not done, `Start-Sleep
+60-120`, then check again — or just trust `scripts/deploy.sh`, which deploys AND waits AND
+verifies for you, so you never need to poll a build's status manually.
+
 **Commit** — message states the R-number, what changed, the deploy target, and the
 verification trailers:
 ```
@@ -95,20 +149,19 @@ three apps yourself:
 **Deploy pipeline (R-F1079 batching):**
 - `git push origin main` runs CI (tests + lint) but does **NOT** auto-deploy anymore.
   Deploy requires `[deploy]` in the commit message OR a manual trigger.
-- **Preferred: use `scripts/deploy.sh`** for local batching. It collects all pending
-  R-numbers since the last deploy tag and deploys them as one batch, avoiding the
-  5-cold-boot-in-30min problem:
+- **ALWAYS use `scripts/deploy.sh`** — never raw `flyctl deploy`. The script enforces:
+  - **Push guard** (R-F1123): refuses to deploy if HEAD != origin/main
+  - **Build_rev verification**: confirms the live app serves your commit
+  - **Batching**: collects all pending R-numbers since last deploy tag
+  - **Cold-boot protection**: avoids 5 deploys in 30min
   ```
   ./scripts/deploy.sh --all          # deploy all three apps
   ./scripts/deploy.sh --intel        # aria-intel only
   ./scripts/deploy.sh --web --wa     # aria-web + aria-wa only
   ```
-- **Direct `flyctl deploy`** whenever you need to skip CI or deploy immediately:
-  ```
-  flyctl deploy -a aria-intel                          # aria-intel (FastAPI brain)
-  flyctl deploy --config fly.web.toml -a aria-web      # aria-web (Node UI)
-  flyctl deploy --config fly.wa.toml -a aria-wa        # aria-wa (WhatsApp listener)
-  ```
+- **NEVER use raw `flyctl deploy`** — it bypasses the push guard, build_rev verification,
+  and batching. This is how work gets deployed without being backed up (R-F1121 incident).
+  The only exception is an emergency hotfix where the script itself is broken.
 - **Commit with `[deploy]`** to trigger CI auto-deploy on push (for urgent hotfixes):
   ```
   git commit -m "fix: R-F### — summary [deploy]"
@@ -136,6 +189,62 @@ A deploy is NOT done until you have PROVEN it live. The sequence is:
 **Boot-path safety (CLAUDE.md §9):** before pushing any change to `aria_service/main.py`
 or the boot path, smoke-test it locally — import `aria_service.main` and call
 `lifespan(app)`. 1109 passing unit tests once still shipped a boot outage.
+
+## Continuous research-driven improvement (R-F1123)
+
+The best engineering agents (Claude Code, mini-SWE-agent, Cursor, Devin) share patterns
+that ARIA must internalise and evolve beyond. Key insights from research:
+
+### From mini-SWE-agent (65%+ on SWE-bench verified)
+- **Bash-only tools** — no custom tool interfaces needed. The LM uses bash directly.
+  ARIA already does this (run tool). Keep it simple.
+- **Linear history** — every step appends to messages. No complex state management.
+  ARIA's agent.py already does this. Protect it.
+- **Stateless execution** — every action is independent (`subprocess.run`). No stateful
+  shell session. ARIA's run tool is already stateless. Protect this.
+- **Radical simplicity** — ~100 lines for the agent class. ARIA's agent.py is ~500 lines.
+  Resist bloat. Every new feature should justify its complexity.
+
+### From Claude Code
+- **CLAUDE.md as system prompt** — project-specific rules injected into every session.
+  ARIA already does this. Keep it current.
+- **Plugin system** — extensible commands. ARIA's autonomous coder is this.
+- **Git workflow integration** — PRs, issues, code review. ARIA needs this.
+
+### From SWE-agent
+- **Config-driven** — single YAML file governs behavior. ARIA uses env vars + CLAUDE.md.
+- **Research-first** — designed for benchmarking and iteration. ARIA's eval framework
+  and golden seeds are this.
+
+### The research habit
+- Every 10 R-numbers shipped: research one new agent framework or technique.
+  Read their README, their architecture docs, their failure modes.
+- Extract 1-3 patterns ARIA doesn't have yet. Propose them as R-numbers.
+- If a pattern is structural (a guard, a hook, a test), implement it.
+- If a pattern is behavioral (a rule, a checklist), codify it in AGENTS.md.
+- The goal: ARIA is never more than 10 R-numbers behind the state of the art.
+
+### Portal coverage — eyes and ears everywhere (R-F1123)
+ARIA's intelligence is only as good as her data sources. Every portal she is registered
+on is a pipeline for intel. The registration pipeline (`portal_registry.py`) currently
+has portals defined but the coverage map is unknown. To be best-in-class:
+
+1. **Audit current coverage** — which portals are we registered on? Which are pending?
+   Which are missing entirely?
+2. **Map the intel landscape** — for each domain (sanctions, procurement, defence news,
+   trade data, conflict events, corporate registries, beneficial ownership, export control,
+   financial crime, PEPs, adverse media), list every source ARIA should have access to.
+3. **Prioritise by intelligence value** — sanctions + procurement + defence news are
+   highest value. Corporate registries + beneficial ownership are next.
+4. **Register systematically** — for each missing high-value portal, run the registration
+   pipeline. If CAPTCHA blocks it, report-and-defer to the operator.
+5. **Verify access** — after registration, confirm the portal is actually reachable and
+   returning data. Wire the result to the brain.
+6. **Maintain the map** — the portal coverage map is a living document. Update it every
+   10 R-numbers or when a new intelligence domain is added.
+
+The operator's directive: "whoever gets the best quality data wins." ARIA's registration
+pipeline is the mechanism. The portal coverage map is the strategy.
 
 ## Wire everything to the brain (CLAUDE.md §21)
 Any code path you add must reach a brain sink on BOTH success and failure

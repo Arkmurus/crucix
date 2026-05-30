@@ -39,6 +39,30 @@ fi
 
 GIT_SHA=$(git rev-parse HEAD)
 GIT_SHORT=$(git rev-parse --short=8 HEAD)
+
+# R-F1122 — PUSH GUARD: refuse to deploy if HEAD != origin/main.
+# flyctl deploy builds from the LOCAL tree, so a deploy SUCCEEDS even when
+# you never pushed — which is the trap: the live server runs your code while
+# origin/main stays behind and your work is NOT backed up on GitHub.
+# This guard catches that BEFORE the deploy starts.
+ORIGIN_SHA=$(git rev-parse origin/main 2>/dev/null || echo "")
+if [[ -z "$ORIGIN_SHA" ]]; then
+    echo "  ⚠️  Cannot check origin/main (no remote or not fetched). Push manually first."
+    echo "     Run: git push origin main"
+    exit 1
+fi
+if [[ "$GIT_SHA" != "$ORIGIN_SHA" ]]; then
+    echo "  ❌ PUSH GUARD: HEAD ($GIT_SHORT) != origin/main ($(echo "$ORIGIN_SHA" | head -c 8))."
+    echo "     You committed but did NOT push. The deploy would succeed locally but"
+    echo "     origin/main would diverge from what is live — your work would NOT be"
+    echo "     backed up on GitHub."
+    echo ""
+    echo "     Fix: git push origin main"
+    echo "     Then re-run this script."
+    exit 1
+fi
+echo "  ✅ push guard: HEAD matches origin/main ($GIT_SHORT)"
+
 LAST_TAG=$(git tag --list 'deploy-*' --sort=-version:refname | head -1 || echo "")
 if [[ -n "$LAST_TAG" ]]; then
     R_NUMBERS=$(git log "$LAST_TAG..HEAD" --pretty=%s | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
