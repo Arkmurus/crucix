@@ -83,7 +83,10 @@ Unpushed commits aren't deployed. After commit, YOU deploy directly to fly.io:
 - **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / `--config fly.wa.toml -a aria-wa`)
 - **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes
 - State deploy targets explicitly in every commit message body.
-- After deploy: live-smoke it, then `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
+- **Deploy verification (binding):** check the exit code of every deploy command.
+  Then live-smoke it: curl `/health/live` and confirm `build_rev` matches your
+  commit SHA. If the live version did not change, you did NOT deploy — say so.
+  Only then ship-mark: `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
 
 ## 12. Check fly logs first
 

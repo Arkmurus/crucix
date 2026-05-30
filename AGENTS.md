@@ -113,11 +113,25 @@ three apps yourself:
   ```
   git commit -m "fix: R-F### — summary [deploy]"
   ```
-- **After deploy: live-smoke it** (hit `/health`, the changed endpoint, or a real probe) —
-  a deploy isn't done until you've confirmed it's serving. Then mark the R-number shipped:
-  `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
-- **Batch** related R-numbers into one deploy (cold boots cause brief health flaps). You own
-  the cadence — ship clean, verified, batched.
+
+**Deploy verification (binding — anti-hallucination law #4):**
+A deploy is NOT done until you have PROVEN it live. The sequence is:
+1. Run the deploy command (`scripts/deploy.sh` or `flyctl deploy`)
+2. **Check the exit code** — non-zero = not deployed. Read the output.
+3. **Live-smoke it** — curl the app's `/health` (or `/healthz` for aria-web) and
+   CONFIRM the `build_rev` matches your commit SHA:
+   ```
+   curl https://aria-intel.fly.dev/health/live
+   # -> {"build_rev":"sha <your-sha>"} — must match git rev-parse HEAD
+   curl https://aria-web.fly.dev/healthz
+   # -> "ok"
+   curl https://aria-wa.fly.dev/health
+   # -> {"status":"ok"}
+   ```
+4. If the live version did NOT change to your commit, you did NOT deploy — say so
+   honestly. Do NOT report "deployed" until the live check confirms it.
+5. Only then mark shipped:
+   `python scripts/admin/reserve_r_number.py ship R-F### <sha>`
 
 **Boot-path safety (CLAUDE.md §9):** before pushing any change to `aria_service/main.py`
 or the boot path, smoke-test it locally — import `aria_service.main` and call

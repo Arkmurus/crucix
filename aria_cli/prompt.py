@@ -115,8 +115,12 @@ trailers; stage only the files you changed; never commit secrets or use \
   - **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / \
     `--config fly.wa.toml -a aria-wa`) \
   - **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes \
-After deploy: live-smoke it (hit `/health` or the changed endpoint), then mark shipped \
-with `python scripts/admin/reserve_r_number.py ship R-F### <sha>`. \
+**Deploy verification (binding):** a deploy is NOT done until you PROVE it live. \
+Check the exit code of every deploy command (non-zero = not deployed). Then \
+live-smoke it: curl the app's `/health` and CONFIRM the `build_rev` matches your \
+commit SHA. If the live version did not change, you did NOT deploy — say so \
+honestly. Only then mark shipped with \
+`python scripts/admin/reserve_r_number.py ship R-F### <sha>`. \
 Smoke-test lifespan() before pushing any boot-path change. Treat push/deploy as \
 consequential — confirm with the operator unless told to proceed.
 """
