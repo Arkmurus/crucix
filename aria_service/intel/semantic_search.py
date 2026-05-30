@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -109,33 +110,18 @@ _embedder = None
 _embedder_checked = False  # avoid repeated ImportError attempts
 _embedder_lock = _threading.Lock()  # R-F459 — serialise singleton init
 
-# R-F1080 (2026-05-30) — process-pool encode to avoid GIL contention.
-# model.encode() is a GIL-holding C call (torch). Even in a worker thread
-# (asyncio.to_thread), the GIL prevents the event loop from running during
-# encode. R-F1080 adds a ProcessPoolExecutor so encodes run in a child
-# process with its own GIL — the main event loop stays free for health
-# checks, requests, and I/O.
-#
-# The pool has max_workers=1 (serialised, matching old lock semantics).
-# Fallback: if the pool is busy or the subprocess crashes, callers degrade
-# to TF-IDF (same as the old lock-timeout behaviour).
-#
-# The old threading.Lock is kept as a secondary fallback for sync callers
-# (e.g. chromadb's embedding function which runs inside a to_thread worker).
-import os as _os_r789
-import concurrent.futures as _cf_r1080
-_encode_process_pool: "_cf_r1080.ProcessPoolExecutor | None" = None
-_ENCODE_POOL_TIMEOUT_S = float(_os_r789.getenv("ARIA_ENCODE_POOL_TIMEOUT_S", "15"))
-
-def _get_encode_pool():
-    global _encode_process_pool
-    if _encode_process_pool is None:
-        _encode_process_pool = _cf_r1080.ProcessPoolExecutor(max_workers=1)
-    return _encode_process_pool
-
-# Legacy thread-level lock (fallback for sync callers in to_thread workers)
+# R-F1118 (2026-05-30) — REVERTED R-F1080 process-pool encode.
+# R-F1080 added a ProcessPoolExecutor to avoid GIL contention, but
+# model.encode() cannot be pickled across process boundaries — every
+# call timed out after 15s and fell back to the thread lock, making
+# things WORSE (each encode paid a 15s dead wait + the thread-encode).
+# Reverting to the thread-level lock approach that was clean in R-F987.
+# The lock is bounded by _ENCODE_LOCK_WAIT_S; callers degrade to TF-IDF
+# on timeout. The GIL is still held during encode, but the bounded wait
+# prevents indefinite blocking and the to_thread worker yields between
+# encodes.
 _encode_lock = _threading.Lock()
-_ENCODE_LOCK_WAIT_S = float(_os_r789.getenv("ARIA_ENCODE_LOCK_WAIT_S", "10"))
+_ENCODE_LOCK_WAIT_S = float(os.environ.get("ARIA_ENCODE_LOCK_WAIT_S", "10"))
 
 
 class EncodeLockTimeout(RuntimeError):
@@ -145,34 +131,19 @@ class EncodeLockTimeout(RuntimeError):
 
 
 def _safe_encode(model, text_or_texts, **kwargs):
-    """R-F1080 — call model.encode() via ProcessPoolExecutor (primary)
-    or threading.Lock (fallback). The process pool avoids GIL contention
-    so the event loop stays free during encode.
+    """Call model.encode() under the global encode lock.
 
-    Raises EncodeLockTimeout if both paths are busy/time out. Callers
-    should catch this and fall back to TF-IDF / cached embeddings."""
-    # Primary path: process pool (no GIL contention)
-    pool = _get_encode_pool()
-    try:
-        future = pool.submit(model.encode, text_or_texts, **kwargs)
-        return future.result(timeout=_ENCODE_POOL_TIMEOUT_S)
-    except _cf_r1080.TimeoutError:
-        logger.warning(
-            "R-F1080: process-pool encode timed out after %ss — "
-            "falling back to thread-level lock",
-            _ENCODE_POOL_TIMEOUT_S,
-        )
-    except Exception as pool_exc:
-        logger.warning(
-            "R-F1080: process-pool encode failed (%s) — "
-            "falling back to thread-level lock: %s",
-            type(pool_exc).__name__, pool_exc,
-        )
-    # Fallback path: thread-level lock (GIL-bound but works)
+    The lock is bounded by _ENCODE_LOCK_WAIT_S; raises EncodeLockTimeout
+    on timeout so callers can degrade rather than block forever.
+    Returns whatever encode() returns on success; passes through kwargs.
+
+    Note: model.encode() holds the GIL (torch C extension), but the
+    bounded lock wait prevents indefinite blocking. Callers should run
+    this via asyncio.to_thread so the event loop isn't blocked."""
     acquired = _encode_lock.acquire(timeout=_ENCODE_LOCK_WAIT_S)
     if not acquired:
         raise EncodeLockTimeout(
-            f"R-F1080: could not acquire encode lock within "
+            f"R-F789: could not acquire encode lock within "
             f"{_ENCODE_LOCK_WAIT_S}s — embedder is busy. Caller "
             f"should fall back to TF-IDF / cached embeddings."
         )
