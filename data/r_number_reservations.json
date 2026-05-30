@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1108,
+  "next_available": 1112,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5514,9 +5514,9 @@
       "claimed_at": "2026-05-30T08:48:37Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "e46245c6",
+      "commit_sha": "e78d35da",
       "notes": null,
-      "shipped_at": "2026-05-30T08:58:32Z"
+      "shipped_at": "2026-05-30T09:22:59Z"
     },
     {
       "r_number": "R-F1101",
@@ -5583,6 +5583,46 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1108",
+      "title": "STEP 1-4: Autonomous registration pipeline — per-portal schemas, Playwright form-fill, email-verify, capability tests",
+      "claimed_at": "2026-05-30T09:31:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "44075ead",
+      "notes": null,
+      "shipped_at": "2026-05-30T09:34:47Z"
+    },
+    {
+      "r_number": "R-F1109",
+      "title": "Capability tests for registration pipeline + guardrail false-positive fix",
+      "claimed_at": "2026-05-30T09:54:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d700b886",
+      "notes": null,
+      "shipped_at": "2026-05-30T09:56:06Z"
+    },
+    {
+      "r_number": "R-F1110",
+      "title": "Wire sweep intelligence into DD reports + add sweep_data section to ARKDDReport",
+      "claimed_at": "2026-05-30T10:01:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d17ae25f",
+      "notes": null,
+      "shipped_at": "2026-05-30T10:08:01Z"
+    },
+    {
+      "r_number": "R-F1111",
+      "title": "AGENTS.md bulletproof bar + free-rein full-deploy doctrine",
+      "claimed_at": "2026-05-30T10:45:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6f73ceb3",
+      "notes": null,
+      "shipped_at": "2026-05-30T10:46:00Z"
     }
   ]
 }
