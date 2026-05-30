@@ -17,12 +17,85 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.autonomous.coder_entrypoint")
 
 ENABLE_VAR_MASTER = "ARIA_AUTONOMOUS_ENABLED"
 ENABLE_VAR_CODER = "ARIA_CODER_ENABLED"
+
+# ── Project context analysis (from ARIA_Coder_Complete.zip project_context.py) ──
+
+_REPO_ROOT: Optional[Path] = None
+
+
+def _find_repo_root() -> Optional[Path]:
+    """Find the repo root by walking up from cwd looking for markers."""
+    cwd = Path.cwd()
+    markers = [".git", "pyproject.toml", "fly.toml"]
+    current = cwd
+    while current != current.parent:
+        if any((current / m).exists() for m in markers):
+            return current
+        current = current.parent
+    return None
+
+
+async def _analyse_project_context() -> dict[str, Any]:
+    """Gather project-level stats for the coder startup log.
+    
+    Extracted from ARIA_Coder_Complete.zip project_context.py — provides
+    the coder with awareness of codebase size and endpoint count at startup.
+    Uses Path-based operations only (no subprocess) per constitutional rules.
+    """
+    global _REPO_ROOT
+    if _REPO_ROOT is None:
+        _REPO_ROOT = _find_repo_root()
+    if _REPO_ROOT is None:
+        return {"error": "no repo root found"}
+
+    ctx: dict[str, Any] = {}
+
+    # File counts
+    try:
+        ctx["python_files"] = len(list(_REPO_ROOT.rglob("*.py")))
+        ctx["js_files"] = len(list(_REPO_ROOT.rglob("*.mjs"))) + len(list(_REPO_ROOT.rglob("*.js")))
+        ctx["test_files"] = len(list(_REPO_ROOT.rglob("test_*.py"))) + len(list(_REPO_ROOT.rglob("*_test.py")))
+    except Exception:
+        pass
+
+    # LOC estimate (first 200 .py files)
+    try:
+        total_lines = 0
+        for f in list(_REPO_ROOT.rglob("*.py"))[:200]:
+            try:
+                total_lines += f.read_text(errors="replace").count("\n")
+            except Exception:
+                pass
+        ctx["total_lines"] = total_lines
+    except Exception:
+        pass
+
+    # ARIA-specific: count route endpoints
+    try:
+        endpoints = 0
+        for f in _REPO_ROOT.rglob("routes/*.py"):
+            try:
+                endpoints += f.read_text(errors="replace").count("@router.")
+            except Exception:
+                pass
+        ctx["endpoints"] = endpoints
+    except Exception:
+        pass
+
+    # Intel module count
+    try:
+        ctx["aria_modules"] = len(list(_REPO_ROOT.rglob("intel/*.py")))
+    except Exception:
+        pass
+
+    return ctx
 
 
 class _RedisStoreAdapter:
@@ -240,4 +313,21 @@ async def start_aria_coder(
         "[coder_entrypoint] ARIA-Coder started (%d background tasks)",
         len(tasks),
     )
+
+    # Log project context for startup visibility (from ARIA_Coder_Complete.zip)
+    try:
+        ctx = await _analyse_project_context()
+        if ctx and "error" not in ctx:
+            logger.info(
+                "[coder_entrypoint] Project context: %d Python files, %d JS files, "
+                "%d test files, ~%d LOC, %d endpoints, %d intel modules",
+                ctx.get("python_files", 0), ctx.get("js_files", 0),
+                ctx.get("test_files", 0), ctx.get("total_lines", 0),
+                ctx.get("endpoints", 0), ctx.get("aria_modules", 0),
+            )
+        else:
+            logger.debug("[coder_entrypoint] Project context unavailable: %s", ctx)
+    except Exception as e:
+        logger.debug("[coder_entrypoint] Project context analysis failed: %s", e)
+
     return tasks

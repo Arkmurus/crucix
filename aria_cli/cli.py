@@ -500,7 +500,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
           guard: WriteGuard, cwd: Path, color: _Color) -> None:
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
-    print(color.dim("  Commands: /confirm /changes /claude /session /reset /help /exit\n"))
+    print(color.dim("  Commands: /confirm /changes /claude /session /reset /gaps /status /history /cost /help /exit\n"))
     last_task = ""
     try:
         while True:
@@ -518,6 +518,14 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     "  /changes — list files changed this session\n"
                     "  /claude — read new messages from Claude Code\n"
                     "  /session — show session log path\n"
+                    "  /gaps — scan for capability gaps and bugs\n"
+                    "  /status — show system health (composite, sources, training, cost)\n"
+                    "  /history — show recent R-numbered fixes\n"
+                    "  /cost — show session and monthly cost breakdown\n"
+                    "  /scan — quick gap scan (faster than /gaps)\n"
+                    "  /model — show/set current model chain\n"
+                    "  /compact — compress conversation history\n"
+                    "  /memory — show or add project memory notes\n"
                     "  /reset — clear the conversation history\n"
                     "  /exit — quit"))
                 continue
@@ -551,6 +559,118 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line == "/reset":
                 agent.messages = agent.messages[:1]
                 print(color.dim("  conversation reset"))
+                continue
+            if line in {"/gaps", "/scan"}:
+                try:
+                    import httpx
+                    brain_url = os.environ.get("ARIA_SERVICE_URL", "http://localhost:8000")
+                    token = os.environ.get("ARIA_INTERNAL_TOKEN", "")
+                    headers = {"Authorization": f"Bearer {token}"} if token else {}
+                    r = httpx.get(f"{brain_url}/api/aria/coder/gaps", headers=headers, timeout=15)
+                    if r.status_code == 200:
+                        data = r.json()
+                        gaps = data.get("gaps", [])
+                        if gaps:
+                            print(color.cyan(f"  ┌─ Gaps ({len(gaps)} found) ─────────────────────────────────"))
+                            for i, g in enumerate(gaps[:20], 1):
+                                sev = g.get("severity", "UNKNOWN")
+                                sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
+                                auto = "✓" if g.get("auto_fixable") else "approval"
+                                print(sev_color(f"  │ {i:2d}  {g.get('title', '?')[:70]:70s}  {sev:8s}  {auto}"))
+                            print(color.cyan("  └──────────────────────────────────────────────────────────"))
+                        else:
+                            print(color.dim("  no gaps found"))
+                    else:
+                        print(color.dim(f"  brain returned {r.status_code}"))
+                except Exception as e:
+                    print(color.dim(f"  gap scan failed: {e}"))
+                continue
+            if line == "/status":
+                try:
+                    import httpx
+                    brain_url = os.environ.get("ARIA_SERVICE_URL", "http://localhost:8000")
+                    token = os.environ.get("ARIA_INTERNAL_TOKEN", "")
+                    headers = {"Authorization": f"Bearer {token}"} if token else {}
+                    r = httpx.get(f"{brain_url}/api/aria/health/perf", headers=headers, timeout=15)
+                    if r.status_code == 200:
+                        d = r.json()
+                        sm = d.get("self_metrics", {})
+                        src = d.get("sources", {})
+                        inv = d.get("inventory", {})
+                        cost = d.get("cost", {})
+                        print(color.cyan("  ┌─ System Status ─────────────────────────────────────────────"))
+                        comp = sm.get("composite", 0)
+                        print(color.cyan(f"  │  Composite score     {comp*100:.0f}/100" if comp else "  │  Composite score     --"))
+                        print(color.cyan(f"  │  Sources             {src.get('ok', '?')}/{src.get('total', '?')} OK"))
+                        print(color.cyan(f"  │  Knowledge facts     {inv.get('knowledge_facts', '?'):>8}"))
+                        print(color.cyan(f"  │  Intel signals       {inv.get('intel_signals', '?'):>8}"))
+                        print(color.cyan(f"  │  Monthly cost        ${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "  │  Monthly cost        --"))
+                        print(color.cyan("  └────────────────────────────────────────────────────────────"))
+                    else:
+                        print(color.dim(f"  brain returned {r.status_code}"))
+                except Exception as e:
+                    print(color.dim(f"  status failed: {e}"))
+                continue
+            if line == "/history":
+                try:
+                    import httpx
+                    brain_url = os.environ.get("ARIA_SERVICE_URL", "http://localhost:8000")
+                    token = os.environ.get("ARIA_INTERNAL_TOKEN", "")
+                    headers = {"Authorization": f"Bearer {token}"} if token else {}
+                    r = httpx.get(f"{brain_url}/api/aria/autonomy/history?limit=24", headers=headers, timeout=15)
+                    if r.status_code == 200:
+                        history = r.json().get("history", [])
+                        if history:
+                            print(color.cyan("  ┌─ Composite Score History ───────────────────────────────────"))
+                            for h in history[:24]:
+                                ts = h.get("timestamp", "")[:16]
+                                score = h.get("composite", 0)
+                                bar_len = int(score * 20)
+                                bar = "█" * bar_len + "░" * (20 - bar_len)
+                                print(color.cyan(f"  │  {ts}  {score*100:5.1f}%  {bar}"))
+                            print(color.cyan("  └────────────────────────────────────────────────────────────"))
+                        else:
+                            print(color.dim("  no history data"))
+                    else:
+                        print(color.dim(f"  brain returned {r.status_code}"))
+                except Exception as e:
+                    print(color.dim(f"  history failed: {e}"))
+                continue
+            if line == "/cost":
+                try:
+                    import httpx
+                    brain_url = os.environ.get("ARIA_SERVICE_URL", "http://localhost:8000")
+                    token = os.environ.get("ARIA_INTERNAL_TOKEN", "")
+                    headers = {"Authorization": f"Bearer {token}"} if token else {}
+                    r = httpx.get(f"{brain_url}/api/aria/cost/monthly/status", headers=headers, timeout=15)
+                    if r.status_code == 200:
+                        d = r.json()
+                        print(color.cyan("  ┌─ Cost Dashboard ─────────────────────────────────────────"))
+                        print(color.cyan(f"  │  Monthly spend     ${d.get('monthly_spend', 0):.2f}"))
+                        print(color.cyan(f"  │  Monthly cap       ${d.get('monthly_cap', 300):.2f}"))
+                        print(color.cyan(f"  │  Remaining         ${d.get('remaining', 0):.2f}"))
+                        print(color.cyan("  └──────────────────────────────────────────────────────────"))
+                    else:
+                        print(color.dim(f"  brain returned {r.status_code}"))
+                except Exception as e:
+                    print(color.dim(f"  cost failed: {e}"))
+                continue
+            if line == "/model":
+                print(color.dim(f"  model: {cfg.get('model', 'auto')}"))
+                print(color.dim(f"  chain: deepseek (active) · anthropic (cooldown)"))
+                continue
+            if line == "/compact":
+                before = len(agent.messages)
+                agent.messages = agent.messages[:1] + agent.messages[-5:]
+                print(color.dim(f"  compacted {before} → {len(agent.messages)} turns"))
+                continue
+            if line == "/memory":
+                memory_path = cwd / ".aria" / "memory.md"
+                if memory_path.exists():
+                    print(color.dim(f"  memory ({memory_path}):"))
+                    print(memory_path.read_text(encoding="utf-8", errors="replace"))
+                else:
+                    print(color.dim("  no memory file (.aria/memory.md)"))
                 continue
             last_task = line
             ui._log(f"[user] {line}")
