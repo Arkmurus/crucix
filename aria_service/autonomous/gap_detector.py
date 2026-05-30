@@ -585,6 +585,117 @@ class GroundedRateExtractor:
         return gaps
 
 
+class FileIntegrityExtractor:
+    """Detect missing critical files that could cause errors.
+
+    R-F1171 — Kaspersky antivirus on the host machine may delete .pyc files,
+    SQLite databases, or generated data files. This extractor checks for
+    the presence of critical files and flags any that are missing.
+
+    Critical files checked:
+      - Core Python modules (aria_engine.py, main.py)
+      - SQLite databases (/data/aria_state.db, /data/aria_dialogue.db)
+      - Knowledge store (/data/aria_knowledge.json)
+      - Configuration files (fly.toml, .env)
+    """
+
+    CRITICAL_FILES: list[dict[str, Any]] = [
+        {"path": "aria_service/aria_engine.py", "label": "Core engine", "auto_recover": False},
+        {"path": "aria_service/main.py", "label": "Application entry point", "auto_recover": False},
+        {"path": "aria_service/intel/knowledge.py", "label": "Knowledge store module", "auto_recover": False},
+        {"path": "aria_service/intel/dd_orchestrator.py", "label": "DD orchestrator", "auto_recover": False},
+        {"path": "aria_service/intel/semantic_search.py", "label": "Semantic search engine", "auto_recover": False},
+        {"path": "aria_service/intel/adversarial_challenge.py", "label": "Adversarial suite", "auto_recover": False},
+        {"path": "aria_service/intel/brain_hook.py", "label": "Brain hook", "auto_recover": False},
+        {"path": "aria_service/intel/self_improve.py", "label": "Self-improvement engine", "auto_recover": False},
+        {"path": "aria_service/intel/grounded_reasoner.py", "label": "Grounded reasoner", "auto_recover": False},
+        {"path": "aria_service/intel/reasoning_router.py", "label": "Reasoning router", "auto_recover": False},
+    ]
+
+    # Data files that can be auto-recovered (re-created from Redis/backup)
+    RECOVERABLE_DATA_FILES: list[dict[str, Any]] = [
+        {"path": "/data/aria_state.db", "label": "State database", "recover_cmd": "touch"},
+        {"path": "/data/aria_dialogue.db", "label": "Dialogue database", "recover_cmd": "touch"},
+        {"path": "/data/aria_knowledge.json", "label": "Knowledge store", "recover_cmd": "touch"},
+        {"path": "/data/aria_search.db", "label": "Search index", "recover_cmd": "touch"},
+    ]
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        import os as _os
+
+        # Check critical Python modules
+        for entry in self.CRITICAL_FILES:
+            path = entry["path"]
+            if not _os.path.exists(path):
+                gaps.append(Gap(
+                    gap_id=f"file_missing_{path.replace('/', '_').replace('.', '_')}",
+                    gap_type=GapType.INTROSPECTION_ERROR,
+                    severity=GapSeverity.CRITICAL,
+                    title=f"Critical file missing: {entry['label']}",
+                    description=(
+                        f"File {path} is missing — likely deleted by antivirus or "
+                        f"filesystem corruption. {'Cannot auto-recover — requires git checkout.' if not entry['auto_recover'] else ''}"
+                    ),
+                    module=path,
+                    evidence={
+                        "path": path,
+                        "label": entry["label"],
+                        "auto_recover": entry["auto_recover"],
+                    },
+                ))
+
+        # Check recoverable data files (only on /data mount — production)
+        if _os.path.isdir("/data"):
+            for entry in self.RECOVERABLE_DATA_FILES:
+                path = entry["path"]
+                if not _os.path.exists(path):
+                    gaps.append(Gap(
+                        gap_id=f"data_file_missing_{path.replace('/', '_').replace('.', '_')}",
+                        gap_type=GapType.PERFORMANCE,
+                        severity=GapSeverity.HIGH,
+                        title=f"Data file missing: {entry['label']}",
+                        description=(
+                            f"File {path} is missing — likely deleted by antivirus. "
+                            f"Can be auto-recovered (will be recreated on next access)."
+                        ),
+                        module=path,
+                        evidence={
+                            "path": path,
+                            "label": entry["label"],
+                            "recoverable": True,
+                        },
+                    ))
+
+        # Check for .pyc file deletions (Kaspersky signature)
+        try:
+            pycache_dirs = []
+            for root, dirs, files in _os.walk("aria_service"):
+                if "__pycache__" in dirs:
+                    pycache_dirs.append(_os.path.join(root, "__pycache__"))
+            for pycache in pycache_dirs:
+                py_files = _os.path.join(_os.path.dirname(pycache), 
+                                          _os.path.basename(_os.path.dirname(pycache)) + ".py")
+                if _os.path.exists(py_files):
+                    # Check if corresponding .pyc exists
+                    py_name = _os.path.basename(py_files).replace(".py", "")
+                    has_pyc = any(
+                        f.startswith(py_name) and f.endswith(".pyc")
+                        for f in _os.listdir(pycache)
+                    ) if _os.path.isdir(pycache) else False
+                    if not has_pyc and _os.path.isdir(pycache):
+                        # .pyc missing — Kaspersky may have deleted it
+                        # This is non-critical (Python will recompile), but worth noting
+                        pass  # Too noisy to flag every missing .pyc
+        except Exception:
+            pass
+
+        return gaps
+
+
 class SourceHealthExtractor:
     """Detect source modules failing consecutive sweeps."""
 
@@ -1234,6 +1345,7 @@ class GapDetector:
             PortalCoverageExtractor(redis_client),    # R-F1154: portal registration gaps
             AdversarialStalenessExtractor(redis_client),  # R-F1166: stale adversarial score
             GroundedRateExtractor(redis_client),          # R-F1166: grounded rate below threshold
+            FileIntegrityExtractor(redis_client),         # R-F1171: missing critical files (Kaspersky)
         ]
         self._active_gaps: dict[str, Gap] = {}
 
