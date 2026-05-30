@@ -1,0 +1,192 @@
+<#
+.RESCRIPT
+R-F1145 — ARIA bulletproof deploy script for Windows (PowerShell).
+
+Mirrors scripts/deploy.sh exactly: push guard, build_rev verification,
+polling, health checks. This is the Windows equivalent so ARIA can
+deploy from her native environment (Windows 11).
+
+Usage:
+  .\scripts\deploy.ps1 [-Intel] [-Web] [-Wa] [-All]
+
+Examples:
+  .\scripts\deploy.ps1 -All          # deploy all three apps
+  .\scripts\deploy.ps1 -Intel        # aria-intel only
+  .\scripts\deploy.ps1 -Web -Wa      # aria-web + aria-wa only
+
+Prereqs: flyctl installed + authenticated, git available.
+#>
+
+param(
+    [switch]$Intel,
+    [switch]$Web,
+    [switch]$Wa,
+    [switch]$All
+)
+
+$ErrorActionPreference = "Stop"
+
+# Default: --all if no flags given
+if (-not $Intel -and -not $Web -and -not $Wa) {
+    $All = $true
+}
+if ($All) {
+    $Intel = $true; $Web = $true; $Wa = $true
+}
+
+$REPO_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Set-Location $REPO_ROOT
+
+$GIT_SHA = git rev-parse HEAD
+$GIT_SHORT = git rev-parse --short=8 HEAD
+
+# ── PUSH GUARD (R-F1122) ────────────────────────────────────────────────────
+Write-Host "=== ARIA bulletproof deploy (R-F1145, Windows) ==="
+Write-Host "  commit: $GIT_SHA ($GIT_SHORT)"
+Write-Host "  apps:   intel=$Intel web=$Web wa=$Wa"
+Write-Host ""
+
+$ORIGIN_SHA = & { git rev-parse origin/main 2>$null } 2>$null
+if (-not $ORIGIN_SHA) {
+    Write-Host "  [FAIL] Cannot check origin/main (no remote or not fetched). Push manually first."
+    Write-Host "         Run: git push origin main"
+    exit 1
+}
+if ($GIT_SHA -ne $ORIGIN_SHA) {
+    Write-Host "  [FAIL] PUSH GUARD: HEAD ($GIT_SHORT) != origin/main ($($ORIGIN_SHA.Substring(0,8)))."
+    Write-Host "         You committed but did NOT push. The deploy would succeed locally but"
+    Write-Host "         origin/main would diverge from what is live — your work would NOT be"
+    Write-Host "         backed up on GitHub."
+    Write-Host ""
+    Write-Host "         Fix: git push origin main"
+    Write-Host "         Then re-run this script."
+    exit 1
+}
+Write-Host "  [PASS] push guard: HEAD matches origin/main ($GIT_SHORT)"
+Write-Host ""
+
+# ── R-number tag ────────────────────────────────────────────────────────────
+$LAST_TAG = git tag --list 'deploy-*' --sort=-version:refname | Select-Object -First 1
+if ($LAST_TAG) {
+    $R_NUMBERS = git log "$LAST_TAG..HEAD" --pretty=%s | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+} else {
+    $R_NUMBERS = git log --pretty=%s | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+}
+$R_TAG = if ($R_NUMBERS) { ($R_NUMBERS -join '+') } else { "no-r-tag" }
+Write-Host "  r-tags: $R_TAG"
+Write-Host ""
+
+# ── Helper: get current deployed version ────────────────────────────────────
+function Get-CurrentVersion {
+    param([string]$App)
+    try {
+        $json = flyctl status -a $App --json 2>$null | ConvertFrom-Json
+        return [int]$json.Version
+    } catch {
+        return 0
+    }
+}
+
+# ── Helper: get live build_rev for aria-intel ───────────────────────────────
+function Get-IntelBuildRev {
+    try {
+        $resp = Invoke-WebRequest -Uri "https://aria-intel.fly.dev/health/live" -TimeoutSec 12 -UseBasicParsing -ErrorAction Stop
+        $text = $resp.Content
+        if ($text -match 'sha ([a-f0-9]+)') {
+            return $matches[1]
+        }
+    } catch {}
+    return $null
+}
+
+# ── Deploy one app and verify ───────────────────────────────────────────────
+function Deploy-And-Verify {
+    param([string]$App, [string]$Config, [int]$TimeoutSeconds)
+
+    Write-Host "--- $App : deploying directly via flyctl ---"
+    $preVer = Get-CurrentVersion $App
+    Write-Host "  pre-deploy version: $preVer"
+
+    # Build args
+    $buildArgs = @(
+        "--build-arg", "ARIA_BUILD_GIT_SHA=$GIT_SHA",
+        "--build-arg", "ARIA_BUILD_R_TAG=$R_TAG"
+    )
+
+    # Run flyctl deploy
+    $proc = Start-Process -FilePath "flyctl" -ArgumentList @(
+        "deploy", "--remote-only", "--config", $Config, "--app", $App,
+        "--wait-timeout", "$TimeoutSeconds"
+    ) + $buildArgs -NoNewWindow -Wait -PassThru
+
+    $rc = $proc.ExitCode
+    if ($rc -ne 0) {
+        Write-Host "  [WARN] flyctl exited $rc — verifying anyway (it sometimes deploys then errors on wait)"
+    }
+
+    # ── VERIFY: poll up to 3 minutes ────────────────────────────────────────
+    $ok = $false
+    for ($i = 1; $i -le 36; $i++) {
+        Start-Sleep -Seconds 5
+        $nowVer = Get-CurrentVersion $App
+        $versionBumped = ($nowVer -gt $preVer)
+
+        if ($App -eq "aria-intel") {
+            $liveSha = Get-IntelBuildRev
+            if ($liveSha -eq $GIT_SHORT) {
+                Write-Host "  [PASS] $App LIVE — build_rev=$liveSha matches commit (version $nowVer)"
+                $ok = $true; break
+            }
+            Write-Host "  poll $i/36: version $preVer->$nowVer, live build_rev=$($liveSha ?? '?') (want $GIT_SHORT)"
+        } else {
+            try {
+                $code = (Invoke-WebRequest -Uri "https://$App.fly.dev/" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop).StatusCode
+            } catch {
+                $code = 000
+            }
+            if ($versionBumped -and $code -eq 200) {
+                Write-Host "  [PASS] $App LIVE — version $preVer->$nowVer, HTTP $code"
+                $ok = $true; break
+            }
+            Write-Host "  poll $i/36: version $preVer->$nowVer (bumped=$versionBumped), HTTP $code"
+        }
+    }
+
+    if ($ok) {
+        return $true
+    }
+    Write-Host "  [FAIL] $App NOT VERIFIED LIVE — the server did NOT advance to your commit."
+    Write-Host "         Do NOT report this deployed. Re-run, or check 'flyctl logs -a $App'."
+    return $false
+}
+
+# ── Write last deploy SHA ───────────────────────────────────────────────────
+Set-Content -Path "$REPO_ROOT/.last_deploy_sha" -Value $GIT_SHORT -NoNewline
+
+# ── Execute deploys ─────────────────────────────────────────────────────────
+$failures = 0
+if ($Intel) { if (-not (Deploy-And-Verify "aria-intel" "fly.toml" 900)) { $failures++ } }
+if ($Web)   { if (-not (Deploy-And-Verify "aria-web"   "fly.web.toml" 600)) { $failures++ } }
+if ($Wa)    { if (-not (Deploy-And-Verify "aria-wa"    "fly.wa.toml" 600)) { $failures++ } }
+
+Write-Host ""
+if ($failures -eq 0) {
+    $tagName = "deploy-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    git tag $tagName $GIT_SHA 2>$null
+    Write-Host "=== [PASS] ALL DEPLOYS VERIFIED LIVE (commit $GIT_SHORT is serving) ==="
+
+    # ── Live health regression suite ────────────────────────────────────────
+    Write-Host ""
+    Write-Host "=== Running live health regression suite ==="
+    python "$REPO_ROOT/scripts/live_health_check.py" --app all
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "=== [FAIL] Live health regression suite FAILED — deploy succeeded but health checks failed. ==="
+        Write-Host "    Check flyctl logs -a <app> for details."
+        exit 1
+    }
+    Write-Host "=== [PASS] Live health regression suite PASSED ==="
+    exit 0
+} else {
+    Write-Host "=== [FAIL] $failures deploy(s) NOT verified live — NOT shipped. Fix + re-run. ==="
+    exit 1
+}

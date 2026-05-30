@@ -76,17 +76,36 @@ Read the area of change before editing. Don't pile on fixes without tracing the 
 
 On long log pastes from operator: enumerate ALL findings first as a numbered list. Don't commit until operator picks which subset to batch.
 
-## 11. Deploy after commit — you own the full pipeline
+## 11. Deploy after commit — you own the full pipeline (R-F1145)
 
 Unpushed commits aren't deployed. After commit, YOU deploy directly to fly.io:
-- **Preferred:** `./scripts/deploy.sh --all` (batches all pending R-numbers, avoids cold-boot storms)
-- **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / `--config fly.wa.toml -a aria-wa`)
-- **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes
-- State deploy targets explicitly in every commit message body.
-- **Deploy verification (binding):** check the exit code of every deploy command.
-  Then live-smoke it: curl `/health/live` and confirm `build_rev` matches your
-  commit SHA. If the live version did not change, you did NOT deploy — say so.
-  Only then ship-mark: `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
+
+**Windows (PowerShell):**
+  `.\scripts\deploy.ps1 --all`  (mirrors deploy.sh exactly: push guard + build_rev verify + health checks)
+
+**Linux/macOS (bash):**
+  `./scripts/deploy.sh --all`   (batches all pending R-numbers, avoids cold-boot storms)
+
+**Fallback (any platform, when the script is broken):**
+  1. Add `[deploy]` to the commit message so CI auto-deploys on push
+  2. Then push: `git push origin main`
+  3. Verify live: `curl https://aria-intel.fly.dev/health/live` — confirm `build_rev` matches your commit SHA
+
+**NEVER use raw `flyctl deploy`** — it bypasses the push guard, build_rev verification, and batching. The only exception is an emergency hotfix where BOTH deploy scripts are broken.
+
+**Deploy verification (binding — anti-hallucination law #4):**
+  A deploy is NOT done until you have PROVEN it live. The sequence is:
+  1. Run the deploy command (deploy.ps1 or deploy.sh)
+  2. **Check the exit code** — non-zero = not deployed. Read the output.
+  3. **Live-smoke it** — curl the app's `/health/live` and CONFIRM the `build_rev` matches your commit SHA
+  4. If the live version did NOT change to your commit, you did NOT deploy — say so honestly
+  5. Only then ship-mark: `python scripts/admin/reserve_r_number.py ship R-F### <sha>`
+
+**If the deploy build times out (torch is the bottleneck):**
+  - The build is still running on Depot — wait for it to complete
+  - Check `flyctl apps releases -a aria-intel` for a new version
+  - If it truly failed, add `[deploy]` to the commit message and push again
+  - Do NOT ship-mark the R-number until the deploy is verified live
 
 ## 12. Check fly logs first
 

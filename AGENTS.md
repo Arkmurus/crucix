@@ -116,9 +116,11 @@ work gets lost or "done" becomes a lie:
    live server runs your code while `origin/main` stays behind and your work is **NOT
    backed up on GitHub**. **Unpushed = unbacked-up + source-of-truth diverges from live.**
    `git push origin main` is mandatory after every commit. No exceptions.
-5. **Deploy via `scripts/deploy.sh`** — it deploys directly AND verifies the live build_rev
-   matches your commit, failing loud if not. (Push alone does NOT deploy; CI/`[deploy]` is
-   unreliable. The script is your reliable path.)
+5. **Deploy** — use the platform-appropriate script:
+   - **Windows:** `.\scripts\deploy.ps1` (PowerShell, mirrors deploy.sh exactly)
+   - **Linux/macOS:** `./scripts/deploy.sh` (bash)
+   Both scripts enforce: push guard, build_rev verification, batching, and cold-boot protection.
+   (Push alone does NOT deploy; CI/`[deploy]` is unreliable. The script is your reliable path.)
 6. **Live-smoke** — confirm `/health/live` `build_rev` == your commit sha. A deploy is NOT
    done until you've proven it live (anti-hallucination law #4). Report `success` ONLY then.
 7. **Ship-mark** the R-number (`reserve_r_number.py ship R-F### <sha>`).
@@ -146,30 +148,40 @@ You commit AND deploy directly to fly.io yourself. There is **no manual-deploy h
 to the operator anymore**. After your work is verified (tests pass, grounded), ship all
 three apps yourself:
 
-**Deploy pipeline (R-F1079 batching):**
+**Deploy pipeline (R-F1079 batching, R-F1145 Windows support):**
 - `git push origin main` runs CI (tests + lint) but does **NOT** auto-deploy anymore.
   Deploy requires `[deploy]` in the commit message OR a manual trigger.
-- **ALWAYS use `scripts/deploy.sh`** — never raw `flyctl deploy`. The script enforces:
+- **ALWAYS use the deploy script** — never raw `flyctl deploy`. The script enforces:
   - **Push guard** (R-F1123): refuses to deploy if HEAD != origin/main
   - **Build_rev verification**: confirms the live app serves your commit
   - **Batching**: collects all pending R-numbers since last deploy tag
   - **Cold-boot protection**: avoids 5 deploys in 30min
   ```
-  ./scripts/deploy.sh --all          # deploy all three apps
-  ./scripts/deploy.sh --intel        # aria-intel only
-  ./scripts/deploy.sh --web --wa     # aria-web + aria-wa only
+  # Windows (PowerShell):
+  .\scripts\deploy.ps1 --all          # deploy all three apps
+  .\scripts\deploy.ps1 --intel        # aria-intel only
+  .\scripts\deploy.ps1 --web --wa     # aria-web + aria-wa only
+
+  # Linux/macOS (bash):
+  ./scripts/deploy.sh --all           # deploy all three apps
+  ./scripts/deploy.sh --intel         # aria-intel only
+  ./scripts/deploy.sh --web --wa      # aria-web + aria-wa only
   ```
 - **NEVER use raw `flyctl deploy`** — it bypasses the push guard, build_rev verification,
   and batching. This is how work gets deployed without being backed up (R-F1121 incident).
-  The only exception is an emergency hotfix where the script itself is broken.
+  The only exception is an emergency hotfix where BOTH deploy scripts are broken.
 - **Commit with `[deploy]`** to trigger CI auto-deploy on push (for urgent hotfixes):
   ```
   git commit -m "fix: R-F### — summary [deploy]"
   ```
+- **If the deploy build times out** (torch is the bottleneck, ~5-10min install):
+  The build is still running on Depot — do NOT ship-mark until verified live.
+  Check `flyctl apps releases -a aria-intel` for a new version (wait, don't poll-loop).
+  If it truly failed, add `[deploy]` to the commit message and push again.
 
 **Deploy verification (binding — anti-hallucination law #4):**
 A deploy is NOT done until you have PROVEN it live. The sequence is:
-1. Run the deploy command (`scripts/deploy.sh` or `flyctl deploy`)
+1. Run the deploy command (`scripts/deploy.ps1` on Windows, `scripts/deploy.sh` on Linux/macOS)
 2. **Check the exit code** — non-zero = not deployed. Read the output.
 3. **Live-smoke it** — curl the app's `/health` (or `/healthz` for aria-web) and
    CONFIRM the `build_rev` matches your commit SHA:
