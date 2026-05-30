@@ -41,7 +41,8 @@ def test_real_tool_still_wins_over_doc_flag():
         verification=None, tools_used=["sanctions_screen"], build_rev="R-F885",
         document_grounded=True,
     )
-    assert "sanctions_screen" in f
+    # R-F1170 — human-readable labels
+    assert "sanctions screening" in f or "sanctions_screen" in f
     assert "from memory / training" not in f
 
 

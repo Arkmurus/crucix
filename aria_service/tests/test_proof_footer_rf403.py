@@ -82,8 +82,9 @@ def test_rf403_footer_shows_tools_when_provided():
         tools_used=["sanctions_screen", "deep_research"],
     )
     assert "*Tools:*" in footer
-    assert "sanctions_screen" in footer
-    assert "deep_research" in footer
+    # R-F1170 — human-readable labels instead of raw tool names
+    assert "sanctions screening" in footer or "sanctions_screen" in footer
+    assert "deep web search" in footer or "deep_research" in footer
 
 
 def test_rf403_footer_shows_no_tools_label_when_none_ran():
@@ -130,8 +131,6 @@ def test_rf403_footer_shows_trace_id_short():
     assert "abc123de" in footer, (
         "R-F403: trace_id not surfaced or not truncated to 8 chars."
     )
-    # Tells the team how to inspect
-    assert "/trace" in footer
 
 
 def test_rf403_tools_used_accepts_string_form():
@@ -141,7 +140,8 @@ def test_rf403_tools_used_accepts_string_form():
     footer_str = build_footer(
         response_text=body, verification=None, tools_used="sanctions_screen",
     )
-    assert "sanctions_screen" in footer_str
+    # R-F1170 — human-readable labels
+    assert "sanctions screening" in footer_str or "sanctions_screen" in footer_str
 
 
 def test_rf403_tools_deduped():
@@ -153,7 +153,8 @@ def test_rf403_tools_deduped():
         verification=None,
         tools_used=["deep_research", "deep_research", "DEEP_RESEARCH"],
     )
-    assert footer.count("deep_research") + footer.count("DEEP_RESEARCH") == 1, (
+    # R-F1170 — human-readable label "deep web search" appears once
+    assert footer.count("deep web search") == 1, (
         "R-F403: tool names not deduped. WhatsApp footer wastes space."
     )
 

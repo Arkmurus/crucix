@@ -379,6 +379,7 @@ def build_footer(
     # MVP-launch trust problem; this line answers it inline on every
     # substantive reply.
     proof_bits: list[str] = []
+    _tools_ran = False
     if tools_used:
         if isinstance(tools_used, str):
             tools_list = [t.strip() for t in tools_used.replace(",", " ").split() if t.strip()]
@@ -393,7 +394,23 @@ def build_footer(
             seen_tools.add(t.lower())
             unique_tools.append(t)
         if unique_tools:
-            proof_bits.append(f"*Tools:* {' · '.join(unique_tools[:5])}")
+            _tools_ran = True
+            # R-F1170 — human-readable tool names
+            _tool_labels = {
+                "crawl_website": "website crawl",
+                "deep_research": "deep web search",
+                "web_search": "web search",
+                "sanctions_screen": "sanctions screening",
+                "dd_orchestrate": "due diligence",
+                "investigate": "investigation",
+                "extract_url_deep": "page extraction",
+                "read_article": "article read",
+                "brave_answer": "web lookup",
+            }
+            _readable = []
+            for t in unique_tools[:5]:
+                _readable.append(_tool_labels.get(t.lower(), t))
+            proof_bits.append(f"*Tools:* {' · '.join(_readable)}")
         elif document_grounded:
             # R-F885 — the answer was grounded in an attached document, not a
             # tool. Saying "from memory / training" here is a flat-out
@@ -422,9 +439,22 @@ def build_footer(
             tid_short = tid[:8]
         else:
             tid_short = tid
-        proof_bits.append(f"*Trace:* `{tid_short}` (`/trace {tid_short}` to inspect)")
+        proof_bits.append(f"*Trace:* `{tid_short}`")
     if proof_bits:
         lines.append("  ·  ".join(proof_bits))
+
+    # R-F1170 — proactive next-step suggestion when tools ran
+    # After delivering intelligence, offer a natural next action so the
+    # conversation keeps moving forward instead of ending at the footer.
+    if _tools_ran and tag and tag not in ("UNCERTAIN", "SPECULATIVE"):
+        _next_steps = []
+        if any(t in str(tools_used or "").lower() for t in ("crawl", "research", "investigate")):
+            _next_steps.append("Want me to check sanctions or corporate registries on this entity?")
+        if any(t in str(tools_used or "").lower() for t in ("sanctions", "screen")):
+            _next_steps.append("Want a full due diligence report? Just say /dd [entity name].")
+        if _next_steps:
+            lines.append("")
+            lines.append(f"💡 {_next_steps[0]}")
 
     # ── Assumptions block (only if the LLM flagged any) ──
     assumptions = _extract_assumptions(response_text)

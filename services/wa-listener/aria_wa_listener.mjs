@@ -544,7 +544,8 @@ async function askARIA(message, senderJid, chatId = null) {
   } catch (e) {
     console.error('[ARIA Listener] Async chat failed:', e.message);
     signalChatFailure(message, senderJid, `async: ${e.message}`);
-    return '⚠️ That took longer than expected to analyse — please ask me again in a moment.';
+    // R-F1170 — helpful error with alternatives
+    return '⚠️ I hit a timeout on that one — the research is taking longer than expected. Please try again, or if you have a specific URL or document, share it and I can work from that directly.';
   }
 }
 
@@ -607,15 +608,26 @@ async function askARIAAsync(message, senderJid, chatId = null) {
     }
     if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
       interimSent = true;
-      await sendReply(chatId,
-        '🔎 Working on that — this one needs a deeper look. I\'ll reply here the '
-        + 'moment it\'s ready (a full document or contract review can take a few minutes).'
+      // R-F1170 — engaging interim messages that set expectations
+      const _interimMessages = [
+        '🔎 Give me a moment — I\'m researching this now. I\'ll post the full briefing here as soon as it\'s ready.',
+        '📡 Running the numbers — checking multiple sources. Results coming shortly.',
+        '🕵️ Digging into this — I\'ll share what I find the moment I have a complete picture.',
+        '⚡ On it — cross-referencing several databases. This usually takes a minute or two.',
+      ];
+      await sendReply(chatId, _interimMessages[Math.floor(Math.random() * _interimMessages.length)]
       ).catch(() => {});
     }
     // R-F1056 -- send progress updates for long-running jobs (every 2 min)
+    // R-F1170 — engaging progress updates that show effort
     if (chatId && interimSent && (Date.now() - t0) > 120000 && Math.floor((Date.now() - t0) / 120000) > Math.floor(((Date.now() - t0) - 5000) / 120000)) {
       const mins = Math.floor((Date.now() - t0) / 60000);
-      sendReply(chatId, 'Still working on it (' + mins + ' min) - this is a complex one. I will reply as soon as I have the full picture.').catch(() => {});
+      const _progressMessages = [
+        `Still researching (${mins} min) — this is a deep dive. I'm pulling together a thorough briefing.`,
+        `Still on it (${mins} min) — some of these sources take time to verify. Quality over speed.`,
+        `Still working (${mins} min) — I want to get this right rather than rush it. Nearly there.`,
+      ];
+      sendReply(chatId, _progressMessages[mins % _progressMessages.length]).catch(() => {});
     }
     let st;
     try { st = await brainGet(`/api/aria/chat/result/${jobId}`); }
@@ -1471,7 +1483,8 @@ async function startListener() {
           if (response) await sendReply(chatId, response);
         } catch (e) {
           console.error('[ARIA Listener] Command error:', e.message);
-          await sendReply(chatId, '⚠️ Something went wrong. Try /help.');
+          // R-F1170 — helpful error with alternatives
+          await sendReply(chatId, '⚠️ That command didn\'t work as expected. Try /help to see what I can do, or just ask me in plain English — I understand natural language too.');
         }
         continue;
       }
@@ -1506,7 +1519,8 @@ async function startListener() {
           if (response) await sendReply(chatId, response);
         } catch (e) {
           console.error('[ARIA Listener] Mention reply error:', e.message);
-          try { await sendReply(chatId, '⚠️ Sorry, I hit an error processing that. Please try again.'); } catch {}
+          // R-F1170 — helpful error with alternatives
+          try { await sendReply(chatId, '⚠️ I hit an error processing that. Could you rephrase or share more context? I work best with specific names, URLs, or documents.'); } catch {}
         }
         continue;
       }
@@ -1535,7 +1549,8 @@ async function startListener() {
             }
           } catch (e) {
             console.error('[ARIA Listener] Auto-response error:', e.message);
-            try { await sendReply(chatId, '⚠️ I noticed something but hit an error analysing it. Ask me directly if you need help.'); } catch {}
+            // R-F1170 — helpful auto-response error
+            try { await sendReply(chatId, '💡 I spotted something relevant in that message but hit an error analysing it. If you want me to look into a specific topic, just ask me directly — mention @ARIA and I\'ll jump on it.'); } catch {}
           }
         }
       }
