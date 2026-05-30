@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1163,
+  "next_available": 1164,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6106,9 +6106,9 @@
       "claimed_at": "2026-05-30T21:26:57Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "0cecfa68",
+      "commit_sha": "fae8bb1d",
       "notes": null,
-      "shipped_at": "2026-05-30T21:41:28Z"
+      "shipped_at": "2026-05-30T21:54:49Z"
     },
     {
       "r_number": "R-F1161",
@@ -6124,6 +6124,16 @@
       "r_number": "R-F1162",
       "title": "Wire portal credentials into data pipeline + coverage dashboard + portal discovery",
       "claimed_at": "2026-05-30T21:42:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fe872625",
+      "notes": null,
+      "shipped_at": "2026-05-30T21:47:38Z"
+    },
+    {
+      "r_number": "R-F1163",
+      "title": "Fix deploy.ps1 repo root detection when invoked via run tool",
+      "claimed_at": "2026-05-30T21:57:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

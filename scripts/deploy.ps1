@@ -33,7 +33,12 @@ if ($All) {
     $Intel = $true; $Web = $true; $Wa = $true
 }
 
-$REPO_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+# R-F1163: $PSScriptRoot and $MyInvocation are empty when invoked via
+# the run tool. Detect repo root by walking up from the script path.
+$SCRIPT_DIR = Split-Path -Parent $PSCommandPath
+if (-not $SCRIPT_DIR) { $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $SCRIPT_DIR) { $SCRIPT_DIR = "C:\code\crucix" }  # fallback
+$REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 Set-Location $REPO_ROOT
 
 $GIT_SHA = git rev-parse HEAD
