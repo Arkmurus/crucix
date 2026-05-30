@@ -248,6 +248,11 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/dd/quarantine/closure-summary",  # gate #4 indicator (closed)
     "/api/aria/learning/reading-queue",        # operational telemetry — what ARIA is reading
     "/api/aria/mastery/topic-completion",      # mastery-progress aggregated %
+    # R-F1119 (2026-05-30): internal health-monitor endpoints. The
+    # self_healing subsystem calls these via localhost without a bearer
+    # token. Read-only aggregated metrics; same posture as R-F680.
+    "/api/aria/health/perf",                  # self-introspection (R-F396)
+    "/api/aria/brain/stats",                  # brain-hook signal stats
 })
 
 

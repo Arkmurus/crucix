@@ -86,6 +86,16 @@ def _sample_thread() -> None:
             pass  # Sampler must never crash
 
 
+async def _heartbeat_tick() -> None:
+    """Async task: bump the profiler's heartbeat every 1s so the sampler
+    thread can detect genuine event-loop stalls. Runs in the event loop;
+    if the loop stalls this task won't tick, and the sampler will correctly
+    fire the stall warning."""
+    while _state["running"]:
+        await asyncio.sleep(1.0)
+        _state["main_loop_heartbeat"] = time.time()
+
+
 async def _report_loop() -> None:
     """Async task: every _REPORT_INTERVAL_S, emit a profile report."""
     while _state["running"]:
@@ -152,8 +162,11 @@ def start_profiler() -> list[asyncio.Task]:
     loop = asyncio.get_event_loop()
     task = loop.create_task(_report_loop(), name="continuous-profiler-report")
 
+    # Start the heartbeat tick (async — bumps main_loop_heartbeat every 1s)
+    hb_task = loop.create_task(_heartbeat_tick(), name="continuous-profiler-hb")
+
     logger.info("[continuous_profiler] Started (interval=%.0fms, report=%.0fs)", _SAMPLE_INTERVAL_S * 1000, _REPORT_INTERVAL_S)
-    return [task]
+    return [task, hb_task]
 
 
 def stop_profiler(tasks: list[asyncio.Task] | None = None) -> None:
