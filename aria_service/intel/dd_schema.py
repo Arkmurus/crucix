@@ -307,6 +307,29 @@ class DigitalSection:
 
 
 @dataclass
+class SweepDataSection:
+    """Layer 5b — real-time intelligence from the 49-source Node sweep.
+
+    The sweep runs every 5-7 minutes and collects data from 49 sources
+    (sanctions updates, procurement tenders, defence news, conflict events,
+    trade data, etc.). This section queries the brain for recent signals
+    relevant to the target entity and jurisdiction.
+
+    This bridges the gap between the DD orchestrator (which uses 7 vendor
+    integrations) and the sweep (which covers 49 sources in real time).
+    """
+    meta: SectionMeta = field(default_factory=SectionMeta)
+    recent_signals: list[dict] = field(default_factory=list)       # sweep signals from last 7d
+    relevant_news: list[dict] = field(default_factory=list)        # news items mentioning target
+    jurisdiction_events: list[dict] = field(default_factory=list)  # conflict/protest events
+    procurement_alerts: list[dict] = field(default_factory=list)   # relevant tender opportunities
+    sanctions_updates: list[dict] = field(default_factory=list)    # recent sanctions changes
+    trade_signals: list[dict] = field(default_factory=list)        # trade/economic indicators
+    findings: list[Finding] = field(default_factory=list)
+    data_gaps: list[str] = field(default_factory=list)
+
+
+@dataclass
 class CommercialCoherenceSection:
     """Layer 5c — is the commercial/legal structure coherent for the deal?
 
@@ -382,6 +405,7 @@ class ARKDDReport:
     verification: VerificationSection = field(default_factory=VerificationSection)
     compliance: ComplianceSection = field(default_factory=ComplianceSection)
     digital: DigitalSection = field(default_factory=DigitalSection)
+    sweep_data: SweepDataSection = field(default_factory=SweepDataSection)
     commercial_coherence: CommercialCoherenceSection = field(default_factory=CommercialCoherenceSection)
     synthesis: SynthesisSection = field(default_factory=SynthesisSection)
 

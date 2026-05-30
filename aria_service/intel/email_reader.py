@@ -35,11 +35,12 @@ logger = logging.getLogger("aria.email_reader")
 
 _ENABLED = os.getenv("ARIA_EMAIL_READER_ENABLED", "1") == "1"
 
-# IMAP settings
-_IMAP_HOST = os.getenv("ARIA_EMAIL_IMAP_HOST", "")
-_IMAP_PORT = int(os.getenv("ARIA_EMAIL_IMAP_PORT", "993"))
-_IMAP_USER = os.getenv("ARIA_EMAIL_IMAP_USER", "")
-_IMAP_PASS = os.getenv("ARIA_EMAIL_IMAP_PASS", "")
+# IMAP settings — with fallback to existing SMTP/EMAIL credentials
+# Priority: ARIA_EMAIL_IMAP_* > ARIA_EMAIL_* > ARIA_SMTP_*
+_IMAP_HOST = os.getenv("ARIA_EMAIL_IMAP_HOST") or os.getenv("ARIA_EMAIL_HOST") or os.getenv("ARIA_SMTP_HOST") or ""
+_IMAP_PORT = int(os.getenv("ARIA_EMAIL_IMAP_PORT") or os.getenv("ARIA_EMAIL_PORT") or "993")
+_IMAP_USER = os.getenv("ARIA_EMAIL_IMAP_USER") or os.getenv("ARIA_EMAIL_USER") or os.getenv("ARIA_SMTP_USER") or ""
+_IMAP_PASS = os.getenv("ARIA_EMAIL_IMAP_PASS") or os.getenv("ARIA_EMAIL_PASS") or os.getenv("ARIA_SMTP_PASS") or ""
 _IMAP_FOLDER = os.getenv("ARIA_EMAIL_IMAP_FOLDER", "INBOX")
 
 # SMTP settings (for sending)
@@ -90,18 +91,20 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
     if not _IMAP_HOST or not _IMAP_USER:
         logger.warning(
             "[email_reader] IMAP not configured — set ARIA_EMAIL_IMAP_HOST/USER/PASS "
-            "on aria-intel to enable email verification for autonomous registration"
+            "(or ARIA_EMAIL_HOST/USER/PASS) on aria-intel to enable email verification "
+            "for autonomous registration"
         )
         try:
             from .capability_gaps import record_gap
             record_gap(
                 gap_id="email_reader_imap_not_configured",
-                title="ARIA_EMAIL_IMAP_HOST/USER/PASS not set",
+                title="Email IMAP not configured",
                 description=(
                     "Email reader cannot connect to IMAP. "
-                    "Set ARIA_EMAIL_IMAP_HOST, ARIA_EMAIL_IMAP_USER, and "
-                    "ARIA_EMAIL_IMAP_PASS on aria-intel to enable "
-                    "autonomous email verification for portal registration."
+                    "Set ARIA_EMAIL_IMAP_HOST (or ARIA_EMAIL_HOST), "
+                    "ARIA_EMAIL_IMAP_USER (or ARIA_EMAIL_USER), and "
+                    "ARIA_EMAIL_IMAP_PASS (or ARIA_EMAIL_PASS) on aria-intel "
+                    "to enable autonomous email verification for portal registration."
                 ),
                 severity="medium",
             )

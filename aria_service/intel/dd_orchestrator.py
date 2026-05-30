@@ -5611,6 +5611,172 @@ def _validate_entity_name(name: str) -> tuple[bool, str]:
     return True, ""
 
 
+# ── R-F1110: Sweep intelligence layer ────────────────────────────────────────
+# Queries the brain for recent signals from the 49-source Node sweep that
+# are relevant to the target entity and jurisdiction. This bridges the gap
+# between the DD orchestrator (7 vendor integrations) and the sweep
+# (49 sources, 5-7 min cadence).
+
+
+async def _run_sweep_intelligence(target: dict, report: ARKDDReport) -> None:
+    """Layer 5b — Sweep intelligence. Queries brain for recent sweep signals.
+
+    The Node sweep runs every 5-7 minutes and collects data from 49 sources
+    (sanctions, procurement, defence news, conflict events, trade data, etc.).
+    This function queries the brain_hook stats and intel_ledger for signals
+    relevant to the target's name and jurisdiction.
+
+    This is a best-effort enrichment — if the brain is not reachable or
+    returns no data, the section is marked as having data gaps but does
+    NOT block the DD report.
+    """
+    t0 = time.time()
+    report.sweep_data.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    entity_name = (target.get("name") or target.get("entity") or target.get("query", "")).lower()
+    jurisdiction = target.get("jurisdiction_iso2", "")
+
+    try:
+        from . import brain_hook as _bh
+        from . import intel_ledger as _il
+
+        # 1. Get recent brain signals (last 7 days)
+        stats = await _bh.get_stats()
+        modules = stats.get("modules", {})
+
+        # 2. Scan for signals relevant to the target
+        sweep_signals = []
+        for mod_name, mod_stats in modules.items():
+            last_signal = mod_stats.get("last_signal_ago_h", 999)
+            if last_signal < 168:  # within 7 days
+                sweep_signals.append({
+                    "module": mod_name,
+                    "last_signal_ago_h": last_signal,
+                    "signal_count": mod_stats.get("signal_count", 0),
+                })
+
+        report.sweep_data.recent_signals = sweep_signals
+
+        # 3. Query intel ledger for entity-relevant signals
+        if entity_name:
+            try:
+                ledger_entries = await _il.get_recent(limit=100)
+                # Filter to entity-relevant entries
+                entity_words = set(entity_name.lower().split())
+                filtered = []
+                for entry in ledger_entries or []:
+                    text = ((entry.get("summary") or "") + " " + (entry.get("detail") or "")).lower()
+                    if any(w in text for w in entity_words if len(w) > 2):
+                        filtered.append(entry)
+                ledger_entries = filtered[:20]
+                for entry in ledger_entries or []:
+                    source = (entry.get("source") or "").lower()
+                    summary = (entry.get("summary") or "")
+                    detail = (entry.get("detail") or "")
+
+                    # Classify by source type
+                    if any(s in source for s in ("sanctions", "ofac", "ofsi", "un_sc", "fcdo")):
+                        report.sweep_data.sanctions_updates.append(entry)
+                    elif any(s in source for s in ("tender", "procurement", "sam", "ted")):
+                        report.sweep_data.procurement_alerts.append(entry)
+                    elif any(s in source for s in ("gdelt", "acled", "conflict", "reliefweb")):
+                        report.sweep_data.jurisdiction_events.append(entry)
+                    elif any(s in source for s in ("defense_news", "global_defence", "sipri", "janes")):
+                        report.sweep_data.relevant_news.append(entry)
+                    elif any(s in source for s in ("comtrade", "trade", "export", "import")):
+                        report.sweep_data.trade_signals.append(entry)
+                    else:
+                        report.sweep_data.relevant_news.append(entry)
+
+            except Exception as e:
+                report.sweep_data.data_gaps.append(f"ledger query failed: {str(e)[:80]}")
+
+        # 4. Generate findings from sweep data with provenance
+        # Each finding carries source URL + timestamp so the DD report cites them.
+        # Dedupe against existing report findings to avoid asserting the same
+        # signal twice.
+        existing_titles = {f.title for f in report.sweep_data.findings}
+        existing_sources = {f.source for f in report.sweep_data.findings}
+
+        if report.sweep_data.sanctions_updates:
+            _title = f"{len(report.sweep_data.sanctions_updates)} recent sanctions signals"
+            if _title not in existing_titles:
+                _sources = []
+                for _su in report.sweep_data.sanctions_updates[:5]:
+                    _url = _su.get("source_url") or _su.get("url", "")
+                    _ts = _su.get("timestamp", "")
+                    if _url:
+                        _sources.append(f"{_url} ({_ts})" if _ts else _url)
+                report.sweep_data.findings.append(Finding(
+                    severity="info",
+                    title=_title,
+                    detail=(
+                        f"Sweep detected {len(report.sweep_data.sanctions_updates)} "
+                        f"sanctions-related signals in the last 7 days. "
+                        f"Sources: {'; '.join(_sources[:3])}"
+                    ),
+                    source="sweep_intelligence",
+                    confidence="CONFIRMED",
+                ))
+
+        if report.sweep_data.procurement_alerts:
+            _title = f"{len(report.sweep_data.procurement_alerts)} procurement signals"
+            if _title not in existing_titles:
+                _sources = []
+                for _pa in report.sweep_data.procurement_alerts[:5]:
+                    _url = _pa.get("source_url") or _pa.get("url", "")
+                    _ts = _pa.get("timestamp", "")
+                    if _url:
+                        _sources.append(f"{_url} ({_ts})" if _ts else _url)
+                report.sweep_data.findings.append(Finding(
+                    severity="info",
+                    title=_title,
+                    detail=(
+                        f"Sweep detected {len(report.sweep_data.procurement_alerts)} "
+                        f"procurement/tender signals. "
+                        f"Sources: {'; '.join(_sources[:3])}"
+                    ),
+                    source="sweep_intelligence",
+                    confidence="CONFIRMED",
+                ))
+
+        if report.sweep_data.jurisdiction_events:
+            _title = f"{len(report.sweep_data.jurisdiction_events)} jurisdiction events"
+            if _title not in existing_titles:
+                _sources = []
+                for _je in report.sweep_data.jurisdiction_events[:5]:
+                    _url = _je.get("source_url") or _je.get("url", "")
+                    _ts = _je.get("timestamp", "")
+                    if _url:
+                        _sources.append(f"{_url} ({_ts})" if _ts else _url)
+                report.sweep_data.findings.append(Finding(
+                    severity="info",
+                    title=_title,
+                    detail=(
+                        f"Sweep detected {len(report.sweep_data.jurisdiction_events)} "
+                        f"conflict/event signals for this jurisdiction. "
+                        f"Sources: {'; '.join(_sources[:3])}"
+                    ),
+                    source="sweep_intelligence",
+                    confidence="CONFIRMED",
+                ))
+
+        report.sweep_data.meta.subcalls = (
+            len(sweep_signals) + len(ledger_entries or [])
+        )
+
+    except ImportError as e:
+        report.sweep_data.data_gaps.append(f"brain_hook/intel_ledger not available: {str(e)[:80]}")
+    except Exception as e:
+        report.sweep_data.data_gaps.append(f"sweep intelligence failed: {str(e)[:80]}")
+
+    report.sweep_data.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.sweep_data.meta.status = (
+        LayerStatus.OK.value if not report.sweep_data.data_gaps
+        else LayerStatus.DEGRADED.value
+    )
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -5857,7 +6023,26 @@ async def orchestrate_dd(
                 report.layers_skipped.append("digital")
             report.digital.meta.status = LayerStatus.SKIPPED.value
 
-        # ── LAYER 5c: COMMERCIAL COHERENCE ASSESSMENT (2026-04-22) ──
+        # ──         # ?? LAYER 5b: SWEEP INTELLIGENCE (R-F1110) ??
+        # Queries the brain for recent signals from the 49-source Node sweep.
+        # Best-effort enrichment -- never blocks the DD report.
+        if not hard_stop:
+            layer_name = "sweep_intelligence"
+            report.layers_run.append(layer_name)
+            try:
+                await asyncio.wait_for(
+                    _run_sweep_intelligence(target, report),
+                    timeout=15.0,
+                )
+            except asyncio.TimeoutError:
+                report.sweep_data.meta.status = LayerStatus.ERROR.value
+                report.sweep_data.meta.error = "timeout after 15s"
+            except Exception as _si_err:
+                report.sweep_data.meta.status = LayerStatus.ERROR.value
+                report.sweep_data.meta.error = str(_si_err)[:200]
+                logger.warning("[dd_orchestrator] Layer 5b sweep intelligence failed (non-fatal): %s", _si_err)
+
+# ?? LAYER 5c: COMMERCIAL COHERENCE ASSESSMENT (2026-04-22) ?? ──
         # Assesses corporate / commercial / legal coherence of the deal
         # structure against jurisdiction norms. Observer, never a gate.
         # Its anomalies feed Layer 5b deception scoring below, and its
