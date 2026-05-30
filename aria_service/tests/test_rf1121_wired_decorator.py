@@ -150,3 +150,56 @@ class TestWiredDecorator:
         result = await my_func()
         assert result == "ok"
         mock_wire_success.assert_called_once()
+
+    # ── Falsy-success detection (R-F1122) ─────────────────────────────────
+
+    async def test_falsy_success_fires_wire_failure(self, mock_wire_success, mock_wire_failure):
+        """check_falsy_success=True fires wire_failure when result has success=False."""
+
+        @wired(module="test", summary="Done", check_falsy_success=True)
+        async def my_func() -> dict:
+            return {"success": False, "error": "Something went wrong"}
+
+        result = await my_func()
+        assert result == {"success": False, "error": "Something went wrong"}
+        mock_wire_failure.assert_called_once()
+        args, kwargs = mock_wire_failure.call_args
+        assert "falsy success" in kwargs.get("detail", "")
+        assert "Something went wrong" in kwargs.get("detail", "")
+        mock_wire_success.assert_not_called()
+
+    async def test_falsy_success_skipped_when_disabled(self, mock_wire_success, mock_wire_failure):
+        """check_falsy_success=False (default) does NOT check for falsy success."""
+
+        @wired(module="test", summary="Done")
+        async def my_func() -> dict:
+            return {"success": False, "error": "Something went wrong"}
+
+        result = await my_func()
+        assert result == {"success": False, "error": "Something went wrong"}
+        mock_wire_success.assert_called_once()
+        mock_wire_failure.assert_not_called()
+
+    async def test_falsy_success_true_success_passes(self, mock_wire_success, mock_wire_failure):
+        """check_falsy_success=True still fires wire_success when success is True."""
+
+        @wired(module="test", summary="Done", check_falsy_success=True)
+        async def my_func() -> dict:
+            return {"success": True, "data": "all good"}
+
+        result = await my_func()
+        assert result == {"success": True, "data": "all good"}
+        mock_wire_success.assert_called_once()
+        mock_wire_failure.assert_not_called()
+
+    async def test_falsy_success_non_dict_ignored(self, mock_wire_success, mock_wire_failure):
+        """check_falsy_success=True ignores non-dict return values."""
+
+        @wired(module="test", summary="Done", check_falsy_success=True)
+        async def my_func() -> str:
+            return "plain string"
+
+        result = await my_func()
+        assert result == "plain string"
+        mock_wire_success.assert_called_once()
+        mock_wire_failure.assert_not_called()

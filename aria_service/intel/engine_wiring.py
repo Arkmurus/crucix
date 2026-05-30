@@ -142,6 +142,7 @@ def wired(
     confidence: str = "ASSESSED",
     gap_type: str = "engine_failure",
     capture_result: bool = False,
+    check_falsy_success: bool = False,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., Coroutine[Any, Any, Any]]]:
     """Decorator that auto-wires an async function's success and failure to the brain.
 
@@ -167,6 +168,10 @@ def wired(
         capture_result: If True, the return value's ``__str__`` (first 300
             chars) is appended to the success detail. Use sparingly — most
             engines should write their own summary.
+        check_falsy_success: If True, checks if the return value is a dict
+            with ``success=False`` and fires ``wire_failure`` instead of
+            ``wire_success``. Kills the false-success class of bugs where
+            a function returns a falsy-success dict without raising.
     """
     def _decorator(
         func: Callable[..., Coroutine[Any, Any, Any]],
@@ -202,6 +207,19 @@ def wired(
                     source=_module,
                 )
                 raise
+
+            # Falsy-success check (R-F1122): if the return is a dict with
+            # success=False, treat it as a failure — kills the false-success
+            # class of bugs where a function returns without raising.
+            if check_falsy_success and isinstance(result, dict) and result.get("success") is False:
+                _fail_detail = _detail or f"{_name} returned falsy success: {str(result.get('error', ''))[:200]}"
+                wire_failure(
+                    module=_module,
+                    detail=_fail_detail[:600],
+                    gap_type=gap_type,
+                    source=_module,
+                )
+                return result
 
             # Success path
             _success_detail = _detail
