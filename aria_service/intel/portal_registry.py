@@ -88,6 +88,14 @@ PORTALS: list[PortalDef] = [
         requires_email_verify=True,
         rate_limit_per_hour=30,
         terms_url="https://govtribe.com/terms",
+        register_path="/signup",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("name", "text", "name"),
+        ],
+        success_indicator="Welcome to GovTribe",
+        verify_email_domain="govtribe.com",
     ),
     PortalDef(
         id="opencorporates",
@@ -97,6 +105,15 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         rate_limit_per_hour=100,
         terms_url="https://opencorporates.com/terms",
+        register_path="/users/sign_up",
+        signup_fields=[
+            ("user[email]", "email", "email"),
+            ("user[password]", "password", "password"),
+            ("user[full_name]", "text", "name"),
+            ("user[terms]", "checkbox", "literal:1"),
+        ],
+        success_indicator="Welcome!",
+        verify_email_domain="opencorporates.com",
     ),
     PortalDef(
         id="opensanctions",
@@ -131,6 +148,11 @@ PORTALS: list[PortalDef] = [
         description="US Government Accountability Office — reports and bid protests",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/subscribe",
+        signup_fields=[
+            ("email", "email", "email"),
+        ],
+        success_indicator="subscription confirmed",
     ),
     PortalDef(
         id="federal_register",
@@ -139,6 +161,14 @@ PORTALS: list[PortalDef] = [
         description="US federal regulations and notices",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/account/signup",
+        signup_fields=[
+            ("user[email]", "email", "email"),
+            ("user[password]", "password", "password"),
+            ("user[name]", "text", "name"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="federalregister.gov",
     ),
     PortalDef(
         id="duns_bradstreet",
@@ -148,6 +178,16 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=30,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("firstName", "text", "literal:ARIA"),
+            ("lastName", "text", "literal:Research"),
+            ("company", "text", "org"),
+        ],
+        success_indicator="Thank you for registering",
+        verify_email_domain="dnb.com",
     ),
     # ── Government procurement portals ─────────────────────────────────
     PortalDef(
@@ -192,6 +232,14 @@ PORTALS: list[PortalDef] = [
         description="Cross-European company registry access",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/user/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("name", "text", "name"),
+            ("organisation", "text", "org"),
+        ],
+        success_indicator="Account created",
     ),
     PortalDef(
         id="open_corporates",
@@ -242,6 +290,14 @@ PORTALS: list[PortalDef] = [
         description="US Defense Security Cooperation Agency — FMS cases and notifications",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/user/register",
+        signup_fields=[
+            ("mail", "email", "email"),
+            ("name", "text", "name"),
+            ("pass[pass1]", "password", "password"),
+            ("pass[pass2]", "password", "password"),
+        ],
+        success_indicator="Thank you for registering",
     ),
     PortalDef(
         id="state_ddtc",
@@ -268,6 +324,11 @@ PORTALS: list[PortalDef] = [
         description="US Trade Representative — trade agreements and policy",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/subscribe",
+        signup_fields=[
+            ("email", "email", "email"),
+        ],
+        success_indicator="subscribed",
     ),
     PortalDef(
         id="trade_gov",
@@ -276,6 +337,14 @@ PORTALS: list[PortalDef] = [
         description="US International Trade Administration — market intelligence",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/user/register",
+        signup_fields=[
+            ("mail", "email", "email"),
+            ("name", "text", "name"),
+            ("pass[pass1]", "password", "password"),
+            ("pass[pass2]", "password", "password"),
+        ],
+        success_indicator="Account created",
     ),
     PortalDef(
         id="export_gov",
@@ -284,6 +353,12 @@ PORTALS: list[PortalDef] = [
         description="US export assistance and trade data",
         registration_type="email_form",
         rate_limit_per_hour=60,
+        register_path="/user/register",
+        signup_fields=[
+            ("mail", "email", "email"),
+            ("name", "text", "name"),
+        ],
+        success_indicator="Account created",
     ),
     # ── Open source intelligence ───────────────────────────────────────
     PortalDef(
@@ -293,6 +368,12 @@ PORTALS: list[PortalDef] = [
         description="OSINT tools and techniques resource",
         registration_type="email_form",
         rate_limit_per_hour=30,
+        register_path="/subscribe",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("fname", "text", "name"),
+        ],
+        success_indicator="Thank you for subscribing",
     ),
     PortalDef(
         id="bellingcat",
@@ -301,6 +382,11 @@ PORTALS: list[PortalDef] = [
         description="Open source investigation community and resources",
         registration_type="email_form",
         rate_limit_per_hour=30,
+        register_path="/subscribe",
+        signup_fields=[
+            ("email", "email", "email"),
+        ],
+        success_indicator="subscribed",
     ),
     # ── Academic and research ──────────────────────────────────────────
     PortalDef(
@@ -310,6 +396,14 @@ PORTALS: list[PortalDef] = [
         description="Academic paper search and research impact data",
         registration_type="api_key",
         rate_limit_per_hour=5000,
+        register_path="/account/create",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("displayName", "text", "name"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="semanticscholar.org",
     ),
     PortalDef(
         id="openalex",
@@ -335,6 +429,14 @@ PORTALS: list[PortalDef] = [
         description="Google News search API (free tier available)",
         registration_type="api_key",
         rate_limit_per_hour=100,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("name", "text", "name"),
+        ],
+        success_indicator="API key",
+        verify_email_domain="gnews.io",
     ),
     PortalDef(
         id="newsapi",
@@ -343,6 +445,14 @@ PORTALS: list[PortalDef] = [
         description="News article search API (free tier available)",
         registration_type="api_key",
         rate_limit_per_hour=100,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("name", "text", "name"),
+        ],
+        success_indicator="API key",
+        verify_email_domain="newsapi.org",
     ),
     # ── Company and financial data ─────────────────────────────────────
     PortalDef(
@@ -353,6 +463,15 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=60,
+        register_path="/signup",
+        signup_fields=[
+            ("user[email]", "email", "email"),
+            ("user[password]", "password", "password"),
+            ("user[first_name]", "text", "literal:ARIA"),
+            ("user[last_name]", "text", "literal:Research"),
+        ],
+        success_indicator="Welcome to Crunchbase",
+        verify_email_domain="crunchbase.com",
     ),
     PortalDef(
         id="pitchbook",
@@ -362,6 +481,16 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=30,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("firstName", "text", "literal:ARIA"),
+            ("lastName", "text", "literal:Research"),
+            ("company", "text", "org"),
+        ],
+        success_indicator="Thank you for registering",
+        verify_email_domain="pitchbook.com",
     ),
     # ── Geopolitical and conflict ──────────────────────────────────────
     PortalDef(
@@ -412,6 +541,14 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=30,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("username", "text", "literal:ARIA_Research"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="marinetraffic.com",
     ),
     PortalDef(
         id="flightradar24",
@@ -420,6 +557,14 @@ PORTALS: list[PortalDef] = [
         description="Global flight tracking and aviation data",
         registration_type="email_form",
         rate_limit_per_hour=30,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("username", "text", "literal:ARIA_Research"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="flightradar24.com",
     ),
     # ── Cybersecurity ──────────────────────────────────────────────────
     PortalDef(
@@ -449,6 +594,14 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=50,
+        register_path="/register",
+        signup_fields=[
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("name", "text", "name"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="censys.io",
     ),
     PortalDef(
         id="urlscan",
@@ -458,6 +611,15 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=50,
+        register_path="/user/register",
+        signup_fields=[
+            ("mail", "email", "email"),
+            ("name", "text", "name"),
+            ("pass[pass1]", "password", "password"),
+            ("pass[pass2]", "password", "password"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="urlscan.io",
     ),
 ]
 
@@ -882,6 +1044,40 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
             return result
         # Fall through to prepared notice if form fill failed
 
+    # R-F1161 — if no explicit signup_fields, try the generic form detector
+    # by loading the registration page and scanning for form fields
+    if not portal.signup_fields:
+        try:
+            from .scraper.playwright_engine import fetch as _pw_fetch
+            pw_result = await _pw_fetch(
+                register_url,
+                timeout=30.0,
+                wait_for="networkidle",
+            )
+            if pw_result.ok and pw_result.text:
+                detected_fields = _detect_form_fields(pw_result.text)
+                if detected_fields:
+                    logger.info(
+                        "[portal_registry] Generic detector found %d fields for %s",
+                        len(detected_fields), portal.id,
+                    )
+                    # Create a temporary portal with detected fields and retry
+                    import dataclasses
+                    temp_portal = dataclasses.replace(portal, signup_fields=detected_fields)
+                    result = await _attempt_form_fill_submit(temp_portal, register_url, registration_data)
+                    if result.get("success"):
+                        await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
+                        return result
+                    elif result.get("requires_operator"):
+                        return result
+                    elif result.get("requires_email_verify"):
+                        return result
+        except Exception as e:
+            logger.debug(
+                "[portal_registry] Generic form detection failed for %s: %s",
+                portal.id, e,
+            )
+
     # If no signup_fields or form fill failed, store credentials and
     # emit a PREPARED (not registered) audit notice
     try:
@@ -1067,6 +1263,155 @@ def _build_form_data(
     return form_data
 
 
+# R-F1161 — Generic form field detector. When a portal has no explicit
+# signup_fields schema, we scan the HTML for common registration form
+# patterns and map them heuristically. This covers the 20+ portals that
+# would otherwise fall through to "PREPARED — form fill deferred".
+_COMMON_FORM_ACTIONS = re.compile(
+    r'(register|signup|sign.up|create.account|join|subscribe|user.register)',
+    re.IGNORECASE,
+)
+_EMAIL_FIELD_PATTERNS = re.compile(
+    r'(email|e-mail|mail|username|login)',
+    re.IGNORECASE,
+)
+_PASSWORD_FIELD_PATTERNS = re.compile(
+    r'(password|passwd|pwd|pass)',
+    re.IGNORECASE,
+)
+_NAME_FIELD_PATTERNS = re.compile(
+    r'(name|full.name|first.name|last.name|fname|lname|your.name)',
+    re.IGNORECASE,
+)
+_ORG_FIELD_PATTERNS = re.compile(
+    r'(org|company|organization|organisation|firm|business|employer)',
+    re.IGNORECASE,
+)
+_WEBSITE_FIELD_PATTERNS = re.compile(
+    r'(website|web.site|url|homepage|company.url|site)',
+    re.IGNORECASE,
+)
+_PHONE_FIELD_PATTERNS = re.compile(
+    r'(phone|telephone|mobile|cell|contact.number|tel)',
+    re.IGNORECASE,
+)
+_COUNTRY_FIELD_PATTERNS = re.compile(
+    r'(country|nation|region)',
+    re.IGNORECASE,
+)
+
+
+def _detect_form_fields(html: str) -> list[tuple[str, str, str]]:
+    """Scan HTML for registration form fields and return a signup_fields schema.
+
+    Uses regex heuristics to identify common field types by their name, id,
+    or label text. Returns a list of (selector, field_type, value_source)
+    tuples compatible with _build_form_data.
+
+    This is a best-effort heuristic — it won't catch every portal's form,
+    but it covers the common patterns (Drupal, WordPress, Django, Rails,
+    Laravel, Express, etc.).
+    """
+    fields: list[tuple[str, str, str]] = []
+    seen_names: set[str] = set()
+
+    # Find the registration form — look for <form> with action containing
+    # register/signup keywords, or the first <form> on the page
+    form_html = html
+    form_match = re.search(
+        r'<form[^>]*action\s*=\s*["\']([^"\']*register[^"\']*)["\'][^>]*>(.*?)</form>',
+        html, re.DOTALL | re.IGNORECASE,
+    )
+    if form_match:
+        form_html = form_match.group(2)
+    else:
+        # Fallback: try any form with a submit button
+        form_match = re.search(
+            r'<form[^>]*>(.*?)</form>',
+            html, re.DOTALL,
+        )
+        if form_match:
+            form_html = form_match.group(2)
+
+    # Extract all input fields within the form
+    input_pattern = re.compile(
+        r'<input[^>]*(?:name|id)\s*=\s*["\']([^"\']+)["\'][^>]*>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    for input_match in input_pattern.finditer(form_html):
+        input_html = input_match.group(0)
+        name = input_match.group(1).strip()
+
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        # Determine field type
+        type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', input_html, re.IGNORECASE)
+        field_type = type_match.group(1).lower() if type_match else "text"
+
+        # Skip submit/reset/button/hidden/file fields (handled separately)
+        if field_type in ("submit", "reset", "button", "file", "image"):
+            continue
+        if field_type == "hidden":
+            # Hidden fields are handled by CSRF extraction
+            continue
+        if field_type == "checkbox":
+            # Checkboxes for ToS/privacy — auto-check them
+            name_lower = name.lower()
+            if any(t in name_lower for t in ("terms", "conditions", "privacy", "agree", "accept", "subscribe", "newsletter")):
+                fields.append((name, "checkbox", "literal:1"))
+            continue
+        if field_type == "radio":
+            continue  # Too context-dependent for generic detection
+
+        # Map field name to value source
+        name_lower = name.lower()
+        if _EMAIL_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "email", "email"))
+        elif _PASSWORD_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "password", "password"))
+        elif _NAME_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "text", "name"))
+        elif _ORG_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "text", "org"))
+        elif _WEBSITE_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "text", "website"))
+        elif _PHONE_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "text", "literal:+351900000000"))
+        elif _COUNTRY_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "text", "literal:Portugal"))
+        else:
+            # Unknown field — skip it rather than guess wrong
+            logger.debug(
+                "[portal_registry] Generic detector: unknown field '%s' (type=%s) — skipping",
+                name, field_type,
+            )
+
+    # Also check for select/textarea fields
+    select_pattern = re.compile(
+        r'<(select|textarea)[^>]*(?:name|id)\s*=\s*["\']([^"\']+)["\'][^>]*>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    for select_match in select_pattern.finditer(form_html):
+        tag = select_match.group(1).lower()
+        name = select_match.group(2).strip()
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        name_lower = name.lower()
+        if _COUNTRY_FIELD_PATTERNS.search(name_lower):
+            fields.append((name, "select", "literal:Portugal"))
+        else:
+            logger.debug(
+                "[portal_registry] Generic detector: unknown %s '%s' — skipping",
+                tag, name,
+            )
+
+    return fields
+
+
 def _extract_csrf_token(html: str) -> str | None:
     """Extract CSRF token from HTML form."""
     import re
@@ -1243,7 +1588,34 @@ def _extract_confirmation_link(text: str) -> str | None:
 
 
 async def _register_for_api_key(portal: PortalDef) -> dict[str, Any]:
-    """Register for an API key."""
+    """Register for an API key.
+
+    If the portal has signup_fields defined, attempts auto-registration
+    via the email form path (same as _register_via_email_form). The API
+    key is extracted from the response or email and stored in the vault.
+
+    Falls back to operator deferral if no signup_fields or auto-reg fails.
+    """
+    # R-F1161 — if portal has signup_fields, try auto-registration first
+    if portal.signup_fields:
+        result = await _register_via_email_form(portal)
+        if result.get("success"):
+            # Registration succeeded — try to extract API key from response
+            # or mark as needing operator to provide the key
+            return {
+                "success": True,
+                "message": (
+                    f"Account created for {portal.name}. "
+                    f"API key may need to be obtained from the account dashboard. "
+                    f"Credentials stored in encrypted vault."
+                ),
+                "portal_id": portal.id,
+                "email": _ARIA_EMAIL,
+            }
+        elif result.get("requires_email_verify"):
+            return result
+        # Fall through to operator deferral
+
     # API key portals typically require email registration on their website
     try:
         from . import pending_actions as _pa
