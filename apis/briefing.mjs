@@ -522,9 +522,29 @@ export async function pushSignalsToBrain(sweepOutput) {
 
     // NOTE: redisPush is a no-op since Upstash retirement (R-F745).
     // Real brain delivery is via pushSweepToARIA → /api/aria/ingest.
-    // This function is kept for structural compatibility but does not
-    // actually push signals. See pushSweepToARIA in sweep orchestration.
-    console.log(`[Crucix Brain] ${signals.length} signals would be pushed (redisPush is no-op since Upstash retirement)`);
+    // R-F1165: report the skip to the brain so the gap_detector sees it.
+    console.log(`[Crucix Brain] ${signals.length} signals skipped (redisPush is no-op since Upstash retirement — use pushSweepToARIA instead)`);
+    // Fire-and-forget brain signal about the dead path
+    try {
+      const brainBase = process.env.ARIA_SERVICE_URL || '';
+      const brainToken = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
+      if (brainBase) {
+        fetch(`${brainBase}/api/aria/brain/signal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(brainToken ? { 'Authorization': `Bearer ${brainToken}` } : {}),
+          },
+          body: JSON.stringify({
+            content: `pushSignalsToBrain skipped ${signals.length} signals — redisPush is a no-op since Upstash retirement`,
+            source: 'briefing:pushSignalsToBrain',
+            signal_type: 'capability_gap',
+            metadata: { signals_count: signals.length, module: 'briefing.mjs' },
+          }),
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {});
+      }
+    } catch (_) { /* best-effort */ }
   } catch (e) {
     // Non-fatal — brain integration should never break the sweep
     console.error('[Crucix Brain] Signal push failed (non-fatal):', e.message);

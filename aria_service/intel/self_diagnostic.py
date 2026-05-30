@@ -494,6 +494,183 @@ _MODULES: list[dict] = [
         "brain_registered": False,
         "critical": True,  # wedge-epicentre encoder; RAG depends on it
     },
+    # R-F1165 — expanded catalogue: compliance screeners, honesty guards,
+    # runtime safety engines, and autonomous infrastructure modules.
+    {
+        "name": "compliance_watch",
+        "module": "aria_service.intel.compliance_watch",
+        "entry": "capture_message",
+        "brain_registered": True,
+        "critical": True,  # evidentiary capture store for compliance
+    },
+    {
+        "name": "end_user_granularity",
+        "module": "aria_service.intel.end_user_granularity",
+        "entry": "render_finding",
+        "brain_registered": False,
+        "critical": True,  # end-user compliance screening
+    },
+    {
+        "name": "goods_list_aggregator_detector",
+        "module": "aria_service.intel.goods_list_aggregator_detector",
+        "entry": "render_finding",
+        "brain_registered": False,
+        "critical": True,  # goods-list compliance screening
+    },
+    {
+        "name": "self_claim_guard",
+        "module": "aria_service.intel.self_claim_guard",
+        "entry": "scan_response",
+        "brain_registered": True,
+        "critical": True,  # architectural self-claim hallucination guard
+    },
+    {
+        "name": "stream_honesty",
+        "module": "aria_service.intel.stream_honesty",
+        "entry": "check_response",
+        "brain_registered": False,
+        "critical": True,  # streaming path honesty guard
+    },
+    {
+        "name": "tool_claim_guard",
+        "module": "aria_service.intel.tool_claim_guard",
+        "entry": "scan_response",
+        "brain_registered": False,
+        "critical": True,  # tool-claim hallucination guard
+    },
+    {
+        "name": "sanctions_claim_guard",
+        "module": "aria_service.intel.sanctions_claim_guard",
+        "entry": "scan_response",
+        "brain_registered": False,
+        "critical": True,  # sanctions-claim hallucination guard
+    },
+    {
+        "name": "ground_truth_guard",
+        "module": "aria_service.intel.ground_truth_guard",
+        "entry": "scan_response",
+        "brain_registered": False,
+        "critical": True,  # ground-truth hallucination guard
+    },
+    {
+        "name": "reasoning_library",
+        "module": "aria_service.intel.reasoning_library",
+        "entry": "get_reasoning",
+        "brain_registered": False,
+        "critical": False,
+    },
+    {
+        "name": "regional_navigation",
+        "module": "aria_service.intel.regional_navigation",
+        "entry": "get_navigation",
+        "brain_registered": False,
+        "critical": False,
+    },
+    {
+        "name": "sanctions_divergence",
+        "module": "aria_service.intel.sanctions_divergence",
+        "entry": "detect_divergence",
+        "brain_registered": False,
+        "critical": True,  # sanctions divergence detection
+    },
+    {
+        "name": "autonomous_scheduler",
+        "module": "aria_service.intel.autonomous_scheduler",
+        "entry": "run_cycle",
+        "brain_registered": True,
+        "critical": True,  # autonomous task scheduler
+    },
+    {
+        "name": "autonomy_scorer",
+        "module": "aria_service.intel.autonomy_scorer",
+        "entry": "composite_score",
+        "brain_registered": True,
+        "critical": True,  # autonomy scoring engine
+    },
+    {
+        "name": "operating_modes",
+        "module": "aria_service.intel.operating_modes",
+        "entry": "determine_mode",
+        "brain_registered": True,
+        "critical": True,  # operating mode determination
+    },
+    {
+        "name": "calibration_review",
+        "module": "aria_service.intel.calibration_review",
+        "entry": "run_calibration",
+        "brain_registered": True,
+        "critical": True,  # calibration review engine
+    },
+    {
+        "name": "capability_gaps",
+        "module": "aria_service.intel.capability_gaps",
+        "entry": "record_gap",
+        "brain_registered": True,
+        "critical": True,  # capability gap recording
+    },
+    {
+        "name": "mistake_ledger",
+        "module": "aria_service.intel.mistake_ledger",
+        "entry": "record",
+        "brain_registered": True,
+        "critical": True,  # mistake ledger
+    },
+    {
+        "name": "error_log_handler",
+        "module": "aria_service.intel.error_log_handler",
+        "entry": "install",
+        "brain_registered": True,
+        "critical": True,  # error log handler
+    },
+    {
+        "name": "engine_wiring",
+        "module": "aria_service.intel.engine_wiring",
+        "entry": "wire_success",
+        "brain_registered": True,
+        "critical": True,  # brain wiring helpers
+    },
+    {
+        "name": "wiring_monitor",
+        "module": "aria_service.intel.wiring_monitor",
+        "entry": "audit_wire_balance",
+        "brain_registered": True,
+        "critical": True,  # wiring health monitor
+    },
+    {
+        "name": "self_healing",
+        "module": "aria_service.intel.self_healing",
+        "entry": "heal",
+        "brain_registered": True,
+        "critical": True,  # self-healing engine
+    },
+    {
+        "name": "self_restart",
+        "module": "aria_service.intel.self_restart",
+        "entry": "restart_if_needed",
+        "brain_registered": True,
+        "critical": True,  # self-restart system
+    },
+    {
+        "name": "dead_letter_queue",
+        "module": "aria_service.intel.dead_letter_queue",
+        "entry": "process",
+        "brain_registered": True,
+        "critical": True,  # dead letter queue
+    },
+    {
+        "name": "circuit_breaker",
+        "module": "aria_service.intel.circuit_breaker",
+        "entry": "check",
+        "brain_registered": True,
+        "critical": True,  # circuit breaker
+    },
+    {
+        "name": "grounded_reasoner",
+        "module": "aria_service.intel.grounded_reasoner",
+        "entry": "reason",
+        "brain_registered": True,
+        "critical": True,  # grounded reasoning engine
+    },
 ]
 
 

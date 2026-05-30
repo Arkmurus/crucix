@@ -20134,6 +20134,159 @@ async def bd_deal_strategy_ep(deal_id: str) -> dict:
 # R-F1081 — Dependency Health Dashboard
 # ═════════════════════════════════════════════════════════════════════════════
 
+@router.get("/phase/gates")
+async def phase_gates_ep() -> dict:
+    """Phase A gate status — live verification of all 7 exit gates.
+
+    Returns each gate's id, description, status (open/closed/unknown),
+    and the evidence supporting the status. Used by the operator and
+    autonomous loop to track Phase A → Phase B readiness.
+
+    R-F1165 — phase gate endpoint for live verification.
+    """
+    from ..intel import redis_store as _rs
+    from ..intel import error_log_handler as _elh
+    from ..intel import capability_gaps as _cg
+    from ..intel import mistake_ledger as _ml
+    from ..intel import chat_audit_log as _cal
+    from ..intel import adversarial_challenge as _ac
+    from ..intel import operating_modes as _om
+    from ..intel import autonomy_scorer as _ascorer
+    from ..intel.engine_wiring import wire_success
+    import datetime
+
+    gates: list[dict] = []
+
+    # Gate 1: Composite ≥71%
+    try:
+        composite = await _ascorer.composite_score()
+        g1_status = "closed" if (composite or {}).get("composite", 0) >= 0.71 else "open"
+    except Exception:
+        composite = None
+        g1_status = "unknown"
+    gates.append({
+        "id": 1,
+        "title": "Composite score ≥71%",
+        "status": g1_status,
+        "value": round((composite or {}).get("composite", 0), 3) if composite else None,
+        "evidence": "autonomy_scorer.composite_score()",
+    })
+
+    # Gate 2: Heatmap floor ≥70%
+    try:
+        heatmap = await _ascorer.heatmap()
+        floor = min((h or {}).get("score", 1.0) for h in (heatmap or [])) if heatmap else None
+        g2_status = "closed" if floor is not None and floor >= 0.70 else "open"
+    except Exception:
+        floor = None
+        g2_status = "unknown"
+    gates.append({
+        "id": 2,
+        "title": "Heatmap floor ≥70%",
+        "status": g2_status,
+        "value": floor,
+        "evidence": "autonomy_scorer.heatmap()",
+    })
+
+    # Gate 3: 0 fly ERRORs in 7 days
+    try:
+        errors = await _elh.get_error_count(days=7)
+        g3_status = "closed" if (errors or 0) == 0 else "open"
+    except Exception:
+        errors = None
+        g3_status = "unknown"
+    gates.append({
+        "id": 3,
+        "title": "0 fly ERRORs in 7 days",
+        "status": g3_status,
+        "value": errors,
+        "evidence": "error_log_handler.get_error_count(7)",
+    })
+
+    # Gate 4: Quarantined DDs closed
+    try:
+        quarantined = await _rs.get_json("crucix:aria:dd:quarantined") or []
+        g4_status = "closed" if len(quarantined) == 0 else "open"
+    except Exception:
+        quarantined = None
+        g4_status = "unknown"
+    gates.append({
+        "id": 4,
+        "title": "Quarantined DDs closed",
+        "status": g4_status,
+        "value": len(quarantined) if quarantined is not None else None,
+        "evidence": "redis: crucix:aria:dd:quarantined",
+    })
+
+    # Gate 5: Env vars set
+    env_checks = {
+        "HARVEST_ENABLED": "1",
+        "AUTONOMOUS_ENABLED": "1",
+        "AUTONOMY_LEVEL": "3",
+    }
+    import os as _os
+    env_missing = [k for k, v in env_checks.items() if _os.environ.get(k) != v]
+    g5_status = "closed" if not env_missing else "open"
+    gates.append({
+        "id": 5,
+        "title": "Required env vars set",
+        "status": g5_status,
+        "value": {"missing": env_missing, "total": len(env_checks)},
+        "evidence": "os.environ check",
+    })
+
+    # Gate 6: 500-Q eval frozen
+    try:
+        eval_status = await _rs.get_json("crucix:aria:eval:500q:status") or {}
+        frozen = eval_status.get("frozen", False)
+        g6_status = "closed" if frozen else "open"
+    except Exception:
+        frozen = None
+        g6_status = "unknown"
+    gates.append({
+        "id": 6,
+        "title": "500-Q eval frozen",
+        "status": g6_status,
+        "value": frozen,
+        "evidence": "redis: crucix:aria:eval:500q:status",
+    })
+
+    # Gate 7: ≥4 design-partner conversations
+    try:
+        cal_stats = await _cal.get_stats()
+        total = (cal_stats or {}).get("total_entries", 0)
+        g7_status = "closed" if total >= 4 else "open"
+    except Exception:
+        total = None
+        g7_status = "unknown"
+    gates.append({
+        "id": 7,
+        "title": "≥4 design-partner conversations",
+        "status": g7_status,
+        "value": total,
+        "evidence": "chat_audit_log.get_stats()",
+    })
+
+    # Wire success to brain
+    wire_success(
+        module="phase_gates",
+        summary=f"Phase gate status: {sum(1 for g in gates if g['status'] == 'closed')}/{len(gates)} closed",
+        source_id="phase_gates:R-F1165",
+    )
+
+    return {
+        "phase": "A",
+        "gates": gates,
+        "summary": {
+            "closed": sum(1 for g in gates if g["status"] == "closed"),
+            "open": sum(1 for g in gates if g["status"] == "open"),
+            "unknown": sum(1 for g in gates if g["status"] == "unknown"),
+            "total": len(gates),
+        },
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
 @router.get("/sources/health")
 async def sources_health_ep() -> dict:
     """Aggregate per-source health from brain_hook signals and error logs.

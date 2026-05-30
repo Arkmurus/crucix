@@ -33,6 +33,10 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.intel.compliance_watch")
 
+# R-F1165 — wire to brain on capture success/failure so ARIA learns
+# from compliance evidentiary capture health.
+from .engine_wiring import wire_success, wire_failure
+
 _LOG_KEY = "crucix:aria:compliance_watch:log"      # lpush → newest at index 0
 _SEQ_KEY = "crucix:aria:compliance_watch:seq"
 _GENESIS = "0" * 64
@@ -87,9 +91,23 @@ async def capture_message(*, group: str, sender: str, text: str,
         }
         rec["hash"] = _hash(prev, rec)
         await rs.lpush(_LOG_KEY, json.dumps(rec, ensure_ascii=False))
+        # R-F1165 — wire success to brain
+        wire_success(
+            module="compliance_watch",
+            summary=f"Captured compliance message seq={rec['seq']} from {rec['group']}",
+            entity_name=rec["group"],
+            source_id="compliance_watch:capture_message",
+        )
         return {"captured": True, "seq": rec["seq"], "hash": rec["hash"]}
     except Exception as e:
         logger.warning("compliance_watch.capture_message failed (non-fatal): %s", e)
+        # R-F1165 — wire failure to brain
+        wire_failure(
+            module="compliance_watch",
+            detail=f"capture_message failed: {e}",
+            gap_type="compliance_capture_failure",
+            source="compliance_watch:capture_message",
+        )
         return {"captured": False, "error": str(e)[:200]}
 
 
@@ -147,8 +165,13 @@ async def verify_chain(limit: int = 1000) -> dict:
             checked += 1
         return {"ok": True, "checked": checked, "broken_at": None}
     except Exception as e:
-
-
+        # R-F1165 — wire chain verification failure to brain
+        wire_failure(
+            module="compliance_watch",
+            detail=f"verify_chain failed: {e}",
+            gap_type="compliance_chain_verification_failure",
+            source="compliance_watch:verify_chain",
+        )
         return {"ok": False, "checked": 0, "error": str(e)[:200]}
 
 
@@ -156,9 +179,23 @@ async def stats() -> dict:
     """Coverage stats for the capture store."""
     try:
         from . import redis_store as rs
-        return {"total_captured": await rs.llen(_LOG_KEY)}
-    except Exception:
-        pass
+        total = await rs.llen(_LOG_KEY)
+        # R-F1165 — wire success to brain
+        wire_success(
+            module="compliance_watch",
+            summary=f"Compliance watch stats: {total} captured",
+            source_id="compliance_watch:stats",
+        )
+        return {"total_captured": total}
+    except Exception as e:
+        logger.warning("compliance_watch.stats failed: %s", e)
+        # R-F1165 — wire failure to brain
+        wire_failure(
+            module="compliance_watch",
+            detail=f"stats failed: {e}",
+            gap_type="compliance_stats_failure",
+            source="compliance_watch:stats",
+        )
         return {"total_captured": 0}
 
 
