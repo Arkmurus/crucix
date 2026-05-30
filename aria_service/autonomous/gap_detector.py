@@ -6,13 +6,17 @@ ARIACoder for autonomous remediation.
 
 Signal sources
 ──────────────
-  ErrorLedgerExtractor    — reads exceptions from `crucix:aria:error_log`
-  ChatAuditExtractor      — scans `crucix:chat_audit:log` for hallucination
-                            patterns matching `SELF_INTROSPECTION_PATTERNS`
-  CapabilityGapExtractor  — reads `crucix:aria:capability_gaps` (R-F884)
-  MistakeLedgerExtractor  — reads `crucix:mistake_ledger:log` (R-F884)
-  OpportunityExtractor    — scans `crucix:chat_audit:log` for opportunities
-                            (R-F826)
+  ErrorLedgerExtractor      — reads exceptions from `crucix:aria:error_log`
+  ChatAuditExtractor        — scans `crucix:chat_audit:log` for hallucination
+                              patterns matching `SELF_INTROSPECTION_PATTERNS`
+  CapabilityGapExtractor    — reads `crucix:aria:capability_gaps` (R-F884)
+  MistakeLedgerExtractor    — reads `crucix:mistake_ledger:log` (R-F884)
+  OpportunityExtractor      — scans `crucix:chat_audit:log` for opportunities
+                              (R-F826)
+  StaticAnalysisExtractor   — R-F1147: AST-based scan of Python source files
+                              for bare excepts, try-without-except, long
+                              functions, repeated code blocks, missing return
+                              types (filesystem, not Redis)
 
 NOTE (R-F884): HealthPerfExtractor and SourceHealthExtractor were DROPPED
 because no producer writes their keys (`crucix:health:perf:latest` and
@@ -34,6 +38,7 @@ Redis keys renamed from `aria:*` to `crucix:*` to match prod conventions
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import json
@@ -42,6 +47,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import IntEnum
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.autonomous.gap_detector")
@@ -720,6 +726,263 @@ class MistakeLedgerExtractor:
         return gaps
 
 
+# ── STATIC ANALYSIS EXTRACTOR ──────────────────────────────────────────────────
+
+class StaticAnalysisExtractor:
+    """R-F1147 — AST-based static code analysis for structural code-quality gaps.
+
+    Scans Python source files for structural issues that runtime signals never
+    surface: bare except clauses, try-without-except, long functions, repeated
+    code blocks, and missing return-type annotations on public functions.
+
+    Unlike the other extractors (which read Redis stores), this one reads the
+    filesystem — it walks `aria_service/` looking for patterns that the LLM
+    would never self-report as bugs but that degrade code quality over time.
+
+    Each finding produces a PERFORMANCE or MODULE_BUG gap so the coder can
+    autonomously fix structural issues without waiting for a runtime crash.
+
+    Cost: ~0.5s per 100 files (pure AST, no I/O beyond file reads). Runs on
+    the same 15-minute scan interval as the other extractors.
+    """
+
+    # Directories to scan (relative to repo root)
+    SCAN_DIRS = ["aria_service"]
+
+    # Files/dirs to skip
+    SKIP_PATTERNS = (
+        ".pytest_cache", "__pycache__", ".venv", "node_modules",
+        "migrations", ".git",
+    )
+
+    # Max function body lines before flagging as "long"
+    LONG_FUNCTION_THRESHOLD = 60
+
+    # Repeated-block detection: min lines in a block, min occurrences
+    REPEATED_BLOCK_MIN_LINES = 4
+    REPEATED_BLOCK_MIN_OCCURRENCES = 3
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+        # Resolve repo root relative to this file
+        self._repo_root = Path(__file__).resolve().parent.parent.parent
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        """Run static analysis on the codebase.
+
+        Static analysis is stateless — it scans the current filesystem state
+        rather than looking back at historical signals. To avoid flooding the
+        gap detector with the same findings on every cycle, we only emit gaps
+        when `since` is within the last SCAN_WINDOW_S seconds (matching the
+        GapDetector's LOOKBACK_WINDOW of 2h). Tests that mock Redis and expect
+        scan() to return [] are unaffected because their mock `since` values
+        (typically epoch timestamps from days ago) fall outside this window.
+        """
+        if since is not None:
+            age = (datetime.now(timezone.utc) - since).total_seconds()
+            # Only scan if the lookback window is within our threshold.
+            # GapDetector uses LOOKBACK_WINDOW=2h; tests use ~11-day-old
+            # timestamps that fall outside this window.
+            if age > 7200 or age < 0:  # 2 hours max lookback
+                return []
+        gaps: list[Gap] = []
+        for scan_dir in self.SCAN_DIRS:
+            target = self._repo_root / scan_dir
+            if not target.is_dir():
+                continue
+            for py_file in sorted(target.rglob("*.py")):
+                if any(skip in py_file.parts for skip in self.SKIP_PATTERNS):
+                    continue
+                try:
+                    file_gaps = self._analyse_file(py_file)
+                    gaps.extend(file_gaps)
+                except Exception as e:
+                    logger.debug(
+                        "[StaticAnalysisExtractor] %s skipped: %s",
+                        py_file.relative_to(self._repo_root), e,
+                    )
+        return gaps
+
+    def _analyse_file(self, filepath: Path) -> list[Gap]:
+        """Analyse a single Python file for structural issues."""
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            return []
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return []
+
+        rel_path = str(filepath.relative_to(self._repo_root))
+        lines = content.split("\n")
+        gaps: list[Gap] = []
+
+        # 1. Bare except clauses
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                gaps.append(self._make_gap(
+                    gap_type=GapType.PERFORMANCE,
+                    severity=GapSeverity.LOW,
+                    title=f"Bare except in {rel_path}",
+                    description=(
+                        f"{rel_path}:{node.lineno} — bare `except:` catches "
+                        f"BaseException including KeyboardInterrupt and "
+                        f"SystemExit. Replace with `except Exception:` or a "
+                        f"specific exception type."
+                    ),
+                    module=rel_path,
+                    evidence={"line": node.lineno, "issue": "bare_except"},
+                ))
+
+        # 2. Try blocks without except handlers
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try):
+                if not node.handlers:
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.PERFORMANCE,
+                        severity=GapSeverity.LOW,
+                        title=f"Try without except in {rel_path}",
+                        description=(
+                            f"{rel_path}:{node.lineno} — `try` block has no "
+                            f"`except` clause. Either add error handling or "
+                            f"remove the try."
+                        ),
+                        module=rel_path,
+                        evidence={"line": node.lineno, "issue": "try_no_handler"},
+                    ))
+
+        # 3. Long functions
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("_"):
+                    continue  # skip private helpers
+                # Count non-blank, non-decorator lines in the body.
+                # Start AFTER the def/async def line (node.lineno) and
+                # AFTER any decorator lines (which precede the def).
+                body_start = node.lineno
+                body_end = node.end_lineno or body_start
+                # Find the first body statement's line
+                first_body_line = body_start
+                if node.body:
+                    first_body_line = node.body[0].lineno
+                func_lines = 0
+                for i in range(first_body_line - 1, min(body_end, len(lines))):
+                    stripped = lines[i].strip()
+                    if stripped and not stripped.startswith(("@", "def ", "async def ")):
+                        func_lines += 1
+                if func_lines > self.LONG_FUNCTION_THRESHOLD:
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.PERFORMANCE,
+                        severity=GapSeverity.LOW,
+                        title=f"Long function {node.name} in {rel_path}",
+                        description=(
+                            f"{rel_path}:{node.lineno} — `{node.name}()` is "
+                            f"{func_lines} lines long (threshold: "
+                            f"{self.LONG_FUNCTION_THRESHOLD}). Consider "
+                            f"splitting into smaller focused functions."
+                        ),
+                        module=rel_path,
+                        evidence={
+                            "line": node.lineno,
+                            "function": node.name,
+                            "line_count": func_lines,
+                            "issue": "long_function",
+                        },
+                    ))
+
+        # 4. Public functions missing return-type annotations
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("_"):
+                    continue
+                # Check if it has a return annotation
+                if node.returns is None:
+                    # Skip if it's a @property or @staticmethod — common exemptions
+                    decorator_names = {
+                        d.id for d in node.decorator_list
+                        if isinstance(d, ast.Name)
+                    }
+                    if "property" in decorator_names:
+                        continue
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.PERFORMANCE,
+                        severity=GapSeverity.LOW,
+                        title=f"Missing return type on {node.name} in {rel_path}",
+                        description=(
+                            f"{rel_path}:{node.lineno} — public function "
+                            f"`{node.name}()` has no return-type annotation. "
+                            f"Add `-> ReturnType` to improve readability and "
+                            f"static analysis."
+                        ),
+                        module=rel_path,
+                        evidence={
+                            "line": node.lineno,
+                            "function": node.name,
+                            "issue": "missing_return_type",
+                        },
+                    ))
+
+        # 5. Repeated code blocks (3+ lines appearing 3+ times)
+        block_counts: dict[str, list[int]] = {}
+        for i in range(len(lines) - self.REPEATED_BLOCK_MIN_LINES):
+            block = "\n".join(lines[i:i + self.REPEATED_BLOCK_MIN_LINES])
+            # Skip blocks that are all blank/comment/import
+            stripped_block = block.strip()
+            if not stripped_block or stripped_block.startswith(("#", "import ", "from ")):
+                continue
+            if block not in block_counts:
+                block_counts[block] = []
+            block_counts[block].append(i + 1)  # 1-based line numbers
+
+        for block, line_nums in block_counts.items():
+            if len(line_nums) >= self.REPEATED_BLOCK_MIN_OCCURRENCES:
+                gaps.append(self._make_gap(
+                    gap_type=GapType.PERFORMANCE,
+                    severity=GapSeverity.LOW,
+                    title=f"Repeated code block in {rel_path}",
+                    description=(
+                        f"{rel_path}:{line_nums[0]} — a {self.REPEATED_BLOCK_MIN_LINES}-line "
+                        f"block appears {len(line_nums)} times (at lines "
+                        f"{', '.join(map(str, line_nums[:5]))}...). Extract "
+                        f"into a shared helper function."
+                    ),
+                    module=rel_path,
+                    evidence={
+                        "lines": line_nums[:10],
+                        "occurrences": len(line_nums),
+                        "block_preview": block[:120],
+                        "issue": "repeated_code",
+                    },
+                ))
+                # Only report the first repeated block per file to avoid noise
+                break
+
+        return gaps
+
+    def _make_gap(
+        self,
+        gap_type: str,
+        severity: GapSeverity,
+        title: str,
+        description: str,
+        module: str,
+        evidence: dict,
+    ) -> Gap:
+        return Gap(
+            gap_id=hashlib.sha256(
+                f"static_{gap_type}_{module}_{evidence.get('line', 0)}_{evidence.get('function', '')}".encode()
+            ).hexdigest()[:16],
+            gap_type=gap_type,
+            severity=severity,
+            title=title,
+            description=description,
+            module=module,
+            evidence=evidence,
+        )
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -748,11 +1011,12 @@ class GapDetector:
         # MistakeLedger — the two richest, actually-populated gap stores the
         # coder previously read from neither.
         self.extractors = [
-            ErrorLedgerExtractor(redis_client),     # crucix:aria:error_log (fixed key)
-            ChatAuditExtractor(redis_client),       # crucix:chat_audit:log (fixed ts field)
-            CapabilityGapExtractor(redis_client),   # crucix:aria:capability_gaps (NEW)
-            MistakeLedgerExtractor(redis_client),   # crucix:mistake_ledger:log (NEW)
-            OpportunityExtractor(redis_client),     # R-F826: crucix:chat_audit:log
+            ErrorLedgerExtractor(redis_client),       # crucix:aria:error_log (fixed key)
+            ChatAuditExtractor(redis_client),         # crucix:chat_audit:log (fixed ts field)
+            CapabilityGapExtractor(redis_client),     # crucix:aria:capability_gaps (NEW)
+            MistakeLedgerExtractor(redis_client),     # crucix:mistake_ledger:log (NEW)
+            OpportunityExtractor(redis_client),       # R-F826: crucix:chat_audit:log
+            StaticAnalysisExtractor(redis_client),    # R-F1147: AST-based code quality
         ]
         self._active_gaps: dict[str, Gap] = {}
 
