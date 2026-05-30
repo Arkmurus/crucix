@@ -204,6 +204,9 @@ class AgentRegistry:
                 return agents
 
             for agent_id, raw in raw_entries.items():
+                # Skip empty entries (unregistered agents that were set to "")
+                if not raw:
+                    continue
                 try:
                     entry = json.loads(raw) if isinstance(raw, str) else raw
                 except (json.JSONDecodeError, TypeError):
@@ -301,12 +304,6 @@ class AgentRegistry:
             rs = self._get_redis()
             await rs.delete(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
             logger.info("[R-F1160] gap %s released by %s", gap_id, agent_id)
-            await self._broadcast({
-                "type": "gap_released",
-                "gap_id": gap_id,
-                "agent_id": agent_id,
-                "timestamp": time.time(),
-            })
         except Exception as e:
             logger.debug("[R-F1160] release_gap failed: %s", e)
 

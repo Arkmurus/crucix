@@ -152,23 +152,31 @@ async def _heartbeat_ticker() -> None:
     agents (gap_detector, research_engine, Claude Code sessions) know
     the coder is active and what it's working on.
     """
+    _reg = None
     try:
         from ..intel.self_restart import tick_heartbeat
         from ..intel.agent_registry import AgentRegistry
 
-        # Register in the agent registry
+        # Register in the agent registry (non-fatal if it fails)
         _reg = AgentRegistry()
-        await _reg.register(
-            agent_id="aria_coder",
-            agent_type="autonomous_coder",
-            current_task="starting up",
-        )
+        try:
+            await _reg.register(
+                agent_id="aria_coder",
+                agent_type="autonomous_coder",
+                current_task="starting up",
+            )
+        except Exception:
+            logger.debug("[coder_entrypoint] agent registry registration failed (non-fatal)")
 
         while True:
             await asyncio.sleep(30)
             tick_heartbeat("aria_coder")
-            # Also tick the agent registry heartbeat
-            await _reg.tick_heartbeat("aria_coder")
+            # Also tick the agent registry heartbeat (non-fatal if it fails)
+            if _reg is not None:
+                try:
+                    await _reg.tick_heartbeat("aria_coder")
+                except Exception:
+                    pass
     except ImportError:
         pass
     except asyncio.CancelledError:
