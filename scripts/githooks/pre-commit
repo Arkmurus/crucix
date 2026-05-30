@@ -52,6 +52,54 @@ EXEMPT_MODULES = {
     "socket", "ast", "inspect", "collections", "pathlib",
 }
 
+# Built-in / stdlib methods that should never be flagged as missing functions.
+# These are methods on dict, list, str, re.Match, asyncio.Task, etc.
+BUILTIN_METHODS = frozenset({
+    # dict methods
+    "get", "keys", "items", "values", "update", "pop", "popitem",
+    "setdefault", "copy", "clear", "fromkeys",
+    # list/set methods
+    "append", "extend", "insert", "remove", "pop", "clear", "index",
+    "count", "sort", "reverse", "add", "discard", "union", "intersection",
+    "difference", "symmetric_difference", "issubset", "issuperset",
+    # str methods
+    "format", "strip", "lstrip", "rstrip", "split", "rsplit", "splitlines",
+    "join", "lower", "upper", "capitalize", "title", "swapcase", "casefold",
+    "replace", "find", "rfind", "index", "rindex", "count", "startswith",
+    "endswith", "encode", "decode", "zfill", "center", "ljust", "rjust",
+    "expandtabs", "isalnum", "isalpha", "isdigit", "isdecimal", "isnumeric",
+    "isspace", "istitle", "isupper", "islower", "isprintable", "isidentifier",
+    "isascii", "partition", "rpartition", "removeprefix", "removesuffix",
+    "maketrans", "translate",
+    # re.Match methods
+    "group", "groups", "groupdict", "start", "end", "span", "pos", "endpos",
+    "lastindex", "lastgroup", "re", "string", "expand",
+    # asyncio.Task/Future methods
+    "result", "exception", "cancelled", "done", "add_done_callback",
+    "remove_done_callback", "cancel",
+    # coroutine methods
+    "close", "send", "throw",
+    # Path methods
+    "exists", "is_file", "is_dir", "read_text", "read_bytes", "write_text",
+    "write_bytes", "mkdir", "rmdir", "unlink", "rename", "replace",
+    "glob", "rglob", "iterdir", "absolute", "resolve", "relative_to",
+    "with_name", "with_suffix", "stem", "suffix", "name", "parent", "parents",
+    "parts", "joinpath", "cwd", "home", "stat", "lstat", "owner", "group",
+    # datetime methods
+    "now", "utcnow", "fromtimestamp", "utcfromtimestamp", "combine",
+    "strftime", "strptime", "isoformat", "timestamp", "timetuple",
+    "date", "time", "timetz", "replace", "astimezone", "dst", "tzname",
+    "utcoffset",
+    # json methods
+    "dumps", "loads", "dump", "load",
+    # logging methods
+    "debug", "info", "warning", "error", "critical", "exception", "log",
+    "setLevel", "addHandler", "removeHandler",
+    # typing/generic
+    "cast", "TypeVar", "NewType", "Optional", "Union", "List", "Dict",
+    "Set", "Tuple", "Any",
+})
+
 
 def get_staged_files():
     result = subprocess.run(
@@ -93,6 +141,8 @@ def find_function_calls(lines):
             if func.startswith("__"):
                 continue
             if obj in EXEMPT_MODULES:
+                continue
+            if func in BUILTIN_METHODS:
                 continue
             calls.append({
                 "line_num": i + 1,

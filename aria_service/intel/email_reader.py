@@ -88,7 +88,25 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
         return []
 
     if not _IMAP_HOST or not _IMAP_USER:
-        logger.info("[email_reader] IMAP not configured — set ARIA_EMAIL_IMAP_HOST/USER/PASS")
+        logger.warning(
+            "[email_reader] IMAP not configured — set ARIA_EMAIL_IMAP_HOST/USER/PASS "
+            "on aria-intel to enable email verification for autonomous registration"
+        )
+        try:
+            from .capability_gaps import record_gap
+            record_gap(
+                gap_id="email_reader_imap_not_configured",
+                title="ARIA_EMAIL_IMAP_HOST/USER/PASS not set",
+                description=(
+                    "Email reader cannot connect to IMAP. "
+                    "Set ARIA_EMAIL_IMAP_HOST, ARIA_EMAIL_IMAP_USER, and "
+                    "ARIA_EMAIL_IMAP_PASS on aria-intel to enable "
+                    "autonomous email verification for portal registration."
+                ),
+                severity="medium",
+            )
+        except Exception:
+            pass
         return []
 
     try:
