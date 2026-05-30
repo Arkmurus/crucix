@@ -79,7 +79,11 @@ async def audit_portal_coverage() -> dict[str, Any]:
 
     # Get all registered portals
     registered_portals = await _pr.get_registered_portals()
-    registered_ids = {p.get("portal_id", p.get("id", "")) for p in registered_portals}
+    registered_ids = {
+        p.get("portal_id", p.get("id", ""))
+        for p in registered_portals
+        if p.get("registered", False)
+    }
 
     # Get all portals from the registry
     all_portals = {p.id: p for p in _pr.PORTALS}
