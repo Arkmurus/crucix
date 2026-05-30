@@ -121,6 +121,19 @@ class AutonomousScheduler:
         except Exception as e:
             logger.debug("[scheduler] adversarial skipped: %s", e)
 
+        # R-F1129 — run generative red-team drill after adversarial suite
+        try:
+            from ..intel.generative_redteam import run_drill
+            drill_result = await run_drill()
+            logger.info(
+                "[scheduler] redteam drill: %d variants, %d caught, %d defenses staged",
+                drill_result.get("variants_tested", 0),
+                drill_result.get("variants_passed_defense", 0),
+                drill_result.get("defenses_staged", 0),
+            )
+        except Exception as e:
+            logger.debug("[scheduler] redteam drill skipped: %s", e)
+
     async def _optimize_ecosystem(self) -> None:
         """Run full ecosystem optimization."""
         try:
