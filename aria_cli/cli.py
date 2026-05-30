@@ -16,11 +16,18 @@ R-F1045 — Claude-Code parity UI:
   - Session log file (~/.aria/sessions/)
   - Visible thinking trace (what ARIA is doing, not just a spinner)
   - Final summary with changed files + stats
+
+R-F1141 — operator mid-task interject:
+  - Background daemon thread reads sys.stdin lines into a thread-safe queue
+  - REPL reads from the queue (blocking) instead of input() directly
+  - Agent.run_turn drains the queue non-blocking before each LLM call
+  - Operator messages appear as [OPERATOR (mid-task)] in the conversation
 """
 from __future__ import annotations
 
 import argparse
 import os
+import queue
 import sys
 import threading
 import time
@@ -33,6 +40,64 @@ from .llm import LLMClient, LLMConfig
 from .prompt import build_system_prompt
 from .safety import WriteGuard
 from .tools import ToolResult, Toolbox
+
+
+# ── R-F1141: operator mid-task interject ────────────────────────────────────
+# A background daemon thread reads sys.stdin lines into a thread-safe queue.
+# The REPL reads from this queue (blocking) instead of calling input() directly.
+# Agent.run_turn drains the queue non-blocking before each LLM call.
+_OPERATOR_QUEUE: queue.Queue = queue.Queue()
+_STDIN_THREAD: threading.Thread | None = None
+
+
+def _stdin_reader() -> None:
+    """Daemon thread: read sys.stdin lines and put each on the queue."""
+    try:
+        for line in sys.stdin:
+            stripped = line.strip()
+            if stripped:
+                _OPERATOR_QUEUE.put(stripped)
+    except (EOFError, OSError):
+        pass
+
+
+def _start_stdin_reader() -> None:
+    """Start the stdin reader daemon thread (idempotent)."""
+    global _STDIN_THREAD
+    if _STDIN_THREAD is not None and _STDIN_THREAD.is_alive():
+        return
+    _STDIN_THREAD = threading.Thread(target=_stdin_reader, daemon=True, name="stdin-reader")
+    _STDIN_THREAD.start()
+
+
+def _read_operator_input(prompt: str = "") -> str:
+    """Read a line from the operator queue (blocking), or fall back to input().
+
+    In interactive mode, reads from the queue so the stdin reader thread
+    can feed lines both to the REPL (blocking) and to mid-task drains
+    (non-blocking). Falls back to input() if the queue is empty (first call).
+    """
+    if not sys.stdin.isatty():
+        # Non-interactive (piped input) — read directly
+        try:
+            return input(prompt).strip()
+        except EOFError:
+            return ""
+
+    try:
+        # Try non-blocking first — if something is already queued, use it
+        return _OPERATOR_QUEUE.get_nowait()
+    except queue.Empty:
+        pass
+
+    # Blocking read from queue (with prompt)
+    if prompt:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+    try:
+        return _OPERATOR_QUEUE.get()
+    except (EOFError, OSError):
+        return ""
 
 
 # ── Session log ─────────────────────────────────────────────────────────────
@@ -505,7 +570,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     try:
         while True:
             try:
-                line = input(color.bold("you> ")).strip()
+                line = _read_operator_input(color.bold("you> "))
             except EOFError:
                 break
             if not line:
@@ -721,6 +786,10 @@ def main(argv: list[str] | None = None) -> int:
     interactive = not oneshot_text
 
     agent, ui, cfg, self_mode, guard = _build_agent(cwd, args, color, interactive)
+
+    # R-F1141: start the stdin reader daemon thread for operator mid-task interject
+    if interactive:
+        _start_stdin_reader()
 
     if interactive:
         _repl(agent, ui, cfg, self_mode, guard, cwd, color)

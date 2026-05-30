@@ -244,6 +244,37 @@ class Agent:
                 ),
             })
 
+    def _drain_operator_stdin(self) -> None:
+        """R-F1141 — surface any new operator stdin lines into the conversation,
+        in real time, mid-task, as high-priority guidance.
+
+        Runs at the same boundary as _drain_claude_bridge (top of each loop
+        iteration in run_turn). Reads from the thread-safe queue that the
+        stdin daemon thread populates. Non-blocking — if nothing is queued,
+        returns immediately. Wrapped so it can never break the agent loop."""
+        try:
+            from .cli import _OPERATOR_QUEUE
+        except Exception:
+            return
+        while True:
+            try:
+                line = _OPERATOR_QUEUE.get_nowait()
+            except Exception:  # queue.Empty or AttributeError
+                break
+            line = line.strip()
+            if not line:
+                continue
+            preview = line if len(line) <= 200 else line[:200] + "…"
+            self.ui.info(f"[operator (mid-task)] {preview}")
+            self.messages.append({
+                "role": "user",
+                "content": (
+                    "[LIVE MESSAGE FROM OPERATOR — sent while you were working. "
+                    "Treat as high-priority guidance: read it, and if it changes "
+                    "what you should do next, adjust now.]\n" + line
+                ),
+            })
+
     def run_turn(self, user_text: str) -> TurnResult:
         self.messages.append({"role": "user", "content": user_text})
         steps = 0
@@ -252,6 +283,9 @@ class Agent:
             # R-F1082: pull any new guidance from Claude (via the bridge) into the
             # conversation before each LLM call — real-time collaboration, mid-task.
             self._drain_claude_bridge()
+            # R-F1141: pull any new operator stdin lines into the conversation
+            # before each LLM call — operator can message mid-task.
+            self._drain_operator_stdin()
             # Show "thinking" while we wait on the first token, then stream the
             # answer live so the UI is never silent.
             self.ui.thinking_start()
