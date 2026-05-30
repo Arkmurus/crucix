@@ -165,6 +165,70 @@ async def audit_portal_coverage() -> dict[str, Any]:
     return results
 
 
+# R-F1162 — Portal discovery: search for new government/OSINT portals that
+# ARIA isn't registered on yet. Runs periodically to expand coverage.
+_DISCOVERY_QUERIES = [
+    "government procurement portal free registration",
+    "open data portal government contracts API",
+    "OSINT database free API key registration",
+    "defence procurement notices free access",
+    "sanctions list API free tier",
+    "company registry API free access",
+    "public procurement portal electronic system",
+    "government tender portal API documentation",
+]
+
+
+async def discover_new_portals(max_results: int = 5) -> list[dict[str, Any]]:
+    """Search for new government/OSINT portals that ARIA could register on.
+
+    Uses web search to find portals not in the current PORTALS list.
+    Returns a list of candidate portal dicts with name, url, description.
+
+    This is a best-effort discovery — candidates should be reviewed before
+    adding to the permanent PORTALS list.
+    """
+    discovered: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    from . import portal_registry as _pr
+    existing_urls = {p.url.rstrip("/").lower() for p in _pr.PORTALS}
+
+    for query in _DISCOVERY_QUERIES:
+        try:
+            from .web_search import search_web
+            results = await search_web(query, max_results=5)
+            for r in (results or []):
+                url = (r.get("url") or "").rstrip("/").lower()
+                if not url or url in seen_urls or url in existing_urls:
+                    continue
+                seen_urls.add(url)
+                title = (r.get("title") or "")[:200]
+                snippet = (r.get("snippet") or "")[:300]
+
+                # Heuristic: skip known social media, news, and docs sites
+                skip_domains = ("wikipedia.org", "facebook.com", "linkedin.com",
+                                "twitter.com", "youtube.com", "reddit.com",
+                                "github.com", "medium.com")
+                if any(d in url for d in skip_domains):
+                    continue
+
+                discovered.append({
+                    "url": url,
+                    "title": title,
+                    "description": snippet,
+                    "source_query": query,
+                })
+
+                if len(discovered) >= max_results:
+                    return discovered
+        except Exception as e:
+            logger.debug("[portal_coverage_audit] Discovery query '%s' failed: %s", query, e)
+            continue
+
+    return discovered
+
+
 async def auto_register_gaps(max_portals: int = 3) -> list[dict[str, Any]]:
     """Automatically register for missing high-value portals.
 

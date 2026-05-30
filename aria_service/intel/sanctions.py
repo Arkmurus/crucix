@@ -40,17 +40,39 @@ OPENSANCTIONS_SEARCH = "https://api.opensanctions.org/search/default"
 # OpenSanctions API key — free tier has heavy rate limits (1 req/sec, 1000/month).
 # A paid key (from https://www.opensanctions.org/api/) gives 100 req/sec and unlimited
 # monthly volume, plus access to the premium PEP and adverse-media datasets.
+# R-F1162 — also checks the portal_registry vault for stored credentials.
 OPENSANCTIONS_API_KEY = os.getenv("OPENSANCTIONS_API_KEY", "").strip()
 
 
-def _opensanctions_headers() -> dict:
-    """Build headers for OpenSanctions API calls, including auth if available."""
+async def _resolve_opensanctions_key() -> str:
+    """Resolve the OpenSanctions API key from env or portal_registry vault.
+
+    Priority: OPENSANCTIONS_API_KEY env var > portal_registry stored credential.
+    """
+    if OPENSANCTIONS_API_KEY:
+        return OPENSANCTIONS_API_KEY
+    try:
+        from .portal_registry import get_credential
+        cred = await get_credential("opensanctions")
+        if cred and cred.get("api_key"):
+            return cred["api_key"]
+    except Exception:
+        pass
+    return ""
+
+
+async def _opensanctions_headers() -> dict:
+    """Build headers for OpenSanctions API calls, including auth if available.
+
+    Checks both the env var and the portal_registry vault for credentials.
+    """
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "ARIA-Sanctions/1.0 (Arkmurus defence intelligence)",
     }
-    if OPENSANCTIONS_API_KEY:
-        headers["Authorization"] = f"ApiKey {OPENSANCTIONS_API_KEY}"
+    key = await _resolve_opensanctions_key()
+    if key:
+        headers["Authorization"] = f"ApiKey {key}"
     return headers
 
 # ── String distance: Levenshtein (no external dep) ──────────────────────────
@@ -244,7 +266,7 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(OPENSANCTIONS_API, json=payload, headers=_opensanctions_headers())
+            resp = await client.post(OPENSANCTIONS_API, json=payload, headers=await _opensanctions_headers())
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed — check OPENSANCTIONS_API_KEY env var")
                 _r469_breaker.record_failure(reason="auth")
@@ -309,7 +331,7 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
             resp = await client.get(
                 OPENSANCTIONS_SEARCH,
                 params={"q": query, "limit": limit},
-                headers=_opensanctions_headers(),
+                headers=await _opensanctions_headers(),
             )
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed on search — check OPENSANCTIONS_API_KEY")

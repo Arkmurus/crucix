@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1162,
+  "next_available": 1163,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6105,14 +6105,25 @@
       "title": "Multi-agent awareness protocol — agent registry, heartbeat, cross-agent deconfliction, and agent-to-agent messaging",
       "claimed_at": "2026-05-30T21:26:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0cecfa68",
+      "notes": null,
+      "shipped_at": "2026-05-30T21:41:28Z"
     },
     {
       "r_number": "R-F1161",
       "title": "Portal registration: vault key, generic form detector, email config, API key auto-reg, signup fields",
       "claimed_at": "2026-05-30T21:31:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9129f411",
+      "notes": null,
+      "shipped_at": "2026-05-30T21:39:18Z"
+    },
+    {
+      "r_number": "R-F1162",
+      "title": "Wire portal credentials into data pipeline + coverage dashboard + portal discovery",
+      "claimed_at": "2026-05-30T21:42:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

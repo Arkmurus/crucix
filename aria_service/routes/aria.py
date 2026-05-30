@@ -12904,6 +12904,54 @@ async def registrations_portals_ep():
     return {"portals": rc.list_portals()}
 
 
+# R-F1162 — Portal coverage dashboard. Shows registered vs total, tier breakdown,
+# and which portals are actively used for data collection.
+@router.get("/portal-coverage")
+async def portal_coverage_ep():
+    """Return portal registration coverage status.
+
+    Shows:
+      - total portals defined
+      - registered count
+      - unregistered count (with details)
+      - tier breakdown (1=critical, 2=high, 3=medium)
+      - which portals are actively wired into data collection
+    """
+    from ..intel.portal_registry import PORTALS, get_registered_portals
+    from ..intel.portal_coverage_audit import audit_portal_coverage
+
+    registered = await get_registered_portals()
+    audit = await audit_portal_coverage()
+
+    # Count by tier
+    tier_map = {"sam_gov": 1, "opencorporates": 1, "opensanctions": 1,
+                 "companies_house": 1, "ofac_sdn_download": 1, "acled": 1}
+    tiers: dict[str, int] = {"tier_1": 0, "tier_2": 0, "tier_3": 0}
+    for p in PORTALS:
+        tid = tier_map.get(p.id, 3)
+        tiers[f"tier_{tid}"] = tiers.get(f"tier_{tid}", 0) + 1
+
+    # Portals that are actively wired into data collection
+    wired_portals = {
+        "usaspending": "procurement_history.py",
+        "opensanctions": "sanctions.py",
+        "acled": "sources/acled.py",
+        "ofac_sdn_download": "sanctions.py",
+        "companies_house": "company_investigator.py",
+        "sec_edgar": "company_investigator.py",
+    }
+
+    return {
+        "total": len(PORTALS),
+        "registered": sum(1 for r in registered if r["registered"]),
+        "unregistered": [r for r in registered if not r["registered"]],
+        "tiers": tiers,
+        "wired_for_data_collection": len(wired_portals),
+        "wired_portals": wired_portals,
+        "audit": audit,
+    }
+
+
 @router.post("/registrations/check")
 async def registrations_check_ep(request: Request):
     """Run portal-registration checks for Arkmurus.
