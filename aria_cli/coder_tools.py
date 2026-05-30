@@ -235,6 +235,36 @@ class CoderToolbox:
         self._tb._track(fp)
         return self.test(path=test_path, verbose=True, timeout=120)
 
+    # ── fetch_url with standalone JS rendering ─────────────────────────────
+
+    def fetch_url(self, url: str, max_chars: int = 10000) -> ToolResult:
+        """Fetch a URL with HTTP GET, falling back to Playwright JS rendering
+        for SPAs. Uses the standalone renderer first (no aria_service dependency),
+        then the legacy one."""
+        if not url.lower().startswith(("http://", "https://")):
+            return ToolResult("error: url must start with http:// or https://", is_error=True)
+        try:
+            import httpx
+            resp = httpx.get(url, timeout=25.0, follow_redirects=True,
+                             headers={"User-Agent": "aria-coder-cli/0.1"})
+        except Exception as exc:
+            return ToolResult(f"error fetching {url}: {exc}", is_error=True)
+        body = resp.text or ""
+        # If httpx returned a thin JS shell, try Playwright rendering
+        if resp.status_code == 200 and len(body.strip()) < 2000:
+            from .standalone_fetch import fetch_rendered
+            pw_text = fetch_rendered(url)
+            if pw_text is None:
+                from .playwright_fetch import fetch_with_playwright
+                pw_text = fetch_with_playwright(url)
+            if pw_text is not None:
+                body = pw_text
+        cap = max(500, min(int(max_chars or 10000), 30000))
+        if len(body) > cap:
+            body = body[:cap] + f"\n... (truncated, {len(resp.text)} chars total)"
+        return ToolResult(f"HTTP {resp.status_code} {url}\n{body}",
+                          is_error=resp.status_code >= 400)
+
     # ── memory tools (session persistence) ─────────────────────────────────
 
     def remember(self, entry_type: str, content: str, r_number: str = "",
@@ -286,6 +316,21 @@ class CoderToolbox:
 # CoderToolbox, which are dispatched by the agent loop.
 
 CODER_TOOL_SCHEMAS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "HTTP GET a URL and return its text (docs, an API response, a raw file). Falls back to Playwright JS rendering for SPAs. Read-only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "max_chars": {"type": "integer", "description": "Max chars to return (optional)."},
+                },
+                "required": ["url"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {

@@ -188,7 +188,7 @@ class _Color:
 
 
 class TerminalUI(AgentUI):
-    """Claude-Code-parity terminal UI.
+    """Claude-Code-parity terminal UI with clean message boundaries.
 
     R-F1045 features:
       - Step counter: "Step 2/5" during multi-tool turns
@@ -199,6 +199,15 @@ class TerminalUI(AgentUI):
       - Error recovery: suggests next steps after errors
       - Thinking trace: shows what ARIA is doing
       - Session log: persistent log file
+
+    R-F1143 fixes:
+      - Clean message boundaries: every assistant message starts with a
+        clear "aria >" prefix on its own line, never mid-line
+      - Streaming: first chunk prints the prefix, subsequent chunks append
+        without extra newlines
+      - Tool output: consistent indentation and colour per message type
+      - No double-newlines between streamed content and final text
+      - Spinner always cleared before any output
     """
 
     def __init__(self, *, auto_approve: bool, interactive: bool, color: _Color) -> None:
@@ -220,6 +229,8 @@ class TerminalUI(AgentUI):
         self._total_steps = 0
         self._session_log: Path | None = None
         self._last_command = ""
+        # R-F1143: track whether we need a newline before the next output
+        self._needs_leading_newline = False
 
     def start_session(self) -> None:
         """Called at session start to create the log file."""
@@ -233,25 +244,51 @@ class TerminalUI(AgentUI):
         if self._session_log:
             _append_log(self._session_log, text)
 
+    def _ensure_clear_line(self) -> None:
+        """Clear any spinner or residual output before writing a new line."""
+        if self._spin_thread is not None:
+            self.thinking_stop()
+        # Clear the current line so we don't write over spinner debris
+        if self._can_animate:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+
     def assistant(self, text: str) -> None:
+        """Print a complete assistant message with clean boundaries.
+
+        Called when the LLM produces a final text response (no streaming).
+        Always starts on a fresh line with the 'aria >' prefix.
+        """
+        self._ensure_clear_line()
         self._log(f"[aria] {text[:200]}")
-        print("\n" + self.c.cyan("aria") + "  " + text)
+        # Print with a blank line before for visual separation from previous output
+        print()
+        print(self.c.cyan("aria > ") + text)
+        self._needs_leading_newline = True
 
     # ── live token streaming (never silent) ──────────────────────────────────
     def stream_delta(self, text: str) -> None:
+        """Stream a chunk of LLM output. First chunk prints the prefix."""
         if not self._stream_active:
-            self.thinking_stop()
-            sys.stdout.write("\n" + self.c.cyan("aria") + "  ")
+            self._ensure_clear_line()
+            # Print a blank line before the stream for visual separation
+            if self._needs_leading_newline:
+                print()
+            sys.stdout.write(self.c.cyan("aria > "))
             self._stream_active = True
             self._streamed_this_turn = True
+            self._needs_leading_newline = False
         sys.stdout.write(text)
         sys.stdout.flush()
 
     def stream_end(self) -> None:
+        """Finalise a streaming response. Ensures the output ends with a
+        newline so the next prompt doesn't run onto the same line."""
         if self._stream_active:
             sys.stdout.write("\n")
             sys.stdout.flush()
             self._stream_active = False
+            self._needs_leading_newline = True
 
     # ── step tracking (Claude-Code parity) ──────────────────────────────────
     def set_step_context(self, current: int, total: int) -> None:
@@ -266,12 +303,19 @@ class TerminalUI(AgentUI):
 
     # ── tool call display ───────────────────────────────────────────────────
     def tool_call(self, name: str, args: dict) -> None:
+        """Display a tool call with consistent formatting.
+
+        Uses a compact single-line format:
+          Step 1/3 · run("pytest -v")
+          Step 2/3 · read_file("foo.py")
+        """
+        self._ensure_clear_line()
         detail = self._summarize(name, args)
         prefix = self._step_prefix()
         if prefix:
-            line = f"  {prefix} {name}({detail})"
+            line = f"  {prefix} · {name}({detail})"
         else:
-            line = f"  - {name}({detail})"
+            line = f"  · {name}({detail})"
 
         # Command echo for run() — show the actual command
         if name == "run":
@@ -284,15 +328,22 @@ class TerminalUI(AgentUI):
             self._log(f"[tool] {name}({detail})")
 
     def tool_result(self, name: str, result: ToolResult) -> None:
+        """Display a tool result with consistent formatting.
+
+        - Errors: red with error recovery suggestion
+        - Command output: dim, truncated if long
+        - File mutations: green
+        - Other results: dim
+        """
         if result.is_error:
             head = result.output.splitlines()[0] if result.output else ""
-            print(self.c.red(f"    -> {head[:200]}"))
+            print(self.c.red(f"  -> {head[:200]}"))
             self._log(f"[error] {head[:200]}")
 
             # R-F1045: error recovery suggestion
             suggestion = self._error_suggestion(name, result.output)
             if suggestion:
-                print(self.c.yellow(f"    {suggestion}"))
+                print(self.c.yellow(f"     {suggestion}"))
             return
 
         # Show result preview for long outputs
@@ -301,48 +352,51 @@ class TerminalUI(AgentUI):
             if len(lines) > 5:
                 preview = "\n".join(lines[:3])
                 tail = f"... ({len(lines) - 3} more lines)"
-                print(self.c.dim(f"    {preview}"))
-                print(self.c.dim(f"    {tail}"))
+                print(self.c.dim(f"  | {preview}"))
+                print(self.c.dim(f"  | {tail}"))
                 self._log(f"[result] {len(lines)} lines, exit 0")
             else:
                 for ln in lines:
-                    print(self.c.dim(f"    {ln}"))
+                    print(self.c.dim(f"  | {ln}"))
                 self._log(f"[result] {len(lines)} lines, exit 0")
 
         # Show diff preview for write_file / edit_file
         if name in ("write_file", "edit_file") and result.mutation:
-            print(self.c.green(f"    {result.mutation}"))
+            print(self.c.green(f"  -> {result.mutation}"))
             self._log(f"[write] {result.mutation}")
 
         if name in {"update_plan", "ask_claude", "check_claude"}:
             for ln in result.output.splitlines():
-                print(self.c.dim(f"    {ln}"))
+                print(self.c.dim(f"  | {ln}"))
 
     def _error_suggestion(self, name: str, output: str) -> str:
         """Suggest recovery steps after common errors."""
         out_lower = output.lower()
         if "module not found" in out_lower or "import error" in out_lower or "no module" in out_lower:
-            return "💡 Try: pip install <missing-package> or check import paths"
+            return "Try: pip install <missing-package> or check import paths"
         if "syntax error" in out_lower or "invalid syntax" in out_lower:
-            return "💡 Try: check the file for syntax issues and fix them"
+            return "Try: check the file for syntax issues and fix them"
         if "timeout" in out_lower or "timed out" in out_lower:
-            return "💡 Try: increase timeout or check network connectivity"
+            return "Try: increase timeout or check network connectivity"
         if "connection" in out_lower or "refused" in out_lower or "reset" in out_lower:
-            return "💡 Try: check the service is running and reachable"
+            return "Try: check the service is running and reachable"
         if "permission" in out_lower or "denied" in out_lower:
-            return "💡 Try: check file permissions or run with appropriate privileges"
+            return "Try: check file permissions or run with appropriate privileges"
         if "not found" in out_lower and "command" in out_lower:
-            return "💡 Try: install the required tool or check PATH"
+            return "Try: install the required tool or check PATH"
         if "assert" in out_lower and "error" in out_lower:
-            return "💡 Try: check the assertion condition — the test expectation may need updating"
+            return "Try: check the assertion condition — the test expectation may need updating"
         return ""
 
     def info(self, text: str) -> None:
+        """Print an informational message (dim, indented)."""
+        self._ensure_clear_line()
         self._log(f"[info] {text}")
-        print(self.c.dim("  " + text))
+        print(self.c.dim(f"  i {text}"))
 
     # ── always-on activity indicator ────────────────────────────────────────
     def thinking_start(self, label: str = "thinking") -> None:
+        """Start the activity spinner. Shows what ARIA is doing."""
         self._streamed_this_turn = False
         if self._spin_thread is not None:
             return
@@ -355,10 +409,11 @@ class TerminalUI(AgentUI):
             self._spin_thread.start()
         else:
             self._last_static = time.monotonic()
-            print(self.c.dim(f"  * {label}..."), flush=True)
+            print(self.c.dim(f"  ~ {label}..."), flush=True)
 
     def _spin(self) -> None:
-        frames = "|/-\\"
+        """Animated spinner with context label."""
+        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         i = 0
         while self._spin_stop is not None and not self._spin_stop.is_set():
             elapsed = int(time.monotonic() - self._spin_start)
@@ -374,15 +429,16 @@ class TerminalUI(AgentUI):
                 label = f"{prefix} {self._spin_label}"
             else:
                 label = self._spin_label
-            line = f"  {frames[i % 4]} {label} ({elapsed}s){tail}"
+            line = f"  {frames[i % len(frames)]} {label} ({elapsed}s){tail}"
             sys.stdout.write("\r\033[K" + self.c.dim(line[:120]))
             sys.stdout.flush()
             i += 1
-            self._spin_stop.wait(0.2)
+            self._spin_stop.wait(0.15)
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
 
     def thinking_stop(self) -> None:
+        """Stop the activity spinner."""
         if self._spin_thread is not None and self._spin_stop is not None:
             self._spin_stop.set()
             self._spin_thread.join(timeout=1.0)
@@ -526,17 +582,20 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     guard_state = "constitution + truncation" if guard.constitution_active else "truncation only"
     approval = color.green("autonomous (free rein)") if auto_approve else "confirm each action"
-    print(color.bold("ARIA Coder") + color.dim(f" v{__version__}"))
+    print(color.bold("ARIA Coder") + color.dim(f"  v{__version__}"))
     print(color.dim(f"  dir:      {cwd}"))
-    print(color.dim(f"  mode:     {mode}    guard: {guard_state}    brain: {brain}"))
-    print(color.dim(f"  model:    {cfg.provider}/{cfg.model}    approval: ") + approval)
+    print(color.dim(f"  mode:     {mode}"))
+    print(color.dim(f"  guard:    {guard_state}"))
+    print(color.dim(f"  brain:    {brain}"))
+    print(color.dim(f"  model:    {cfg.provider}/{cfg.model}"))
+    print(color.dim(f"  approve:  {approval}"))
 
 
 def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
               task: str, success: bool, color: _Color) -> None:
     changed = agent.toolbox.changed_files
     if changed:
-        print(color.dim("\n  changed: " + ", ".join(changed)))
+        print(color.dim(f"\n  files: {', '.join(changed)}"))
     status = brain_mod.report_session(
         task=task, success=success, changed_files=changed,
         summary=agent.messages[-1].get("content", "")[:600] if agent.messages else "",
@@ -547,7 +606,7 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     in_tok = agent.llm.total_input_tokens
     out_tok = agent.llm.total_output_tokens
     total_tok = in_tok + out_tok
-    print(color.dim(f"  tokens:  in={in_tok} out={out_tok} total={total_tok}"))
+    print(color.dim(f"  tokens:  {total_tok} ({in_tok} in / {out_tok} out)"))
 
     # Log final summary
     ui._log(f"─" * 60)
@@ -556,7 +615,7 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     ui._log(f"Files changed: {len(changed)}")
     ui._log(f"Tokens: {total_tok}")
     if ui._session_log:
-        print(color.dim(f"  session:  {ui._session_log}"))
+        print(color.dim(f"  session: {ui._session_log}"))
 
     agent.llm.close()
 
@@ -565,12 +624,12 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
           guard: WriteGuard, cwd: Path, color: _Color) -> None:
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
-    print(color.dim("  Commands: /confirm /changes /claude /session /reset /gaps /status /history /cost /help /exit\n"))
+    print(color.dim("  commands: /confirm  /changes  /claude  /session  /reset  /gaps  /status  /history  /cost  /help  /exit\n"))
     last_task = ""
     try:
         while True:
             try:
-                line = _read_operator_input(color.bold("you> "))
+                line = _read_operator_input(color.bold("you > "))
             except EOFError:
                 break
             if not line:
@@ -579,20 +638,20 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 break
             if line == "/help":
                 print(color.dim(
-                    "  /confirm — toggle asking before edits/commands (default: autonomous)\n"
-                    "  /changes — list files changed this session\n"
-                    "  /claude — read new messages from Claude Code\n"
-                    "  /session — show session log path\n"
-                    "  /gaps — scan for capability gaps and bugs\n"
-                    "  /status — show system health (composite, sources, training, cost)\n"
-                    "  /history — show recent R-numbered fixes\n"
-                    "  /cost — show session and monthly cost breakdown\n"
-                    "  /scan — quick gap scan (faster than /gaps)\n"
-                    "  /model — show/set current model chain\n"
-                    "  /compact — compress conversation history\n"
-                    "  /memory — show or add project memory notes\n"
-                    "  /reset — clear the conversation history\n"
-                    "  /exit — quit"))
+                    "  /confirm  toggle asking before edits/commands (default: autonomous)\n"
+                    "  /changes  list files changed this session\n"
+                    "  /claude   read new messages from Claude Code\n"
+                    "  /session  show session log path\n"
+                    "  /gaps     scan for capability gaps and bugs\n"
+                    "  /status   show system health (composite, sources, training, cost)\n"
+                    "  /history  show recent R-numbered fixes\n"
+                    "  /cost     show session and monthly cost breakdown\n"
+                    "  /scan     quick gap scan (faster than /gaps)\n"
+                    "  /model    show/set current model chain\n"
+                    "  /compact  compress conversation history\n"
+                    "  /memory   show or add project memory notes\n"
+                    "  /reset    clear the conversation history\n"
+                    "  /exit     quit"))
                 continue
             if line == "/claude":
                 try:
