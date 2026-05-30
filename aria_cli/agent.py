@@ -116,10 +116,52 @@ class Agent:
         self.retry_backoff = 2.0  # seconds, exponential; overridden to 0 in tests
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
+    def _repair_dangling_tool_calls(self) -> int:
+        """R-F1120 — ensure every assistant tool_call has a following tool message.
+        A dangling tool_call (e.g. from a mid-loop abort, a crash, or a truncated
+        turn) makes the provider reject EVERY subsequent call with HTTP 400
+        ("tool_calls must be followed by tool messages"), wedging the session
+        permanently. This walks the history and inserts a synthetic tool response
+        for any tool_call that lacks one, in the correct position. Returns the
+        number inserted (0 when the history is already valid)."""
+        src = self.messages
+        out: list[dict] = []
+        i = 0
+        inserted = 0
+        while i < len(src):
+            m = src[i]
+            out.append(m)
+            i += 1
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                have = set()
+                while i < len(src) and src[i].get("role") == "tool":
+                    out.append(src[i])
+                    have.add(src[i].get("tool_call_id"))
+                    i += 1
+                for tc in m["tool_calls"]:
+                    tcid = tc.get("id")
+                    if tcid and tcid not in have:
+                        out.append({
+                            "role": "tool",
+                            "tool_call_id": tcid,
+                            "content": "error: tool call did not complete "
+                                       "(aborted/interrupted); no result available.",
+                        })
+                        inserted += 1
+        if inserted:
+            self.messages = out
+        return inserted
+
     def _chat_with_retry(self, steps: int, on_delta=None):
         """Call the LLM, retrying transient failures with exponential backoff.
         Streams tokens via on_delta when the provider supports it (never silent).
         Returns the LLMResponse, or a TurnResult on unrecoverable failure."""
+        # R-F1120: self-heal any dangling tool_calls BEFORE every LLM call. One
+        # dangling tool_call otherwise makes the provider 400 on every turn,
+        # wedging the whole session (the loop-guard-abort corruption bug).
+        repaired = self._repair_dangling_tool_calls()
+        if repaired:
+            self.ui.info(f"[self-heal] repaired {repaired} dangling tool-call(s) in history")
         stream_fn = getattr(self.llm, "chat_stream", None)
         for attempt in range(LLM_MAX_ATTEMPTS):
             try:
@@ -266,6 +308,14 @@ class Agent:
                            f"arguments — a loop. The result will not change; redirect "
                            f"needed (different tool/args, or answer with what you have).")
                     self.ui.info(f"[loop-guard] {msg}")
+                    # R-F1120: record a tool response for THIS and every REMAINING
+                    # tool_call before returning. Otherwise the assistant message's
+                    # tool_calls are left dangling (no matching tool messages), which
+                    # corrupts the history and makes EVERY subsequent LLM call fail
+                    # with HTTP 400 ("tool_calls must be followed by tool messages").
+                    abort_result = ToolResult(msg, is_error=True)
+                    for _rem in resp.tool_calls[tc_idx:]:
+                        self._record_tool(_rem, abort_result)
                     return TurnResult(final_text=msg, steps=steps, aborted=True,
                                       resumable=False)
                 if rep >= LOOP_NUDGE_AT:
