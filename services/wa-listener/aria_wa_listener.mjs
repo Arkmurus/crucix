@@ -858,9 +858,23 @@ async function startListener() {
         // Auth was invalidated — need to re-scan QR
         console.log('[ARIA Listener] ⚠ Logged out — delete auth folder and restart to re-scan QR');
         console.log(`[ARIA Listener]   rm -rf ${AUTH_DIR} && restart service`);
+        // R-F1093 — wire auth-loss to brain so the operator knows WA is down
+        brainPost('/api/aria/brain/signal', {
+          content: `WA listener logged out — needs QR re-scan. Auth dir: ${AUTH_DIR}`,
+          source: 'aria-wa',
+          signal_type: 'wa_auth_lost',
+          metadata: { code: String(code || ''), authDir: AUTH_DIR },
+        }).catch(() => {});
       } else {
         // Network issue — reconnect with exponential backoff
         console.log(`[ARIA Listener] Disconnected (code ${code}) — reconnecting in ${reconnectDelay/1000}s...`);
+        // R-F1093 — wire disconnect to brain so the operator sees WA reconnection
+        brainPost('/api/aria/brain/signal', {
+          content: `WA listener disconnected (code ${code}) — reconnecting in ${reconnectDelay/1000}s`,
+          source: 'aria-wa',
+          signal_type: 'wa_disconnected',
+          metadata: { code: String(code || ''), reconnectDelayMs: reconnectDelay },
+        }).catch(() => {});
         setTimeout(startListener, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 60000);
       }

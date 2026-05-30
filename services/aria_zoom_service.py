@@ -251,7 +251,7 @@ class MeetingSession:
     async def _signal(self, speaker:str, text:str, trigger:str):
         try:
             async with httpx.AsyncClient(timeout=5) as c:
-                await c.post(f"{BRAIN_URL}/api/brain/signal",
+                await c.post(f"{BRAIN_URL}/api/aria/brain/signal",
                     headers={"Authorization": f"Bearer {INT_TOKEN}"},
                     json={
                         "content":     text,

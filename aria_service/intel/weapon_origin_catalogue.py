@@ -1186,41 +1186,51 @@ def render_finding_for_text(line_item_text: str) -> Optional[dict]:
 
     Returns None if no weapon match — caller falls back to ECCN generic.
     """
-    ws = best_match_for_text(line_item_text)
-    if not ws:
+    try:
+        ws = best_match_for_text(line_item_text)
+        if not ws:
+            return None
+        severity_map = {
+            SanctionsStatus.PROHIBITED: "hard_stop",
+            SanctionsStatus.RESTRICTED: "amber",
+            SanctionsStatus.CLEARED: "info",
+        }
+        result = {
+            "severity": severity_map.get(ws.sanctions_status, "amber"),
+            "title": f"Weapon match: {ws.canonical_name} — origin {ws.origin_iso2} — {ws.sanctions_status.upper()}",
+            "detail": (
+                f"Matched line-item text to {ws.canonical_name} "
+                f"({ws.category}). OEM: {ws.oem}. Parent: {ws.oem_parent}. "
+                f"Origin: {ws.origin_iso2}. Sanctions status: "
+                f"{ws.sanctions_status}. Regimes: {', '.join(ws.sanctions_regimes)}. "
+                f"Notes: {ws.notes}"
+            ),
+            "source": (
+                f"weapon_origin_catalogue.lookup (R-F638) — as_of {ws.as_of}"
+            ),
+            "confidence": "PROBABLE",
+            "weapon_canonical_name": ws.canonical_name,
+            "origin_iso2": ws.origin_iso2,
+            "sanctions_status": ws.sanctions_status,
+            "matched_text": line_item_text[:200],
+        }
+        # R-F994 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="weapon_origin_catalogue",
+            summary=f"Weapon origin match: {ws.canonical_name} ({ws.origin_iso2}, {ws.sanctions_status})",
+            detail=result["detail"][:600],
+            entity_name=ws.canonical_name,
+            confidence="PROBABLE",
+            source_id="weapon_origin_catalogue:R-F638",
+        )
+        return result
+    except Exception as e:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="weapon_origin_catalogue",
+            detail=f"render_finding_for_text crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="weapon_origin_catalogue:render_finding_for_text",
+        )
         return None
-    severity_map = {
-        SanctionsStatus.PROHIBITED: "hard_stop",
-        SanctionsStatus.RESTRICTED: "amber",
-        SanctionsStatus.CLEARED: "info",
-    }
-    result = {
-        "severity": severity_map.get(ws.sanctions_status, "amber"),
-        "title": f"Weapon match: {ws.canonical_name} — origin {ws.origin_iso2} — {ws.sanctions_status.upper()}",
-        "detail": (
-            f"Matched line-item text to {ws.canonical_name} "
-            f"({ws.category}). OEM: {ws.oem}. Parent: {ws.oem_parent}. "
-            f"Origin: {ws.origin_iso2}. Sanctions status: "
-            f"{ws.sanctions_status}. Regimes: {', '.join(ws.sanctions_regimes)}. "
-            f"Notes: {ws.notes}"
-        ),
-        "source": (
-            f"weapon_origin_catalogue.lookup (R-F638) — as_of {ws.as_of}"
-        ),
-        "confidence": "PROBABLE",
-        "weapon_canonical_name": ws.canonical_name,
-        "origin_iso2": ws.origin_iso2,
-        "sanctions_status": ws.sanctions_status,
-        "matched_text": line_item_text[:200],
-    }
-    # R-F994 — wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="weapon_origin_catalogue",
-        summary=f"Weapon origin match: {ws.canonical_name} ({ws.origin_iso2}, {ws.sanctions_status})",
-        detail=result["detail"][:600],
-        entity_name=ws.canonical_name,
-        confidence="PROBABLE",
-        source_id="weapon_origin_catalogue:R-F638",
-    )
-    return result

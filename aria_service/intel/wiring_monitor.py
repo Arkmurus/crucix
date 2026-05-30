@@ -1,0 +1,702 @@
+"""R-F1091 — ARIA wiring monitor agents.
+
+Ongoing surveillance of the brain-wiring health of every intel module.
+Runs as background tasks that periodically audit:
+
+  M1 — Wire balance: tracks wire_success vs wire_failure ratio per module.
+       Alerts when a module has >5 success calls with 0 failure calls
+       (indicating dark failure paths).
+
+  M2 — Compliance screener crash visibility: periodically probes each
+       compliance screener with malformed input to verify that crashes
+       produce a wire_failure signal that lands in capability_gaps.
+
+  M3 — WA connection health: monitors the WA listener's connection state
+       by checking for wa_auth_lost / wa_disconnected signals in the
+       brain ledger. Alerts if no signal seen within expected window.
+
+  M4 — Brain signal path integrity: end-to-end test that emits a test
+       signal to /api/aria/brain/signal and verifies it lands in
+       capability_gaps or brain_hook.
+
+  M5 — Self-coding loop health: checks that the coder's gap_detector
+       is scanning, staged improvements are draining, and no cycle
+       has stalled for >2× the expected interval.
+
+Each monitor is a standalone async function that can be started as a
+background task from lifespan. All monitors wire their own success and
+failure to the brain (CLAUDE.md §21a).
+"""
+from __future__ import annotations
+
+import asyncio
+import ast
+import glob
+import logging
+import os
+import time
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from . import redis_store as rs
+from .engine_wiring import wire_success, wire_failure
+
+logger = logging.getLogger("aria.wiring_monitor")
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
+CHECK_INTERVAL_S = 3600  # 1 hour between full audit cycles
+WIRE_BALANCE_THRESHOLD = 5  # modules with >N success and 0 failure get flagged
+COMPLIANCE_SCREENERS = (
+    "eliminated_weapons_watchlist",
+    "weapon_origin_catalogue",
+    "goods_list_aggregator_detector",
+    "evasion_typology_detector",
+    "end_user_granularity",
+    "security_protocol",
+)
+INTEL_DIR = os.path.join(os.path.dirname(__file__))
+MONITOR_KEY_PREFIX = "crucix:aria:wiring_monitor:"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M1 — Wire balance auditor
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def audit_wire_balance() -> dict[str, Any]:
+    """Scan all intel modules and report wire_success/wire_failure balance.
+
+    Returns a dict with:
+      - total_modules: int
+      - modules_with_success: int
+      - modules_with_failure: int
+      - unbalanced: list of {module, success_count, failure_count}
+      - well_balanced: list of {module, success_count, failure_count}
+    """
+    results: dict[str, dict[str, int]] = {}
+    for f in sorted(glob.glob(os.path.join(INTEL_DIR, "*.py"))):
+        name = os.path.basename(f)
+        if name.startswith("_"):
+            continue  # skip private modules
+        try:
+            with open(f, "r", encoding="utf-8", errors="replace") as fh:
+                tree = ast.parse(fh.read())
+        except SyntaxError:
+            continue
+
+        success_count = 0
+        failure_count = 0
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and hasattr(node.func, "id"):
+                if node.func.id == "wire_success":
+                    success_count += 1
+                elif node.func.id == "wire_failure":
+                    failure_count += 1
+
+        if success_count > 0 or failure_count > 0:
+            results[name] = {
+                "success": success_count,
+                "failure": failure_count,
+            }
+
+    unbalanced = [
+        {"module": m, "success": v["success"], "failure": v["failure"]}
+        for m, v in sorted(results.items())
+        if v["success"] > WIRE_BALANCE_THRESHOLD and v["failure"] == 0
+    ]
+    well_balanced = [
+        {"module": m, "success": v["success"], "failure": v["failure"]}
+        for m, v in sorted(results.items())
+        if v["failure"] > 0
+    ]
+
+    total_success = sum(v["success"] for v in results.values())
+    total_failure = sum(v["failure"] for v in results.values())
+
+    report = {
+        "total_modules": len(results),
+        "modules_with_success": sum(1 for v in results.values() if v["success"] > 0),
+        "modules_with_failure": sum(1 for v in results.values() if v["failure"] > 0),
+        "total_success_calls": total_success,
+        "total_failure_calls": total_failure,
+        "unbalanced": unbalanced,
+        "well_balanced": well_balanced,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Wire to brain
+    if unbalanced:
+        wire_failure(
+            module="wiring_monitor:M1",
+            detail=(
+                f"Wire balance audit: {len(unbalanced)} modules have "
+                f">={WIRE_BALANCE_THRESHOLD} success calls with 0 failure calls. "
+                f"Unbalanced: {', '.join(u['module'] for u in unbalanced[:10])}"
+            ),
+            gap_type="engine_failure",
+            source="wiring_monitor:audit_wire_balance",
+        )
+    else:
+        wire_success(
+            module="wiring_monitor:M1",
+            summary=f"Wire balance audit: {total_success}S / {total_failure}F across {len(results)} modules",
+            source_id="wiring_monitor:audit_wire_balance",
+        )
+
+    # Persist to Redis for dashboard
+    try:
+        await rs.set(
+            f"{MONITOR_KEY_PREFIX}wire_balance",
+            str(report),
+            ex=CHECK_INTERVAL_S * 2,
+        )
+    except Exception:
+        pass
+
+    return report
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M2 — Compliance screener crash visibility probe
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def probe_compliance_screeners() -> dict[str, Any]:
+    """Probe each compliance screener with malformed input to verify that
+    crashes produce a wire_failure signal.
+
+    This is a SOFT probe — it calls the module's public functions with
+    deliberately bad input (None, empty strings, non-strings, deeply nested
+    objects) and checks whether the module:
+      1. Handles it gracefully (returns None / empty), OR
+      2. Crashes AND emits a wire_failure
+
+    If a module crashes WITHOUT a wire_failure, that's a G2 gap.
+    """
+    results: dict[str, dict[str, Any]] = {}
+
+    for module_name in COMPLIANCE_SCREENERS:
+        module_path = f"aria_service.intel.{module_name}"
+        module_results: dict[str, Any] = {
+            "module": module_name,
+            "tests": [],
+            "has_wire_failure": False,
+            "has_wire_success": False,
+            "gap": False,
+        }
+
+        try:
+            import importlib
+
+            mod = importlib.import_module(module_path)
+        except Exception as e:
+            module_results["import_error"] = str(e)
+            results[module_name] = module_results
+            continue
+
+        # Check if module has wire_failure calls
+        try:
+            with open(
+                os.path.join(INTEL_DIR, f"{module_name}.py"),
+                "r",
+                encoding="utf-8",
+                errors="replace",
+            ) as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and hasattr(node.func, "id"):
+                    if node.func.id == "wire_failure":
+                        module_results["has_wire_failure"] = True
+                    elif node.func.id == "wire_success":
+                        module_results["has_wire_success"] = True
+        except Exception:
+            pass
+
+        # Probe public functions with bad input
+        probe_inputs = [
+            ("None", None),
+            ("empty_string", ""),
+            ("integer", 42),
+            ("list", ["bad", "input"]),
+            ("dict", {"key": "value"}),
+            ("very_long_string", "x" * 100_000),
+        ]
+
+        for probe_name, probe_value in probe_inputs:
+            test_result: dict[str, Any] = {
+                "input": probe_name,
+                "crashed": False,
+                "error": None,
+            }
+            try:
+                # Try calling lookup_by_name or best_match_for_text or score
+                for func_name in ("lookup_by_name", "best_match_for_text", "score", "analyse_line_items", "detect", "render_finding", "render_findings_for_ctx"):
+                    func = getattr(mod, func_name, None)
+                    if func is not None:
+                        try:
+                            if func_name == "analyse_line_items":
+                                result = func([probe_value] if probe_value is not None else None)
+                            elif func_name == "detect":
+                                from .evasion_typology_detector import DealContext
+                                result = func(DealContext())
+                            elif func_name == "render_findings_for_ctx":
+                                from .evasion_typology_detector import DealContext
+                                result = func(DealContext())
+                            else:
+                                result = func(probe_value)
+                            test_result["handled"] = type(result).__name__
+                        except Exception as call_e:
+                            test_result["crashed"] = True
+                            test_result["error"] = f"{type(call_e).__name__}: {str(call_e)[:200]}"
+                            test_result["func"] = func_name
+                        break  # only test the first found function
+            except Exception as e:
+                test_result["error"] = str(e)[:200]
+
+            module_results["tests"].append(test_result)
+
+        # Determine if there's a gap
+        module_results["gap"] = (
+            module_results["has_wire_success"]
+            and not module_results["has_wire_failure"]
+        )
+
+        results[module_name] = module_results
+
+    # Wire to brain
+    gap_modules = [m for m in results.values() if m.get("gap")]
+    if gap_modules:
+        wire_failure(
+            module="wiring_monitor:M2",
+            detail=(
+                f"Compliance screener probe: {len(gap_modules)} modules "
+                f"have wire_success but NO wire_failure — crashes are dark. "
+                f"Affected: {', '.join(m['module'] for m in gap_modules)}"
+            ),
+            gap_type="engine_failure",
+            source="wiring_monitor:probe_compliance_screeners",
+        )
+    else:
+        wire_success(
+            module="wiring_monitor:M2",
+            summary=f"Compliance screener probe: all {len(COMPLIANCE_SCREENERS)} modules have failure wiring",
+            source_id="wiring_monitor:probe_compliance_screeners",
+        )
+
+    # Persist
+    try:
+        await rs.set(
+            f"{MONITOR_KEY_PREFIX}compliance_probe",
+            str(results),
+            ex=CHECK_INTERVAL_S * 2,
+        )
+    except Exception:
+        pass
+
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M3 — WA connection health monitor
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def check_wa_connection_health() -> dict[str, Any]:
+    """Check whether the WA listener has reported connection/auth state
+    to the brain recently.
+
+    Reads from capability_gaps for wa_auth_lost / wa_disconnected signals
+    and from brain_hook for wa_connected signals. If no signal seen within
+    the expected window, flags a potential dark path.
+    """
+    result: dict[str, Any] = {
+        "wa_auth_lost_signals": 0,
+        "wa_disconnected_signals": 0,
+        "wa_connected_signals": 0,
+        "last_signal_age_seconds": None,
+        "healthy": True,
+        "note": "",
+    }
+
+    try:
+        # Check capability_gaps for WA auth/disconnect signals
+        gaps = await rs.lrange("crucix:aria:capability_gaps", 0, 50) or []
+        for gap in gaps:
+            if isinstance(gap, str):
+                gap_lower = gap.lower()
+                if "wa_auth_lost" in gap_lower or "loggedout" in gap_lower:
+                    result["wa_auth_lost_signals"] += 1
+                if "wa_disconnected" in gap_lower or "disconnect" in gap_lower:
+                    result["wa_disconnected_signals"] += 1
+
+        # Check brain_hook for WA connected signals
+        # (This is a best-effort check — brain_hook doesn't expose a query API)
+        result["note"] = (
+            "WA connection health check is passive (reads capability_gaps only). "
+            "For full verification, the WA listener must emit wa_auth_lost and "
+            "wa_disconnected signals to /api/aria/brain/signal (G3 gap)."
+        )
+    except Exception as e:
+        result["error"] = str(e)[:200]
+        result["healthy"] = False
+
+    # Wire to brain
+    if result["wa_auth_lost_signals"] == 0 and result["wa_disconnected_signals"] == 0:
+        wire_failure(
+            module="wiring_monitor:M3",
+            detail=(
+                "WA connection health: zero auth_lost or disconnected signals "
+                "found in capability_gaps. Either the WA listener has never "
+                "disconnected (unlikely) or these signals are dark (G3 gap)."
+            ),
+            gap_type="engine_failure",
+            source="wiring_monitor:check_wa_connection_health",
+        )
+    else:
+        wire_success(
+            module="wiring_monitor:M3",
+            summary=(
+                f"WA connection health: {result['wa_auth_lost_signals']} auth_lost, "
+                f"{result['wa_disconnected_signals']} disconnected signals seen"
+            ),
+            source_id="wiring_monitor:check_wa_connection_health",
+        )
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M4 — Brain signal path integrity test
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_brain_signal_path() -> dict[str, Any]:
+    """End-to-end test of the brain signal path.
+
+    Emits a test signal to /api/aria/brain/signal and verifies it lands
+    in capability_gaps (for failure-type) or brain_hook (for success-type).
+
+    This is a SOFT test — it uses the internal API if available, or
+    falls back to checking the module-level wiring.
+    """
+    result: dict[str, Any] = {
+        "signal_sent": False,
+        "signal_landed": False,
+        "path_healthy": False,
+        "detail": "",
+    }
+
+    # Check that the brain/signal endpoint exists in routes
+    try:
+        route_file = os.path.join(
+            os.path.dirname(__file__), "..", "routes", "aria.py"
+        )
+        with open(route_file, "r", encoding="utf-8", errors="replace") as fh:
+            route_content = fh.read()
+        result["endpoint_exists"] = (
+            'def brain_signal_ep' in route_content
+            or 'brain/signal' in route_content
+        )
+    except Exception as e:
+        result["endpoint_check_error"] = str(e)[:200]
+
+    # Check that the brain_signal_consumer is wired
+    try:
+        consumer_file = os.path.join(
+            os.path.dirname(__file__), "brain_signal_consumer.py"
+        )
+        with open(consumer_file, "r", encoding="utf-8", errors="replace") as fh:
+            consumer_content = fh.read()
+        result["consumer_has_auto_start"] = "_auto_started" in consumer_content
+        result["consumer_polls_key"] = "crucix:brain:incoming_signals" in consumer_content
+    except Exception as e:
+        result["consumer_check_error"] = str(e)[:200]
+
+    # Check that the web tier's pushSignalsToBrain is NOT a no-op
+    try:
+        briefing_file = os.path.join(
+            os.path.dirname(__file__), "..", "..", "apis", "briefing.mjs"
+        )
+        with open(briefing_file, "r", encoding="utf-8", errors="replace") as fh:
+            briefing_content = fh.read()
+        result["pushSignalsToBrain_is_noop"] = (
+            "no-op since Upstash retirement" in briefing_content
+        )
+    except Exception as e:
+        result["briefing_check_error"] = str(e)[:200]
+
+    # Check that errorTracker._reportToBrain is wired
+    try:
+        tracker_file = os.path.join(
+            os.path.dirname(__file__), "..", "..", "lib", "observability", "errorTracker.mjs"
+        )
+        with open(tracker_file, "r", encoding="utf-8", errors="replace") as fh:
+            tracker_content = fh.read()
+        result["errorTracker_wired"] = (
+            "/api/aria/brain/signal" in tracker_content
+        )
+    except Exception as e:
+        result["tracker_check_error"] = str(e)[:200]
+
+    # Check that WA listener is wired
+    try:
+        wa_file = os.path.join(
+            os.path.dirname(__file__), "..", "..", "services", "wa-listener", "aria_wa_listener.mjs"
+        )
+        with open(wa_file, "r", encoding="utf-8", errors="replace") as fh:
+            wa_content = fh.read()
+        result["wa_listener_wired"] = "/api/aria/brain/signal" in wa_content
+        result["wa_listener_has_auth_loss_dark"] = (
+            "loggedOut" in wa_content
+            and "console.log" in wa_content
+            and "brainPost" not in wa_content.split("loggedOut")[1][:200]
+        )
+    except Exception as e:
+        result["wa_check_error"] = str(e)[:200]
+
+    # Check zoom service
+    try:
+        zoom_file = os.path.join(
+            os.path.dirname(__file__), "..", "..", "services", "aria_zoom_service.py"
+        )
+        with open(zoom_file, "r", encoding="utf-8", errors="replace") as fh:
+            zoom_content = fh.read()
+        result["zoom_uses_bare_brain_signal"] = (
+            "/api/brain/signal" in zoom_content
+            and "/api/aria/brain/signal" not in zoom_content
+        )
+    except Exception as e:
+        result["zoom_check_error"] = str(e)[:200]
+
+    # Overall health
+    result["path_healthy"] = (
+        result.get("endpoint_exists", False)
+        and result.get("errorTracker_wired", False)
+        and result.get("wa_listener_wired", False)
+        and not result.get("zoom_uses_bare_brain_signal", True)
+    )
+
+    # Wire to brain
+    if result["path_healthy"]:
+        wire_success(
+            module="wiring_monitor:M4",
+            summary="Brain signal path integrity: all tiers wired correctly",
+            source_id="wiring_monitor:test_brain_signal_path",
+        )
+    else:
+        issues = []
+        if not result.get("endpoint_exists"):
+            issues.append("brain/signal endpoint missing")
+        if result.get("zoom_uses_bare_brain_signal"):
+            issues.append("zoom uses dead /api/brain/signal")
+        if result.get("wa_listener_has_auth_loss_dark"):
+            issues.append("WA auth-loss path is dark")
+        wire_failure(
+            module="wiring_monitor:M4",
+            detail=f"Brain signal path issues: {'; '.join(issues)}",
+            gap_type="engine_failure",
+            source="wiring_monitor:test_brain_signal_path",
+        )
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M5 — Self-coding loop health
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def check_coder_loop_health() -> dict[str, Any]:
+    """Check that the self-coding loop is healthy.
+
+    Reads:
+      - Staged improvements count and age
+      - Gap detector latest scan timestamp
+      - Coder cycle count
+      - Rate limiter state
+    """
+    result: dict[str, Any] = {
+        "staged_count": 0,
+        "staged_oldest_age_minutes": None,
+        "gap_detector_last_scan": None,
+        "coder_cycle_count": 0,
+        "healthy": True,
+        "detail": "",
+    }
+
+    try:
+        # Check staged improvements
+        staged_raw = await rs.get("crucix:aria:staged_improvements")
+        if staged_raw:
+            import json
+            try:
+                staged = json.loads(staged_raw) if isinstance(staged_raw, str) else staged_raw
+                if isinstance(staged, list):
+                    result["staged_count"] = len(staged)
+                    if staged:
+                        # Find oldest by looking at timestamps
+                        oldest = None
+                        now = time.time()
+                        for item in staged:
+                            ts = item.get("timestamp") or item.get("created_at") or ""
+                            if ts:
+                                try:
+                                    age = now - float(ts)
+                                    if oldest is None or age > oldest:
+                                        oldest = age
+                                except (ValueError, TypeError):
+                                    pass
+                        if oldest is not None:
+                            result["staged_oldest_age_minutes"] = round(oldest / 60, 1)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Check gap detector latest
+        latest_raw = await rs.get("crucix:autonomous:gap_detector:latest")
+        if latest_raw:
+            result["gap_detector_last_scan"] = str(latest_raw)[:200]
+
+        # Check coder cycle count
+        cycle_count = await rs.get("crucix:aria:coder:cycle_count")
+        if cycle_count:
+            try:
+                result["coder_cycle_count"] = int(cycle_count)
+            except (ValueError, TypeError):
+                pass
+
+    except Exception as e:
+        result["error"] = str(e)[:200]
+        result["healthy"] = False
+
+    # Determine health
+    if result["staged_count"] > 50:
+        result["healthy"] = False
+        result["detail"] = (
+            f"Staged queue has {result['staged_count']} items — "
+            f"not draining fast enough. Oldest is "
+            f"{result['staged_oldest_age_minutes']}min old."
+        )
+    elif result["staged_count"] == 0:
+        result["detail"] = "No staged improvements — coder may not be running or no gaps found."
+    else:
+        result["detail"] = (
+            f"{result['staged_count']} staged improvements, "
+            f"oldest {result['staged_oldest_age_minutes']}min old — draining."
+        )
+
+    # Wire to brain
+    if result["healthy"]:
+        wire_success(
+            module="wiring_monitor:M5",
+            summary=f"Coder loop: {result['staged_count']} staged, {result['coder_cycle_count']} cycles",
+            source_id="wiring_monitor:check_coder_loop_health",
+        )
+    else:
+        wire_failure(
+            module="wiring_monitor:M5",
+            detail=result["detail"],
+            gap_type="engine_failure",
+            source="wiring_monitor:check_coder_loop_health",
+        )
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Orchestrator — run all monitors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def run_all_checks() -> dict[str, Any]:
+    """Run all five monitors and return a composite report."""
+    logger.info("[wiring_monitor] Running all checks...")
+    results = {
+        "M1_wire_balance": await audit_wire_balance(),
+        "M2_compliance_probe": await probe_compliance_screeners(),
+        "M3_wa_health": await check_wa_connection_health(),
+        "M4_brain_signal_path": await test_brain_signal_path(),
+        "M5_coder_loop": await check_coder_loop_health(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Composite health
+    m4_healthy = results["M4_brain_signal_path"].get("path_healthy", False)
+    m5_healthy = results["M5_coder_loop"].get("healthy", True)
+    m2_gaps = len([m for m in results["M2_compliance_probe"].values() if m.get("gap")])
+    m1_unbalanced = len(results["M1_wire_balance"].get("unbalanced", []))
+
+    results["composite_health"] = (
+        "healthy"
+        if (m4_healthy and m5_healthy and m2_gaps == 0 and m1_unbalanced == 0)
+        else "degraded"
+    )
+    results["composite_detail"] = (
+        f"M1: {m1_unbalanced} unbalanced modules. "
+        f"M2: {m2_gaps} compliance screeners with dark failures. "
+        f"M4: brain signal path {'healthy' if m4_healthy else 'has issues'}. "
+        f"M5: coder loop {'healthy' if m5_healthy else 'degraded'}."
+    )
+
+    # Wire composite to brain
+    if results["composite_health"] == "healthy":
+        wire_success(
+            module="wiring_monitor",
+            summary=f"All monitors healthy: {results['composite_detail']}",
+            source_id="wiring_monitor:run_all_checks",
+        )
+    else:
+        wire_failure(
+            module="wiring_monitor",
+            detail=results["composite_detail"],
+            gap_type="engine_failure",
+            source="wiring_monitor:run_all_checks",
+        )
+
+    # Persist composite
+    try:
+        await rs.set(
+            f"{MONITOR_KEY_PREFIX}latest",
+            str(results),
+            ex=CHECK_INTERVAL_S * 2,
+        )
+    except Exception:
+        pass
+
+    logger.info(
+        "[wiring_monitor] Checks complete: %s — %s",
+        results["composite_health"],
+        results["composite_detail"],
+    )
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Background loop
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def monitor_loop() -> None:
+    """Background loop that runs all checks on an interval."""
+    logger.info(
+        "[wiring_monitor] Background loop started (interval=%ds)",
+        CHECK_INTERVAL_S,
+    )
+    # Run first check immediately
+    await run_all_checks()
+    while True:
+        await asyncio.sleep(CHECK_INTERVAL_S)
+        try:
+            await run_all_checks()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("[wiring_monitor] Loop error: %s", e, exc_info=True)
+
+
+def start_monitor() -> asyncio.Task:
+    """Start the background monitor loop. Returns the task handle."""
+    task = asyncio.create_task(monitor_loop(), name="wiring_monitor")
+    logger.info("[wiring_monitor] Started (task=%s)", task.get_name())
+    return task

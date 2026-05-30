@@ -391,37 +391,47 @@ def detect_composite_verdict(ctx: DealContext) -> dict:
 def render_findings_for_ctx(ctx: DealContext) -> list[dict]:
     """Return a list of Finding-shaped dicts for the DD orchestrator's
     compliance section."""
-    matches = detect(ctx)
-    out: list[dict] = []
-    for m in matches:
-        finding = {
-            "severity": m.severity,
-            "title": f"Typology match: {m.title}",
-            "detail": (
-                f"{m.detail}\n\nMatched conditions:\n"
-                + "\n".join(f"  - {c}" for c in m.matched_conditions)
-                + "\n\nCitations:\n"
-                + "\n".join(f"  - {c}" for c in m.citations)
-                + f"\n\nRecommended response: {m.recommended_response}"
-            ),
-            "source": (
-                "evasion_typology_detector (R-F640) — "
-                f"typology_id={m.typology_id}"
-            ),
-            "confidence": "PROBABLE",
-            "typology_id": m.typology_id,
-        }
-        out.append(finding)
-        # R-F994 — wire each typology match to brain
-        from .engine_wiring import wire_success
-        wire_success(
+    try:
+        matches = detect(ctx)
+        out: list[dict] = []
+        for m in matches:
+            finding = {
+                "severity": m.severity,
+                "title": f"Typology match: {m.title}",
+                "detail": (
+                    f"{m.detail}\n\nMatched conditions:\n"
+                    + "\n".join(f"  - {c}" for c in m.matched_conditions)
+                    + "\n\nCitations:\n"
+                    + "\n".join(f"  - {c}" for c in m.citations)
+                    + f"\n\nRecommended response: {m.recommended_response}"
+                ),
+                "source": (
+                    "evasion_typology_detector (R-F640) — "
+                    f"typology_id={m.typology_id}"
+                ),
+                "confidence": "PROBABLE",
+                "typology_id": m.typology_id,
+            }
+            out.append(finding)
+            # R-F994 — wire each typology match to brain
+            from .engine_wiring import wire_success
+            wire_success(
+                module="evasion_typology_detector",
+                summary=f"Typology match: {m.title} ({m.severity})",
+                detail=m.detail[:600],
+                confidence="PROBABLE",
+                source_id=f"evasion_typology_detector:R-F640:{m.typology_id}",
+            )
+        return out
+    except Exception as e:
+        from .engine_wiring import wire_failure
+        wire_failure(
             module="evasion_typology_detector",
-            summary=f"Typology match: {m.title} ({m.severity})",
-            detail=m.detail[:600],
-            confidence="PROBABLE",
-            source_id=f"evasion_typology_detector:R-F640:{m.typology_id}",
+            detail=f"render_findings_for_ctx crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="evasion_typology_detector:render_findings_for_ctx",
         )
-    return out
+        return []
 
 
 def list_known_typologies() -> list[str]:

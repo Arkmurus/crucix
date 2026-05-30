@@ -294,39 +294,57 @@ def list_known_entities(iso2: str) -> list[dict]:
 
 def render_finding(stated_end_user: str, country_iso2: Optional[str] = None) -> dict:
     """Finding-shaped dict for the DD orchestrator's compliance section."""
-    result = score(stated_end_user, country_iso2)
-    severity_map = {
-        GranularityLevel.SPECIFIC_DIRECTORATE: "info",
-        GranularityLevel.MINISTRY_LEVEL: "amber",
-        GranularityLevel.COUNTRY_LEVEL: "red",
-        GranularityLevel.INSUFFICIENT: "hard_stop",
-    }
-    title_map = {
-        GranularityLevel.SPECIFIC_DIRECTORATE: "End-user adequately specified",
-        GranularityLevel.MINISTRY_LEVEL: "End-user specified at ministry level — preferable to name specific service",
-        GranularityLevel.COUNTRY_LEVEL: "End-user specified only at country level — INSUFFICIENT for ECJU EUC",
-        GranularityLevel.INSUFFICIENT: "No acceptable end-user identified — HARD STOP",
-    }
-    finding = {
-        "severity": severity_map[result.level],
-        "title": title_map[result.level],
-        "detail": result.detail,
-        "source": (
-            "end_user_granularity.score (R-F641) — "
-            f"matched: {result.matched_entity_name or 'none'}"
-        ),
-        "confidence": "CONFIRMED" if result.matched_entity_name else "ASSESSED",
-        "level": result.level,
-        "matched_entity_name": result.matched_entity_name,
-    }
-    # R-F994 — wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="end_user_granularity",
-        summary=f"End-user granularity: {result.level} ({severity_map[result.level]})",
-        detail=result.detail[:600],
-        entity_name=stated_end_user[:120],
-        confidence=finding["confidence"],
-        source_id="end_user_granularity:R-F641",
-    )
-    return finding
+    try:
+        result = score(stated_end_user, country_iso2)
+        severity_map = {
+            GranularityLevel.SPECIFIC_DIRECTORATE: "info",
+            GranularityLevel.MINISTRY_LEVEL: "amber",
+            GranularityLevel.COUNTRY_LEVEL: "red",
+            GranularityLevel.INSUFFICIENT: "hard_stop",
+        }
+        title_map = {
+            GranularityLevel.SPECIFIC_DIRECTORATE: "End-user adequately specified",
+            GranularityLevel.MINISTRY_LEVEL: "End-user specified at ministry level — preferable to name specific service",
+            GranularityLevel.COUNTRY_LEVEL: "End-user specified only at country level — INSUFFICIENT for ECJU EUC",
+            GranularityLevel.INSUFFICIENT: "No acceptable end-user identified — HARD STOP",
+        }
+        finding = {
+            "severity": severity_map[result.level],
+            "title": title_map[result.level],
+            "detail": result.detail,
+            "source": (
+                "end_user_granularity.score (R-F641) — "
+                f"matched: {result.matched_entity_name or 'none'}"
+            ),
+            "confidence": "CONFIRMED" if result.matched_entity_name else "ASSESSED",
+            "level": result.level,
+            "matched_entity_name": result.matched_entity_name,
+        }
+        # R-F994 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="end_user_granularity",
+            summary=f"End-user granularity: {result.level} ({severity_map[result.level]})",
+            detail=result.detail[:600],
+            entity_name=stated_end_user[:120],
+            confidence=finding["confidence"],
+            source_id="end_user_granularity:R-F641",
+        )
+        return finding
+    except Exception as e:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="end_user_granularity",
+            detail=f"render_finding crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="end_user_granularity:render_finding",
+        )
+        return {
+            "severity": "hard_stop",
+            "title": "End-user granularity check failed",
+            "detail": f"Engine error: {e}",
+            "source": "end_user_granularity:render_finding",
+            "confidence": "ASSESSED",
+            "level": "insufficient",
+            "matched_entity_name": None,
+        }

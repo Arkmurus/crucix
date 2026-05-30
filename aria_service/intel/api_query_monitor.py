@@ -139,11 +139,25 @@ async def analyze_key(
     try:
         from . import redis_store as rs
     except Exception:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="api_query_monitor",
+            detail="redis unavailable in analyze_key",
+            gap_type="engine_failure",
+            source="api_query_monitor:analyze_key",
+        )
         return {"ok": False, "error": "redis unavailable"}
     rkey = f"{_REDIS_KEY_PREFIX}{key_id}"
     try:
         events = await rs.get_json(rkey)
     except Exception as e:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="api_query_monitor",
+            detail=f"get_json failed: {e}",
+            gap_type="engine_failure",
+            source="api_query_monitor:analyze_key",
+        )
         return {"ok": False, "error": str(e)}
     if not isinstance(events, list):
         return {

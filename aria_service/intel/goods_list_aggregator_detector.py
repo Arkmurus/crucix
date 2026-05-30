@@ -209,37 +209,47 @@ def render_finding(line_items: list[str],
                    buyer_country_iso2: str | None = None) -> dict | None:
     """Finding-shaped dict for the DD orchestrator. None when no
     aggregator signals detected."""
-    result = analyse_line_items(line_items, buyer_country_iso2)
-    if not result.signals:
+    try:
+        result = analyse_line_items(line_items, buyer_country_iso2)
+        if not result.signals:
+            return None
+        finding = {
+            "severity": result.severity,
+            "title": (
+                f"Goods-list aggregator-pattern score: {result.score}/10 — "
+                f"{result.severity.upper()}"
+            ),
+            "detail": (
+                f"Composite analysis of {len(line_items)} line items. "
+                f"Score: {result.score}. Mixed-alliance: {result.mixed_alliance}. "
+                f"Diversion-flag: {result.has_diversion_flag}. "
+                f"Strategic-volumes: {result.has_strategic_volumes}. "
+                f"Signals:\n"
+                + "\n".join(f"  - {s}" for s in result.signals)
+            ),
+            "source": "goods_list_aggregator_detector (R-F643)",
+            "confidence": "PROBABLE",
+            "score": result.score,
+            "mixed_alliance": result.mixed_alliance,
+            "has_diversion_flag": result.has_diversion_flag,
+            "has_strategic_volumes": result.has_strategic_volumes,
+        }
+        # R-F994 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="goods_list_aggregator_detector",
+            summary=f"Aggregator pattern: score {result.score}/10 ({result.severity})",
+            detail=f"Signals: {'; '.join(result.signals)}"[:600],
+            confidence="PROBABLE",
+            source_id="goods_list_aggregator_detector:R-F643",
+        )
+        return finding
+    except Exception as e:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="goods_list_aggregator_detector",
+            detail=f"render_finding crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="goods_list_aggregator_detector:render_finding",
+        )
         return None
-    finding = {
-        "severity": result.severity,
-        "title": (
-            f"Goods-list aggregator-pattern score: {result.score}/10 — "
-            f"{result.severity.upper()}"
-        ),
-        "detail": (
-            f"Composite analysis of {len(line_items)} line items. "
-            f"Score: {result.score}. Mixed-alliance: {result.mixed_alliance}. "
-            f"Diversion-flag: {result.has_diversion_flag}. "
-            f"Strategic-volumes: {result.has_strategic_volumes}. "
-            f"Signals:\n"
-            + "\n".join(f"  - {s}" for s in result.signals)
-        ),
-        "source": "goods_list_aggregator_detector (R-F643)",
-        "confidence": "PROBABLE",
-        "score": result.score,
-        "mixed_alliance": result.mixed_alliance,
-        "has_diversion_flag": result.has_diversion_flag,
-        "has_strategic_volumes": result.has_strategic_volumes,
-    }
-    # R-F994 — wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="goods_list_aggregator_detector",
-        summary=f"Aggregator pattern: score {result.score}/10 ({result.severity})",
-        detail=f"Signals: {'; '.join(result.signals)}"[:600],
-        confidence="PROBABLE",
-        source_id="goods_list_aggregator_detector:R-F643",
-    )
-    return finding

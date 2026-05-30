@@ -464,34 +464,52 @@ for _ws in _SEED:
 
 def lookup_by_name(name: str) -> Optional[WatchlistEntry]:
     """Exact-or-alias lookup. None for clean weapons."""
-    if not name or not isinstance(name, str):
-        return None
-    result = _BY_ALIAS.get(name.strip().lower())
-    # R-F1046 — wire to brain on both paths so ARIA learns from watchlist hits
-    if result is not None:
-        wire_success(
+    try:
+        if not name or not isinstance(name, str):
+            return None
+        result = _BY_ALIAS.get(name.strip().lower())
+        # R-F1046 — wire to brain on both paths so ARIA learns from watchlist hits
+        if result is not None:
+            wire_success(
+                module="eliminated_weapons_watchlist",
+                summary=f"Watchlist hit: {result.canonical_name} matched alias '{name[:80]}'",
+                entity_name=result.canonical_name,
+                source_id="eliminated_weapons_watchlist:lookup_by_name",
+            )
+        return result
+    except Exception as e:
+        wire_failure(
             module="eliminated_weapons_watchlist",
-            summary=f"Watchlist hit: {result.canonical_name} matched alias '{name[:80]}'",
-            entity_name=result.canonical_name,
-            source_id="eliminated_weapons_watchlist:lookup_by_name",
+            detail=f"lookup_by_name crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="eliminated_weapons_watchlist:lookup_by_name",
         )
-    return result
+        return None
 
 
 def best_match_for_text(text: str) -> Optional[WatchlistEntry]:
     """Fuzzy match against goods-list line text. Returns the watchlist
     entry whose canonical/alias name appears as a word-boundary match."""
-    if not text or not isinstance(text, str):
+    try:
+        if not text or not isinstance(text, str):
+            return None
+        text_lc = text.lower()
+        best: tuple[int, Optional[WatchlistEntry]] = (0, None)
+        for key, entry in _BY_ALIAS.items():
+            if len(key) < 3:
+                continue
+            if re.search(rf"\b{re.escape(key)}\b", text_lc):
+                if len(key) > best[0]:
+                    best = (len(key), entry)
+        return best[1]
+    except Exception as e:
+        wire_failure(
+            module="eliminated_weapons_watchlist",
+            detail=f"best_match_for_text crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="eliminated_weapons_watchlist:best_match_for_text",
+        )
         return None
-    text_lc = text.lower()
-    best: tuple[int, Optional[WatchlistEntry]] = (0, None)
-    for key, entry in _BY_ALIAS.items():
-        if len(key) < 3:
-            continue
-        if re.search(rf"\b{re.escape(key)}\b", text_lc):
-            if len(key) > best[0]:
-                best = (len(key), entry)
-    return best[1]
 
 
 def is_eliminated(name: str) -> bool:
@@ -543,46 +561,55 @@ def stats() -> dict:
 def render_finding_for_text(text: str) -> Optional[dict]:
     """Convenience: match text against watchlist + return a Finding-shaped
     dict for the DD orchestrator's compliance section."""
-    entry = best_match_for_text(text)
-    if entry is None:
-        return None
-    severity_map = {
-        EliminationStatus.ELIMINATED: "hard_stop",
-        EliminationStatus.CATEGORICALLY_BANNED: "hard_stop",
-        EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "amber",
-    }
-    title_prefix = {
-        EliminationStatus.ELIMINATED: "ELIMINATED WEAPON",
-        EliminationStatus.CATEGORICALLY_BANNED: "TREATY-BANNED WEAPON",
-        EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "TREATY-PROHIBITED (state-party)",
-    }
+    try:
+        entry = best_match_for_text(text)
+        if entry is None:
+            return None
+        severity_map = {
+            EliminationStatus.ELIMINATED: "hard_stop",
+            EliminationStatus.CATEGORICALLY_BANNED: "hard_stop",
+            EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "amber",
+        }
+        title_prefix = {
+            EliminationStatus.ELIMINATED: "ELIMINATED WEAPON",
+            EliminationStatus.CATEGORICALLY_BANNED: "TREATY-BANNED WEAPON",
+            EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "TREATY-PROHIBITED (state-party)",
+        }
 
-    # R-F1046 — wire to brain on match
-    wire_success(
-        module="eliminated_weapons_watchlist",
-        summary=f"Eliminated weapon match: {entry.canonical_name}",
-        entity_name=entry.canonical_name,
-        source_id="eliminated_weapons_watchlist:render_finding_for_text",
-    )
-    return {
-        "severity": severity_map.get(entry.elimination_status, "amber"),
-        "title": (
-            f"{title_prefix.get(entry.elimination_status, '')}: "
-            f"{entry.canonical_name} ({entry.treaty})"
-        ),
-        "detail": (
-            f"Matched line-item text to {entry.canonical_name}. "
-            f"Treaty: {entry.treaty} ({entry.treaty_year}). "
-            + (f"Eliminated {entry.elimination_year}. "
-               if entry.elimination_year else "")
-            + f"Status: {entry.elimination_status}. {entry.notes}"
-        ),
-        "source": (
-            f"eliminated_weapons_watchlist.lookup (R-F639) — "
-            f"treaty: {entry.treaty}"
-        ),
-        "confidence": "CONFIRMED",  # treaty status is authoritative
-        "elimination_status": entry.elimination_status,
-        "treaty": entry.treaty,
-        "matched_text": text[:200],
-    }
+        # R-F1046 — wire to brain on match
+        wire_success(
+            module="eliminated_weapons_watchlist",
+            summary=f"Eliminated weapon match: {entry.canonical_name}",
+            entity_name=entry.canonical_name,
+            source_id="eliminated_weapons_watchlist:render_finding_for_text",
+        )
+        return {
+            "severity": severity_map.get(entry.elimination_status, "amber"),
+            "title": (
+                f"{title_prefix.get(entry.elimination_status, '')}: "
+                f"{entry.canonical_name} ({entry.treaty})"
+            ),
+            "detail": (
+                f"Matched line-item text to {entry.canonical_name}. "
+                f"Treaty: {entry.treaty} ({entry.treaty_year}). "
+                + (f"Eliminated {entry.elimination_year}. "
+                   if entry.elimination_year else "")
+                + f"Status: {entry.elimination_status}. {entry.notes}"
+            ),
+            "source": (
+                f"eliminated_weapons_watchlist.lookup (R-F639) — "
+                f"treaty: {entry.treaty}"
+            ),
+            "confidence": "CONFIRMED",  # treaty status is authoritative
+            "elimination_status": entry.elimination_status,
+            "treaty": entry.treaty,
+            "matched_text": text[:200],
+        }
+    except Exception as e:
+        wire_failure(
+            module="eliminated_weapons_watchlist",
+            detail=f"render_finding_for_text crashed: {e}",
+            gap_type="compliance_engine_failure",
+            source="eliminated_weapons_watchlist:render_finding_for_text",
+        )
+        return None

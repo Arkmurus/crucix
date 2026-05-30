@@ -1060,6 +1060,12 @@ async def ingest_to_knowledge() -> dict:
                 "Security knowledge ingestion failed [%s]: %s",
                 section_name, e,
             )
+            wire_failure(
+                module="security_protocol",
+                detail=f"Section '{section_name}' ingestion failed: {e}",
+                gap_type="compliance_engine_failure",
+                source=f"security_protocol:ingest:{section_name}",
+            )
 
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     logger.info(
@@ -1067,12 +1073,20 @@ async def ingest_to_knowledge() -> dict:
         success, len(SECURITY_SECTIONS), total_chunks,
     )
 
-    # R-F996 — wire to brain
-    wire_success(
-        module="security_protocol",
-        summary="Security audit",
-        source_id="security_protocol:R-F996",
-    )
+    # R-F996 — wire to brain. Only report success if at least one section ingested.
+    if success > 0:
+        wire_success(
+            module="security_protocol",
+            summary=f"Security audit: {success}/{len(SECURITY_SECTIONS)} sections ingested",
+            source_id="security_protocol:R-F996",
+        )
+    else:
+        wire_failure(
+            module="security_protocol",
+            detail=f"All {len(SECURITY_SECTIONS)} security sections failed to ingest",
+            gap_type="compliance_engine_failure",
+            source="security_protocol:ingest",
+        )
     return {
         "sections_ingested": success,
         "total_sections": len(SECURITY_SECTIONS),

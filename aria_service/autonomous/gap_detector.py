@@ -6,13 +6,18 @@ ARIACoder for autonomous remediation.
 
 Signal sources
 ──────────────
-  ErrorLedgerExtractor    — reads exceptions from `crucix:aria:error_ledger`
+  ErrorLedgerExtractor    — reads exceptions from `crucix:aria:error_log`
   ChatAuditExtractor      — scans `crucix:chat_audit:log` for hallucination
                             patterns matching `SELF_INTROSPECTION_PATTERNS`
-  HealthPerfExtractor     — checks `crucix:health:perf:latest` against
-                            threshold floors (grounded_rate, p95_latency, etc.)
-  SourceHealthExtractor   — checks `crucix:sweep:last_result` for
-                            consecutive-failure source modules
+  CapabilityGapExtractor  — reads `crucix:aria:capability_gaps` (R-F884)
+  MistakeLedgerExtractor  — reads `crucix:mistake_ledger:log` (R-F884)
+  OpportunityExtractor    — scans `crucix:chat_audit:log` for opportunities
+                            (R-F826)
+
+NOTE (R-F884): HealthPerfExtractor and SourceHealthExtractor were DROPPED
+because no producer writes their keys (`crucix:health:perf:latest` and
+`crucix:sweep:last_result`). They remain as class definitions for reference
+but are NOT in the active extractor list.
 
 Dedup
 ─────
