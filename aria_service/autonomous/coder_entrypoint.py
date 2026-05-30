@@ -147,12 +147,28 @@ async def _heartbeat_ticker() -> None:
     stale beyond the threshold, a blackout is declared and recovery is
     triggered. This ticker ensures the heartbeat stays fresh even when
     the coder is between cycles (e.g. waiting for SCAN_INTERVAL_S).
+
+    R-F1160: also registers the coder in the agent registry so other
+    agents (gap_detector, research_engine, Claude Code sessions) know
+    the coder is active and what it's working on.
     """
     try:
         from ..intel.self_restart import tick_heartbeat
+        from ..intel.agent_registry import AgentRegistry
+
+        # Register in the agent registry
+        _reg = AgentRegistry()
+        await _reg.register(
+            agent_id="aria_coder",
+            agent_type="autonomous_coder",
+            current_task="starting up",
+        )
+
         while True:
             await asyncio.sleep(30)
             tick_heartbeat("aria_coder")
+            # Also tick the agent registry heartbeat
+            await _reg.tick_heartbeat("aria_coder")
     except ImportError:
         pass
     except asyncio.CancelledError:

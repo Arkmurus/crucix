@@ -1125,6 +1125,9 @@ class GapDetector:
                 continue
             if await self._is_recently_attempted(gap_id):
                 continue
+            # R-F1160: skip gaps claimed by OTHER agents (cross-agent deconfliction)
+            if await self._is_claimed_by_other(gap_id):
+                continue
             new_gaps.append(gap)
             self._active_gaps[gap_id] = gap
 
@@ -1148,6 +1151,26 @@ class GapDetector:
         except Exception:
             return False
 
+    async def _is_claimed_by_other(self, gap_id: str) -> bool:
+        """R-F1160: check if another agent has claimed this gap.
+
+        Uses the agent registry's gap claim system. If another agent
+        (not the gap detector's own coder) has claimed this gap, skip it.
+        """
+        try:
+            from aria_service.intel.agent_registry import AgentRegistry
+            registry = AgentRegistry()
+            claiming_agent = await registry.is_gap_claimed(gap_id)
+            if claiming_agent and claiming_agent != "aria_coder":
+                logger.debug(
+                    "[gap_detector] gap %s skipped — claimed by %s",
+                    gap_id, claiming_agent,
+                )
+                return True
+        except Exception:
+            pass
+        return False
+
     async def mark_attempted(self, gap_id: str, failed: bool = False) -> None:
         """Mark a gap as attempted.
 
@@ -1169,6 +1192,15 @@ class GapDetector:
         except Exception as e:
             logger.warning("[gap_detector] mark_attempted failed: %s", e)
 
+        # R-F1160: claim the gap in the agent registry so other agents
+        # know this gap is being worked on
+        try:
+            from aria_service.intel.agent_registry import AgentRegistry
+            registry = AgentRegistry()
+            await registry.claim_gap(gap_id, "aria_coder")
+        except Exception:
+            pass
+
     async def mark_fixed(self, gap_id: str, r_number: int) -> None:
         try:
             await self.redis.setex(
@@ -1179,6 +1211,14 @@ class GapDetector:
             logger.warning("[gap_detector] mark_fixed failed: %s", e)
         self._active_gaps.pop(gap_id, None)
         logger.info("[gap_detector] gap %s → R-F%d (fixed)", gap_id, r_number)
+
+        # R-F1160: release the gap claim so other agents know it's resolved
+        try:
+            from aria_service.intel.agent_registry import AgentRegistry
+            registry = AgentRegistry()
+            await registry.release_gap(gap_id, "aria_coder")
+        except Exception:
+            pass
 
     async def verify_fixed(self, gap: Gap) -> bool:
         """R-F1155: post-fix verification — re-run the relevant extractor
@@ -1213,12 +1253,43 @@ class GapDetector:
         logger.info(
             "[gap_detector] starting — scan interval %ds", self.SCAN_INTERVAL_S,
         )
+
+        # R-F1160: register as an agent so other agents know we exist
+        try:
+            from aria_service.intel.agent_registry import AgentRegistry
+            _reg = AgentRegistry()
+            await _reg.register(
+                agent_id="gap_detector",
+                agent_type="gap_detector",
+                current_task="scanning for gaps",
+            )
+        except Exception:
+            pass
+
+        _heartbeat_counter = 0
         while True:
             try:
                 gaps = await self.scan()
                 await self.publish_latest(gaps)
+
+                # R-F1160: tick heartbeat every cycle with current stats
+                _heartbeat_counter += 1
+                if _heartbeat_counter % 1 == 0:  # every cycle
+                    try:
+                        await _reg.tick_heartbeat(
+                            "gap_detector",
+                            current_task=f"scanning — {len(gaps)} actionable gaps",
+                        )
+                    except Exception:
+                        pass
+
             except asyncio.CancelledError:
                 logger.info("[gap_detector] cancelled — exiting")
+                # R-F1160: unregister on shutdown
+                try:
+                    await _reg.unregister("gap_detector")
+                except Exception:
+                    pass
                 raise
             except Exception as e:
                 logger.error("[gap_detector] scan error: %s", e, exc_info=True)
