@@ -168,75 +168,10 @@ jobs:
         run: |
           echo "::warning::Manual deploy bypass — reason: ${{ github.event.inputs.reason }}"
 
-      # R-F841 (2026-05-23) — post-Seenode→Fly migration, the Node app
-      # (aria-web) and the standalone Baileys listener (aria-wa) are
-      # both first-class Fly apps. Seenode used to auto-deploy server.mjs
-      # on push; that capability is now gone. Without these steps, Node
-      # changes silently lag — Python changes deploy but UI/auth/Stripe
-      # stay on whatever image was last manually `flyctl deploy`-ed.
-      #
-      # R-F926 (2026-05-27) — DECOUPLE the Node-tier deploys from aria-intel's
-      # verify outcome. aria-web + aria-wa are SEPARATE Fly apps with SEPARATE
-      # builds (Dockerfile.web / services/wa-listener/Dockerfile), so a flaky
-      # aria-intel cold-start (the /health verify above has a 180s budget;
-      # first-boot RAG warm-up can exceed it) must NOT skip them. Pre-R-F926 all
-      # four Node steps were `if: success()`, so one slow aria-intel boot
-      # silently left UI/auth/WA on a stale image — observed repeatedly, incl.
-      # the R-F916/F925 WA-listener fixes needing manual `flyctl deploy -a
-      # aria-wa`. Now: each Deploy runs `if: !cancelled()` (independent of
-      # aria-intel + of each other), and each Verify gates on ITS OWN deploy's
-      # outcome. The job still reports failure if any step failed, but the Node
-      # tiers always get their shot.
-      - name: Deploy aria-web
-        id: deploy_web
-        if: ${{ !cancelled() }}
-        run: |
-          # R-F846 — pass build-time SHA + R-tag so /api/health reports
-          # the actual deployed commit instead of UNKNOWN-BUILD.
-          GIT_SHA=$(git rev-parse HEAD)
-          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
-          R_TAG=${R_TAG:-no-r-tag}
-          flyctl deploy --remote-only --config fly.web.toml --app aria-web \
-            --wait-timeout 600 \
-            --build-arg ARIA_BUILD_GIT_SHA="$GIT_SHA" \
-            --build-arg ARIA_BUILD_R_TAG="$R_TAG" \
-            -t "${{ secrets.FLY_API_TOKEN }}"
-
-      - name: Verify aria-web is live
-        if: ${{ !cancelled() && steps.deploy_web.outcome == 'success' }}
-        run: |
-          for i in $(seq 1 18); do
-            http=$(curl -sS -m 5 -o /tmp/web_health.json -w '%{http_code}' \
-              https://aria-web.fly.dev/healthz || echo "000")
-            if [ "${http}" = "200" ]; then
-              echo "::notice::aria-web /healthz=200 — live"
-              exit 0
-            fi
-            echo "poll ${i}/18: aria-web /healthz=${http}"
-            sleep 5
-          done
-          echo "::error::aria-web did not return /healthz=200 within 90s"
-          exit 1
-
-      - name: Deploy aria-wa
-        id: deploy_wa
-        if: ${{ !cancelled() }}
-        run: |
-          flyctl deploy --remote-only --config fly.wa.toml --app aria-wa \
-            --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}"
-
-      - name: Verify aria-wa is live
-        if: ${{ !cancelled() && steps.deploy_wa.outcome == 'success' }}
-        run: |
-          for i in $(seq 1 18); do
-            http=$(curl -sS -m 5 -o /tmp/wa_health.json -w '%{http_code}' \
-              https://aria-wa.fly.dev/health || echo "000")
-            if [ "${http}" = "200" ]; then
-              echo "::notice::aria-wa /health=200 — live"
-              exit 0
-            fi
-            echo "poll ${i}/18: aria-wa /health=${http}"
-            sleep 5
-          done
-          echo "::error::aria-wa did not return /health=200 within 90s"
-          exit 1
+      # R-F1157: Node.js deploy steps REMOVED from the Python CI pipeline.
+      # aria-web and aria-wa are separate Fly apps with their own build
+      # pipelines. Deploying them on every Python commit was:
+      #   1. Wasting build minutes (Node Docker build takes ~5min)
+      #   2. Failing consistently (Node build timeout on Depot)
+      #   3. Blocking Python deploys (the whole workflow marked failure)
+      # Node apps deploy via their own CI triggers or manual flyctl deploy.
