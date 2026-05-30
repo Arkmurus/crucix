@@ -1039,10 +1039,11 @@ class PortalCoverageExtractor:
             )
 
             gap = Gap(
+                gap_id=_gap_id_for("portal_registration", "portal_coverage_audit", portal_name),
                 gap_type="portal_registration",
                 severity=GapSeverity.MEDIUM,
                 title=f"Unregistered portal: {portal_name}",
-                detail=detail,
+                description=detail,
                 module="portal_coverage_audit",
                 evidence={
                     "portal_id": portal_id,

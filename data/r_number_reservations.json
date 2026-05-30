@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1155,
+  "next_available": 1159,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6005,41 +6005,84 @@
       "title": "Self-coding disposition playbook + deploy script fix",
       "claimed_at": "2026-05-30T20:22:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a5cbb373",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:31:45Z"
     },
     {
       "r_number": "R-F1151",
       "title": "WhatsApp listener dark failure wiring (P0-1, P0-2, P1-4)",
       "claimed_at": "2026-05-30T20:27:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "570d64ba",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:35:29Z"
     },
     {
       "r_number": "R-F1152",
       "title": "WhatsApp listener resilience + UX (P0-3, P1-1, P1-2, P1-3, P2-1, P2-2, P2-3, P2-4)",
       "claimed_at": "2026-05-30T20:27:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "570d64ba",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:35:29Z"
     },
     {
       "r_number": "R-F1153",
       "title": "WhatsApp listener observability (P3-1, P3-2, P3-3)",
       "claimed_at": "2026-05-30T20:27:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "570d64ba",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:35:29Z"
     },
     {
       "r_number": "R-F1154",
       "title": "Wire portal_coverage_audit into gap_detector for self-limitation analysis",
       "claimed_at": "2026-05-30T20:27:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "570d64ba",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:35:30Z"
+    },
+    {
+      "r_number": "R-F1155",
+      "title": "Autonomous intelligence flow — brain_hook priority, coder dedup fix, post-fix verification, gap type mapping, structural R-F1150 enforcement",
+      "claimed_at": "2026-05-30T20:37:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "92d52c89",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:45:46Z"
+    },
+    {
+      "r_number": "R-F1156",
+      "title": "Full autonomy infrastructure — Groq fallback, ARIA-LLM coder activation, SelfCodingOS v2, static analysis pre-filter, test-from-error, constitutional coder",
+      "claimed_at": "2026-05-30T20:49:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a6008d63",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:52:05Z"
+    },
+    {
+      "r_number": "R-F1157",
+      "title": "Remove Node.js deploy steps from CI — only deploy aria-intel on Python changes",
+      "claimed_at": "2026-05-30T21:10:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1158",
+      "title": "Capability tests for PortalCoverageExtractor and compliance_watch failure wiring",
+      "claimed_at": "2026-05-30T21:11:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
