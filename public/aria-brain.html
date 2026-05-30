@@ -536,7 +536,7 @@ async function loadHealth() {
   hb.className = `badge ${d.status === 'healthy' ? 'badge-green' : 'badge-yellow'}`;
 
   document.getElementById('infra-metrics').innerHTML =
-    metricRow('Redis', d.infra?.redis ? 'Connected' : 'DOWN', d.infra?.redis ? 'good' : 'bad') +
+    metricRow('Redis', d.infra?.redis ? 'Connected' : 'n/a (file backend)', d.infra?.redis ? 'good' : 'neutral') +
     metricRow('RAG Store', d.infra?.rag ? 'Available' : 'DOWN', d.infra?.rag ? 'good' : 'bad') +
     metricRow('Open Breakers', d.circuit_breakers?.open || 0, d.circuit_breakers?.open > 0 ? 'warn' : 'good');
 
@@ -1494,6 +1494,8 @@ async function loadLearning() {
     html += metricRow('Verification rate',
                       `${(vg.verification_rate * 100).toFixed(0)}%`,
                       vg.verification_rate >= 0.95 ? 'good' : vg.verification_rate >= 0.80 ? 'warn' : 'bad');
+  } else {
+    html += metricRow('Verification rate', 'n/a (single provider)', 'neutral');
   }
   html += '</div>';
 

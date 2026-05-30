@@ -331,7 +331,7 @@ async def health() -> dict:
         last = await rs.get_json(_K_LAST_RUN)
         suspended = sorted(await _get_suspended())
         return {
-            "last_run": last,
+            "last_run": last or {"ran_at": None, "sources_checked": 0, "up": 0, "down": 0, "message": "No uptime sweep has run yet. Trigger via POST /api/aria/sources/uptime/run"},
             "currently_suspended": suspended,
             "suspended_count": len(suspended),
         }

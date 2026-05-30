@@ -233,7 +233,7 @@ async function loadData() {
   const ideas = data.ideas || [];
   if (data.ideasSource) document.getElementById('ideas-source').textContent = data.ideasSource === 'llm' ? 'AI-generated' : data.ideasSource;
   if (!ideas.length) {
-    ideasEl.innerHTML = '<p class="text-muted">No ideas generated — enable LLM via ANTHROPIC_API_KEY.</p>';
+    ideasEl.innerHTML = '<p class="text-muted">No ideas generated — enable LLM via DeepSeek (active provider).</p>';
   } else {
     ideasEl.innerHTML = `<div class="sc-grid-3">${ideas.map(idea => {
       const col = idea.type==='LONG'?'green':idea.type==='SHORT'?'red':'muted';

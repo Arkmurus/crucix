@@ -46,6 +46,11 @@ from .engine_wiring import wire_success, wire_failure
 
 logger = logging.getLogger("aria.news_monitor")
 
+# ── In-memory stats cache (avoids cold-start 5xx flaps) ────────────────────
+_stats_cache: dict[str, Any] = {}
+_stats_cache_ts: float = 0
+_STATS_CACHE_TTL = 30.0  # seconds
+
 # ── Redis keys ────────────────────────────────────────────────────────────────
 _SEEN_URLS_KEY = "crucix:news_monitor:seen_urls"
 _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
@@ -577,7 +582,12 @@ async def get_recent_articles(limit: int = 50) -> list[dict]:
 
 
 async def get_stats() -> dict:
-    """Get news monitor statistics."""
+    """Get news monitor statistics (cached 30s to avoid cold-start flaps)."""
+    global _stats_cache, _stats_cache_ts
+    now = time.time()
+    if _stats_cache and (now - _stats_cache_ts) < _STATS_CACHE_TTL:
+        return dict(_stats_cache)
+
     articles = await get_recent_articles(1000)
     by_category: dict[str, int] = {}
     by_source: dict[str, int] = {}
@@ -587,10 +597,13 @@ async def get_stats() -> dict:
         src = a.get("source", "unknown")
         by_source[src] = by_source.get(src, 0) + 1
 
-    return {
+    result = {
         "total_sources": len(NEWS_SOURCES),
         "recent_articles": len(articles),
         "by_category": by_category,
         "top_sources": dict(sorted(by_source.items(), key=lambda x: x[1], reverse=True)[:20]),
         "categories": sorted(set(s[2] for s in NEWS_SOURCES)),
     }
+    _stats_cache = result
+    _stats_cache_ts = now
+    return result

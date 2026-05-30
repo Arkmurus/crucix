@@ -520,9 +520,11 @@ export async function pushSignalsToBrain(sweepOutput) {
 
     if (signals.length === 0) return;
 
-    // Push all signals to the brain queue (fire-and-forget)
-    await Promise.all(signals.map(s => redisPush(BRAIN_SIGNAL_KEY, s)));
-    console.error(`[Crucix Brain] Pushed ${signals.length} signals to brain queue`);
+    // NOTE: redisPush is a no-op since Upstash retirement (R-F745).
+    // Real brain delivery is via pushSweepToARIA → /api/aria/ingest.
+    // This function is kept for structural compatibility but does not
+    // actually push signals. See pushSweepToARIA in sweep orchestration.
+    console.log(`[Crucix Brain] ${signals.length} signals would be pushed (redisPush is no-op since Upstash retirement)`);
   } catch (e) {
     // Non-fatal — brain integration should never break the sweep
     console.error('[Crucix Brain] Signal push failed (non-fatal):', e.message);

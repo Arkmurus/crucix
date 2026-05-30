@@ -96,7 +96,7 @@
 
   <!-- KPI Tiles -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">—</div><div class="sc-stat-label">Articles Today</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">—</div><div class="sc-stat-label">Recent Articles</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="kpi-sources">—</div><div class="sc-stat-label">Sources</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-tags"></i></div><div><div class="sc-stat-value" id="kpi-categories">—</div><div class="sc-stat-label">Categories</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="kpi-last-poll">—</div><div class="sc-stat-label">Last Poll</div></div></div>
@@ -129,10 +129,11 @@
   </div>
 </main>
 
-<script src="js/app.js"></script>
-<script src="js/sidebar.js"></script>
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
 <script>
 (function() {
+  if (typeof Auth !== 'undefined' && Auth.requireAuth) Auth.requireAuth();
   const API = window.API || { get: (url) => fetch(url, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') } }).then(r => r.json()) };
   let allArticles = [];
   let activeCategory = 'all';
