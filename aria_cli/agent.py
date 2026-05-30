@@ -163,11 +163,45 @@ class Agent:
         except Exception as exc:  # noqa: BLE001 — tools must never break the loop
             return ToolResult(f"error in {name}: {exc}", is_error=True)
 
+    def _drain_claude_bridge(self) -> None:
+        """R-F1082 — surface any new Claude→ARIA messages from the file bridge
+        into the conversation, in real time, mid-task, as high-priority guidance.
+        This is the real-time collaboration channel: Claude (senior reviewer)
+        reviews ARIA's work and her findings land WITHOUT waiting for the operator
+        to prompt a manual check_claude. Self-mode only (no bridge → no-op). Wrapped
+        so the bridge can never break the agent loop."""
+        base = getattr(self.toolbox, "bridge_base", None)
+        if not base:
+            return
+        try:
+            from . import bridge
+            new = bridge.read_new(base, reader="aria")
+        except Exception:  # noqa: BLE001 — the bridge must never break the loop
+            return
+        for m in new or []:
+            text = (m.get("text") or "").strip()
+            if not text:
+                continue
+            tag = "reply" if m.get("reply_to") else m.get("kind", "note")
+            preview = text if len(text) <= 200 else text[:200] + "…"
+            self.ui.info(f"[Claude {tag}] {preview}")
+            self.messages.append({
+                "role": "user",
+                "content": (
+                    "[LIVE MESSAGE FROM CLAUDE — your senior reviewer, via the agent "
+                    "bridge. Treat as high-priority guidance: read it, and if it changes "
+                    "what you should do next, adjust now.]\n" + text
+                ),
+            })
+
     def run_turn(self, user_text: str) -> TurnResult:
         self.messages.append({"role": "user", "content": user_text})
         steps = 0
         sig_counts: dict[str, int] = {}  # R-F1042 loop guard (per turn)
         while steps < MAX_STEPS:
+            # R-F1082: pull any new guidance from Claude (via the bridge) into the
+            # conversation before each LLM call — real-time collaboration, mid-task.
+            self._drain_claude_bridge()
             # Show "thinking" while we wait on the first token, then stream the
             # answer live so the UI is never silent.
             self.ui.thinking_start()
