@@ -53,8 +53,10 @@ def test_rf396_endpoint_returns_expected_top_level_keys():
     # Look for the return dict block inside health_perf_ep
     idx = src.find("async def health_perf_ep")
     assert idx > 0
-    end = src.find("\n\n", idx + 200)
-    block = src[idx:end if end > 0 else idx + 4000]
+    # The function body is ~200+ lines; search the full function
+    next_def = src.find("\n@", idx + 10)
+    end = next_def if next_def > 0 else idx + 8000
+    block = src[idx:end]
 
     required = [
         "build_rev",
@@ -113,7 +115,9 @@ def test_rf396_advisories_array_is_populated():
     timestamp/marker even when nothing's degraded."""
     src = _src()
     idx = src.find("async def health_perf_ep")
-    block = src[idx:idx + 4000]
+    next_def = src.find("\n@", idx + 10)
+    end = next_def if next_def > 0 else idx + 8000
+    block = src[idx:end]
     assert "advisories.append" in block, (
         "R-F396: advisories never populated — ARIA gets an empty array."
     )
@@ -138,7 +142,9 @@ def test_rf396_schema_version_pinned():
     import re
     src = _src()
     idx = src.find("async def health_perf_ep")
-    block = src[idx:idx + 4000]
+    next_def = src.find("\n@", idx + 10)
+    end = next_def if next_def > 0 else idx + 8000
+    block = src[idx:end]
     assert '"_schema_version"' in block
     # Pattern: "_schema_version": "rfNNN.vN" — any R-F number + minor version.
     m = re.search(r'"_schema_version":\s*"(rf\d+\.v\d+)"', block)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1081,
+  "next_available": 1083,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5313,9 +5313,29 @@
       "title": "Fix coder rate-bucket + canary deploy + encode off event loop",
       "claimed_at": "2026-05-29T23:43:10Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bea69578",
+      "notes": null,
+      "shipped_at": "2026-05-29T23:47:38Z"
+    },
+    {
+      "r_number": "R-F1081",
+      "title": "Synthetic monitoring, fallback page, dep health dashboard, test fixes",
+      "claimed_at": "2026-05-30T07:20:20Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1082",
+      "title": "auto-poll claude bridge in aria agent loop (real-time collab)",
+      "claimed_at": "2026-05-30T07:26:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "919c600a",
+      "notes": null,
+      "shipped_at": "2026-05-30T07:31:04Z"
     }
   ]
 }

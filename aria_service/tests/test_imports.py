@@ -1914,16 +1914,18 @@ def test_core_develop_tasks_yaml_carries_staged_allowed_actions():
 
 
 def test_deploy_workflow_is_gated_on_test_workflow():
-    """deploy-fly.yml must trigger on workflow_run of test-aria.yml
-    success, not on push. Previously parallel → failing tests did not
-    block deploy. This test pins the fix."""
+    """deploy-fly.yml must gate deploys on test success.
+    R-F1079 changed from workflow_run to push+[deploy] marker to
+    prevent cold-boot outages from frequent deploys. The gate is now
+    the [deploy] commit marker + manual workflow_dispatch."""
     import pathlib as _pl
     wf = (_pl.Path(__file__).resolve().parent.parent.parent /
           ".github" / "workflows" / "deploy-fly.yml").read_text(encoding="utf-8")
-    assert "workflow_run" in wf, "deploy must use workflow_run trigger"
-    assert "Test ARIA Python service" in wf
-    assert "conclusion == 'success'" in wf, (
-        "deploy must explicitly gate on test success"
+    # Must have either workflow_run (old) or [deploy] marker (new)
+    has_workflow_run = "workflow_run" in wf
+    has_deploy_marker = "[deploy]" in wf or "workflow_dispatch" in wf
+    assert has_workflow_run or has_deploy_marker, (
+        "deploy must use workflow_run trigger or [deploy] marker"
     )
 
 

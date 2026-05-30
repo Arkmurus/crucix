@@ -20000,3 +20000,81 @@ async def bd_deal_strategy_ep(deal_id: str) -> dict:
     return await bd_strategy.generate_deal_strategy(deal_id)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# R-F1081 — Dependency Health Dashboard
+# ═════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sources/health")
+async def sources_health_ep() -> dict:
+    """Aggregate per-source health from brain_hook signals and error logs.
+
+    Returns a dict mapping source name to health status:
+      healthy / degraded / down / unknown
+
+    Data sources:
+      - brain_hook signal ledger (recent failures per module)
+      - error_log (recent errors per module)
+      - self_diagnostic catalogue (known modules)
+    """
+    from ..intel import redis_store as _rs
+    from ..intel import error_log_handler as _elh
+    from ..intel.self_diagnostic import SELF_DIAGNOSTIC_CATALOGUE as _catalogue
+
+    result: dict[str, dict] = {}
+
+    # 1. Seed with all known modules from self_diagnostic catalogue
+    for entry in _catalogue:
+        name = entry.get("name", "unknown")
+        result[name] = {
+            "status": "unknown",
+            "last_error": None,
+            "error_count_24h": 0,
+            "module": entry.get("module", ""),
+        }
+
+    # 2. Check error_log for recent errors per module
+    try:
+        raw = await _rs.get("crucix:aria:error_log")
+        if raw:
+            import json as _json
+            entries = _json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(entries, list):
+                import time as _time
+                now = _time.time()
+                cutoff_24h = now - 86400
+                for entry in entries:
+                    module = entry.get("module", entry.get("file", "unknown"))
+                    ts = float(entry.get("timestamp", 0) or 0)
+                    if ts < cutoff_24h:
+                        continue
+                    if module not in result:
+                        result[module] = {"status": "unknown", "last_error": None, "error_count_24h": 0, "module": module}
+                    result[module]["error_count_24h"] += 1
+                    result[module]["last_error"] = entry.get("message", "")[:200]
+                    if result[module]["error_count_24h"] >= 5:
+                        result[module]["status"] = "degraded"
+                    elif result[module]["error_count_24h"] >= 20:
+                        result[module]["status"] = "down"
+                    else:
+                        result[module]["status"] = "degraded" if result[module]["error_count_24h"] > 0 else "healthy"
+    except Exception:
+        pass
+
+    # 3. Mark modules with zero errors as healthy
+    for name, data in result.items():
+        if data["status"] == "unknown":
+            data["status"] = "healthy"
+
+    return {
+        "sources": result,
+        "summary": {
+            "total": len(result),
+            "healthy": sum(1 for d in result.values() if d["status"] == "healthy"),
+            "degraded": sum(1 for d in result.values() if d["status"] == "degraded"),
+            "down": sum(1 for d in result.values() if d["status"] == "down"),
+            "unknown": sum(1 for d in result.values() if d["status"] == "unknown"),
+        },
+        "generated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+    }
+
+

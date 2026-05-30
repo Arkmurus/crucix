@@ -268,6 +268,7 @@ class TestCoderEntrypointGates:
         returns a list of running tasks. R-F996 removed the env var gates
         (coder is always enabled); only ARIA_INTERNAL_TOKEN is required."""
         monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
+        monkeypatch.setenv("ARIA_CONTINUOUS_PROFILER_ENABLED", "0")  # R-F1080: disable profiler in test
         # Direct workspace at tmp to avoid /data/coder_workspace
         monkeypatch.setenv("ARIA_CODER_WORKSPACE", str(tmp_path))
 

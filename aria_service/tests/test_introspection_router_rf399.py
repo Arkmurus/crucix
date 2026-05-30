@@ -172,13 +172,15 @@ def test_rf399_router_fires_before_spawn_research_task():
     intent_idx = src.find("def _detect_tool_intent")
     block = src[intent_idx:intent_idx + 10000]
     intro_idx = block.find("is_capability_introspection_query")
-    spawn_idx = block.find('"tool": "spawn_research_task"')
+    # spawn_research_task was renamed; check against the first tool dispatch
+    # that should come after introspection
+    first_tool = block.find('"tool": "')
     oem_idx = block.find("_OEM_BATCH_KW")
     batch_idx = block.find("_BATCH_RE")
     assert intro_idx > 0, "introspection detector call not found"
-    assert intro_idx < spawn_idx, (
+    assert intro_idx < first_tool, (
         "R-F399 CRITICAL: introspection check runs AFTER "
-        "spawn_research_task — the bug regresses."
+        "tool dispatch — the bug regresses."
     )
     if oem_idx > 0:
         assert intro_idx < oem_idx, "introspection must run before OEM batch"
