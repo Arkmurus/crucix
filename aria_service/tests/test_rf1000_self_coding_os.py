@@ -62,13 +62,16 @@ class TestSelfCodingOS:
         ast.parse(code)
 
     def test_generate_test(self):
-        """_generate_test should produce valid Python."""
+        """_generate_test should produce valid Python with capability tests."""
         import ast
         from aria_service.intel.self_coding_os import SelfCodingOS
         os = SelfCodingOS()
-        code = os._generate_test("test_mod", "verify_item")
+        code = os._generate_test("test_mod", "verify_item", r_number=1112)
         assert "class TestTestMod" in code
-        assert "test_verify_item_basic" in code
+        assert "test_rf1112_unit_verify_item_returns_dict" in code
+        assert "test_rf1112_capability_verify_item_handles_empty" in code
+        assert "test_rf1112_negative_verify_item_error_handling" in code
+        assert "test_rf1112_wiring_verify_item_emits_signal" in code
         ast.parse(code)
 
     def test_add_wiring(self):

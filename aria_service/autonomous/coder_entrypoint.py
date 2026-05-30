@@ -183,6 +183,23 @@ async def start_aria_coder(
     from .gap_detector import GapDetector
     from .self_coder import ARIACoder
 
+    # R-F1112: inject AutonomousCoder (AST-aware, no external LLM) as the
+    # default coding engine instead of SovereignLLM (DeepSeek-backed).
+    # This makes ARIA fully self-sufficient for code generation.
+    _autonomous_coder = None
+    try:
+        from ..intel.autonomous_coder import AutonomousCoder
+        _autonomous_coder = AutonomousCoder()
+        logger.info(
+            "[coder_entrypoint] Using AutonomousCoder (AST-aware, no external LLM) "
+            "as the default coding engine",
+        )
+    except Exception as e:
+        logger.warning(
+            "[coder_entrypoint] AutonomousCoder init failed: %s — "
+            "falling back to SovereignLLM (DeepSeek-backed)", e,
+        )
+
     # R-F1032: ensure MODIFIABLE_FILES is populated before the coder starts.
     # _one_cycle imports MODIFIABLE_FILES but it's dynamically populated by
     # _ensure_modifiable_files() and is EMPTY until that function runs.
@@ -274,6 +291,7 @@ async def start_aria_coder(
         whatsapp_notifier=wa_notifier,
         brain_hook=brain_hook,
         output_harvester=output_harvester,
+        llm=_autonomous_coder,  # R-F1112: AST-aware, no external LLM
     )
 
     # R-F824 (2026-05-23): expose the live ARIACoder instance on

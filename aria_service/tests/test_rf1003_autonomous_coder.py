@@ -10,7 +10,7 @@ class TestAutonomousCoder:
 
     @pytest.mark.asyncio
     async def test_generate_fix_plan(self):
-        """generate_fix_plan should return a plan dict without LLM calls."""
+        """generate_fix_plan should return a plan dict matching self_coder contract."""
         from aria_service.intel.autonomous_coder import AutonomousCoder
         coder = AutonomousCoder()
         
@@ -20,12 +20,14 @@ class TestAutonomousCoder:
             title = "New sanctions module"
             module = "sanctions_screener"
             gap_id = "gap_001"
+            gap_type = "missing_capability"
         
         plan = await coder.generate_fix_plan(MockGap(), "")
         assert plan is not None
         assert "title" in plan
-        assert "description" in plan
-        assert "changes" in plan
+        assert "approach" in plan  # self_coder reads "approach", not "description"
+        assert "target_files" in plan  # self_coder reads "target_files"
+        assert "risk_level" in plan  # self_coder reads "risk_level"
         assert plan["llm_free"] is True
         assert plan["source"] == "self_coding_os"
 
@@ -44,15 +46,16 @@ class TestAutonomousCoder:
 
     @pytest.mark.asyncio
     async def test_write_tests(self):
-        """write_tests should return test code without LLM calls."""
+        """write_tests should return test code matching self_coder contract."""
         from aria_service.intel.autonomous_coder import AutonomousCoder
         coder = AutonomousCoder()
         
         result = await coder.write_tests({}, "", 1003)
         assert result is not None
-        assert "code" in result
+        assert "test_code" in result  # self_coder reads "test_code", not "code"
+        assert "test_filepath" in result  # self_coder reads "test_filepath"
         assert result["llm_free"] is True
-        assert "pytest" in result["code"]
+        assert "pytest" in result["test_code"]
 
     @pytest.mark.asyncio
     async def test_analyse_failure(self):
@@ -67,7 +70,7 @@ class TestAutonomousCoder:
 
     @pytest.mark.asyncio
     async def test_full_fix_cycle(self):
-        """full_fix_cycle should run without LLM calls."""
+        """End-to-end: plan -> code -> test without LLM calls."""
         from aria_service.intel.autonomous_coder import AutonomousCoder
         coder = AutonomousCoder()
         
@@ -76,12 +79,26 @@ class TestAutonomousCoder:
             title = "Compliance checker"
             module = "compliance_checker"
             gap_id = "gap_002"
+            gap_type = "missing_capability"
         
-        result = await coder.full_fix_cycle(MockGap())
-        assert result is not None
-        assert "plan" in result
-        assert "results" in result
-        assert result["llm_free"] is True
+        # Plan
+        plan = await coder.generate_fix_plan(MockGap(), "")
+        assert plan is not None
+        assert "target_files" in plan
+        assert plan["llm_free"] is True
+        
+        # Code (for each target file)
+        for target in plan.get("target_files", []):
+            code_result = await coder.write_code(plan, "", target)
+            assert code_result is not None
+            assert "code" in code_result
+            assert code_result["llm_free"] is True
+        
+        # Tests
+        test_result = await coder.write_tests(plan, "", 1112)
+        assert test_result is not None
+        assert "test_code" in test_result
+        assert test_result["llm_free"] is True
 
     def test_no_external_imports(self):
         """AutonomousCoder should not import any external LLM modules."""

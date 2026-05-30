@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1112,
+  "next_available": 1113,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5623,6 +5623,15 @@
       "commit_sha": "6f73ceb3",
       "notes": null,
       "shipped_at": "2026-05-30T10:46:00Z"
+    },
+    {
+      "r_number": "R-F1112",
+      "title": "ARIA fully autonomous self-coding — AST-aware code synthesis replaces SovereignLLM dependency",
+      "claimed_at": "2026-05-30T10:49:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
