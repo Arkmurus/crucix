@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1171,
+  "next_available": 1173,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6186,23 +6186,44 @@
       "claimed_at": "2026-05-30T23:03:25Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "a66d1ab5",
+      "commit_sha": "6877d550",
       "notes": null,
-      "shipped_at": "2026-05-30T23:11:12Z"
+      "shipped_at": "2026-05-30T23:27:58Z"
     },
     {
       "r_number": "R-F1169",
       "title": "Wire ARIA's reasoning pipeline — grounded_reasoner, reasoning_library, symbolic_reasoner, and fix remaining quality gaps",
       "claimed_at": "2026-05-30T23:06:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6877d550",
+      "notes": null,
+      "shipped_at": "2026-05-30T23:27:58Z"
     },
     {
       "r_number": "R-F1170",
       "title": "Extraordinary customer journey: WA response quality, proactive follow-up, confidence footer",
       "claimed_at": "2026-05-30T23:14:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6877d550",
+      "notes": null,
+      "shipped_at": "2026-05-30T23:27:59Z"
+    },
+    {
+      "r_number": "R-F1171",
+      "title": "Kaspersky antivirus false-positive mitigation — prevent file deletions causing errors",
+      "claimed_at": "2026-05-30T23:20:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c41a783d",
+      "notes": null,
+      "shipped_at": "2026-05-30T23:28:01Z"
+    },
+    {
+      "r_number": "R-F1172",
+      "title": "Wire agent registry API endpoints + register all agents",
+      "claimed_at": "2026-05-30T23:31:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

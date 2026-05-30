@@ -15817,6 +15817,54 @@ async def self_peers_history_ep(limit: int = 10):
 
 # ── Predictor + Mistake Ledger ────────────────────────────────────────────
 
+# R-F1172 -- Multi-agent registry endpoints
+@router.get("/agents")
+async def agents_list_ep(include_stale: bool = False):
+    """List all registered agents and their current state."""
+    from ..intel.agent_registry import AgentRegistry
+    registry = AgentRegistry()
+    agents = await registry.list_active_agents(include_stale=include_stale)
+    return {"agents": agents, "count": len(agents)}
+
+
+@router.get("/agents/{agent_id}")
+async def agents_status_ep(agent_id: str):
+    """Get the status of a specific agent."""
+    from ..intel.agent_registry import AgentRegistry
+    registry = AgentRegistry()
+    status = await registry.get_agent_status(agent_id)
+    if status is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return {"agent": status}
+
+
+@router.post("/agents/{agent_id}/message")
+async def agents_send_message_ep(agent_id: str, request: Request):
+    """Send a message to another agent."""
+    from ..intel.agent_registry import AgentRegistry
+    body = await request.json()
+    message_type = body.get("type", "generic")
+    payload = body.get("payload", {})
+    registry = AgentRegistry()
+    result = await registry.send_message(
+        sender_id="api_user",
+        recipient_id=agent_id,
+        message={"type": message_type, "payload": payload, "source": "api"},
+    )
+    return {"ok": result, "recipient": agent_id}
+
+
+@router.get("/agents/{agent_id}/messages")
+async def agents_read_messages_ep(agent_id: str):
+    """Read messages addressed to an agent."""
+    from ..intel.agent_registry import AgentRegistry
+    registry = AgentRegistry()
+    messages = await registry.read_messages(agent_id)
+    return {"messages": messages, "count": len(messages)}
+
+
+
 @router.get("/self/predict")
 async def self_predict_ep(task_type: str, domain: str,
                           entity_type: str | None = None):

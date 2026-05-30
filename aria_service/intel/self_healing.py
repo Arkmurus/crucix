@@ -874,6 +874,12 @@ class SelfHealingOrchestrator:
         except Exception as e:
             logger.warning("[self_healing] Could not start deadlock detector: %s", e)
 
+        # R-F1172 — start agent registry heartbeat ticker
+        self._tasks.append(asyncio.create_task(
+            self._agent_heartbeat_loop(),
+            name="self_healing.agent_heartbeat",
+        ))
+
         logger.info("[self_healing] All layers started (%d tasks)", len(self._tasks))
 
         wire_success(
@@ -909,6 +915,21 @@ class SelfHealingOrchestrator:
                 break
             except Exception as e:
                 logger.error("[self_healing] Repair loop error: %s", e)
+
+    async def _agent_heartbeat_loop(self) -> None:
+        """Periodic heartbeat to the multi-agent registry."""
+        while self._running:
+            try:
+                await asyncio.sleep(60)  # Every minute
+                if not self._running:
+                    break
+                from .agent_registry import AgentRegistry
+                _reg = AgentRegistry()
+                await _reg.tick_heartbeat("self_healing")
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
 
     async def _diagnostic_loop(self) -> None:
         """Periodic self-diagnostic."""
@@ -978,6 +999,18 @@ async def start_self_healing() -> None:
     """Start the self-healing infrastructure. Called from main.py lifespan."""
     orch = get_orchestrator()
     await orch.start()
+
+    # R-F1172 — register in the multi-agent registry
+    try:
+        from .agent_registry import AgentRegistry
+        _reg = AgentRegistry()
+        await _reg.register(
+            agent_id="self_healing",
+            agent_type="infrastructure",
+            current_task="monitoring system health",
+        )
+    except Exception:
+        pass
 
 
 async def stop_self_healing() -> None:
