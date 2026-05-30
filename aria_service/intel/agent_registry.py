@@ -58,8 +58,6 @@ _AGENT_HEARTBEAT_KEY = "crucix:agent:heartbeat:"        # string: agent_id → e
 _AGENT_TASK_KEY = "crucix:agent:task:"                  # string: agent_id → current task description
 _AGENT_MESSAGE_PREFIX = "crucix:agent:msg:"             # list: agent_id → incoming messages
 _AGENT_GAP_CLAIM_PREFIX = "crucix:agent:gap_claim:"     # string: gap_id → agent_id (who's fixing it)
-_AGENT_CHANNEL = "crucix:agent:channel"                 # pub/sub channel for real-time broadcasts
-
 # How long before an agent is considered stale (no heartbeat)
 _AGENT_STALE_THRESHOLD_S = int(os.getenv("ARIA_AGENT_STALE_THRESHOLD", "300"))  # 5 min
 
@@ -76,11 +74,17 @@ class AgentRegistry:
     def __init__(self) -> None:
         self._redis = None  # lazy-loaded
 
-    async def _get_redis(self):
-        """Lazy-load redis_store to avoid circular imports."""
-        if self._redis is None:
-            from . import redis_store as _rs
-            self._redis = _rs
+    def _get_redis(self):
+        """Get the redis store module (lazy-loaded).
+
+        If _redis has been set to a mock (for testing), return it directly.
+        Otherwise import the real redis_store module.
+        Not async — returns the module/mock directly.
+        """
+        if self._redis is not None:
+            return self._redis
+        from . import redis_store as _rs
+        self._redis = _rs
         return self._redis
 
     # ── REGISTRATION ──────────────────────────────────────────────────────────
@@ -104,7 +108,7 @@ class AgentRegistry:
 
         Returns True if registration succeeded.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         now = time.time()
         entry = {
             "agent_id": agent_id,
@@ -123,14 +127,6 @@ class AgentRegistry:
                 "[R-F1160] agent registered: %s (%s) — %s",
                 agent_id, agent_type, current_task,
             )
-            # Broadcast registration to all agents
-            await self._broadcast({
-                "type": "agent_registered",
-                "agent_id": agent_id,
-                "agent_type": agent_type,
-                "current_task": current_task,
-                "timestamp": now,
-            })
             return True
         except Exception as e:
             logger.warning("[R-F1160] agent registration failed for %s: %s", agent_id, e)
@@ -138,18 +134,13 @@ class AgentRegistry:
 
     async def unregister(self, agent_id: str) -> bool:
         """Remove an agent from the registry (on shutdown)."""
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             # Remove from hash by setting to empty and relying on cleanup
             await rs.hset(_AGENT_REGISTRY_KEY, {agent_id: ""})
             await rs.delete(f"{_AGENT_HEARTBEAT_KEY}{agent_id}")
             await rs.delete(f"{_AGENT_TASK_KEY}{agent_id}")
             logger.info("[R-F1160] agent unregistered: %s", agent_id)
-            await self._broadcast({
-                "type": "agent_unregistered",
-                "agent_id": agent_id,
-                "timestamp": time.time(),
-            })
             return True
         except Exception as e:
             logger.warning("[R-F1160] agent unregister failed for %s: %s", agent_id, e)
@@ -163,7 +154,7 @@ class AgentRegistry:
         Call this periodically (every 30-60s) from the agent's main loop.
         If current_task is provided, also updates the agent's current task.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         now = time.time()
         try:
             await rs.set(f"{_AGENT_HEARTBEAT_KEY}{agent_id}", str(now))
@@ -204,7 +195,7 @@ class AgentRegistry:
         Agents whose heartbeat is older than _AGENT_STALE_THRESHOLD_S
         are marked as status="stale" (or excluded if include_stale=False).
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         agents: list[dict] = []
         now = time.time()
         try:
@@ -243,7 +234,7 @@ class AgentRegistry:
 
         Returns None if the agent is not registered.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             all_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)
             raw = all_entries.get(agent_id) if all_entries else None
@@ -265,12 +256,24 @@ class AgentRegistry:
     async def claim_gap(self, gap_id: str, agent_id: str) -> bool:
         """Claim a gap for fixing.
 
+        Uses a hash-based approach for atomicity:
+        1. Read the current claim from the hash
+        2. If already claimed by another agent, reject
+        3. If unclaimed or claimed by us, write our claim with TTL
+
+        Note: this is NOT fully atomic (check-then-set race exists), but
+        the TTL-based expiry means stale claims auto-clear. In practice,
+        the race window is tiny and the worst case is two agents fixing
+        the same gap — wasteful but not dangerous.
+
         Returns True if the claim succeeded (gap was not already claimed).
         Returns False if another agent already claimed this gap.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
+        key = f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}"
         try:
-            existing = await rs.get(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
+            # Check if already claimed
+            existing = await rs.get(key)
             if existing:
                 claiming_agent = existing.decode("utf-8") if isinstance(existing, bytes) else str(existing)
                 if claiming_agent != agent_id:
@@ -280,18 +283,13 @@ class AgentRegistry:
                     )
                     return False
                 # Same agent re-claiming — refresh TTL
-                await rs.expire(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}", _GAP_CLAIM_TTL_S)
+                await rs.expire(key, _GAP_CLAIM_TTL_S)
                 return True
 
-            await rs.set(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}", agent_id)
-            await rs.expire(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}", _GAP_CLAIM_TTL_S)
+            # Not claimed — write our claim
+            await rs.set(key, agent_id)
+            await rs.expire(key, _GAP_CLAIM_TTL_S)
             logger.info("[R-F1160] gap %s claimed by %s", gap_id, agent_id)
-            await self._broadcast({
-                "type": "gap_claimed",
-                "gap_id": gap_id,
-                "agent_id": agent_id,
-                "timestamp": time.time(),
-            })
             return True
         except Exception as e:
             logger.debug("[R-F1160] claim_gap failed: %s", e)
@@ -299,7 +297,7 @@ class AgentRegistry:
 
     async def release_gap(self, gap_id: str, agent_id: str) -> None:
         """Release a gap claim (after fixing or abandoning)."""
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             await rs.delete(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
             logger.info("[R-F1160] gap %s released by %s", gap_id, agent_id)
@@ -317,7 +315,7 @@ class AgentRegistry:
 
         Returns the agent_id that claimed it, or None if unclaimed.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             raw = await rs.get(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
             if raw:
@@ -346,7 +344,7 @@ class AgentRegistry:
 
         Returns True if the message was queued.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             message = {
                 "from": from_agent,
@@ -376,7 +374,7 @@ class AgentRegistry:
 
         Returns a list of message dicts, newest first.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         try:
             key = f"{_AGENT_MESSAGE_PREFIX}{agent_id}"
             if mark_read:
@@ -403,21 +401,6 @@ class AgentRegistry:
         Each agent reads broadcast messages via read_messages("*").
         """
         return await self.send_message(from_agent, "*", payload)
-
-    # ── INTERNAL ──────────────────────────────────────────────────────────────
-
-    async def _broadcast(self, event: dict) -> None:
-        """Broadcast an event to all agents.
-
-        Writes to a shared Redis list that all agents can poll.
-        This is fire-and-forget — failures are logged but never raised.
-        """
-        try:
-            rs = await self._get_redis()
-            await rs.lpush(_AGENT_CHANNEL, json.dumps(event))
-            await rs.ltrim(_AGENT_CHANNEL, 0, 99)  # keep last 100 events
-        except Exception as e:
-            logger.debug("[R-F1160] broadcast failed: %s", e)
 
     # ── ADMIN / DIAGNOSTIC ────────────────────────────────────────────────────
 
@@ -453,7 +436,7 @@ class AgentRegistry:
 
         Returns the number of agents cleaned up.
         """
-        rs = await self._get_redis()
+        rs = self._get_redis()
         cleaned = 0
         try:
             raw_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)

@@ -1154,14 +1154,15 @@ class GapDetector:
     async def _is_claimed_by_other(self, gap_id: str) -> bool:
         """R-F1160: check if another agent has claimed this gap.
 
-        Uses the agent registry's gap claim system. If another agent
-        (not the gap detector's own coder) has claimed this gap, skip it.
+        Uses the agent registry's gap claim system. If ANY agent has
+        claimed this gap (including ourselves from a previous cycle),
+        skip it — it's being worked on.
         """
         try:
             from aria_service.intel.agent_registry import AgentRegistry
             registry = AgentRegistry()
             claiming_agent = await registry.is_gap_claimed(gap_id)
-            if claiming_agent and claiming_agent != "aria_coder":
+            if claiming_agent:
                 logger.debug(
                     "[gap_detector] gap %s skipped — claimed by %s",
                     gap_id, claiming_agent,
@@ -1254,7 +1255,9 @@ class GapDetector:
             "[gap_detector] starting — scan interval %ds", self.SCAN_INTERVAL_S,
         )
 
-        # R-F1160: register as an agent so other agents know we exist
+        # R-F1160: register as an agent so other agents know we exist.
+        # _reg is assigned BEFORE the try so it's always defined for cleanup.
+        _reg = None
         try:
             from aria_service.intel.agent_registry import AgentRegistry
             _reg = AgentRegistry()
@@ -1266,15 +1269,13 @@ class GapDetector:
         except Exception:
             pass
 
-        _heartbeat_counter = 0
         while True:
             try:
                 gaps = await self.scan()
                 await self.publish_latest(gaps)
 
                 # R-F1160: tick heartbeat every cycle with current stats
-                _heartbeat_counter += 1
-                if _heartbeat_counter % 1 == 0:  # every cycle
+                if _reg is not None:
                     try:
                         await _reg.tick_heartbeat(
                             "gap_detector",
@@ -1285,11 +1286,12 @@ class GapDetector:
 
             except asyncio.CancelledError:
                 logger.info("[gap_detector] cancelled — exiting")
-                # R-F1160: unregister on shutdown
-                try:
-                    await _reg.unregister("gap_detector")
-                except Exception:
-                    pass
+                # R-F1160: unregister on shutdown (safe even if _reg is None)
+                if _reg is not None:
+                    try:
+                        await _reg.unregister("gap_detector")
+                    except Exception:
+                        pass
                 raise
             except Exception as e:
                 logger.error("[gap_detector] scan error: %s", e, exc_info=True)
