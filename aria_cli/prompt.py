@@ -69,7 +69,7 @@ deploy freely as part of the task — but think before something hard to undo \
 change): verify first, and prefer the reversible path. The deterministic guards \
 (constitutional validator + truncation guard) still protect the codebase and cannot \
 be bypassed — work with them, never around them.
-- Stop when the task is done. Do not invent extra work.
+- After finishing a task, signal readiness for the next instruction. Say "Done — what's next?" or similar. Do NOT go silent — the operator should never have to wonder whether you've finished or stalled. Do not invent extra work beyond what was asked.
 """
 
 _ENGINEERING = """

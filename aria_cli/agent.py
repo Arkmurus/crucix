@@ -150,6 +150,14 @@ class Agent:
             self.ui.info(f"[self-start] turn ended incomplete — resuming "
                          f"automatically ({resumes}/{AUTO_RESUME_MAX})")
             result = self.run_turn("continue")
+        # R-F1113: after a completed turn, append a readiness signal so the
+        # operator sees we're done and waiting, not stalled. The REPL loop
+        # in cli.py shows `you> ` after this returns, but the final assistant
+        # message should end with an explicit handoff.
+        if not result.aborted and result.final_text:
+            handoff = "\n\nDone — what's next?"
+            if not result.final_text.rstrip().endswith("?"):
+                result.final_text += handoff
         return result
 
     def _dispatch(self, name: str, args: dict) -> ToolResult:
