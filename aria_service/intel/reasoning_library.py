@@ -876,6 +876,13 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     if best_idx is None or best_score < threshold:
         _mark_meta_dirty()  # R-F268
         await _save_meta()
+        # R-F1169 — wire no-match to brain so ARIA learns what she doesn't know
+        from .engine_wiring import wire_success
+        wire_success(
+            module="reasoning_library",
+            summary=f"No match found (best score {best_score:.3f} < threshold {threshold})",
+            source_id="reasoning_library:no_match",
+        )
         return {"match": False, "score": best_score, "case": None, "method": best_method, "threshold": threshold}
 
     # Load the full case

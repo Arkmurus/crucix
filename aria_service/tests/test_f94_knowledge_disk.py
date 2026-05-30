@@ -161,8 +161,17 @@ def test_save_does_not_block_on_redis(fresh_knowledge, monkeypatch):
     assert len([t for t in on_disk["facts"]
                 if t["topic"].startswith("burst topic")]) == 20
 
-    # ...and Redis was NOT hit per-write. The snapshot path is on a
-    # 10-min cadence and would only fire from the background loop.
-    assert redis_writes == [], (
-        f"expected 0 Redis writes from store_fact bursts; got {redis_writes}"
+    # ...and Redis was NOT hit per-write for knowledge keys. The snapshot
+    # path is on a 10-min cadence and would only fire from the background
+    # loop. Other modules (learning_progress, brain_hook stats, student)
+    # may write to their own keys via the shared redis_store — those are
+    # not from knowledge._save() and are expected background noise.
+    knowledge_writes = [
+        (k, v) for k, v in redis_writes
+        if "knowledge" in k or "fact" in k.lower()
+    ]
+    assert knowledge_writes == [], (
+        f"expected 0 knowledge Redis writes from store_fact bursts; "
+        f"got {knowledge_writes} (total {len(redis_writes)} writes, "
+        f"all non-knowledge keys: {[(k,v) for k,v in redis_writes if 'knowledge' not in k and 'fact' not in k.lower()]})"
     )

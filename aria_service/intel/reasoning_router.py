@@ -121,6 +121,7 @@ async def _save_stats() -> None:
     _stats_dirty = False
 
 async def _record_routing(source: str) -> None:
+    """Record a routing decision to local stats + brain."""
     stats = await _load_stats()
     stats["total_queries"] = stats.get("total_queries", 0) + 1
     by_source = stats.setdefault("by_source", {})
@@ -128,6 +129,16 @@ async def _record_routing(source: str) -> None:
     stats["last_query"] = time.time()
     _mark_stats_dirty()  # R-F268 — actual routing observation
     await _save_stats()
+    # R-F1169 — wire routing decision to brain
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="reasoning_router",
+            summary=f"Routed to {source}",
+            source_id=f"reasoning_router:{source}",
+        )
+    except Exception:
+        pass
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -424,6 +435,16 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         }
 
     # ── Stage 6: Escalate to cloud LLM ───────────────────────────────────
+    # R-F1169 — wire escalation to brain so ARIA tracks cloud dependency
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="reasoning_router",
+            summary=f"Escalating to cloud LLM (local sources exhausted)",
+            source_id="reasoning_router:escalate_to_cloud",
+        )
+    except Exception:
+        pass
     return {
         "answered": False,
         "escalate_to": "cloud_llm",
