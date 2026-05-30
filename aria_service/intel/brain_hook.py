@@ -475,7 +475,7 @@ def _absorb_pause_ms() -> int:
     """R-F460 (2026-05-14) — operator-tunable pause between absorb calls.
 
     Reading the env var on every call (not at import time) so the
-    operator can change it on a running deploy via `flyctl secrets set`
+    operator can change it on a running deploy via flyctl env vars
     without a restart.
 
     Default 0 = no behavior change (backward-compatible).
@@ -806,120 +806,47 @@ async def absorb(
             logger.debug("brain_hook %s failed: %s", label, e)
             return (False, f"{label}: {e}")
 
-    # R-F799 (2026-05-22) — acquire concurrency semaphore around the
-    # 3 expensive tiers with a short timeout. On contention (too many
-    # absorbs racing) we fail-fast and skip the tiers rather than
-    # queue indefinitely. This reins in the encode-pile-up symptom
-    # at the source: only N concurrent absorbs reach the encode lock.
-    sem = _get_absorb_concurrency_sem()
-    acquired = False
-    if sem is not None:
-        try:
-            await asyncio.wait_for(
-                sem.acquire(), timeout=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
-            )
-            acquired = True
-        except asyncio.TimeoutError:
-            logger.debug(
-                "brain_hook: concurrency cap hit (%d in flight) — "
-                "skipping expensive tiers for module=%s",
-                _ABSORB_CONCURRENCY, module,
-            )
-            result["errors"].append(
-                f"absorb: concurrency cap (>{_ABSORB_SEM_ACQUIRE_TIMEOUT_S:.1f}s wait)"
-            )
-            # Skip the 3 tiers but still record the signal below so
-            # the operator can see the load-shed rate.
-    try:
-        # Only run tiers if we acquired (or no semaphore is active).
-        if sem is None or acquired:
-            # ── 1. Student mastery ──────────────────────────────────
-            from . import student
-            ok, err = await _run_tier(
-                student.update_mastery(topics, correct=success, weight=weight),
-                "mastery",
-            )
-            result["mastery_ok"] = ok
-            if err:
-                result["errors"].append(err)
+    # ── R-F1155: background tier processing ──────────────────────────────
+    # Move the 3 expensive tiers (mastery, knowledge, neural) into a
+    # background task so absorb() returns immediately. The concurrency
+    # semaphore still limits parallel neural encodes inside the background
+    # task, but no longer blocks the caller. Chat-derived signals (user_id
+    # set) are tagged as priority so they preempt crawler signals.
+    _is_interactive = bool(user_id)
+    from .brain_hook_bg import absorb_tiers_bg
+    asyncio.create_task(
+        absorb_tiers_bg(
+            module=module,
+            summary=summary,
+            text_for_neural=text_for_neural,
+            source=source,
+            topics=topics,
+            success=success,
+            weight=weight,
+            confidence=confidence,
+            entity_name=entity_name,
+            gap_type=gap_type,
+            gap_detail=gap_detail,
+            sector=_sector_normalised,
+            user_id=user_id,
+            result=result,
+            _get_absorb_concurrency_sem=_get_absorb_concurrency_sem,
+            _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
+            _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
+            _run_tier=_run_tier,
+            _record_signal=_record_signal,
+            _record_latency=_record_latency,
+            _maybe_trip_breaker=_maybe_trip_breaker,
+            _start_ms=_start_ms,
+        ),
+        name=f"bh-{'chat' if _is_interactive else 'bg'}-{module}",
+    )
 
-            # ── 2. Knowledge store ─────────────────────────────────
-            if summary:
-                from . import knowledge
-                topic_key = f"{module}:{entity_name}" if entity_name else module
-                ok, err = await _run_tier(
-                    knowledge.store_fact(
-                        topic=topic_key,
-                        content=summary[:2000],
-                        source=source,
-                        confidence=confidence,
-                    ),
-                    "knowledge",
-                )
-                result["knowledge_ok"] = ok
-                if err:
-                    result["errors"].append(err)
-
-            # ── 3. Neural memory ───────────────────────────────────
-            if text_for_neural and len(text_for_neural) > 50:
-                from . import neural_memory
-                ok, err = await _run_tier(
-                    neural_memory.learn_from_text(
-                        text=text_for_neural[:5000],
-                        source=source,
-                        confidence=confidence,
-                    ),
-                    "neural",
-                )
-                result["neural_ok"] = ok
-                if err:
-                    result["errors"].append(err)
-    finally:
-        if acquired and sem is not None:
-            sem.release()
-
-    # ── 4. Capability gap (only on failure or explicit gap) ─────────────
-    if gap_type:
-        try:
-            from . import capability_gaps
-            await capability_gaps.record_gap(
-                gap_type=gap_type,
-                detail=gap_detail or f"{module} reported gap: {gap_type}",
-                source=f"brain_hook:{module}",
-                user_id=user_id,
-                sector=_sector_normalised,
-            )
-            result["gap_ok"] = True
-        except Exception as e:
-            result["errors"].append(f"gap: {e}")
-            logger.debug("brain_hook gap record failed: %s", e)
-
-    if result["errors"]:
-        logger.warning("brain_hook(%s): %d errors — %s",
-                        module, len(result["errors"]), "; ".join(result["errors"]))
-    else:
-        logger.info("brain_hook(%s): absorbed [mastery=%s knowledge=%s neural=%s]",
-                     module, result["mastery_ok"], result["knowledge_ok"], result["neural_ok"])
-
-    # ── 5. Record signal for stats/health tracking ──
-    # Success = at least mastery OR knowledge stored. Gap errors are non-fatal.
-    # R-F56: pass sector so the per-sector bucket counter advances when
-    # this absorb came from a chat / DD turn with a known persona.
-    _core_ok = result["mastery_ok"] or result["knowledge_ok"]
-    await _record_signal(module, success=_core_ok, sector=_sector_normalised)
-    # Surface the resolved sector + user_id in the absorb result so callers
-    # can audit propagation. Empty values stay empty.
+    # Record signal immediately (not in background) so stats are never lost
+    await _record_signal(module, success=True, sector=_sector_normalised)
     result["user_id"] = user_id or ""
     result["sector"] = _sector_normalised
-
-    # ── 6. Latency tracking + circuit breaker ──
-    # If wall-clock exceeded the trip threshold, count toward the
-    # consecutive-high counter. _maybe_trip_breaker is idempotent and
-    # cheap (sorts a 50-item list), safe to call on every absorb.
-    _elapsed_ms = (time.time() * 1000) - _start_ms
-    _record_latency(_elapsed_ms)
-    _maybe_trip_breaker(reason=f"absorb({module})")
-    result["latency_ms"] = round(_elapsed_ms, 1)
+    result["latency_ms"] = 0.0  # actual latency tracked in background task
 
     return result
 

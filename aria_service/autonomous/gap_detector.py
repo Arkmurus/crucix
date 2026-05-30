@@ -619,12 +619,17 @@ class CapabilityGapExtractor:
     # capability_gap "type" → (GapType, GapSeverity). Unknown types map to
     # MISSING_CAPABILITY (auto_fixable=False → operator decides), so a novel
     # gap class never silently drives an auto-fix.
+    # R-F1155: added infra_degraded and blackout — these were being recorded
+    # by self_restart and self_healing but falling through to MISSING_CAPABILITY
+    # (auto_fixable=False), so the coder never touched them.
     _TYPE_MAP = {
-        "file_parse": (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
-        "document":   (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
-        "source":     (GapType.SOURCE_FAILURE, GapSeverity.MEDIUM),
-        "data":       (GapType.DATA_GAP, GapSeverity.MEDIUM),
-        "knowledge":  (GapType.DATA_GAP, GapSeverity.MEDIUM),
+        "file_parse":     (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
+        "document":       (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
+        "source":         (GapType.SOURCE_FAILURE, GapSeverity.MEDIUM),
+        "data":           (GapType.DATA_GAP, GapSeverity.MEDIUM),
+        "knowledge":      (GapType.DATA_GAP, GapSeverity.MEDIUM),
+        "infra_degraded": (GapType.PERFORMANCE, GapSeverity.MEDIUM),
+        "blackout":       (GapType.PERFORMANCE, GapSeverity.HIGH),
     }
 
     def __init__(self, redis_client: Any) -> None:
@@ -1142,11 +1147,23 @@ class GapDetector:
         except Exception:
             return False
 
-    async def mark_attempted(self, gap_id: str) -> None:
+    async def mark_attempted(self, gap_id: str, failed: bool = False) -> None:
+        """Mark a gap as attempted.
+
+        Args:
+            gap_id: The gap ID.
+            failed: If True, the attempt failed — use a SHORTER cooldown
+                    so the coder retries sooner rather than waiting the
+                    full ATTEMPT_COOLDOWN_S. R-F1155: previously all
+                    attempts used the same cooldown, so a gap that failed
+                    (e.g. test failure, constitutional block) was invisible
+                    to the coder for 1 hour even though it needed a retry.
+        """
+        cooldown = self.ATTEMPT_COOLDOWN_S // 6 if failed else self.ATTEMPT_COOLDOWN_S
         try:
             await self.redis.setex(
                 f"{self.ATTEMPTED_KEY_PREFIX}{gap_id}",
-                self.ATTEMPT_COOLDOWN_S, "1",
+                cooldown, "1",
             )
         except Exception as e:
             logger.warning("[gap_detector] mark_attempted failed: %s", e)
@@ -1161,6 +1178,24 @@ class GapDetector:
             logger.warning("[gap_detector] mark_fixed failed: %s", e)
         self._active_gaps.pop(gap_id, None)
         logger.info("[gap_detector] gap %s → R-F%d (fixed)", gap_id, r_number)
+
+    async def verify_fixed(self, gap: Gap) -> bool:
+        """R-F1155: post-fix verification — re-run the relevant extractor
+        to confirm the gap is no longer present.
+
+        Returns True if the gap is confirmed fixed (no longer detected),
+        False if it still exists and needs a retry.
+        """
+        since = datetime.now(timezone.utc) - timedelta(minutes=5)
+        for extractor in self.extractors:
+            try:
+                gaps = await extractor.extract(since)
+                for g in gaps:
+                    if g.gap_id == gap.gap_id:
+                        return False
+            except Exception:
+                continue
+        return True
 
     async def publish_latest(self, gaps: list[Gap]) -> None:
         try:
