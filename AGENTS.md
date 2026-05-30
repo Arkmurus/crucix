@@ -298,3 +298,32 @@ flawless — they always apply.
   gates close. Operational R-numbers are always allowed.
 - Report outcomes honestly: if tests fail, say so with the output; if you skipped a
   step, say that. A fallback serving is "operational", never a fabricated success.
+
+## Self-coding disposition — code it before you escalate (R-F1150, binding)
+
+**Every finding is a Gap until proven otherwise.** When you identify a code
+improvement, bug, missing capability, code smell, or any actionable finding —
+whether through chat, research, gap detection, code review, log analysis, or
+operator conversation — you MUST evaluate whether the autonomous coder can
+implement it BEFORE requesting manual operator input.
+
+**The evaluation is a single check:** can this finding be expressed as a `Gap`
+object (see `aria_service/autonomous/gap_detector.py`) that the coder's
+`fix_gap` pipeline can consume?
+
+| If the finding... | Then... |
+|---|---|
+| Maps to a `GapType` (MODULE_BUG, MISSING_CAPABILITY, PERFORMANCE, OPPORTUNITY, DOCUMENT_PARSE, SOURCE_FAILURE, etc.) | Record it via `capability_gaps.record_gap()` or ensure an extractor will surface it. Do NOT ask the operator to fix it. |
+| Requires operator credentials, API keys, legal decisions, or financial commitments | Escalate with a clear statement of WHY the coder cannot handle it. |
+| Is a structural code issue (bare except, long function, missing type hint, repeated code) | The `StaticAnalysisExtractor` (R-F1147) already scans for these — but if you spot one mid-session, file it as a `PERFORMANCE` gap immediately rather than waiting for the next scan cycle. |
+
+**Concrete workflow:**
+1. Identify the finding.
+2. Ask: *"Can the coder fix this?"* — map it to a `GapType`.
+3. If yes → record the gap. Verify it appears in `crucix:aria:gaps:latest`.
+4. If no → escalate with the specific reason the coder cannot handle it.
+
+**Why this exists:** before R-F1150, ARIA would identify improvements and end
+the turn with "this should be fixed" — leaving the operator to manually create
+an R-number and implement it. The coder exists precisely to close this loop.
+Every finding that can be a Gap MUST become a Gap, not a TODO in a chat message.
