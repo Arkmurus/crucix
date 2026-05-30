@@ -108,7 +108,6 @@ class AgentRegistry:
 
         Returns True if registration succeeded.
         """
-        rs = self._get_redis()
         now = time.time()
         entry = {
             "agent_id": agent_id,
@@ -120,6 +119,7 @@ class AgentRegistry:
             "metadata": metadata or {},
         }
         try:
+            rs = self._get_redis()
             await rs.hset(_AGENT_REGISTRY_KEY, {agent_id: json.dumps(entry)})
             await rs.set(f"{_AGENT_HEARTBEAT_KEY}{agent_id}", str(now))
             await rs.set(f"{_AGENT_TASK_KEY}{agent_id}", current_task)
@@ -134,8 +134,8 @@ class AgentRegistry:
 
     async def unregister(self, agent_id: str) -> bool:
         """Remove an agent from the registry (on shutdown)."""
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             # Remove from hash by setting to empty and relying on cleanup
             await rs.hset(_AGENT_REGISTRY_KEY, {agent_id: ""})
             await rs.delete(f"{_AGENT_HEARTBEAT_KEY}{agent_id}")
@@ -154,9 +154,9 @@ class AgentRegistry:
         Call this periodically (every 30-60s) from the agent's main loop.
         If current_task is provided, also updates the agent's current task.
         """
-        rs = self._get_redis()
-        now = time.time()
         try:
+            rs = self._get_redis()
+            now = time.time()
             await rs.set(f"{_AGENT_HEARTBEAT_KEY}{agent_id}", str(now))
             if current_task is not None:
                 await rs.set(f"{_AGENT_TASK_KEY}{agent_id}", current_task)
@@ -195,10 +195,10 @@ class AgentRegistry:
         Agents whose heartbeat is older than _AGENT_STALE_THRESHOLD_S
         are marked as status="stale" (or excluded if include_stale=False).
         """
-        rs = self._get_redis()
         agents: list[dict] = []
-        now = time.time()
         try:
+            rs = self._get_redis()
+            now = time.time()
             raw_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)
             if not raw_entries:
                 return agents
@@ -234,8 +234,8 @@ class AgentRegistry:
 
         Returns None if the agent is not registered.
         """
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             all_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)
             raw = all_entries.get(agent_id) if all_entries else None
             if not raw:
@@ -269,9 +269,9 @@ class AgentRegistry:
         Returns True if the claim succeeded (gap was not already claimed).
         Returns False if another agent already claimed this gap.
         """
-        rs = self._get_redis()
-        key = f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}"
         try:
+            rs = self._get_redis()
+            key = f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}"
             # Check if already claimed
             existing = await rs.get(key)
             if existing:
@@ -297,8 +297,8 @@ class AgentRegistry:
 
     async def release_gap(self, gap_id: str, agent_id: str) -> None:
         """Release a gap claim (after fixing or abandoning)."""
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             await rs.delete(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
             logger.info("[R-F1160] gap %s released by %s", gap_id, agent_id)
             await self._broadcast({
@@ -315,8 +315,8 @@ class AgentRegistry:
 
         Returns the agent_id that claimed it, or None if unclaimed.
         """
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             raw = await rs.get(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
             if raw:
                 return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
@@ -344,8 +344,8 @@ class AgentRegistry:
 
         Returns True if the message was queued.
         """
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             message = {
                 "from": from_agent,
                 "to": to_agent,
@@ -374,8 +374,8 @@ class AgentRegistry:
 
         Returns a list of message dicts, newest first.
         """
-        rs = self._get_redis()
         try:
+            rs = self._get_redis()
             key = f"{_AGENT_MESSAGE_PREFIX}{agent_id}"
             if mark_read:
                 raw_messages = await rs.lrange(key, 0, _MAX_MESSAGES_PER_AGENT - 1)
@@ -436,9 +436,9 @@ class AgentRegistry:
 
         Returns the number of agents cleaned up.
         """
-        rs = self._get_redis()
-        cleaned = 0
         try:
+            rs = self._get_redis()
+            cleaned = 0
             raw_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)
             if not raw_entries:
                 return 0

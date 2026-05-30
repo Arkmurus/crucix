@@ -312,8 +312,8 @@ async def test_error_resilience():
     """Registry operations fail open when Redis is unavailable."""
     reg = AgentRegistry()
 
-    # Make _get_redis raise an exception
-    async def _broken_redis():
+    # Make _get_redis raise an exception (sync, since _get_redis is now sync)
+    def _broken_redis():
         raise ConnectionError("Redis unavailable")
 
     reg._get_redis = _broken_redis
