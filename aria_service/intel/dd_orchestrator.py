@@ -70,6 +70,7 @@ from .dd_schema import (
 
 logger = logging.getLogger("aria.dd_orchestrator")
 
+from .engine_wiring import wired  # R-F1121 — @wired decorator for brain sinks
 
 # R-F896 — flag-level DD goods-screening severities worth recording to the brain
 # as compliance catches. Engine vocab is info/amber/red/hard_stop; routine
@@ -5618,6 +5619,12 @@ def _validate_entity_name(name: str) -> tuple[bool, str]:
 # (49 sources, 5-7 min cadence).
 
 
+@wired(
+    module="dd_orchestrator.sweep_intelligence",
+    summary="Sweep intelligence query completed",
+    detail="Layer 5b sweep intelligence query for target entity",
+    gap_type="sweep_intelligence_failure",
+)
 async def _run_sweep_intelligence(target: dict, report: ARKDDReport) -> None:
     """Layer 5b — Sweep intelligence. Queries brain for recent sweep signals.
 
@@ -5773,7 +5780,7 @@ async def _run_sweep_intelligence(target: dict, report: ARKDDReport) -> None:
     report.sweep_data.meta.duration_ms = int((time.time() - t0) * 1000)
     report.sweep_data.meta.status = (
         LayerStatus.OK.value if not report.sweep_data.data_gaps
-        else LayerStatus.DEGRADED.value
+        else LayerStatus.PARTIAL.value
     )
 
 

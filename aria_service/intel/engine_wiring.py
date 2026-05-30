@@ -6,12 +6,17 @@ capability_gaps, mistake_ledger) sees every engine's output.
 
 Usage:
     
-
     # On success:
     wire_success("my_engine", "Summary of what happened", detail="...")
 
     # On failure:
     wire_failure("my_engine", "What went wrong", gap_type="engine_failure")
+
+    # As a decorator (R-F1121):
+    @wired(module="my_engine", summary="Analysis complete for {entity_name}")
+    async def my_engine(entity_name: str) -> dict:
+        ...
+        return result
 
 R-F1022 — these helpers are STRICTLY fire-and-forget and MUST NOT block the
 caller. In a running event loop they schedule a task; in a sync/CLI context
@@ -25,8 +30,10 @@ dropped — never blocked."""
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import threading
+from typing import Any, Callable, Coroutine, Optional
 
 logger = logging.getLogger("aria.engine_wiring")
 
@@ -122,3 +129,99 @@ def _noop_callback(t: "asyncio.Task") -> None:
             t.exception()
     except (asyncio.CancelledError, Exception):
         pass
+
+
+# ── @wired decorator (R-F1121) ──────────────────────────────────────────────
+
+def wired(
+    module: str = "",
+    *,
+    summary: str = "",
+    detail: str = "",
+    entity_arg: str = "",
+    confidence: str = "ASSESSED",
+    gap_type: str = "engine_failure",
+    capture_result: bool = False,
+) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., Coroutine[Any, Any, Any]]]:
+    """Decorator that auto-wires an async function's success and failure to the brain.
+
+    Usage::
+
+        @wired(module="my_engine", summary="Analysis complete")
+        async def my_func(entity_name: str) -> dict:
+            ...
+
+    On success: calls ``wire_success(module, summary, ...)``.
+    On exception: calls ``wire_failure(module, detail, gap_type=gap_type)``.
+
+    Args:
+        module: Module name for brain signals. Defaults to the function's
+            ``__module__`` if empty.
+        summary: Summary template. Supports ``{arg_name}`` placeholders
+            that are filled from the function's keyword arguments.
+        detail: Detail template (same placeholder support).
+        entity_arg: Name of the keyword argument to use as ``entity_name``
+            in the success signal. If empty, no entity name is sent.
+        confidence: Confidence level for success signals.
+        gap_type: Gap type for failure signals.
+        capture_result: If True, the return value's ``__str__`` (first 300
+            chars) is appended to the success detail. Use sparingly — most
+            engines should write their own summary.
+    """
+    def _decorator(
+        func: Callable[..., Coroutine[Any, Any, Any]],
+    ) -> Callable[..., Coroutine[Any, Any, Any]]:
+        _module = module or func.__module__
+        _name = func.__name__
+
+        @functools.wraps(func)
+        async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Build summary/detail from kwargs placeholders
+            _summary = summary
+            _detail = detail
+            if kwargs:
+                try:
+                    _summary = summary.format(**kwargs)
+                except (KeyError, ValueError):
+                    _summary = summary
+                try:
+                    _detail = detail.format(**kwargs)
+                except (KeyError, ValueError):
+                    _detail = detail
+
+            _entity = kwargs.get(entity_arg, "") if entity_arg else ""
+
+            try:
+                result = await func(*args, **kwargs)
+            except Exception as exc:
+                _fail_detail = _detail or f"{_name}: {exc}"
+                wire_failure(
+                    module=_module,
+                    detail=_fail_detail[:600],
+                    gap_type=gap_type,
+                    source=_module,
+                )
+                raise
+
+            # Success path
+            _success_detail = _detail
+            if capture_result and result is not None:
+                _result_str = str(result)[:300]
+                if _success_detail:
+                    _success_detail = f"{_success_detail} | result: {_result_str}"
+                else:
+                    _success_detail = _result_str
+
+            wire_success(
+                module=_module,
+                summary=_summary or f"{_name} completed",
+                detail=_success_detail,
+                entity_name=_entity,
+                confidence=confidence,
+                source_id=_module,
+            )
+            return result
+
+        return _wrapper
+
+    return _decorator
