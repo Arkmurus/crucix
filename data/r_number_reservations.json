@@ -5985,18 +5985,20 @@
       "title": "Memory leak detector with growth-rate analysis",
       "claimed_at": "2026-05-30T20:15:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d9ae95b",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:18:06Z"
     },
     {
       "r_number": "R-F1149",
       "title": "Deadlock detector with stack capture",
       "claimed_at": "2026-05-30T20:15:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d9ae95b",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:18:06Z"
     }
   ]
 }
