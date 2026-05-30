@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1168,
+  "next_available": 1169,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6165,14 +6165,25 @@
       "title": "Fix remaining 360 DD issues — wire dark modules, fix adversarial staleness, improve grounded_rate visibility",
       "claimed_at": "2026-05-30T22:44:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "57628cda",
+      "notes": null,
+      "shipped_at": "2026-05-30T22:56:37Z"
     },
     {
       "r_number": "R-F1167",
       "title": "Clean brain_hook duplicate module entries in _MODULE_TOPICS and _MODULE_WEIGHT",
       "claimed_at": "2026-05-30T22:47:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7f43d6c",
+      "notes": null,
+      "shipped_at": "2026-05-30T22:54:51Z"
+    },
+    {
+      "r_number": "R-F1168",
+      "title": "URL-based research routing: prefer crawl_website when URL detected",
+      "claimed_at": "2026-05-30T23:03:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

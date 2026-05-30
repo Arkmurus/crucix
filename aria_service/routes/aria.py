@@ -4476,7 +4476,7 @@ def _detect_tool_intent(message: str) -> dict | None:
         if dom:
             url = "https://" + dom.group(0).lstrip("/")
 
-    has_investigate = bool(_INVESTIGATE_KW.search(msg))
+        has_investigate = bool(_INVESTIGATE_KW.search(msg))
     has_crawl       = bool(_CRAWL_KW.search(msg))
     has_read        = bool(_READ_KW.search(msg))
     has_profile     = bool(_PROFILE_KW.search(msg))
@@ -4485,6 +4485,28 @@ def _detect_tool_intent(message: str) -> dict | None:
     has_fuzzy       = bool(_FUZZY_KW.search(msg))
     weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
     country_match   = _COUNTRY_RE_TOOL.search(msg)
+
+    # R-F1168 -- URL-based routing: when a URL is present AND the user is
+    # asking for research/investigation, prefer crawl_website over
+    # deep_research. Catches cases where the LLM might choose wrong.
+    _RESEARCH_URL_KW = re.compile(
+        r"\b(?:research|investigate|look\s+(?:into|at|up)|"
+        r"find\s+(?:out\s+)?(?:about|information|details|data)|"
+        r"tell\s+me\s+(?:about|more)|"
+        r"what\s+(?:is|can\s+you\s+tell\s+me\s+about)|"
+        r"who\s+is|analyse|analyze|check\s+(?:out|this)|"
+        r"crawl|spider|scrape|read|extract)\b",
+        re.IGNORECASE,
+    )
+    if url and _RESEARCH_URL_KW.search(msg) and not has_screen and not has_fuzzy:
+        return {
+            "tool": "crawl_website",
+            "url": url,
+            "context": msg,
+            "_reason": "url_research_request",
+        }
+
+
 
     # ── Officeholder questions auto-trigger investigate ──
     # "Who is the current defence minister of Ghana" → fire investigate
