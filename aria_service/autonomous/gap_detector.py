@@ -983,6 +983,75 @@ class StaticAnalysisExtractor:
         )
 
 
+# ── PORTAL COVERAGE EXTRACTOR ────────────────────────────────────────────────
+
+class PortalCoverageExtractor:
+    """R-F1154 — Detects gaps in ARIA's portal registration coverage.
+
+    Runs the portal_coverage_audit to find high-value intelligence portals
+    that ARIA is not registered on. Each unregistered portal produces a
+    GAP_TYPE="portal_registration" gap so the coder can autonomously run
+    the registration pipeline.
+
+    Unlike the Redis-based extractors, this one calls the audit function
+    directly. It respects the same 2h lookback window to avoid flooding.
+    """
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        """Check portal registration status and return gaps for unregistered portals."""
+        if since is not None:
+            age = (datetime.now(timezone.utc) - since).total_seconds()
+            if age > 7200 or age < 0:  # 2 hours max lookback
+                return []
+
+        gaps: list[Gap] = []
+        try:
+            from ..intel.portal_coverage_audit import audit_portal_coverage
+            audit = await audit_portal_coverage()
+        except Exception as e:
+            logger.debug("[PortalCoverageExtractor] audit failed: %s", e)
+            return gaps
+
+        unregistered = audit.get("unregistered", [])
+        if not unregistered:
+            return gaps
+
+        for portal in unregistered[:10]:  # cap at 10 per cycle
+            portal_id = portal.get("id", "unknown")
+            portal_name = portal.get("name", portal_id)
+            portal_url = portal.get("url", "")
+            reg_type = portal.get("registration_type", "unknown")
+            requires_captcha = portal.get("requires_captcha", False)
+
+            detail = (
+                f"Portal '{portal_name}' ({portal_id}) is not registered. "
+                f"URL: {portal_url}. Registration type: {reg_type}. "
+                + ("Requires CAPTCHA — operator action needed." if requires_captcha
+                   else "Can be auto-registered via portal_registry.")
+            )
+
+            gap = Gap(
+                gap_type="portal_registration",
+                severity=GapSeverity.MEDIUM,
+                title=f"Unregistered portal: {portal_name}",
+                detail=detail,
+                module="portal_coverage_audit",
+                evidence={
+                    "portal_id": portal_id,
+                    "portal_name": portal_name,
+                    "url": portal_url,
+                    "registration_type": reg_type,
+                    "requires_captcha": requires_captcha,
+                },
+            )
+            gaps.append(gap)
+
+        return gaps
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -1017,6 +1086,7 @@ class GapDetector:
             MistakeLedgerExtractor(redis_client),     # crucix:mistake_ledger:log (NEW)
             OpportunityExtractor(redis_client),       # R-F826: crucix:chat_audit:log
             StaticAnalysisExtractor(redis_client),    # R-F1147: AST-based code quality
+            PortalCoverageExtractor(redis_client),    # R-F1154: portal registration gaps
         ]
         self._active_gaps: dict[str, Gap] = {}
 

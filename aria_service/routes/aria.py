@@ -11528,15 +11528,34 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
             if sig_type == "whatsapp_group_message":
                 try:
                     from ..intel import compliance_watch as _cw933
-                    await _cw933.capture_message(
+                    _cw_result = await _cw933.capture_message(
                         group=str(metadata.get("group", "")),
                         sender=str(metadata.get("sender", "")),
                         text=content,
                         timestamp=str(metadata.get("timestamp", "")),
                         channel=str(metadata.get("channel", "whatsapp")),
                     )
+                    # R-F1151 — wire capture failure to brain so ARIA learns
+                    # that evidentiary capture is failing (was dark: debug log only)
+                    if not _cw_result.get("captured"):
+                        from ..intel import capability_gaps as _cg1151
+                        await _cg1151.record_gap(
+                            gap_type="operational:output_rejection",
+                            detail=f"compliance_watch capture failed: {_cw_result.get('error', 'unknown')[:200]}",
+                            source=f"brain_signal:{sig_type}",
+                            message_context=f"group={metadata.get('group','')} sender={metadata.get('sender','')}",
+                        )
                 except Exception as _cw_e:
-                    _log.debug("R-F933 compliance_watch capture failed (non-fatal): %s", _cw_e)
+                    _log.warning("R-F933 compliance_watch capture failed (non-fatal): %s", _cw_e)
+                    try:
+                        from ..intel import capability_gaps as _cg1151
+                        await _cg1151.record_gap(
+                            gap_type="operational:output_rejection",
+                            detail=f"compliance_watch exception: {str(_cw_e)[:200]}",
+                            source=f"brain_signal:{sig_type}",
+                        )
+                    except Exception:
+                        pass
             if _is_failure:
                 from ..intel import capability_gaps as _cg887
                 await _cg887.record_gap(

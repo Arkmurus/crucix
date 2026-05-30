@@ -143,6 +143,25 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Unauthorized — include Authorization: Bearer <ARIA_INTERNAL_TOKEN>' });
 }
 
+// R-F1152 — message dedup set. Baileys can fire the same message twice on
+// reconnect. We track message keys (chatId + sender + timestamp) for 60s.
+const _seenMessageKeys = new Map();   // key → timestamp
+const _MSG_DEDUP_TTL_MS = 60000;
+
+function _isDuplicateMessage(chatId, senderJid, msgTimestamp) {
+  const key = `${chatId}:${senderJid}:${msgTimestamp}`;
+  const now = Date.now();
+  if (_seenMessageKeys.has(key)) return true;
+  _seenMessageKeys.set(key, now);
+  // Evict stale entries
+  if (_seenMessageKeys.size > 1000) {
+    for (const [k, ts] of _seenMessageKeys) {
+      if (now - ts > _MSG_DEDUP_TTL_MS) _seenMessageKeys.delete(k);
+    }
+  }
+  return false;
+}
+
 // ── In-memory message store (rolling 500 messages across all groups) ─────────
 const messageStore = [];
 const MAX_STORE    = 500;
@@ -250,6 +269,8 @@ function _recentDocsForFollowup(chatId, question) {
 }
 
 // ── Feed message to ARIA brain ─────────────────────────────────────────────────
+// R-F1151 — emit wa_feed_failed signal when the brain is unreachable, so ARIA
+// learns that her WA feed is broken (was dark: the error was silently swallowed).
 async function feedToARIA(groupName, senderName, text) {
   try {
     await fetch(`${BRAIN_URL}/api/aria/brain/signal`, {   // R-F887 — was /api/brain/signal (404, no such router)
@@ -272,8 +293,41 @@ async function feedToARIA(groupName, senderName, text) {
       signal: AbortSignal.timeout(5000),
     });
   } catch(e) {
-    // Brain unavailable — message already stored in Redis above
+    console.warn('[ARIA Listener] feedToARIA failed (brain unreachable):', e.message);
+    // R-F1151 — emit failure signal so ARIA's brain learns the feed is broken
+    try {
+      fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+        body: JSON.stringify({
+          content: `WA feed failed for ${groupName}/${senderName}: ${e.message}`,
+          source: 'aria-wa',
+          signal_type: 'wa_feed_failed',
+          metadata: { group: groupName, sender: senderName, error: String(e.message || '').slice(0, 200) },
+        }),
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});   // best-effort — the brain may be the thing that's down
+    } catch { /* never let observability break the message path */ }
   }
+}
+
+// R-F1152 — per-chat rate limit for auto-responses. Prevents a document paste
+// with many compliance keywords from firing N LLM calls in rapid succession.
+const _autoRespondRateLimit = new Map();   // chatId → last response timestamp
+const AUTO_RESPOND_RATE_LIMIT_MS = 120000;  // 2 min between auto-responses per chat
+
+function _checkAutoRespondRateLimit(chatId) {
+  const now = Date.now();
+  const last = _autoRespondRateLimit.get(chatId);
+  if (last && now - last < AUTO_RESPOND_RATE_LIMIT_MS) return false;
+  _autoRespondRateLimit.set(chatId, now);
+  // Evict old entries periodically
+  if (_autoRespondRateLimit.size > 200) {
+    for (const [k, ts] of _autoRespondRateLimit) {
+      if (now - ts > AUTO_RESPOND_RATE_LIMIT_MS * 2) _autoRespondRateLimit.delete(k);
+    }
+  }
+  return true;
 }
 
 // ── Smart auto-response: keyword detection ──────────────────────────────────
@@ -326,6 +380,18 @@ function detectComplianceTrigger(text) {
 // ── Auto-response dedup: one response per keyword+chat per hour ─────────────
 const autoRespondDedup = new Map();   // key → timestamp
 const AUTO_RESPOND_COOLDOWN = 60 * 60 * 1000;  // 1 hour
+let _dedupEvictTimer = null;          // R-F1152 — periodic eviction timer
+
+// R-F1152 — run eviction on a timer so quiet groups don't get permanently
+// blocked (previously only ran on insert when size > 500).
+function _evictStaleDedupEntries() {
+  const now = Date.now();
+  let evicted = 0;
+  for (const [k, ts] of autoRespondDedup) {
+    if (now - ts > AUTO_RESPOND_COOLDOWN) { autoRespondDedup.delete(k); evicted++; }
+  }
+  if (evicted) console.log(`[ARIA Listener] Evicted ${evicted} stale dedup entries (${autoRespondDedup.size} remaining)`);
+}
 
 function shouldAutoRespond(chatId, keywords) {
   const now = Date.now();
@@ -339,16 +405,23 @@ function shouldAutoRespond(chatId, keywords) {
   for (const kw of keywords) {
     autoRespondDedup.set(`${chatId}:${kw}`, now);
   }
-  // Evict old entries periodically
-  if (autoRespondDedup.size > 500) {
-    for (const [k, ts] of autoRespondDedup) {
-      if (now - ts > AUTO_RESPOND_COOLDOWN) autoRespondDedup.delete(k);
-    }
+  // R-F1152 — periodic eviction every 5 min (start on first call)
+  if (!_dedupEvictTimer) {
+    _dedupEvictTimer = setInterval(_evictStaleDedupEntries, 5 * 60 * 1000);
   }
   return true;
 }
 
 // ── Internal API helpers ─────────────────────────────────────────────────────
+// R-F1153 — classify HTTP status into a structured error category so callers
+// can distinguish "fix the token" from "try again later".
+function _classifyBrainError(status, path) {
+  if (status === 401 || status === 403) return { type: 'auth', retryable: false, msg: `Auth failure (${status}) — check ARIA_INTERNAL_TOKEN` };
+  if (status === 429) return { type: 'rate_limit', retryable: true, msg: `Rate limited (429) on ${path}` };
+  if (status >= 500) return { type: 'server', retryable: true, msg: `Brain error (${status}) on ${path}` };
+  return { type: 'unknown', retryable: status >= 400, msg: `HTTP ${status} on ${path}` };
+}
+
 async function brainPost(path, body) {
   // R-F960 — /transcribe needs a long ceiling: a long voice note decoded by the
   // 'small' model with beam-search (beam_size=5) is several× slower than the old
@@ -364,7 +437,14 @@ async function brainPost(path, body) {
     body:    JSON.stringify(body),
     signal:  AbortSignal.timeout(timeout),
   });
-  if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
+  if (!r.ok) {
+    const cls = _classifyBrainError(r.status, path);
+    const err = new Error(cls.msg);
+    err.status = r.status;
+    err.errorType = cls.type;
+    err.retryable = cls.retryable;
+    throw err;
+  }
   return r.json();
 }
 
@@ -400,8 +480,21 @@ async function readDocumentAsync(payload, chatId, filename) {
   // side, a text-layer doc resolves in seconds, but a LENGTHY SCANNED PDF still
   // needs full multi-page OCR (no shortcuts) which can run several minutes. The
   // job has no server cap; this just bounds how long the listener waits.
+  // R-F1152 — brain-health check every 30s so we don't poll for 15 min if brain crashed
+  let lastHealthCheck = 0;
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, POLL_MS));
+    // R-F1152 — abort early if brain is down
+    if (Date.now() - lastHealthCheck > 30000) {
+      lastHealthCheck = Date.now();
+      try {
+        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+        if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+      } catch {
+        console.warn('[ARIA Listener] Brain appears down — aborting doc poll early');
+        throw new Error('brain unreachable during doc poll');
+      }
+    }
     let st;
     try { st = await brainGet(`/api/aria/read-document/result/${jobId}`); }
     catch { continue; }                    // transient poll error — keep waiting
@@ -485,11 +578,33 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   // has NO server-side cap (line ~338), so this client poll window is the only bound.
   const FAST_MS = 1000, SLOW_MS = 5000, FAST_PHASE_MS = 30000;
   const INTERIM_AFTER_MS = 7000, MAX_MS = 900000;   // R-F1056: 15 min (was 10)
+  // R-F1152 — brain-health check interval: every 30s, check if brain is alive
+  const BRAIN_HEALTH_CHECK_INTERVAL_MS = 30000;
   const t0 = Date.now();
   let interimSent = false;
+  let lastHealthCheck = 0;
+  // R-F1152 — send typing indicator so users see ARIA is working
+  if (chatId && sock && isConnected) {
+    sock.sendPresenceUpdate('composing', chatId).catch(() => {});
+  }
   while (Date.now() - t0 < MAX_MS) {
     const elapsed = Date.now() - t0;
     await new Promise(r => setTimeout(r, elapsed < FAST_PHASE_MS ? FAST_MS : SLOW_MS));
+    // R-F1152 — refresh typing indicator every 10s (WhatsApp times it out)
+    if (chatId && sock && isConnected && elapsed > 0 && elapsed % 10000 < 2000) {
+      sock.sendPresenceUpdate('composing', chatId).catch(() => {});
+    }
+    // R-F1152 — abort early if brain is down (don't poll for 15 min)
+    if (Date.now() - lastHealthCheck > BRAIN_HEALTH_CHECK_INTERVAL_MS) {
+      lastHealthCheck = Date.now();
+      try {
+        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+        if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+      } catch {
+        console.warn('[ARIA Listener] Brain appears down — aborting chat poll early');
+        throw new Error('brain unreachable during chat poll');
+      }
+    }
     if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
       interimSent = true;
       await sendReply(chatId,
@@ -520,21 +635,30 @@ async function askARIAAsync(message, senderJid, chatId = null) {
 // ── Split long messages into chunks for WhatsApp ────────────────────────────
 const WA_MSG_LIMIT = 4000;
 
+// R-F1152 — paragraph-aware splitting. Prefers paragraph boundaries (\n\n)
+// over single newlines, and single newlines over spaces, so structured
+// responses (tables, lists, code blocks) don't get cut mid-line.
 function splitMessage(body) {
   if (body.length <= WA_MSG_LIMIT) return [body];
   const chunks = [];
   let remaining = body;
   while (remaining.length > 0) {
     if (remaining.length <= WA_MSG_LIMIT) { chunks.push(remaining); break; }
-    let cut = remaining.lastIndexOf('\n', WA_MSG_LIMIT);
+    // Try paragraph boundary first
+    let cut = remaining.lastIndexOf('\n\n', WA_MSG_LIMIT);
+    if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf('\n', WA_MSG_LIMIT);
+    if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf('. ', WA_MSG_LIMIT);
     if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf(' ', WA_MSG_LIMIT);
     if (cut < WA_MSG_LIMIT * 0.3) cut = WA_MSG_LIMIT;
-    chunks.push(remaining.slice(0, cut));
-    remaining = remaining.slice(cut).replace(/^\n/, '');
+    const chunk = remaining.slice(0, cut);
+    chunks.push(chunk + (cut < WA_MSG_LIMIT ? '' : '\n[continued]'));
+    remaining = remaining.slice(cut).replace(/^[\n\s]+/, '');
   }
   return chunks;
 }
 
+// R-F1151 — emit wa_reply_failed signal when a reply fails, so ARIA learns
+// that replies are not reaching the group (was dark: console.error only).
 async function sendReply(chatId, text) {
   if (!sock || !isConnected || !text) return;
   try {
@@ -545,6 +669,19 @@ async function sendReply(chatId, text) {
     }
   } catch (e) {
     console.error('[ARIA Listener] Reply failed:', e.message);
+    try {
+      fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+        body: JSON.stringify({
+          content: `WA reply failed to ${chatId}: ${e.message}`,
+          source: 'aria-wa',
+          signal_type: 'wa_reply_failed',
+          metadata: { chat_id: String(chatId || ''), error: String(e.message || '').slice(0, 200) },
+        }),
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+    } catch { /* never let observability break the reply path */ }
   }
 }
 
@@ -793,6 +930,9 @@ let sock           = null;
 let isConnected    = false;
 let qrPrinted      = false;
 let messagesHeard  = 0;
+// R-F1153 — message throughput tracking (messages/min)
+let _msgRateTimestamps = [];   // sliding window of message receipt timestamps
+let _msgRatePerMin = 0;
 let startedAt      = null;
 let reconnectDelay = 5000;  // exponential backoff: 5s → 10s → 20s → max 60s
 
@@ -1291,9 +1431,21 @@ async function startListener() {
         (msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now())
       ).toISOString();
 
+      // R-F1152 — dedup: skip if we've already processed this message
+      if (_isDuplicateMessage(chatId, senderJid, msg.messageTimestamp)) {
+        console.log(`[ARIA Listener] Dedup skipped message from ${senderName} in ${groupName}`);
+        continue;
+      }
+
       // Log to console
       console.log(`[${groupName}] ${senderName}: ${text.slice(0, 100)}`);
       messagesHeard++;
+      // R-F1153 — track message rate (sliding 60s window)
+      _msgRateTimestamps.push(Date.now());
+      if (_msgRateTimestamps.length > 1000) _msgRateTimestamps = _msgRateTimestamps.slice(-500);
+      const _now = Date.now();
+      while (_msgRateTimestamps.length && _msgRateTimestamps[0] < _now - 60000) _msgRateTimestamps.shift();
+      _msgRatePerMin = _msgRateTimestamps.length;
 
       // Store in memory + Redis
       store(chatId, groupName, senderJid, senderName, text, ts);
@@ -1305,10 +1457,11 @@ async function startListener() {
       const cmdMatch = text.match(COMMAND_RE);
       if (cmdMatch) {
         const cmd  = cmdMatch[1];
-        // For /groupsummary, pass chatId as the argument so it filters correctly
+        // R-F1152 — /groupsummary: use explicit arg if provided, fall back to chatId
+        const explicitArg = (cmdMatch[2] || '').trim();
         const args = cmd.toLowerCase() === 'groupsummary'
-          ? chatId
-          : (cmdMatch[2] || '').trim();
+          ? (explicitArg || chatId)
+          : explicitArg;
         try {
           let response = await handleCommand(cmd, args, senderJid);
           if (response === null) {
@@ -1360,7 +1513,8 @@ async function startListener() {
       // ── Smart auto-response — trigger on compliance/opportunity/risk keywords
       if (AUTO_RESPOND) {
         const trigger = detectComplianceTrigger(text);
-        if (trigger.triggered && shouldAutoRespond(chatId, trigger.keywords)) {
+        // R-F1152 — rate limit: at most one auto-response per chat per 2 min
+        if (trigger.triggered && shouldAutoRespond(chatId, trigger.keywords) && _checkAutoRespondRateLimit(chatId)) {
           const categoryLabel = {
             compliance: 'compliance/export control',
             opportunity: 'business development/procurement',
@@ -1391,23 +1545,41 @@ async function startListener() {
 const app = express();
 app.use(express.json());
 
-// Health — unauthenticated (for Seenode health checks)
-app.get('/health', (_req, res) => {
-  res.json({ status: isConnected ? 'connected' : 'disconnected' });
+// Health — unauthenticated (for Fly.io health checks)
+// R-F1153 — also probes the brain so a disconnected brain is visible in health
+app.get('/health', async (_req, res) => {
+  let brainOk = false;
+  try {
+    const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+    brainOk = hc.ok;
+  } catch { /* brain unreachable */ }
+  res.json({
+    status: isConnected ? 'connected' : 'disconnected',
+    brain_reachable: brainOk,
+    messages_heard: messagesHeard,
+    messages_per_min: _msgRatePerMin,
+  });
 });
 
 // Status — shows if listener is connected
-app.get('/status', requireAuth, (_req, res) => {
+app.get('/status', requireAuth, async (_req, res) => {
+  let brainOk = false;
+  try {
+    const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+    brainOk = hc.ok;
+  } catch { /* brain unreachable */ }
   res.json({
-    connected:      isConnected,
-    started_at:     startedAt,
-    messages_heard: messagesHeard,
-    target_groups:  TARGET_GROUPS.length ? TARGET_GROUPS : 'ALL',
-    group_names:    Object.fromEntries(groupNames),
-    memory_store:   messageStore.length,
-    redis:          !!redis,
-    auth_dir:       AUTH_DIR,
-    note:           isConnected
+    connected:          isConnected,
+    started_at:         startedAt,
+    messages_heard:     messagesHeard,
+    messages_per_min:   _msgRatePerMin,
+    brain_reachable:    brainOk,
+    target_groups:      TARGET_GROUPS.length ? TARGET_GROUPS : 'ALL',
+    group_names:        Object.fromEntries(groupNames),
+    memory_store:       messageStore.length,
+    redis:              !!redis,
+    auth_dir:           AUTH_DIR,
+    note:               isConnected
       ? 'ARIA is listening to WhatsApp groups'
       : 'Not connected — check logs for QR code',
   });

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1150,
+  "next_available": 1155,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5988,7 +5988,7 @@
       "status": "shipped",
       "commit_sha": "7d9ae95b",
       "notes": null,
-      "shipped_at": "2026-05-30T20:18:06Z"
+      "shipped_at": "2026-05-30T20:23:59Z"
     },
     {
       "r_number": "R-F1149",
@@ -5998,7 +5998,52 @@
       "status": "shipped",
       "commit_sha": "7d9ae95b",
       "notes": null,
-      "shipped_at": "2026-05-30T20:18:06Z"
+      "shipped_at": "2026-05-30T20:23:59Z"
+    },
+    {
+      "r_number": "R-F1150",
+      "title": "Self-coding disposition playbook + deploy script fix",
+      "claimed_at": "2026-05-30T20:22:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1151",
+      "title": "WhatsApp listener dark failure wiring (P0-1, P0-2, P1-4)",
+      "claimed_at": "2026-05-30T20:27:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1152",
+      "title": "WhatsApp listener resilience + UX (P0-3, P1-1, P1-2, P1-3, P2-1, P2-2, P2-3, P2-4)",
+      "claimed_at": "2026-05-30T20:27:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1153",
+      "title": "WhatsApp listener observability (P3-1, P3-2, P3-3)",
+      "claimed_at": "2026-05-30T20:27:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1154",
+      "title": "Wire portal_coverage_audit into gap_detector for self-limitation analysis",
+      "claimed_at": "2026-05-30T20:27:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
