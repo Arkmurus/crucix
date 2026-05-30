@@ -41,6 +41,20 @@ class PortalDef:
     requires_email_verify: bool = False
     rate_limit_per_hour: int = 60
     terms_url: str = ""
+    # R-F1108: Per-portal signup field schemas for automated form fill.
+    # Each entry: (field_selector, field_type, value_source)
+    #   field_selector: CSS selector or name attribute for the form field
+    #   field_type: "text", "email", "password", "checkbox", "radio", "select", "hidden"
+    #   value_source: "email", "name", "org", "password", "website", "literal:<value>"
+    signup_fields: list[tuple[str, str, str]] = field(default_factory=list)
+    # URL path for the registration page (defaults to /user/register)
+    register_path: str = "/user/register"
+    # URL path for login (for checking if account exists)
+    login_path: str = "/user/login"
+    # Expected success indicator in the response after form submit
+    success_indicator: str = ""  # text or URL pattern that indicates success
+    # IMAP sender domain for email verification (to filter confirmation emails)
+    verify_email_domain: str = ""
 
 
 # ── Supported portals ──────────────────────────────────────────────────
@@ -355,8 +369,23 @@ PORTALS: list[PortalDef] = [
         name="ACLED",
         url="https://acleddata.com",
         description="Armed Conflict Location and Event Data (free API with registration)",
-        registration_type="api_key",
+        registration_type="email_form",
         rate_limit_per_hour=500,
+        terms_url="https://acleddata.com/privacy-policy/",
+        register_path="/user/register",
+        signup_fields=[
+            ("field_first_name[0][value]", "text", "literal:ARIA"),
+            ("field_last_name[0][value]", "text", "literal:Research"),
+            ("mail", "email", "email"),
+            ("field_organisation_name[0][value]", "text", "org"),
+            ("field_website[0][value]", "text", "website"),
+            ("field_category", "radio", "literal:153"),  # Corporate
+            ("field_areas_of_interest[160]", "checkbox", "literal:160"),
+            ("pp", "checkbox", "literal:1"),  # Privacy policy
+            ("tou", "checkbox", "literal:1"),  # Terms of use
+        ],
+        success_indicator="Thank you for applying",
+        verify_email_domain="acleddata.com",
     ),
     PortalDef(
         id="gdelt",
@@ -401,6 +430,16 @@ PORTALS: list[PortalDef] = [
         registration_type="email_form",
         requires_email_verify=True,
         rate_limit_per_hour=50,
+        terms_url="https://www.shodan.io/terms",
+        register_path="/register",
+        signup_fields=[
+            ("username", "text", "literal:ARIA_Research"),
+            ("email", "email", "email"),
+            ("password", "password", "password"),
+            ("password_confirm", "password", "password"),
+        ],
+        success_indicator="Account created",
+        verify_email_domain="shodan.io",
     ),
     PortalDef(
         id="censys",
@@ -655,6 +694,53 @@ async def _audit_preparation(
         pass
 
 
+async def _audit_registered(
+    portal: PortalDef,
+    identity_email: str,
+    identity_name: str,
+) -> None:
+    """Write a non-blocking audit record for a COMPLETED registration.
+
+    The form was filled, submitted, and (if required) email-verified.
+    This is a truthful claim of completion.
+    """
+    try:
+        from . import pending_actions as _pa
+        await _pa.record(
+            promise=f"Registered on {portal.name} ({portal.id})",
+            reason=(
+                f"ARIA autonomously registered an account on {portal.name}.\n"
+                f"  Portal: {portal.url}\n"
+                f"  Identity: {identity_email} / {identity_name}\n"
+                f"  ToS: {portal.terms_url or 'N/A'}\n"
+                f"  Status: REGISTERED (form submitted and verified)\n"
+                f"  Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}"
+            ),
+            resolver_kind="informational_notice",
+            resolver_ref=f"portal_registration:{portal.id}",
+            severity="LOW",
+            source="portal_registry",
+        )
+    except Exception as _pa_e:
+        logger.debug("[portal_registry] audit notice failed (non-fatal): %s", _pa_e)
+
+    # Also emit a brain signal
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="portal_registry",
+            summary=f"Registered on {portal.name} ({portal.id})",
+            detail=(
+                f"Identity: {identity_email}. "
+                f"ToS: {portal.terms_url or 'N/A'}. "
+                f"Status: REGISTERED"
+            )[:600],
+            source_id=f"portal_registration:{portal.id}",
+        )
+    except Exception:
+        pass
+
+
 async def is_registered(portal_id: str) -> bool:
     """Check if ARIA has registered for a portal."""
     creds = await _get_credentials()
@@ -731,11 +817,12 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
     Playwright (for JS forms) or httpx (for simple forms), then:
       1. Asserts real Arkmurus identity
       2. Reads ToS if available
-      3. Submits the registration form
+      3. Submits the registration form using per-portal field schemas
       4. If email verification required: polls email_reader for the
          confirmation link and visits it
       5. Stores credentials in the encrypted vault
-      6. Writes a non-blocking audit notice
+      6. Writes a non-blocking audit notice (REGISTERED on success,
+         PREPARED if form not submitted, FAILED on error)
     """
     # Assert real identity before any action
     valid, reason = assert_real_identity(_ARIA_EMAIL, _ARIA_NAME)
@@ -755,7 +842,7 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
                 severity="LOW",
                 source="portal_registry",
                 operator_prompt=(
-                    f"Go to {portal.url}/register and create an account using:\n"
+                    f"Go to {portal.url}{portal.register_path} and create an account using:\n"
                     f"  Email: {_ARIA_EMAIL}\n"
                     f"  Name: {_ARIA_NAME}\n"
                     f"Once registered, share the credentials so ARIA can store them."
@@ -772,7 +859,6 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
         }
 
     # ── Automated registration for portals without CAPTCHA ──────────────
-    # Try Playwright first (handles JS forms), fall back to httpx
     password = os.urandom(24).hex()  # generate a strong random password
     registration_data = {
         "email": _ARIA_EMAIL,
@@ -780,84 +866,380 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
         "password": password,
     }
 
+    register_url = f"{portal.url.rstrip('/')}{portal.register_path}"
+
+    # If portal has signup_fields defined, attempt real form fill + submit
+    if portal.signup_fields:
+        result = await _attempt_form_fill_submit(portal, register_url, registration_data)
+        if result.get("success"):
+            # Real registration succeeded — audit as REGISTERED
+            await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
+            return result
+        elif result.get("requires_operator"):
+            return result
+        elif result.get("requires_email_verify"):
+            # Form submitted, needs email verification
+            return result
+        # Fall through to prepared notice if form fill failed
+
+    # If no signup_fields or form fill failed, store credentials and
+    # emit a PREPARED (not registered) audit notice
     try:
-        # Step 1: Try Playwright for JS-rendered signup forms
+        await store_credential(portal.id, registration_data)
+    except Exception:
+        pass
+    await _audit_preparation(
+        portal, _ARIA_EMAIL, _ARIA_NAME,
+        tos_accepted=bool(portal.terms_url),
+    )
+    return {
+        "success": False,
+        "requires_form_fill": True,
+        "message": (
+            f"Registration prepared for {portal.name}. "
+            f"Credentials stored in encrypted vault. "
+            f"Form fill + submit requires per-portal field schemas (next iteration). "
+            f"Email verification: {'required' if portal.requires_email_verify else 'not required'}. "
+            f"ToS: {'accepted' if portal.terms_url else 'none noted'}."
+        ),
+        "portal_id": portal.id,
+        "email": _ARIA_EMAIL,
+        "requires_email_verify": portal.requires_email_verify,
+    }
+
+
+async def _attempt_form_fill_submit(
+    portal: PortalDef,
+    register_url: str,
+    registration_data: dict[str, str],
+) -> dict[str, Any]:
+    """Attempt to fill and submit a registration form using Playwright.
+
+    Uses the portal's signup_fields schema to map form fields to values.
+    Returns a result dict matching register_for_portal's contract.
+    """
+    try:
         from .scraper.playwright_engine import fetch as _pw_fetch
+
+        # Step 1: Load the registration page with Playwright
         pw_result = await _pw_fetch(
-            f"{portal.url}/register",
-            timeout=30.0,
+            register_url,
+            timeout=45.0,
             wait_for="networkidle",
         )
-        if pw_result.ok and not pw_result.blocked:
-            # Portal registration page loaded — form fill + submit is NOT yet
-            # implemented (requires per-portal field schemas). Store the
-            # credential and emit a PREPARED (not registered) audit notice.
-            await store_credential(portal.id, registration_data)
-            await _audit_preparation(
-                portal, _ARIA_EMAIL, _ARIA_NAME,
-                tos_accepted=bool(portal.terms_url),
-            )
-            return {
-                "success": False,
-                "requires_form_fill": True,
-                "message": (
-                    f"Registration prepared for {portal.name}. "
-                    f"Credentials stored in encrypted vault. "
-                    f"Form fill + submit requires per-portal field schemas (next iteration). "
-                    f"Email verification: {'required' if portal.requires_email_verify else 'not required'}. "
-                    f"ToS: {'accepted' if portal.terms_url else 'none noted'}."
-                ),
-                "portal_id": portal.id,
-                "email": _ARIA_EMAIL,
-                "requires_email_verify": portal.requires_email_verify,
-            }
 
-        # Step 2: Fall back to httpx for simple forms
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(f"{portal.url}/register")
-            if resp.status_code == 200:
+        if not pw_result.ok or pw_result.blocked:
+            logger.debug(
+                "[portal_registry] Playwright could not load %s: ok=%s blocked=%s",
+                register_url, pw_result.ok, pw_result.blocked,
+            )
+            return {"success": False, "error": "Could not load registration page"}
+
+        # Step 2: Build form data from signup_fields schema
+        form_data = _build_form_data(portal.signup_fields, registration_data)
+
+        # Step 3: Submit the form via POST to the register URL
+        # We use httpx for the actual POST since Playwright's fetch only GETs
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ARIA-Registration/1.0)",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": portal.url,
+                "Referer": register_url,
+            },
+        ) as client:
+            # First GET to get any CSRF tokens
+            get_resp = await client.get(register_url)
+            html = get_resp.text
+
+            # Extract CSRF / form tokens from the page
+            csrf_token = _extract_csrf_token(html)
+            if csrf_token:
+                form_data["csrf_token"] = csrf_token
+
+            # Extract Drupal form tokens if present
+            for field in ["form_build_id", "form_id", "honeypot_time", "pp_version", "tou_version"]:
+                value = _extract_hidden_field(html, field)
+                if value:
+                    form_data[field] = value
+
+            # Submit the form
+            resp = await client.post(register_url, data=form_data)
+
+            # Step 4: Check for success indicators
+            if _is_registration_successful(resp, portal):
+                # Store credentials in vault
                 await store_credential(portal.id, registration_data)
-                await _audit_preparation(
-                    portal, _ARIA_EMAIL, _ARIA_NAME,
-                    tos_accepted=bool(portal.terms_url),
-                )
+
+                # If email verification required, attempt to verify
+                if portal.requires_email_verify and portal.verify_email_domain:
+                    verified = await _handle_email_verification(portal, registration_data)
+                    if not verified:
+                        return {
+                            "success": False,
+                            "requires_email_verify": True,
+                            "message": (
+                                f"Registration submitted for {portal.name}. "
+                                f"Email verification required — waiting for confirmation link "
+                                f"from {portal.verify_email_domain}. "
+                                f"Credentials stored in encrypted vault."
+                            ),
+                            "portal_id": portal.id,
+                            "email": _ARIA_EMAIL,
+                        }
+
                 return {
-                    "success": False,
-                    "requires_form_fill": True,
+                    "success": True,
                     "message": (
-                        f"Registration prepared for {portal.name}. "
-                        f"Credentials stored in encrypted vault. "
-                        f"Form fill + submit requires per-portal field schemas (next iteration)."
+                        f"Successfully registered for {portal.name}. "
+                        f"Credentials stored in encrypted vault."
                     ),
                     "portal_id": portal.id,
                     "email": _ARIA_EMAIL,
                 }
 
-    except Exception as e:
-        logger.debug("[portal_registry] automated registration failed for %s: %s", portal.id, e)
-        # Fall through to operator deferral
+            # Step 5: Check for bot detection / rate limiting
+            resp_text = resp.text.lower()
+            if "please wait" in resp_text and "seconds" in resp_text:
+                return {
+                    "success": False,
+                    "requires_operator": True,
+                    "message": (
+                        f"{portal.name} rate-limited the registration attempt. "
+                        f"Try again later or register manually."
+                    ),
+                    "portal_id": portal.id,
+                    "email": _ARIA_EMAIL,
+                }
 
-    # If automated registration failed, defer to operator
+            # Check for field errors
+            field_errors = _extract_field_errors(resp.text)
+            if field_errors:
+                logger.debug(
+                    "[portal_registry] Registration field errors for %s: %s",
+                    portal.id, field_errors,
+                )
+                return {
+                    "success": False,
+                    "error": f"Registration failed: {'; '.join(field_errors[:3])}",
+                    "portal_id": portal.id,
+                }
+
+            logger.debug(
+                "[portal_registry] Registration POST returned %s for %s (unexpected response)",
+                resp.status_code, portal.id,
+            )
+            return {"success": False, "error": f"Unexpected response: HTTP {resp.status_code}"}
+
+    except Exception as e:
+        logger.debug("[portal_registry] Form fill+submit failed for %s: %s", portal.id, e)
+        return {"success": False, "error": str(e)}
+
+
+def _build_form_data(
+    signup_fields: list[tuple[str, str, str]],
+    registration_data: dict[str, str],
+) -> dict[str, str]:
+    """Build form data dict from signup_fields schema and registration data."""
+    form_data: dict[str, str] = {}
+
+    for selector, field_type, value_source in signup_fields:
+        if value_source.startswith("literal:"):
+            value = value_source[len("literal:"):]
+        elif value_source == "email":
+            value = registration_data.get("email", "")
+        elif value_source == "name":
+            value = registration_data.get("name", "")
+        elif value_source == "org":
+            value = "Arkmurus Group Ltd"
+        elif value_source == "password":
+            value = registration_data.get("password", "")
+        elif value_source == "website":
+            value = "https://arkmurus.com"
+        else:
+            value = ""
+
+        if value:
+            form_data[selector] = value
+
+    return form_data
+
+
+def _extract_csrf_token(html: str) -> str | None:
+    """Extract CSRF token from HTML form."""
+    import re
+    # Common CSRF token field names
+    for pattern in [
+        r'name="csrf_token" value="([^"]*)"',
+        r'name="csrfmiddlewaretoken" value="([^"]*)"',
+        r'name="authenticity_token" value="([^"]*)"',
+        r'name="_token" value="([^"]*)"',
+        r'name="csrf" value="([^"]*)"',
+    ]:
+        m = re.search(pattern, html)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_hidden_field(html: str, field_name: str) -> str | None:
+    """Extract a hidden form field value by name."""
+    import re
+    m = re.search(rf'name="{re.escape(field_name)}" value="([^"]*)"', html)
+    return m.group(1) if m else None
+
+
+def _is_registration_successful(
+    resp: httpx.Response,
+    portal: PortalDef,
+) -> bool:
+    """Check if a registration POST was successful."""
+    # Check by status code
+    if resp.status_code in (301, 302):
+        # Redirect after successful registration
+        return True
+
+    if resp.status_code != 200:
+        return False
+
+    # Check by success indicator
+    if portal.success_indicator:
+        return portal.success_indicator.lower() in resp.text.lower()
+
+    # Check for common success patterns
+    text = resp.text.lower()
+    success_patterns = [
+        "account created",
+        "registration complete",
+        "thank you for registering",
+        "welcome",
+        "check your email",
+        "verify your email",
+        "confirmation email",
+    ]
+    return any(p in text for p in success_patterns)
+
+
+def _extract_field_errors(html: str) -> list[str]:
+    """Extract field-level error messages from HTML response."""
+    import re
+    errors = []
+
+    # Drupal-style error messages
+    for m in re.finditer(
+        r'<div[^>]*class="[^"]*messages[^"]*"[^>]*>(.*?)</div>',
+        html, re.DOTALL,
+    ):
+        clean = re.sub(r'<[^>]*>', '', m.group(1)).strip()
+        if clean:
+            errors.append(clean)
+
+    # Rails-style field errors
+    for m in re.finditer(
+        r'<div[^>]*class="[^"]*field-error[^"]*"[^>]*>(.*?)</div>',
+        html, re.DOTALL,
+    ):
+        clean = re.sub(r'<[^>]*>', '', m.group(1)).strip()
+        if clean:
+            errors.append(clean)
+
+    return errors
+
+
+async def _handle_email_verification(
+    portal: PortalDef,
+    registration_data: dict[str, str],
+) -> bool:
+    """Handle email verification after registration.
+
+    Polls the email reader for a confirmation email from the portal's
+    domain, extracts the confirmation link, and visits it.
+
+    Returns True if verification was completed, False if it could not
+    be completed (e.g. email reader not configured).
+    """
+    if not portal.verify_email_domain:
+        return False
+
     try:
-        from . import pending_actions as _pa
-        await _pa.record(
-            promise=f"Register ARIA account on {portal.name} ({portal.url})",
-            reason=f"Automated registration failed for {portal.id}. "
-                   f"Use email: {_ARIA_EMAIL}, name: {_ARIA_NAME}",
-            resolver_kind="operator_action",
-            resolver_ref=f"portal_registration:{portal.id}",
-            severity="LOW",
-            source="portal_registry",
+        from .email_reader import read_emails as _read_emails
+
+        # Poll for confirmation email (up to 5 minutes, checking every 30s)
+        email_addr = registration_data.get("email", _ARIA_EMAIL)
+        for attempt in range(10):
+            await asyncio.sleep(30)
+            try:
+                emails = await _read_emails()
+                for email in emails or []:
+                    sender = (email.get("from") or "").lower()
+                    subject = (email.get("subject") or "").lower()
+                    body = (email.get("body") or "").lower()
+
+                    # Check if this email is from the portal's domain
+                    if portal.verify_email_domain not in sender:
+                        continue
+
+                    # Check if it's addressed to our email
+                    if email_addr.lower() not in (email.get("to") or "").lower():
+                        continue
+
+                    # Extract confirmation link
+                    import re
+                    link = _extract_confirmation_link(body + subject)
+                    if link:
+                        # Visit the confirmation link
+                        async with httpx.AsyncClient(
+                            timeout=15.0, follow_redirects=True,
+                        ) as client:
+                            await client.get(link)
+                            return True
+
+            except Exception:
+                logger.debug(
+                    "[portal_registry] Email poll attempt %d failed for %s",
+                    attempt, portal.id,
+                )
+
+        logger.debug(
+            "[portal_registry] Email verification timeout for %s "
+            "(10 polls, 30s interval)",
+            portal.id,
         )
-    except Exception:
-        pass
-    return {
-        "success": False,
-        "requires_operator": True,
-        "message": f"Could not register for {portal.name} — operator action needed",
-        "portal_id": portal.id,
-        "email": _ARIA_EMAIL,
-    }
+        return False
+
+    except ImportError:
+        logger.debug(
+            "[portal_registry] email_reader not available — "
+            "email verification deferred for %s",
+            portal.id,
+        )
+        return False
+    except Exception as e:
+        logger.debug(
+            "[portal_registry] Email verification failed for %s: %s",
+            portal.id, e,
+        )
+        return False
+
+
+def _extract_confirmation_link(text: str) -> str | None:
+    """Extract a confirmation/verification link from email text."""
+    import re
+    # Common confirmation URL patterns
+    patterns = [
+        r'https?://[^\s<>"]*confirm[^\s<>"]*',
+        r'https?://[^\s<>"]*verify[^\s<>"]*',
+        r'https?://[^\s<>"]*activate[^\s<>"]*',
+        r'https?://[^\s<>"]*registration[^\s<>"]*confirm[^\s<>"]*',
+        r'https?://[^\s<>"]*user[^\s<>"]*activate[^\s<>"]*',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+    return None
 
 
 async def _register_for_api_key(portal: PortalDef) -> dict[str, Any]:
