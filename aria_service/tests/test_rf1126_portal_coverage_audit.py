@@ -20,14 +20,16 @@ from aria_service.intel.portal_registry import PORTALS, PortalDef
 
 @pytest.fixture
 def mock_registered_portals():
-    """Mock get_registered_portals to return a subset."""
+    """Mock get_registered_portals to return a subset with registered=True."""
     with patch(
         "aria_service.intel.portal_registry.get_registered_portals",
         new_callable=AsyncMock,
     ) as m:
-        # Return the first 5 portals as registered
+        # Return the first 5 portals as registered (with registered=True flag)
         m.return_value = [
-            {"portal_id": p.id, "name": p.name} for p in PORTALS[:5]
+            {"id": p.id, "name": p.name, "registered": True} for p in PORTALS[:5]
+        ] + [
+            {"id": p.id, "name": p.name, "registered": False} for p in PORTALS[5:]
         ]
         yield m
 
