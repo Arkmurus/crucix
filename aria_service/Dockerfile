@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     # curl — used to download Lightpanda binary at build time
     curl \
+    git \
     # SQLite for chromadb persistent backend (modern version)
     sqlite3 \
     libsqlite3-dev \
