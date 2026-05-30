@@ -123,6 +123,9 @@ work gets lost or "done" becomes a lie:
    `git push origin main` is mandatory after every commit. No exceptions.
 5. **Deploy** — use the platform-appropriate script:
    - **Windows:** `.\scripts\deploy.ps1` (PowerShell, mirrors deploy.sh exactly)
+     NOTE: If invoked via `&` from the run tool, `$PSScriptRoot` is empty in PS5.1.
+     The script handles this via `$PSCommandPath` fallback (R-F1163). If the script
+     still fails, run: `powershell -NoProfile -Command "& .\scripts\deploy.ps1 -Intel"`
    - **Linux/macOS:** `./scripts/deploy.sh` (bash)
    Both scripts enforce: push guard, build_rev verification, batching, and cold-boot protection.
    (Push alone does NOT deploy; CI/`[deploy]` is unreliable. The script is your reliable path.)

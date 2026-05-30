@@ -1506,6 +1506,7 @@ async function startListener() {
           if (response) await sendReply(chatId, response);
         } catch (e) {
           console.error('[ARIA Listener] Mention reply error:', e.message);
+          try { await sendReply(chatId, '⚠️ Sorry, I hit an error processing that. Please try again.'); } catch {}
         }
         continue;
       }
@@ -1534,6 +1535,7 @@ async function startListener() {
             }
           } catch (e) {
             console.error('[ARIA Listener] Auto-response error:', e.message);
+            try { await sendReply(chatId, '⚠️ I noticed something but hit an error analysing it. Ask me directly if you need help.'); } catch {}
           }
         }
       }
