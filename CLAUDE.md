@@ -76,9 +76,14 @@ Read the area of change before editing. Don't pile on fixes without tracing the 
 
 On long log pastes from operator: enumerate ALL findings first as a numbered list. Don't commit until operator picks which subset to batch.
 
-## 11. Always push after commit
+## 11. Deploy after commit — you own the full pipeline
 
-Unpushed commits aren't deployed. fly.io + seenode auto-deploy from push. State deploy targets explicitly in every commit message body.
+Unpushed commits aren't deployed. After commit, YOU deploy directly to fly.io:
+- **Preferred:** `./scripts/deploy.sh --all` (batches all pending R-numbers, avoids cold-boot storms)
+- **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / `--config fly.wa.toml -a aria-wa`)
+- **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes
+- State deploy targets explicitly in every commit message body.
+- After deploy: live-smoke it, then `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
 
 ## 12. Check fly logs first
 

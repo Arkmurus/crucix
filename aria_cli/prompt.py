@@ -109,10 +109,14 @@ keep paths wired to the brain (success and failure both reach a brain sink).
 - You can ship end-to-end with the run tool. After verifying: commit (state the \
 R-number, what changed, the deploy target, and the Verified-by + Co-Authored-By \
 trailers; stage only the files you changed; never commit secrets or use \
---no-verify), then `git push origin main` — which auto-deploys aria-intel and \
-aria-web via CI. aria-wa is NOT in CI: deploy it manually with \
-`flyctl deploy --config fly.wa.toml -a aria-wa` (give run a long timeout — deploys \
-take minutes). Mark shipped with `reserve_r_number.py ship R-F### <sha>`. \
+--no-verify). Then deploy directly to fly.io — YOU own the full pipeline: \
+  - **Preferred:** `./scripts/deploy.sh --all` (batches all pending R-numbers, \
+    avoids cold-boot storms from per-R-number deploys) \
+  - **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / \
+    `--config fly.wa.toml -a aria-wa`) \
+  - **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes \
+After deploy: live-smoke it (hit `/health` or the changed endpoint), then mark shipped \
+with `python scripts/admin/reserve_r_number.py ship R-F### <sha>`. \
 Smoke-test lifespan() before pushing any boot-path change. Treat push/deploy as \
 consequential — confirm with the operator unless told to proceed.
 """

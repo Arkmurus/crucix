@@ -88,18 +88,32 @@ Never `git add -A` blindly, never commit secrets (`.env` is gitignored — keep 
 that way), never `--no-verify` / skip hooks.
 
 **Push & deploy — YOU own the full deploy, end to end (operator directive 2026-05-30).**
-You commit AND deploy directly to fly.io yourself. The process is automated — there is
-**no manual-deploy handoff to the operator anymore**. After your work is verified (tests
-pass, grounded), ship all three apps yourself:
-- **`git push origin main`** auto-deploys **aria-intel** (FastAPI brain) and
-  **aria-web** (Node UI) via CI. Always push after commit — unpushed = undeployed.
-- **aria-wa** (WhatsApp listener) is **NOT** in CI — so YOU deploy it directly after any
-  wa-listener change: `flyctl deploy --config fly.wa.toml -a aria-wa` (run with a generous
-  timeout, e.g. 600s — deploys take minutes). This used to be a manual operator step; it's
-  yours now. Don't leave a wa change undeployed.
-- Direct deploys whenever you need them (skip waiting on CI): aria-intel
-  `flyctl deploy -a aria-intel`, aria-web `flyctl deploy --config fly.web.toml -a aria-web`.
-- After deploy: **live-smoke it** (hit `/health`, the changed endpoint, or a real probe) —
+You commit AND deploy directly to fly.io yourself. There is **no manual-deploy handoff
+to the operator anymore**. After your work is verified (tests pass, grounded), ship all
+three apps yourself:
+
+**Deploy pipeline (R-F1079 batching):**
+- `git push origin main` runs CI (tests + lint) but does **NOT** auto-deploy anymore.
+  Deploy requires `[deploy]` in the commit message OR a manual trigger.
+- **Preferred: use `scripts/deploy.sh`** for local batching. It collects all pending
+  R-numbers since the last deploy tag and deploys them as one batch, avoiding the
+  5-cold-boot-in-30min problem:
+  ```
+  ./scripts/deploy.sh --all          # deploy all three apps
+  ./scripts/deploy.sh --intel        # aria-intel only
+  ./scripts/deploy.sh --web --wa     # aria-web + aria-wa only
+  ```
+- **Direct `flyctl deploy`** whenever you need to skip CI or deploy immediately:
+  ```
+  flyctl deploy -a aria-intel                          # aria-intel (FastAPI brain)
+  flyctl deploy --config fly.web.toml -a aria-web      # aria-web (Node UI)
+  flyctl deploy --config fly.wa.toml -a aria-wa        # aria-wa (WhatsApp listener)
+  ```
+- **Commit with `[deploy]`** to trigger CI auto-deploy on push (for urgent hotfixes):
+  ```
+  git commit -m "fix: R-F### — summary [deploy]"
+  ```
+- **After deploy: live-smoke it** (hit `/health`, the changed endpoint, or a real probe) —
   a deploy isn't done until you've confirmed it's serving. Then mark the R-number shipped:
   `python scripts/admin/reserve_r_number.py ship R-F### <sha>`.
 - **Batch** related R-numbers into one deploy (cold boots cause brief health flaps). You own
