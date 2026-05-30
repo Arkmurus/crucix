@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1147,
+  "next_available": 1150,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5964,6 +5964,35 @@
       "r_number": "R-F1146",
       "title": "Self-restart + blackout recovery system",
       "claimed_at": "2026-05-30T19:38:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e7228a09",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:11:34Z"
+    },
+    {
+      "r_number": "R-F1147",
+      "title": "Static code analysis extractor for gap_detector",
+      "claimed_at": "2026-05-30T19:59:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4644531b2ec8048f855cf31b3c68328eff1e72f4",
+      "notes": null,
+      "shipped_at": "2026-05-30T20:14:11Z"
+    },
+    {
+      "r_number": "R-F1148",
+      "title": "Memory leak detector with growth-rate analysis",
+      "claimed_at": "2026-05-30T20:15:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1149",
+      "title": "Deadlock detector with stack capture",
+      "claimed_at": "2026-05-30T20:15:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

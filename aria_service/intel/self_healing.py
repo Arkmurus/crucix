@@ -813,6 +813,10 @@ class SelfHealingOrchestrator:
         self.recovery_engine = AutoRecoveryEngine(self.circuit_breaker_manager)
         self.ecosystem_repair = EcosystemSelfRepair(self.health_monitor, self.recovery_engine)
         self.diagnostic = SelfDiagnostic()
+        # R-F1148 — memory leak detector
+        self.memory_leak_detector: Optional[Any] = None
+        # R-F1149 — deadlock detector
+        self.deadlock_detector: Optional[Any] = None
         self._running = False
         self._tasks: list[asyncio.Task] = []
 
@@ -846,6 +850,30 @@ class SelfHealingOrchestrator:
             name="self_healing.diagnostic_loop",
         ))
 
+        # R-F1148 — start memory leak detector
+        try:
+            from .memory_leak_detector import MemoryLeakDetector
+            self.memory_leak_detector = MemoryLeakDetector()
+            self._tasks.append(asyncio.create_task(
+                self.memory_leak_detector.run_forever(),
+                name="self_healing.memory_leak_detector",
+            ))
+            logger.info("[self_healing] Memory leak detector started")
+        except Exception as e:
+            logger.warning("[self_healing] Could not start memory leak detector: %s", e)
+
+        # R-F1149 — start deadlock detector
+        try:
+            from .deadlock_detector import DeadlockDetector
+            self.deadlock_detector = DeadlockDetector()
+            self._tasks.append(asyncio.create_task(
+                self.deadlock_detector.run_forever(),
+                name="self_healing.deadlock_detector",
+            ))
+            logger.info("[self_healing] Deadlock detector started")
+        except Exception as e:
+            logger.warning("[self_healing] Could not start deadlock detector: %s", e)
+
         logger.info("[self_healing] All layers started (%d tasks)", len(self._tasks))
 
         wire_success(
@@ -858,6 +886,10 @@ class SelfHealingOrchestrator:
         """Stop all self-healing layers."""
         self._running = False
         self.health_monitor.stop()
+        if self.memory_leak_detector is not None:
+            self.memory_leak_detector.stop()
+        if self.deadlock_detector is not None:
+            self.deadlock_detector.stop()
         for task in self._tasks:
             task.cancel()
         if self._tasks:
@@ -900,7 +932,7 @@ class SelfHealingOrchestrator:
 
     def get_status(self) -> dict:
         """Get the current status of all self-healing layers."""
-        return {
+        status = {
             "running": self._running,
             "health_monitor": {
                 "latest": self.health_monitor.get_latest(),
@@ -921,6 +953,13 @@ class SelfHealingOrchestrator:
                 "latest": self.diagnostic._diagnostics[-1] if self.diagnostic._diagnostics else None,
             },
         }
+        # R-F1148 — memory leak detector status
+        if self.memory_leak_detector is not None:
+            status["memory_leak_detector"] = self.memory_leak_detector.get_status()
+        # R-F1149 — deadlock detector status
+        if self.deadlock_detector is not None:
+            status["deadlock_detector"] = self.deadlock_detector.get_status()
+        return status
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
