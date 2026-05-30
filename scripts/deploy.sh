@@ -146,6 +146,9 @@ deploy_and_verify() {
     return 1
 }
 
+# Write the expected SHA for the live health check script (R-F1125)
+echo "$GIT_SHORT" > "$REPO_ROOT/.last_deploy_sha"
+
 FAILURES=0
 $DEPLOY_INTEL && { deploy_and_verify "aria-intel" "fly.toml"     900 || ((FAILURES++)); }
 $DEPLOY_WEB   && { deploy_and_verify "aria-web"   "fly.web.toml" 600 || ((FAILURES++)); }
@@ -155,6 +158,18 @@ echo ""
 if [[ $FAILURES -eq 0 ]]; then
     git tag "deploy-$(date +%Y%m%d-%H%M%S)" "$GIT_SHA" 2>/dev/null || true
     echo "=== ✅ ALL DEPLOYS VERIFIED LIVE (commit $GIT_SHORT is serving) ==="
+
+    # R-F1125 — run the live health regression suite
+    echo ""
+    echo "=== Running live health regression suite ==="
+    python "$REPO_ROOT/scripts/live_health_check.py" --app all
+    HEALTH_RC=$?
+    if [[ $HEALTH_RC -ne 0 ]]; then
+        echo "=== ❌ Live health regression suite FAILED — deploy succeeded but health checks failed. ==="
+        echo "    Check flyctl logs -a <app> for details."
+        exit 1
+    fi
+    echo "=== ✅ Live health regression suite PASSED ==="
     exit 0
 else
     echo "=== ❌ $FAILURES deploy(s) NOT verified live — NOT shipped. Fix + re-run. ==="
