@@ -49,7 +49,7 @@ from typing import Any, Optional
 
 from .codebase_reader import CodebaseReader
 from .constitutional_validator import (
-    ConstitutionalValidator, ValidationResult,
+    ConstitutionalValidator, ValidationResult, PROTECTED_FILES,
 )
 from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
@@ -59,6 +59,15 @@ from .sovereign_llm import SovereignLLM  # R-F1025: real LLM-backed coder (the c
 from .test_runner import TestResult, TestRunner
 
 logger = logging.getLogger("aria.autonomous.self_coder")
+
+# R-F1128 — combined set of files the autonomous loop cannot modify.
+_PROTECTED_FILES: frozenset = frozenset()
+try:
+    from .constitutional_validator import PROTECTED_FILES as _CV_PROTECTED
+    from ..intel.self_improve import NO_AUTODEPLOY_FILES as _SI_NO_AUTODEPLOY
+    _PROTECTED_FILES = frozenset(list(_CV_PROTECTED) + list(_SI_NO_AUTODEPLOY))
+except ImportError:
+    pass
 
 WORKSPACE_BASE = Path(
     os.environ.get("ARIA_CODER_WORKSPACE", "/data/coder_workspace")
@@ -235,10 +244,30 @@ class ARIACoder:
 
     async def _one_cycle(self) -> None:
         gaps = await self.gap_detector.scan()
-        actionable = [
-            g for g in gaps
-            if g.severity >= GapSeverity.MEDIUM and g.auto_fixable
-        ]
+
+        # R-F1128 — filter out gaps targeting protected files BEFORE attempting
+        # to fix them. The constitutional validator would block them anyway,
+        # but by then we have already burned a fix-slot + logged a FATAL violation.
+        # Also surface them for human review since the autonomous loop cannot fix them.
+        protected_file_gaps = []
+        actionable = []
+        for g in gaps:
+            if g.severity < GapSeverity.MEDIUM or not g.auto_fixable:
+                continue
+            # Map module name to file path and check against PROTECTED_FILES
+            _module_path = f'aria_service/intel/{g.module}.py'
+            if _module_path in _PROTECTED_FILES:
+                protected_file_gaps.append(g)
+                continue
+            actionable.append(g)
+
+        if protected_file_gaps:
+            logger.warning(
+                '[aria_coder] %d gap(s) target protected files - skipped (human review needed): %s',
+                len(protected_file_gaps),
+                [(g.gap_id, g.module, g.title[:60]) for g in protected_file_gaps],
+            )
+
         if not actionable:
             logger.debug("[aria_coder] no actionable gaps this cycle")
             return
