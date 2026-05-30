@@ -226,3 +226,32 @@ class TestScanFile:
         args, kwargs = mock_wf.call_args
         assert kwargs.get("module") == "content_scanner"
         assert kwargs.get("gap_type") == "security_threat"
+
+    async def test_clamav_integration(self, tmp_path: Path):
+        """ClamAV scan is called when available (graceful fallback when not)."""
+        file_path = tmp_path / "clean.pdf"
+        file_path.write_bytes(b"%PDF-1.4 clean content")
+
+        with patch("aria_service.intel.content_scanner._scan_with_clamav",
+                   return_value=None):
+            result = await scan_file(file_path, claimed_type="pdf")
+
+        # Should pass through when ClamAV is not available
+        assert result.safe is True
+
+    async def test_clamav_detects_threat(self, tmp_path: Path):
+        """ClamAV detection is reported as malware."""
+        file_path = tmp_path / "clean.txt"
+        file_path.write_bytes(b"clean file content that passes heuristics")
+
+        with patch("aria_service.intel.content_scanner._scan_with_clamav",
+                   return_value={
+                       "type": "av_malware",
+                       "severity": "CRITICAL",
+                       "detail": "ClamAV: Win.Trojan.Test-1",
+                       "engine": "clamav",
+                   }):
+            result = await scan_file(file_path, claimed_type="txt")
+
+        assert result.safe is False
+        assert "ClamAV" in result.reason

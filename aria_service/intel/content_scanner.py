@@ -265,6 +265,40 @@ def check_suspicious_content(data: bytes) -> list[dict[str, Any]]:
     return threats
 
 
+# ── Real AV scanning (R-F1139) ──────────────────────────────────────────────
+
+async def _scan_with_clamav(file_path: Path) -> Optional[dict[str, Any]]:
+    """Scan a file with ClamAV daemon (clamd) via HTTP if available.
+
+    Connects to clamd's HTTP interface (default port 3310) to scan files.
+    If clamd is not running, returns None (no AV scan performed).
+
+    This is a best-effort scan — never blocks the caller. If the AV is not
+    available or times out, the file passes through to the heuristic scanner.
+    """
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            # ClamAV clamd HTTP interface
+            resp = await client.get(f"http://127.0.0.1:3310/scan/{file_path}")
+            if resp.status_code == 200:
+                text = resp.text.strip()
+                if text and "OK" not in text and "Error" not in text:
+                    return {
+                        "type": "av_malware",
+                        "severity": "CRITICAL",
+                        "detail": f"ClamAV: {text}",
+                        "engine": "clamav",
+                    }
+                return None  # Clean
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass  # ClamAV not running
+    except Exception as e:
+        logger.debug("[content_scanner] ClamAV scan failed: %s", e)
+
+    return None  # No AV available
+
+
 # ── Main scan entry point ───────────────────────────────────────────────────
 
 async def scan_file(
@@ -324,6 +358,12 @@ async def scan_file(
 
     # 5. Suspicious content
     threats.extend(check_suspicious_content(data))
+
+    # 6. Real AV scan (ClamAV if available) — R-F1139
+    # Run regardless of heuristic results — AV may catch what heuristics miss
+    av_result = await _scan_with_clamav(file_path)
+    if av_result:
+        threats.append(av_result)
 
     if threats:
         threat_summary = "; ".join(
