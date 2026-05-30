@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from .llm import LLMClient, LLMError
 from .tools import MUTATING_TOOLS, TOOL_SCHEMAS, Toolbox, ToolResult
+from .coder_tools import CODER_MUTATING_TOOLS, CODER_TOOL_SCHEMAS, CoderToolbox
 
 
 def _resolve_max_steps() -> int:
@@ -108,13 +109,18 @@ LOOP_ABORT_AT = max(LOOP_NUDGE_AT + 1, _env_int("ARIA_CODER_LOOP_ABORT", 8))
 
 class Agent:
     def __init__(self, *, llm: LLMClient, toolbox: Toolbox, system_prompt: str,
-                 ui: AgentUI, auto_approve: bool = False) -> None:
+                 ui: AgentUI, auto_approve: bool = False,
+                 coder_toolbox: CoderToolbox | None = None) -> None:
         self.llm = llm
         self.toolbox = toolbox
+        self.coder_toolbox = coder_toolbox or CoderToolbox(toolbox)
         self.ui = ui
         self.auto_approve = auto_approve
         self.retry_backoff = 2.0  # seconds, exponential; overridden to 0 in tests
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        # Merge base + coder tool schemas for the LLM
+        self._all_schemas = TOOL_SCHEMAS + CODER_TOOL_SCHEMAS
+        self._all_mutating = MUTATING_TOOLS | CODER_MUTATING_TOOLS
 
     def _repair_dangling_tool_calls(self) -> int:
         """R-F1120 — ensure every assistant tool_call has a following tool message.
@@ -166,8 +172,8 @@ class Agent:
         for attempt in range(LLM_MAX_ATTEMPTS):
             try:
                 if stream_fn is not None and on_delta is not None:
-                    return stream_fn(self.messages, tools=TOOL_SCHEMAS, on_delta=on_delta)
-                return self.llm.chat(self.messages, tools=TOOL_SCHEMAS)
+                    return stream_fn(self.messages, tools=self._all_schemas, on_delta=on_delta)
+                return self.llm.chat(self.messages, tools=self._all_schemas)
             except LLMError as exc:
                 last = attempt == LLM_MAX_ATTEMPTS - 1
                 if _is_transient(exc) and not last:
@@ -203,15 +209,25 @@ class Agent:
         return result
 
     def _dispatch(self, name: str, args: dict) -> ToolResult:
+        # Try base toolbox first
         method = getattr(self.toolbox, name, None)
-        if method is None or name not in {s["function"]["name"] for s in TOOL_SCHEMAS}:
-            return ToolResult(f"error: unknown tool '{name}'", is_error=True)
-        try:
-            return method(**args)
-        except TypeError as exc:
-            return ToolResult(f"error: bad arguments for {name}: {exc}", is_error=True)
-        except Exception as exc:  # noqa: BLE001 — tools must never break the loop
-            return ToolResult(f"error in {name}: {exc}", is_error=True)
+        if method is not None and name in {s["function"]["name"] for s in TOOL_SCHEMAS}:
+            try:
+                return method(**args)
+            except TypeError as exc:
+                return ToolResult(f"error: bad arguments for {name}: {exc}", is_error=True)
+            except Exception as exc:  # noqa: BLE001 — tools must never break the loop
+                return ToolResult(f"error in {name}: {exc}", is_error=True)
+        # Try coder toolbox
+        method = getattr(self.coder_toolbox, name, None)
+        if method is not None and name in {s["function"]["name"] for s in CODER_TOOL_SCHEMAS}:
+            try:
+                return method(**args)
+            except TypeError as exc:
+                return ToolResult(f"error: bad arguments for {name}: {exc}", is_error=True)
+            except Exception as exc:  # noqa: BLE001 — tools must never break the loop
+                return ToolResult(f"error in {name}: {exc}", is_error=True)
+        return ToolResult(f"error: unknown tool '{name}'", is_error=True)
 
     def _drain_claude_bridge(self) -> None:
         """R-F1082 — surface any new Claude→ARIA messages from the file bridge
@@ -366,7 +382,7 @@ class Agent:
                 self.ui.tool_call(name, args)
 
                 # Operator approval gate for mutating tools.
-                if name in MUTATING_TOOLS and not self.auto_approve:
+                if name in self._all_mutating and not self.auto_approve:
                     if not self.ui.approve(name, args):
                         result = ToolResult(
                             "operator denied this action. Choose a different "
