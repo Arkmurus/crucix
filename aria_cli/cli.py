@@ -390,6 +390,8 @@ class _BoxChars:
     @property
     def tm(self) -> str: return "╠" if self._unicode else "|"   # tee-middle (left)
     @property
+    def mr(self) -> str: return "╣" if self._unicode else "|"   # middle-right (right tee)
+    @property
     def check(self) -> str: return "✓" if self._unicode else "v"
     @property
     def cross(self) -> str: return "✗" if self._unicode else "x"
@@ -869,7 +871,7 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
     print(color.bold(f"  {bx.v}") + color.cyan("  ARIA Coder") + color.dim(f"  v{__version__}") + color.bold(" " * max(1, 56 - 12 - len(__version__))) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.tm}{h}{bx.tm}"))
+    print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
     dir_str = str(cwd)
     if len(dir_str) > 50:
         dir_str = "..." + dir_str[-47:]
@@ -896,7 +898,7 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
     print(color.bold(f"  {bx.v}") + color.cyan("  Session Complete") + color.dim(f"  {bx.check if success else bx.cross}") + color.bold(" " * max(1, 56 - 18 - 1)) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.tm}{h}{bx.tm}"))
+    print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
     print(color.bold(f"  {bx.v}") + color.dim(f"  duration:    {elapsed_str:<48}") + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.v}") + color.dim(f"  files:       {len(changed):<3} changed{' ' * (45 - len(str(len(changed))))}") + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.v}") + color.dim(f"  tools:       {ui._tool_count:<3} calls{' ' * (45 - len(str(ui._tool_count)))}") + color.bold(f"{bx.v}"))
@@ -963,7 +965,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim(
                     f"  {bx.tl}{h}{bx.tr}\n"
                     f"  {bx.v}  Commands{' ' * 46}{bx.v}\n"
-                    f"  {bx.tm}{h}{bx.tm}\n"
+                    f"  {bx.tm}{h}{bx.mr}\n"
                     f"  {bx.v}  /confirm  toggle asking before edits (auto)  {bx.v}\n"
                     f"  {bx.v}  /changes  list files changed this session    {bx.v}\n"
                     f"  {bx.v}  /claude   read new messages from Claude     {bx.v}\n"
@@ -1017,7 +1019,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 h = bx.h * 55
                 print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                 print(color.cyan(f"  {bx.v}  Sessions ({len(sessions)}){' ' * (44 - len(str(len(sessions))))}{bx.v}"))
-                print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                 for s in sessions[:20]:
                     cur = bx.check if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
                     name = s.name[:40]
@@ -1105,7 +1107,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                             h = bx.h * 55
                             print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                             print(color.cyan(f"  {bx.v}  Gaps ({len(gaps)} found){' ' * (43 - len(str(len(gaps))))}{bx.v}"))
-                            print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                            print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                             for i, g in enumerate(gaps[:20], 1):
                                 sev = g.get("severity", "UNKNOWN")
                                 sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
@@ -1137,7 +1139,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         h = bx.h * 55
                         print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                         print(color.cyan(f"  {bx.v}  System Status{' ' * 43}{bx.v}"))
-                        print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                        print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                         comp = sm.get("composite", 0)
                         comp_str = f"{comp*100:.0f}/100" if comp else "--"
                         print(color.cyan(f"  {bx.v}  Composite score     {comp_str:<42}{bx.v}"))
@@ -1166,7 +1168,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                             h = bx.h * 55
                             print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                             print(color.cyan(f"  {bx.v}  Composite Score History{' ' * 33}{bx.v}"))
-                            print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                            print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                             for hist in history[:24]:
                                 ts = hist.get("timestamp", "")[:16]
                                 score = hist.get("composite", 0)
@@ -1194,7 +1196,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         h = bx.h * 55
                         print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                         print(color.cyan(f"  {bx.v}  Cost Dashboard{' ' * 42}{bx.v}"))
-                        print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                        print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                         spend = d.get('monthly_spend', 0)
                         cap = d.get('monthly_cap', 300)
                         remaining = d.get('remaining', 0)
@@ -1251,7 +1253,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     h = bx.h * 55
                     print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                     print(color.cyan(f"  {bx.v}  Current Plan{' ' * 43}{bx.v}"))
-                    print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                    print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                     for p in agent.toolbox.plan:
                         step = p.get("step", "")
                         status = p.get("status", "pending")
@@ -1268,7 +1270,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
                 print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
                 print(color.cyan(f"  {bx.v}  Session Statistics{' ' * 39}{bx.v}"))
-                print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                 print(color.cyan(f"  {bx.v}  Duration          {elapsed_str:<42}{bx.v}"))
                 print(color.cyan(f"  {bx.v}  Tool calls        {ui._tool_count:<3}{' ' * (42 - len(str(ui._tool_count)))}{bx.v}"))
                 print(color.cyan(f"  {bx.v}  Errors            {ui._error_count:<3}{' ' * (42 - len(str(ui._error_count)))}{bx.v}"))
