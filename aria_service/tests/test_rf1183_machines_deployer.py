@@ -25,6 +25,10 @@ from aria_service.autonomous.machines_deployer import (
     MachinesDeployer,
     DeployResult,
 )
+from aria_service.utils.git_utils import (
+    read_git_ref,
+    find_in_packed_refs,
+)
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -145,25 +149,25 @@ class TestPushGuard:
         ) is False
 
     def test_read_git_ref_returns_sha(self, git_repo: Path) -> None:
-        """_read_git_ref returns the SHA from a ref file."""
+        """read_git_ref returns the SHA from a ref file."""
         ref_path = git_repo / ".git" / "refs" / "heads" / "main"
-        sha = MachinesDeployer._read_git_ref(ref_path)
+        sha = read_git_ref(ref_path)
         assert sha == "abcdef1234567890abcdef1234567890abcdef12"
 
     def test_read_git_ref_returns_none_for_symref(self, tmp_path: Path) -> None:
-        """_read_git_ref returns None for symbolic refs."""
+        """read_git_ref returns None for symbolic refs."""
         ref_file = tmp_path / "HEAD"
         ref_file.write_text("ref: refs/heads/main\n", encoding="utf-8")
-        sha = MachinesDeployer._read_git_ref(ref_file)
+        sha = read_git_ref(ref_file)
         assert sha is None
 
     def test_read_git_ref_returns_none_for_missing(self, tmp_path: Path) -> None:
-        """_read_git_ref returns None for missing files."""
-        sha = MachinesDeployer._read_git_ref(tmp_path / "nonexistent")
+        """read_git_ref returns None for missing files."""
+        sha = read_git_ref(tmp_path / "nonexistent")
         assert sha is None
 
     def test_find_in_packed_refs(self, tmp_path: Path) -> None:
-        """_find_in_packed_refs finds a ref in packed-refs."""
+        """find_in_packed_refs finds a ref in packed-refs."""
         packed = tmp_path / "packed-refs"
         packed.write_text(
             "# pack-refs with: peeled fully-peeled sorted\n"
@@ -172,21 +176,17 @@ class TestPushGuard:
             "cccccccccccccccccccccccccccccccccccccccc refs/remotes/origin/main\n",
             encoding="utf-8",
         )
-        sha = MachinesDeployer._find_in_packed_refs(
-            packed, "refs/heads/main",
-        )
+        sha = find_in_packed_refs(packed, "refs/heads/main")
         assert sha == "abcdef1234567890abcdef1234567890abcdef12"
 
     def test_find_in_packed_refs_not_found(self, tmp_path: Path) -> None:
-        """_find_in_packed_refs returns None when ref not found."""
+        """find_in_packed_refs returns None when ref not found."""
         packed = tmp_path / "packed-refs"
         packed.write_text(
             "abcdef1234567890abcdef1234567890abcdef12 refs/heads/main\n",
             encoding="utf-8",
         )
-        sha = MachinesDeployer._find_in_packed_refs(
-            packed, "refs/heads/nonexistent",
-        )
+        sha = find_in_packed_refs(packed, "refs/heads/nonexistent")
         assert sha is None
 
 

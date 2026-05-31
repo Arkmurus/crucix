@@ -85,8 +85,6 @@ class TestDeploymentStatus:
         assert DeploymentStatus.DEPLOYING.value == "deploying"
         assert DeploymentStatus.SUCCESS.value == "success"
         assert DeploymentStatus.FAILED.value == "failed"
-        assert DeploymentStatus.ROLLING_BACK.value == "rolling_back"
-        assert DeploymentStatus.ROLLED_BACK.value == "rolled_back"
 
 
 # ── DeploymentRecord Tests ─────────────────────────────────────────────────
@@ -221,21 +219,25 @@ class TestGitCommitDetection:
             "abcdef1234567890abcdef1234567890abcdef12\n", encoding="utf-8",
         )
 
-        engine = AutonomousDeployEngine(
-            config=DeployConfig(app_name="test"),
-        )
-        with patch.object(
-            engine, "_resolve_git_root", return_value=tmp_path,
+        with patch(
+            "aria_service.utils.git_utils.resolve_git_root",
+            return_value=tmp_path,
         ):
+            engine = AutonomousDeployEngine(
+                config=DeployConfig(app_name="test"),
+            )
             commit_hash, commit_message = engine.get_current_commit()
             assert commit_hash == "abcdef12"
 
     def test_get_current_commit_fallback(self) -> None:
         """get_current_commit returns 'unknown' when no .git."""
-        engine = AutonomousDeployEngine(
-            config=DeployConfig(app_name="test"),
-        )
-        with patch.object(engine, "_resolve_git_root", return_value=None):
+        with patch(
+            "aria_service.utils.git_utils.resolve_git_root",
+            return_value=None,
+        ):
+            engine = AutonomousDeployEngine(
+                config=DeployConfig(app_name="test"),
+            )
             commit_hash, commit_message = engine.get_current_commit()
             assert commit_hash == "unknown"
             assert commit_message == "Manual deployment"

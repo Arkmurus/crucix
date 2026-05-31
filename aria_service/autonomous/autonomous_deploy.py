@@ -114,8 +114,6 @@ class DeploymentStatus(Enum):
     DEPLOYING = "deploying"
     SUCCESS = "success"
     FAILED = "failed"
-    ROLLING_BACK = "rolling_back"
-    ROLLED_BACK = "rolled_back"
 
 
 @dataclass
@@ -476,9 +474,10 @@ class AutonomousDeployEngine:
         self.config = config or DeployConfig.from_env()
         self.db = DeploymentDatabase(self.config.db_path)
 
-        # Use provided MachinesDeployer or create one
+        # Use provided MachinesDeployer or create one with brain_hook
         self._machines = machines_deployer or MachinesDeployer(
             aria_service_url=f"https://{self.config.app_name}.fly.dev",
+            brain_hook=self._try_get_brain_hook(),
         )
 
         # Resolve app URL
@@ -501,99 +500,35 @@ class AutonomousDeployEngine:
 
         self._deploy_lock = asyncio.Lock()
 
+    @staticmethod
+    def _try_get_brain_hook() -> Any:
+        """Try to import and return the brain_hook module.
+
+        Returns None if brain_hook is not available (e.g. during tests).
+        """
+        try:
+            from ..intel import brain_hook as _bh  # noqa: F811
+            return _bh
+        except (ImportError, ValueError):
+            # ValueError can occur during pytest collection when
+            # the package context is not fully initialized
+            return None
+
+    async def aclose(self) -> None:
+        """Close all HTTP clients and release resources."""
+        await self._machines.aclose()
+        await self.webhook.aclose()
+
     # ── Git helpers (pure Python, no subprocess) ───────────────────────────
-
-    @staticmethod
-    def _read_git_ref(ref_path: Path) -> Optional[str]:
-        """Read a git ref file and return the SHA, or None."""
-        try:
-            if ref_path.is_file():
-                content = ref_path.read_text(encoding="utf-8").strip()
-                if content.startswith("ref: "):
-                    return None
-                return content
-        except (OSError, UnicodeDecodeError):
-            pass
-        return None
-
-    @staticmethod
-    def _find_in_packed_refs(
-        packed_refs_path: Path, ref_name: str,
-    ) -> Optional[str]:
-        """Find a ref in .git/packed-refs and return its SHA."""
-        try:
-            if packed_refs_path.is_file():
-                for line in packed_refs_path.read_text(
-                    encoding="utf-8",
-                ).splitlines():
-                    line = line.strip()
-                    if (
-                        line
-                        and not line.startswith("#")
-                        and not line.startswith("^")
-                    ):
-                        parts = line.split(" ", 1)
-                        if len(parts) == 2 and parts[1] == ref_name:
-                            return parts[0]
-        except (OSError, UnicodeDecodeError):
-            pass
-        return None
-
-    def _resolve_git_root(self) -> Optional[Path]:
-        """Find the git root directory by looking for .git/HEAD."""
-        current = Path.cwd().resolve()
-        for _ in range(10):
-            if (current / ".git").is_dir():
-                return current
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
-        return None
 
     def get_current_commit(self) -> tuple[str, str]:
         """Get current git commit hash and message.
 
-        Reads .git/ files directly — no subprocess calls.
+        Delegates to aria_service.utils.git_utils.get_current_commit.
         Falls back to 'unknown' if git is not available.
         """
-        git_root = self._resolve_git_root()
-        if not git_root:
-            return "unknown", "Manual deployment"
-
-        git_dir = git_root / ".git"
-
-        # Read HEAD SHA
-        head_sha = self._read_git_ref(
-            git_dir / "refs" / "heads" / "main",
-        )
-        if not head_sha:
-            head_sha = self._find_in_packed_refs(
-                git_dir / "packed-refs", "refs/heads/main",
-            )
-        if not head_sha:
-            # Try reading HEAD directly (may be a symref)
-            head_content = self._read_git_ref(git_dir / "HEAD")
-            if head_content and head_content.startswith("ref: "):
-                ref_path_str = head_content[5:].strip()
-                head_sha = self._read_git_ref(git_dir / ref_path_str)
-
-        commit_hash = (head_sha or "unknown")[:8]
-
-        # Try to read commit message from .git/COMMIT_EDITMSG
-        commit_message = "Autonomous deployment"
-        try:
-            msg_file = git_dir / "COMMIT_EDITMSG"
-            if msg_file.is_file():
-                commit_message = (
-                    msg_file.read_text(encoding="utf-8")
-                    .strip()
-                    .split("\n")[0]
-                )
-        except (OSError, UnicodeDecodeError):
-            pass
-
-        return commit_hash, commit_message
+        from ..utils.git_utils import get_current_commit as _get
+        return _get()
 
     # ── Live version ───────────────────────────────────────────────────────
 
@@ -745,7 +680,7 @@ class AutonomousDeployEngine:
                 id=deploy_id,
                 commit_hash=commit_hash,
                 commit_message=commit_message,
-                image_tag=commit_hash,
+                image_tag=commit_hash,  # Will be updated with real image ref after deploy
                 status=DeploymentStatus.PENDING,
                 started_at=datetime.now(timezone.utc),
             )
@@ -788,11 +723,15 @@ class AutonomousDeployEngine:
                             self._generate_verification_hash(commit_hash)
                         )
 
+                        # Store the real image ref from the deploy result
+                        if deploy_result.image:
+                            record.image_tag = deploy_result.image
+
                         # Anchor to blockchain if enabled
                         if self.blockchain:
                             tx_hash = self.blockchain.anchor_deployment(
                                 commit_hash,
-                                commit_hash,
+                                record.image_tag,
                                 record.verification_hash or "",
                             )
                             record.blockchain_tx = tx_hash
@@ -864,9 +803,13 @@ class AutonomousDeployEngine:
     ) -> bool:
         """Rollback to previous version.
 
-        Uses the MachinesDeployer to update machines to the previous
-        image. If target_version is None, rolls back to the most recent
-        successful deploy in the database.
+        Uses the MachinesDeployer public API to update machines to the
+        previous image. If target_version is None, rolls back to the most
+        recent successful deploy in the database.
+
+        The image_tag stored in version_history is the real Fly image ref
+        (e.g. "registry.fly.io/aria-intel:deployment-abc12345"), not just
+        the commit hash — so rollback actually deploys a real image.
         """
         try:
             if target_version is None:
@@ -893,6 +836,9 @@ class AutonomousDeployEngine:
                 target_image = prev.get("image_tag", "")
 
             if not target_image:
+                logger.warning(
+                    "[deploy_engine] no image tag found for rollback target",
+                )
                 return False
 
             logger.warning(
@@ -900,8 +846,8 @@ class AutonomousDeployEngine:
                 target_image,
             )
 
-            # Use MachinesDeployer to update fleet
-            fleet_ok = await self._machines._update_fleet(
+            # Use MachinesDeployer public API to update fleet
+            fleet_ok = await self._machines.update_fleet(
                 self.config.app_name, target_image,
             )
             if not fleet_ok:
@@ -1049,11 +995,18 @@ def add_deployment_endpoints(
 
     @app.post("/api/aria/deploy/rollback")
     async def trigger_rollback(version: Optional[int] = None):
-        """Rollback to previous version."""
+        """Rollback to previous version.
+
+        If version is None, rolls back to the most recent successful
+        deploy. If version is 0 or a positive integer, rolls back to
+        that specific release version.
+        """
         success = await engine.rollback(version)
         return {
             "success": success,
-            "rolled_back_to": version if version else "previous",
+            "rolled_back_to": (
+                version if version is not None else "previous"
+            ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

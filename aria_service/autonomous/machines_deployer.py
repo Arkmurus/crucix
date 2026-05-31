@@ -350,107 +350,10 @@ class MachinesDeployer:
     def _check_push_guard(self, commit_sha: str) -> bool:
         """Verify HEAD matches origin/main by reading .git/ files directly.
 
-        Reads .git/refs/heads/main for HEAD and .git/refs/remotes/origin/main
-        for origin/main. If the packed-refs format is used, falls back to
-        parsing .git/packed-refs.
-
-        This prevents deploying un-pushed commits — the live server would
-        run un-backed-up code and origin/main would diverge from production.
+        Delegates to aria_service.utils.git_utils.check_push_guard.
         """
-        git_dir = self._git_root / ".git"
-        if not git_dir.is_dir():
-            logger.warning(
-                "[machines_deployer] push guard: no .git directory found "
-                "at %s — cannot verify push status",
-                git_dir,
-            )
-            return False
-
-        # Read HEAD SHA from .git/refs/heads/main
-        head_sha = self._read_git_ref(git_dir / "refs" / "heads" / "main")
-        if not head_sha:
-            # Try packed-refs
-            head_sha = self._find_in_packed_refs(
-                git_dir / "packed-refs", "refs/heads/main",
-            )
-
-        if not head_sha:
-            logger.warning(
-                "[machines_deployer] push guard: cannot read HEAD ref "
-                "(refs/heads/main) — refusing deploy",
-            )
-            return False
-
-        # Read origin/main SHA
-        origin_sha = self._read_git_ref(
-            git_dir / "refs" / "remotes" / "origin" / "main",
-        )
-        if not origin_sha:
-            origin_sha = self._find_in_packed_refs(
-                git_dir / "packed-refs", "refs/remotes/origin/main",
-            )
-
-        if not origin_sha:
-            logger.warning(
-                "[machines_deployer] push guard: cannot read origin/main "
-                "ref — no remote or not fetched. Push manually first.",
-            )
-            return False
-
-        if head_sha != commit_sha:
-            logger.warning(
-                "[machines_deployer] push guard: HEAD (%s) != "
-                "provided commit_sha (%s) — mismatch",
-                head_sha[:8], commit_sha[:8],
-            )
-            return False
-
-        if head_sha != origin_sha:
-            logger.error(
-                "[machines_deployer] PUSH GUARD: HEAD (%s) != "
-                "origin/main (%s) — push your commit before deploying",
-                head_sha[:8], origin_sha[:8],
-            )
-            return False
-
-        logger.info(
-            "[machines_deployer] push guard: HEAD matches origin/main (%s)",
-            commit_sha[:8],
-        )
-        return True
-
-    @staticmethod
-    def _read_git_ref(ref_path: Path) -> Optional[str]:
-        """Read a git ref file and return the SHA, or None."""
-        try:
-            if ref_path.is_file():
-                content = ref_path.read_text(encoding="utf-8").strip()
-                # Handle symbolic refs like "ref: refs/heads/main"
-                if content.startswith("ref: "):
-                    return None
-                return content
-        except (OSError, UnicodeDecodeError):
-            pass
-        return None
-
-    @staticmethod
-    def _find_in_packed_refs(
-        packed_refs_path: Path, ref_name: str,
-    ) -> Optional[str]:
-        """Find a ref in .git/packed-refs and return its SHA."""
-        try:
-            if packed_refs_path.is_file():
-                for line in packed_refs_path.read_text(
-                    encoding="utf-8",
-                ).splitlines():
-                    line = line.strip()
-                    if line and not line.startswith("#") and not line.startswith("^"):
-                        parts = line.split(" ", 1)
-                        if len(parts) == 2 and parts[1] == ref_name:
-                            return parts[0]
-        except (OSError, UnicodeDecodeError):
-            pass
-        return None
+        from ..utils.git_utils import check_push_guard as _check
+        return _check(commit_sha, git_root=self._git_root)
 
     # ── BUILD ───────────────────────────────────────────────────────────────
 
@@ -462,6 +365,12 @@ class MachinesDeployer:
         POST /v1/apps/{app}/builds with the commit SHA as the source.
         Returns the image ref (registry.fly.io/{app}:deployment-<sha>)
         or None on failure.
+
+        NOTE: The Fly Machines API build endpoint is not a documented
+        public API and may not be available on all apps. If the build
+        trigger fails, provide a pre-built image via the `image`
+        parameter to `deploy()`. In practice, `flyctl deploy --remote-only`
+        is the only reliable way to trigger builds.
         """
         try:
             resp = await self._client.post(
@@ -475,7 +384,8 @@ class MachinesDeployer:
             )
             if resp.status_code not in (200, 201, 202):
                 logger.error(
-                    "[machines_deployer] build trigger %d: %s",
+                    "[machines_deployer] build trigger %d: %s — "
+                    "provide a pre-built image via the `image` parameter",
                     resp.status_code, resp.text[:300],
                 )
                 return None
@@ -499,12 +409,14 @@ class MachinesDeployer:
 
         except httpx.TimeoutException:
             logger.error(
-                "[machines_deployer] build trigger timed out",
+                "[machines_deployer] build trigger timed out — "
+                "provide a pre-built image via the `image` parameter",
             )
             return None
         except Exception as e:
             logger.error(
-                "[machines_deployer] build trigger failed: %s", e,
+                "[machines_deployer] build trigger failed: %s — "
+                "provide a pre-built image via the `image` parameter", e,
             )
             return None
 
@@ -602,6 +514,18 @@ class MachinesDeployer:
                                 "internal_port": 8000,
                             },
                         ],
+                        # Health check so Fly LB routes traffic to canary
+                        "checks": [
+                            {
+                                "type": "http",
+                                "path": "/health/live",
+                                "port": 8000,
+                                "interval": "10s",
+                                "timeout": "5s",
+                                "grace_period": "30s",
+                                "method": "GET",
+                            },
+                        ],
                     },
                 },
             )
@@ -691,6 +615,18 @@ class MachinesDeployer:
         return False
 
     # ── FLEET UPDATE ────────────────────────────────────────────────────────
+
+    async def update_fleet(self, app: str, image: str) -> bool:
+        """Update all existing machines to a new image. Public API.
+
+        Args:
+            app: Fly app name.
+            image: Full image ref to deploy.
+
+        Returns:
+            True if at least one machine was updated.
+        """
+        return await self._update_fleet(app, image)
 
     async def _update_fleet(self, app: str, image: str) -> bool:
         """Update all existing machines in the app to the new image.
@@ -1024,14 +960,9 @@ class MachinesDeployer:
     def _resolve_git_root(self) -> Path:
         """Find the git root directory by looking for .git/HEAD.
 
-        Walks up from repo_path until it finds a .git directory.
+        Delegates to aria_service.utils.git_utils.resolve_git_root.
+        Falls back to self.repo_path if not found.
         """
-        current = self.repo_path.resolve()
-        for _ in range(10):  # Max 10 levels up
-            if (current / ".git").is_dir():
-                return current
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
-        return self.repo_path
+        from ..utils.git_utils import resolve_git_root as _resolve
+        found = _resolve(start_path=self.repo_path)
+        return found or self.repo_path

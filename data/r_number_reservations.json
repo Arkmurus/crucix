@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1186,
+  "next_available": 1189,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6352,6 +6352,36 @@
       "r_number": "R-F1185",
       "title": "Merge AutonomousDeployEngine with MachinesDeployer — SQLite, webhooks, FastAPI endpoints, blockchain stub",
       "claimed_at": "2026-05-31T15:29:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a16845b",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:51:31Z"
+    },
+    {
+      "r_number": "R-F1186",
+      "title": "Add VLS verify, case file, and VLS key export UI to dd-reports.html",
+      "claimed_at": "2026-05-31T15:34:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cfda7ca1",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:42:36Z"
+    },
+    {
+      "r_number": "R-F1187",
+      "title": "Fix PowerShell encoding issues + VLS chain UI page + DD comparison view + watchlist management UI",
+      "claimed_at": "2026-05-31T15:45:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "466b1a38",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:55:26Z"
+    },
+    {
+      "r_number": "R-F1188",
+      "title": "Bulletproof deploy system overhaul — dedup, rollback fix, cleanup, brain wiring",
+      "claimed_at": "2026-05-31T15:54:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
