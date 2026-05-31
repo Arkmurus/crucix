@@ -56,6 +56,7 @@ _PATTERN_THRESHOLD = 3         # 3+ same-type errors = pattern
 _MAX_STAGED_FIXES_PER_HOUR = 5 # Don't flood the staging queue
 _HEALTH_ENDPOINT = "/health/live"
 _ARIA_SERVICE_URL = "http://localhost:8000"
+_ARIA_WEB_URL = "https://aria-web.fly.dev"  # R-F1209: live public web tier
 
 # Redis keys
 _INTEGRITY_CHECK_KEY = "crucix:web_integrity:last_check"
@@ -172,9 +173,188 @@ INPUT_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
+# ── Public web endpoints (live aria-web) ────────────────────────────────────
+
+# R-F1209: monitor the live public web tier in addition to localhost.
+# These are the user-facing endpoints that real users interact with.
+_WEB_ENDPOINTS_PUBLIC: list[dict[str, Any]] = [
+    {"path": "/healthz", "method": "GET", "expected": {"status"}, "critical": True},
+    {"path": "/api/auth/status", "method": "GET", "expected": {}, "critical": False},
+    {"path": "/api/aria/status", "method": "GET", "expected": {"status"}, "critical": False},
+]
+
+
 # ── Core check functions ────────────────────────────────────────────────────
 
 async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
+    """Check a single web endpoint for correctness.
+
+    Verifies:
+      1. The endpoint responds (not 5xx, not timeout)
+      2. The response contains expected fields
+      3. The response time is acceptable (< 5s)
+      4. The response data is valid JSON (if applicable)
+    """
+    import httpx
+
+    path = endpoint["path"]
+    method = endpoint["method"]
+    expected = endpoint.get("expected", {})
+    is_critical = endpoint.get("critical", False)
+    start = time.monotonic()
+
+    check = IntegrityCheck(endpoint=path, method=method, passed=True)
+
+    try:
+        url = f"{_ARIA_SERVICE_URL}{path}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if method == "GET":
+                resp = await client.get(url)
+            elif method == "POST":
+                resp = await client.post(url, json={})
+            else:
+                check.errors.append(f"Unsupported method: {method}")
+                check.passed = False
+                return check
+
+        elapsed = (time.monotonic() - start) * 1000
+        check.response_time_ms = round(elapsed, 1)
+        check.status_code = resp.status_code
+
+        # Check 1: Status code
+        if resp.status_code >= 500:
+            check.errors.append(
+                f"Server error: {resp.status_code} on {method} {path}"
+            )
+            check.passed = False
+        elif resp.status_code >= 400:
+            check.warnings.append(
+                f"Client error: {resp.status_code} on {method} {path}"
+            )
+
+        # Check 2: Response time
+        if elapsed > 5000:
+            check.warnings.append(
+                f"Slow response: {elapsed:.0f}ms on {method} {path} (threshold: 5000ms)"
+            )
+
+        # Check 3: Expected fields in JSON response
+        if expected:
+            try:
+                data = resp.json()
+                for field in expected:
+                    if field not in data:
+                        check.errors.append(
+                            f"Missing expected field '{field}' in {method} {path}"
+                        )
+                        check.passed = False
+            except (json.JSONDecodeError, ValueError):
+                check.warnings.append(
+                    f"Non-JSON response on {method} {path} (expected fields: {expected})"
+                )
+
+        # Check 4: Critical endpoints must respond fast
+        if is_critical and elapsed > 2000:
+            check.warnings.append(
+                f"Critical endpoint slow: {elapsed:.0f}ms on {method} {path}"
+            )
+
+    except httpx.TimeoutException:
+        check.errors.append(f"Timeout on {method} {path} (>10s)")
+        check.passed = False
+        check.status_code = 0
+    except httpx.ConnectError as e:
+        check.errors.append(f"Connection failed on {method} {path}: {e}")
+        check.passed = False
+        check.status_code = 0
+    except Exception as e:
+        check.errors.append(f"Unexpected error on {method} {path}: {e}")
+        check.passed = False
+        check.status_code = 0
+
+    return check
+
+
+async def check_endpoint_public(endpoint: dict[str, Any]) -> IntegrityCheck:
+    """Check a live public web endpoint (aria-web.fly.dev).
+
+    Same as check_endpoint but hits the public URL instead of localhost.
+    Used to verify the live web tier is serving correctly to users.
+    """
+    import httpx
+
+    path = endpoint["path"]
+    method = endpoint["method"]
+    expected = endpoint.get("expected", {})
+    is_critical = endpoint.get("critical", False)
+    start = time.monotonic()
+
+    check = IntegrityCheck(endpoint=f"[public]{path}", method=method, passed=True)
+
+    try:
+        url = f"{_ARIA_WEB_URL}{path}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if method == "GET":
+                resp = await client.get(url)
+            elif method == "POST":
+                resp = await client.post(url, json={})
+            else:
+                check.errors.append(f"Unsupported method: {method}")
+                check.passed = False
+                return check
+
+        elapsed = (time.monotonic() - start) * 1000
+        check.response_time_ms = round(elapsed, 1)
+        check.status_code = resp.status_code
+
+        if resp.status_code >= 500:
+            check.errors.append(
+                f"Server error: {resp.status_code} on {method} {path} (public)"
+            )
+            check.passed = False
+        elif resp.status_code >= 400:
+            check.warnings.append(
+                f"Client error: {resp.status_code} on {method} {path} (public)"
+            )
+
+        if elapsed > 5000:
+            check.warnings.append(
+                f"Slow response: {elapsed:.0f}ms on {method} {path} (public, threshold: 5000ms)"
+            )
+
+        if expected:
+            try:
+                data = resp.json()
+                for field in expected:
+                    if field not in data:
+                        check.errors.append(
+                            f"Missing expected field '{field}' in {method} {path} (public)"
+                        )
+                        check.passed = False
+            except (json.JSONDecodeError, ValueError):
+                check.warnings.append(
+                    f"Non-JSON response on {method} {path} (public, expected fields: {expected})"
+                )
+
+        if is_critical and elapsed > 2000:
+            check.warnings.append(
+                f"Critical public endpoint slow: {elapsed:.0f}ms on {method} {path}"
+            )
+
+    except httpx.TimeoutException:
+        check.errors.append(f"Timeout on {method} {path} (public, >15s)")
+        check.passed = False
+        check.status_code = 0
+    except httpx.ConnectError as e:
+        check.errors.append(f"Connection failed on {method} {path} (public): {e}")
+        check.passed = False
+        check.status_code = 0
+    except Exception as e:
+        check.errors.append(f"Unexpected error on {method} {path} (public): {e}")
+        check.passed = False
+        check.status_code = 0
+
+    return check
     """Check a single web endpoint for correctness.
 
     Verifies:
@@ -490,7 +670,9 @@ class WebIntegrityAgent:
         """Return the current integrity status for the dashboard."""
         return {
             "running": self._running,
-            "endpoints_monitored": len(WEB_ENDPOINTS),
+            "endpoints_monitored": len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
+            "endpoints_local": len(WEB_ENDPOINTS),
+            "endpoints_public": len(_WEB_ENDPOINTS_PUBLIC),
             "input_schemas": len(INPUT_SCHEMAS),
             "patterns_detected": len(self._detector._patterns),
             "patterns_actionable": len(self._detector.get_actionable_patterns()),
@@ -523,11 +705,20 @@ class WebIntegrityAgent:
             await asyncio.sleep(_POLL_INTERVAL_S)
 
     async def _one_cycle(self) -> None:
-        """One monitoring cycle — check all endpoints."""
+        """One monitoring cycle — check all endpoints (localhost + live web)."""
+        # R-F1209: tick heartbeat so the agent registry knows we're alive
+        try:
+            from .agent_registry import AgentRegistry
+            _reg = AgentRegistry()
+            await _reg.tick_heartbeat("web_integrity", "24/7 endpoint monitoring")
+        except Exception:
+            pass
+
         checks: list[IntegrityCheck] = []
         errors_found = 0
         critical_errors = 0
 
+        # Check localhost endpoints (internal aria-intel)
         for endpoint in WEB_ENDPOINTS:
             check = await check_endpoint(endpoint)
             checks.append(check)
@@ -538,10 +729,23 @@ class WebIntegrityAgent:
 
                 if endpoint.get("critical", False):
                     critical_errors += 1
-                    # DIRECTIVE 3: Escalate critical errors within 30s
                     await self._escalate_critical(check)
 
-                # DIRECTIVE 5: Zero tolerance — every error is recorded
+                await self._record_error(check)
+
+        # R-F1209: also check live public web tier (aria-web.fly.dev)
+        for endpoint in _WEB_ENDPOINTS_PUBLIC:
+            check = await check_endpoint_public(endpoint)
+            checks.append(check)
+
+            if not check.passed:
+                errors_found += 1
+                self._detector.record_error(check)
+
+                if endpoint.get("critical", False):
+                    critical_errors += 1
+                    await self._escalate_critical(check)
+
                 await self._record_error(check)
 
         # DIRECTIVE 4: Cross-agent communication
@@ -549,7 +753,7 @@ class WebIntegrityAgent:
             await self._wire_to_brain(
                 module="web_integrity_agent",
                 summary=(
-                    f"Integrity check: {errors_found}/{len(WEB_ENDPOINTS)} "
+                    f"Integrity check: {errors_found}/{len(checks)} "
                     f"endpoints failed ({critical_errors} critical)"
                 ),
                 detail=json.dumps([
@@ -567,9 +771,11 @@ class WebIntegrityAgent:
 
         # DIRECTIVE 7: Never silent
         logger.info(
-            "[web_integrity] cycle complete: %d endpoints, "
+            "[web_integrity] cycle complete: %d endpoints (%d local + %d public), "
             "%d passed, %d failed (%d critical), %d patterns actionable",
             len(checks),
+            len(WEB_ENDPOINTS),
+            len(_WEB_ENDPOINTS_PUBLIC),
             len(checks) - errors_found,
             errors_found,
             critical_errors,

@@ -121,3 +121,123 @@ async def test_web_integrity_agent_start_stop():
 
     await agent.stop()
     assert not agent._running, "Agent should not be running after stop"
+
+
+# ── R-F1209: Agent heartbeat tickers ────────────────────────────────────────
+
+
+def test_heartbeat_tickers_in_all_loops():
+    """Verify every background loop has a _tick_heartbeat call."""
+    source = _read("aria_service/main.py")
+
+    # Each registered agent should have a _tick_heartbeat call in its loop
+    expected_agents = [
+        "research_engine",
+        "self_improve",
+        "student_quiz",
+        "student_reading",
+        "library_consolidation",
+        "proactive_watch",
+        "weekly_report",
+        "watchlist_rescreen",
+        "tender_monitor",
+    ]
+    for agent_id in expected_agents:
+        assert f'_tick_heartbeat("{agent_id}"' in source, (
+            f"Agent '{agent_id}' must have a heartbeat ticker in its loop"
+        )
+
+
+def test_heartbeat_ticker_helper_exists():
+    """Verify the _tick_heartbeat helper function exists in main.py."""
+    source = _read("aria_service/main.py")
+    assert "async def _tick_heartbeat" in source, (
+        "_tick_heartbeat helper must be defined in main.py"
+    )
+    assert "AgentRegistry" in source, (
+        "_tick_heartbeat must import AgentRegistry"
+    )
+    assert "tick_heartbeat" in source, (
+        "_tick_heartbeat must call registry.tick_heartbeat"
+    )
+
+
+def test_web_integrity_agent_has_heartbeat():
+    """Verify WebIntegrityAgent ticks its heartbeat in _one_cycle."""
+    source = _read("aria_service/intel/web_integrity_agent.py")
+    assert 'tick_heartbeat("web_integrity"' in source, (
+        "WebIntegrityAgent must tick heartbeat in _one_cycle"
+    )
+
+
+# ── R-F1209: Public web monitoring ──────────────────────────────────────────
+
+
+def test_web_integrity_agent_has_public_endpoints():
+    """Verify WebIntegrityAgent monitors live aria-web endpoints."""
+    source = _read("aria_service/intel/web_integrity_agent.py")
+    assert "_WEB_ENDPOINTS_PUBLIC" in source, (
+        "WebIntegrityAgent must define public web endpoints"
+    )
+    assert "_ARIA_WEB_URL" in source, (
+        "WebIntegrityAgent must define the public web URL"
+    )
+    assert "aria-web.fly.dev" in source, (
+        "Public web URL must point to aria-web.fly.dev"
+    )
+    assert "check_endpoint_public" in source, (
+        "WebIntegrityAgent must have a check_endpoint_public function"
+    )
+
+
+def test_web_integrity_agent_cycles_check_public():
+    """Verify _one_cycle calls check_endpoint_public for public endpoints."""
+    source = _read("aria_service/intel/web_integrity_agent.py")
+    assert "_WEB_ENDPOINTS_PUBLIC" in source, (
+        "_one_cycle must iterate over _WEB_ENDPOINTS_PUBLIC"
+    )
+    assert "check_endpoint_public" in source, (
+        "_one_cycle must call check_endpoint_public"
+    )
+
+
+def test_web_integrity_agent_status_includes_public():
+    """Verify get_status includes public endpoint counts."""
+    source = _read("aria_service/intel/web_integrity_agent.py")
+    assert "endpoints_public" in source, (
+        "get_status must include endpoints_public count"
+    )
+    assert "endpoints_local" in source, (
+        "get_status must include endpoints_local count"
+    )
+
+
+# ── R-F1209: Agent registry messaging ───────────────────────────────────────
+
+
+def test_agent_registry_messaging_routes_exist():
+    """Verify agent messaging routes exist in aria.py."""
+    source = _read("aria_service/routes/aria.py")
+    assert "send_message" in source, (
+        "Agent messaging must have send_message route"
+    )
+    assert "read_messages" in source, (
+        "Agent messaging must have read_messages route"
+    )
+    assert "/agents/" in source, (
+        "Agent messaging routes must be under /agents/"
+    )
+
+
+def test_agent_registry_messaging_implemented():
+    """Verify AgentRegistry has send_message and read_messages."""
+    source = _read("aria_service/intel/agent_registry.py")
+    assert "async def send_message" in source, (
+        "AgentRegistry must have send_message method"
+    )
+    assert "async def read_messages" in source, (
+        "AgentRegistry must have read_messages method"
+    )
+    assert "async def broadcast_message" in source, (
+        "AgentRegistry must have broadcast_message method"
+    )

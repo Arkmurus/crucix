@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1209,
+  "next_available": 1210,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6579,6 +6579,16 @@
       "r_number": "R-F1208",
       "title": "Fix banner box alignment with ANSI-colored content",
       "claimed_at": "2026-05-31T18:06:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b195c096",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:08:17Z"
+    },
+    {
+      "r_number": "R-F1209",
+      "title": "Agent contracts: heartbeat tickers, cross-agent messaging, web linking",
+      "claimed_at": "2026-05-31T18:14:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

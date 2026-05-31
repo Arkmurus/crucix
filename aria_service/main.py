@@ -926,6 +926,7 @@ async def lifespan(app: FastAPI):
                 # from interactive chat and on-demand research_tasks.
                 _t = cost_tracker.set_feature("autonomous_research")
                 try:
+                    await _tick_heartbeat("research_engine", "RSS feeds → fact extraction → hypothesis validation")
                     logger.info("[Research] Starting autonomous research cycle...")
                     result = await research_and_learn(llm)
                     logger.info(
@@ -1005,15 +1006,26 @@ async def lifespan(app: FastAPI):
         research_task = asyncio.create_task(_research_loop())
         logger.info("Research scheduler started (every 30min)")
 
-    # ── R-F1207: Register all background loops in the agent registry ─────
+    # ── R-F1207/R-F1209: Register all background loops in the agent registry ─────
     # Every autonomous loop registers itself so the multi-agent awareness
     # protocol (R-F1160) can see who's running, what they're doing, and
     # detect stale/dead agents. Registration is best-effort (non-fatal).
+    # R-F1209: each loop also ticks its heartbeat every iteration so the
+    # registry knows the agent is alive and working.
     async def _register_agent(agent_id: str, agent_type: str, task: str) -> None:
         try:
             from .intel.agent_registry import AgentRegistry
             _reg = AgentRegistry()
             await _reg.register(agent_id, agent_type, current_task=task)
+        except Exception:
+            pass
+
+    async def _tick_heartbeat(agent_id: str, current_task: str = "") -> None:
+        """Tick an agent's heartbeat in the registry. Best-effort, non-fatal."""
+        try:
+            from .intel.agent_registry import AgentRegistry
+            _reg = AgentRegistry()
+            await _reg.tick_heartbeat(agent_id, current_task=current_task or None)
         except Exception:
             pass
 
@@ -1098,6 +1110,7 @@ async def lifespan(app: FastAPI):
                 _p = set_priority(Priority.BACKGROUND)
                 _t = cost_tracker.set_feature("self_improve")
                 try:
+                    await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
                     result = await self_improve.autonomous_improvement_cycle(llm)
                     # R-F272 (2026-05-11) — honest cycle log. Operator was
@@ -1162,6 +1175,7 @@ async def lifespan(app: FastAPI):
             _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_quiz")
             try:
+                await _tick_heartbeat("student_quiz", "Self-quiz on weak topics")
                 result = await student.self_quiz(num_questions=5)
                 # R-F291: when quizzed==0 the previous log was diagnostically
                 # blind. Surface library_size + orphan + skip counts so the
@@ -1202,6 +1216,7 @@ async def lifespan(app: FastAPI):
             _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_reading")
             try:
+                await _tick_heartbeat("student_reading", "Study articles on weak topics")
                 result = await student.reading_session(llm=llm, num_articles=4)
                 logger.info(
                     "[Student] Reading session: %d articles studied on %s",
@@ -1220,6 +1235,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(3600)
         while True:
             try:
+                await _tick_heartbeat("library_consolidation", "Archive stale reasoning cases")
                 result = await reasoning_library.consolidate()
                 # R-F242 (2026-05-13): log archived + missing distinctly.
                 # Pre-R-F242 the log said "pruned N" but consolidate now
@@ -1254,6 +1270,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(120)  # 2 min after startup
         while True:
             try:
+                await _tick_heartbeat("proactive_watch", "Daily briefing trigger + mastery prep")
                 # Daily briefing check
                 fired = await proactive.daily_briefing_check(getattr(app.state, "current_data", None))
                 if fired:
@@ -1279,6 +1296,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(300)  # 5 min after startup
         while True:
             try:
+                await _tick_heartbeat("weekly_report", "Weekly learning report generation")
                 from datetime import datetime, timezone
                 now = datetime.now(timezone.utc)
                 if now.weekday() == 0 and 6 <= now.hour <= 8:
@@ -1320,6 +1338,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(600)  # 10 min after startup
         while True:
             try:
+                await _tick_heartbeat("watchlist_rescreen", "Re-screen DD watchlist entities against sanctions/PEP")
                 from .intel import dd_orchestrator
                 result = await dd_orchestrator.rescreen_watchlist(
                     llm=getattr(app.state, "llm_provider", None),
@@ -1373,6 +1392,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(900)  # 15 min after startup
         while True:
             try:
+                await _tick_heartbeat("tender_monitor", "Crawl defence procurement portals")
                 from .intel import tender_monitor
                 result = await tender_monitor.run_monitoring_cycle()
                 if result.get("new_tenders", 0) > 0:
