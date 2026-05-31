@@ -464,9 +464,11 @@ class ARIACoder:
                     )
 
             # STEP 6 — self-healing test loop
+            safe_mode = not os.environ.get("ARIA_CODER_TESTS_FULL", "0").strip() == "1"
             await self._publish_progress(
                 fix_id, "testing",
-                "Running isolated tests (self-healing up to 3 attempts)",
+                f"Running {'safe-mode' if safe_mode else 'full-suite'} tests "
+                f"(self-healing up to {MAX_FIX_ATTEMPTS} attempts)",
             )
             test_result = await self._test_with_healing(plan, workspace)
             if not test_result.all_green:

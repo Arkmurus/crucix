@@ -433,7 +433,7 @@ class TestRunnerDisabledByDefault:
         # _run_sync to a stub so we can assert it WAS reached.
         called = {"hit": False}
 
-        def fake_run_sync(workspace, new_tests, tests_dir):
+        def fake_run_sync(workspace, new_tests, tests_dir, full_suite=False):
             called["hit"] = True
             from aria_service.autonomous.test_runner import TestResult
             return TestResult(all_green=True, passed=42)
