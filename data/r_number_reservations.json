@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1237,
+  "next_available": 1242,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6850,14 +6850,63 @@
       "title": "Make test runner safe for production - resource limits, circuit breaker, safe mode",
       "claimed_at": "2026-05-31T21:36:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f571994e",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:57:25Z"
     },
     {
       "r_number": "R-F1236",
       "title": "Prompt budget management",
       "claimed_at": "2026-05-31T21:52:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4ad1d216",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:56:53Z"
+    },
+    {
+      "r_number": "R-F1237",
+      "title": "Wire SovereignLLM as default coder + build real code synthesis engine + wire to brain",
+      "claimed_at": "2026-05-31T21:59:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4b5019e4",
+      "notes": null,
+      "shipped_at": "2026-05-31T22:22:42Z"
+    },
+    {
+      "r_number": "R-F1238",
+      "title": "ARIA independence fallback chain",
+      "claimed_at": "2026-05-31T21:59:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1239",
+      "title": "Independence config",
+      "claimed_at": "2026-05-31T22:05:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1240",
+      "title": "ARIA local launcher script + documentation for running on any computer",
+      "claimed_at": "2026-05-31T22:25:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d4de2ce",
+      "notes": null,
+      "shipped_at": "2026-05-31T22:28:35Z"
+    },
+    {
+      "r_number": "R-F1241",
+      "title": "ARIA demo page - one URL to experience the coder in browser",
+      "claimed_at": "2026-05-31T22:30:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
