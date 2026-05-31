@@ -204,6 +204,18 @@ async def lifespan(app: FastAPI):
             app.state.state_backend,
         )
 
+    # R-F1178: install the error ledger handler so WARNING+ log entries
+    # are persisted to Redis and the self_coder's _monitor_post_deploy
+    # can detect regressions after auto-deploy. Pre-R-F1178 the handler
+    # was only installed in tests, so the error count key had no producer
+    # in production and the post-deploy monitor was a permanent no-op.
+    try:
+        from .intel import error_log_handler
+        error_log_handler.install()
+        logger.info("[R-F1178] Error ledger handler installed")
+    except Exception as _elh_err:
+        logger.warning("[R-F1178] Error ledger handler install failed: %s", _elh_err)
+
     # F28 fix 2026-04-27: every Lightpanda / Playwright render emits
     # `(node:NNN) [DEP0169] DeprecationWarning: url.parse() behavior is
     # not standardized` from internal Node helpers. The warning is

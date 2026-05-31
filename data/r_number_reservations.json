@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1178,
+  "next_available": 1179,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6273,6 +6273,16 @@
       "r_number": "R-F1177",
       "title": "Strengthen autonomous DD pipeline — URL extraction, timeout resilience, multi-agent coordination",
       "claimed_at": "2026-05-31T10:40:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76be96bd",
+      "notes": null,
+      "shipped_at": "2026-05-31T10:53:33Z"
+    },
+    {
+      "r_number": "R-F1178",
+      "title": "Phase 1 — Fix autonomous loop: remove duplicate gap_detector, fix _monitor_post_deploy, wire eliminated_weapons, fix server.mjs brain path",
+      "claimed_at": "2026-05-31T11:02:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
