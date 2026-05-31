@@ -241,6 +241,8 @@ const Sidebar = {
         ${link('explorer',     '/explorer.html',          'bi-globe2',         'Explorer')}
         ${link('aria',         '/aria.html',              'bi-cpu',            'ARIA', 'aria-link')}
         ${link('dd-reports',   '/dd-reports.html',        'bi-folder2-open',   'DD Reports')}
+        ${link('watchlist',    '/watchlist.html',         'bi-eye',            'Watchlist')}
+        ${link('vls-chain',    '/vls-chain.html',         'bi-shield-check',   'VLS Chain')}
 
         <div class="sidebar-divider"></div>
         <div class="sidebar-section">System</div>

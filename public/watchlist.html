@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watchlist — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.65; }
+    .wl-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+    .wl-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 8px; }
+    .wl-title { font-size: 28px; font-weight: 800; color: #fff; margin: 0 0 22px; letter-spacing: -0.02em; }
+
+    .wl-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+    .wl-search {
+      flex: 1; min-width: 240px; padding: 10px 14px; border-radius: 9px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: #fff; font-size: 14px; font-family: inherit; outline: none;
+    }
+    .wl-search:focus { border-color: rgba(124,58,237,0.4); }
+    .wl-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 16px; border-radius: 9px; border: none;
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      box-shadow: 0 2px 12px rgba(124,58,237,0.35);
+    }
+    .wl-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+    .wl-btn.sec {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: none; color: rgba(255,255,255,0.75);
+    }
+    .wl-btn.sec:hover { border-color: rgba(124,58,237,0.4); color: #fff; }
+    .wl-btn.danger { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.35); }
+
+    .wl-table {
+      width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;
+    }
+    .wl-table thead th {
+      text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
+      color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px;
+      background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .wl-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13.5px; vertical-align: middle; }
+    .wl-row:hover { background: rgba(124,58,237,0.04); }
+
+    .wl-pill {
+      display: inline-block; padding: 2px 8px; border-radius: 5px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .wl-pill.active { background: rgba(34,197,94,0.18); color: #4ade80; }
+    .wl-pill.inactive { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+
+    .wl-empty {
+      padding: 48px 24px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px;
+      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px;
+    }
+    .wl-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
+
+    .wl-alerts-section { margin-top: 28px; }
+    .wl-alerts-section h2 { font-size: 18px; font-weight: 700; color: #fff; margin: 0 0 14px; }
+
+    .wl-alert {
+      padding: 12px 16px; margin-bottom: 8px;
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 9px; font-size: 13px; line-height: 1.5;
+    }
+    .wl-alert:hover { border-color: rgba(124,58,237,0.2); }
+    .wl-alert .wl-alert-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+    .wl-alert .wl-alert-entity { font-weight: 600; color: #fff; }
+    .wl-alert .wl-alert-date { font-size: 11px; color: rgba(255,255,255,0.35); }
+    .wl-alert .wl-alert-detail { color: rgba(255,255,255,0.6); font-size: 12px; }
+
+    .wl-loading { padding: 36px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px; }
+
+    @media (max-width: 720px) {
+      .wl-table thead { display: none; }
+      .wl-table, .wl-table tbody, .wl-table tr, .wl-table td { display: block; }
+      .wl-table tr { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+      .wl-table td { padding: 3px 0; border: none; }
+    }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="wl-shell">
+
+    <div class="wl-eyebrow">Monitoring</div>
+    <h1 class="wl-title">Watchlist</h1>
+
+    <div class="wl-toolbar">
+      <input class="wl-search" id="wl-search" placeholder="Search by entity name…" type="search">
+      <button class="wl-btn" id="wl-add-btn"><i class="bi bi-plus-lg"></i> Add Entity</button>
+      <button class="wl-btn sec" id="wl-rescreen-btn"><i class="bi bi-arrow-clockwise"></i> Re-screen All</button>
+      <a class="wl-btn sec" href="/dd-reports.html" style="text-decoration:none"><i class="bi bi-folder2-open"></i> DD Reports</a>
+    </div>
+
+    <div id="wl-content">
+      <div class="wl-loading">Loading watchlist…</div>
+    </div>
+
+    <div class="wl-alerts-section" id="wl-alerts-section" style="display:none">
+      <h2><i class="bi bi-bell" style="color:#c4b5fd;margin-right:8px"></i>Recent Alerts</h2>
+      <div id="wl-alerts"></div>
+    </div>
+
+  </div>
+</main>
+
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('watchlist');
+
+const searchInput = document.getElementById('wl-search');
+const content = document.getElementById('wl-content');
+const alertsSection = document.getElementById('wl-alerts-section');
+const alertsDiv = document.getElementById('wl-alerts');
+
+searchInput.addEventListener('input', applySearch);
+
+document.getElementById('wl-add-btn').addEventListener('click', async () => {
+  const name = prompt('Entity name to watch:');
+  if (!name || !name.trim()) return;
+  const entityType = prompt('Entity type (company/person/vessel/aircraft) [optional]:') || '';
+  const jurisdiction = prompt('Jurisdiction (ISO2 code, e.g. GB) [optional]:') || '';
+  const btn = document.getElementById('wl-add-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
+  try {
+    const body = { name: name.trim() };
+    if (entityType.trim()) body.entity_type = entityType.trim();
+    if (jurisdiction.trim()) body.jurisdiction = jurisdiction.trim();
+    const r = await authed('/api/aria/dd/watchlist', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      alert('Failed to add (HTTP ' + r.status + ')');
+    } else {
+      await loadWatchlist();
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+});
+
+document.getElementById('wl-rescreen-btn').addEventListener('click', async () => {
+  if (!confirm('Re-screen all watchlist entities? This will run sanctions + PEP checks on every entity.')) return;
+  const btn = document.getElementById('wl-rescreen-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Re-screening…';
+  try {
+    const r = await authed('/api/aria/dd/watchlist/rescreen', { method: 'POST' });
+    if (!r.ok) {
+      alert('Re-screen failed (HTTP ' + r.status + ')');
+    } else {
+      const data = await r.json();
+      alert('Re-screen complete.\n' +
+        'Scanned: ' + (data.scanned || 0) + '\n' +
+        'Alerts: ' + (data.alerts || 0) + '\n' +
+        'Errors: ' + (data.errors || 0));
+      await loadWatchlist();
+      await loadAlerts();
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+});
+
+let _allEntries = [];
+
+async function loadWatchlist() {
+  content.innerHTML = '<div class="wl-loading"><i class="bi bi-hourglass-split"></i> Loading watchlist…</div>';
+  try {
+    const r = await authed('/api/aria/dd/watchlist');
+    if (!r.ok) {
+      content.innerHTML = '<div class="wl-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load watchlist (HTTP ' + r.status + ').</div>';
+      return;
+    }
+    const data = await r.json();
+    _allEntries = data.watchlist || [];
+    applySearch();
+  } catch (err) {
+    content.innerHTML = '<div class="wl-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
+  }
+}
+
+function applySearch() {
+  const q = (searchInput.value || '').trim().toLowerCase();
+  const filtered = q
+    ? _allEntries.filter(e => (e.name || '').toLowerCase().includes(q))
+    : _allEntries;
+  renderTable(filtered);
+}
+
+function renderTable(entries) {
+  if (!entries.length) {
+    content.innerHTML = '<div class="wl-empty"><i class="bi bi-eye-slash"></i>No watchlist entries yet. Click "Add Entity" to start monitoring a company or person.</div>';
+    return;
+  }
+  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Status</th><th>Last Checked</th><th>Actions</th></tr></thead><tbody>';
+  for (const e of entries) {
+    const status = e.active !== false ? '<span class="wl-pill active">Active</span>' : '<span class="wl-pill inactive">Inactive</span>';
+    const lastChecked = e.last_checked ? new Date(e.last_checked).toLocaleString() : '—';
+    html += '<tr class="wl-row">' +
+      '<td><strong style="color:#fff">' + escText(e.name || '(unnamed)') + '</strong></td>' +
+      '<td style="color:rgba(255,255,255,0.5)">' + escText(e.entity_type || '—') + '</td>' +
+      '<td style="color:rgba(255,255,255,0.5)">' + escText(e.jurisdiction || '—') + '</td>' +
+      '<td>' + status + '</td>' +
+      '<td style="color:rgba(255,255,255,0.5);font-size:12px">' + lastChecked + '</td>' +
+      '<td>' +
+        '<button class="wl-btn sec" style="padding:4px 10px;font-size:11px" onclick="runDD(\'' + escAttr(e.name) + '\')" title="Run DD on this entity"><i class="bi bi-search"></i></button> ' +
+        '<button class="wl-btn sec" style="padding:4px 10px;font-size:11px;color:#fca5a5" onclick="removeEntry(\'' + escAttr(e.name) + '\')" title="Remove from watchlist"><i class="bi bi-trash"></i></button>' +
+      '</td>' +
+    '</tr>';
+  }
+  html += '</tbody></table>';
+  content.innerHTML = html;
+}
+
+async function loadAlerts() {
+  try {
+    const r = await authed('/api/aria/dd/watchlist/alerts?since_hours=168');
+    if (!r.ok) return;
+    const data = await r.json();
+    const alerts = data.alerts || data.results || [];
+    if (!alerts.length) {
+      alertsSection.style.display = 'none';
+      return;
+    }
+    alertsSection.style.display = 'block';
+    let html = '';
+    for (const a of alerts.slice(0, 20)) {
+      const entity = a.entity_name || a.name || '(unknown)';
+      const date = a.generated_at || a.timestamp || '';
+      const detail = a.summary || a.detail || a.change_description || '';
+      html += '<div class="wl-alert">' +
+        '<div class="wl-alert-head">' +
+          '<span class="wl-alert-entity">' + escText(entity) + '</span>' +
+          (date ? '<span class="wl-alert-date">' + new Date(date).toLocaleString() + '</span>' : '') +
+        '</div>' +
+        (detail ? '<div class="wl-alert-detail">' + escText(detail) + '</div>' : '') +
+      '</div>';
+    }
+    alertsDiv.innerHTML = html;
+  } catch (err) {
+    // Silently fail — alerts are non-critical
+  }
+}
+
+async function runDD(name) {
+  const btn = event.target;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+  try {
+    const r = await authed('/api/aria/dd/orchestrate', {
+      method: 'POST',
+      body: JSON.stringify({ name: name, mode: 'standard' }),
+    });
+    if (r.ok) {
+      await loadWatchlist();
+      await loadAlerts();
+    }
+  } catch (err) { /* silent */ }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+async function removeEntry(name) {
+  if (!confirm('Remove "' + name + '" from watchlist?')) return;
+  try {
+    const r = await authed('/api/aria/dd/watchlist/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (r.ok) {
+      await loadWatchlist();
+    } else {
+      alert('Failed to remove (HTTP ' + r.status + ')');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+function escText(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+
+// Load on init
+loadWatchlist();
+loadAlerts();
+</script>
+</body>
+</html>

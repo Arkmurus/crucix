@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VLS Chain — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.65; }
+    .vls-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+    .vls-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 8px; }
+    .vls-title { font-size: 28px; font-weight: 800; color: #fff; margin: 0 0 22px; letter-spacing: -0.02em; }
+
+    .vls-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+    .vls-search {
+      flex: 1; min-width: 240px; padding: 10px 14px; border-radius: 9px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: #fff; font-size: 14px; font-family: inherit; outline: none;
+    }
+    .vls-search:focus { border-color: rgba(124,58,237,0.4); }
+    .vls-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 16px; border-radius: 9px; border: none;
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      box-shadow: 0 2px 12px rgba(124,58,237,0.35);
+    }
+    .vls-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+    .vls-btn.sec {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: none; color: rgba(255,255,255,0.75);
+    }
+    .vls-btn.sec:hover { border-color: rgba(124,58,237,0.4); color: #fff; }
+
+    .vls-summary {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; padding: 20px 24px; margin-bottom: 22px;
+    }
+    .vls-summary-row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 12px; }
+    .vls-stat { text-align: center; min-width: 80px; }
+    .vls-stat-value { font-size: 24px; font-weight: 800; color: #fff; }
+    .vls-stat-label { font-size: 11px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    .vls-stat-value.pass { color: #4ade80; }
+    .vls-stat-value.fail { color: #fca5a5; }
+
+    .vls-chain { display: flex; flex-direction: column; gap: 0; position: relative; }
+    .vls-chain::before {
+      content: ''; position: absolute; left: 28px; top: 40px; bottom: 40px;
+      width: 2px; background: rgba(124,58,237,0.2);
+    }
+
+    .vls-version {
+      display: flex; gap: 16px; padding: 16px 0; position: relative;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .vls-version:last-child { border-bottom: none; }
+    .vls-version-indicator {
+      width: 56px; flex-shrink: 0; display: flex; flex-direction: column;
+      align-items: center; padding-top: 4px;
+    }
+    .vls-version-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: rgba(124,58,237,0.3); border: 2px solid rgba(124,58,237,0.5);
+      z-index: 1;
+    }
+    .vls-version-dot.pass { background: #4ade80; border-color: #4ade80; }
+    .vls-version-dot.fail { background: #ef4444; border-color: #ef4444; }
+    .vls-version-num { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 4px; font-weight: 700; }
+
+    .vls-version-body { flex: 1; min-width: 0; }
+    .vls-version-head {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;
+    }
+    .vls-version-id { font-size: 12px; color: rgba(255,255,255,0.5); font-family: monospace; }
+    .vls-version-date { font-size: 12px; color: rgba(255,255,255,0.4); }
+
+    .vls-pill {
+      display: inline-block; padding: 2px 8px; border-radius: 5px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .vls-pill.hard_stop { background: rgba(239,68,68,0.18); color: #fca5a5; }
+    .vls-pill.red { background: rgba(239,68,68,0.18); color: #fca5a5; }
+    .vls-pill.amber_dark { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .vls-pill.amber_light { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .vls-pill.green { background: rgba(34,197,94,0.18); color: #4ade80; }
+    .vls-pill.unknown { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+
+    .vls-proof-details {
+      margin-top: 8px; padding: 10px 14px;
+      background: rgba(0,0,0,0.2); border-radius: 8px;
+      font-size: 12px; font-family: monospace; color: rgba(255,255,255,0.55);
+      line-height: 1.7; word-break: break-all;
+    }
+    .vls-proof-details .label { color: rgba(255,255,255,0.35); }
+
+    .vls-empty {
+      padding: 48px 24px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px;
+      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px;
+    }
+    .vls-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
+
+    .vls-key-box {
+      margin-top: 22px; padding: 14px 18px;
+      background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; font-size: 11px; font-family: monospace;
+      color: rgba(255,255,255,0.5); line-height: 1.5; word-break: break-all;
+      max-height: 120px; overflow-y: auto;
+    }
+
+    .vls-loading { padding: 36px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px; }
+
+    @media (max-width: 720px) {
+      .vls-summary-row { gap: 12px; }
+      .vls-stat { min-width: 60px; }
+      .vls-stat-value { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="vls-shell">
+
+    <div class="vls-eyebrow">Verifiable Ledger System</div>
+    <h1 class="vls-title">VLS Chain Verification</h1>
+
+    <div class="vls-toolbar">
+      <input class="vls-search" id="vls-search" placeholder="Enter canonical entity ID (e.g. company:GB:12345678)…" type="search">
+      <button class="vls-btn" id="vls-verify-btn"><i class="bi bi-shield-check"></i> Verify Chain</button>
+      <button class="vls-btn sec" id="vls-key-btn"><i class="bi bi-key"></i> Show Public Key</button>
+      <a class="vls-btn sec" href="/dd-reports.html" style="text-decoration:none"><i class="bi bi-folder2-open"></i> DD Reports</a>
+    </div>
+
+    <div id="vls-content">
+      <div class="vls-empty">
+        <i class="bi bi-shield-check"></i>
+        Enter a canonical entity ID above and click "Verify Chain" to check the cryptographic integrity of all DD versions for that entity.
+        <br><br>
+        <small style="color:rgba(255,255,255,0.3)">Canonical IDs look like: <code>company:GB:12345678</code>, <code>person:john_smith:GB:1980</code>, <code>vessel:imo:1234567</code></small>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('vls-chain');
+
+const searchInput = document.getElementById('vls-search');
+const verifyBtn = document.getElementById('vls-verify-btn');
+const keyBtn = document.getElementById('vls-key-btn');
+const content = document.getElementById('vls-content');
+
+// Load from query param on page load
+const params = new URLSearchParams(window.location.search);
+const initialId = params.get('id');
+if (initialId) {
+  searchInput.value = initialId;
+  verifyChain(initialId);
+}
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const id = searchInput.value.trim();
+    if (id) verifyChain(id);
+  }
+});
+
+verifyBtn.addEventListener('click', () => {
+  const id = searchInput.value.trim();
+  if (id) verifyChain(id);
+});
+
+keyBtn.addEventListener('click', showPublicKey);
+
+async function verifyChain(canonicalId) {
+  content.innerHTML = '<div class="vls-loading"><i class="bi bi-hourglass-split"></i> Verifying chain…</div>';
+  try {
+    const r = await authed('/api/aria/dd/vls/chain/' + encodeURIComponent(canonicalId));
+    if (!r.ok) {
+      if (r.status === 404) {
+        content.innerHTML = '<div class="vls-empty"><i class="bi bi-search"></i>No VLS chain found for this entity ID. Make sure the ID is correct and that at least one DD report has been run for this entity.</div>';
+      } else {
+        content.innerHTML = '<div class="vls-empty"><i class="bi bi-exclamation-triangle"></i>Failed to verify chain (HTTP ' + r.status + ').</div>';
+      }
+      return;
+    }
+    const data = await r.json();
+    renderChain(data, canonicalId);
+  } catch (err) {
+    content.innerHTML = '<div class="vls-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
+  }
+}
+
+function renderChain(data, canonicalId) {
+  const verified = data.verified;
+  const total = data.total_versions || 0;
+  const verifiedCount = data.verified_count || 0;
+  const results = data.results || [];
+
+  let html = '';
+
+  // Summary card
+  html += '<div class="vls-summary">';
+  html += '<div style="font-size:13px;color:rgba(255,255,255,0.6);word-break:break-all"><strong style="color:#fff">Entity:</strong> ' + escText(canonicalId) + '</div>';
+  html += '<div class="vls-summary-row">';
+  html += '  <div class="vls-stat"><div class="vls-stat-value ' + (verified ? 'pass' : 'fail') + '">' + (verified ? 'PASS' : 'FAIL') + '</div><div class="vls-stat-label">Chain Integrity</div></div>';
+  html += '  <div class="vls-stat"><div class="vls-stat-value">' + total + '</div><div class="vls-stat-label">Total Versions</div></div>';
+  html += '  <div class="vls-stat"><div class="vls-stat-value pass">' + verifiedCount + '</div><div class="vls-stat-label">Verified</div></div>';
+  html += '  <div class="vls-stat"><div class="vls-stat-value ' + (total - verifiedCount > 0 ? 'fail' : 'pass') + '">' + (total - verifiedCount) + '</div><div class="vls-stat-label">Failed</div></div>';
+  html += '</div></div>';
+
+  // Chain visualization
+  html += '<div class="vls-chain">';
+  for (const r of results) {
+    const v = r.verified ? 'pass' : 'fail';
+    const riskPill = r.risk_classification ? '<span class="vls-pill ' + r.risk_classification.toLowerCase().replace(/[^a-z_]/g, '') + '">' + escText(r.risk_classification) + '</span>' : '';
+    html += '<div class="vls-version">';
+    html += '  <div class="vls-version-indicator"><div class="vls-version-dot ' + v + '"></div><div class="vls-version-num">v' + (r.version || '?') + '</div></div>';
+    html += '  <div class="vls-version-body">';
+    html += '    <div class="vls-version-head">';
+    html +=        riskPill;
+    html += '      <span class="vls-version-id">' + escText(r.run_id || '') + '</span>';
+    html += '      <span class="vls-version-date">' + (r.timestamp ? new Date(r.timestamp).toLocaleString() : '') + '</span>';
+    if (!r.verified) {
+      html += '    <span style="color:#fca5a5;font-size:12px;margin-left:auto">' + escText(r.reason || 'Verification failed') + '</span>';
+    }
+    html += '    </div>';
+    // Show proof details for verified entries
+    if (r.verified) {
+      html += '    <div class="vls-proof-details">';
+      html += '      <span class="label">Status:</span> Verified <span style="color:#4ade80">OK</span><br>';
+      html += '    </div>';
+    } else {
+      html += '    <div class="vls-proof-details" style="border-left:2px solid #ef4444">';
+      html += '      <span class="label">Status:</span> <span style="color:#fca5a5">FAILED</span> - ' + escText(r.reason || 'Unknown error');
+      if (r.hash_valid !== undefined) {
+        html += '<br><span class="label">Hash valid:</span> ' + (r.hash_valid ? 'Yes' : 'No');
+      }
+      if (r.signature_valid !== undefined) {
+        html += '<br><span class="label">Signature valid:</span> ' + (r.signature_valid ? 'Yes' : 'No');
+      }
+      if (r.chain_link_valid !== undefined) {
+        html += '<br><span class="label">Chain link valid:</span> ' + (r.chain_link_valid ? 'Yes' : 'No');
+      }
+      html += '    </div>';
+    }
+    html += '  </div>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  content.innerHTML = html;
+}
+
+async function showPublicKey() {
+  const orig = keyBtn.innerHTML;
+  keyBtn.disabled = true;
+  keyBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
+  try {
+    const r = await authed('/api/aria/dd/vls/key');
+    if (!r.ok) {
+      alert('Failed to load VLS public key (HTTP ' + r.status + ')');
+      keyBtn.disabled = false; keyBtn.innerHTML = orig;
+      return;
+    }
+    const data = await r.json();
+    const pem = data.public_key_pem || '';
+
+    // Check if there's already a key box, remove it
+    const existing = document.getElementById('vls-key-box');
+    if (existing) existing.remove();
+
+    const box = document.createElement('div');
+    box.id = 'vls-key-box';
+    box.className = 'vls-key-box';
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<span style="color:rgba(255,255,255,0.5);font-size:12px;font-family:sans-serif">' +
+      '<strong style="color:#fff">Algorithm:</strong> ' + escText(data.algorithm || 'ECDSA-SECP256K1') + '</span>' +
+      '<button class="vls-btn sec" style="padding:4px 10px;font-size:11px" onclick="copyPem()">' +
+      '<i class="bi bi-clipboard"></i> Copy</button></div>' +
+      '<pre style="margin:0;white-space:pre-wrap">' + escText(pem) + '</pre>';
+
+    // Store PEM for copy function
+    window._vlsPem = pem;
+
+    // Insert after the toolbar
+    const toolbar = document.querySelector('.vls-toolbar');
+    toolbar.parentNode.insertBefore(box, toolbar.nextSibling);
+
+    keyBtn.innerHTML = '<i class="bi bi-check2"></i> Key loaded';
+    setTimeout(() => { keyBtn.innerHTML = orig; keyBtn.disabled = false; }, 2000);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    keyBtn.disabled = false; keyBtn.innerHTML = orig;
+  }
+}
+
+function copyPem() {
+  if (window._vlsPem) {
+    navigator.clipboard.writeText(window._vlsPem).then(() => {
+      const btn = document.querySelector('#vls-key-box button');
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
+        setTimeout(() => { btn.innerHTML = orig; }, 1500);
+      }
+    });
+  }
+}
+
+function escText(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
