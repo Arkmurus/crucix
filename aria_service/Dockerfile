@@ -174,11 +174,15 @@ RUN playwright install --with-deps chromium
 
 EXPOSE 8000
 
-# R-F1244: Download and start Ollama at runtime (not build time) to keep
-# the image small and builds fast. The binary is ~40MB, downloaded once
-# to /tmp and cached across restarts via the persistent volume.
+# R-F1244: Download and extract Ollama at runtime. The Linux release is a
+# .tar.zst archive. We install zstd, extract, and start the server.
 # The model is pulled lazily on first request.
-CMD (curl -fsSL -o /tmp/ollama https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64 && chmod +x /tmp/ollama) & \
-    /tmp/ollama serve & \
-    sleep 2 && /tmp/ollama pull llama3.2:3b & \
+# If the download fails (e.g. GitHub rate limit), Ollama is unavailable and
+# the fallback chain falls through to DeepSeek gracefully.
+RUN apt-get update && apt-get install -y --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
+CMD (curl -fsSL -o /tmp/ollama.tar.zst https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64.tar.zst && zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar && tar xf /tmp/ollama.tar -C /tmp/ && chmod +x /tmp/ollama) 2>/dev/null; \
+    if [ -f /tmp/ollama ]; then \
+        /tmp/ollama serve & \
+        sleep 2 && /tmp/ollama pull llama3.2:3b & \
+    fi; \
     python -m aria_service.main
