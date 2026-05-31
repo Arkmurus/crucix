@@ -358,41 +358,49 @@ class AgentSignupVault:
 
     # ── Bulk import from portal_registry ───────────────────────────────
 
-    def import_from_portal_registry(self, portals: list[dict[str, Any]], agent_id: str = "dd_orchestrator") -> int:
+    def import_from_portal_registry(self, portals: list, agent_id: str = "dd_orchestrator") -> int:
         """Import portals from portal_registry into the vault.
 
         Scans the portal definitions and records any that have signup_fields
         defined (meaning they're registrable). Skips already-recorded sites.
 
+        Accepts both list[PortalDef] (dataclass objects) and list[dict].
+
         Args:
-            portals: List of portal dicts (from portal_registry.PORTALS or similar)
+            portals: List of portal definitions (PortalDef or dict)
             agent_id: Agent to attribute the signups to
 
         Returns:
             Number of new entries created.
         """
+        def _get(portal, key: str, default=None):
+            """Get attribute from either a dataclass or dict."""
+            if isinstance(portal, dict):
+                return portal.get(key, default)
+            return getattr(portal, key, default)
+
         count = 0
         for portal in portals:
-            site_id = portal.get("id", "")
+            site_id = _get(portal, "id", "")
             if not site_id:
                 continue
             # Skip if already in vault
             if self.get(site_id):
                 continue
             # Only record portals that have signup_fields (registrable)
-            if not portal.get("signup_fields"):
+            if not _get(portal, "signup_fields"):
                 continue
 
             try:
                 self.record(
                     site_id=site_id,
-                    site_name=portal.get("name", site_id),
-                    site_url=portal.get("url", ""),
+                    site_name=_get(portal, "name", site_id),
+                    site_url=_get(portal, "url", ""),
                     agent_id=agent_id,
                     site_type="portal",
                     status="pending",
-                    notes=f"Auto-imported from portal_registry. Has {len(portal.get('signup_fields', []))} signup fields defined.",
-                    metadata={"portal_type": portal.get("registration_type", "email_form")},
+                    notes=f"Auto-imported from portal_registry. Has {len(_get(portal, 'signup_fields', []))} signup fields defined.",
+                    metadata={"portal_type": _get(portal, "registration_type", "email_form")},
                 )
                 count += 1
             except ValueError:
