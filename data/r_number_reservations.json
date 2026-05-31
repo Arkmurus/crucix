@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1204,
+  "next_available": 1206,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6530,6 +6530,25 @@
       "r_number": "R-F1203",
       "title": "Clean up remaining constitutional validator references in docs",
       "claimed_at": "2026-05-31T17:42:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2a047382",
+      "notes": null,
+      "shipped_at": "2026-05-31T17:43:01Z"
+    },
+    {
+      "r_number": "R-F1204",
+      "title": "Web Integrity Agent — 24/7 accuracy monitoring for aria-web",
+      "claimed_at": "2026-05-31T17:46:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1205",
+      "title": "Fix _BoxChars missing right-tee (mr) property — banner uses ╠ on both sides",
+      "claimed_at": "2026-05-31T17:46:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
