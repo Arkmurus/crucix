@@ -120,22 +120,21 @@ function Deploy-And-Verify {
         "--build-arg", "ARIA_BUILD_R_TAG=$R_TAG"
     )
 
-    # Run flyctl deploy
-    $argList = @(
-        "deploy", "--remote-only", "--config", $Config, "--app", $App,
-        "--wait-timeout", "$TimeoutSeconds"
-    ) + $buildArgs
-    $proc = Start-Process -FilePath "flyctl" -ArgumentList $argList -NoNewWindow -Wait -PassThru
-
-    $rc = $proc.ExitCode
+    # R-F1179: run flyctl deploy DIRECTLY (not via Start-Process) so the
+    # calling tool can track the process and wait for completion. The
+    # --wait-timeout flag tells flyctl to block until the build finishes
+    # (up to 15 min for cold builds with Playwright Chromium).
+    Write-Host "  Running: flyctl deploy --config $Config --app $App --wait-timeout ${TimeoutSeconds}s"
+    flyctl deploy --remote-only --config $Config --app $App --wait-timeout $TimeoutSeconds @buildArgs
+    $rc = $LASTEXITCODE
     if ($rc -ne 0) {
         Write-Host "  [WARN] flyctl exited $rc - verifying anyway (it sometimes deploys then errors on wait)"
     }
 
-    # ---- VERIFY: poll up to 3 minutes ----
+    # ---- VERIFY: poll up to 5 minutes (cold boot can take 2-3 min) ----
     $ok = $false
     $i = 1
-    while ($i -le 36) {
+    while ($i -le 60) {
         Start-Sleep -Seconds 5
         $nowVer = Get-CurrentVersion $App
         $versionBumped = ($nowVer -gt $preVer)
