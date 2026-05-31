@@ -3535,7 +3535,7 @@ _DD_COUNTRY_RE = re.compile(
 )
 
 
-def _infer_jurisdiction(text: str) -> tuple[str | None, str | None]:
+def _infer_jurisdiction_from_text(text: str) -> tuple[str | None, str | None]:
     """Return (jurisdiction_display_name, iso2) inferred from free text.
 
     First country match wins. Display name is title-cased unless the
@@ -3644,7 +3644,7 @@ def _detect_dd_intent(message: str) -> dict | None:
 
     # If the address block captured a country suffix, try that too.
     if not jurisdiction_iso2 and registered_address:
-        addr_country, addr_iso2 = _infer_jurisdiction(registered_address)
+        addr_country, addr_iso2 = _infer_jurisdiction_from_text(registered_address)
         if addr_iso2:
             jurisdiction = addr_country
             jurisdiction_iso2 = addr_iso2
@@ -3661,7 +3661,7 @@ def _detect_dd_intent(message: str) -> dict | None:
     # If no jurisdiction from trailing-clause parse, fall back to any
     # country mention anywhere in the message.
     if not jurisdiction_iso2:
-        inferred_display, inferred_iso2 = _infer_jurisdiction(message)
+        inferred_display, inferred_iso2 = _infer_jurisdiction_from_text(message)
         if inferred_iso2:
             jurisdiction = inferred_display
             jurisdiction_iso2 = inferred_iso2
