@@ -155,6 +155,10 @@ def wired(
     On success: calls ``wire_success(module, summary, ...)``.
     On exception: calls ``wire_failure(module, detail, gap_type=gap_type)``.
 
+    This is the PREFERRED way to wire a module. Every module that calls
+    ``wire_success`` directly should ALSO call ``wire_failure`` on its
+    error paths. The ``@wired`` decorator guarantees both paths are covered.
+
     Args:
         module: Module name for brain signals. Defaults to the function's
             ``__module__`` if empty.

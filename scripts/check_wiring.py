@@ -94,6 +94,7 @@ def main() -> int:
     ci_mode = "--ci" in sys.argv
     
     dark_modules: list[tuple[str, int, list[str]]] = []
+    onesided_modules: list[tuple[str, int]] = []
     total_checked = 0
     total_dark = 0
     
@@ -110,10 +111,22 @@ def main() -> int:
         if token_count == 0:
             dark_modules.append((rel_path, lines, missing))
             total_dark += 1
+        
+        # R-F1221: flag modules with wire_success but no wire_failure
+        try:
+            text = filepath.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        has_success = "wire_success" in text
+        has_failure = "wire_failure" in text
+        has_wired = "@wired" in text or ("from .engine_wiring import" in text and "wired" in text)
+        if has_success and not has_failure and not has_wired:
+            onesided_modules.append((rel_path, lines))
     
-    print(f"\n=== Wiring Audit (R-F1215) ===")
+    print(f"\n=== Wiring Audit (R-F1215/R-F1221) ===")
     print(f"Modules checked: {total_checked}")
     print(f"Dark modules (0 wiring tokens): {total_dark}")
+    print(f"One-sided modules (wire_success but no wire_failure): {len(onesided_modules)}")
     
     if dark_modules:
         print(f"\n--- DARK MODULES (no brain wiring) ---")
@@ -121,12 +134,24 @@ def main() -> int:
             print(f"  {lines:>5}L  {rel_path}")
             print(f"         missing: {', '.join(missing)}")
     
+    if onesided_modules:
+        print(f"\n--- ONE-SIDED MODULES (wire_success but no wire_failure) ---")
+        print(f"  Use @wired decorator or add wire_failure calls.")
+        for rel_path, lines in sorted(onesided_modules, key=lambda x: -x[1])[:20]:
+            print(f"  {lines:>5}L  {rel_path}")
+    
     if ci_mode and dark_modules:
         print(f"\n[FAIL] {total_dark} dark modules found — wire them to the brain before shipping.")
         return 1
     
+    if ci_mode and onesided_modules:
+        print(f"\n[FAIL] {len(onesided_modules)} one-sided modules found — add wire_failure or use @wired.")
+        return 1
+    
     if dark_modules:
         print(f"\n[WARN] {total_dark} dark modules exist — not blocking (use --ci to enforce).")
+    elif onesided_modules:
+        print(f"\n[WARN] {len(onesided_modules)} one-sided modules exist — not blocking (use --ci to enforce).")
     else:
         print(f"\n[PASS] All modules have brain wiring.")
     
