@@ -2040,6 +2040,34 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.get("/download/client", response_class=HTMLResponse, include_in_schema=False)
+    async def download_aria_client():
+        """Download ARIA Client — tiny ZIP, type 'aria' in cmd, connected to main server."""
+        import zipfile, io
+        client_folder = _static_os.path.join(_static_dir, "aria_client")
+        try:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in _static_os.walk(client_folder):
+                    for f in files:
+                        file_path = _static_os.path.join(root, f)
+                        arcname = _static_os.path.relpath(file_path, client_folder)
+                        zf.write(file_path, arcname)
+            buf.seek(0)
+            from fastapi.responses import Response
+            return Response(
+                content=buf.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": "attachment; filename=ARIA_Client.zip",
+                },
+            )
+        except Exception as e:
+            return HTMLResponse(
+                content=f"<html><body><h1>Download Error</h1><p>{e}</p></body></html>",
+                status_code=500,
+            )
+
     @app.post("/api/aria/coder/demo")
     async def aria_coder_demo_ep(request: Request):
         """Public demo endpoint — no auth required.
