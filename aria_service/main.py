@@ -22,6 +22,8 @@ import json
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 from .config import settings
 from .llm.factory import create_llm_provider
@@ -1968,6 +1970,71 @@ app.add_middleware(
 
 # Routes
 app.include_router(aria_router)
+
+# R-F1241: Serve static files (ARIA demo page) + public demo endpoint
+import os as _static_os
+_static_dir = _static_os.path.join(_static_os.path.dirname(__file__), "static")
+if _static_os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def serve_demo_page():
+        """Serve the ARIA demo page at the root URL."""
+        index_path = _static_os.path.join(_static_dir, "index.html")
+        try:
+            with open(index_path, encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        except Exception as e:
+            return HTMLResponse(
+                content=f"<html><body><h1>ARIA Demo</h1><p>Error loading page: {e}</p></body></html>",
+                status_code=500,
+            )
+
+    @app.post("/api/aria/coder/demo")
+    async def aria_coder_demo_ep(request: Request):
+        """Public demo endpoint — no auth required.
+
+        Takes a description and existing code, runs ARIA's autonomous coding
+        engine (no LLM), and returns the analysis + generated fix.
+        """
+        body = await request.json()
+        description = (body.get("description") or "").strip()
+        code = (body.get("code") or "").strip()
+
+        if not description:
+            raise HTTPException(status_code=400, detail="description required")
+
+        if not code:
+            code = 'def process_item(data):\n    result = data["value"] * 2\n    return result\n'
+
+        try:
+            from .intel.autonomous_coder import AutonomousCoder
+            coder = AutonomousCoder()
+
+            from .autonomous.gap_detector import Gap, GapType, GapSeverity
+            gap = Gap(
+                gap_id="demo_gap",
+                gap_type=GapType.MODULE_BUG,
+                severity=GapSeverity.MEDIUM,
+                title=description[:80],
+                description=description,
+                module="demo_module",
+            )
+            plan = await coder.generate_fix_plan(gap, code)
+            code_result = await coder.write_code(plan, code, "demo_module.py")
+
+            return {
+                "plan": {
+                    "title": plan.get("title"),
+                    "approach": plan.get("approach"),
+                    "risk_level": plan.get("risk_level"),
+                    "target_files": plan.get("target_files"),
+                },
+                "code": code_result.get("code", ""),
+                "source": code_result.get("source", "unknown"),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)[:500])
 
 
 @app.get("/health/live")

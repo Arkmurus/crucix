@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA — Autonomous Research Intelligence Agent</title>
+<meta name="description" content="ARIA is an autonomous coding agent that finds and fixes its own bugs. Try the coder playground — no install, no signup.">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --text: #e0e0e8;
+    --text-dim: #8888a0;
+    --accent: #6c5ce7;
+    --accent-glow: rgba(108, 92, 231, 0.3);
+    --green: #00e676;
+    --red: #ff5252;
+    --yellow: #ffd740;
+    --font: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+
+  /* Header */
+  header {
+    text-align: center;
+    padding: 60px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .logo {
+    font-size: 48px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 16px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  .tagline {
+    margin-top: 16px;
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 12px;
+  }
+  .status-badge.online {
+    background: rgba(0, 230, 118, 0.15);
+    color: var(--green);
+    border: 1px solid rgba(0, 230, 118, 0.3);
+  }
+  .status-badge.offline {
+    background: rgba(255, 82, 82, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+  }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Coder Playground */
+  .playground {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 40px;
+  }
+  .playground-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .playground-title {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .playground-body {
+    padding: 20px;
+  }
+  .gap-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .gap-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .gap-input::placeholder {
+    color: var(--text-dim);
+  }
+  .button-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover {
+    background: #7c6df7;
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: var(--border);
+    color: var(--text);
+  }
+  .btn-secondary:hover {
+    background: #2a2a3e;
+  }
+  .examples {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .example-chip {
+    padding: 4px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .example-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Output */
+  .output {
+    margin-top: 16px;
+    display: none;
+  }
+  .output.visible {
+    display: block;
+  }
+  .output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .output-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .output-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .output-status.success {
+    background: rgba(0, 230, 118, 0.15);
+    color: var(--green);
+  }
+  .output-status.error {
+    background: rgba(255, 82, 82, 0.15);
+    color: var(--red);
+  }
+  .output-status.pending {
+    background: rgba(255, 215, 64, 0.15);
+    color: var(--yellow);
+  }
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  code {
+    font-family: var(--font);
+  }
+
+  /* Features */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .feature-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  .feature-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .feature-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  footer a:hover {
+    text-decoration: underline;
+  }
+
+  /* Loading animation */
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .container { padding: 20px 16px; }
+    header { padding: 40px 0 20px; }
+    .logo { font-size: 32px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">ARIA</div>
+    <div class="subtitle">Autonomous Research Intelligence Agent</div>
+    <div class="tagline">An AI that finds and fixes its own bugs — no human needed.</div>
+    <div id="live-status" class="status-badge offline">Checking...</div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats" id="stats">
+    <div class="stat-card">
+      <div class="stat-value" id="stat-build">—</div>
+      <div class="stat-label">Build</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-functions">4,848</div>
+      <div class="stat-label">Functions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-tests">181</div>
+      <div class="stat-label">Coder Tests</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-self">96%</div>
+      <div class="stat-label">Self-Owned</div>
+    </div>
+  </div>
+
+  <!-- Coder Playground -->
+  <div class="playground">
+    <div class="playground-header">
+      <span class="playground-title">ARIA Coder Playground</span>
+      <span style="font-size:12px;color:var(--text-dim)">No LLM needed — pure AST</span>
+    </div>
+    <div class="playground-body">
+      <p style="color:var(--text-dim);margin-bottom:12px;font-size:13px">
+        Describe a code problem. ARIA will analyse it and generate a fix using
+        her autonomous coding engine — no DeepSeek, no API calls.
+      </p>
+      <textarea class="gap-input" id="gap-input"
+        placeholder="Describe the bug or missing feature...&#10;&#10;Examples:&#10;- Add error handling to process_item&#10;- Fix AttributeError when data is None&#10;- Add retry logic for flaky API calls&#10;- Add timeout to prevent hanging&#10;- Add docstring to lookup_entity">Add error handling to process_item to catch exceptions</textarea>
+      <div class="examples">
+        <span class="example-chip" onclick="loadExample('Add error handling to process_item')">Error handling</span>
+        <span class="example-chip" onclick="loadExample('Fix AttributeError when data is None')">Null check</span>
+        <span class="example-chip" onclick="loadExample('Add retry logic for flaky API calls')">Retry</span>
+        <span class="example-chip" onclick="loadExample('Add timeout to prevent hanging')">Timeout</span>
+        <span class="example-chip" onclick="loadExample('Add docstring to lookup_entity')">Docstring</span>
+        <span class="example-chip" onclick="loadExample('Add return type annotation to process_item')">Type hints</span>
+      </div>
+      <div class="button-row">
+        <button class="btn btn-primary" id="run-btn" onclick="runCoder()">▶ Analyse & Fix</button>
+        <button class="btn btn-secondary" onclick="clearOutput()">Clear</button>
+      </div>
+
+      <div class="output" id="output">
+        <div class="output-header">
+          <span class="output-label">Result</span>
+          <span class="output-status" id="output-status">Pending</span>
+        </div>
+        <pre><code id="output-code"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Features -->
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <div class="feature-title">Code Understanding</div>
+      <div class="feature-desc">AST dataflow analysis, type inference, complexity metrics, call graphs — all without an LLM.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔧</div>
+      <div class="feature-title">9 Fix Strategies</div>
+      <div class="feature-desc">Error handling, null checks, logging, retry, timeout, docstrings, type annotations, wiring, imports.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔄</div>
+      <div class="feature-title">Self-Healing</div>
+      <div class="feature-desc">Detects regressions after deploy, analyses error patterns, generates targeted fixes automatically.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📁</div>
+      <div class="feature-title">Multi-File</div>
+      <div class="feature-desc">Orchestrates changes across files using call graph analysis and import tracking.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔬</div>
+      <div class="feature-title">Refactoring</div>
+      <div class="feature-desc">Extract method, rename function, split module — all AST-safe, no regex hacks.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <div class="feature-title">Safety First</div>
+      <div class="feature-desc">Circuit breakers, rate limits, cost caps, engine pause — runaway behaviour is impossible.</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>ARIA is <a href="https://github.com/Arkmurus/crucix" target="_blank">open source</a> — 96% self-owned, no vendor lock-in.</p>
+    <p style="margin-top:4px">Built by <a href="https://arkmurus.com" target="_blank">Arkmurus Group</a></p>
+  </footer>
+</div>
+
+<script>
+// Live status check
+async function checkStatus() {
+  const badge = document.getElementById('live-status');
+  try {
+    const resp = await fetch('/health/live');
+    const data = await resp.json();
+    badge.className = 'status-badge online';
+    badge.textContent = '● Online · ' + (data.build_rev || 'live');
+    document.getElementById('stat-build').textContent = data.build_rev ? data.build_rev.split(' ').pop() : 'live';
+  } catch {
+    badge.className = 'status-badge offline';
+    badge.textContent = '● Offline — using local engine';
+  }
+}
+checkStatus();
+
+// Example chips
+function loadExample(text) {
+  document.getElementById('gap-input').value = text;
+}
+
+// Run the coder
+async function runCoder() {
+  const input = document.getElementById('gap-input');
+  const btn = document.getElementById('run-btn');
+  const output = document.getElementById('output');
+  const status = document.getElementById('output-status');
+  const code = document.getElementById('output-code');
+
+  const description = input.value.trim();
+  if (!description) return;
+
+  // Show pending state
+  output.className = 'output visible';
+  status.className = 'output-status pending';
+  status.textContent = '⏳ Analysing...';
+  code.textContent = 'Running ARIA\'s autonomous coding engine...\n\n';
+  btn.disabled = true;
+  btn.textContent = '⏳ Working...';
+
+  try {
+    // Call the coder endpoint
+    const resp = await fetch('/api/aria/coder/demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: description,
+        code: 'def process_item(data):\n    result = data["value"] * 2\n    return result\n',
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(err.slice(0, 200));
+    }
+
+    const result = await resp.json();
+
+    status.className = 'output-status success';
+    status.textContent = '✅ Fixed';
+
+    let outputText = '// ARIA Coder Analysis\n';
+    outputText += '// ─────────────────────────────\n\n';
+
+    if (result.plan) {
+      outputText += '/* Plan */\n';
+      outputText += 'Title: ' + (result.plan.title || '—') + '\n';
+      outputText += 'Approach: ' + (result.plan.approach || '—') + '\n';
+      outputText += 'Risk: ' + (result.plan.risk_level || '—') + '\n';
+      outputText += 'Files: ' + (result.plan.target_files || []).join(', ') + '\n\n';
+    }
+
+    if (result.code) {
+      outputText += '/* Generated Code */\n';
+      outputText += result.code;
+    } else if (result.error) {
+      outputText += '/* Error */\n' + result.error;
+    } else {
+      outputText += '/* No code changes needed */\n';
+    }
+
+    code.textContent = outputText;
+
+  } catch (err) {
+    status.className = 'output-status error';
+    status.textContent = '❌ Error';
+    code.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Analyse & Fix';
+  }
+}
+
+function clearOutput() {
+  document.getElementById('output').className = 'output';
+  document.getElementById('gap-input').value = '';
+}
+</script>
+</body>
+</html>
