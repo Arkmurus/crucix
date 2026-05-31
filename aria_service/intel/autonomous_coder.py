@@ -33,6 +33,7 @@ class AutonomousCoder:
     def __init__(self):
         self.root = pathlib.Path(__file__).parent.parent.parent
         self._coding_os: Optional[Any] = None
+        self._codebase_map: Optional[Any] = None  # lazy-loaded CodebaseMap
 
     @property
     def coding_os(self):
@@ -42,10 +43,24 @@ class AutonomousCoder:
             self._coding_os = SelfCodingOS()
         return self._coding_os
 
+    @property
+    def codebase_map(self):
+        """Lazy-load the codebase understanding map."""
+        if self._codebase_map is None:
+            from .code_understanding import build_codebase_map
+            self._codebase_map = build_codebase_map(str(self.root / "aria_service"), max_files=300)
+        return self._codebase_map
+
     # ── CONTRACT METHODS (match what self_coder.py reads) ──────────────────
 
     async def generate_fix_plan(self, gap: Any, codebase_context: str) -> dict[str, Any]:
-        """Generate a fix plan using SelfCodingOS. No LLM call.
+        """Generate a fix plan using code understanding + SelfCodingOS. No LLM call.
+
+        Uses AST dataflow analysis to understand the code before planning:
+          1. Find the target function in the codebase
+          2. Analyse its complexity, side effects, call graph
+          3. Find similar functions for pattern reference
+          4. Determine the minimal fix approach
 
         Returns the exact keys self_coder.py reads:
           title, approach, target_files, new_files, risk_level
@@ -53,37 +68,126 @@ class AutonomousCoder:
         description = getattr(gap, "description", "") or getattr(gap, "title", "") or str(gap)
         module_hint = getattr(gap, "module", "") or ""
         gap_type = getattr(gap, "gap_type", "unknown")
+        error_trace = getattr(gap, "error_trace", "") or ""
 
-        plan = self.coding_os.plan_change(description, target_module=module_hint)
+        # Use code understanding to analyse the target
+        target_file = module_hint
+        if not target_file.endswith(".py"):
+            target_file = f"{target_file}.py"
 
-        # Determine target files from the plan
-        target_files = [c.file_path for c in plan.changes if c.type in ("create", "edit")]
-        if not target_files and module_hint:
-            target_files = [module_hint]
+        # Find the function in the codebase
+        from .code_understanding import (
+            find_function, find_callers, analyze_file,
+            suggest_return_type,
+        )
 
-        # Determine risk level from gap type
-        risk_map = {
-            "module_bug": "medium",
-            "hallucination": "high",
-            "document_parse": "medium",
-            "source_failure": "low",
-            "dd_layer_failure": "high",
-            "introspection_error": "medium",
-            "performance": "low",
-            "data_gap": "low",
-            "missing_capability": "medium",
-            "opportunity": "low",
-        }
-        risk_level = risk_map.get(gap_type, "medium")
+        target_func = None
+        file_info = None
+
+        # Try to find the function by name from the description
+        desc_lower = description.lower()
+        func_name_hint = ""
+        for word in desc_lower.split():
+            if word.endswith("()"):
+                func_name_hint = word.rstrip("()")
+                break
+
+        if func_name_hint:
+            target_func = find_function(self.codebase_map, func_name_hint)
+
+        # If not found by name, try the module hint
+        if target_func is None and module_hint:
+            # Find the primary function in the target file
+            full_path = str(self.root / "aria_service" / target_file.lstrip("/"))
+            file_info = analyze_file(full_path)
+            if file_info and file_info.functions:
+                target_func = file_info.functions[0]
+
+        # Build an informed approach based on code understanding
+        approach_parts: list[str] = []
+
+        if target_func:
+            approach_parts.append(
+                f"Target function: {target_func.name} "
+                f"({target_func.is_async and 'async ' or ''}{len(target_func.args)} args, "
+                f"complexity={target_func.complexity}, "
+                f"nesting={target_func.nesting_depth})"
+            )
+
+            if target_func.side_effects:
+                approach_parts.append(
+                    f"Side effects: {', '.join(target_func.side_effects[:3])}"
+                )
+
+            if target_func.calls:
+                approach_parts.append(
+                    f"Calls: {', '.join(target_func.calls[:5])}"
+                )
+
+            # Find callers to understand impact
+            callers = find_callers(self.codebase_map, target_func.name)
+            if callers:
+                approach_parts.append(
+                    f"Called by: {', '.join(callers[:3])}"
+                )
+
+            # Suggest return type if missing
+            if target_func.return_type == "Any":
+                approach_parts.append("Missing return type annotation")
+
+            # Detect missing error handling
+            if not target_func.has_try and any(
+                w in desc_lower for w in ["error", "exception", "crash", "fail"]
+            ):
+                approach_parts.append("Missing try/except error handling")
+
+            # Detect missing logging
+            if not target_func.has_logging:
+                approach_parts.append("Missing logging")
+
+            # Detect high complexity
+            if target_func.complexity > 10:
+                approach_parts.append(
+                    f"High complexity ({target_func.complexity}) — consider refactoring"
+                )
+
+        else:
+            approach_parts.append(f"Target: {module_hint or 'unknown module'}")
+
+        approach_parts.append(f"Gap: {description[:200]}")
+
+        # Determine target files
+        target_files = [target_file] if target_file else [module_hint or "unknown"]
+
+        # Determine risk level from code understanding
+        risk_level = "low"
+        if target_func:
+            if target_func.complexity > 10 or target_func.nesting_depth > 4:
+                risk_level = "high"
+            elif target_func.side_effects or len(target_func.calls) > 5:
+                risk_level = "medium"
+        elif gap_type in ("hallucination", "dd_layer_failure"):
+            risk_level = "high"
+        elif gap_type in ("module_bug", "introspection_error"):
+            risk_level = "medium"
 
         return {
-            "title": plan.title or description[:80],
-            "approach": plan.description or f"Fix {gap_type} in {module_hint}",
+            "title": description[:80],
+            "approach": "; ".join(approach_parts),
             "target_files": target_files,
-            "new_files": [c.file_path for c in plan.changes if c.type == "create"],
+            "new_files": [],
             "risk_level": risk_level,
-            "source": "self_coding_os",
+            "source": "code_understanding",
             "llm_free": True,
+            "function_analysis": {
+                "name": target_func.name if target_func else None,
+                "complexity": target_func.complexity if target_func else 0,
+                "has_try": target_func.has_try if target_func else False,
+                "has_logging": target_func.has_logging if target_func else False,
+                "has_wiring": target_func.has_wiring if target_func else False,
+                "side_effects": target_func.side_effects if target_func else [],
+                "callers": find_callers(self.codebase_map, target_func.name) if target_func else [],
+            } if target_func else {},
         }
 
     async def write_code(self, plan: dict, existing_code: str, target_file: str) -> dict[str, Any]:
