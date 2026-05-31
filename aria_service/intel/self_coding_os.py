@@ -170,32 +170,58 @@ class SelfCodingOS:
 
     def _generate_module(self, module_name, func_name, description, patterns):
         """Generate a real working module from codebase patterns.
-        
-        Instead of emitting a stub with TODO/wire_success boilerplate, this
-        synthesises a real module by:
-        1. Finding the most similar function in the pattern library
-        2. Using its signature, imports, and structure as a template
-        3. Adapting the body to match the description
+
+        Uses the code understanding engine to find the most similar function
+        in the codebase and adapts its signature, imports, and structure.
+        Falls back to a template only when no similar function is found.
         """
         is_async = any(p["is_async"] for p in patterns[:3]) if patterns else True
-        r_num = int(time.time()) % 10000
 
-        # Find the best matching pattern to use as a template
-        best_pattern = None
-        if patterns:
-            # Prefer patterns from the same category with matching arg count
-            for p in patterns:
-                if p["function"].startswith(func_name.split("_")[0]):
-                    best_pattern = p
-                    break
-            if best_pattern is None:
-                best_pattern = patterns[0]
+        # Try to find a real function to use as a template via code understanding
+        try:
+            from .code_understanding import build_codebase_map, find_similar_functions, CodebaseMap
+            root = self.root
+            cmap = build_codebase_map(str(root / "aria_service"), max_files=100)
+            similar = find_similar_functions(func_name, ["query"], is_async, cmap, top_n=3)
+            if similar:
+                best_match = similar[0][0]
+                # Read the source file to get the actual function body
+                src_file = root / best_match.file_path
+                if src_file.exists():
+                    src = src_file.read_text(encoding="utf-8", errors="replace")
+                    try:
+                        tree = ast.parse(src)
+                        for node in ast.walk(tree):
+                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                if node.name == best_match.name:
+                                    # Extract the function source
+                                    func_source = ast.unparse(node)
+                                    # Adapt it: rename function, update docstring
+                                    adapted = func_source.replace(
+                                        f"def {best_match.name}(",
+                                        f"{'async ' if is_async else ''}def {func_name}(",
+                                        1
+                                    )
+                                    # Add module-level imports + logger
+                                    imports = [
+                                        'from __future__ import annotations',
+                                        '',
+                                        'import logging',
+                                        'from typing import Any, Optional',
+                                        '',
+                                        f'logger = logging.getLogger("aria.{module_name}")',
+                                        '',
+                                    ]
+                                    return "\n".join(imports) + "\n\n" + adapted
+                    except SyntaxError:
+                        pass
+        except Exception:
+            pass
 
-        # Build imports from the best pattern's source file
+        # Fallback: generate a template with real structure
         imports = [
             'from __future__ import annotations',
             '',
-            'import asyncio',
             'import logging',
             'from typing import Any, Optional',
             '',
@@ -219,19 +245,17 @@ class SelfCodingOS:
         result_lines.append('            "query": query,')
         result_lines.append('        }')
         result_lines.append('')
-        result_lines.append('        # R-F1112 — wire to brain on success')
         result_lines.append('        from .engine_wiring import wire_success')
         result_lines.append('        wire_success(')
         result_lines.append(f'            module="{module_name}",')
         result_lines.append(f'            summary="{description[:80]}",')
-        result_lines.append(f'            source_id="{module_name}:R-F1112",')
+        result_lines.append(f'            source_id="{module_name}:R-F1234",')
         result_lines.append('        )')
         result_lines.append('')
         result_lines.append('        return result')
         result_lines.append('')
         result_lines.append('    except Exception as e:')
         result_lines.append(f'        logger.error("[{module_name}] {func_name} failed: %s", e, exc_info=True)')
-        result_lines.append('        # R-F1112 — wire failure to brain')
         result_lines.append('        from .engine_wiring import wire_failure')
         result_lines.append('        wire_failure(')
         result_lines.append(f'            module="{module_name}",')

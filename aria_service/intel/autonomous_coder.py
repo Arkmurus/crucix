@@ -51,6 +51,166 @@ class AutonomousCoder:
             self._codebase_map = build_codebase_map(str(self.root / "aria_service"), max_files=300)
         return self._codebase_map
 
+    # ── SELF-HEALING FROM REGRESSION ──────────────────────────────────────
+
+    async def self_heal_from_regression(
+        self,
+        r_number: int,
+        error_log: list[dict],
+        staged_ids: list[str],
+    ) -> dict[str, Any]:
+        """Analyse a post-deploy regression and generate a fix.
+
+        Called by _monitor_post_deploy when new errors spike after a deploy.
+        Uses the code understanding engine to:
+          1. Identify which files have new errors
+          2. Analyse the error patterns
+          3. Generate a targeted fix
+          4. Stage it for review (never auto-deploy regression fixes)
+
+        Returns: {
+            "healed": bool,
+            "fix": {...} or None,
+            "analysis": str,
+        }
+        """
+        if not error_log:
+            return {"healed": False, "fix": None, "analysis": "No errors to analyse"}
+
+        from .code_understanding import analyze_file
+
+        # Group errors by file
+        errors_by_file: dict[str, list[dict]] = {}
+        for err in error_log:
+            file_path = err.get("file", "unknown")
+            if file_path not in errors_by_file:
+                errors_by_file[file_path] = []
+            errors_by_file[file_path].append(err)
+
+        # Analyse each file with errors
+        fixes: dict[str, str] = {}
+        analysis_parts: list[str] = []
+
+        for file_path, file_errors in errors_by_file.items():
+            full_path = str(self.root / "aria_service" / file_path.lstrip("/"))
+            file_info = analyze_file(full_path)
+            if file_info is None:
+                analysis_parts.append(f"{file_path}: could not analyse")
+                continue
+
+            # Read the current file
+            try:
+                with open(full_path, encoding="utf-8", errors="replace") as f:
+                    current_code = f.read()
+            except Exception as e:
+                analysis_parts.append(f"{file_path}: read failed ({e})")
+                continue
+
+            # Determine the error pattern
+            error_types = set()
+            for err in file_errors:
+                msg = err.get("message", "") or err.get("error", "") or ""
+                if "KeyError" in msg:
+                    error_types.add("key_error")
+                elif "AttributeError" in msg:
+                    error_types.add("attribute_error")
+                elif "TypeError" in msg:
+                    error_types.add("type_error")
+                elif "Timeout" in msg:
+                    error_types.add("timeout")
+                elif "Connection" in msg or "connection" in msg:
+                    error_types.add("connection_error")
+                elif "ImportError" in msg or "ModuleNotFoundError" in msg:
+                    error_types.add("import_error")
+                else:
+                    error_types.add("unknown")
+
+            # Generate fix based on error pattern
+            module_name = file_path.replace(".py", "").split("/")[-1]
+            for error_type in error_types:
+                if error_type == "key_error":
+                    fixed = self._fix_key_errors(current_code)
+                    if fixed != current_code:
+                        fixes[file_path] = fixed
+                        analysis_parts.append(
+                            f"{file_path}: fixed KeyError pattern"
+                        )
+                elif error_type == "attribute_error":
+                    sample_error = file_errors[0].get("message", "")
+                    fixed = self._fix_attribute_errors(current_code, sample_error)
+                    if fixed != current_code:
+                        fixes[file_path] = fixed
+                        analysis_parts.append(
+                            f"{file_path}: fixed AttributeError pattern"
+                        )
+                elif error_type == "type_error":
+                    sample_error = file_errors[0].get("message", "")
+                    fixed = self._fix_type_errors(current_code, sample_error)
+                    if fixed != current_code:
+                        fixes[file_path] = fixed
+                        analysis_parts.append(
+                            f"{file_path}: fixed TypeError pattern"
+                        )
+                elif error_type == "timeout":
+                    # Find the primary async function and add timeout
+                    for func in file_info.functions:
+                        if func.is_async and not any(
+                            "TIMEOUT_S" in l for l in current_code.split("\n")
+                        ):
+                            fixed = self._add_timeout_wrapper(
+                                current_code, func.name
+                            )
+                            if fixed != current_code:
+                                fixes[file_path] = fixed
+                                analysis_parts.append(
+                                    f"{file_path}: added timeout to {func.name}"
+                                )
+                            break
+                elif error_type == "connection_error":
+                    # Find the primary function and add retry logic
+                    for func in file_info.functions:
+                        if not any(
+                            "MAX_RETRIES" in l for l in current_code.split("\n")
+                        ):
+                            fixed = self._add_retry_logic(
+                                current_code, func.name
+                            )
+                            if fixed != current_code:
+                                fixes[file_path] = fixed
+                                analysis_parts.append(
+                                    f"{file_path}: added retry to {func.name}"
+                                )
+                            break
+                elif error_type == "import_error":
+                    fixed = self._add_missing_imports(
+                        current_code,
+                        file_errors[0].get("message", ""),
+                    )
+                    if fixed != current_code:
+                        fixes[file_path] = fixed
+                        analysis_parts.append(
+                            f"{file_path}: added missing imports"
+                        )
+
+        if not fixes:
+            return {
+                "healed": False,
+                "fix": None,
+                "analysis": "; ".join(analysis_parts) or "No automatic fix available",
+            }
+
+        return {
+            "healed": True,
+            "fix": {
+                "title": f"Self-heal from regression R-F{r_number}",
+                "approach": "; ".join(analysis_parts),
+                "target_files": list(fixes.keys()),
+                "changes": fixes,
+                "risk_level": "high",  # regression fixes are always high risk
+            },
+            "analysis": "; ".join(analysis_parts),
+        }
+
     # ── CONTRACT METHODS (match what self_coder.py reads) ──────────────────
 
     async def generate_fix_plan(self, gap: Any, codebase_context: str) -> dict[str, Any]:
@@ -303,6 +463,135 @@ class AutonomousCoder:
             "fixes_attempted": fixes_attempted,
             "source": "self_coding_os",
             "llm_free": True,
+        }
+
+    # ── MULTI-FILE ORCHESTRATION ──────────────────────────────────────────
+
+    async def orchestrate_multi_file_fix(
+        self,
+        gap: Any,
+        codebase_context: str,
+    ) -> dict[str, Any]:
+        """Plan and execute a fix that spans multiple files.
+
+        Uses the code understanding engine to:
+          1. Find all files that need changes
+          2. Determine the dependency order (import files first)
+          3. Generate coordinated edits for each file
+          4. Return a unified plan with all changes
+
+        Returns: {
+            "plan": {...},  # same shape as generate_fix_plan
+            "changes": {filepath: new_code, ...},
+            "tests": {filepath: test_code, ...},
+        }
+        """
+        description = getattr(gap, "description", "") or getattr(gap, "title", "") or str(gap)
+        module_hint = getattr(gap, "module", "") or ""
+        gap_type = getattr(gap, "gap_type", "unknown")
+
+        from .code_understanding import (
+            find_function, find_callers, find_files_importing,
+            analyze_file, build_codebase_map,
+        )
+
+        # Step 1: Identify the primary target
+        target_file = module_hint
+        if not target_file.endswith(".py"):
+            target_file = f"{target_file}.py"
+
+        # Step 2: Find all related files via call graph and imports
+        related_files: set[str] = {target_file}
+        target_func = None
+
+        # Try to find the function by name
+        desc_lower = description.lower()
+        for word in desc_lower.split():
+            if word.endswith("()"):
+                target_func = find_function(self.codebase_map, word.rstrip("()"))
+                break
+
+        if target_func:
+            # Find callers — they may need signature updates
+            callers = find_callers(self.codebase_map, target_func.name)
+            for caller_name in callers:
+                for fp, fi in self.codebase_map.files.items():
+                    for f in fi.functions:
+                        if f.name == caller_name:
+                            related_files.add(fp)
+
+            # Find files that import the target module
+            target_module = target_file.replace(".py", "").replace("/", ".")
+            importing_files = find_files_importing(self.codebase_map, target_module)
+            related_files.update(importing_files)
+
+        # Step 3: Generate edits for each file
+        changes: dict[str, str] = {}
+        tests: dict[str, str] = {}
+
+        for filepath in sorted(related_files):
+            full_path = str(self.root / "aria_service" / filepath.lstrip("/"))
+            file_info = analyze_file(full_path)
+            if file_info is None:
+                continue
+
+            try:
+                with open(full_path, encoding="utf-8", errors="replace") as f:
+                    existing = f.read()
+            except Exception:
+                continue
+
+            # Generate edit for this file
+            module_name = filepath.replace(".py", "").split("/")[-1]
+            edited = self._edit_existing_code(
+                existing, module_name, description, filepath,
+            )
+            if edited != existing:
+                changes[filepath] = edited
+
+        # Step 4: Generate tests for the primary target
+        if target_file in changes:
+            r_number = int(time.time()) % 10000
+            test_code = self.coding_os._generate_test(
+                target_file.replace(".py", "").split("/")[-1],
+                target_func.name if target_func else "process_item",
+                r_number,
+            )
+            test_path = f"aria_service/tests/test_rf{r_number}_multi_file.py"
+            tests[test_path] = test_code
+
+        # Step 5: Build the plan
+        approach_parts = [
+            f"Multi-file fix spanning {len(related_files)} file(s)",
+            f"Primary: {target_file}",
+        ]
+        if related_files - {target_file}:
+            approach_parts.append(
+                f"Related: {', '.join(sorted(related_files - {target_file})[:5])}"
+            )
+        if target_func:
+            approach_parts.append(
+                f"Function: {target_func.name} "
+                f"(complexity={target_func.complexity})"
+            )
+            callers = find_callers(self.codebase_map, target_func.name)
+            if callers:
+                approach_parts.append(
+                    f"Callers affected: {', '.join(callers[:5])}"
+                )
+
+        return {
+            "plan": {
+                "title": description[:80],
+                "approach": "; ".join(approach_parts),
+                "target_files": list(related_files),
+                "new_files": list(tests.keys()),
+                "risk_level": "medium" if len(related_files) > 2 else "low",
+                "source": "multi_file_orchestration",
+                "llm_free": True,
+            },
+            "changes": changes,
+            "tests": tests,
         }
 
     # ── AST-AWARE CODE EDITING ────────────────────────────────────────────
@@ -579,7 +868,26 @@ class AutonomousCoder:
         return "\n".join(result_lines)
 
     def _add_timeout_wrapper(self, source: str, func_name: str) -> str:
-        """Wrap an async function body with asyncio.wait_for timeout."""
+        """Wrap an async function body with asyncio.wait_for timeout.
+
+        Transforms:
+            async def func():
+                body
+        Into:
+            async def func():
+                TIMEOUT_S = 30
+                try:
+                    return await asyncio.wait_for(
+                        _inner(),
+                        timeout=TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("[func] timed out")
+                    return {}
+
+            async def _inner():
+                body
+        """
         try:
             tree = ast.parse(source)
         except SyntaxError:
@@ -591,7 +899,7 @@ class AutonomousCoder:
 
         lines = source.split("\n")
 
-        # Find the first body statement
+        # Find the first body statement (skip docstring)
         first_body_node = None
         for node in func.body:
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
@@ -609,34 +917,43 @@ class AutonomousCoder:
         # Get the last line of the function body
         last_body_line_idx = (getattr(func, 'end_lineno', func.lineno) or func.lineno) - 1
 
-        # Build the new body with timeout wrapper
-        # Wrap the original body in asyncio.wait_for
-        new_body = [
+        # Extract the original body lines
+        body_lines = lines[first_line_idx:last_body_line_idx + 1]
+
+        # Build the inner function
+        inner_lines = [
+            "",
+            f"async def _{func_name}_inner():",
+        ]
+        for bl in body_lines:
+            stripped = bl.strip()
+            if stripped:
+                inner_lines.append(f"    {bl.lstrip()}")
+            else:
+                inner_lines.append("")
+
+        # Build the wrapper function body
+        wrapper_body = [
             f"{body_indent}TIMEOUT_S = 30",
             f"{body_indent}try:",
+            f"{body_indent}    return await asyncio.wait_for(",
+            f"{body_indent}        _{func_name}_inner(),",
+            f"{body_indent}        timeout=TIMEOUT_S,",
+            f"{body_indent}    )",
+            f"{body_indent}except asyncio.TimeoutError:",
+            f'{body_indent}    logger.error("[{func_name}] timed out after 30s")',
+            f"{body_indent}    return {{}}",
         ]
 
-        for i in range(first_line_idx, last_body_line_idx + 1):
-            original = lines[i]
-            if original.strip():
-                current_indent = len(original) - len(original.lstrip())
-                relative_indent = current_indent - len(body_indent)
-                if relative_indent < 0:
-                    relative_indent = 0
-                new_body.append(f"{body_indent}    {' ' * relative_indent}{original.lstrip()}")
-            else:
-                new_body.append("")
-
-        new_body.append(f"{body_indent}except asyncio.TimeoutError:")
-        new_body.append(f'{body_indent}    logger.error("[{func_name}] timed out after 30s")')
-        new_body.append(f"{body_indent}    return {{}}")
-
-        # Replace the old body lines
-        result_lines = lines[:first_line_idx] + new_body + lines[last_body_line_idx + 1:]
+        # Replace the old body with the wrapper
+        result_lines = lines[:first_line_idx] + wrapper_body + lines[last_body_line_idx + 1:] + inner_lines
         return "\n".join(result_lines)
 
     def _add_retry_logic(self, source: str, func_name: str) -> str:
-        """Add retry logic with exponential backoff to a function."""
+        """Add retry logic with exponential backoff to a function.
+
+        Uses asyncio.sleep for async functions, time.sleep for sync functions.
+        """
         try:
             tree = ast.parse(source)
         except SyntaxError:
@@ -646,6 +963,7 @@ class AutonomousCoder:
         if func is None:
             return source
 
+        is_async = isinstance(func, ast.AsyncFunctionDef)
         lines = source.split("\n")
 
         # Find the first body statement
@@ -664,6 +982,8 @@ class AutonomousCoder:
         body_indent = first_line[:len(first_line) - len(first_line.lstrip())]
 
         last_body_line_idx = (getattr(func, 'end_lineno', func.lineno) or func.lineno) - 1
+
+        sleep_call = "await asyncio.sleep(2 ** attempt)" if is_async else "time.sleep(2 ** attempt)"
 
         # Build retry wrapper
         new_body = [
@@ -688,7 +1008,7 @@ class AutonomousCoder:
         new_body.append(f'{body_indent}        last_error = _retry_e')
         new_body.append(f'{body_indent}        logger.warning("[{func_name}] attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, _retry_e)')
         new_body.append(f'{body_indent}        if attempt < MAX_RETRIES - 1:')
-        new_body.append(f'{body_indent}            await asyncio.sleep(2 ** attempt)')
+        new_body.append(f'{body_indent}            {sleep_call}')
         new_body.append(f'{body_indent}        else:')
         new_body.append(f'{body_indent}            raise')
         new_body.append(f'{body_indent}    else:')
@@ -857,57 +1177,363 @@ class AutonomousCoder:
         return result
 
     def _fix_key_errors(self, code: str) -> str:
-        """Replace dict[key] with dict.get(key) for known patterns."""
+        """Replace dict[key] with dict.get(key) for known patterns.
+
+        Uses AST to find subscript accesses (e.g. data["key"]) and replaces
+        them with .get("key") calls. Works bottom-up to preserve line numbers.
+        Only fixes subscripts on Name nodes (simple variables), not chained
+        access like a[b][c].
+        """
         try:
             tree = ast.parse(code)
         except SyntaxError:
             return code
 
         lines = code.split("\n")
-        # Find subscript accesses that could raise KeyError
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Subscript):
-                if isinstance(node.slice, ast.Constant):
-                    line_idx = node.lineno - 1
-                    if line_idx < len(lines):
-                        line = lines[line_idx]
-                        # Only fix if the subscript is on a dict-like variable
-                        # and not already using .get()
-                        if ".get(" not in line:
-                            # Simple heuristic: replace [key] with .get(key)
-                            pass  # Full AST-based replacement is complex
+        # Collect (line_idx, col_offset, key_repr) for each subscript to fix
+        to_fix: list[tuple[int, int, str]] = []
 
-        return code
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Subscript):
+                continue
+            # Only fix constant-key subscripts on simple names
+            if not isinstance(node.slice, ast.Constant):
+                continue
+            if not isinstance(node.value, ast.Name):
+                continue
+            # Skip if already using .get()
+            line_idx = node.lineno - 1
+            if line_idx >= len(lines):
+                continue
+            if ".get(" in lines[line_idx]:
+                continue
+            key_repr = repr(node.slice.value)
+            to_fix.append((line_idx, node.col_offset, key_repr))
+
+        # Apply fixes bottom-up to preserve line numbers
+        for line_idx, col_offset, key_repr in sorted(to_fix, reverse=True):
+            line = lines[line_idx]
+            # Find the full subscript expression: variable[key]
+            # We need to find where this specific subscript starts on the line
+            # The subscript starts at col_offset (the variable name)
+            before = line[:col_offset]
+            after = line[col_offset:]
+            # Find the end of this subscript expression
+            # It ends at the matching ] — but there could be nested brackets
+            # Simple approach: find the first ] that closes this subscript
+            depth = 0
+            end_idx = -1
+            for i, ch in enumerate(after):
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = col_offset + i + 1
+                        break
+            if end_idx < 0:
+                continue
+            # Replace variable["key"] with variable.get("key")
+            var_name = after.split("[")[0]
+            replacement = f'{var_name}.get({key_repr})'
+            lines[line_idx] = before + replacement + after[len(var_name):][after[len(var_name):].index("]") + 1:]
+
+        return "\n".join(lines)
 
     def _fix_type_errors(self, code: str, error: str) -> str:
-        """Fix type mismatches based on error analysis."""
-        # Extract the expected vs actual types from the error
+        """Fix type mismatches based on error analysis.
+
+        Handles:
+          - TypeError: expected str, got int → wrap in str()
+          - TypeError: expected int, got str → wrap in int()
+          - TypeError: cannot unpack → check for missing iteration
+          - TypeError: 'NoneType' object is not iterable → add None check
+        """
+        error_lower = error.lower()
+        lines = code.split("\n")
+
+        # Fix 1: expected X, got Y → add type conversion
         m = re.search(r"expected\s+(\w+)", error)
         if m:
             expected = m.group(1)
-            # Add a type conversion
-            lines = code.split("\n")
-            # Find the problematic line and add a conversion
+            converter = {"str": "str", "int": "int", "float": "float",
+                         "bool": "bool", "list": "list", "dict": "dict"}.get(expected)
+            if converter:
+                # Find lines that assign or return values that might need conversion
+                for i, line in enumerate(lines):
+                    stripped = line.strip()
+                    # Look for return statements or assignments without conversion
+                    if stripped.startswith("return ") and converter not in stripped:
+                        # Wrap the return value in the converter
+                        return_val = stripped[len("return "):].strip()
+                        if not return_val.startswith(converter):
+                            indent = line[:len(line) - len(line.lstrip())]
+                            lines[i] = f"{indent}return {converter}({return_val})"
+                            return "\n".join(lines)
+
+        # Fix 2: cannot unpack non-iterable → add type check before unpacking
+        if "cannot unpack" in error_lower or "not iterable" in error_lower:
             for i, line in enumerate(lines):
-                if expected in line:
-                    break
+                if "= " in line and "," in line.split("=")[0]:
+                    # This is an unpacking assignment: a, b = ...
+                    indent = line[:len(line) - len(line.lstrip())]
+                    var_part = line.split("=")[0].strip()
+                    expr_part = line.split("=", 1)[1].strip()
+                    # Add a type check before the unpacking
+                    check = (
+                        f"{indent}if not isinstance({expr_part}, (list, tuple, dict)):\n"
+                        f"{indent}    {var_part} = (None, None)\n"
+                        f"{indent}else:\n"
+                        f"{indent}    {line.lstrip()}"
+                    )
+                    lines[i] = check
+                    return "\n".join(lines)
+
         return code
 
     def _fix_attribute_errors(self, code: str, error: str) -> str:
-        """Fix attribute errors based on error analysis."""
-        # Extract the missing attribute name
-        m = re.search(r"has no attribute '(\w+)'", error)
-        if m:
-            attr_name = m.group(1)
-            # Try to find the object and add the attribute
-            lines = code.split("\n")
-            for i, line in enumerate(lines):
-                if attr_name in line:
-                    break
+        """Fix attribute errors based on error analysis.
+
+        Handles:
+          - 'NoneType' object has no attribute 'X' → add None check before access
+          - 'dict' object has no attribute 'X' → replace .X with ["X"]
+          - 'list' object has no attribute 'X' → check index bounds
+        """
+        error_lower = error.lower()
+        lines = code.split("\n")
+
+        # Fix 1: NoneType has no attribute → add None guard
+        if "nonetype" in error_lower and "has no attribute" in error_lower:
+            m = re.search(r"has no attribute '(\w+)'", error)
+            if m:
+                attr_name = m.group(1)
+                for i, line in enumerate(lines):
+                    if f".{attr_name}" in line:
+                        indent = line[:len(line) - len(line.lstrip())]
+                        # Find the object before .attr_name
+                        obj = line.split(f".{attr_name}")[0].strip().split()[-1]
+                        # Add None check
+                        guarded = (
+                            f"{indent}if {obj} is not None:\n"
+                            f"{indent}    {line.lstrip()}\n"
+                            f"{indent}else:\n"
+                            f"{indent}    pass  # {obj} was None"
+                        )
+                        lines[i] = guarded
+                        return "\n".join(lines)
+
+        # Fix 2: dict has no attribute → replace .get() style access
+        if "dict" in error_lower and "has no attribute" in error_lower:
+            m = re.search(r"has no attribute '(\w+)'", error)
+            if m:
+                attr_name = m.group(1)
+                for i, line in enumerate(lines):
+                    if f".{attr_name}" in line:
+                        # Replace .attr_name with ["attr_name"]
+                        lines[i] = line.replace(f".{attr_name}", f'["{attr_name}"]')
+                        return "\n".join(lines)
+
         return code
 
+    # ── REFACTORING ENGINE ────────────────────────────────────────────────
+
+    def refactor_extract_method(
+        self, source: str, func_name: str, lines_to_extract: list[int],
+        new_method_name: str,
+    ) -> str:
+        """Extract a range of lines from a function into a new method.
+
+        Args:
+            source: The full source code of the file
+            func_name: Name of the function to extract from
+            lines_to_extract: 1-based line numbers to extract
+            new_method_name: Name for the new extracted method
+
+        Returns:
+            Updated source with the extracted method
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+        is_async = isinstance(func, ast.AsyncFunctionDef)
+
+        # Convert to 0-based
+        extract_start = min(lines_to_extract) - 1
+        extract_end = max(lines_to_extract) - 1
+
+        # Get the indentation of the function body
+        first_body = None
+        for node in func.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            first_body = node
+            break
+
+        if first_body is None:
+            return source
+
+        body_indent = lines[first_body.lineno - 1]
+        body_indent = body_indent[:len(body_indent) - len(body_indent.lstrip())]
+
+        # Extract the lines
+        extracted_lines = lines[extract_start:extract_end + 1]
+
+        # Determine the indentation of extracted lines relative to body
+        rel_lines = []
+        for el in extracted_lines:
+            if el.strip():
+                current_indent = len(el) - len(el.lstrip())
+                rel_indent = current_indent - len(body_indent)
+                rel_lines.append("    " * max(0, rel_indent // 4) + el.lstrip())
+            else:
+                rel_lines.append("")
+
+        # Build the new method
+        new_method = [
+            "",
+            f"{'async ' if is_async else ''}def {new_method_name}():",
+            f'    """Extracted from {func_name}."""',
+        ]
+        new_method.extend(rel_lines)
+        new_method.append("")
+
+        # Replace extracted lines with a call to the new method
+        call_line = f"{body_indent}await {new_method_name}()" if is_async else f"{body_indent}{new_method_name}()"
+
+        # Build the result
+        result_lines = (
+            lines[:extract_start]
+            + [call_line]
+            + lines[extract_end + 1:]
+            + new_method
+        )
+
+        return "\n".join(result_lines)
+
+    def refactor_rename_function(
+        self, source: str, old_name: str, new_name: str,
+    ) -> str:
+        """Rename a function and all its call sites within the same file.
+
+        Uses AST to find:
+          - The function definition
+          - All calls to the function
+          - References in the same file
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        lines = source.split("\n")
+        # Collect all line/col positions that reference old_name as a function
+        to_rename: list[tuple[int, int]] = []
+
+        for node in ast.walk(tree):
+            # Function definition
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == old_name:
+                    to_rename.append((node.lineno - 1, node.col_offset))
+            # Function calls
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == old_name:
+                    to_rename.append((node.func.lineno - 1, node.func.col_offset))
+
+        # Apply renames bottom-up
+        for line_idx, col_offset in sorted(to_rename, reverse=True):
+            if line_idx < len(lines):
+                line = lines[line_idx]
+                before = line[:col_offset]
+                after = line[col_offset:]
+                # Replace the first occurrence of old_name at this position
+                if after.startswith(old_name):
+                    lines[line_idx] = before + new_name + after[len(old_name):]
+
+        return "\n".join(lines)
+
+    def refactor_split_module(
+        self, source: str, func_names: list[str],
+        new_module_name: str,
+    ) -> tuple[str, str]:
+        """Split a set of functions into a new module.
+
+        Args:
+            source: The full source of the original module
+            func_names: Names of functions to move to the new module
+            new_module_name: Name for the new module (without .py)
+
+        Returns:
+            (updated_original_source, new_module_source)
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source, ""
+
+        lines = source.split("\n")
+        new_lines: list[str] = []
+        remaining_lines = list(lines)
+
+        # Find and extract the functions to move
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in func_names:
+                    start = node.lineno - 1
+                    end = (getattr(node, 'end_lineno', node.lineno) or node.lineno)
+                    # Extract the function lines
+                    func_lines = lines[start:end]
+                    new_lines.extend(func_lines)
+                    new_lines.append("")
+                    # Remove from remaining
+                    for i in range(start, end):
+                        if i < len(remaining_lines):
+                            remaining_lines[i] = None
+
+        # Clean up remaining
+        remaining = [l for l in remaining_lines if l is not None]
+
+        # Build the new module
+        imports = [
+            'from __future__ import annotations',
+            '',
+            'import logging',
+            'from typing import Any, Optional',
+            '',
+            f'logger = logging.getLogger("aria.{new_module_name}")',
+            '',
+        ]
+        new_module = "\n".join(imports) + "\n" + "\n".join(new_lines)
+
+        # Add import of new module to original
+        import_stmt = f"from . import {new_module_name}"
+        if import_stmt not in "\n".join(remaining):
+            # Find the last import line
+            last_import = -1
+            for i, line in enumerate(remaining):
+                if line.startswith("import ") or line.startswith("from "):
+                    last_import = i
+            if last_import >= 0:
+                remaining.insert(last_import + 1, import_stmt)
+            else:
+                remaining.insert(0, import_stmt)
+
+        return "\n".join(remaining), new_module
+
     def _infer_function_name(self, description: str) -> str:
-        """Infer a function name from a description."""
+        """Infer a function name from a description.
+
+        Returns a valid Python function name. Guarantees the result
+        is a valid identifier (no special chars, not empty, not ending
+        with underscore).
+        """
+        import re as _re
         desc_lower = description.lower()
         mapping = {
             "render": "render", "get": "get_", "check": "check_",
@@ -923,8 +1549,26 @@ class AutonomousCoder:
         for word, prefix in mapping.items():
             if word in desc_lower:
                 rest = desc_lower.split(word, 1)[1].strip()
-                obj = rest.split()[0] if rest else "item"
-                return f"{prefix}{obj}"
+                # Extract the first meaningful alphanumeric word after the keyword
+                obj = "item"
+                for part in rest.split():
+                    clean = _re.sub(r'[^a-zA-Z0-9]', '', part)
+                    # Skip very short or very long tokens (likely noise)
+                    if clean and len(clean) >= 2 and len(clean) <= 20:
+                        obj = clean
+                        break
+                # If no good word found, try the first token regardless
+                if obj == "item":
+                    for part in rest.split():
+                        clean = _re.sub(r'[^a-zA-Z0-9]', '', part)
+                        if clean:
+                            obj = clean[:20]
+                            break
+                name = f"{prefix}{obj}"
+                # Ensure valid function name (not empty, not ending with _)
+                if name.endswith("_") or not name.split("_")[-1]:
+                    name = f"{name}item"
+                return name
         return "process_item"
 
     def _categorize_function(self, name: str) -> str:

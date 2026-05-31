@@ -121,7 +121,8 @@ def test_edit_existing_code_adds_retry_logic(coder):
         "aria_service/intel/test_module.py",
     )
     assert "MAX_RETRIES" in result
-    assert "asyncio.sleep" in result
+    # Sync functions use time.sleep, async functions use asyncio.sleep
+    assert "time.sleep" in result or "asyncio.sleep" in result
     assert "attempt" in result
 
 
