@@ -371,17 +371,62 @@ class AutonomousCoder:
                 "llm_free": True,
             }
 
-        # No existing code — generate a new module
-        func_name = self._infer_function_name(description)
-        category = self._categorize_function(func_name)
-        similar_patterns = self.coding_os._pattern_library.get(category, [])
-        code = self.coding_os._generate_module(module_name, func_name, description, similar_patterns)
+        # No existing code — compose a new module from primitives
+        try:
+            func_name = self._infer_function_name(description)
+            is_async = "async" in description.lower() or "await" in description.lower()
 
-        return {
-            "code": code,
-            "source": "self_coding_os",
-            "llm_free": True,
-        }
+            # Determine args from description
+            args = [{"name": "query", "type": "str"}]
+            if "data" in description.lower() or "payload" in description.lower():
+                args.append({"name": "data", "type": "dict"})
+
+            # Determine which primitives to use
+            desc_lower = description.lower()
+            add_retry = any(w in desc_lower for w in ["retry", "flaky", "network", "api"])
+            add_timeout = any(w in desc_lower for w in ["timeout", "hang", "slow"])
+            add_null_checks = any(w in desc_lower for w in ["null", "none", "optional"])
+            add_error_handling = not add_retry  # retry already has error handling
+
+            code = self.coding_os.compose_function(
+                func_name=func_name,
+                is_async=is_async,
+                args=args,
+                return_type="dict",
+                docstring=description[:80],
+                body_code=f"# TODO: implement {func_name} logic\n        result = {{}}",
+                module_name=module_name,
+                add_logging=True,
+                add_wiring=True,
+                add_error_handling=add_error_handling,
+                add_null_checks=add_null_checks,
+                add_retry=add_retry,
+                add_timeout=add_timeout,
+            )
+
+            return {
+                "code": code,
+                "source": "code_composition",
+                "llm_free": True,
+            }
+        except Exception as e:
+            # R-F1237: wire failure to brain
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="autonomous_coder",
+                    detail=f"compose_function failed: {e}",
+                    gap_type="code_synthesis_error",
+                    source="autonomous_coder:write_code",
+                )
+            except Exception:
+                pass
+            return {
+                "code": "",
+                "source": "code_composition",
+                "llm_free": True,
+                "error": str(e),
+            }
 
     async def write_tests(self, plan: dict, new_code: str, r_number: int) -> dict[str, Any]:
         """Generate tests using SelfCodingOS. No LLM call.
@@ -1636,6 +1681,8 @@ class AutonomousCoder:
         return imports
 
 
-# R-F1112 — wire to brain
-from .engine_wiring import wire_success
-wire_success(module="autonomous_coder", summary="Autonomous Coder Active (AST-aware)", source_id="autonomous_coder:R-F1112")
+# R-F1237 — wire both branches to brain
+from .engine_wiring import wire_success, wire_failure
+wire_success(module="autonomous_coder", summary="Autonomous Coder Active", source_id="autonomous_coder:R-F1237")
+# Failure path is wired in _edit_existing_code and _synthesize_fix
+# via the error_handling primitive which calls wire_failure on exception

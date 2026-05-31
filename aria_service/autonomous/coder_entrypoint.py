@@ -225,22 +225,36 @@ async def start_aria_coder(
     # Lazy imports — keep `import aria_service.autonomous` cheap
     from .self_coder import ARIACoder
 
-    # R-F1112: inject AutonomousCoder (AST-aware, no external LLM) as the
-    # default coding engine instead of SovereignLLM (DeepSeek-backed).
-    # This makes ARIA fully self-sufficient for code generation.
-    _autonomous_coder = None
+    # R-F1237: SovereignLLM (DeepSeek-backed) is the PRIMARY coding engine.
+    # AutonomousCoder (AST-aware, no external LLM) is the fallback when
+    # DeepSeek is unavailable or ARIA_INTERNAL_TOKEN is not set.
+    # This gives ARIA real code synthesis (novel business logic) while
+    # keeping the AST-based coder as a zero-cost fallback for simple edits.
+    _llm = None
     try:
-        from ..intel.autonomous_coder import AutonomousCoder
-        _autonomous_coder = AutonomousCoder()
+        from .sovereign_llm import SovereignLLM
+        _llm = SovereignLLM(aria_service_url=url)
         logger.info(
-            "[coder_entrypoint] Using AutonomousCoder (AST-aware, no external LLM) "
-            "as the default coding engine",
+            "[coder_entrypoint] Using SovereignLLM (DeepSeek-backed) "
+            "as the primary coding engine",
         )
     except Exception as e:
         logger.warning(
-            "[coder_entrypoint] AutonomousCoder init failed: %s — "
-            "falling back to SovereignLLM (DeepSeek-backed)", e,
+            "[coder_entrypoint] SovereignLLM init failed: %s — "
+            "falling back to AutonomousCoder (AST-only)", e,
         )
+        try:
+            from ..intel.autonomous_coder import AutonomousCoder
+            _llm = AutonomousCoder()
+            logger.info(
+                "[coder_entrypoint] Using AutonomousCoder (AST-aware, no external LLM) "
+                "as fallback coding engine",
+            )
+        except Exception as e2:
+            logger.error(
+                "[coder_entrypoint] Both SovereignLLM and AutonomousCoder "
+                "failed to init: %s / %s — coder will have no LLM", e, e2,
+            )
 
     # R-F1032: ensure MODIFIABLE_FILES is populated before the coder starts.
     # _one_cycle imports MODIFIABLE_FILES but it's dynamically populated by
@@ -333,7 +347,7 @@ async def start_aria_coder(
         whatsapp_notifier=wa_notifier,
         brain_hook=brain_hook,
         output_harvester=output_harvester,
-        llm=_autonomous_coder,  # R-F1112: AST-aware, no external LLM
+        llm=_llm,  # R-F1237: SovereignLLM primary, AutonomousCoder fallback
     )
 
     # R-F824 (2026-05-23): expose the live ARIACoder instance on

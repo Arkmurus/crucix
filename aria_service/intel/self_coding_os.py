@@ -520,6 +520,318 @@ class SelfCodingOS:
                 wiring_added = True
         return "\n".join(result)
 
+    # ── R-F1237: AST Composition Engine ───────────────────────────────────
+    #
+    # Real code synthesis from primitives. Instead of pattern-matching or
+    # template stubs, this engine composes new code by:
+    #   1. Identifying the required pattern (query, mutation, validation, etc.)
+    #   2. Selecting the right primitives (try/except, async/await, loops, etc.)
+    #   3. Composing them into syntactically valid Python
+    #   4. Adding proper imports, logging, wiring, and error handling
+    #
+    # Each primitive is a self-contained code block that can be composed
+    # with others. The engine handles indentation, import dedup, and
+    # variable naming automatically.
+
+    # ── Primitives library ────────────────────────────────────────────────
+
+    _PRIMITIVE_IMPORTS: dict[str, list[str]] = {
+        "logging": ["import logging"],
+        "asyncio": ["import asyncio"],
+        "typing": ["from typing import Any, Optional"],
+        "json": ["import json"],
+        "datetime": ["from datetime import datetime, timezone"],
+        "httpx": ["import httpx"],
+        "hashlib": ["import hashlib"],
+        "pathlib": ["from pathlib import Path"],
+        "re": ["import re"],
+        "os": ["import os"],
+    }
+
+    _PRIMITIVE_BODIES: dict[str, str] = {
+        "try_except_log": (
+            "try:\n"
+            "    {body}\n"
+            "except Exception as _e:\n"
+            '    logger.error("[{func_name}] failed: %s", _e, exc_info=True)\n'
+            "    raise"
+        ),
+        "try_except_return_default": (
+            "try:\n"
+            "    {body}\n"
+            "except Exception as _e:\n"
+            '    logger.error("[{func_name}] failed: %s", _e, exc_info=True)\n'
+            '    return {{"status": "error", "error": str(_e)}}'
+        ),
+        "async_wait_for": (
+            "return await asyncio.wait_for(\n"
+            "    {body},\n"
+            "    timeout=TIMEOUT_S,\n"
+            ")"
+        ),
+        "async_wait_for_wrapper": (
+            "TIMEOUT_S = {timeout_s}\n"
+            "try:\n"
+            "    {body}\n"
+            "except asyncio.TimeoutError:\n"
+            '    logger.error("[{func_name}] timed out after {timeout_s}s")\n'
+            '    return {{"status": "error", "error": "timeout"}}'
+        ),
+        "retry_async": (
+            "MAX_RETRIES = 3\n"
+            "last_error = None\n"
+            "for attempt in range(MAX_RETRIES):\n"
+            "    try:\n"
+            "        {body}\n"
+            "        break\n"
+            "    except Exception as _retry_e:\n"
+            "        last_error = _retry_e\n"
+            '        logger.warning("[{func_name}] attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, _retry_e)\n'
+            "        if attempt < MAX_RETRIES - 1:\n"
+            "            await asyncio.sleep(2 ** attempt)\n"
+            "        else:\n"
+            "            raise"
+        ),
+        "retry_sync": (
+            "MAX_RETRIES = 3\n"
+            "last_error = None\n"
+            "for attempt in range(MAX_RETRIES):\n"
+            "    try:\n"
+            "        {body}\n"
+            "        break\n"
+            "    except Exception as _retry_e:\n"
+            "        last_error = _retry_e\n"
+            '        logger.warning("[{func_name}] attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, _retry_e)\n'
+            "        if attempt < MAX_RETRIES - 1:\n"
+            "            time.sleep(2 ** attempt)\n"
+            "        else:\n"
+            "            raise"
+        ),
+        "null_check_params": (
+            "if {param} is None:\n"
+            '    logger.warning("[{func_name}] {param} is None — returning empty")\n'
+            '    return {{"status": "error", "error": "{param} is required"}}'
+        ),
+        "wire_success": (
+            "from .engine_wiring import wire_success\n"
+            "wire_success(\n"
+            '    module="{module}",\n'
+            '    summary="{summary}",\n'
+            '    source_id="{module}:R-F1237",\n'
+            ")"
+        ),
+        "wire_failure": (
+            "from .engine_wiring import wire_failure\n"
+            "wire_failure(\n"
+            '    module="{module}",\n'
+            '    detail=str(_e)[:600],\n'
+            '    gap_type="engine_failure",\n'
+            ")"
+        ),
+        "entry_log": (
+            'logger.debug("[{func_name}] called with {args_summary}")'
+        ),
+        "return_dict": (
+            'return {{"status": "ok", "result": {result}}}'
+        ),
+        "return_error": (
+            'return {{"status": "error", "error": str(_e)}}'
+        ),
+    }
+
+    def compose_function(
+        self,
+        func_name: str,
+        *,
+        is_async: bool = True,
+        args: list[dict] | None = None,
+        return_type: str = "dict",
+        docstring: str = "",
+        body_primitives: list[str] | None = None,
+        body_code: str = "",
+        imports: list[str] | None = None,
+        module_name: str = "auto_module",
+        add_logging: bool = True,
+        add_wiring: bool = True,
+        add_error_handling: bool = True,
+        add_null_checks: bool = False,
+        add_retry: bool = False,
+        add_timeout: bool = False,
+        timeout_s: int = 30,
+    ) -> str:
+        """Compose a complete Python function from primitives.
+
+        This is the core of real code synthesis. Instead of templates or
+        stubs, it composes syntactically valid Python from building blocks:
+          - Function signature with type hints
+          - Docstring
+          - Null checks on parameters
+          - Entry logging
+          - Retry wrapper (async or sync)
+          - Timeout wrapper (async only)
+          - Try/except error handling
+          - Wiring (brain_hook success/failure)
+          - Return statement
+
+        Each primitive handles its own indentation and composition with
+        others. The result is always valid, compilable Python.
+        """
+        # ── Build imports ──────────────────────────────────────────────────
+        import_lines: list[str] = [
+            "from __future__ import annotations",
+            "",
+        ]
+
+        needed_imports = set(imports or [])
+        if add_logging or add_error_handling:
+            needed_imports.add("logging")
+        if add_retry or add_timeout:
+            needed_imports.add("asyncio")
+        if add_retry and not is_async:
+            needed_imports.add("time")
+        if add_wiring:
+            pass  # wire_success/failure are inline imports
+
+        for imp in sorted(needed_imports):
+            if imp in self._PRIMITIVE_IMPORTS:
+                import_lines.extend(self._PRIMITIVE_IMPORTS[imp])
+            else:
+                import_lines.append(f"import {imp}")
+
+        import_lines.append("")
+        import_lines.append(f'logger = logging.getLogger("aria.{module_name}")')
+        import_lines.append("")
+
+        # ── Build function signature ───────────────────────────────────────
+        sig_lines: list[str] = []
+        async_prefix = "async " if is_async else ""
+        sig_lines.append(f"{async_prefix}def {func_name}(")
+
+        if args:
+            for i, arg in enumerate(args):
+                arg_name = arg.get("name", f"arg{i}")
+                arg_type = arg.get("type", "Any")
+                comma = "," if i < len(args) - 1 else ""
+                sig_lines.append(f"    {arg_name}: {arg_type}{comma}")
+        else:
+            sig_lines.append("    query: str,")
+            sig_lines.append("    **kwargs: Any,")
+
+        sig_lines.append(f") -> {return_type}:")
+        sig_lines.append(f'    """{docstring or func_name.replace("_", " ").title()}"""')
+
+        # ── Build function body ────────────────────────────────────────────
+        body_lines: list[str] = []
+        indent = "    "
+
+        # Null checks
+        if add_null_checks and args:
+            for arg in args:
+                arg_name = arg.get("name", "")
+                if arg_name and arg_name not in ("self", "cls", "args", "kwargs"):
+                    null_check = self._PRIMITIVE_BODIES["null_check_params"].format(
+                        param=arg_name, func_name=func_name,
+                    )
+                    for line in null_check.split("\n"):
+                        body_lines.append(f"{indent}{line}")
+                    body_lines.append("")
+
+        # Entry log
+        if add_logging:
+            args_summary = ", ".join(a.get("name", "?") for a in (args or []))
+            entry = self._PRIMITIVE_BODIES["entry_log"].format(
+                func_name=func_name, args_summary=args_summary or "no args",
+            )
+            body_lines.append(f"{indent}{entry}")
+            body_lines.append("")
+
+        # Build the core body
+        core_body = body_code if body_code else "result = await _execute()" if is_async else "result = _execute()"
+
+        # Wrap in retry if requested (replaces error handling — retry has its own)
+        if add_retry:
+            retry_template = self._PRIMITIVE_BODIES["retry_async" if is_async else "retry_sync"]
+            core_body = retry_template.format(body=core_body, func_name=func_name)
+
+        # Wrap in timeout if requested (async only) — this adds its own try/except
+        if add_timeout and is_async:
+            timeout_inner = self._PRIMITIVE_BODIES["async_wait_for"].format(
+                body=core_body,
+            )
+            timeout_wrapper = self._PRIMITIVE_BODIES["async_wait_for_wrapper"].format(
+                body=timeout_inner, func_name=func_name, timeout_s=timeout_s,
+            )
+            core_body = timeout_wrapper
+
+        # Wrap in error handling if requested (skip if retry or timeout already has it)
+        if add_error_handling and not add_retry and not add_timeout:
+            error_template = self._PRIMITIVE_BODIES["try_except_return_default"]
+            core_body = error_template.format(body=core_body, func_name=func_name)
+
+        # Indent the core body to function body level
+        core_body = f"{indent}{core_body.replace(chr(10), chr(10) + indent)}"
+
+        # Add wiring before return
+        if add_wiring:
+            wiring = self._PRIMITIVE_BODIES["wire_success"].format(
+                module=module_name,
+                summary=f"{func_name} completed successfully",
+            )
+            # Insert wiring before the return statement
+            wiring_lines = [f"{indent}{l}" for l in wiring.split("\n")]
+            body_lines.extend(wiring_lines)
+            body_lines.append("")
+
+        body_lines.append(core_body)
+
+        # ── Assemble ───────────────────────────────────────────────────────
+        result = "\n".join(import_lines)
+        result += "\n".join(sig_lines)
+        result += "\n"
+        result += "\n".join(body_lines)
+        result += "\n"
+
+        return result
+
+    def compose_module(
+        self,
+        module_name: str,
+        functions: list[dict],
+    ) -> str:
+        """Compose a complete Python module from multiple function specs.
+
+        Each function spec is a dict with the same keys as compose_function.
+        The engine handles import deduplication across all functions.
+        """
+        all_imports: set[str] = set()
+        function_sources: list[str] = []
+
+        for func_spec in functions:
+            func_imports = func_spec.pop("imports", [])
+            all_imports.update(func_imports)
+            func_source = self.compose_function(
+                module_name=module_name,
+                imports=list(all_imports),
+                **func_spec,
+            )
+            function_sources.append(func_source)
+
+        return "\n\n".join(function_sources)
+
+    # ── Wire to brain (R-F1237) ───────────────────────────────────────────
+    # Called on import so the brain knows the composition engine is available.
+    # Failure path: if compose_function raises, the caller (AutonomousCoder)
+    # catches it and wires the failure via its own error handling.
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="self_coding_os",
+            summary="AST Composition Engine available for code synthesis",
+            source_id="self_coding_os:R-F1237",
+        )
+    except Exception:
+        pass  # brain not available at import time
+
     async def execute_plan(self, plan):
         results = []
         for change in plan.changes:

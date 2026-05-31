@@ -25,6 +25,17 @@ from .gap_detector import Gap
 
 logger = logging.getLogger("aria.autonomous.sovereign_llm")
 
+# R-F1237: wire to brain on import (module loaded = coder available)
+try:
+    from ..intel.engine_wiring import wire_success
+    wire_success(
+        module="sovereign_llm",
+        summary="SovereignLLM (DeepSeek-backed) available for code synthesis",
+        source_id="sovereign_llm:R-F1237",
+    )
+except Exception:
+    pass  # brain not available at import time (e.g. tests)
+
 CODER_LLM_PATH = "/api/aria/coder/llm"
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_TOKENS = 4096
@@ -99,24 +110,49 @@ class SovereignLLM:
     ) -> dict[str, Any]:
         token = os.environ.get("ARIA_INTERNAL_TOKEN", "")
         if not token:
+            # R-F1237: wire failure to brain
+            try:
+                from ..intel.engine_wiring import wire_failure
+                wire_failure(
+                    module="sovereign_llm",
+                    detail="ARIA_INTERNAL_TOKEN not set — LLM call refused",
+                    gap_type="configuration_error",
+                    source="sovereign_llm:_call",
+                )
+            except Exception:
+                pass
             raise RuntimeError(
                 "ARIA_INTERNAL_TOKEN not set — sovereign LLM call refused. "
                 "Set via flyctl secrets on aria-intel."
             )
 
-        resp = await self._client.post(
-            f"{self.aria_url}{CODER_LLM_PATH}",
-            json={
-                "prompt": prompt,
-                "task": task,
-                "prefer_model": prefer_model,
-                "max_tokens": DEFAULT_MAX_TOKENS,
-                "response_format": "json",
-            },
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = await self._client.post(
+                f"{self.aria_url}{CODER_LLM_PATH}",
+                json={
+                    "prompt": prompt,
+                    "task": task,
+                    "prefer_model": prefer_model,
+                    "max_tokens": DEFAULT_MAX_TOKENS,
+                    "response_format": "json",
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            # R-F1237: wire failure to brain
+            try:
+                from ..intel.engine_wiring import wire_failure
+                wire_failure(
+                    module="sovereign_llm",
+                    detail=f"LLM call failed: {e}",
+                    gap_type="llm_error",
+                    source="sovereign_llm:_call",
+                )
+            except Exception:
+                pass
+            raise
 
     # ── PROMPTS ──────────────────────────────────────────────────────────────
 
