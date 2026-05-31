@@ -21,8 +21,8 @@ from .tools import ToolResult
 class CoderToolbox:
     """Higher-level coding tools that wrap Toolbox for structured operations.
 
-    All shell execution delegates to the base Toolbox.run() method, so the
-    constitutional validator's subprocess restrictions are never triggered.
+    All shell execution delegates to the base Toolbox.run() method.
+    R-F1191: constitutional validator removed — ARIA is fully autonomous.
     """
 
     def __init__(self, toolbox) -> None:

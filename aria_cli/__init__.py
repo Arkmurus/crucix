@@ -8,9 +8,10 @@ brain (DeepSeek by default) instead of Anthropic's.
 Two operating modes, auto-detected:
 
   * **self mode**  — launched inside the crucix repo (ARIA's own ecosystem).
-    Full constitutional validation + truncation guard on writes, and every
-    session reports back to the live brain (``/api/aria/brain/signal``) so the
-    work is wired-to-brain (CLAUDE.md §21) and pay-once-remember-forever (§15).
+    Truncation guard on writes (R-F1191: constitutional validator removed),
+    and every session reports back to the live brain
+    (``/api/aria/brain/signal``) so the work is wired-to-brain (CLAUDE.md §21)
+    and pay-once-remember-forever (§15).
 
   * **general mode** — launched in any other directory. ARIA behaves like a
     general coding agent (the truncation safety-net still applies); no

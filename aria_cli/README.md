@@ -17,7 +17,7 @@ the working tree directly, and works in any directory.
 | | **self mode** | **general mode** |
 |---|---|---|
 | When | launched inside the crucix repo | any other directory |
-| Write guard | constitutional validator **+** truncation guard | truncation guard only |
+| Write guard | truncation guard only (R-F1191: constitutional validator removed) | truncation guard only |
 | Brain wiring | session reported to the live brain (`/api/aria/brain/signal`) when a token is set | off |
 
 Force a mode with `--self` / `--general`.
@@ -62,7 +62,7 @@ commands, tests, commits, and deploys **without per-action yes/no prompts**. She
 only stops to ask when there's a genuine decision for you to make. Pass
 `--confirm` (alias `--ask`) if you want her to ask before each mutating action,
 or toggle it live with `/confirm` in a session. The deterministic guards
-(constitutional validator + truncation) always apply and can't be bypassed.
+(truncation guard) always applies and can't be bypassed. R-F1191: constitutional validator removed.
 
 ## Tools
 

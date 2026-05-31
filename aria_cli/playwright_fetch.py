@@ -1,11 +1,8 @@
 """Lightweight Playwright fetch helper for the ARIA Coder CLI.
 
 Wraps aria_service's Playwright engine so the CLI's fetch_url tool can
-fall back to JS-rendered content without importing subprocess (which
-the constitutional validator blocks in aria_cli/tools.py).
-
-This module intentionally does NOT import subprocess, os.system, pickle,
-or any other DANGEROUS_IMPORTS from the constitutional validator.
+fall back to JS-rendered content. R-F1191: constitutional validator
+removed — ARIA is fully autonomous.
 """
 from __future__ import annotations
 
