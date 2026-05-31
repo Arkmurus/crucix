@@ -868,18 +868,25 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     approval = color.green("autonomous") if auto_approve else "confirm each action"
     bx = _BoxChars()
     h = bx.h * 56
+    # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
+    # Every content line must be exactly 56 chars between the vertical bars.
+    def _content(s: str) -> str:
+        """Pad string to exactly 56 chars for box content."""
+        return s + " " * (56 - len(s))
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
-    print(color.bold(f"  {bx.v}") + color.cyan("  ARIA Coder") + color.dim(f"  v{__version__}") + color.bold(" " * max(1, 56 - 12 - len(__version__))) + color.bold(f"{bx.v}"))
+    title = f"  ARIA Coder  v{__version__}"
+    print(color.bold(f"  {bx.v}") + color.cyan(_content(title)) + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
     dir_str = str(cwd)
-    if len(dir_str) > 50:
-        dir_str = "..." + dir_str[-47:]
-    print(color.bold(f"  {bx.v}") + color.dim(f"  {dir_str:<56}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  {cfg.provider}/{cfg.model:<50}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  {mode:<56}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  brain: {brain:<49}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  {approval:<56}") + color.bold(f"{bx.v}"))
+    if len(dir_str) > 54:
+        dir_str = "..." + dir_str[-51:]
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {dir_str}")) + color.bold(f"{bx.v}"))
+    prov_model = f"  {cfg.provider}/{cfg.model}"
+    print(color.bold(f"  {bx.v}") + color.dim(_content(prov_model)) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {mode}")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  brain: {brain}")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {approval}")) + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.bl}{h}{bx.br}"))
     print()
 
@@ -893,18 +900,23 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     elapsed = time.time() - ui._session_start if ui._session_start else 0
     elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
     bx = _BoxChars()
-    h = bx.h * 58
+    h = bx.h * 56
+    # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
+    def _content(s: str) -> str:
+        """Pad string to exactly 56 chars for box content."""
+        return s + " " * (56 - len(s))
 
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
-    print(color.bold(f"  {bx.v}") + color.cyan("  Session Complete") + color.dim(f"  {bx.check if success else bx.cross}") + color.bold(" " * max(1, 56 - 18 - 1)) + color.bold(f"{bx.v}"))
+    title = f"  Session Complete  {bx.check if success else bx.cross}"
+    print(color.bold(f"  {bx.v}") + color.cyan(_content(title)) + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  duration:    {elapsed_str:<48}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  files:       {len(changed):<3} changed{' ' * (45 - len(str(len(changed))))}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  tools:       {ui._tool_count:<3} calls{' ' * (45 - len(str(ui._tool_count)))}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  errors:      {ui._error_count:<3}{' ' * (45 - len(str(ui._error_count)))}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  operator:    {ui._operator_messages:<3} msgs{' ' * (45 - len(str(ui._operator_messages)))}") + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(f"  tokens:      {total_tok:<6} ({in_tok} in / {out_tok} out){' ' * max(0, 32 - len(str(total_tok)) - len(str(in_tok)) - len(str(out_tok)))}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  duration:    {elapsed_str}")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  files:       {len(changed)} changed")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  tools:       {ui._tool_count} calls")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  errors:      {ui._error_count}")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  operator:    {ui._operator_messages} msgs")) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  tokens:      {total_tok} ({in_tok} in / {out_tok} out)")) + color.bold(f"{bx.v}"))
     print(color.bold(f"  {bx.bl}{h}{bx.br}"))
 
     if changed:
@@ -946,7 +958,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
     print(color.dim("  Type a task or message. /help for commands. Chat with ARIA while she works."))
-    print(color.dim("  Tip: type a message while ARIA is working and she'll respond in real-time.\n"))
+    print(color.dim("  Tip: type a message while ARIA is working and she'll respond in real-time."))
+    print(color.dim("  Tip: use /chat to toggle chat mode (interrupt ARIA mid-task).\n"))
     last_task = ""
     try:
         while True:
@@ -961,38 +974,59 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 break
             if line == "/help":
                 bx = _BoxChars()
-                h = bx.h * 55
+                h = bx.h * 56
+                def _hc(s: str) -> str:
+                    """Pad help content to exactly 56 chars."""
+                    return s + " " * (56 - len(s))
                 print(color.dim(
                     f"  {bx.tl}{h}{bx.tr}\n"
-                    f"  {bx.v}  Commands{' ' * 46}{bx.v}\n"
+                    f"  {bx.v}{_hc('  Commands')}{bx.v}\n"
                     f"  {bx.tm}{h}{bx.mr}\n"
-                    f"  {bx.v}  /confirm  toggle asking before edits (auto)  {bx.v}\n"
-                    f"  {bx.v}  /changes  list files changed this session    {bx.v}\n"
-                    f"  {bx.v}  /claude   read new messages from Claude     {bx.v}\n"
-                    f"  {bx.v}  /session  show session log path             {bx.v}\n"
-                    f"  {bx.v}  /sessions list saved sessions               {bx.v}\n"
-                    f"  {bx.v}  /export   export session to file            {bx.v}\n"
-                    f"  {bx.v}  /theme    change color theme                {bx.v}\n"
-                    f"  {bx.v}  /gaps     scan for capability gaps/bugs     {bx.v}\n"
-                    f"  {bx.v}  /status   show system health                {bx.v}\n"
-                    f"  {bx.v}  /history  show composite score history      {bx.v}\n"
-                    f"  {bx.v}  /cost     show session and monthly cost     {bx.v}\n"
-                    f"  {bx.v}  /model    show current model chain          {bx.v}\n"
-                    f"  {bx.v}  /compact  compress conversation history     {bx.v}\n"
-                    f"  {bx.v}  /memory   show project memory notes         {bx.v}\n"
-                    f"  {bx.v}  /diff     show uncommitted changes          {bx.v}\n"
-                    f"  {bx.v}  /plan     show current task plan            {bx.v}\n"
-                    f"  {bx.v}  /stats    show session statistics           {bx.v}\n"
-                    f"  {bx.v}  /think    show raw thinking trace           {bx.v}\n"
-                    f"  {bx.v}  /clear    clear the screen                  {bx.v}\n"
-                    f"  {bx.v}  /version  show version info                 {bx.v}\n"
-                    f"  {bx.v}  /uptime   show session duration             {bx.v}\n"
-                    f"  {bx.v}  /config   show current configuration        {bx.v}\n"
-                    f"  {bx.v}  /reset    clear conversation history        {bx.v}\n"
-                    f"  {bx.v}  /exit     quit                              {bx.v}\n"
+                    f"  {bx.v}{_hc('  /confirm  toggle asking before edits (auto)')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /changes  list files changed this session')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /chat     how to talk to ARIA while she works')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /claude   read new messages from Claude')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /session  show session log path')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /sessions list saved sessions')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /export   export session to file')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /theme    change color theme')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /gaps     scan for capability gaps/bugs')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /status   show system health')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /history  show composite score history')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /cost     show session and monthly cost')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /model    show current model chain')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /compact  compress conversation history')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /memory   show project memory notes')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /diff     show uncommitted changes')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /plan     show current task plan')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /stats    show session statistics')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /think    show raw thinking trace')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /clear    clear the screen')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /version  show version info')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /uptime   show session duration')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /config   show current configuration')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /reset    clear conversation history')}{bx.v}\n"
+                    f"  {bx.v}{_hc('  /exit     quit')}{bx.v}\n"
                     f"  {bx.bl}{h}{bx.br}\n"
                     "  Tip: type a message while ARIA is working and she'll\n"
                     "  respond to it in real-time."))
+                continue
+            if line == "/chat":
+                print(color.dim(
+                    "  Chat mode: you can talk to ARIA while she's working.\n"
+                    "  \n"
+                    "  Just type a message at any time — even while ARIA is\n"
+                    "  running a command or thinking. Your message will be\n"
+                    "  injected into the conversation as high-priority guidance\n"
+                    "  and ARIA will respond to it on her next turn.\n"
+                    "  \n"
+                    "  Examples:\n"
+                    "    \"Stop what you're doing and check the logs\"\n"
+                    "    \"Use a different approach — try grep instead\"\n"
+                    "    \"What are you working on right now?\"\n"
+                    "  \n"
+                    "  Your messages appear with a [OPERATOR (mid-task)] tag.\n"
+                    "  ARIA acknowledges them and adjusts her plan accordingly."))
                 continue
             if line == "/claude":
                 try:
@@ -1016,14 +1050,16 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line == "/sessions":
                 sessions = ui.session_manager.list_sessions()
                 bx = _BoxChars()
-                h = bx.h * 55
+                h = bx.h * 56
+                def _sc(s: str) -> str:
+                    return s + " " * (56 - len(s))
                 print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                print(color.cyan(f"  {bx.v}  Sessions ({len(sessions)}){' ' * (44 - len(str(len(sessions))))}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_sc(f'  Sessions ({len(sessions)})')}{bx.v}"))
                 print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                 for s in sessions[:20]:
                     cur = bx.check if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
                     name = s.name[:40]
-                    print(color.cyan(f"  {bx.v}  [{cur}] {s.id[:16]}  {name:40s}  {s.tool_count:3d} tools{bx.v}"))
+                    print(color.cyan(f"  {bx.v}{_sc(f'  [{cur}] {s.id[:16]}  {name}  {s.tool_count} tools')}{bx.v}"))
                 print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                 print(color.dim("  /session load <id>  /session delete <id>"))
                 continue
@@ -1079,7 +1115,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 else:
                     print(color.red(f"  unknown theme: {t}"))
                 continue
-            if line in {"/confirm", "/auto"}:
+            if line in {"/confirm", "/auto", "/ask"}:
                 ui.auto_approve = agent.auto_approve = not agent.auto_approve
                 state = "autonomous (free rein)" if agent.auto_approve else "confirm each action"
                 print(color.yellow(f"  approval: {state}"))
@@ -1092,7 +1128,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 agent.messages = agent.messages[:1]
                 print(color.dim("  conversation reset"))
                 continue
-            if line in {"/gaps", "/scan"}:
+            if line in {"/gaps", "/scan", "/bugs"}:
                 try:
                     import httpx
                     brain_url = os.environ.get("ARIA_SERVICE_URL", "http://localhost:8000")
@@ -1104,16 +1140,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         gaps = data.get("gaps", [])
                         if gaps:
                             bx = _BoxChars()
-                            h = bx.h * 55
+                            h = bx.h * 56
+                            def _gc(s: str) -> str:
+                                return s + " " * (56 - len(s))
                             print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                            print(color.cyan(f"  {bx.v}  Gaps ({len(gaps)} found){' ' * (43 - len(str(len(gaps))))}{bx.v}"))
+                            print(color.cyan(f"  {bx.v}{_gc(f'  Gaps ({len(gaps)} found)')}{bx.v}"))
                             print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                             for i, g in enumerate(gaps[:20], 1):
                                 sev = g.get("severity", "UNKNOWN")
                                 sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
                                 auto = bx.check if g.get("auto_fixable") else "approval"
-                                title = g.get("title", "?")[:65]
-                                print(sev_color(f"  {bx.v}  {i:2d}  {title:65s}  {sev:8s}  {auto}  {bx.v}"))
+                                title = g.get("title", "?")[:50]
+                                print(sev_color(f"  {bx.v}{_gc(f'  {i:2d}  {title}  {sev:8s}  {auto}')}{bx.v}"))
                             print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                         else:
                             print(color.dim("  no gaps found"))
@@ -1136,18 +1174,20 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         inv = d.get("inventory", {})
                         cost = d.get("cost", {})
                         bx = _BoxChars()
-                        h = bx.h * 55
+                        h = bx.h * 56
+                        def _stc(s: str) -> str:
+                            return s + " " * (56 - len(s))
                         print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                        print(color.cyan(f"  {bx.v}  System Status{' ' * 43}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc('  System Status')}{bx.v}"))
                         print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                         comp = sm.get("composite", 0)
                         comp_str = f"{comp*100:.0f}/100" if comp else "--"
-                        print(color.cyan(f"  {bx.v}  Composite score     {comp_str:<42}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}  Sources             {src.get('ok', '?')}/{src.get('total', '?')} OK{' ' * (39 - len(str(src.get('ok', '?'))) - len(str(src.get('total', '?'))))}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}  Knowledge facts     {str(inv.get('knowledge_facts', '?')):>8}{' ' * 35}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}  Intel signals       {str(inv.get('intel_signals', '?')):>8}{' ' * 35}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc(f'  Composite score     {comp_str}')}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc(f'  Sources             {src.get("ok", "?")}/{src.get("total", "?")} OK')}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc(f'  Knowledge facts     {str(inv.get("knowledge_facts", "?"))}')}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc(f'  Intel signals       {str(inv.get("intel_signals", "?"))}')}{bx.v}"))
                         cost_str = f"${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "--"
-                        print(color.cyan(f"  {bx.v}  Monthly cost        {cost_str:<42}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_stc(f'  Monthly cost        {cost_str}')}{bx.v}"))
                         print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
@@ -1165,16 +1205,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         history = r.json().get("history", [])
                         if history:
                             bx = _BoxChars()
-                            h = bx.h * 55
+                            h = bx.h * 56
+                            def _hic(s: str) -> str:
+                                return s + " " * (56 - len(s))
                             print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                            print(color.cyan(f"  {bx.v}  Composite Score History{' ' * 33}{bx.v}"))
+                            print(color.cyan(f"  {bx.v}{_hic('  Composite Score History')}{bx.v}"))
                             print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                             for hist in history[:24]:
                                 ts = hist.get("timestamp", "")[:16]
                                 score = hist.get("composite", 0)
                                 bar_len = int(score * 20)
                                 bar = "█" * bar_len + "░" * (20 - bar_len)
-                                print(color.cyan(f"  {bx.v}  {ts}  {score*100:5.1f}%  {bar}{' ' * max(0, 20 - bar_len)}{bx.v}"))
+                                print(color.cyan(f"  {bx.v}{_hic(f'  {ts}  {score*100:5.1f}%  {bar}')}{bx.v}"))
                             print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                         else:
                             print(color.dim("  no history data"))
@@ -1193,16 +1235,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     if r.status_code == 200:
                         d = r.json()
                         bx = _BoxChars()
-                        h = bx.h * 55
+                        h = bx.h * 56
+                        def _cc(s: str) -> str:
+                            return s + " " * (56 - len(s))
                         print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                        print(color.cyan(f"  {bx.v}  Cost Dashboard{' ' * 42}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_cc('  Cost Dashboard')}{bx.v}"))
                         print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                         spend = d.get('monthly_spend', 0)
                         cap = d.get('monthly_cap', 300)
                         remaining = d.get('remaining', 0)
-                        print(color.cyan(f"  {bx.v}  Monthly spend     ${spend:<8.2f}{' ' * (34 - len(f'{spend:.2f}'))}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}  Monthly cap       ${cap:<8.2f}{' ' * (34 - len(f'{cap:.2f}'))}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}  Remaining         ${remaining:<8.2f}{' ' * (34 - len(f'{remaining:.2f}'))}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_cc(f'  Monthly spend     ${spend:.2f}')}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_cc(f'  Monthly cap       ${cap:.2f}')}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_cc(f'  Remaining         ${remaining:.2f}')}{bx.v}"))
                         print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
@@ -1250,33 +1294,37 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line == "/plan":
                 if agent.toolbox.plan:
                     bx = _BoxChars()
-                    h = bx.h * 55
+                    h = bx.h * 56
+                    def _pc(s: str) -> str:
+                        return s + " " * (56 - len(s))
                     print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                    print(color.cyan(f"  {bx.v}  Current Plan{' ' * 43}{bx.v}"))
+                    print(color.cyan(f"  {bx.v}{_pc('  Current Plan')}{bx.v}"))
                     print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
                     for p in agent.toolbox.plan:
                         step = p.get("step", "")
                         status = p.get("status", "pending")
                         sym = {"completed": bx.check, "in_progress": "~", "pending": " "}.get(status, " ")
-                        print(color.cyan(f"  {bx.v}  [{sym}] {step[:65]:65s}{bx.v}"))
+                        print(color.cyan(f"  {bx.v}{_pc(f'  [{sym}] {step[:52]}')}{bx.v}"))
                     print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                 else:
                     print(color.dim("  no plan set (ARIA hasn't called update_plan yet)"))
                 continue
             if line == "/stats":
                 bx = _BoxChars()
-                h = bx.h * 55
+                h = bx.h * 56
+                def _stc(s: str) -> str:
+                    return s + " " * (56 - len(s))
                 elapsed = time.time() - ui._session_start if ui._session_start else 0
                 elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
                 print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                print(color.cyan(f"  {bx.v}  Session Statistics{' ' * 39}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc('  Session Statistics')}{bx.v}"))
                 print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
-                print(color.cyan(f"  {bx.v}  Duration          {elapsed_str:<42}{bx.v}"))
-                print(color.cyan(f"  {bx.v}  Tool calls        {ui._tool_count:<3}{' ' * (42 - len(str(ui._tool_count)))}{bx.v}"))
-                print(color.cyan(f"  {bx.v}  Errors            {ui._error_count:<3}{' ' * (42 - len(str(ui._error_count)))}{bx.v}"))
-                print(color.cyan(f"  {bx.v}  File changes      {ui._file_changes:<3}{' ' * (42 - len(str(ui._file_changes)))}{bx.v}"))
-                print(color.cyan(f"  {bx.v}  Operator messages {ui._operator_messages:<3}{' ' * (42 - len(str(ui._operator_messages)))}{bx.v}"))
-                print(color.cyan(f"  {bx.v}  Tokens            {agent.llm.total_input_tokens + agent.llm.total_output_tokens:<6} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out){' ' * max(0, 20 - len(str(agent.llm.total_input_tokens + agent.llm.total_output_tokens)) - len(str(agent.llm.total_input_tokens)) - len(str(agent.llm.total_output_tokens)))}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  Duration          {elapsed_str}')}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  Tool calls        {ui._tool_count}')}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  Errors            {ui._error_count}')}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  File changes      {ui._file_changes}')}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  Operator messages {ui._operator_messages}')}{bx.v}"))
+                print(color.cyan(f"  {bx.v}{_stc(f'  Tokens            {agent.llm.total_input_tokens + agent.llm.total_output_tokens} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)')}{bx.v}"))
                 print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
                 continue
             if line == "/think":
