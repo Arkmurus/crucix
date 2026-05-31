@@ -322,8 +322,17 @@ class AriaRenderer:
         self.console = Console() if RICH_AVAILABLE and not config.no_color else None
         
     def print_banner(self):
-        """Print ARIA banner"""
-        banner = f"""
+        """Print ARIA banner (safe on cp1252 terminals)"""
+        # Use ASCII-safe banner for cp1252 terminals; Unicode box-drawing for UTF-8
+        try:
+            # Test if stdout can handle the Unicode banner
+            "╔═╗║╚╝".encode(sys.stdout.encoding or "utf-8")
+            use_unicode = True
+        except (UnicodeEncodeError, UnicodeTranslateError):
+            use_unicode = False
+
+        if use_unicode:
+            banner = f"""
 {Colors.BRIGHT_CYAN}╔═══════════════════════════════════════════════════════════════════╗
 ║                                                                           ║
 ║   █████╗ ██████╗ ██╗ █████╗     ██████╗ ██████╗ ██████╗ ███████╗██████╗   ║
@@ -337,7 +346,20 @@ class AriaRenderer:
 ║                                v1.0.0                                      ║
 ╚═══════════════════════════════════════════════════════════════════╝{Colors.RESET}
 """
-        print(banner)
+        else:
+            banner = f"""
+{Colors.BRIGHT_CYAN}+-------------------------------------------------------------+
+|                                                                     |
+|   ARIA  -  Autonomous Research Intelligence Agent  v1.0.0           |
+|                                                                     |
++-------------------------------------------------------------+{Colors.RESET}
+"""
+        try:
+            print(banner)
+        except (UnicodeEncodeError, UnicodeTranslateError):
+            # Ultimate fallback: strip all Unicode
+            safe = banner.encode("ascii", errors="replace").decode("ascii")
+            print(safe)
         
     def print_help(self):
         """Print help panel"""
@@ -712,20 +734,23 @@ class AriaTerminalUI:
         self.current_model = os.environ.get("ARIA_MODEL", "deepseek/deepseek-chat")
         
         # Initialize prompt session if available
+        self.prompt_session = None
         if PROMPT_TOOLKIT_AVAILABLE:
-            history_file = Path.home() / ".aria" / "history.txt"
-            history_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            self.prompt_session = PromptSession(
-                history=FileHistory(str(history_file)),
-                auto_suggest=AutoSuggestFromHistory(),
-                completer=self.completer.get_completer(),
-                style=Style.from_dict({
-                    'prompt': 'ansicyan bold',
-                })
-            )
-        else:
-            self.prompt_session = None
+            try:
+                history_file = Path.home() / ".aria" / "history.txt"
+                history_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                self.prompt_session = PromptSession(
+                    history=FileHistory(str(history_file)),
+                    auto_suggest=AutoSuggestFromHistory(),
+                    completer=self.completer.get_completer(),
+                    style=Style.from_dict({
+                        'prompt': 'ansicyan bold',
+                    })
+                )
+            except Exception:
+                # prompt_toolkit may fail on some Windows terminals (e.g. Windows Terminal, cmd.exe)
+                self.prompt_session = None
             
         # Create initial session
         self.session_manager.create_session()

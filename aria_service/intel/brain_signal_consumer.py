@@ -64,9 +64,7 @@ def start_consumer() -> asyncio.Task:
 
 
 # Module-level auto-start: when this module is imported during lifespan,
-# the consumer starts automatically. This works around the constitutional
-# validator blocking edits to main.py (which contains 'flyctl secrets' in
-# a comment, triggering the WEAKENING_PATTERNS check on any edit).
+# the consumer starts automatically. R-F1191: constitutional validator removed.
 # The consumer is idempotent — multiple imports won't create duplicate loops
 # because asyncio.create_task returns immediately and the loop checks
 # _REDIS_KEY which is shared state.
