@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import os
 import sqlite3
@@ -286,8 +285,12 @@ class WebhookNotifier:
 
     def __init__(self, webhook_url: str = "") -> None:
         self.webhook_url = webhook_url
+        self._client = httpx.AsyncClient(timeout=5)
 
-    def send(
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def send(
         self, event: str, data: dict[str, Any],
     ) -> None:
         """Send a webhook notification (fire-and-forget)."""
@@ -299,10 +302,9 @@ class WebhookNotifier:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "data": data,
             }
-            httpx.post(
+            await self._client.post(
                 self.webhook_url,
                 json=payload,
-                timeout=5,
             )
         except Exception as e:
             logger.debug(
@@ -602,6 +604,12 @@ class AutonomousDeployEngine:
             machines = await self._list_machines()
             machine_count = len(machines)
 
+            # Try to get release version from the first machine
+            release_version = 0
+            if machines and isinstance(machines, list) and len(machines) > 0:
+                raw_ver = machines[0].get("version", 0)
+                release_version = int(raw_ver) if raw_ver else 0
+
             # Check health
             healthy, health_data = await self.health_checker.check(
                 timeout=10,
@@ -621,7 +629,7 @@ class AutonomousDeployEngine:
                 commit_hash=commit_hash,
                 image_tag=image_tag,
                 deployed_at=datetime.now(timezone.utc),
-                release_version=0,
+                release_version=release_version,
                 machine_count=machine_count,
                 health_status="healthy" if healthy else "unhealthy",
             )
@@ -639,29 +647,26 @@ class AutonomousDeployEngine:
             )
 
     async def _list_machines(self) -> list[dict[str, Any]]:
-        """List machines via MachinesDeployer's internal client."""
-        try:
-            resp = await self._machines._client.get(
-                f"https://api.machines.dev/v1/apps/"
-                f"{self.config.app_name}/machines",
-            )
-            if resp.status_code == 200:
-                return resp.json()
-            return []
-        except Exception:
-            return []
+        """List machines via MachinesDeployer."""
+        return await self._machines._list_machines(self.config.app_name)
 
     # ── Verification ───────────────────────────────────────────────────────
 
     async def verify_deployment(
         self, expected_commit: str, timeout: int = 120,
     ) -> tuple[bool, dict[str, Any]]:
-        """Verify that the expected commit is live."""
+        """Verify that the expected commit is live.
+
+        Compares short SHA forms (first 8 chars) to handle both
+        full and abbreviated commit references.
+        """
+        expected_short = expected_commit[:8]
         start_time = time.monotonic()
         while time.monotonic() - start_time < timeout:
             live = await self.get_live_version()
+            live_short = live.commit_hash[:8]
             if (
-                live.commit_hash == expected_commit
+                live_short == expected_short
                 and live.health_status == "healthy"
             ):
                 return True, {
@@ -747,7 +752,7 @@ class AutonomousDeployEngine:
             self.db.save_deployment(record)
 
             # Send notification
-            self.webhook.send("deployment_started", {
+            await self.webhook.send("deployment_started", {
                 "commit": commit_hash,
                 "message": commit_message,
                 "deploy_id": deploy_id,
@@ -797,7 +802,7 @@ class AutonomousDeployEngine:
                         self.db.save_version_history(live, verified=True)
 
                         # Send success notification
-                        self.webhook.send("deployment_success", {
+                        await self.webhook.send("deployment_success", {
                             "commit": commit_hash,
                             "deploy_id": deploy_id,
                             "duration": duration,
@@ -840,7 +845,7 @@ class AutonomousDeployEngine:
             record.id, record.error_message,
         )
 
-        self.webhook.send("deployment_failed", {
+        await self.webhook.send("deployment_failed", {
             "commit": record.commit_hash,
             "deploy_id": record.id,
             "error": record.error_message,
@@ -964,7 +969,7 @@ class AutonomousDeployEngine:
                         "[deploy_engine] health warning: %s",
                         live.health_status,
                     )
-                    self.webhook.send("health_warning", {
+                    await self.webhook.send("health_warning", {
                         "status": live.health_status,
                         "commit": live.commit_hash,
                         "timestamp": (
@@ -985,7 +990,10 @@ class AutonomousDeployEngine:
 
 # ── FastAPI Integration Endpoints ──────────────────────────────────────────
 
-def add_deployment_endpoints(app: Any) -> AutonomousDeployEngine:
+def add_deployment_endpoints(
+    app: Any,
+    engine: Optional[AutonomousDeployEngine] = None,
+) -> AutonomousDeployEngine:
     """Add deployment endpoints to a FastAPI app.
 
     Adds:
@@ -996,9 +1004,17 @@ def add_deployment_endpoints(app: Any) -> AutonomousDeployEngine:
       GET  /api/aria/deploy/history   — deployment history
       GET  /api/aria/version          — simple version info
 
-    Returns the AutonomousDeployEngine instance (for lifespan wiring).
+    Args:
+        app: FastAPI app instance.
+        engine: Optional existing engine instance. If not provided,
+                a new one is created. Pass the same engine you use
+                for the health loop so endpoints and monitoring share
+                the same state.
+
+    Returns:
+        The AutonomousDeployEngine instance (for lifespan wiring).
     """
-    engine = AutonomousDeployEngine()
+    engine = engine or AutonomousDeployEngine()
 
     @app.get("/api/aria/deploy/status")
     async def get_deploy_status():

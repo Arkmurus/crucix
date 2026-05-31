@@ -37,6 +37,9 @@ from aria_service.autonomous.autonomous_deploy import (
     WebhookNotifier,
     add_deployment_endpoints,
 )
+from aria_service.autonomous.machines_deployer import (
+    DeployResult as MachinesDeployResult,
+)
 
 
 # ── DeployConfig Tests ─────────────────────────────────────────────────────
@@ -324,33 +327,45 @@ class TestHealthChecker:
 class TestWebhookNotifier:
     """WebhookNotifier sends correctly."""
 
-    def test_send_with_url(self) -> None:
+    @pytest.mark.asyncio
+    async def test_send_with_url(self) -> None:
         """send makes a POST request when URL is set."""
         notifier = WebhookNotifier("https://hooks.example.com/deploy")
 
-        with patch("httpx.post") as mock_post:
-            notifier.send("test_event", {"key": "value"})
+        with patch.object(notifier._client, "post") as mock_post:
+            await notifier.send("test_event", {"key": "value"})
             mock_post.assert_called_once()
             args, kwargs = mock_post.call_args
             assert args[0] == "https://hooks.example.com/deploy"
             assert kwargs["json"]["event"] == "test_event"
             assert kwargs["json"]["data"]["key"] == "value"
 
-    def test_send_without_url(self) -> None:
+        await notifier.aclose()
+
+    @pytest.mark.asyncio
+    async def test_send_without_url(self) -> None:
         """send does nothing when URL is empty."""
         notifier = WebhookNotifier()
 
-        with patch("httpx.post") as mock_post:
-            notifier.send("test_event", {"key": "value"})
+        with patch.object(notifier._client, "post") as mock_post:
+            await notifier.send("test_event", {"key": "value"})
             mock_post.assert_not_called()
 
-    def test_send_handles_error(self) -> None:
+        await notifier.aclose()
+
+    @pytest.mark.asyncio
+    async def test_send_handles_error(self) -> None:
         """send handles HTTP errors gracefully."""
         notifier = WebhookNotifier("https://hooks.example.com/deploy")
 
-        with patch("httpx.post", side_effect=Exception("Connection error")):
+        with patch.object(
+            notifier._client, "post",
+            side_effect=Exception("Connection error"),
+        ):
             # Should not raise
-            notifier.send("test_event", {"key": "value"})
+            await notifier.send("test_event", {"key": "value"})
+
+        await notifier.aclose()
 
 
 # ── BlockchainAnchoring Tests ──────────────────────────────────────────────
@@ -425,14 +440,16 @@ class TestFullDeployPipeline:
             rollback_on_failure=False,
         )
 
-        # Mock MachinesDeployer
+        # Mock MachinesDeployer with a real DeployResult
         mock_machines = AsyncMock()
-        mock_machines.deploy.return_value = MagicMock(
+        mock_machines.deploy.return_value = MachinesDeployResult(
             success=True,
+            app="aria-intel",
             image="registry.fly.io/aria-intel:abc123",
+            r_number=1185,
+            commit_sha="abc123",
             duration_s=42.5,
         )
-        mock_machines._client = AsyncMock()
 
         engine = AutonomousDeployEngine(
             config=config, machines_deployer=mock_machines,
@@ -470,11 +487,11 @@ class TestFullDeployPipeline:
         )
 
         mock_machines = AsyncMock()
-        mock_machines.deploy.return_value = MagicMock(
+        mock_machines.deploy.return_value = MachinesDeployResult(
             success=False,
+            app="aria-intel",
             error="Build failed",
         )
-        mock_machines._client = AsyncMock()
 
         engine = AutonomousDeployEngine(
             config=config, machines_deployer=mock_machines,
