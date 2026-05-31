@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1210,
+  "next_available": 1213,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6589,6 +6589,36 @@
       "r_number": "R-F1209",
       "title": "Agent contracts: heartbeat tickers, cross-agent messaging, web linking",
       "claimed_at": "2026-05-31T18:14:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e9ce2288",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:23:15Z"
+    },
+    {
+      "r_number": "R-F1210",
+      "title": "Fix deploy.ps1 PowerShell quoting when invoked via run tool",
+      "claimed_at": "2026-05-31T18:23:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7f3ade3",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:24:08Z"
+    },
+    {
+      "r_number": "R-F1211",
+      "title": "Fix PowerShell quoting by using temp script files instead of -Command",
+      "claimed_at": "2026-05-31T18:26:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "88c2c55e",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:30:24Z"
+    },
+    {
+      "r_number": "R-F1212",
+      "title": "Agent Contract system — binding directives, dual-branch wiring, contract validation, cross-agent dependency",
+      "claimed_at": "2026-05-31T18:29:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -54,6 +54,11 @@ logger = logging.getLogger("aria.agent_registry")
 # R-F1166 — wire to brain on registry operations
 from .engine_wiring import wire_success, wire_failure
 
+# R-F1212 — forward reference for AgentContract (lazy-imported in register)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .agent_contract import AgentContract
+
 # ── Redis key prefixes ────────────────────────────────────────────────────────
 
 _AGENT_REGISTRY_KEY = "crucix:agent:registry"          # hash: agent_id → json status
@@ -98,6 +103,7 @@ class AgentRegistry:
         agent_type: str,
         current_task: str = "starting up",
         metadata: Optional[dict] = None,
+        contract: Optional["AgentContract"] = None,
     ) -> bool:
         """Register an agent in the registry.
 
@@ -108,6 +114,8 @@ class AgentRegistry:
                        "research_engine", "student_brain", "claude_code")
             current_task: What the agent is doing right now
             metadata: Optional dict with additional info (version, pid, etc.)
+            contract: Optional AgentContract to register alongside the agent.
+                     R-F1212: every agent should have a binding contract.
 
         Returns True if registration succeeded.
         """
@@ -130,6 +138,13 @@ class AgentRegistry:
                 "[R-F1160] agent registered: %s (%s) — %s",
                 agent_id, agent_type, current_task,
             )
+            # R-F1212: register contract alongside agent if provided
+            if contract is not None:
+                try:
+                    from .agent_contract import CONTRACT_REGISTRY as _CR
+                    await _CR.register_contract(contract)
+                except Exception:
+                    logger.debug("[R-F1160] contract registration failed for %s", agent_id)
             # R-F1166 — wire success to brain
             wire_success(
                 module="agent_registry",

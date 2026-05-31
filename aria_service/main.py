@@ -929,6 +929,11 @@ async def lifespan(app: FastAPI):
                     await _tick_heartbeat("research_engine", "RSS feeds → fact extraction → hypothesis validation")
                     logger.info("[Research] Starting autonomous research cycle...")
                     result = await research_and_learn(llm)
+                    await _wire_agent_success(
+                        "research_engine",
+                        f"Research cycle: {result.get('facts_learned', 0)} facts, "
+                        f"{result.get('hypotheses_generated', 0)} hypotheses",
+                    )
                     logger.info(
                         f"[Research] Complete: {result.get('facts_learned', 0)} facts, "
                         f"{result.get('hypotheses_generated', 0)} hypotheses"
@@ -997,6 +1002,7 @@ async def lifespan(app: FastAPI):
                         logger.warning("[Research] Hypothesis validation failed (%d processed before error): %s",
                                        processed, e)
                 except Exception as e:
+                    await _wire_agent_failure("research_engine", f"Cycle failed: {e}")
                     logger.warning(f"[Research] Cycle failed: {e}")
                 finally:
                     cost_tracker.reset_feature(_t)
@@ -1026,6 +1032,31 @@ async def lifespan(app: FastAPI):
             from .intel.agent_registry import AgentRegistry
             _reg = AgentRegistry()
             await _reg.tick_heartbeat(agent_id, current_task=current_task or None)
+        except Exception:
+            pass
+
+    async def _wire_agent_success(agent_id: str, summary: str) -> None:
+        """Wire an agent's successful cycle to the brain. Best-effort."""
+        try:
+            from .intel.engine_wiring import wire_success
+            wire_success(
+                module=agent_id,
+                summary=summary[:300],
+                source_id=f"agent:{agent_id}",
+            )
+        except Exception:
+            pass
+
+    async def _wire_agent_failure(agent_id: str, detail: str) -> None:
+        """Wire an agent's failed cycle to the brain. Best-effort."""
+        try:
+            from .intel.engine_wiring import wire_failure
+            wire_failure(
+                module=agent_id,
+                detail=detail[:600],
+                gap_type="agent_cycle_failure",
+                source=f"agent:{agent_id}",
+            )
         except Exception:
             pass
 
@@ -1113,6 +1144,11 @@ async def lifespan(app: FastAPI):
                     await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
                     result = await self_improve.autonomous_improvement_cycle(llm)
+                    await _wire_agent_success(
+                        "self_improve",
+                        f"Improvement cycle: {result.get('bugs_detected', 0)} bugs, "
+                        f"{result.get('auto_deployed', 0)} deployed",
+                    )
                     # R-F272 (2026-05-11) — honest cycle log. Operator was
                     # alarmed by "160 errors, 0 bugs" and couldn't tell whether
                     # the 0 meant no real bugs OR that every error was in a
@@ -1146,6 +1182,7 @@ async def lifespan(app: FastAPI):
                         top_external_str,
                     )
                 except Exception as e:
+                    await _wire_agent_failure("self_improve", f"Cycle failed: {e}")
                     logger.warning("[Self-Improve] Cycle failed: %s", e)
                 finally:
                     cost_tracker.reset_feature(_t)
@@ -1177,6 +1214,11 @@ async def lifespan(app: FastAPI):
             try:
                 await _tick_heartbeat("student_quiz", "Self-quiz on weak topics")
                 result = await student.self_quiz(num_questions=5)
+                await _wire_agent_success(
+                    "student_quiz",
+                    f"Quiz: {result.get('quizzed', 0)} questions, "
+                    f"score {result.get('score', 0):.2f}",
+                )
                 # R-F291: when quizzed==0 the previous log was diagnostically
                 # blind. Surface library_size + orphan + skip counts so the
                 # silent-skip root cause is visible on the next sweep.
@@ -1201,6 +1243,7 @@ async def lifespan(app: FastAPI):
                         result.get("score", 0),
                     )
             except Exception as e:
+                await _wire_agent_failure("student_quiz", f"Quiz failed: {e}")
                 logger.warning("[Student] Quiz failed: %s", e)
             finally:
                 cost_tracker.reset_feature(_t)
@@ -1218,12 +1261,18 @@ async def lifespan(app: FastAPI):
             try:
                 await _tick_heartbeat("student_reading", "Study articles on weak topics")
                 result = await student.reading_session(llm=llm, num_articles=4)
+                await _wire_agent_success(
+                    "student_reading",
+                    f"Reading: {result.get('articles_read', 0)} articles on "
+                    f"{result.get('weak_topics_studied', [])}",
+                )
                 logger.info(
                     "[Student] Reading session: %d articles studied on %s",
                     result.get("articles_read", 0),
                     result.get("weak_topics_studied", []),
                 )
             except Exception as e:
+                await _wire_agent_failure("student_reading", f"Reading session failed: {e}")
                 logger.warning("[Student] Reading session failed: %s", e)
             finally:
                 cost_tracker.reset_feature(_t)
@@ -1237,6 +1286,11 @@ async def lifespan(app: FastAPI):
             try:
                 await _tick_heartbeat("library_consolidation", "Archive stale reasoning cases")
                 result = await reasoning_library.consolidate()
+                await _wire_agent_success(
+                    "library_consolidation",
+                    f"Consolidated: archived {result.get('archived', 0)}, "
+                    f"{result.get('remaining', 0)} remaining",
+                )
                 # R-F242 (2026-05-13): log archived + missing distinctly.
                 # Pre-R-F242 the log said "pruned N" but consolidate now
                 # archives (preserves) cases instead of deleting. Surface
@@ -1250,6 +1304,7 @@ async def lifespan(app: FastAPI):
                     result.get("remaining", 0),
                 )
             except Exception as e:
+                await _wire_agent_failure("library_consolidation", f"Consolidate failed: {e}")
                 logger.warning("[Student] Library consolidate failed: %s", e)
             await asyncio.sleep(24 * 3600)  # Daily
 
@@ -1273,6 +1328,10 @@ async def lifespan(app: FastAPI):
                 await _tick_heartbeat("proactive_watch", "Daily briefing trigger + mastery prep")
                 # Daily briefing check
                 fired = await proactive.daily_briefing_check(getattr(app.state, "current_data", None))
+                await _wire_agent_success(
+                    "proactive_watch",
+                    f"Briefing fired: {fired}, weak topics flagged",
+                )
                 if fired:
                     logger.info("[Proactive] Daily briefing fired")
 
@@ -1281,6 +1340,7 @@ async def lifespan(app: FastAPI):
                 if weak_count:
                     logger.info("[Proactive] Mastery prep: %d weak topic(s) flagged", weak_count)
             except Exception as e:
+                await _wire_agent_failure("proactive_watch", f"Loop failed: {e}")
                 logger.warning("[Proactive] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Every hour
 
@@ -1299,6 +1359,7 @@ async def lifespan(app: FastAPI):
                 await _tick_heartbeat("weekly_report", "Weekly learning report generation")
                 from datetime import datetime, timezone
                 now = datetime.now(timezone.utc)
+                await _wire_agent_success("weekly_report", "Weekly report check cycle")
                 if now.weekday() == 0 and 6 <= now.hour <= 8:
                     from .intel import weekly_report
                     result = await weekly_report.generate_weekly_report(
@@ -1322,6 +1383,7 @@ async def lifespan(app: FastAPI):
                         _new_facts, _gaps, _overall_now * 100,
                     )
             except Exception as e:
+                await _wire_agent_failure("weekly_report", f"Loop failed: {e}")
                 logger.warning("[Weekly Report] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Check every hour (only fires on Monday 06-08 UTC)
 
@@ -1342,6 +1404,11 @@ async def lifespan(app: FastAPI):
                 from .intel import dd_orchestrator
                 result = await dd_orchestrator.rescreen_watchlist(
                     llm=getattr(app.state, "llm_provider", None),
+                )
+                await _wire_agent_success(
+                    "watchlist_rescreen",
+                    f"Re-screen: {result.get('entities_screened', 0)} entities, "
+                    f"{len(result.get('changes_detected', []))} changes",
                 )
                 logger.info(
                     "[Watchlist] Re-screen: %d entities, %d changes, %d errors, %dms",
@@ -1375,6 +1442,7 @@ async def lifespan(app: FastAPI):
                             _wa_e,
                         )
             except Exception as e:
+                await _wire_agent_failure("watchlist_rescreen", f"Re-screen failed: {e}")
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
             await asyncio.sleep(86400)  # Every 24 hours
 
@@ -1395,6 +1463,11 @@ async def lifespan(app: FastAPI):
                 await _tick_heartbeat("tender_monitor", "Crawl defence procurement portals")
                 from .intel import tender_monitor
                 result = await tender_monitor.run_monitoring_cycle()
+                await _wire_agent_success(
+                    "tender_monitor",
+                    f"Tender cycle: {result.get('new_tenders', 0)} new tenders "
+                    f"across {result.get('portals_crawled', 0)} portals",
+                )
                 if result.get("new_tenders", 0) > 0:
                     logger.info(
                         "[Tender Monitor] %d new tenders detected across %d portals",
@@ -1403,6 +1476,7 @@ async def lifespan(app: FastAPI):
                 else:
                     logger.info("[Tender Monitor] Cycle complete — no new tenders")
             except Exception as e:
+                await _wire_agent_failure("tender_monitor", f"Cycle failed: {e}")
                 logger.warning("[Tender Monitor] Cycle failed: %s", e)
             await asyncio.sleep(21600)  # Every 6 hours
 
