@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1173,
+  "next_available": 1178,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6224,6 +6224,55 @@
       "r_number": "R-F1172",
       "title": "Wire agent registry API endpoints + register all agents",
       "claimed_at": "2026-05-30T23:31:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "55abfdfa",
+      "notes": null,
+      "shipped_at": "2026-05-30T23:37:13Z"
+    },
+    {
+      "r_number": "R-F1173",
+      "title": "ARIA takes over Claude's role — deploy bridge agent, audit registration pipeline, fix critical gaps",
+      "claimed_at": "2026-05-31T08:53:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f14c529b",
+      "notes": null,
+      "shipped_at": "2026-05-31T09:06:55Z"
+    },
+    {
+      "r_number": "R-F1174",
+      "title": "Full surgical code review — trace critical paths, find bugs, fix root causes, test and re-test",
+      "claimed_at": "2026-05-31T09:43:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1175",
+      "title": "ARIA intelligence upgrade — proactive research, autonomous portal registration, substance-first responses",
+      "claimed_at": "2026-05-31T09:56:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c3a20223",
+      "notes": null,
+      "shipped_at": "2026-05-31T10:07:34Z"
+    },
+    {
+      "r_number": "R-F1176",
+      "title": "ARIA response time audit — trace every millisecond, eliminate delays, add proactive intelligence",
+      "claimed_at": "2026-05-31T10:10:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3a82a914",
+      "notes": null,
+      "shipped_at": "2026-05-31T10:31:17Z"
+    },
+    {
+      "r_number": "R-F1177",
+      "title": "Strengthen autonomous DD pipeline — URL extraction, timeout resilience, multi-agent coordination",
+      "claimed_at": "2026-05-31T10:40:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

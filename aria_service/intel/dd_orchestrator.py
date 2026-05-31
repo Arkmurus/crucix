@@ -161,6 +161,155 @@ _ISO2_TO_COUNTRY.update({
 })
 
 
+# =============================================================================
+# URL-TO-ENTITY EXTRACTION (R-F1177)
+# =============================================================================
+
+_URL_FETCH_TIMEOUT_S = 15  # max seconds to wait for a single website fetch
+_URL_FETCH_MAX_BYTES = 200_000  # cap response body to avoid OOM on huge pages
+
+
+async def _extract_entity_from_url(url: str) -> dict:
+    """Fetch a URL and extract the most likely company/entity name from its
+    HTML <title> tag and visible text. Returns a dict with keys:
+      - name: str | None  — the extracted entity name
+      - title: str | None — the raw <title> tag content
+      - domain: str       — the apex domain (e.g. "myskyegroove.com")
+      - snippet: str      — first ~500 chars of visible text (for jurisdiction hints)
+
+    Designed to be called from the orchestrator's identity layer when the
+    target has no explicit name but has a website/URL field. Timeout-safe:
+    if the fetch hangs, returns a best-effort domain-based name within
+    _URL_FETCH_TIMEOUT_S seconds.
+
+    Example:
+      Input:  "https://myskyegroove.com"
+      Output: {"name": "Skyegroove", "title": "Skyegroove || Nigeria's Leading Aviation Service Provider",
+               "domain": "myskyegroove.com", "snippet": "Plot 242 Muhammadu Buhari Way..."}
+    """
+    from urllib.parse import urlparse as _urlparse
+
+    # 1. Parse the domain as a fallback name
+    parsed = _urlparse(url)
+    domain = parsed.netloc or parsed.path.split("/")[0]
+    domain = domain.removeprefix("www.").lower()
+    # Derive a fallback name from the domain: "myskyegroove.com" → "Skyegroove"
+    _fallback_name = domain
+    _dot = domain.rfind(".")
+    if _dot > 0:
+        _base = domain[:_dot]
+        # Capitalise: "my-sky-groove" → "My Sky Groove", "myskyegroove" → "Myskyegroove"
+        _base = _base.replace("-", " ").replace("_", " ")
+        _fallback_name = _base.strip().title()
+
+    result: dict = {
+        "name": None,
+        "title": None,
+        "domain": domain,
+        "snippet": "",
+        "_fallback_name": _fallback_name,
+    }
+
+    # 2. Fetch the page with a tight timeout
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(
+            timeout=_httpx.Timeout(_URL_FETCH_TIMEOUT_S),
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)"},
+        ) as _client:
+            _resp = await _client.get(url)
+            _resp.raise_for_status()
+            _body = _resp.text[:_URL_FETCH_MAX_BYTES]
+    except Exception as _fetch_err:
+        logger.debug("_extract_entity_from_url fetch failed for %s: %s", url, _fetch_err)
+        result["name"] = _fallback_name
+        return result
+
+    # 3. Extract <title> tag
+    _title_match = re.search(
+        r"<title[^>]*>(.*?)</title>", _body, re.IGNORECASE | re.DOTALL
+    )
+    if _title_match:
+        _raw_title = _title_match.group(1).strip()
+        result["title"] = _raw_title
+        # Clean the title: strip "||", "|", "—", "-" separators and trailing
+        # boilerplate like " | Company Name", " || Nigeria's Leading..."
+        _clean = re.split(r"\s*\|\||\s*\|\s*|\s*[—–-]\s*", _raw_title)[0].strip()
+        # Remove common suffixes like "Home", "Welcome", "Official Website"
+        _clean = re.sub(
+            r"\s+(?:Home|Welcome|Official\s*Website|Homepage)\s*$",
+            "", _clean, flags=re.IGNORECASE,
+        ).strip()
+        if _clean and len(_clean) > 2:
+            result["name"] = _clean
+
+    # 4. Extract a snippet of visible text for jurisdiction hints
+    _text_only = re.sub(r"<[^>]+>", " ", _body)
+    _text_only = re.sub(r"\s+", " ", _text_only).strip()
+    result["snippet"] = _text_only[:500]
+
+    # 5. Fall back to domain-derived name if title didn't yield anything useful
+    if not result["name"]:
+        result["name"] = _fallback_name
+
+    return result
+
+
+async def _enrich_target_from_url(target: dict) -> dict:
+    """If the target dict has a website/URL but no name, fetch the URL and
+    populate name, jurisdiction hints, and address from the page content.
+
+    Called at the top of orchestrate_dd() before any layer runs, so the
+    identity layer has a name to work with even when the user only provided
+    a URL like 'https://myskyegroove.com'.
+
+    Returns the (possibly enriched) target dict. Never raises — on any
+    error, returns the original target unchanged.
+    """
+    if target.get("name") or target.get("entity"):
+        return target  # already has a name — no enrichment needed
+
+    _url = (
+        target.get("website")
+        or target.get("url")
+        or target.get("domain")
+        or target.get("query", "")
+    )
+    if not _url or "." not in _url:
+        return target
+
+    # Normalise: prepend https:// if missing
+    if not _url.startswith(("http://", "https://")):
+        _url = "https://" + _url
+
+    try:
+        _info = await _extract_entity_from_url(_url)
+        if _info.get("name"):
+            target["name"] = _info["name"]
+            target["_name_derivation"] = "url_extraction"
+        if _info.get("domain"):
+            target.setdefault("domain", _info["domain"])
+        # If the snippet contains address-like text, pass it as address hint
+        _snip = _info.get("snippet", "")
+        if _snip and not target.get("address"):
+            # Look for common address patterns: "Plot 123", "123 Street", etc.
+            _addr_match = re.search(
+                r"(?:Plot\s+\d+|No\.?\s*\d+)\s+[A-Za-z\s,]+(?:Abuja|Lagos|London|New\s+York|Dubai|Luanda|Maputo|Brasília)",
+                _snip, re.IGNORECASE,
+            )
+            if _addr_match:
+                target["address"] = _addr_match.group(0).strip()
+        logger.info(
+            "R-F1177 URL enrichment: %s → name=%r domain=%s",
+            _url, _info.get("name"), _info.get("domain"),
+        )
+    except Exception as _enrich_err:
+        logger.warning("R-F1177 URL enrichment failed for %s: %s", _url, _enrich_err)
+
+    return target
+
+
 def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str | None:
     """Infer jurisdiction ISO2 from phone, address, email domain, or reg number format."""
     # 1. Phone prefix (most reliable)
@@ -5839,8 +5988,15 @@ async def orchestrate_dd(
         )
 
     # ── Entity-name sanity gate (2026-04-17 21:40 fix; extended R-F153 2026-05-10) ──
+    # R-F1177: URL-to-entity enrichment. If the target has a website/URL but
+    # no valid name, fetch the website and extract the company name from the
+    # <title> tag before falling through to name validation. This handles the
+    # common case where a user says "do a DD on https://myskyegroove.com".
+    if not (target.get("name") or target.get("entity")):
+        target = await _enrich_target_from_url(target)
+
     # Original: rejected URL scheme fragments ("https") that came from the
-    # intent regex stripping at `/`. Extended: rejects prompt-fragment names
+    # intent regex stripping at "/". Extended: rejects prompt-fragment names
     # ("this company, which has nothing to do") AND derives a usable name
     # from intent.website when the explicit name fails validation. Without
     # the website fallback the only option was raise → operator gets nothing
