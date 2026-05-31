@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1213,
+  "next_available": 1214,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6619,6 +6619,16 @@
       "r_number": "R-F1212",
       "title": "Agent Contract system — binding directives, dual-branch wiring, contract validation, cross-agent dependency",
       "claimed_at": "2026-05-31T18:29:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "87396fd6",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:40:55Z"
+    },
+    {
+      "r_number": "R-F1213",
+      "title": "Autonomous credential lifecycle — WebIntegrityAgent verifies portal creds, detects expiry, triggers re-registration, operator dashboard",
+      "claimed_at": "2026-05-31T18:46:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

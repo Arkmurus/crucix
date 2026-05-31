@@ -58,6 +58,11 @@ _HEALTH_ENDPOINT = "/health/live"
 _ARIA_SERVICE_URL = "http://localhost:8000"
 _ARIA_WEB_URL = "https://aria-web.fly.dev"  # R-F1209: live public web tier
 
+# R-F1213: Credential verification interval — how often to test portal creds
+_CRED_VERIFY_INTERVAL_S = 86400  # Every 24 hours
+_CRED_VERIFY_KEY = "crucix:web_integrity:cred_verify"  # hash: portal_id → last verify result
+_CRED_HEALTH_KEY = "crucix:web_integrity:cred_health"  # hash: portal_id → health status
+
 # Redis keys
 _INTEGRITY_CHECK_KEY = "crucix:web_integrity:last_check"
 _INTEGRITY_ERRORS_KEY = "crucix:web_integrity:errors"
@@ -769,6 +774,15 @@ class WebIntegrityAgent:
         for pattern in actionable:
             await self._stage_fix(pattern)
 
+        # R-F1213: Periodically verify portal credentials (once per day)
+        try:
+            last_cred_verify = await self._get_last_cred_verify()
+            if time.time() - last_cred_verify > _CRED_VERIFY_INTERVAL_S:
+                logger.info("[web_integrity] Starting credential verification cycle...")
+                asyncio.create_task(self.verify_all_credentials())
+        except Exception:
+            pass
+
         # DIRECTIVE 7: Never silent
         logger.info(
             "[web_integrity] cycle complete: %d endpoints (%d local + %d public), "
@@ -987,3 +1001,208 @@ class WebIntegrityAgent:
             return val or "never"
         except Exception:
             return "unknown"
+
+    async def _get_last_cred_verify(self) -> float:
+        """Get the timestamp of the last credential verification."""
+        if self._redis is None:
+            return 0
+        try:
+            val = await self._redis.get(f"{_CRED_VERIFY_KEY}:last_run")
+            return float(val) if val else 0
+        except Exception:
+            return 0
+
+    # ── R-F1213: Portal credential verification ─────────────────────────────
+
+    async def verify_all_credentials(self) -> dict[str, Any]:
+        """Verify all stored portal credentials are still working.
+
+        Tests each portal's login endpoint with stored credentials.
+        Reports health status: working, expired, failing, untested.
+
+        Returns dict with overall stats and per-portal results.
+        """
+        results: dict[str, Any] = {
+            "total": 0,
+            "working": 0,
+            "expired": 0,
+            "failing": 0,
+            "untested": 0,
+            "portals": {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            from .portal_registry import PORTALS, get_credential
+
+            for portal in PORTALS:
+                if portal.registration_type == "none":
+                    continue  # No credentials to verify
+
+                portal_id = portal.id
+                results["total"] += 1
+
+                cred = await get_credential(portal_id)
+                if cred is None:
+                    results["untested"] += 1
+                    results["portals"][portal_id] = {
+                        "name": portal.name,
+                        "status": "no_credentials",
+                        "last_verified": None,
+                    }
+                    continue
+
+                # Test the login endpoint
+                health = await self._verify_portal_credential(portal, cred)
+                results["portals"][portal_id] = health
+                if health["status"] == "working":
+                    results["working"] += 1
+                elif health["status"] == "expired":
+                    results["expired"] += 1
+                    # Trigger re-registration
+                    await self._trigger_re_registration(portal_id, portal.name)
+                else:
+                    results["failing"] += 1
+
+            # Save results to Redis
+            if self._redis is not None:
+                await self._redis.set_json(_CRED_HEALTH_KEY, results)
+                await self._redis.set(f"{_CRED_VERIFY_KEY}:last_run", str(time.time()))
+
+            # Wire to brain
+            await self._wire_to_brain(
+                module="web_integrity_agent",
+                summary=(
+                    f"Credential verification: {results['working']}/{results['total']} working, "
+                    f"{results['expired']} expired, {results['failing']} failing"
+                ),
+                detail=json.dumps({
+                    k: v for k, v in results.items() if k != "portals"
+                }),
+                success=results["expired"] == 0 and results["failing"] == 0,
+                confidence="CONFIRMED",
+                source_id="web_integrity:cred_verify",
+            )
+
+        except Exception as e:
+            logger.error("[web_integrity] credential verification failed: %s", e)
+            results["error"] = str(e)[:200]
+
+        return results
+
+    async def _verify_portal_credential(
+        self,
+        portal: Any,
+        credential: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Test a single portal's credential by attempting a login.
+
+        Returns dict with status, status_code, response_time_ms, error.
+        """
+        import httpx
+
+        result: dict[str, Any] = {
+            "name": portal.name,
+            "status": "untested",
+            "status_code": 0,
+            "response_time_ms": 0,
+            "error": None,
+            "last_verified": datetime.now(timezone.utc).isoformat(),
+        }
+
+        login_url = f"{portal.url.rstrip('/')}{portal.login_path}"
+        username = credential.get("username") or credential.get("email", "")
+        password = credential.get("password", "")
+
+        if not username or not password:
+            result["status"] = "no_credentials"
+            return result
+
+        try:
+            start = time.monotonic()
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                # Try a simple GET to the login page first
+                resp = await client.get(login_url)
+                elapsed = (time.monotonic() - start) * 1000
+                result["response_time_ms"] = round(elapsed, 1)
+                result["status_code"] = resp.status_code
+
+                if resp.status_code == 200:
+                    # Page loaded — credentials may be working
+                    # Check for login form indicators vs error messages
+                    text = resp.text.lower()
+                    if "invalid" in text or "incorrect" in text or "error" in text[:500]:
+                        result["status"] = "expired"
+                        result["error"] = "Login page shows error message"
+                    else:
+                        result["status"] = "working"
+                elif resp.status_code == 403:
+                    result["status"] = "expired"
+                    result["error"] = "HTTP 403 — credentials rejected"
+                elif resp.status_code == 401:
+                    result["status"] = "expired"
+                    result["error"] = "HTTP 401 — unauthorized"
+                elif resp.status_code >= 500:
+                    result["status"] = "failing"
+                    result["error"] = f"Server error: {resp.status_code}"
+                else:
+                    result["status"] = "failing"
+                    result["error"] = f"Unexpected status: {resp.status_code}"
+
+        except httpx.TimeoutException:
+            result["status"] = "failing"
+            result["error"] = "Timeout (>15s)"
+        except httpx.ConnectError as e:
+            result["status"] = "failing"
+            result["error"] = f"Connection failed: {e}"
+        except Exception as e:
+            result["status"] = "failing"
+            result["error"] = str(e)[:200]
+
+        # Save individual verify result
+        if self._redis is not None:
+            try:
+                await self._redis.hset(_CRED_VERIFY_KEY, {
+                    portal.id: json.dumps(result)
+                })
+            except Exception:
+                pass
+
+        return result
+
+    async def _trigger_re_registration(self, portal_id: str, portal_name: str) -> None:
+        """Trigger re-registration for a portal with expired credentials.
+
+        Records a capability gap so the autonomous scheduler picks it up.
+        """
+        try:
+            from . import capability_gaps as _cg
+            await _cg.record_gap(
+                gap_type="credential_expired",
+                module=f"portal:{portal_id}",
+                description=(
+                    f"Credentials for {portal_name} ({portal_id}) have expired. "
+                    f"Re-registration needed to maintain data access."
+                ),
+                severity="HIGH",
+                source="web_integrity_agent:cred_verify",
+            )
+            logger.warning(
+                "[web_integrity] Credentials expired for %s (%s) — gap recorded",
+                portal_name, portal_id,
+            )
+        except Exception as e:
+            logger.debug("[web_integrity] re-registration trigger failed: %s", e)
+
+    async def get_credential_health(self) -> dict[str, Any]:
+        """Get the current credential health status from Redis.
+
+        Returns the last verification results, or empty dict if never run.
+        """
+        if self._redis is None:
+            return {"status": "no_redis", "portals": {}}
+        try:
+            data = await self._redis.get_json(_CRED_HEALTH_KEY)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}

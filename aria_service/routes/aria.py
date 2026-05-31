@@ -16062,6 +16062,98 @@ async def agents_read_messages_ep(agent_id: str):
     return {"messages": messages, "count": len(messages)}
 
 
+# R-F1213: Portal credential health dashboard
+@router.get("/portal/credentials")
+async def portal_credentials_ep():
+    """Get credential health status for all portals.
+
+    Returns the last verification results from the WebIntegrityAgent,
+    plus registration status from the portal registry.
+    """
+    from ..intel.web_integrity_agent import WebIntegrityAgent
+    from ..intel.portal_registry import get_registered_portals
+
+    agent = WebIntegrityAgent()
+    health = await agent.get_credential_health()
+    portals = await get_registered_portals()
+
+    # Merge health data into portal list
+    portal_status = []
+    for p in portals:
+        pid = p["id"]
+        health_info = health.get("portals", {}).get(pid, {})
+        portal_status.append({
+            **p,
+            "credential_status": health_info.get("status", "untested"),
+            "last_verified": health_info.get("last_verified"),
+            "credential_error": health_info.get("error"),
+        })
+
+    return {
+        "portals": portal_status,
+        "summary": {
+            "total": len(portal_status),
+            "registered": sum(1 for p in portal_status if p["registered"]),
+            "working": sum(1 for p in portal_status if p["credential_status"] == "working"),
+            "expired": sum(1 for p in portal_status if p["credential_status"] == "expired"),
+            "failing": sum(1 for p in portal_status if p["credential_status"] == "failing"),
+            "no_credentials": sum(1 for p in portal_status if p["credential_status"] == "no_credentials"),
+        },
+        "last_verification": health.get("timestamp"),
+    }
+
+
+@router.post("/portal/credentials/verify")
+async def portal_credentials_verify_ep():
+    """Trigger an immediate credential verification cycle."""
+    from ..intel.web_integrity_agent import WebIntegrityAgent
+    agent = WebIntegrityAgent()
+    results = await agent.verify_all_credentials()
+    return {"ok": True, "results": results}
+
+
+@router.post("/portal/credentials/{portal_id}")
+async def portal_credentials_store_ep(portal_id: str, request: Request):
+    """Store credentials for a portal (operator-provided).
+
+    Used for CAPTCHA-gated portals where ARIA cannot register autonomously.
+    """
+    from ..intel.portal_registry import store_credential, PORTALS
+
+    portal = next((p for p in PORTALS if p.id == portal_id), None)
+    if not portal:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Portal '{portal_id}' not found")
+
+    body = await request.json()
+    credential = {
+        "username": body.get("username", ""),
+        "email": body.get("email", ""),
+        "password": body.get("password", ""),
+        "api_key": body.get("api_key", ""),
+        "token": body.get("token", ""),
+        "notes": body.get("notes", ""),
+        "source": "operator",
+    }
+    # Remove empty fields
+    credential = {k: v for k, v in credential.items() if v}
+
+    await store_credential(portal_id, credential)
+
+    # Wire to brain
+    try:
+        from ..intel.engine_wiring import wire_success
+        wire_success(
+            module="portal_credentials",
+            summary=f"Credentials stored for {portal.name} ({portal_id})",
+            entity_name=portal_id,
+            source_id="portal_credentials:operator",
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "portal_id": portal_id, "portal_name": portal.name}
+
 
 @router.get("/self/predict")
 async def self_predict_ep(task_type: str, domain: str,
