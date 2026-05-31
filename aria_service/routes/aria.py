@@ -11186,20 +11186,93 @@ async def self_diagnose_ep(request: Request):
 # Self-coding: scaffold a brand-new module from a free-text request
 @router.post("/self/code")
 async def self_code_ep(request: Request):
-    """ARIA writes a new intel module from a natural-language request.
+    """ARIA writes code from a natural-language directive.
 
-    Body: {request: "track Saudi MoD procurement", name: "saudi_mod_tracker"?}
-    Returns: {ok, file, module_name, lines, staged_id, preview} or {ok: false, error}
+    Two body formats:
+      1. {directive, file} — edit an existing file (used by the coder UI)
+      2. {request, name}   — scaffold a brand-new module (legacy format)
 
-    The generated module is staged under aria_service/intel/auto/<name>.py and
-    must be deployed via /api/aria/self/deploy/{staged_id}. NEVER auto-deploys
-    new files — they always require human review.
+    Format 1 reads the file, uses the LLM to generate a fix, stages it.
+    Format 2 creates a new module under aria_service/intel/auto/<name>.py.
+
+    Returns: {ok, summary, file, code?, staged_id?, test_results?, ...}
     """
     body = await request.json()
+
+    # ── Format 1: coder UI {directive, file} ──────────────────────────────
+    directive = (body.get("directive") or "").strip()
+    target_file = (body.get("file") or "").strip()
+
+    if directive and target_file:
+        if len(directive) < 5:
+            raise HTTPException(status_code=400, detail="directive too short (min 5 chars)")
+        llm = get_llm(request)
+        if not llm or not getattr(llm, "is_configured", False):
+            return {"ok": False, "error": "LLM not configured"}
+
+        # Read the current file
+        file_info = await self_improve.read_own_code(target_file)
+        if "error" in file_info:
+            return {"ok": False, "error": file_info["error"]}
+        existing_code = file_info.get("content", "")
+
+        # Build a prompt for the LLM
+        code_prompt = (
+            f"You are ARIA editing your own source code.\n\n"
+            f"DIRECTIVE: {directive}\n\n"
+            f"TARGET FILE: {target_file}\n\n"
+            f"CURRENT CODE:\n```python\n{existing_code}\n```\n\n"
+            f"Apply the directive to the code above. Output ONLY the complete "
+            f"replacement file — no markdown, no fences, no explanations. "
+            f"Preserve all existing functionality unless the directive says otherwise."
+        )
+
+        try:
+            result = await llm.complete(
+                "You are an expert Python developer editing production code.",
+                code_prompt,
+                max_tokens=8000,
+                timeout=120.0,
+            )
+            new_code = (result.text or "").strip()
+            # Strip code fences if the LLM ignored instructions
+            if new_code.startswith("```"):
+                new_code = re.sub(r"^```\w*\n?", "", new_code)
+                new_code = re.sub(r"\n?```\s*$", "", new_code)
+
+            if len(new_code) < 20:
+                return {"ok": False, "error": "Generated code too short — LLM likely refused"}
+
+            # Stage the improvement
+            staged = await self_improve.stage_improvement(
+                file_path=target_file,
+                new_content=new_code,
+                change_type="enhancement",
+                description=directive[:200],
+                reasoning=f"Coder UI directive: {directive[:200]}",
+            )
+
+            return {
+                "ok": True,
+                "summary": f"Applied directive to {target_file}",
+                "file": target_file,
+                "code": new_code,
+                "staged_id": staged.get("id"),
+                "id": staged.get("id"),
+                "lines": new_code.count("\n") + 1,
+                "staged": staged.get("staged", False),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── Format 2: legacy {request, name} — scaffold new module ────────────
     user_request = (body.get("request") or "").strip()
     suggested_name = (body.get("name") or "").strip()
     if not user_request or len(user_request) < 10:
-        raise HTTPException(status_code=400, detail="request required (min 10 chars describing what the module should do)")
+        raise HTTPException(
+            status_code=400,
+            detail="request required (min 10 chars) or directive+file required",
+        )
     llm = get_llm(request)
     return await self_improve.propose_new_module(user_request, llm, suggested_name=suggested_name)
 
