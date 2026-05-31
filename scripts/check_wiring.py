@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""R-F1215: Structural guard — wiring audit CI check.
+"""R-F1215/R-F1222: Structural guard — wiring audit + file-size CI check.
 
-Ensures no substantial module (>100 lines) in aria_service/ is completely
-dark (zero brain hook, zero wire_success/wire_failure, zero metrics,
-zero mistake_ledger, zero capability_gaps).
+Ensures:
+1. No substantial module (>100 lines) in aria_service/ is completely dark
+   (zero brain hook, zero wire_success/wire_failure, zero metrics,
+   zero mistake_ledger, zero capability_gaps).
+2. No file exceeds MAX_LINES (2000) — prevents monolithic files that hide
+   bugs and are hard to test/review.
+3. No module has wire_success without wire_failure (one-sided wiring).
 
-This is a CI gate, not a linter. It fails the build if a new dark module
+This is a CI gate, not a linter. It fails the build if a new violation
 is added or an existing one crosses the threshold without wiring.
 
 Usage:
     python scripts/check_wiring.py          # check all modules
-    python scripts/check_wiring.py --ci     # exit 1 on any dark module
+    python scripts/check_wiring.py --ci     # exit 1 on any violation
 
 Exemptions (explicitly listed):
 - __init__.py files
@@ -93,8 +97,10 @@ def check_module(filepath: Path) -> tuple[str, int, int, list[str]]:
 def main() -> int:
     ci_mode = "--ci" in sys.argv
     
+    MAX_LINES = 2000  # R-F1222: no file should exceed this
     dark_modules: list[tuple[str, int, list[str]]] = []
     onesided_modules: list[tuple[str, int]] = []
+    oversized_files: list[tuple[int, str]] = []
     total_checked = 0
     total_dark = 0
     
@@ -112,6 +118,10 @@ def main() -> int:
             dark_modules.append((rel_path, lines, missing))
             total_dark += 1
         
+        # R-F1222: flag files over MAX_LINES
+        if lines > MAX_LINES:
+            oversized_files.append((lines, rel_path))
+        
         # R-F1221: flag modules with wire_success but no wire_failure
         try:
             text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -123,10 +133,11 @@ def main() -> int:
         if has_success and not has_failure and not has_wired:
             onesided_modules.append((rel_path, lines))
     
-    print(f"\n=== Wiring Audit (R-F1215/R-F1221) ===")
+    print(f"\n=== Wiring Audit (R-F1215/R-F1221/R-F1222) ===")
     print(f"Modules checked: {total_checked}")
     print(f"Dark modules (0 wiring tokens): {total_dark}")
     print(f"One-sided modules (wire_success but no wire_failure): {len(onesided_modules)}")
+    print(f"Oversized files (>{MAX_LINES} lines): {len(oversized_files)}")
     
     if dark_modules:
         print(f"\n--- DARK MODULES (no brain wiring) ---")
@@ -140,12 +151,21 @@ def main() -> int:
         for rel_path, lines in sorted(onesided_modules, key=lambda x: -x[1])[:20]:
             print(f"  {lines:>5}L  {rel_path}")
     
+    if oversized_files:
+        print(f"\n--- OVERSIZED FILES (>{MAX_LINES} lines — refactor recommended) ---")
+        for lines, rel_path in sorted(oversized_files, reverse=True)[:20]:
+            print(f"  {lines:>6}L  {rel_path}")
+    
     if ci_mode and dark_modules:
         print(f"\n[FAIL] {total_dark} dark modules found — wire them to the brain before shipping.")
         return 1
     
     if ci_mode and onesided_modules:
         print(f"\n[FAIL] {len(onesided_modules)} one-sided modules found — add wire_failure or use @wired.")
+        return 1
+    
+    if ci_mode and oversized_files:
+        print(f"\n[FAIL] {len(oversized_files)} oversized files found — refactor to under {MAX_LINES} lines.")
         return 1
     
     if dark_modules:
