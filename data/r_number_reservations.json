@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1244,
+  "next_available": 1245,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6890,9 +6890,9 @@
       "claimed_at": "2026-05-31T22:05:07Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "90b35531",
+      "commit_sha": "fc785067",
       "notes": null,
-      "shipped_at": "2026-05-31T22:55:04Z"
+      "shipped_at": "2026-05-31T23:03:37Z"
     },
     {
       "r_number": "R-F1240",
@@ -6928,6 +6928,15 @@
       "r_number": "R-F1243",
       "title": "Self-executing ARIA launcher - download, run, ARIA fixes itself",
       "claimed_at": "2026-05-31T23:01:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1244",
+      "title": "True independence - Groq free tier",
+      "claimed_at": "2026-05-31T23:04:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

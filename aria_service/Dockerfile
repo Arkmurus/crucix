@@ -172,6 +172,24 @@ RUN playwright install --with-deps chromium
 # takes ~30s but every subsequent one is instant. The languages are also
 # English-only by default (set ARIA_OCR_LANGS=en,pt,fr,es to add more).
 
+# ── R-F1244: Ollama LLM binary (free, local inference) ──────────────────────
+# The binary is baked into the image (~40MB). The model is pulled LAZILY at
+# runtime on first request (Ollama's API handles this automatically).
+# This avoids adding ~2GB to the image at build time.
+#
+# Ollama listens on 127.0.0.1:11434 inside the container. ARIA's fallback
+# chain (OLLAMA_URL=http://localhost:11434) routes to it automatically.
+# DeepSeek is the emergency fallback when Ollama is loading or overloaded.
+RUN curl -fsSL -o /usr/local/bin/ollama \
+    https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64 \
+    && chmod +x /usr/local/bin/ollama
+
 EXPOSE 8000
 
-CMD ["python", "-m", "aria_service.main"]
+# R-F1244: Start Ollama as background process before the ARIA app.
+# The model is pulled on first request (Ollama lazy-loads it).
+# Ollama takes ~3-5s to load the model on first request.
+# We pre-pull the model in background so the first request is fast.
+CMD ollama serve & \
+    sleep 2 && ollama pull llama3.2:3b & \
+    python -m aria_service.main
