@@ -174,15 +174,19 @@ RUN playwright install --with-deps chromium
 
 EXPOSE 8000
 
-# R-F1244: Download and extract Ollama at runtime. The Linux release is a
-# .tar.zst archive. We install zstd, extract, and start the server.
+# R-F1244: Download and start Ollama in the background AFTER the ARIA app
+# starts. This ensures the health check passes immediately and Ollama
+# becomes available once the download + extraction completes (~10-30s).
 # The model is pulled lazily on first request.
 # If the download fails (e.g. GitHub rate limit), Ollama is unavailable and
 # the fallback chain falls through to DeepSeek gracefully.
 RUN apt-get update && apt-get install -y --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
-CMD (curl -fsSL -o /tmp/ollama.tar.zst https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64.tar.zst && zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar && tar xf /tmp/ollama.tar -C /tmp/ && chmod +x /tmp/ollama) 2>/dev/null; \
-    if [ -f /tmp/ollama ]; then \
-        /tmp/ollama serve & \
-        sleep 2 && /tmp/ollama pull llama3.2:3b & \
-    fi; \
-    python -m aria_service.main
+CMD python -m aria_service.main & \
+    sleep 5 && \
+    curl -fsSL -o /tmp/ollama.tar.zst https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64.tar.zst && \
+    zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar && \
+    tar xf /tmp/ollama.tar -C /tmp/ && \
+    chmod +x /tmp/ollama && \
+    /tmp/ollama serve & \
+    sleep 2 && /tmp/ollama pull llama3.2:3b & \
+    wait
