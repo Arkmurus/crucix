@@ -123,6 +123,8 @@ RECORDED_ACTIONS = {
     # adjustment is a governance decision that needs an immutable trail
     # so the operator can prove the decision wasn't manually nudged.
     "calibration_threshold_adjusted",
+    # R-F1184 — DD verdicts (RED/HARD_STOP are compliance-grade decisions)
+    "dd_verdict",
 }
 
 

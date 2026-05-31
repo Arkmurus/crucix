@@ -5234,8 +5234,9 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
 # =============================================================================
 
 async def _persist_report(report: ARKDDReport) -> None:
-    """Store the finished report in Redis + append a summary signal to
-    the intel_ledger + write a notebook entry to mem0 (async, non-blocking).
+    """Store the finished report in Redis + emit signals to brain_hook,
+    intel_ledger, audit_log (RED/HARD_STOP only), mem0, and VLS (async,
+    non-blocking).
 
     R-F573 (2026-05-16) — DD case file. Before persisting, compute the
     canonical_entity_id, resolve the version chain (looking up existing
@@ -5461,6 +5462,69 @@ async def _persist_report(report: ARKDDReport) -> None:
         _ew._dispatch_fire_and_forget(lambda: _vls.record_report(report))
     except Exception as _vls_e:
         logger.debug("dd_orchestrator: VLS hook failed (non-fatal): %s", _vls_e)
+
+    # R-F1184: intel_ledger signal (fire-and-forget)
+    # Every completed DD report produces a permanent signal in the intel
+    # ledger so query_ledger() can surface DD findings.
+    try:
+        from . import intel_ledger as _il
+        await _il.add_signal({
+            "summary": f"DD report: {report.identity.entity_name} ({report.identity.entity_type}, {report.identity.jurisdiction_iso2 or 'unknown'}) - risk={report.risk_classification}",
+            "source": "dd_orchestrator",
+            "type": "dd_report",
+            "severity": "high" if report.risk_classification in ("RED", "HARD_STOP", "NO-GO") else "medium",
+            "tags": ["dd", str(report.risk_classification).lower() if report.risk_classification else "unknown"],
+            "timestamp": report.generated_at,
+        })
+    except Exception as _il_e:
+        logger.debug("dd_orchestrator: intel_ledger hook failed (non-fatal): %s", _il_e)
+
+    # R-F1184: audit_log record for RED/HARD_STOP verdicts
+    _risk_upper = (report.risk_classification or "").upper()
+    if _risk_upper in ("RED", "HARD_STOP", "NO-GO"):
+        try:
+            from . import audit_log as _al
+            await _al.record(
+                action="dd_verdict",
+                actor="aria.dd_orchestrator",
+                entity_name=report.identity.entity_name or "",
+                deal_id="",
+                inputs={"target": report.target},
+                outputs={
+                    "risk_classification": report.risk_classification,
+                    "bottom_line": str(report.bottom_line)[:500],
+                    "run_id": report.run_id,
+                    "canonical_entity_id": report.canonical_entity_id,
+                },
+                decision=report.risk_classification,
+                confidence=report.confidence_tag or "ASSESSED",
+                notes=f"DD run {report.run_id} returned {report.risk_classification} on {report.identity.entity_name}",
+                feed_brain=True,
+            )
+        except Exception as _al_e:
+            logger.debug("dd_orchestrator: audit_log hook failed (non-fatal): %s", _al_e)
+
+    # R-F1184: mem0 notebook entry (fire-and-forget)
+    # A brief notebook entry per DD run helps ARIA recall past investigations.
+    if (report.risk_classification or "") not in ("ERROR",):
+        try:
+            from . import mem0 as _mem0
+            if _mem0.is_enabled():
+                _summary = (
+                    f"DD report on {report.identity.entity_name} "
+                    f"({report.identity.entity_type}, {report.identity.jurisdiction_iso2 or 'unknown'}): "
+                    f"risk={report.risk_classification}. "
+                    f"{str(report.bottom_line)[:300]}"
+                )
+                await _mem0.summarise_and_store(
+                    user_message=f"Run DD on {report.identity.entity_name}",
+                    aria_response=_summary,
+                    session_id=f"dd_{report.run_id}",
+                    llm=None,
+                    user_label="operator",
+                )
+        except Exception as _mem0_e:
+            logger.debug("dd_orchestrator: mem0 hook failed (non-fatal): %s", _mem0_e)
 
 
 # =============================================================================
