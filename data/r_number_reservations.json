@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1235,
+  "next_available": 1237,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6811,9 +6811,9 @@
       "claimed_at": "2026-05-31T20:50:05Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "36763bec",
+      "commit_sha": "2ddcd0a7",
       "notes": null,
-      "shipped_at": "2026-05-31T21:19:39Z"
+      "shipped_at": "2026-05-31T21:40:03Z"
     },
     {
       "r_number": "R-F1232",
@@ -6830,14 +6830,34 @@
       "title": "Wire agent signup vault into agent awareness ecosystem",
       "claimed_at": "2026-05-31T21:22:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dc6ea576",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:31:00Z"
     },
     {
       "r_number": "R-F1234",
       "title": "Close all coder gaps - multi-file, refactoring, test execution, self-healing",
       "claimed_at": "2026-05-31T21:23:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "babee6ef",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:35:19Z"
+    },
+    {
+      "r_number": "R-F1235",
+      "title": "Make test runner safe for production - resource limits, circuit breaker, safe mode",
+      "claimed_at": "2026-05-31T21:36:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1236",
+      "title": "Prompt budget management",
+      "claimed_at": "2026-05-31T21:52:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

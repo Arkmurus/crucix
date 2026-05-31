@@ -47,6 +47,19 @@ class OpenAICompatProvider(LLMProvider):
         timeout: float = 0,
     ) -> LLMResult:
         timeout = timeout or self._default_timeout
+
+        # R-F1236: Enforce prompt budget before sending — prevents HTTP 413
+        # (Request Too Large) on models with smaller context windows.
+        try:
+            from .prompt_budget import enforce_budget
+            system_prompt, user_message = enforce_budget(
+                system_prompt, user_message,
+                model=self._model,
+                reserved_output=max_tokens,
+            )
+        except Exception:
+            logger.debug("[prompt_budget] enforce_budget failed (non-fatal)", exc_info=True)
+
         headers = {"Content-Type": "application/json", **self._extra_headers}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
