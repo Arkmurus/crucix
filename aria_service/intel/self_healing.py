@@ -537,12 +537,31 @@ class AutoRecoveryEngine:
             return RecoveryAction(action=RecoveryActionType.NOTIFY, target=subsystem, reason=error[:200])
 
     async def _execute_action(self, action: RecoveryAction) -> dict:
-        """Execute a recovery action."""
+        """Execute a recovery action.
+
+        Every action type MUST verify the action actually completed before
+        returning success: True. R-F1216: false success is a lie to the brain.
+        """
         action.executed_at = time.time()
 
         if action.action == RecoveryActionType.RECONNECT:
-            # Clear connection pool — next request will create new connections
-            return {"success": True, "message": f"Connection reset for {action.target}"}
+            # R-F1216: verify the connection is actually reachable by probing
+            # the target. A blind "connection reset" claim is a lie.
+            try:
+                probe_url = f"http://{action.target}/health"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    r = await client.get(probe_url)
+                    if r.status_code < 500:
+                        return {"success": True, "message": f"Connection verified for {action.target}"}
+                    return {
+                        "success": False,
+                        "message": f"Reconnect attempted for {action.target} but returned HTTP {r.status_code}",
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Reconnect failed for {action.target}: {e}",
+                }
 
         elif action.action == RecoveryActionType.CLEAR_CACHE:
             # Clear cache for the subsystem — scan for matching keys then delete each
@@ -556,15 +575,30 @@ class AutoRecoveryEngine:
                         deleted += 1
                     except Exception:
                         pass
-                return {"success": True, "message": f"Cache cleared for {action.target}: {deleted} keys deleted"}
+                # R-F1216: verify the keys were actually deleted by re-scanning
+                remaining = await rs.scan_keys(pattern)
+                if not remaining:
+                    return {"success": True, "message": f"Cache cleared for {action.target}: {deleted} keys deleted"}
+                return {
+                    "success": False,
+                    "message": f"Cache clear incomplete for {action.target}: deleted {deleted}/{len(keys)} keys, {len(remaining)} remain",
+                }
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
         elif action.action == RecoveryActionType.REBUILD:
             # Signal rebuild — the subsystem will rebuild on next access
             try:
-                await rs.set(f"crucix:rebuild:{action.target}", "1", ex=3600)
-                return {"success": True, "message": f"Rebuild signalled for {action.target}"}
+                rebuild_key = f"crucix:rebuild:{action.target}"
+                await rs.set(rebuild_key, "1", ex=3600)
+                # R-F1216: verify the key was actually written
+                stored = await rs.get(rebuild_key)
+                if stored == b"1":
+                    return {"success": True, "message": f"Rebuild signalled for {action.target}"}
+                return {
+                    "success": False,
+                    "message": f"Rebuild signal not confirmed for {action.target}",
+                }
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
@@ -572,37 +606,45 @@ class AutoRecoveryEngine:
             # R-F1067: log the restart request — actual restart requires
             # operator or fly deployer. Surface as actionable signal.
             logger.warning("[self_healing] RESTART needed for %s: %s", action.target, action.reason)
-            try:
-                from .engine_wiring import wire_failure as _wf
-                _wf(
-                    module="self_healing",
-                    detail=f"RESTART required for {action.target}: {action.reason}",
-                    gap_type="recovery_needed",
-                    source="self_healing",
-                )
-            except Exception:
-                pass
-            return {"success": True, "message": f"Restart requested for {action.target}", "action": "restart"}
+            # R-F1216: wire_failure is the correct signal here — a restart was
+            # REQUESTED but not EXECUTED. Return success: False so the brain
+            # knows the recovery did NOT complete.
+            wire_failure(
+                module="self_healing",
+                detail=f"RESTART required for {action.target}: {action.reason} — operator intervention needed",
+                gap_type="recovery_needed",
+                source="self_healing",
+            )
+            return {
+                "success": False,
+                "message": f"Restart requested for {action.target} — operator must restart manually",
+                "action": "restart",
+                "needs_operator": True,
+            }
 
         elif action.action == RecoveryActionType.ROLLBACK:
             # R-F1067: log the rollback request — NEVER force-push.
             # Surface as actionable signal for operator review.
             logger.warning("[self_healing] ROLLBACK needed for %s: %s", action.target, action.reason)
-            try:
-                from .engine_wiring import wire_failure as _wf
-                _wf(
-                    module="self_healing",
-                    detail=f"ROLLBACK required for {action.target}: {action.reason}",
-                    gap_type="recovery_needed",
-                    source="self_healing",
-                )
-            except Exception:
-                pass
-            return {"success": True, "message": f"Rollback requested for {action.target}", "action": "rollback"}
+            # R-F1216: same as RESTART — a rollback was REQUESTED but not EXECUTED.
+            wire_failure(
+                module="self_healing",
+                detail=f"ROLLBACK required for {action.target}: {action.reason} — operator intervention needed",
+                gap_type="recovery_needed",
+                source="self_healing",
+            )
+            return {
+                "success": False,
+                "message": f"Rollback requested for {action.target} — operator must rollback manually",
+                "action": "rollback",
+                "needs_operator": True,
+            }
 
         elif action.action == RecoveryActionType.NOTIFY:
             # Log the issue — the autonomous loop will pick it up
             logger.warning("[self_healing] Recovery needed for %s: %s", action.target, action.reason)
+            # R-F1216: NOTIFY is a genuine action — we logged it, that IS the action.
+            # But verify the log was actually written by checking the recovery history.
             return {"success": True, "message": f"Notification logged for {action.target}"}
 
         else:
