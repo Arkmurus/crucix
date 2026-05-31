@@ -5445,6 +5445,23 @@ async def _persist_report(report: ARKDDReport) -> None:
     except Exception as _sm:
         logger.debug("dd_orchestrator self_metrics failed: %s", _sm)
 
+    # ── R-F1182: VLS cryptographic proof (fire-and-forget) ──────────────────
+    # After the report is fully persisted, seal it with a cryptographic
+    # proof (hash + ECDSA signature + chain link). Never blocks the DD
+    # pipeline — errors are caught and wired to the brain.
+    try:
+        from . import verifiable_ledger as _vls
+        from . import engine_wiring as _ew
+        _ew.wire_success(
+            module="dd_orchestrator",
+            summary=f"VLS proof requested for {report.run_id}",
+            source_id=report.run_id,
+        )
+        # Fire-and-forget: schedule but don't await
+        _ew._dispatch_fire_and_forget(lambda: _vls.record_report(report))
+    except Exception as _vls_e:
+        logger.debug("dd_orchestrator: VLS hook failed (non-fatal): %s", _vls_e)
+
 
 # =============================================================================
 # HELPERS

@@ -795,6 +795,59 @@ async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: in
     return {"unread_count": n, "user_id": user_id, "since_hours": since_hours}
 
 
+# ── R-F1182: VLS (Verifiable Ledger System) endpoints ──────────────────────
+
+
+@router.get("/dd/vls/proof/{run_id}")
+async def dd_vls_proof_ep(run_id: str):
+    """R-F1182 — retrieve the VLS cryptographic proof for a DD report.
+
+    Returns the proof (hash, signature, chain link) or 404 if no proof
+    exists (pre-VLS reports, or the proof was never stored).
+    """
+    from ..intel import verifiable_ledger as _vls
+    proof = await _vls.get_proof(run_id)
+    if not proof:
+        raise HTTPException(status_code=404, detail=f"No VLS proof found for run_id={run_id}")
+    return {"run_id": run_id, "proof": proof}
+
+
+@router.get("/dd/vls/verify/{run_id}")
+async def dd_vls_verify_single_ep(run_id: str):
+    """R-F1182 — verify a single DD report's VLS integrity.
+
+    Checks the hash and ECDSA signature of the stored report body
+    against the VLS proof. Does NOT check chain linking.
+    """
+    from ..intel import verifiable_ledger as _vls
+    return await _vls.verify_single(run_id)
+
+
+@router.get("/dd/vls/chain/{canonical_entity_id:path}")
+async def dd_vls_chain_ep(canonical_entity_id: str):
+    """R-F1182 — verify the entire VLS chain for a canonical entity.
+
+    Checks every proof's hash, signature, and chain-of-hash linking.
+    Returns per-version results and an overall verified flag.
+    """
+    from ..intel import verifiable_ledger as _vls
+    return await _vls.verify_chain(canonical_entity_id)
+
+
+@router.get("/dd/vls/key")
+async def dd_vls_public_key_ep():
+    """R-F1182 — export the VLS public key in PEM format.
+
+    Third parties can use this key to independently verify DD report
+    signatures without access to the private key.
+    """
+    from ..intel import verifiable_ledger as _vls
+    return {
+        "algorithm": "ECDSA-SECP256K1",
+        "public_key_pem": _vls.get_public_key_pem(),
+    }
+
+
 def _rebuild_report_from_dict(d: dict, dd_schema):
     """Rehydrate an ARKDDReport from its stored dict so render_markdown
     works. Only the fields used by render_markdown need to be re-typed."""
