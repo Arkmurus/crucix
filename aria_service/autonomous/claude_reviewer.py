@@ -80,11 +80,17 @@ API_KEY_VAR = "ANTHROPIC_API_KEY"
 # (factory_provider_name, api_key_env, model_env, default_model).
 # A tier is skipped when its key env is empty. base_url left to the
 # factory defaults (DeepSeek → api.deepseek.com, etc.).
+# R-F1239: Ollama added as the FIRST review tier (before any paid provider).
+# When OLLAMA_URL is set, Ollama serves all code reviews for $0.
+# Paid providers (Anthropic, DeepSeek, Groq, Gemini) are emergency fallbacks
+# only — they fire when Ollama is unavailable or the review needs a second
+# opinion. The self-check (AST-only, always free) is the last resort.
 _REVIEW_CHAIN: tuple[tuple[str, str, str, str], ...] = (
-    ("anthropic", "ANTHROPIC_API_KEY", "ARIA_CODER_CLAUDE_REVIEW_MODEL", "claude-sonnet-4-6"),
-    ("deepseek", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "deepseek-chat"),
-    ("groq", "GROQ_API_KEY", "GROQ_MODEL", "llama-3.3-70b-versatile"),
-    ("gemini", "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-3.1-pro"),
+    ("ollama",   "OLLAMA_URL",          "OLLAMA_MODEL",          "llama3.2:3b"),
+    ("anthropic","ANTHROPIC_API_KEY",   "ARIA_CODER_CLAUDE_REVIEW_MODEL", "claude-sonnet-4-6"),
+    ("deepseek", "DEEPSEEK_API_KEY",    "DEEPSEEK_MODEL",        "deepseek-chat"),
+    ("groq",     "GROQ_API_KEY",        "GROQ_MODEL",            "llama-3.3-70b-versatile"),
+    ("gemini",   "GEMINI_API_KEY",      "GEMINI_MODEL",          "gemini-3.1-pro"),
 )
 
 
@@ -286,9 +292,17 @@ class ClaudeReviewer:
             # operator hasn't turned the Claude reviewer on.
             if pname == "anthropic" and not anthropic_review_enabled():
                 continue
-            api_key = os.environ.get(key_env, "").strip()
-            if not api_key:
-                continue
+            # R-F1239: Ollama uses OLLAMA_URL (not an API key). Skip if URL
+            # is not set. All other providers use their API key env var.
+            if pname == "ollama":
+                ollama_url = os.environ.get("OLLAMA_URL", "").strip()
+                if not ollama_url:
+                    continue
+                api_key = ""  # Ollama doesn't need an API key
+            else:
+                api_key = os.environ.get(key_env, "").strip()
+                if not api_key:
+                    continue
             model = os.environ.get(model_env, "").strip() or default_model
             try:
                 provider = create_llm_provider(pname, api_key=api_key, model=model)

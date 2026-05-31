@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1243,
+  "next_available": 1244,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6890,9 +6890,9 @@
       "claimed_at": "2026-05-31T22:05:07Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "4d6a13e2",
+      "commit_sha": "90b35531",
       "notes": null,
-      "shipped_at": "2026-05-31T22:33:36Z"
+      "shipped_at": "2026-05-31T22:55:04Z"
     },
     {
       "r_number": "R-F1240",
@@ -6918,6 +6918,16 @@
       "r_number": "R-F1242",
       "title": "ARIA download page - one-click download to run locally from cmd",
       "claimed_at": "2026-05-31T22:51:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "97fe8005",
+      "notes": null,
+      "shipped_at": "2026-05-31T23:00:10Z"
+    },
+    {
+      "r_number": "R-F1243",
+      "title": "Self-executing ARIA launcher - download, run, ARIA fixes itself",
+      "claimed_at": "2026-05-31T23:01:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
