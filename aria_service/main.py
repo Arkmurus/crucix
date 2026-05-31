@@ -1827,6 +1827,21 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("[R-F1146] Self-restart start failed (non-fatal)")
 
+    # R-F1225 -- start PowerShell Master
+    try:
+        from .utils.powershell_master import PowerShellMaster, add_powershell_endpoints
+        ps_master = PowerShellMaster()
+        # Test if PowerShell is available (non-fatal if not)
+        ps_available = await ps_master.test_powershell()
+        if ps_available:
+            add_powershell_endpoints(router, ps_master)
+            logger.info("[R-F1225] PowerShell Master started — endpoints registered")
+        else:
+            logger.info("[R-F1225] PowerShell not available on this platform — skipping")
+        app.state.ps_master = ps_master
+    except Exception as _ps_e:
+        logger.debug("[R-F1225] PowerShell Master init failed (non-fatal): %s", _ps_e)
+
     yield
 
 

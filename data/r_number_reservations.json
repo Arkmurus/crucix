@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1214,
+  "next_available": 1226,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6629,6 +6629,125 @@
       "r_number": "R-F1213",
       "title": "Autonomous credential lifecycle — WebIntegrityAgent verifies portal creds, detects expiry, triggers re-registration, operator dashboard",
       "claimed_at": "2026-05-31T18:46:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "85d8db89",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:20:34Z"
+    },
+    {
+      "r_number": "R-F1214",
+      "title": "Wire self_improve.py to brain — success and failure paths",
+      "claimed_at": "2026-05-31T18:54:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "805def82",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:57:04Z"
+    },
+    {
+      "r_number": "R-F1215",
+      "title": "Add structural guard: wiring audit CI check for dark modules",
+      "claimed_at": "2026-05-31T18:57:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "63272528",
+      "notes": null,
+      "shipped_at": "2026-05-31T18:57:43Z"
+    },
+    {
+      "r_number": "R-F1216",
+      "title": "Fix self_healing.py false success: True — verify actions before reporting success",
+      "claimed_at": "2026-05-31T18:59:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a3e4aed8",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:00:39Z"
+    },
+    {
+      "r_number": "R-F1217",
+      "title": "Fix email_reader.py wire_success outside try/except, verify send completed",
+      "claimed_at": "2026-05-31T19:00:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a6285c6",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:03:04Z"
+    },
+    {
+      "r_number": "R-F1218",
+      "title": "Fix 3 bare except: pass blocks — promote to logger.warning + brain wiring",
+      "claimed_at": "2026-05-31T19:01:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a6285c6",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:03:08Z"
+    },
+    {
+      "r_number": "R-F1219",
+      "title": "Wire autonomous/safety.py and metacognitive/engine.py to brain",
+      "claimed_at": "2026-05-31T19:03:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "972026d4",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:05:54Z"
+    },
+    {
+      "r_number": "R-F1220",
+      "title": "Fix _semantic_index_queue.py dead import and 2 real TODOs",
+      "claimed_at": "2026-05-31T19:05:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0313deec",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:08:02Z"
+    },
+    {
+      "r_number": "R-F1221",
+      "title": "Add wire_failure to 150+ modules that only have wire_success",
+      "claimed_at": "2026-05-31T19:11:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a9a0b364",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:13:52Z"
+    },
+    {
+      "r_number": "R-F1222",
+      "title": "Add file-size CI check and split largest route groups",
+      "claimed_at": "2026-05-31T19:16:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d230a323",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:17:31Z"
+    },
+    {
+      "r_number": "R-F1223",
+      "title": "Add capability tests for 30 untested modules >100 lines",
+      "claimed_at": "2026-05-31T19:17:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0e7415d7",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:20:41Z"
+    },
+    {
+      "r_number": "R-F1224",
+      "title": "Wire ARIA-LLM/RunPod provider — health check, brain wiring, capability test",
+      "claimed_at": "2026-05-31T19:21:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1225",
+      "title": "PowerShell Mastery Module — proper subprocess execution, error analysis, code generation, FastAPI endpoints",
+      "claimed_at": "2026-05-31T19:23:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
