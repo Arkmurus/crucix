@@ -4228,6 +4228,23 @@ def _detect_tool_intent(message: str) -> dict | None:
                 "_reason": "dd_slash_command",
             }
 
+    # R-F1175 - Portal registration intent
+    # "register at X", "sign up for Y", "create an account on Z"
+    _REGISTER_RE = re.compile(
+        r"\b(?:register|sign\s+up|create\s+(?:an?\s+)?account)\s+"
+        r"(?:at|on|for|with)\s+(.+?)(?:\s+(?:to|so|for|and|that|which|where)\b|$)",
+        re.IGNORECASE,
+    )
+    register_match = _REGISTER_RE.search(msg)
+    if register_match:
+        portal_name = register_match.group(1).strip(" .,;:!?\"'")
+        return {
+            "tool": "portal_register",
+            "entity": portal_name[:200],
+            "context": msg,
+            "_reason": "portal_registration_intent",
+        }
+
     # ── Pre-meeting briefing intent ──
     # "brief me for my meeting with Angola" / "prepare briefing for FADM"
     # "meeting prep for Ghana defence minister" / "pre-meeting brief Angola"
@@ -5408,7 +5425,52 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"{md}"
             )
 
-        # ── R-F399 (2026-05-13) — capability introspection ──
+        # ---- R-F1175 - Portal registration ----
+        if tool == "portal_register":
+            from ..intel import portal_registry as _pr
+            portal_name = intent.get("entity", "")
+            if not portal_name:
+                return "\n\n[TOOL: portal_register -- No portal specified]\nPlease specify which portal to register for.\n"
+            try:
+                portal = next((p for p in _pr.PORTALS if p.id in portal_name.lower() or p.name.lower() in portal_name.lower()), None)
+                if portal:
+                    result = await _pr.register_for_portal(portal.id)
+                else:
+                    from ..intel import web_search as _ws
+                    search_query = f"{portal_name} registration signup"
+                    search_result = await _ws.search(search_query, max_results=3)
+                    discovered_url = ""
+                    if search_result and search_result.get("results"):
+                        for r in search_result["results"]:
+                            url = r.get("url", "")
+                            if url and ("register" in url.lower() or "signup" in url.lower()):
+                                discovered_url = url
+                                break
+                        if not discovered_url and search_result["results"]:
+                            discovered_url = search_result["results"][0].get("url", "")
+                    if discovered_url:
+                        result = {
+                            "success": False,
+                            "requires_form_fill": True,
+                            "message": f"Portal found at {discovered_url}. Attempting generic form detection.",
+                            "portal_id": portal_name,
+                            "url": discovered_url,
+                        }
+                    else:
+                        result = {"success": False, "error": f"Could not find registration page for {portal_name}"}
+                if result.get("success"):
+                    return f"\n\n[TOOL: portal_register -- SUCCESS]\nRegistered for {portal_name}.\n"
+                elif result.get("requires_operator"):
+                    return f"\n\n[TOOL: portal_register -- OPERATOR ACTION NEEDED]\n{portal_name} requires CAPTCHA.\n{result.get('message', '')}\n"
+                elif result.get("requires_form_fill"):
+                    return f"\n\n[TOOL: portal_register -- FORM FILL NEEDED]\n{result.get('message', '')}\n"
+                else:
+                    return f"\n\n[TOOL: portal_register -- FAILED]\n{result.get('error', 'Unknown error')}\n"
+            except Exception as _reg_err:
+                _log.warning("portal_register failed: %s", _reg_err)
+                return f"\n\n[TOOL: portal_register -- ERROR]\nRegistration failed: {_reg_err}\n"
+
+        # ---- R-F399 (2026-05-13) -- capability introspection ----
         # Live evidence 2026-05-13 07:25/07:27: operator asked ARIA about
         # her own brain / memory / learning capacity. The chat router
         # picked "capacity every 6-hour study cycle" out of the sentence
