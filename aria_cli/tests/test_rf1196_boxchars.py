@@ -53,7 +53,7 @@ def test_boxchars_ascii_on_cp1252_terminal():
         assert bx.br == "+"
         assert bx.h == "-"
         assert bx.v == "|"
-        assert bx.tm == "+"
+        assert bx.tm == "|"
         assert bx.check == "v"
         assert bx.cross == "x"
     finally:
