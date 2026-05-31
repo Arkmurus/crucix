@@ -4,6 +4,13 @@
     "r_number": 1183,
     "image": "registry.fly.io/aria-intel:deployment-abcdef12",
     "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T18:45:18.759389+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
     "ts": "2026-05-31T16:27:33.279058+00:00"
   },
   {

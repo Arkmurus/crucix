@@ -183,7 +183,7 @@ def function_exists(module_path, func_name):
                 source = file_path.read_text(encoding="utf-8")
                 tree = ast.parse(source)
                 for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                         if node.name == func_name:
                             return True
             except SyntaxError:
