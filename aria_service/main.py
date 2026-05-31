@@ -1,5 +1,5 @@
 """
-ARIA Service — FastAPI entrypoint.
+ARIA Service — FastAPI entrypoint. R-F1191: fully autonomous.
 
 Runs the complete ARIA intelligence engine as a standalone Python service.
 Replaces both the Node.js lib/aria/ and the Flask brain/ service.
