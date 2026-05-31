@@ -52,6 +52,24 @@ def test_download_endpoint_returns_bat_file():
     assert "aria-intel.fly.dev" in resp.text or "github.com/Arkmurus" in resp.text
 
 
+def test_zip_download_returns_aria_folder():
+    """The /download/aria endpoint should return a ZIP with aria.bat."""
+    resp = client.get("/download/aria")
+    assert resp.status_code == 200
+    assert "application/zip" in resp.headers.get("content-type", "")
+    assert "ARIA.zip" in resp.headers.get("content-disposition", "")
+    # Verify it's a valid ZIP with aria.bat inside
+    import zipfile, io
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    assert any("aria.bat" in n for n in names), f"aria.bat not in ZIP: {names}"
+    assert any("README.txt" in n for n in names), f"README.txt not in ZIP: {names}"
+    # Verify aria.bat content
+    bat_content = zf.read([n for n in names if n.endswith("aria.bat")][0]).decode()
+    assert "@echo off" in bat_content
+    assert "aria_service.main:app" in bat_content
+
+
 def test_demo_page_served_at_root():
     """The demo HTML page should be served at the root URL."""
     resp = client.get("/")
