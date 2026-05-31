@@ -42,18 +42,37 @@ def check_python() -> bool:
 
 
 def install_deps() -> bool:
-    """Install Python dependencies."""
+    """Install Python dependencies.
+
+    Uses --user flag so it works WITHOUT admin rights.
+    Falls back to system install if --user fails.
+    """
     if not REQUIREMENTS.exists():
         print(f"❌ requirements.txt not found at {REQUIREMENTS}")
         return False
 
     print("📦 Installing dependencies (this may take a few minutes)...")
+
+    # Try --user first (works without admin rights)
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS)],
+        [sys.executable, "-m", "pip", "install", "--user",
+         "-r", str(REQUIREMENTS)],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("✅ Dependencies installed (user site-packages)")
+        return True
+
+    # Fall back to system install (requires admin)
+    print("⚠️  --user install failed, trying system install...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install",
+         "-r", str(REQUIREMENTS)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         print(f"❌ pip install failed: {result.stderr[:500]}")
+        print("   Try: python -m pip install --user -r aria_service/requirements.txt")
         return False
     print("✅ Dependencies installed")
     return True

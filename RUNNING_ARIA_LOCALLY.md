@@ -1,33 +1,74 @@
 # Running ARIA on Any Computer
 
 ARIA is a Python service — not a single `.exe` file. But you can run her on any
-computer (Windows, Mac, Linux) in about 5 minutes.
+computer (Windows, Mac, Linux) in about 5 minutes — **no admin rights needed**.
 
-## Quick Start
+## Quick Start (any user, any computer)
 
 ```bash
 # 1. Get the code
 git clone https://github.com/Arkmurus/crucix.git
 cd crucix
 
-# 2. Run the launcher
+# 2. Run the launcher (uses --user flag, no admin needed)
 python scripts/aria_local_launcher.py
 ```
 
 The launcher will:
 - Check your Python version (3.13+ required)
-- Install all dependencies automatically
+- Install all dependencies using `pip install --user` (works without admin)
 - Create a `.env` file for your API keys
 - Start ARIA on `http://localhost:8000`
 
-## Manual Setup
+## Option A: No Admin Rights (Windows)
+
+```cmd
+:: 1. Install Python 3.13 (check "Install for all users" = OFF)
+::    Download from: https://www.python.org/downloads/
+
+:: 2. Open cmd (no admin needed) and run:
+git clone https://github.com/Arkmurus/crucix.git
+cd crucix
+python scripts\aria_local_launcher.py
+```
+
+The `--user` flag in pip means packages install to your user folder
+(`%APPDATA%\Python\Scripts`), not system-wide. No admin prompt needed.
+
+## Option B: Zero Install — Embedded Python (no admin, no install)
+
+```cmd
+:: 1. Download Python embeddable (no installer, just unzip):
+::    https://www.python.org/ftp/python/3.13.3/python-3.13.3-embed-amd64.zip
+
+:: 2. Extract to a folder, e.g. C:\Users\You\python-embed
+
+:: 3. Set the path and run:
+set PYTHON_EMBED=C:\Users\You\python-embed
+scripts\run_aria_portable.bat
+```
+
+## Option C: Nothing to Install — Use the Hosted Version
+
+If you just want to use ARIA's coder without running anything:
+
+```
+Open https://aria-intel.fly.dev in your browser
+```
+
+Or use the API directly:
+```bash
+curl https://aria-intel.fly.dev/health/live
+```
+
+## Option D: Manual Setup (any OS)
 
 ```bash
 # 1. Install Python 3.13+
 #    Download from: https://www.python.org/downloads/
 
-# 2. Install dependencies
-pip install -r aria_service/requirements.txt
+# 2. Install dependencies (--user flag = no admin)
+pip install --user -r aria_service/requirements.txt
 
 # 3. Configure
 cp .env.example .env
