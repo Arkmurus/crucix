@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1228,
+  "next_available": 1231,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6760,14 +6760,44 @@
       "title": "Fix System Health RED — 15 critical failures from wrong entry function names",
       "claimed_at": "2026-05-31T19:33:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5220eb62",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:41:28Z"
     },
     {
       "r_number": "R-F1227",
       "title": "24h playbook enforcement — self_healing checks all contracts, WA brain wiring, fix gaps",
       "claimed_at": "2026-05-31T19:36:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "60bf8db5",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:50:59Z"
+    },
+    {
+      "r_number": "R-F1228",
+      "title": "Build real-time intelligence notification system with history endpoint",
+      "claimed_at": "2026-05-31T19:46:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "16448674",
+      "notes": null,
+      "shipped_at": "2026-05-31T20:11:32Z"
+    },
+    {
+      "r_number": "R-F1229",
+      "title": "Deep ARIA coding expertise - wire coder, fix AutonomousCoder, add capability tests",
+      "claimed_at": "2026-05-31T20:34:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1230",
+      "title": "Borrow deepseek_bash features: file-watch mode + HTML health report",
+      "claimed_at": "2026-05-31T20:35:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
