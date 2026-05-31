@@ -1,144 +1,38 @@
+# fly.toml app configuration file generated for aria-intel on 2026-05-31T23:22:36Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'aria-intel'
 primary_region = 'lhr'
 
 [build]
   dockerfile = 'aria_service/Dockerfile'
 
-# R-F938 (2026-05-27) — load the BAKED sentence-transformers model from disk,
-# never the network. The Dockerfile pre-bakes all-MiniLM-L6-v2 (line ~81), but
-# without offline mode SentenceTransformer() still makes HuggingFace HEAD
-# round-trips on every (re)start to "check" the cache — slow + network-dependent.
-# Live evidence 2026-05-27 10:14 UTC: a restart (email-secret change) collided
-# with a contract-review test; the brain spent minutes doing huggingface.co
-# round-trips + hit EncodeLockTimeout, so doc-reads + chat returned "temporarily
-# unavailable". Offline mode = the baked model loads straight from disk → fast,
-# predictable cold starts, no post-restart degradation window.
 [env]
+  HF_HUB_DISABLE_TELEMETRY = '1'
   HF_HUB_OFFLINE = '1'
   TRANSFORMERS_OFFLINE = '1'
-  HF_HUB_DISABLE_TELEMETRY = '1'
+
+[[mounts]]
+  source = 'aria_rag'
+  destination = '/data'
+  initial_size = '5gb'
 
 [http_service]
-  internal_port = 8000
+  internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
-# R-F316 (2026-05-11) — cold-start probe race fix. Every redeploy logged
-# `[PC01] instance refused connection. is your app listening on 0.0.0.0:8000?`
-# at ~T+1s after machine create, because fly's load balancer probed the
-# port BEFORE uvicorn had bound to 0.0.0.0:8000 (typically T+4s on this
-# stack: init → mount /data → python -m aria_service.main → uvicorn bind).
-# Result: 3-4 second window per deploy where the LB returned "instance
-# refused" to clients, and every deploy emitted a misleading WARNING.
-#
-# Fix: add an explicit TCP healthcheck with a 30s grace_period. The LB
-# now waits 30s before probing (more than enough for uvicorn cold boot
-# even with sentence-transformers + chromadb + 23k knowledge facts +
-# 22k ledger signals to hydrate). Once the first TCP probe succeeds,
-# traffic flows normally. Reduces deploy-log noise to zero and closes
-# the brief 4-second window where clients saw connection-refused.
-#
-# R-F372 (2026-05-12) — switched healthcheck path /api/aria/health →
-# /api/aria/health/live. The rich /health endpoint does Redis + mastery
-# + adversarial + breaker work that can take several seconds under load;
-# the 10s LB timeout was tripping 3× per day on heavy research cycles.
-# /health/live is a zero-Redis fastpath that returns from in-process
-# state only.
-#
-# R-F378 (2026-05-12) — bumped timeout 10s → 20s. Even with the
-# /health/live fastpath, the LB probe can still time out when
-# synchronous CPU work (security audit, sentence-transformers cold
-# load, large-JSON serialisation) blocks the Python event loop. Live
-# evidence 2026-05-12 13:45:03 BST: self-improve cycle + security
-# audit + sentence-transformer cold load held the event loop for ~15s.
-# /health/live can't respond when the event loop is stalled. 20s
-# timeout absorbs the burst; the proper fix (move blocking work to a
-# thread pool) is queued as R-F379 for next session.
-#
-# R-F700 (2026-05-18) — grace_period 30s → 90s. Live deploy
-# 2026-05-18 18:55 failed with `Unrecoverable error: timeout reached
-# waiting for health checks to pass for machine 18592e0b72d238`. App
-# WAS healthy (logs show `ARIA Service ready on 0.0.0.0:8000` at
-# T+~3s and active web_atlas absorbs throughout), but cold-start
-# hydration continued past T+50s (OCR pre-warm T+40, RAG store ready
-# T+52, knowledge load, RAG-store + R-F248 boot diagnostic). During
-# that window, sentence-transformer encode bursts + sync writes
-# stalled the event loop intermittently — /health/live couldn't
-# always respond within the 20s timeout. With 30s grace_period the
-# LB started probing at T+30 and timed out before hydration settled.
-# 90s grace_period gives the cold-start burst room to clear before
-# the LB starts probing. The proper-someday fix (threadpool the
-# blocking encoders) is bigger work; this is the small-blast-radius
-# unblocker for deploys.
-# R-F724 (2026-05-19) — timeout 20s→60s, interval 15s→60s.
-# R-F723 attempted to fix wedge→PR04 cascades by making /health/live
-# a sync def (auto-threadpool via FastAPI). That helps for handler
-# execution but doesn't help for request DISPATCH — starlette
-# dispatches requests via the asyncio event loop, so a wedged loop
-# blocks the LB probe before it ever reaches the threadpool.
-#
-# Pragmatic structural fix: widen the probe envelope so transient
-# loop stalls don't trigger PR04 cascades:
-#   timeout 20s → 60s — absorbs the 10-25s wedges we see in practice
-#     (residual sync paths: learn_from_text concept extraction,
-#     _classify_signal generator, sentence-transformers encode bursts
-#     during research cycles, security audit, watchlist re-screen).
-#     R-F714/F716/F719/F721 fixed the biggest offenders but multiple
-#     smaller paths remain and wrapping each is whack-a-mole.
-#   interval 15s → 60s — fewer concurrent probes during a wedge so
-#     the LB doesn't queue 4 simultaneous attempts that all time out
-#     when the wedge clears (which previously made the PR04 cascade
-#     last ~5 min even though the actual wedge was ~25s).
-#   grace_period stays at 90s — covers cold-start (sentence-transformer
-#     load + RAG hydration + knowledge load).
-#
-# Trade-off: a genuinely dead process now takes up to 120s
-# (timeout + interval) to be marked unhealthy instead of 35s.
-# That's acceptable because:
-#   - genuine dead = stays dead = next probe also fails
-#   - transient wedge = clears in <60s = no false-positive cascade
-# The brain_hook circuit breaker + R-F703 stall warnings still
-# detect real wedges in the logs; they just stop being USER-VISIBLE
-# outages via the fly proxy.
-[[http_service.checks]]
-  grace_period = "90s"
-  interval = "60s"
-  method = "GET"
-  timeout = "60s"
-  path = "/api/aria/health/live"
-
-# ── Persistent storage for chromadb (RAG store) ─────────────────────────────
-# Past incident 2026-04-09: chromadb was running with no volume mounted at
-# /data, so _resolve_rag_path() in rag_store.py fell back to /tmp/aria_rag
-# (ephemeral). Every machine restart wiped the corpus. The 615 chunks from
-# the morning's Tier A bulk ingest were lost on the next deploy. Fix: mount
-# a fly.io volume at /data so the rag_store path resolves to /data/aria_rag
-# (persistent across restarts and deploys).
-#
-# Volume created via:  flyctl volumes create aria_rag --region lhr --size 5 -a aria-intel
-#
-# Single-machine constraint: fly.io volumes are NOT shared across machines.
-# Each machine that wants to use the volume needs its own copy (which would
-# diverge as ingests happen on one but not the other). For now we run a
-# single machine (min_machines_running=1) and accept the loss of HA — the
-# alternative is two independent RAG stores which is worse for data
-# coherence. The volume itself has scheduled snapshots so backup is
-# automatic.
-[mounts]
-  source = 'aria_rag'
-  destination = '/data'
-  initial_size = '5gb'
+  [[http_service.checks]]
+    interval = '1m0s'
+    timeout = '1m0s'
+    grace_period = '1m30s'
+    method = 'GET'
+    path = '/api/aria/health/live'
 
 [[vm]]
   size = 'shared-cpu-4x'
-  # Bumped to 4 CPU + 8GB on 2026-05-15: at 4GB the resident set (44967
-  # facts + 29504 signals + 5476 neurons + 26843 RAG docs + chromadb +
-  # SentenceTransformer model + httpx crawl pool) sat ~3.5GB and any
-  # spike (sanctions refresh adding 18959 entries, dashboard polling
-  # ~10 endpoints in parallel, brain-absorb storm) pushed into swap →
-  # /api/aria/health/live timed out → fly PR04 cascade. Three wedges
-  # in one morning (10:22, 11:13, 11:24 BST). Doubling memory + 4 vCPU
-  # gives headroom for the embedder + chromadb + concurrent absorbs.
   memory = '8192mb'
