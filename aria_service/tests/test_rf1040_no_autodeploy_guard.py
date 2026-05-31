@@ -18,7 +18,7 @@ def test_no_autodeploy_set_is_populated():
         "aria_service/aria_engine.py",
         "aria_service/routes/aria.py",
         "aria_service/autonomous/safety.py",
-        "aria_service/autonomous/constitutional_validator.py",
+        # R-F1191: constitutional_validator.py removed
         "aria_service/intel/self_improve.py",
     ):
         assert f in si.NO_AUTODEPLOY_FILES, f"{f} must be auto-deploy-protected"

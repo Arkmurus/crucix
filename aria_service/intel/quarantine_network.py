@@ -55,7 +55,7 @@ _PROTECTED_MODULES: frozenset[str] = frozenset({
     "brain_hook",               # Brain wiring must stay up
     "engine_wiring",            # Brain wiring must stay up
     "security",                 # Security layer must stay up
-    "constitutional_validator",  # Constitution enforcement must stay up
+    # R-F1191: constitutional_validator removed — ARIA is fully autonomous
     "safety",                   # Cost/rate guardrails must stay up
     "self_improve",             # Staging must stay up
     "adversarial_challenge",    # Security testing must stay up

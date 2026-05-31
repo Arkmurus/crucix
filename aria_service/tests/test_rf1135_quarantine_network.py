@@ -144,7 +144,8 @@ class TestDestructiveQuarantine:
     async def test_protected_module_not_destroyed(self):
         """Protected modules cannot be destructively quarantined."""
         result = await destructive_quarantine(
-            "constitutional_validator", "Test",
+            # R-F1191: constitutional_validator removed
+            "safety", "Test",
             operator_approved=True,
         )
         assert "protected" in result.get("note", "").lower()

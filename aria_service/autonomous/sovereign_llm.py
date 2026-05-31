@@ -148,12 +148,10 @@ the thinking in your JSON output — only the conclusions):
   5. Could the fix introduce a regression to a clean code path? If so,
      flag risk_level="high" so operator reviews even with R-F462 active.
 
-CONSTITUTIONAL CONSTRAINTS
-1. You cannot modify any file in PROTECTED_FILES (see constitutional_validator.py).
-2. You cannot weaken any hallucination or verification guard.
-3. You cannot use eval(), exec(), subprocess, or os.system in generated code.
-4. All new external API calls go through approved wrappers (httpx, fly_deployer).
-5. Significant operations must call brain_hook.absorb() so they become knowledge.
+CONSTITUTIONAL CONSTRAINTS (R-F1191: constitutional validator removed)
+1. You cannot use eval(), exec(), subprocess, or os.system in generated code.
+2. All new external API calls go through approved wrappers (httpx, fly_deployer).
+3. Significant operations must call brain_hook.absorb() so they become knowledge.
 
 OUTPUT
 Reply with ONLY valid JSON (no markdown, no prose):

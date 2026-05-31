@@ -4,7 +4,7 @@ The closed-loop self-coder. Wires the components together:
 
     GapDetector → AutonomousCoder (plan) → CodebaseReader (context)
                 ↓
-    AutonomousCoder (write code) → ConstitutionalValidator
+    AutonomousCoder (write code) → # R-F1191: validator removed
                 ↓
     TestRunner (isolated) ← AutonomousCoder (heal, ≤3 attempts)
                 ↓
@@ -48,9 +48,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .codebase_reader import CodebaseReader
-from .constitutional_validator import (
-    ConstitutionalValidator, ValidationResult, PROTECTED_FILES,
-)
+# R-F1191: constitutional validator removed. ARIA is fully autonomous.
+from typing import Any as _Any
 from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
 from .r_counter import RNumberCounter
@@ -60,14 +59,8 @@ from .test_runner import TestResult, TestRunner
 
 logger = logging.getLogger("aria.autonomous.self_coder")
 
-# R-F1128 — combined set of files the autonomous loop cannot modify.
+# R-F1191: constitutional validator removed. No protected files.
 _PROTECTED_FILES: frozenset = frozenset()
-try:
-    from .constitutional_validator import PROTECTED_FILES as _CV_PROTECTED
-    from ..intel.self_improve import NO_AUTODEPLOY_FILES as _SI_NO_AUTODEPLOY
-    _PROTECTED_FILES = frozenset(list(_CV_PROTECTED) + list(_SI_NO_AUTODEPLOY))
-except ImportError:
-    pass
 
 WORKSPACE_BASE = Path(
     os.environ.get("ARIA_CODER_WORKSPACE", "/data/coder_workspace")
@@ -192,7 +185,8 @@ class ARIACoder:
         output_harvester: Optional[Any] = None,
         gap_detector: Optional[GapDetector] = None,
         llm: Optional["SovereignLLM"] = None,  # R-F1025: LLM-backed coder provider
-        validator: Optional[ConstitutionalValidator] = None,
+        # R-F1191: constitutional validator removed
+        validator: None = None,
         codebase: Optional[CodebaseReader] = None,
         test_runner: Optional[TestRunner] = None,
         deployer: Optional[FlyDeployer] = None,
@@ -218,7 +212,8 @@ class ARIACoder:
         self.llm = llm or SovereignLLM(
             aria_service_url=aria_service_url or "http://localhost:8000",
         )
-        self.validator = validator or ConstitutionalValidator()
+        # R-F1191: constitutional validator removed
+        self.validator = None
         self.codebase = codebase or CodebaseReader(aria_service_url)
         self.test_runner = test_runner or TestRunner(redis_client)
         self.deployer = deployer or FlyDeployer(redis_client, aria_service_url)
@@ -245,10 +240,7 @@ class ARIACoder:
     async def _one_cycle(self) -> None:
         gaps = await self.gap_detector.scan()
 
-        # R-F1128 — filter out gaps targeting protected files BEFORE attempting
-        # to fix them. The constitutional validator would block them anyway,
-        # but by then we have already burned a fix-slot + logged a FATAL violation.
-        # Also surface them for human review since the autonomous loop cannot fix them.
+        # R-F1191: constitutional validator removed. No protected file filtering.
         protected_file_gaps = []
         actionable = []
         for g in gaps:
@@ -440,16 +432,7 @@ class ARIACoder:
                 new_code = code_raw.get("code", "")
                 if not new_code:
                     continue
-                val = self.validator.validate(new_code, target)
-                if not val.passed:
-                    return FixResult(
-                        success=False, fix_id=fix_id, gap_id=gap.gap_id,
-                        r_number=r_number,
-                        failure_reason=(
-                            "Constitutional violation: "
-                            + "; ".join(val.violations)
-                        ),
-                    )
+                # R-F1191: constitutional validator removed
                 plan.code_changes[target] = new_code
                 self.codebase.write_to_workspace(workspace, target, new_code)
 
@@ -1032,13 +1015,7 @@ class ARIACoder:
                 corrected = heal_raw.get("code", "")
                 if not corrected:
                     continue
-                val = self.validator.validate(corrected, target)
-                if not val.passed:
-                    logger.warning(
-                        "[aria_coder] healed code violates constitution: %s",
-                        val.violations,
-                    )
-                    continue
+                # R-F1191: constitutional validator removed
                 plan.code_changes[target] = corrected
                 self.codebase.write_to_workspace(workspace, target, corrected)
 

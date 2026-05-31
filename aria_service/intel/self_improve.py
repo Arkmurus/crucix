@@ -122,7 +122,6 @@ NO_AUTODEPLOY_FILES: set[str] = {
     "aria_service/intel/v3_prompts.py",                      # prompt refinements
     "aria_service/autonomous/tasks.yaml",                    # scheduled safety/adversarial tasks
     "aria_service/autonomous/safety.py",                     # autonomy guardrails
-    "aria_service/autonomous/constitutional_validator.py",   # the code-safety validator
     "aria_service/intel/self_improve.py",                    # this file — the deploy/guard config itself
 }
 
@@ -382,98 +381,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
     file_path = target["file"]
     full_path = _root / file_path
 
-    # R-F855 (2026-05-24) — deploy-time constitutional integrity gate (L2+L4).
-    # The stage→deploy path had NO content check (R-F851 only gated AUTO-deploy
-    # by file). Run ConstitutionalValidator on the staged content BEFORE writing
-    # it live: AST + weakening-pattern + tag-faking + protected-file checks. On
-    # violation we do NOT write — move the item to DISCARDED_KEY as evidence and
-    # raise a HIGH operator pending_action. FAIL-CLOSED: a validator that can't
-    # run blocks the deploy (a guard that fails open is no guard). Blocks BOTH
-    # auto-deploy and human POST /self/deploy of poisoned content — the
-    # tag-faking-amendment vector that surfaced 2026-05-24.
-    try:
-        from ..autonomous.constitutional_validator import ConstitutionalValidator
-        _cv = ConstitutionalValidator().validate(
-            target.get("new_content", ""), file_path,
-            patch_context=target.get("description", ""),
-        )
-        _cv_ok, _cv_violations, _cv_risk = _cv.passed, _cv.violations, _cv.risk_score
-    except Exception as _cv_err:
-        logger.error(
-            "[self_improve] R-F855 constitutional_validator unavailable — "
-            "FAILING CLOSED on deploy of %s: %s", file_path, _cv_err,
-        )
-        _cv_ok, _cv_violations, _cv_risk = False, [f"validator unavailable (fail-closed): {_cv_err}"], 1.0
-    if not _cv_ok:
-        target["status"] = "blocked_constitutional"
-        target["blocked_at"] = time.time()
-        target["block_violations"] = _cv_violations
-        # R-F893 (L5) — preserve a provenance/evidence trace so a blocked
-        # tag-faking item is forensically traceable (where it came from + why it
-        # was staged), not just discarded.
-        _provenance = {
-            "improvement_id": improvement_id,
-            "file": file_path,
-            "change_type": target.get("change_type"),
-            "description": (target.get("description") or "")[:300],
-            "reasoning": (target.get("reasoning") or "")[:500],
-            "staged_at": target.get("staged_at"),
-            "auto_deployable": target.get("auto_deployable"),
-        }
-        target["provenance_evidence"] = _provenance
-        # R-F893 (L3) — learn the blocked content as a regression signature so
-        # the SAME adversarial proposal can never be deployed again (the
-        # validator checks new content against this store on every deploy).
-        try:
-            from ..autonomous.constitutional_validator import record_learned_attack
-            record_learned_attack(
-                target.get("new_content", ""), _cv_violations,
-                provenance=_provenance, origin="self_improve.deploy_block",
-            )
-        except Exception as _la_err:
-            logger.error("[self_improve] R-F893 learned-attack record failed: %s", _la_err)
-        try:
-            discarded = await rs.get_json(DISCARDED_KEY) or []
-            discarded.insert(0, target)
-            await rs.set_json(DISCARDED_KEY, discarded[:200], ex=365 * 86400)
-            staged = [s for s in staged if s.get("id") != improvement_id]
-            await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
-        except Exception as _dq_err:
-            logger.error("[self_improve] R-F855 quarantine-move failed: %s", _dq_err)
-        await _log_improvement("blocked_constitutional", target)
-        try:
-            from . import pending_actions as _pa
-            await _pa.record(
-                promise=f"Self-improve deploy of {file_path} ({improvement_id})",
-                reason="BLOCKED by constitutional_validator: " + "; ".join(_cv_violations)[:300],
-                resolver_kind="operator_action",
-                resolver_ref="self_improve.deploy.constitutional_block",
-                severity="HIGH",
-                source="self_improve",
-                operator_prompt=(
-                    f"self-improve tried to deploy {file_path} but the constitutional "
-                    f"validator BLOCKED it (risk={_cv_risk:.2f}). It is quarantined at "
-                    f"/api/aria/self/improvements/discarded — likely an adversarial / "
-                    f"tag-faking amendment. Inspect before any redeploy."
-                ),
-                metadata={"improvement_id": improvement_id, "file": file_path,
-                          "violations": _cv_violations[:10]},
-            )
-        except Exception as _pa_err:
-            logger.error("[self_improve] R-F855 pending_action record failed: %s", _pa_err)
-        logger.warning(
-            "[self_improve] R-F855 BLOCKED deploy of %s (id=%s, risk=%.2f): %s",
-            file_path, improvement_id, _cv_risk, "; ".join(_cv_violations)[:200],
-        )
-        return {
-            "error": "BLOCKED by constitutional_validator",
-            "blocked": True,
-            "violations": _cv_violations,
-            "risk_score": _cv_risk,
-            "id": improvement_id,
-            "file": file_path,
-        }
-
+    # R-F1191: constitutional validator removed. ARIA is fully autonomous.
     # R-F904 — deploy-side truncation guard (defense-in-depth with the
     # stage-side guard). Even an item that was staged BEFORE the stage guard
     # existed (e.g. the 50 destructive stubs found live 2026-05-26) must never

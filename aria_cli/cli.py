@@ -551,8 +551,7 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
 
     llm = LLMClient(cfg)
     system_prompt = build_system_prompt(
-        root=cwd, self_mode=self_mode, constitution_active=guard.constitution_active,
-        repo_root=repo_root)
+        root=cwd, self_mode=self_mode, repo_root=repo_root)
     ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color)
     toolbox.on_output = ui.tool_output
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,

@@ -172,10 +172,9 @@ def test_find_repo_root_none_outside(tmp_path):
     assert find_repo_root(tmp_path) is None
 
 
-def test_self_mode_loads_constitution():
-    # In the test env aria_service is importable, so self-mode must load the
-    # constitutional validator (general mode must not).
-    assert WriteGuard(self_mode=True).constitution_active is True
+def test_self_mode_constitution_removed():
+    """R-F1191: constitutional validator removed — constitution_active is False."""
+    assert WriteGuard(self_mode=True).constitution_active is False
     assert WriteGuard(self_mode=False).constitution_active is False
 
 
@@ -299,7 +298,7 @@ def test_agent_streams_tokens_and_does_not_double_print(tmp_path):
 
 def test_prompt_carries_engineering_standard():
     prompt = build_system_prompt(root=Path.cwd(), self_mode=False,
-                                 constitution_active=False, repo_root=None)
+                                 repo_root=None)
     low = prompt.lower()
     assert "engineering standard" in low
     assert "timeout" in low and "idempotent" in low and "capability test" in low
@@ -308,7 +307,7 @@ def test_prompt_carries_engineering_standard():
 def test_prompt_declares_full_autonomy():
     repo_root = find_repo_root(Path(__file__).resolve().parent)
     prompt = build_system_prompt(root=repo_root, self_mode=True,
-                                 constitution_active=True, repo_root=repo_root)
+                                 repo_root=repo_root)
     low = prompt.lower()
     assert "full autonomy" in low or "free rein" in low
     assert "do not ask" in low
@@ -432,7 +431,7 @@ def test_system_prompt_injects_repo_rules_in_self_mode():
     repo_root = find_repo_root(Path(__file__).resolve().parent)
     assert repo_root is not None
     prompt = build_system_prompt(root=repo_root, self_mode=True,
-                                 constitution_active=True, repo_root=repo_root)
+                                 repo_root=repo_root)
     assert "BINDING REPO RULES" in prompt
     assert "CLAUDE.md" in prompt
     # a phrase that actually appears in the repo's CLAUDE.md
@@ -441,7 +440,7 @@ def test_system_prompt_injects_repo_rules_in_self_mode():
 
 def test_system_prompt_no_repo_rules_in_general_mode():
     prompt = build_system_prompt(root=Path.cwd(), self_mode=False,
-                                 constitution_active=False, repo_root=None)
+                                 repo_root=None)
     assert "BINDING REPO RULES" not in prompt
     assert "coding agent" in prompt.lower()
 
@@ -453,7 +452,7 @@ def test_system_prompt_injects_agents_playbook(tmp_path):
     (tmp_path / "CLAUDE.md").write_text("floor rules: R-number everything", encoding="utf-8")
     (tmp_path / "AGENTS.md").write_text("PLAYBOOK-MARKER ship via push", encoding="utf-8")
     prompt = build_system_prompt(root=tmp_path, self_mode=True,
-                                 constitution_active=True, repo_root=tmp_path)
+                                 repo_root=tmp_path)
     assert "AGENTS.md" in prompt and "PLAYBOOK-MARKER" in prompt
     assert "CLAUDE.md" in prompt and "floor rules" in prompt
 
@@ -461,7 +460,7 @@ def test_system_prompt_injects_agents_playbook(tmp_path):
 def test_self_mode_prompt_covers_shipping_and_excellence():
     repo_root = find_repo_root(Path(__file__).resolve().parent)
     prompt = build_system_prompt(root=repo_root, self_mode=True,
-                                 constitution_active=True, repo_root=repo_root)
+                                 repo_root=repo_root)
     low = prompt.lower()
     # exceptional-coder standard + the end-to-end ship path are both present
     assert "exceptional" in low

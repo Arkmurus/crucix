@@ -454,11 +454,10 @@ def _make_coder():
         },
     )
     coder.r_counter.next = AsyncMock(return_value=812)
-    from aria_service.autonomous.constitutional_validator import (
-        ValidationResult,
-    )
+    # R-F1191: constitutional validator removed — set a mock validator
+    coder.validator = MagicMock()
     coder.validator.validate = MagicMock(
-        return_value=ValidationResult(passed=True),
+        return_value=type("VR", (), {"passed": True, "violations": [], "risk_score": 0.0})(),
     )
     from aria_service.autonomous.test_runner import TestResult
     coder.test_runner.run_isolated = AsyncMock(

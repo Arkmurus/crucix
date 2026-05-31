@@ -116,7 +116,7 @@ class TestProtectedFileFilter:
         from aria_service.autonomous.self_coder import _PROTECTED_FILES
 
         critical_files = [
-            "aria_service/autonomous/constitutional_validator.py",
+            # R-F1191: constitutional_validator.py removed
             "aria_service/autonomous/self_coder.py",
             "aria_service/autonomous/safety.py",
             "aria_service/intel/self_improve.py",

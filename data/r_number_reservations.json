@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1189,
+  "next_available": 1193,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6382,6 +6382,44 @@
       "r_number": "R-F1188",
       "title": "Bulletproof deploy system overhaul — dedup, rollback fix, cleanup, brain wiring",
       "claimed_at": "2026-05-31T15:54:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8610fa0e",
+      "notes": null,
+      "shipped_at": "2026-05-31T16:08:12Z"
+    },
+    {
+      "r_number": "R-F1189",
+      "title": "ARIA Coder UI — full-featured coding interface with split-pane, directives panel, and live status",
+      "claimed_at": "2026-05-31T16:05:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5bdf8fcb",
+      "notes": null,
+      "shipped_at": "2026-05-31T16:13:23Z"
+    },
+    {
+      "r_number": "R-F1190",
+      "title": "ARIA can self-deploy — flyctl via subprocess with constitutional bypass for deploy only",
+      "claimed_at": "2026-05-31T16:09:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1191",
+      "title": "Remove constitutional validator — ARIA self-improves freely, guarded only by cost/rate limits",
+      "claimed_at": "2026-05-31T16:11:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1192",
+      "title": "Wire coder UI to self-coding backend",
+      "claimed_at": "2026-05-31T16:22:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
