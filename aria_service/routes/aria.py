@@ -4476,7 +4476,11 @@ def _detect_tool_intent(message: str) -> dict | None:
         if dom:
             url = "https://" + dom.group(0).lstrip("/")
 
-        has_investigate = bool(_INVESTIGATE_KW.search(msg))
+    # R-F1173 — has_investigate must be defined OUTSIDE the if block
+    # so it's available when a URL IS present (the if not url: branch
+    # is skipped). Previously it was indented under if not url:, which
+    # caused UnboundLocalError when a URL was found.
+    has_investigate = bool(_INVESTIGATE_KW.search(msg))
     has_crawl       = bool(_CRAWL_KW.search(msg))
     has_read        = bool(_READ_KW.search(msg))
     has_profile     = bool(_PROFILE_KW.search(msg))
