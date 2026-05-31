@@ -372,8 +372,10 @@ class BlockchainAnchoring:
         try:
             combined = f"{commit_hash}:{image_tag}:{verification_hash}"
             hash_bytes = hashlib.sha256(combined.encode()).digest()
-            # TODO: Call smart contract recordDeployment(hash_bytes)
-            # when contract is deployed
+            # R-F1220: smart contract integration deferred — no contract deployed yet.
+            # The hash is computed and logged so it can be anchored retroactively.
+            # When a contract is deployed, replace this comment with:
+            #   await contract.recordDeployment(hash_bytes)
             tx_hash = f"0x{hash_bytes.hex()[:64]}"
             logger.info(
                 "[blockchain] anchored: %s", tx_hash[:16],

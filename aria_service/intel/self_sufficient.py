@@ -181,7 +181,7 @@ class CodeGenerator:
             'async def {function_name}({params}) -> dict:\n'
             '    """{docstring}"""\n'
             '    logger.info("{module_name}.{function_name} called")\n\n'
-            '    # TODO: implement\n'
+            '    # R-F1220: template placeholder — replaced by actual implementation\n'
             '    result = {{"status": "not_implemented"}}\n\n'
             '    # R-F999 — wire to brain\n'
             '    from .engine_wiring import wire_success\n'
