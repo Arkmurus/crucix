@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Signup Vault — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-key"></i> Agent Signup Vault</h1>
+    <p class="sc-page-sub">Every site/portal that DD agents have signed up to — unified registry.</p>
+  </div>
+
+  <!-- Summary row -->
+  <div class="sc-grid-4 mb-16" id="vault-summary">
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="vault-total">—</div><div class="sc-stat-label">Total Sites</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="vault-verified">—</div><div class="sc-stat-label">Verified</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-person-check"></i></div><div><div class="sc-stat-value" id="vault-registered">—</div><div class="sc-stat-label">Registered</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass"></i></div><div><div class="sc-stat-value" id="vault-pending">—</div><div class="sc-stat-label">Pending</div></div></div>
+  </div>
+  <div class="sc-grid-2 mb-24" id="vault-summary-2">
+    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-failed">—</div><div class="sc-stat-label">Failed</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="vault-stale">—</div><div class="sc-stat-label">Stale (30d+)</div></div></div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="sc-card mb-16">
+    <div style="padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <select id="vault-filter-status" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:7px 12px;font-size:13px;color:rgba(255,255,255,0.8);min-width:130px">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="registered">Registered</option>
+        <option value="verified">Verified</option>
+        <option value="failed">Failed</option>
+        <option value="expired">Expired</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+      <input id="vault-filter-agent" type="text" placeholder="Agent ID" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:7px 12px;font-size:13px;color:rgba(255,255,255,0.8);min-width:140px">
+      <input id="vault-filter-search" type="text" placeholder="Search site name, URL, or notes" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:7px 12px;font-size:13px;color:rgba(255,255,255,0.8);flex:1;min-width:180px">
+      <button class="sc-btn sc-btn-sm" id="btn-vault-filter" style="background:#7c3aed;color:#fff;border:none;padding:7px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+        <i class="bi bi-search"></i> Filter
+      </button>
+      <button class="sc-btn sc-btn-sm" id="btn-vault-clear" style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.6);padding:7px 12px;border-radius:6px;font-size:13px;cursor:pointer">
+        <i class="bi bi-x"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Vault table -->
+  <div class="sc-card">
+    <div style="padding:0">
+      <table class="sc-table" id="vault-table">
+        <thead><tr>
+          <th>Site</th>
+          <th>URL</th>
+          <th>Agent</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Updated</th>
+          <th>Verified</th>
+        </tr></thead>
+        <tbody id="vault-body"><tr><td colspan="7" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-16" style="font-size:12px;color:rgba(255,255,255,0.35);padding:0 4px">
+    <i class="bi bi-info-circle"></i> Vault is SQLite-backed. Data persists across restarts.
+    API: <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">GET /api/aria/vault</code>
+  </div>
+</main>
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+Sidebar.init('vault');
+
+const STATUS_CONFIG = {
+  pending:   { icon: 'bi-hourglass',      color: '#f59e0b' },
+  registered:{ icon: 'bi-person-check',   color: '#3b82f6' },
+  verified:  { icon: 'bi-check-circle',   color: '#22c55e' },
+  failed:    { icon: 'bi-x-circle',       color: '#ef4444' },
+  expired:   { icon: 'bi-clock',          color: '#9ca3af' },
+  cancelled: { icon: 'bi-x-octagon',      color: '#6b7280' },
+};
+
+function statusHtml(status) {
+  const cfg = STATUS_CONFIG[status] || { icon: 'bi-question', color: '#9ca3af' };
+  return `<span style="display:inline-flex;align-items:center;gap:5px">
+    <i class="bi ${cfg.icon}" style="color:${cfg.color};font-size:14px"></i>
+    <span style="color:${cfg.color};font-weight:600;text-transform:capitalize">${escHtml(status || 'unknown')}</span>
+  </span>`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '<span style="color:rgba(255,255,255,0.3)">—</span>';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+async function loadVault() {
+  const status = document.getElementById('vault-filter-status').value;
+  const agent = document.getElementById('vault-filter-agent').value.trim();
+  const search = document.getElementById('vault-filter-search').value.trim();
+
+  let url = '/api/aria/vault?limit=100';
+  if (status) url += '&status=' + encodeURIComponent(status);
+  if (agent) url += '&agent_id=' + encodeURIComponent(agent);
+  if (search) url += '&search=' + encodeURIComponent(search);
+
+  const body = document.getElementById('vault-body');
+  body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr>';
+
+  try {
+    const data = await API.get(url);
+    if (!data || !data.success) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:rgba(255,255,255,0.4)">Failed to load vault.</td></tr>';
+      return;
+    }
+
+    const entries = data.entries || [];
+    const stats = data.stats || {};
+
+    // Update summary cards
+    document.getElementById('vault-total').textContent = stats.total || 0;
+    document.getElementById('vault-verified').textContent = (stats.by_status && stats.by_status.verified) || 0;
+    document.getElementById('vault-registered').textContent = (stats.by_status && stats.by_status.registered) || 0;
+    document.getElementById('vault-pending').textContent = (stats.by_status && stats.by_status.pending) || 0;
+    document.getElementById('vault-failed').textContent = (stats.by_status && stats.by_status.failed) || 0;
+    document.getElementById('vault-stale').textContent = stats.stale_unverified || 0;
+
+    if (!entries.length) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:rgba(255,255,255,0.4)">' +
+        '<i class="bi bi-key" style="font-size:32px;display:block;margin-bottom:8px;color:rgba(255,255,255,0.15)"></i>' +
+        'No signup entries found. Use the API to record signups, or import from portal_registry.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = entries.map(e => {
+      const urlDisplay = (e.site_url || '').length > 45
+        ? escHtml(e.site_url).slice(0, 45) + '...'
+        : escHtml(e.site_url || '');
+      return `<tr>
+        <td><strong>${escHtml(e.site_name || '')}</strong><div style="font-size:11px;color:rgba(255,255,255,0.35)">${escHtml(e.site_id || '')}</div></td>
+        <td><a href="${escHtml(e.site_url || '#')}" target="_blank" style="color:#7c3aed;font-size:12px;text-decoration:none" title="${escHtml(e.site_url || '')}">${urlDisplay}</a></td>
+        <td style="font-size:13px"><i class="bi bi-person" style="margin-right:4px;color:rgba(255,255,255,0.4)"></i>${escHtml(e.agent_id || '')}</td>
+        <td>${statusHtml(e.status)}</td>
+        <td style="font-size:12px;color:rgba(255,255,255,0.5)">${fmtDate(e.created_at)}</td>
+        <td style="font-size:12px;color:rgba(255,255,255,0.5)">${fmtDate(e.updated_at)}</td>
+        <td style="font-size:12px;color:rgba(255,255,255,0.5)">${fmtDate(e.last_verified_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#ef4444">Load error: ' + escHtml(err.message) + '</td></tr>';
+  }
+}
+
+// Event listeners
+document.getElementById('btn-vault-filter').addEventListener('click', loadVault);
+document.getElementById('btn-vault-clear').addEventListener('click', () => {
+  document.getElementById('vault-filter-status').value = '';
+  document.getElementById('vault-filter-agent').value = '';
+  document.getElementById('vault-filter-search').value = '';
+  loadVault();
+});
+
+// Enter key in search field triggers filter
+document.getElementById('vault-filter-search').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadVault();
+});
+
+// Initial load
+loadVault();
+
+// Auto-refresh every 60s
+setInterval(loadVault, 60000);
+</script>
+</body>
+</html>

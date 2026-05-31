@@ -248,6 +248,7 @@ const Sidebar = {
         <div class="sidebar-divider"></div>
         <div class="sidebar-section">System</div>
         ${link('sources', '/sources.html', 'bi-activity', 'Source Health')}
+        ${link('vault',   '/vault.html',   'bi-key', 'Signup Vault')}
         ${link('brain',   '/aria-brain',   'bi-heart-pulse', 'ARIA Brain')}
         ${link('status',  '/status.html',  'bi-broadcast-pin', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text', 'Model Card')}
@@ -305,6 +306,9 @@ const Sidebar = {
             </a>
             <a href="/sources.html" class="nav-dropdown-item">
               <i class="bi bi-activity"></i> Source Health
+            </a>
+            <a href="/vault.html" class="nav-dropdown-item">
+              <i class="bi bi-key"></i> Signup Vault
             </a>
             <div class="nav-dropdown-divider"></div>
             <button class="nav-dropdown-item danger" id="btn-logout">
