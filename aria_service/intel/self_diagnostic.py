@@ -527,77 +527,77 @@ _MODULES: list[dict] = [
     {
         "name": "stream_honesty",
         "module": "aria_service.intel.stream_honesty",
-        "entry": "check_response",
+        "entry": "apply_stream_honesty",
         "brain_registered": False,
         "critical": True,  # streaming path honesty guard
     },
     {
         "name": "tool_claim_guard",
         "module": "aria_service.intel.tool_claim_guard",
-        "entry": "scan_response",
+        "entry": "guard",
         "brain_registered": False,
         "critical": True,  # tool-claim hallucination guard
     },
     {
         "name": "sanctions_claim_guard",
         "module": "aria_service.intel.sanctions_claim_guard",
-        "entry": "scan_response",
+        "entry": "guard_context_block",
         "brain_registered": False,
         "critical": True,  # sanctions-claim hallucination guard
     },
     {
         "name": "ground_truth_guard",
         "module": "aria_service.intel.ground_truth_guard",
-        "entry": "scan_response",
+        "entry": "verify",
         "brain_registered": False,
         "critical": True,  # ground-truth hallucination guard
     },
     {
         "name": "reasoning_library",
         "module": "aria_service.intel.reasoning_library",
-        "entry": "get_reasoning",
+        "entry": "record_response",
         "brain_registered": False,
         "critical": False,
     },
     {
         "name": "regional_navigation",
         "module": "aria_service.intel.regional_navigation",
-        "entry": "get_navigation",
+        "entry": "get_regional_context",
         "brain_registered": False,
         "critical": False,
     },
     {
         "name": "sanctions_divergence",
         "module": "aria_service.intel.sanctions_divergence",
-        "entry": "detect_divergence",
+        "entry": "analyze_divergence",
         "brain_registered": False,
         "critical": True,  # sanctions divergence detection
     },
     {
         "name": "autonomous_scheduler",
         "module": "aria_service.intel.autonomous_scheduler",
-        "entry": "run_cycle",
+        "entry": "AutonomousScheduler",
         "brain_registered": True,
         "critical": True,  # autonomous task scheduler
     },
     {
         "name": "autonomy_scorer",
         "module": "aria_service.intel.autonomy_scorer",
-        "entry": "composite_score",
+        "entry": "compute_composite",
         "brain_registered": True,
         "critical": True,  # autonomy scoring engine
     },
     {
         "name": "operating_modes",
         "module": "aria_service.intel.operating_modes",
-        "entry": "determine_mode",
+        "entry": "get_mode",
         "brain_registered": True,
         "critical": True,  # operating mode determination
     },
     {
         "name": "calibration_review",
         "module": "aria_service.intel.calibration_review",
-        "entry": "run_calibration",
+        "entry": "run_calibration_review",
         "brain_registered": True,
         "critical": True,  # calibration review engine
     },
@@ -639,28 +639,28 @@ _MODULES: list[dict] = [
     {
         "name": "self_healing",
         "module": "aria_service.intel.self_healing",
-        "entry": "heal",
+        "entry": "start_self_healing",
         "brain_registered": True,
         "critical": True,  # self-healing engine
     },
     {
         "name": "self_restart",
         "module": "aria_service.intel.self_restart",
-        "entry": "restart_if_needed",
+        "entry": "start_blackout_detector",
         "brain_registered": True,
         "critical": True,  # self-restart system
     },
     {
         "name": "dead_letter_queue",
         "module": "aria_service.intel.dead_letter_queue",
-        "entry": "process",
+        "entry": "enqueue",
         "brain_registered": True,
         "critical": True,  # dead letter queue
     },
     {
         "name": "circuit_breaker",
         "module": "aria_service.intel.circuit_breaker",
-        "entry": "check",
+        "entry": "get_breaker",
         "brain_registered": True,
         "critical": True,  # circuit breaker
     },

@@ -245,6 +245,26 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "bd_strategy":          ["market_intel", "competitor_intel", "general"],
     # R-F1055 -- professional engagement layer
     "engagement":           ["general"],
+    # R-F1226 -- System Health fixes: modules that were signalling brain
+    # but never registered, showing as ⚠ on System Health dashboard.
+    "crawl_enhancements":   ["osint", "general"],
+    "compliance_watch":     ["compliance", "legal", "general"],
+    "self_claim_guard":     ["compliance", "general"],
+    "capability_gaps":      ["general", "compliance"],
+    "error_log_handler":    ["general", "compliance"],
+    "engine_wiring":        ["general"],
+    "wiring_monitor":       ["general", "compliance"],
+    "stream_honesty":       ["general", "compliance"],
+    "reasoning_library":    ["general", "osint"],
+    "regional_navigation":  ["osint", "general"],
+    "sanctions_divergence": ["compliance", "legal"],
+    "autonomous_scheduler": ["general"],
+    "autonomy_scorer":      ["general"],
+    "operating_modes":      ["general"],
+    "calibration_review":   ["general", "compliance"],
+    "self_restart":         ["general"],
+    "dead_letter_queue":    ["general", "compliance"],
+    "circuit_breaker":      ["general", "compliance"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
