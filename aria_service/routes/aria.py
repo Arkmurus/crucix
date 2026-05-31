@@ -8513,7 +8513,13 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 except Exception as _te:
                     _log.warning("R-F737 tool execution failed in stream: %s", _te)
                     tool_context = ""
-                yield f'data: {json.dumps({"type":"progress","stage":"tool_done","tool":tool_used,"message":"Tool complete — composing answer…"})}\n\n'
+                # R-F1176 - Send raw tool result as preliminary chunk BEFORE LLM
+                if tool_context and len(tool_context) > 100:
+                    _preliminary = tool_context[:3000]
+                    yield f'data: {json.dumps({"type":"chunk","text":"[PRELIMINARY FINDINGS - I have the data. Full analysis follows...]\n\n"})}\n\n'
+                    yield f'data: {json.dumps({"type":"chunk","text":_preliminary})}\n\n'
+                    yield f'data: {json.dumps({"type":"chunk","text":"\n\n[END PRELIMINARY - Full analysis below]\n\n"})}\n\n'
+                yield f'data: {json.dumps({"type":"progress","stage":"tool_done","tool":tool_used,"message":"Tool complete - composing answer..."})}\n\n'
             else:
                 yield f'data: {json.dumps({"type":"progress","stage":"no_tool","message":"No tool needed — composing answer…"})}\n\n'
 
