@@ -1,4 +1,11 @@
-"""R-F1009 — ARIA Infrastructure Health Monitor & BD Pipeline Verifier."""
+"""R-F1009 — ARIA Infrastructure Health Monitor & BD Pipeline Verifier.
+
+DEPRECATED (R-F1207): Superseded by the self-healing infrastructure
+(aria_service/intel/self_healing.py) which provides health checks,
+circuit breakers, auto-recovery, WAL, ecosystem repair, and self-diagnostic
+across all 6 layers. This module is kept for reference but NOT started
+in production. Do not wire into main.py.
+"""
 from __future__ import annotations
 
 import asyncio

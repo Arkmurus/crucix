@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1206,
+  "next_available": 1209,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6541,14 +6541,44 @@
       "title": "Web Integrity Agent — 24/7 accuracy monitoring for aria-web",
       "claimed_at": "2026-05-31T17:46:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ee332b68",
+      "notes": null,
+      "shipped_at": "2026-05-31T17:57:18Z"
     },
     {
       "r_number": "R-F1205",
       "title": "Fix _BoxChars missing right-tee (mr) property — banner uses ╠ on both sides",
       "claimed_at": "2026-05-31T17:46:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ef056351",
+      "notes": null,
+      "shipped_at": "2026-05-31T17:48:31Z"
+    },
+    {
+      "r_number": "R-F1206",
+      "title": "Fix banner box alignment, add missing CLI functions, enable operator chat mid-coding",
+      "claimed_at": "2026-05-31T17:51:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "26a50b22",
+      "notes": null,
+      "shipped_at": "2026-05-31T17:57:54Z"
+    },
+    {
+      "r_number": "R-F1207",
+      "title": "Agent hardening: wire WebIntegrityAgent, register all agents, fix stubs, mark superseded",
+      "claimed_at": "2026-05-31T18:04:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1208",
+      "title": "Fix banner box alignment with ANSI-colored content",
+      "claimed_at": "2026-05-31T18:06:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

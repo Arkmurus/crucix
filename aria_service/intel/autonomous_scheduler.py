@@ -95,14 +95,39 @@ class AutonomousScheduler:
             await asyncio.sleep(interval)
 
     async def _fix_gaps(self) -> None:
-        """Scan for gaps and fix them."""
+        """Scan for gaps and fix them using the ARIACoder pipeline.
+
+        Wired to the real gap detection (R-F1207). Scans Redis error-ledger,
+        chat-audit, capability-gaps, and mistake-ledger signals, then feeds
+        actionable gaps to the ARIACoder for autonomous remediation.
+        """
         try:
             from .gap_detector import GapDetector
-            from ..intel.autonomous_coder import AutonomousCoder
-            
-            # This would use Redis in production
-            logger.info("[scheduler] scanning for gaps")
-            # In production: gap_detector.scan() -> AutonomousCoder.full_fix_cycle()
+            from ..autonomous.self_coder import ARIACoder
+
+            logger.info("[scheduler] scanning for gaps via GapDetector")
+            detector = GapDetector()
+            gaps = await detector.scan()
+            if gaps:
+                logger.info(
+                    "[scheduler] found %d gaps — feeding to ARIACoder",
+                    len(gaps),
+                )
+                coder = ARIACoder(gap_detector=detector)
+                for gap in gaps[:5]:  # Process top 5 per cycle
+                    try:
+                        result = await coder.fix_gap(gap)
+                        logger.info(
+                            "[scheduler] gap %s: %s",
+                            gap.gap_id, result.get("status", "unknown"),
+                        )
+                    except Exception as _fix_e:
+                        logger.warning(
+                            "[scheduler] fix_gap failed for %s: %s",
+                            gap.gap_id, _fix_e,
+                        )
+            else:
+                logger.info("[scheduler] no gaps found")
         except Exception as e:
             logger.debug("[scheduler] gap fix skipped: %s", e)
 

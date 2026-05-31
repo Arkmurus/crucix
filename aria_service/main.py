@@ -16,6 +16,7 @@ import logging
 import os as _os
 import time
 from contextlib import asynccontextmanager
+from typing import Any, Optional
 
 import json
 
@@ -1004,6 +1005,89 @@ async def lifespan(app: FastAPI):
         research_task = asyncio.create_task(_research_loop())
         logger.info("Research scheduler started (every 30min)")
 
+    # ── R-F1207: Register all background loops in the agent registry ─────
+    # Every autonomous loop registers itself so the multi-agent awareness
+    # protocol (R-F1160) can see who's running, what they're doing, and
+    # detect stale/dead agents. Registration is best-effort (non-fatal).
+    async def _register_agent(agent_id: str, agent_type: str, task: str) -> None:
+        try:
+            from .intel.agent_registry import AgentRegistry
+            _reg = AgentRegistry()
+            await _reg.register(agent_id, agent_type, current_task=task)
+        except Exception:
+            pass
+
+    # Register research engine
+    if research_enabled:
+        asyncio.create_task(_register_agent(
+            "research_engine", "autonomous_research",
+            "RSS feeds → fact extraction → hypothesis validation (every 30min)",
+        ))
+
+    # Register self-improvement engine
+    if llm and llm.is_configured:
+        asyncio.create_task(_register_agent(
+            "self_improve", "autonomous_self_improve",
+            "Error-ledger analysis → bug detection → auto-fix → auto-deploy (every 2h)",
+        ))
+
+    # Register student loops
+    asyncio.create_task(_register_agent(
+        "student_quiz", "student_brain",
+        "Self-quiz on weak topics, mastery tracking (every 3h)",
+    ))
+    asyncio.create_task(_register_agent(
+        "student_reading", "student_brain",
+        "Study articles on weak topics (every 6h)",
+    ))
+    asyncio.create_task(_register_agent(
+        "library_consolidation", "student_brain",
+        "Archive stale reasoning cases (daily)",
+    ))
+
+    # Register proactive watch
+    asyncio.create_task(_register_agent(
+        "proactive_watch", "proactive_engine",
+        "Daily briefing trigger + mastery prep (hourly)",
+    ))
+
+    # Register weekly report
+    asyncio.create_task(_register_agent(
+        "weekly_report", "reporting_engine",
+        "Weekly learning report (Monday 06-08 UTC)",
+    ))
+
+    # Register watchlist re-screen
+    asyncio.create_task(_register_agent(
+        "watchlist_rescreen", "dd_engine",
+        "Re-screen DD watchlist entities against sanctions/PEP (daily)",
+    ))
+
+    # Register tender monitor
+    asyncio.create_task(_register_agent(
+        "tender_monitor", "procurement_engine",
+        "Crawl defence procurement portals (every 6h)",
+    ))
+
+    # Register crawler
+    if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+        asyncio.create_task(_register_agent(
+            "web_crawler", "search_index",
+            "Web crawl seed domains for search index (every 6h)",
+        ))
+
+    # Register Web Integrity Agent (started below)
+    asyncio.create_task(_register_agent(
+        "web_integrity", "monitoring",
+        "24/7 endpoint monitoring, input/output validation, error pattern detection",
+    ))
+
+    # Register self-healing (already done in start_self_healing, but ensure it's registered)
+    asyncio.create_task(_register_agent(
+        "self_healing", "infrastructure",
+        "Health checks, circuit breakers, auto-recovery, ecosystem repair",
+    ))
+
     # Start autonomous self-improvement loop (every 2 hours)
     self_improve_task = None
     if llm and llm.is_configured:
@@ -1608,6 +1692,28 @@ async def lifespan(app: FastAPI):
             "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
         )
 
+    # R-F1207 — start Web Integrity Agent (24/7 endpoint monitoring)
+    # Monitors all 14 web endpoints every 60s, validates inputs/outputs,
+    # detects error patterns, and stages fixes for recurring issues.
+    # Implements all 7 binding directives from the operator:
+    #   1. Verify every input   2. Verify every output   3. Monitor 24/7
+    #   4. Cross-agent comms    5. Zero tolerance         6. Self-healing
+    #   7. Never silent
+    web_integrity_agent: Optional[Any] = None
+    try:
+        from .intel.web_integrity_agent import WebIntegrityAgent
+        web_integrity_agent = WebIntegrityAgent(
+            aria_service_url=f"http://localhost:{settings.effective_port}",
+            redis_store=rs if _state_connect_ok else None,
+        )
+        await web_integrity_agent.start()
+        logger.info(
+            "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
+            len(getattr(WebIntegrityAgent, 'WEB_ENDPOINTS', [])),
+        )
+    except Exception as _wia_e:
+        logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
 
     # R-F1051 -- start self-healing infrastructure
@@ -1645,6 +1751,14 @@ async def lifespan(app: FastAPI):
         logger.info("[R-F1146] Self-restart blackout detector stopped")
     except Exception:
         logger.warning("[R-F1146] Self-restart shutdown failed (non-fatal)")
+
+    # R-F1207 -- stop Web Integrity Agent
+    if web_integrity_agent is not None:
+        try:
+            await web_integrity_agent.stop()
+            logger.info("[R-F1207] Web Integrity Agent stopped")
+        except Exception as _wia_e:
+            logger.warning("[R-F1207] Web Integrity Agent stop failed: %s", _wia_e)
 
     try:
         from .autonomous import engine as _autonomous_engine

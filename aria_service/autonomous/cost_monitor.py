@@ -2,6 +2,13 @@
 # ARIA v3.1 — Cost Circuit Breaker
 # aria_service/autonomous/cost_monitor.py
 #
+# NOTE (R-F1207): The ARIACostMonitor class in this module is SUPERSEDED
+# by the MeteredProvider wrapper (aria_service/llm/metered.py) which is
+# applied to the LLM provider at boot in main.py. Cost tracking, per-task
+# attribution, and circuit-breaking are handled by MeteredProvider +
+# cost_tracker.py. This module is kept for reference but NOT started
+# in production. Do not wire into main.py.
+#
 # PROBLEM THIS SOLVES (external review finding):
 #   "$1/day cap" is development-grade. In production with 34 scheduled
 #   tasks + deep research + full channel ingestion, costs can spike
