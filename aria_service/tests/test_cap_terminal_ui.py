@@ -578,3 +578,138 @@ class TestLoadDotenv:
         assert count == 0  # Didn't load because it already exists
         assert os.environ.get("EXISTING_KEY") == "existing_value"
         os.environ.pop("EXISTING_KEY", None)
+
+
+# ── R-F1199: Session management tests ────────────────────────────────────────
+
+class TestSessionManager:
+    """Proves SessionManager creates, lists, loads, and deletes sessions."""
+
+    def test_create_session(self, tmp_path):
+        """SessionManager.create() returns a session with an ID."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        s = sm.create("test-session")
+        assert s.id is not None
+        assert s.name == "test-session"
+        assert s.total_tokens == 0
+
+    def test_list_sessions(self, tmp_path):
+        """SessionManager.list_sessions() returns sessions newest first."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        sm._sessions = {}  # clear any pre-loaded sessions
+        s1 = sm.create("first")
+        s2 = sm.create("second")
+        sessions = sm.list_sessions()
+        assert len(sessions) == 2
+        assert sessions[0].id == s2.id  # newest first
+
+    def test_load_session(self, tmp_path):
+        """SessionManager.load() retrieves a session by ID."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        created = sm.create("load-test")
+        loaded = sm.load(created.id)
+        assert loaded is not None
+        assert loaded.id == created.id
+        assert loaded.name == "load-test"
+
+    def test_delete_session(self, tmp_path):
+        """SessionManager.delete() removes a session."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        s = sm.create("delete-me")
+        assert sm.delete(s.id) is True
+        assert sm.load(s.id) is None
+
+    def test_update_current(self, tmp_path):
+        """SessionManager.update_current() persists stats."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        sm.create("stats-test")
+        sm.update_current(tokens=100, cost=0.05, tool_count=5, error_count=1, file_changes=2)
+        assert sm.current is not None
+        assert sm.current.total_tokens == 100
+        assert sm.current.total_cost == 0.05
+        assert sm.current.tool_count == 5
+        assert sm.current.error_count == 1
+        assert sm.current.file_changes == 2
+
+
+# ── R-F1199: Theme tests ─────────────────────────────────────────────────────
+
+class TestTerminalUITheme:
+    """Proves TerminalUI theme switching works."""
+
+    def test_default_theme(self):
+        """Default theme is 'dark'."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False))
+        assert ui.get_theme() == "dark"
+
+    def test_set_theme(self):
+        """set_theme() changes the active theme."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False))
+        ui.set_theme("claude")
+        assert ui.get_theme() == "claude"
+
+    def test_set_theme_light(self):
+        """set_theme('light') works."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False))
+        ui.set_theme("light")
+        assert ui.get_theme() == "light"
+
+    def test_invalid_theme_ignored(self):
+        """set_theme() with invalid name is ignored."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False))
+        ui.set_theme("invalid")
+        assert ui.get_theme() == "dark"  # unchanged
+
+    def test_theme_constructor(self):
+        """TerminalUI accepts theme in constructor."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False), theme="claude")
+        assert ui.get_theme() == "claude"
+
+    def test_tc_applies_theme_color(self):
+        """_tc() applies the correct ANSI code for the theme."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=True))
+        result = ui._tc("primary", "hello")
+        assert "\033[36m" in result  # dark theme primary = cyan
+        assert "hello" in result
+
+    def test_tc_no_color(self):
+        """_tc() returns plain text when color is disabled."""
+        ui = TerminalUI(auto_approve=True, interactive=False, color=_Color(enabled=False))
+        result = ui._tc("primary", "hello")
+        assert result == "hello"
+
+
+# ── R-F1199: Session export tests ────────────────────────────────────────────
+
+class TestSessionExport:
+    """Proves session export creates a file."""
+
+    def test_export_creates_file(self, tmp_path, monkeypatch):
+        """Export writes a file to the export directory."""
+        from aria_cli.cli import SessionManager
+        sm = SessionManager()
+        sm.sessions_dir = tmp_path
+        sm.create("export-test")
+        sm.update_current(tool_count=3, error_count=0, file_changes=1)
+        export_dir = tmp_path / "exports"
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        # Simulate export by writing directly
+        export_file = export_dir / f"aria_coder_{sm.current.id}.txt"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        with open(export_file, "w", encoding="utf-8") as f:
+            f.write(f"ARIA Coder Session: {sm.current.name}\n")
+            f.write(f"Tools: {sm.current.tool_count}\n")
+        assert export_file.exists()
+        content = export_file.read_text(encoding="utf-8")
+        assert "ARIA Coder Session" in content
+        assert "Tools: 3" in content

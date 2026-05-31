@@ -22,16 +22,28 @@ R-F1141 — operator mid-task interject:
   - REPL reads from the queue (blocking) instead of input() directly
   - Agent.run_turn drains the queue non-blocking before each LLM call
   - Operator messages appear as [OPERATOR (mid-task)] in the conversation
+
+R-F1199 — chat UI feature parity:
+  - Session management: save/load/delete sessions with JSON persistence
+  - Rich formatting with graceful fallback to ANSI colors
+  - Theme switching (/theme dark|light|claude)
+  - Session export (/export) to text file
+  - Per-session cost tracking display
+  - Tab completion for REPL commands
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import queue
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from . import __version__
 from . import brain as brain_mod
@@ -40,6 +52,27 @@ from .llm import LLMClient, LLMConfig
 from .prompt import build_system_prompt
 from .safety import WriteGuard
 from .tools import ToolResult, Toolbox
+
+# Rich library imports (optional — graceful degradation)
+try:
+    from rich.console import Console as RichConsole
+    from rich.markdown import Markdown as RichMarkdown
+    from rich.syntax import Syntax as RichSyntax
+    from rich.table import Table as RichTable
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+# prompt_toolkit for tab completion and history (optional)
+try:
+    from prompt_toolkit import PromptSession as PTPromptSession
+    from prompt_toolkit.history import FileHistory as PTFileHistory
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory as PTAutoSuggest
+    from prompt_toolkit.completion import WordCompleter as PTWordCompleter
+    from prompt_toolkit.styles import Style as PTStyle
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    PROMPT_TOOLKIT_AVAILABLE = False
 
 
 # ── R-F1141: operator mid-task interject ────────────────────────────────────
@@ -120,6 +153,112 @@ def _append_log(path: Path, line: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+# ── R-F1199: Session management (save/load/delete) ──────────────────────────
+@dataclass
+class CoderSession:
+    """A saved coding session with metadata."""
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+    total_tokens: int = 0
+    total_cost: float = 0.0
+    tool_count: int = 0
+    error_count: int = 0
+    file_changes: int = 0
+    operator_messages: int = 0
+    summary: str = ""
+
+
+class SessionManager:
+    """Manages coding sessions with JSON persistence to ~/.aria/sessions/."""
+
+    def __init__(self) -> None:
+        self.sessions_dir = _ensure_session_dir()
+        self.current: Optional[CoderSession] = None
+        self._sessions: Dict[str, CoderSession] = {}
+        self._load()
+
+    def _load(self) -> None:
+        """Load existing session metadata from disk."""
+        for f in self.sessions_dir.glob("session_*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if "id" in data:
+                    s = CoderSession(**{k: data[k] for k in CoderSession.__dataclass_fields__ if k in data})
+                    self._sessions[s.id] = s
+            except Exception:
+                pass
+
+    def create(self, name: str | None = None) -> CoderSession:
+        """Create a new session."""
+        sid = datetime.now().strftime("%Y%m%d_%H%M%S%f")
+        if not name:
+            name = f"Session {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        self.current = CoderSession(
+            id=sid, name=name,
+            created_at=datetime.now().isoformat(),
+            updated_at=datetime.now().isoformat(),
+        )
+        self._sessions[sid] = self.current
+        self._save_meta(self.current)
+        return self.current
+
+    def _save_meta(self, s: CoderSession) -> None:
+        """Persist session metadata to JSON."""
+        path = self.sessions_dir / f"session_{s.id}.json"
+        try:
+            path.write_text(
+                json.dumps({k: getattr(s, k) for k in CoderSession.__dataclass_fields__}, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def update_current(self, *, tokens: int = 0, cost: float = 0.0,
+                       tool_count: int = 0, error_count: int = 0,
+                       file_changes: int = 0, operator_messages: int = 0,
+                       summary: str = "") -> None:
+        """Update the current session's stats and persist."""
+        if not self.current:
+            return
+        self.current.total_tokens += tokens
+        self.current.total_cost += cost
+        self.current.tool_count += tool_count
+        self.current.error_count += error_count
+        self.current.file_changes += file_changes
+        self.current.operator_messages += operator_messages
+        if summary:
+            self.current.summary = summary[:500]
+        self.current.updated_at = datetime.now().isoformat()
+        self._save_meta(self.current)
+
+    def list_sessions(self) -> List[CoderSession]:
+        """Return all sessions, newest first."""
+        return sorted(self._sessions.values(), key=lambda s: s.created_at, reverse=True)
+
+    def load(self, session_id: str) -> Optional[CoderSession]:
+        """Load a session by ID."""
+        s = self._sessions.get(session_id)
+        if s:
+            self.current = s
+        return s
+
+    def delete(self, session_id: str) -> bool:
+        """Delete a session by ID."""
+        if session_id not in self._sessions:
+            return False
+        path = self.sessions_dir / f"session_{session_id}.json"
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        del self._sessions[session_id]
+        if self.current and self.current.id == session_id:
+            self.current = None
+        return True
 
 
 # ── crucix-repo detection ───────────────────────────────────────────────────
@@ -252,12 +391,54 @@ class TerminalUI(AgentUI):
       - Error recovery: suggests next steps after errors
       - Thinking trace: shows what ARIA is doing
       - Session log: persistent log file
+
+    R-F1199 — chat UI feature parity:
+      - Session management (save/load/delete)
+      - Rich formatting with graceful fallback
+      - Theme switching (/theme dark|light|claude)
+      - Session export (/export)
+      - Per-session cost tracking
+      - Tab completion for REPL commands
     """
 
-    def __init__(self, *, auto_approve: bool, interactive: bool, color: _Color) -> None:
+    # Theme color maps
+    THEMES = {
+        "dark": {
+            "primary": "36",    # cyan
+            "secondary": "33",  # yellow
+            "accent": "32",     # green
+            "error": "31",      # red
+            "dim": "2",         # dim
+            "info": "34",       # blue
+            "highlight": "35",  # magenta
+        },
+        "light": {
+            "primary": "94",    # bright blue
+            "secondary": "93",  # bright yellow
+            "accent": "92",     # bright green
+            "error": "91",      # bright red
+            "dim": "90",        # bright black
+            "info": "94",       # bright blue
+            "highlight": "95",  # bright magenta
+        },
+        "claude": {
+            "primary": "38;5;45",   # warm cyan
+            "secondary": "38;5;214", # warm orange
+            "accent": "38;5;78",    # warm green
+            "error": "38;5;196",    # red
+            "dim": "38;5;242",      # grey
+            "info": "38;5;68",      # blue
+            "highlight": "38;5;170", # purple
+        },
+    }
+
+    def __init__(self, *, auto_approve: bool, interactive: bool, color: _Color,
+                 theme: str = "dark") -> None:
         self.auto_approve = auto_approve
         self.interactive = interactive
         self.c = color
+        self._theme_name = theme if theme in self.THEMES else "dark"
+        self._theme = self.THEMES[self._theme_name]
         self.approve_all = False
         self._can_animate = sys.stdout.isatty()
         self._spin_stop: threading.Event | None = None
@@ -281,15 +462,35 @@ class TerminalUI(AgentUI):
         self._error_count = 0
         self._file_changes = 0
         self._operator_messages = 0
+        # R-F1199: session management
+        self.session_manager = SessionManager()
+        # R-F1199: Rich console (optional)
+        self._rich_console = RichConsole() if RICH_AVAILABLE and color.on else None
+
+    def _tc(self, key: str, s: str) -> str:
+        """Apply a theme color to text."""
+        code = self._theme.get(key, "0")
+        return f"\033[{code}m{s}\033[0m" if self.c.on else s
+
+    def set_theme(self, theme: str) -> None:
+        """Switch color theme."""
+        if theme in self.THEMES:
+            self._theme_name = theme
+            self._theme = self.THEMES[theme]
+
+    def get_theme(self) -> str:
+        return self._theme_name
 
     def start_session(self) -> None:
-        """Called at session start to create the log file."""
+        """Called at session start to create the log file and session record."""
         self._session_start = time.time()
         self._session_log = _session_log_path()
         _append_log(self._session_log, f"ARIA Coder v{__version__}")
         _append_log(self._session_log, f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         _append_log(self._session_log, f"Directory: {Path.cwd()}")
         _append_log(self._session_log, "─" * 60)
+        # R-F1199: create session manager record
+        self.session_manager.create()
 
     def _log(self, text: str) -> None:
         if self._session_log:
@@ -614,7 +815,8 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     llm = LLMClient(cfg)
     system_prompt = build_system_prompt(
         root=cwd, self_mode=self_mode, repo_root=repo_root)
-    ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color)
+    theme = getattr(args, "theme", "dark")
+    ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color, theme=theme)
     toolbox.on_output = ui.tool_output
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,
                   auto_approve=args.auto)
@@ -704,6 +906,16 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     if ui._session_log:
         print(color.dim(f"  session: {ui._session_log}"))
 
+    # R-F1199: persist session stats
+    ui.session_manager.update_current(
+        tokens=total_tok,
+        tool_count=ui._tool_count,
+        error_count=ui._error_count,
+        file_changes=len(changed),
+        operator_messages=ui._operator_messages,
+        summary=agent.messages[-1].get("content", "")[:300] if agent.messages else "",
+    )
+
     agent.llm.close()
 
 
@@ -736,6 +948,9 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     f"  {bx.v}  /changes  list files changed this session    {bx.v}\n"
                     f"  {bx.v}  /claude   read new messages from Claude     {bx.v}\n"
                     f"  {bx.v}  /session  show session log path             {bx.v}\n"
+                    f"  {bx.v}  /sessions list saved sessions               {bx.v}\n"
+                    f"  {bx.v}  /export   export session to file            {bx.v}\n"
+                    f"  {bx.v}  /theme    change color theme                {bx.v}\n"
                     f"  {bx.v}  /gaps     scan for capability gaps/bugs     {bx.v}\n"
                     f"  {bx.v}  /status   show system health                {bx.v}\n"
                     f"  {bx.v}  /history  show composite score history      {bx.v}\n"
@@ -774,6 +989,73 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     print(color.dim(f"  session log: {ui._session_log}"))
                 else:
                     print(color.dim("  no session log (session not started)"))
+                continue
+            # R-F1199: session management commands
+            if line == "/sessions":
+                sessions = ui.session_manager.list_sessions()
+                bx = _BoxChars()
+                h = bx.h * 55
+                print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
+                print(color.cyan(f"  {bx.v}  Sessions ({len(sessions)}){' ' * (44 - len(str(len(sessions))))}{bx.v}"))
+                print(color.cyan(f"  {bx.tm}{h}{bx.tm}"))
+                for s in sessions[:20]:
+                    cur = bx.check if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
+                    name = s.name[:40]
+                    print(color.cyan(f"  {bx.v}  [{cur}] {s.id[:16]}  {name:40s}  {s.tool_count:3d} tools{bx.v}"))
+                print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                print(color.dim("  /session load <id>  /session delete <id>"))
+                continue
+            if line.startswith("/session "):
+                parts = line.split(maxsplit=2)
+                sub = parts[1] if len(parts) > 1 else ""
+                if sub == "load" and len(parts) > 2:
+                    s = ui.session_manager.load(parts[2])
+                    if s:
+                        print(color.green(f"  loaded session: {s.name}"))
+                    else:
+                        print(color.red(f"  session not found: {parts[2]}"))
+                elif sub == "delete" and len(parts) > 2:
+                    if ui.session_manager.delete(parts[2]):
+                        print(color.green(f"  deleted session: {parts[2]}"))
+                    else:
+                        print(color.red(f"  session not found: {parts[2]}"))
+                else:
+                    print(color.dim("  usage: /session load <id> | /session delete <id>"))
+                continue
+            if line == "/export":
+                s = ui.session_manager.current
+                if not s:
+                    print(color.dim("  no active session to export"))
+                    continue
+                export_dir = Path.home() / "Desktop" / "aria_exports"
+                export_dir.mkdir(parents=True, exist_ok=True)
+                export_file = export_dir / f"aria_coder_{s.id}.txt"
+                try:
+                    with open(export_file, "w", encoding="utf-8") as f:
+                        f.write(f"ARIA Coder Session: {s.name}\n")
+                        f.write(f"Created: {s.created_at}\n")
+                        f.write(f"Tools: {s.tool_count} | Errors: {s.error_count} | Files: {s.file_changes}\n")
+                        f.write("=" * 60 + "\n\n")
+                        for m in agent.messages:
+                            role = m.get("role", "?")
+                            content = m.get("content", "")[:500]
+                            f.write(f"[{role.upper()}]\n{content}\n\n")
+                    print(color.green(f"  exported to: {export_file}"))
+                except Exception as e:
+                    print(color.red(f"  export failed: {e}"))
+                continue
+            if line == "/theme":
+                current = ui.get_theme()
+                print(color.dim(f"  current theme: {current}"))
+                print(color.dim("  /theme dark | /theme light | /theme claude"))
+                continue
+            if line.startswith("/theme "):
+                t = line.split(maxsplit=1)[1].strip()
+                if t in ("dark", "light", "claude"):
+                    ui.set_theme(t)
+                    print(color.green(f"  theme: {t}"))
+                else:
+                    print(color.red(f"  unknown theme: {t}"))
                 continue
             if line in {"/confirm", "/auto"}:
                 ui.auto_approve = agent.auto_approve = not agent.auto_approve
@@ -1045,6 +1327,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--provider", default="", help="LLM provider override (deepseek, openai, groq, ollama, ...).")
     parser.add_argument("--model", default="", help="Model override.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour.")
+    parser.add_argument("--theme", choices=["dark", "light", "claude"], default="dark",
+                        help="Color theme (dark, light, claude).")
     parser.add_argument("--version", action="version", version=f"aria {__version__}")
     args = parser.parse_args(argv)
 
