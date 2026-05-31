@@ -28,6 +28,18 @@ _MAX_OUTPUT_CHARS = 30_000
 _MAX_GREP_MATCHES = 200
 _MAX_GLOB_RESULTS = 400
 
+# Sentinel for non-Windows runs (no temp script to clean up).
+_NO_TEMP_SCRIPT = ""
+
+
+def _cleanup_temp_script(path: str) -> None:
+    """Remove a temp .ps1 script created by run() on Windows."""
+    if path and path != _NO_TEMP_SCRIPT:
+        try:
+            os.unlink(path)
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            pass
+
 
 @dataclass
 class ToolResult:
@@ -259,11 +271,27 @@ class Toolbox:
         # subprocess.run) so that on timeout we can kill the WHOLE process tree:
         # subprocess.run's timeout only kills the direct child, leaving orphaned
         # grandchildren running (that orphaned-process pattern wedged ARIA's loop).
+        _temp_script = _NO_TEMP_SCRIPT
         if sys.platform == "win32":
-            # Propagate the child command's real exit code: $LASTEXITCODE is set by
-            # the last native exe; it stays $null (→ exit 0) for pure cmdlets.
-            wrapped = f"{command}\nif ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
-            argv = ["powershell", "-NoProfile", "-NonInteractive", "-Command", wrapped]
+            # R-F1211: PowerShell -Command mangles double-quotes in the command
+            # string (e.g. -k "pattern" in pytest). Write the command to a temp
+            # .ps1 script and use -File instead — -File reads the script content
+            # literally, preserving all quotes.
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ps1", delete=False, encoding="utf-8",
+            )
+            # Propagate the child command's real exit code: $LASTEXITCODE is set
+            # by the last native exe; it stays $null (→ exit 0) for pure cmdlets.
+            tmp.write(command)
+            tmp.write("\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n")
+            tmp.close()
+            _temp_script = tmp.name
+            argv = [
+                "powershell", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-File", _temp_script,
+            ]
             popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
             argv = command
@@ -325,6 +353,7 @@ class Toolbox:
             self._kill_tree(proc)
             out = "".join(captured).strip()
             tail = ("\n" + out[-2000:]) if out else ""
+            _cleanup_temp_script(_temp_script)
             return ToolResult(
                 f"error: command timed out after {timeout}s (process tree killed){tail}",
                 is_error=True, mutation=f"ran (timeout): {command[:80]}")
@@ -334,6 +363,8 @@ class Toolbox:
         except Exception:  # noqa: BLE001
             self._kill_tree(proc)
         returncode = proc.returncode if proc.returncode is not None else -1
+
+        _cleanup_temp_script(_temp_script)
 
         out = "".join(captured).strip()
         if truncated or len(out) > _MAX_OUTPUT_CHARS:
