@@ -187,7 +187,7 @@ async def start_aria_coder(
     app_state: Any,
     aria_service_url: Optional[str] = None,
 ) -> Optional[list[asyncio.Task]]:
-    """Start the ARIACoder + GapDetector as background tasks.
+    """Start the ARIACoder as a background task.
 
     Returns the list of started tasks (so the caller can hold references
     and cancel cleanly on shutdown), or None if startup was refused.
@@ -223,7 +223,6 @@ async def start_aria_coder(
             return None
 
     # Lazy imports — keep `import aria_service.autonomous` cheap
-    from .gap_detector import GapDetector
     from .self_coder import ARIACoder
 
     # R-F1112: inject AutonomousCoder (AST-aware, no external LLM) as the
