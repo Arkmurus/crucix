@@ -1904,6 +1904,28 @@ tasks:
     escalate_if: []
     mem0_tags: [learning, sources, autonomous]
 
+  - id: PORTAL-REGISTRATION-WEEKLY
+    name: Portal registration — auto-register for high-value data portals
+    description: |
+      Weekly Sunday 04:00 UTC — audit portal coverage and auto-register
+      for missing high-value portals that don't require CAPTCHA. Uses
+      Playwright for form fill + submit, email_reader for verification.
+      Skips CAPTCHA-protected portals (defers to operator via pending_actions).
+
+      R-F1173 — ARIA takes over Claude's role: autonomous data collection
+      is critical for DD intelligence. Every registered portal = more data.
+    cron: "0 4 * * 0"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: portal_coverage_audit
+    delivery_channels: [mem0, brain_hook]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [portals, registration, data_collection, autonomous]
+
   # ──────────────────────────────────────────────────────────────────
   # R-F69 (2026-05-09): WEEKLY-FCPA-ENFORCEMENT
   # DOJ FCPA enforcement monitoring — surfaces named intermediaries,

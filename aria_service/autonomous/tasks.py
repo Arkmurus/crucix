@@ -1195,6 +1195,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import self_diagnostic
         return await self_diagnostic.run_diagnostic_tick()
 
+    elif tool_kind == "portal_coverage_audit":
+        from ..intel import portal_coverage_audit as _pca
+        return await _pca.auto_register_gaps(max_portals=3)
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
