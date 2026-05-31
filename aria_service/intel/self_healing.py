@@ -226,6 +226,10 @@ class HealthMonitor:
             "semantic_search": "http://localhost:8000/api/aria/health/perf",
             "brain_hook": "http://localhost:8000/api/aria/brain/stats",
         }
+        # R-F1224: ARIA-LLM health check — only when configured
+        _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
+        if _aria_llm_url:
+            services["aria_llm"] = _aria_llm_url.rstrip("/") + "/models"
 
         results = {}
         tasks = []

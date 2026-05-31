@@ -39,6 +39,13 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger("aria.llm.aria_llm")
 
+# R-F1224: brain wiring for observability
+try:
+    from ..intel.engine_wiring import wire_success, wire_failure
+except ImportError:
+    wire_success = lambda **kw: None
+    wire_failure = lambda **kw: None
+
 _DEFAULT_TIMEOUT = 120.0   # vLLM 70B can take 5-15s for a long completion
 
 
@@ -110,6 +117,12 @@ async def complete(
                 f"{base}/chat/completions", headers=headers, json=body,
             )
     except Exception as e:
+        wire_failure(
+            module="aria_llm",
+            detail=f"ARIA-LLM connection failed: {type(e).__name__}: {e}",
+            gap_type="llm_unreachable",
+            source="aria_llm_provider:complete",
+        )
         return {
             "ok":         False,
             "provider":   "aria_llm",
@@ -120,6 +133,12 @@ async def complete(
         }
 
     if resp.status_code != 200:
+        wire_failure(
+            module="aria_llm",
+            detail=f"ARIA-LLM HTTP {resp.status_code}: {resp.text[:200]}",
+            gap_type="llm_error",
+            source="aria_llm_provider:complete",
+        )
         return {
             "ok":         False,
             "provider":   "aria_llm",
@@ -132,6 +151,12 @@ async def complete(
     try:
         data = resp.json()
     except Exception as e:
+        wire_failure(
+            module="aria_llm",
+            detail=f"ARIA-LLM JSON decode failed: {e}",
+            gap_type="llm_error",
+            source="aria_llm_provider:complete",
+        )
         return {
             "ok":         False,
             "provider":   "aria_llm",
@@ -144,6 +169,14 @@ async def complete(
     choice = (data.get("choices") or [{}])[0]
     text = (choice.get("message") or {}).get("content", "")
     usage = data.get("usage") or {}
+    latency_ms = int((time.time() - t_start) * 1000)
+
+    wire_success(
+        module="aria_llm",
+        summary=f"ARIA-LLM completion: {usage.get('prompt_tokens', 0)} in, "
+                f"{usage.get('completion_tokens', 0)} out, {latency_ms}ms",
+        source_id="aria_llm_provider:complete",
+    )
     return {
         "ok":          True,
         "provider":    "aria_llm",
@@ -151,7 +184,7 @@ async def complete(
         "model":       data.get("model", _model_name()),
         "tokens_in":   usage.get("prompt_tokens", 0),
         "tokens_out":  usage.get("completion_tokens", 0),
-        "latency_ms":  int((time.time() - t_start) * 1000),
+        "latency_ms":  latency_ms,
         "finish_reason": choice.get("finish_reason"),
     }
 
@@ -193,12 +226,23 @@ async def stream(
         "stream":      True,
     }
 
+    t_start = time.time()
+    tokens_out = 0
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             async with client.stream(
                 "POST", f"{base}/chat/completions",
                 headers=headers, json=body,
             ) as resp:
+                if resp.status_code != 200:
+                    wire_failure(
+                        module="aria_llm",
+                        detail=f"ARIA-LLM stream HTTP {resp.status_code}",
+                        gap_type="llm_error",
+                        source="aria_llm_provider:stream",
+                    )
+                    yield ""
+                    return
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data: "):
                         continue
@@ -211,11 +255,24 @@ async def stream(
                         delta = (chunk.get("choices") or [{}])[0].get("delta", {})
                         text = delta.get("content")
                         if text:
+                            tokens_out += 1
                             yield text
                     except Exception:
                         continue
+        latency_ms = int((time.time() - t_start) * 1000)
+        wire_success(
+            module="aria_llm",
+            summary=f"ARIA-LLM stream: {tokens_out} tokens, {latency_ms}ms",
+            source_id="aria_llm_provider:stream",
+        )
     except Exception as e:
         logger.warning("aria_llm stream error: %s", e)
+        wire_failure(
+            module="aria_llm",
+            detail=f"ARIA-LLM stream failed: {e}",
+            gap_type="llm_unreachable",
+            source="aria_llm_provider:stream",
+        )
 
 
 def summary() -> dict[str, Any]:
