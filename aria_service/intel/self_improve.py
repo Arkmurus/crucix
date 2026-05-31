@@ -30,8 +30,20 @@ from pathlib import Path
 from typing import Any, Optional
 
 from . import redis_store as rs
+from .engine_wiring import wire_success, wire_failure
 
 logger = logging.getLogger("aria.self_improve")
+
+# R-F1214: metrics counters for brain observability
+_SI_CYCLES = 0
+_SI_STAGED = 0
+_SI_DEPLOYED = 0
+_SI_FAILURES = 0
+_SI_DISCARDED = 0
+_SI_ROLLED_BACK = 0
+_SI_ERRORS_RECORDED = 0
+_SI_DIAGNOSES = 0
+_SI_MODULES_PROPOSED = 0
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -172,12 +184,18 @@ _root = Path(__file__).parent.parent.parent
 async def read_own_code(file_path: str) -> dict:
     """ARIA reads her own source code."""
     if file_path in PROTECTED_FILES:
+        wire_failure(module="self_improve", detail=f"Blocked read of protected file: {file_path}",
+                     gap_type="access_denied", source="self_improve:read_own_code")
         return {"error": f"Protected file — ARIA cannot access {file_path}"}
 
     full_path = (_root / file_path).resolve()
     if not str(full_path).startswith(str(_root.resolve())):
+        wire_failure(module="self_improve", detail=f"Path traversal blocked: {file_path}",
+                     gap_type="access_denied", source="self_improve:read_own_code")
         return {"error": "Access denied: path outside project root"}
     if not full_path.exists():
+        wire_failure(module="self_improve", detail=f"File not found: {file_path}",
+                     gap_type="file_not_found", source="self_improve:read_own_code")
         return {"error": f"File not found: {file_path}"}
 
     try:
@@ -191,6 +209,8 @@ async def read_own_code(file_path: str) -> dict:
             functions = re.findall(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)", content)
             classes = re.findall(r"class\s+(\w+)", content)
 
+        wire_success(module="self_improve", summary=f"Read own code: {file_path} ({lines}L)",
+                     source_id=f"self_improve:read_own_code:{file_path}")
         return {
             "file": file_path,
             "lines": lines,
@@ -201,6 +221,8 @@ async def read_own_code(file_path: str) -> dict:
             "modifiable": file_path in MODIFIABLE_FILES,
         }
     except Exception as e:
+        wire_failure(module="self_improve", detail=f"Read failed for {file_path}: {e}",
+                     gap_type="read_failure", source="self_improve:read_own_code")
         return {"error": str(e)}
 
 
@@ -216,6 +238,8 @@ async def list_own_files() -> list[dict]:
                 "size": stat.st_size,
                 "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime)),
             })
+    wire_success(module="self_improve", summary=f"Listed {len(files)} own files",
+                 source_id="self_improve:list_own_files")
     return files
 
 
@@ -229,10 +253,17 @@ async def stage_improvement(
     reasoning: str = "",
 ) -> dict:
     """Stage a code improvement for review."""
+    global _SI_STAGED, _SI_FAILURES
     if file_path not in MODIFIABLE_FILES:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve", detail=f"Cannot stage {file_path} — not modifiable",
+                     gap_type="stage_blocked", source="self_improve:stage_improvement")
         return {"error": f"ARIA cannot modify {file_path} — not in whitelist"}
 
     if change_type not in CHANGE_TYPES:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve", detail=f"Unknown change type: {change_type}",
+                     gap_type="stage_blocked", source="self_improve:stage_improvement")
         return {"error": f"Unknown change type: {change_type}. Valid: {list(CHANGE_TYPES.keys())}"}
 
     # Syntax + schema validation routed by file type.
@@ -242,6 +273,10 @@ async def stage_improvement(
         valid = _validate_by_path(file_path, new_content)
 
     if not valid["ok"]:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"Schema/syntax check failed for {file_path}: {valid.get('error', 'unknown')}",
+                     gap_type="validation_failure", source="self_improve:stage_improvement")
         return {"error": f"Schema/syntax check failed: {valid.get('error', 'unknown')}",
                 "staged": False}
 
@@ -270,6 +305,10 @@ async def stage_improvement(
                 "of current %d — destructive truncation, not staged.",
                 file_path, proposed_lines, current_lines,
             )
+            _SI_FAILURES += 1
+            wire_failure(module="self_improve",
+                         detail=f"R-F904 blocked stage of {file_path}: {proposed_lines}L < half of {current_lines}L",
+                         gap_type="truncation_guard", source="self_improve:stage_improvement")
             return {
                 "error": (
                     f"Rejected: proposed content ({proposed_lines} lines) is under half "
@@ -320,6 +359,11 @@ async def stage_improvement(
 
     # Log the staging
     await _log_improvement("staged", improvement)
+    _SI_STAGED += 1
+
+    wire_success(module="self_improve",
+                 summary=f"Staged {change_type} for {file_path}: {description[:80]}",
+                 source_id=f"self_improve:stage:{improvement['id']}")
 
     return {
         "staged": True,
@@ -367,6 +411,7 @@ async def get_staged_diff(improvement_id: str) -> dict:
 
 async def deploy_improvement(improvement_id: str) -> dict:
     """Deploy a staged improvement to production."""
+    global _SI_DEPLOYED, _SI_FAILURES
     staged = await rs.get_json(STAGED_KEY) or []
 
     target = None
@@ -376,6 +421,10 @@ async def deploy_improvement(improvement_id: str) -> dict:
             break
 
     if not target:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"Deploy failed: improvement {improvement_id} not found or already deployed",
+                     gap_type="deploy_failure", source="self_improve:deploy_improvement")
         return {"error": "Improvement not found or already deployed"}
 
     file_path = target["file"]
@@ -400,6 +449,10 @@ async def deploy_improvement(improvement_id: str) -> dict:
                 "< half of current %d — destructive truncation.",
                 file_path, improvement_id, _prop_lines, _cur_lines,
             )
+            _SI_FAILURES += 1
+            wire_failure(module="self_improve",
+                         detail=f"R-F904 blocked deploy of {file_path}: {_prop_lines}L < half of {_cur_lines}L",
+                         gap_type="truncation_guard", source="self_improve:deploy_improvement")
             return {
                 "error": (
                     f"BLOCKED: proposed content ({_prop_lines} lines) is under half the "
@@ -449,6 +502,10 @@ async def deploy_improvement(improvement_id: str) -> dict:
         if backup_path and backup_path.exists():
             full_path.write_text(backup_path.read_text(encoding="utf-8"), encoding="utf-8")
             logger.info("Auto-rollback: restored %s from backup after deploy failure", file_path)
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"Deploy write failed for {file_path}: {e}",
+                     gap_type="deploy_failure", source="self_improve:deploy_improvement")
         return {"error": f"Deploy failed: {e}"}
 
     # Git commit
@@ -463,6 +520,11 @@ async def deploy_improvement(improvement_id: str) -> dict:
     await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
 
     await _log_improvement("deployed", target)
+    _SI_DEPLOYED += 1
+
+    wire_success(module="self_improve",
+                 summary=f"Deployed {target['change_type']} to {file_path}: {target['description'][:80]}",
+                 source_id=f"self_improve:deploy:{improvement_id}")
 
     # Record a coding lesson for the metacognitive pattern library.
     # Hold a strong reference so GC can't collect mid-task.
@@ -530,9 +592,16 @@ async def discard_improvement(
             "discarded_count": int,
         }
     """
+    global _SI_DISCARDED, _SI_FAILURES
     if not improvement_id or not improvement_id.strip():
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve", detail="discard_improvement: missing improvement_id",
+                     gap_type="validation", source="self_improve:discard_improvement")
         return {"ok": False, "error": "improvement_id required"}
     if not reason or not reason.strip():
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve", detail="discard_improvement: missing reason",
+                     gap_type="validation", source="self_improve:discard_improvement")
         return {"ok": False, "error": "reason required — operator must note why the improvement is rejected"}
 
     staged = await rs.get_json(STAGED_KEY) or []
@@ -545,6 +614,10 @@ async def discard_improvement(
             break
 
     if target_idx < 0:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"discard_improvement: {improvement_id} not found",
+                     gap_type="not_found", source="self_improve:discard_improvement")
         return {
             "ok": False,
             "error": f"no staged improvement found for id={improvement_id} "
@@ -567,6 +640,11 @@ async def discard_improvement(
     await rs.set_json(DISCARDED_KEY, discarded[:500], ex=365 * 86400)
 
     await _log_improvement("discarded", target)
+    _SI_DISCARDED += 1
+
+    wire_success(module="self_improve",
+                 summary=f"Discarded improvement {improvement_id}: {reason.strip()[:80]}",
+                 source_id=f"self_improve:discard:{improvement_id}")
 
     logger.info(
         "[R-F574] discarded staged improvement %s (reason=%s)",
@@ -591,6 +669,7 @@ async def list_discarded_improvements(limit: int = 100) -> list[dict]:
 
 async def rollback_improvement(improvement_id: str) -> dict:
     """Rollback a deployed improvement."""
+    global _SI_ROLLED_BACK, _SI_FAILURES
     staged = await rs.get_json(STAGED_KEY) or []
 
     target = None
@@ -600,6 +679,10 @@ async def rollback_improvement(improvement_id: str) -> dict:
             break
 
     if not target:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"Rollback failed: improvement {improvement_id} not found",
+                     gap_type="rollback_failure", source="self_improve:rollback_improvement")
         return {"error": "Deployed improvement not found"}
 
     file_path = target["file"]
@@ -611,6 +694,10 @@ async def rollback_improvement(improvement_id: str) -> dict:
     backups = sorted(backup_dir.glob(f"{backup_prefix}*.bak"), reverse=True) if backup_dir.exists() else []
 
     if not backups:
+        _SI_FAILURES += 1
+        wire_failure(module="self_improve",
+                     detail=f"Rollback failed for {improvement_id}: no backup found for {file_path}",
+                     gap_type="rollback_failure", source="self_improve:rollback_improvement")
         return {"error": "No backup found for rollback"}
 
     # Restore from backup
@@ -622,6 +709,11 @@ async def rollback_improvement(improvement_id: str) -> dict:
     await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
 
     await _log_improvement("rolled_back", target)
+    _SI_ROLLED_BACK += 1
+
+    wire_success(module="self_improve",
+                 summary=f"Rolled back {file_path} (improvement {improvement_id})",
+                 source_id=f"self_improve:rollback:{improvement_id}")
 
     # Record a coding lesson from the rollback — what failed matters.
     # Hold a strong reference so GC can't collect mid-task.
@@ -684,6 +776,8 @@ Analyse the current prompt and suggest a SPECIFIC improvement. Output JSON:
         text = re.sub(r'\s*```$', '', text)
         suggestion = json.loads(text)
     except Exception as e:
+        wire_failure(module="self_improve", detail=f"Prompt evolution failed: {e}",
+                     gap_type="llm_failure", source="self_improve:evolve_prompt")
         return {"error": f"Prompt evolution failed: {e}"}
 
     # Store evolution history
@@ -698,6 +792,9 @@ Analyse the current prompt and suggest a SPECIFIC improvement. Output JSON:
         history = history[-100:]
     await rs.set_json(PROMPT_EVOLUTION_KEY, history, ex=90 * 86400)
 
+    wire_success(module="self_improve",
+                 summary=f"Prompt evolution suggested: {suggestion.get('analysis', '')[:80]}",
+                 source_id="self_improve:evolve_prompt")
     return {"suggestion": suggestion, "history_length": len(history)}
 
 
@@ -1128,6 +1225,7 @@ MAX_ERRORS = 200
 async def record_error(error_type: str, message: str, file: str = "",
                        function: str = "", traceback: str = "") -> None:
     """Record an error for autonomous analysis."""
+    global _SI_ERRORS_RECORDED
     errors = await rs.get_json(ERROR_LOG_KEY) or []
     errors.append({
         "type": error_type,
@@ -1140,6 +1238,7 @@ async def record_error(error_type: str, message: str, file: str = "",
     if len(errors) > MAX_ERRORS:
         errors = errors[-MAX_ERRORS:]
     await rs.set_json(ERROR_LOG_KEY, errors, ex=7 * 86400)
+    _SI_ERRORS_RECORDED += 1
 
 
 async def get_recent_errors(hours: int = 24) -> list[dict]:
@@ -1416,6 +1515,22 @@ async def autonomous_improvement_cycle(llm) -> dict:
                        f"{results['bugs_detected']} bugs, "
                        f"{results['auto_deployed']} auto-deployed",
     })
+
+    # R-F1214: wire cycle outcome to brain
+    global _SI_CYCLES
+    _SI_CYCLES += 1
+    if results.get("auto_deployed", 0) > 0 or results.get("improvements_staged", 0) > 0:
+        wire_success(module="self_improve",
+                     summary=f"Cycle #{_SI_CYCLES}: {results['errors_analysed']} errors, "
+                             f"{results['bugs_detected']} bugs, "
+                             f"{results['improvements_staged']} staged, "
+                             f"{results['auto_deployed']} auto-deployed",
+                     source_id=f"self_improve:cycle:{_SI_CYCLES}")
+    else:
+        wire_success(module="self_improve",
+                     summary=f"Cycle #{_SI_CYCLES}: no issues found "
+                             f"({results['errors_analysed']} errors analysed)",
+                     source_id=f"self_improve:cycle:{_SI_CYCLES}")
 
     return results
 
@@ -1974,6 +2089,18 @@ async def diagnose_failure(
         failure_type, classification, severity, suggested_action, prior_count,
     )
 
+    global _SI_DIAGNOSES
+    _SI_DIAGNOSES += 1
+    if severity == "critical":
+        wire_failure(module="self_improve",
+                     detail=f"Critical failure diagnosed: {failure_type}/{classification} "
+                            f"(prior={prior_count}): {diagnosis_notes[0][:100] if diagnosis_notes else ''}",
+                     gap_type="critical_failure", source=f"self_improve:diagnose:{diagnosis['id']}")
+    else:
+        wire_success(module="self_improve",
+                     summary=f"Diagnosed {failure_type}/{classification} severity={severity} action={suggested_action}",
+                     source_id=f"self_improve:diagnose:{diagnosis['id']}")
+
     return {
         "action": suggested_action,
         "classification": classification,
@@ -2097,6 +2224,11 @@ Output the complete file now."""
         await rs.set_json(STAGED_KEY, staged, ex=14 * 86400)
         await _log_improvement("staged_new_module", improvement)
 
+        global _SI_MODULES_PROPOSED
+        _SI_MODULES_PROPOSED += 1
+        wire_success(module="self_improve",
+                     summary=f"Proposed new module {mod_name} ({new_code.count(chr(10)) + 1}L): {request[:80]}",
+                     source_id=f"self_improve:propose_new_module:{improvement['id']}")
         return {
             "ok": True,
             "file": file_path,
@@ -2108,4 +2240,6 @@ Output the complete file now."""
         }
     except Exception as e:
         logger.warning("propose_new_module failed: %s", e)
+        wire_failure(module="self_improve", detail=f"propose_new_module failed: {e}",
+                     gap_type="code_generation_failure", source="self_improve:propose_new_module")
         return {"ok": False, "error": str(e)}
