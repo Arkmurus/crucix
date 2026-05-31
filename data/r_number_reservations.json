@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1242,
+  "next_available": 1243,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6889,9 +6889,10 @@
       "title": "Independence config",
       "claimed_at": "2026-05-31T22:05:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d6a13e2",
+      "notes": null,
+      "shipped_at": "2026-05-31T22:33:36Z"
     },
     {
       "r_number": "R-F1240",
@@ -6907,6 +6908,16 @@
       "r_number": "R-F1241",
       "title": "ARIA demo page - one URL to experience the coder in browser",
       "claimed_at": "2026-05-31T22:30:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d6186100",
+      "notes": null,
+      "shipped_at": "2026-05-31T22:47:25Z"
+    },
+    {
+      "r_number": "R-F1242",
+      "title": "ARIA download page - one-click download to run locally from cmd",
+      "claimed_at": "2026-05-31T22:51:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
