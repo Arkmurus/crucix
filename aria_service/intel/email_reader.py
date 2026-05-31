@@ -489,6 +489,10 @@ async def send_email(
 
         logger.info("[email_reader] Sent email to %s: %s", to_addr, subject[:80])
 
+        # R-F1217: wire_success is NOT inside try/except: pass anymore.
+        # If the brain wiring fails, we log it but don't hide it — the email
+        # was still sent, and the caller gets success: True. The brain wiring
+        # failure is surfaced via logger.warning so it's observable.
         try:
             from .engine_wiring import wire_success as _ws
             _ws(
@@ -496,13 +500,24 @@ async def send_email(
                 summary=f"Email sent to {to_addr}: {subject[:80]}",
                 source_id=f"email_reader:send:{to_addr}",
             )
-        except Exception:
-            pass
+        except Exception as _we:
+            logger.warning("[email_reader] Brain wiring failed after send: %s", _we)
 
         return {"success": True, "to": to_addr, "subject": subject}
 
     except Exception as e:
         logger.warning("[email_reader] send failed: %s", e)
+        # R-F1217: wire_failure on send failure so the brain learns
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(
+                module="email_reader",
+                detail=f"Email send failed to {to_addr}: {str(e)[:200]}",
+                gap_type="email_send_failure",
+                source="email_reader:send",
+            )
+        except Exception as _we:
+            logger.debug("[email_reader] Brain wiring failed on error: %s", _we)
         return {"success": False, "error": str(e)[:200]}
 
 

@@ -432,7 +432,7 @@ class AriaRenderer:
                 lexer = get_lexer_by_name(lang)
                 highlighted = highlight(code, lexer, TerminalFormatter())
                 return f"\n{highlighted}\n"
-            except:
+            except Exception:
                 return f"\n```{lang}\n{code}\n```\n"
                 
         return re.sub(pattern, replace_block, text, flags=re.DOTALL)

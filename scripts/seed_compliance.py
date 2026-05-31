@@ -324,8 +324,8 @@ def main():
             )
             if r.status_code == 200:
                 print(f"  Fact stored: {topic}")
-        except:
-            pass
+        except Exception as _se:
+            print(f"  [WARN] R-F1218: Failed to store fact '{topic}': {_se}")
 
     print(f"\nDone. Total facts from documents: {total_facts}")
     print(f"Plus {len(EXPLICIT_FACTS)} explicit facts stored.")

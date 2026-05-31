@@ -58,7 +58,8 @@ class PerformanceOptimizer:
                 imports = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
                 if len(imports) > 20:
                     findings.append({"file": f.name, "imports": len(imports), "suggestion": "Consider lazy imports"})
-            except: pass
+            except Exception as _pe:
+                logger.warning("[performance_optimizer] R-F1218: AST parse failed for %s: %s", f.name, _pe)
         return {"findings": findings, "total": len(findings)}
 
     async def optimize_async(self) -> dict:
@@ -75,7 +76,8 @@ class PerformanceOptimizer:
                         has_io = any("open(" in ast.dump(n) or "request" in ast.dump(n) or "sleep" in ast.dump(n) for n in ast.walk(node))
                         if has_io and not isinstance(node, ast.AsyncFunctionDef):
                             findings.append({"file": f.name, "function": node.name, "suggestion": "Convert to async"})
-            except: pass
+            except Exception as _pe:
+                logger.warning("[performance_optimizer] R-F1218: AST parse failed for %s: %s", f.name, _pe)
         return {"findings": findings, "total": len(findings)}
 # R-F1006 - wire to brain
 from .engine_wiring import wire_success
