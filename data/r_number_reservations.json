@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1194,
+  "next_available": 1197,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6431,6 +6431,34 @@
       "r_number": "R-F1193",
       "title": "Test autonomous deploy pipeline — R-F1191 verification",
       "claimed_at": "2026-05-31T16:37:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1194",
+      "title": "Professional CLI UI with real-time operator chat",
+      "claimed_at": "2026-05-31T16:44:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "38a3742f",
+      "notes": null,
+      "shipped_at": "2026-05-31T16:44:07Z"
+    },
+    {
+      "r_number": "R-F1195",
+      "title": "Fix deploy tool to use deploy.ps1 on Windows when bash unavailable",
+      "claimed_at": "2026-05-31T16:46:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1196",
+      "title": "ARIA CLI banner Unicode fallback for Windows console",
+      "claimed_at": "2026-05-31T16:47:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

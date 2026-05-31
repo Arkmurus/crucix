@@ -187,6 +187,55 @@ class _Color:
     def magenta(self, s: str) -> str: return self._w("35", s)
 
 
+# ── R-F1196: Unicode box-drawing with ASCII fallback ────────────────────────
+# Windows cmd.exe uses cp1252 by default, which cannot render Unicode
+# box-drawing characters (╔═╗║╚╝). Detect terminal encoding and fall back
+# to ASCII (+-|) when Unicode is not supported.
+class _BoxChars:
+    """Box-drawing characters, auto-selected for terminal encoding support.
+
+    On Windows cmd.exe (cp1252) uses ASCII ``+``/``-``/``|``; on UTF-8
+    terminals uses Unicode box-drawing (``╔``/``═``/``╗``/``║``/``╚``/``╝``).
+    """
+
+    def __init__(self) -> None:
+        # Detect if the terminal can render Unicode box-drawing chars.
+        # We check stdout encoding AND do a quick probe write.
+        self._unicode = self._probe_unicode()
+
+    @staticmethod
+    def _probe_unicode() -> bool:
+        """Probe whether the terminal can render Unicode box-drawing chars."""
+        # If NO_COLOR is set, also disable Unicode (conservative fallback).
+        if os.getenv("NO_COLOR"):
+            return False
+        enc = getattr(sys.stdout, "encoding", "") or ""
+        # UTF-8 or UTF-16 encodings can handle box-drawing chars.
+        if "utf" in enc.lower():
+            return True
+        # cp1252 and similar cannot — fall back to ASCII.
+        return False
+
+    @property
+    def tl(self) -> str: return "╔" if self._unicode else "+"   # top-left
+    @property
+    def tr(self) -> str: return "╗" if self._unicode else "+"   # top-right
+    @property
+    def bl(self) -> str: return "╚" if self._unicode else "+"   # bottom-left
+    @property
+    def br(self) -> str: return "╝" if self._unicode else "+"   # bottom-right
+    @property
+    def h(self) -> str: return "═" if self._unicode else "-"    # horizontal
+    @property
+    def v(self) -> str: return "║" if self._unicode else "|"    # vertical
+    @property
+    def tm(self) -> str: return "╠" if self._unicode else "+"   # tee-middle (left)
+    @property
+    def check(self) -> str: return "✓" if self._unicode else "v"
+    @property
+    def cross(self) -> str: return "✗" if self._unicode else "x"
+
+
 class TerminalUI(AgentUI):
     """Professional terminal UI with clean message boundaries and real-time chat.
 
@@ -572,16 +621,18 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     mode = color.green("self (crucix ecosystem)") if self_mode else "general project"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     approval = color.green("autonomous") if auto_approve else "confirm each action"
+    bx = _BoxChars()
+    h = bx.h * 58
     print()
-    print(color.bold("  ╔══════════════════════════════════════════════════════════╗"))
-    print(color.bold("  ║") + color.cyan("  ARIA Coder") + color.dim(f"  v{__version__:<24}") + color.bold("║"))
-    print(color.bold("  ╠══════════════════════════════════════════════════════════╣"))
-    print(color.bold("  ║") + color.dim(f"  directory:  {cwd}") + color.bold(" " * max(1, 50 - len(str(cwd)))) + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  mode:       {mode:<44}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  model:      {cfg.provider}/{cfg.model:<36}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  brain:      {brain:<44}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  approval:   {approval:<44}") + color.bold("║"))
-    print(color.bold("  ╚══════════════════════════════════════════════════════════╝"))
+    print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
+    print(color.bold(f"  {bx.v}") + color.cyan("  ARIA Coder") + color.dim(f"  v{__version__:<24}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.tm}{h}{bx.tm}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  directory:  {cwd}") + color.bold(" " * max(1, 50 - len(str(cwd)))) + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  mode:       {mode:<44}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  model:      {cfg.provider}/{cfg.model:<36}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  brain:      {brain:<44}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  approval:   {approval:<44}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.bl}{h}{bx.br}"))
     print()
 
 
@@ -593,17 +644,19 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     total_tok = in_tok + out_tok
     elapsed = time.time() - ui._session_start if ui._session_start else 0
     elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
+    bx = _BoxChars()
+    h = bx.h * 58
 
     print()
-    print(color.bold("  ╔══════════════════════════════════════════════════════════╗"))
-    print(color.bold("  ║") + color.cyan("  Session Complete") + color.dim(f"  {'✓' if success else '✗':<33}") + color.bold("║"))
-    print(color.bold("  ╠══════════════════════════════════════════════════════════╣"))
-    print(color.bold("  ║") + color.dim(f"  duration:    {elapsed_str:<44}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  files:       {len(changed):<3} changed{' ' * (41 - len(str(len(changed))))}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  tools:       {ui._tool_count:<3} calls{' ' * (41 - len(str(ui._tool_count)))}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  errors:      {ui._error_count:<3}{' ' * (41 - len(str(ui._error_count)))}") + color.bold("║"))
-    print(color.bold("  ║") + color.dim(f"  tokens:      {total_tok:<3} ({in_tok} in / {out_tok} out){' ' * max(0, 28 - len(str(total_tok)) - len(str(in_tok)) - len(str(out_tok)))}") + color.bold("║"))
-    print(color.bold("  ╚══════════════════════════════════════════════════════════╝"))
+    print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
+    print(color.bold(f"  {bx.v}") + color.cyan("  Session Complete") + color.dim(f"  {bx.check if success else bx.cross:<33}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.tm}{h}{bx.tm}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  duration:    {elapsed_str:<44}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  files:       {len(changed):<3} changed{' ' * (41 - len(str(len(changed))))}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  tools:       {ui._tool_count:<3} calls{' ' * (41 - len(str(ui._tool_count)))}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  errors:      {ui._error_count:<3}{' ' * (41 - len(str(ui._error_count)))}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.v}") + color.dim(f"  tokens:      {total_tok:<3} ({in_tok} in / {out_tok} out){' ' * max(0, 28 - len(str(total_tok)) - len(str(in_tok)) - len(str(out_tok)))}") + color.bold(f"{bx.v}"))
+    print(color.bold(f"  {bx.bl}{h}{bx.br}"))
 
     if changed:
         print(color.dim(f"\n  files: {', '.join(changed)}"))
