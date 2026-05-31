@@ -1990,6 +1990,28 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.get("/download", response_class=HTMLResponse, include_in_schema=False)
+    async def download_aria_launcher():
+        """Download the ARIA one-click launcher (.bat file)."""
+        bat_path = _static_os.path.join(_static_dir, "download_aria.bat")
+        try:
+            with open(bat_path, encoding="utf-8") as f:
+                content = f.read()
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type="application/octet-stream",
+                headers={
+                    "Content-Disposition": "attachment; filename=ARIA_Launcher.bat",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+        except Exception as e:
+            return HTMLResponse(
+                content=f"<html><body><h1>Download Error</h1><p>{e}</p></body></html>",
+                status_code=500,
+            )
+
     @app.post("/api/aria/coder/demo")
     async def aria_coder_demo_ep(request: Request):
         """Public demo endpoint — no auth required.
