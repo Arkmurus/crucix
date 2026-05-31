@@ -1,0 +1,86 @@
+[
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T16:27:33.279058+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T16:21:00.854480+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T16:01:04.637965+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:59:50.515935+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:58:10.753860+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:57:12.525288+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:44:25.702058+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:42:46.825724+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:40:17.850787+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:31:06.357193+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:04:13.091899+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-05-31T15:03:28.148224+00:00"
+  }
+]

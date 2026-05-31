@@ -30,6 +30,12 @@ R-F1199 — chat UI feature parity:
   - Session export (/export) to text file
   - Per-session cost tracking display
   - Tab completion for REPL commands
+
+  R-F1202 — fix _BoxChars Unicode detection on Windows (cp1252 false negative):
+    Windows 10/11 terminals (conhost.exe, Windows Terminal, PowerShell ISE) can
+    render Unicode box-drawing characters even when sys.stdout.encoding is cp1252.
+    The old probe only checked encoding — now it also checks os.name + Windows
+    major version (10+ = Unicode capable).
 """
 from __future__ import annotations
 
@@ -339,20 +345,34 @@ class _BoxChars:
 
     def __init__(self) -> None:
         # Detect if the terminal can render Unicode box-drawing chars.
-        # We check stdout encoding AND do a quick probe write.
         self._unicode = self._probe_unicode()
 
     @staticmethod
     def _probe_unicode() -> bool:
-        """Probe whether the terminal can render Unicode box-drawing chars."""
-        # If NO_COLOR is set, also disable Unicode (conservative fallback).
+        """Probe whether the terminal can render Unicode box-drawing chars.
+
+        Returns True if the terminal is likely to support Unicode box-drawing
+        characters. Checks in order:
+        1. NO_COLOR env var -> False (conservative)
+        2. stdout encoding contains "utf" -> True
+        3. Windows 10+ (os.name == 'nt', major >= 10) -> True
+           (conhost.exe, Windows Terminal, PS ISE all support Unicode)
+        4. Otherwise -> False (fall back to ASCII +-|)
+        """
         if os.getenv("NO_COLOR"):
             return False
         enc = getattr(sys.stdout, "encoding", "") or ""
-        # UTF-8 or UTF-16 encodings can handle box-drawing chars.
         if "utf" in enc.lower():
             return True
-        # cp1252 and similar cannot — fall back to ASCII.
+        # R-F1202: Windows 10+ terminals support Unicode box-drawing even
+        # when encoding is cp1252 (the default for cmd.exe).
+        if os.name == "nt":
+            try:
+                ver = sys.getwindowsversion()
+                if ver.major >= 10:
+                    return True
+            except AttributeError:
+                pass
         return False
 
     @property

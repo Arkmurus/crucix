@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA Coder — Full Design & Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0a1628;--navy-m:#162444;--navy-l:#1e3464;
+  --gold:#c9a84c;--gold-l:#e8c97a;--gold-bg:#fdf8ee;
+  --green:#1a7a5e;--green-bg:#f0faf6;--green-bd:#9fd4c4;
+  --red:#c0392b;--red-bg:#fdf0ef;--red-bd:#e24b4a;
+  --amber:#d4800a;--amber-bg:#fdf4e7;--amber-bd:#f0c07a;
+  --blue:#185fa5;--blue-bg:#eaf2fb;--blue-bd:#b5d4f4;
+  --purple:#534ab7;--purple-bg:#f0effb;
+  --teal:#085041;--teal-bg:#e1f5ee;
+  --text:#1a2030;--mid:#3a4558;--dim:#6a7888;
+  --border:#dde3ea;--light:#f7f9fc;--white:#fff;
+  --term:#0d1117;--term-green:#00ff41;--term-gold:#c9a84c;
+  --term-dim:#4a5568;--term-blue:#58a6ff;--term-red:#ff6b6b;
+  --term-amber:#ffa500;--term-white:#e6edf3;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--white);color:var(--text);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* ── COVER ── */
+.cover{background:var(--navy);min-height:100vh;padding:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.cover-bg{position:absolute;inset:0;background:
+  radial-gradient(ellipse 60% 40% at 80% 30%, rgba(201,168,76,.06) 0%,transparent 60%),
+  radial-gradient(ellipse 40% 60% at 10% 80%, rgba(26,122,94,.05) 0%,transparent 50%)}
+.cover-terminal{flex:1;display:flex;flex-direction:column;padding:60px}
+.cover-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:48px}
+.cover-brand{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--gold);letter-spacing:3px;text-transform:uppercase}
+.cover-badge{font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,.3);border:.5px solid rgba(255,255,255,.1);padding:4px 12px;border-radius:20px}
+.cover-main{flex:1;display:flex;gap:60px;align-items:flex-start}
+.cover-left{flex:1;max-width:520px}
+.cover-right{flex:1}
+.cover-title{font-family:'Syne',sans-serif;font-size:72px;font-weight:800;color:#f0f4f8;line-height:.9;margin-bottom:16px}
+.cover-title span{color:var(--gold)}
+.cover-sub{font-family:'Syne',sans-serif;font-size:20px;color:rgba(255,255,255,.5);margin-bottom:32px;font-weight:400}
+.cover-desc{font-size:15px;color:rgba(255,255,255,.45);line-height:1.75;border-left:2px solid rgba(201,168,76,.3);padding-left:18px;margin-bottom:40px}
+.cover-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cstat{background:rgba(255,255,255,.04);border:.5px solid rgba(255,255,255,.07);border-radius:8px;padding:14px 16px}
+.cstat-n{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;color:var(--gold)}
+.cstat-l{font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;line-height:1.4}
+.cover-meta{display:flex;gap:20px;padding:20px 60px;border-top:.5px solid rgba(255,255,255,.06)}
+.cover-meta span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,.2)}
+
+/* ── TERMINAL MOCKUP ── */
+.terminal{background:var(--term);border-radius:12px;overflow:hidden;border:.5px solid rgba(255,255,255,.08);box-shadow:0 32px 64px rgba(0,0,0,.5)}
+.term-bar{background:#1c1c1e;padding:10px 16px;display:flex;align-items:center;gap:8px}
+.term-dot{width:12px;height:12px;border-radius:50%}
+.term-dot.r{background:#ff5f57}
+.term-dot.y{background:#febc2e}
+.term-dot.g{background:#28c840}
+.term-title{flex:1;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,.3)}
+.term-body{padding:20px 24px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.8;min-height:380px;overflow:hidden}
+.tl{display:block;color:var(--term-white)}
+.tl.dim{color:var(--term-dim)}
+.tl.gold{color:var(--term-gold)}
+.tl.green{color:var(--term-green)}
+.tl.red{color:var(--term-red)}
+.tl.blue{color:var(--term-blue)}
+.tl.amber{color:var(--term-amber)}
+.tl.blank{min-height:1.8em;display:block}
+.term-prompt{color:var(--term-gold)}
+.term-cursor{display:inline-block;width:8px;height:14px;background:var(--term-green);animation:blink 1s step-end infinite;vertical-align:middle;margin-left:2px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── NAV ── */
+.nav{background:var(--white);border-bottom:1px solid var(--border);padding:14px 60px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
+.nav-brand{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--navy)}
+.nav-links{display:flex;gap:24px}
+.nav-links a{font-size:12px;color:var(--dim);text-decoration:none;font-family:'IBM Plex Mono',monospace}
+
+/* ── LAYOUT ── */
+.wrap{max-width:1200px;margin:0 auto;padding:72px 60px}
+.sec-eye{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);letter-spacing:2.5px;text-transform:uppercase;margin-bottom:8px}
+.sec-title{font-family:'Syne',sans-serif;font-size:36px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.sec-rule{height:3px;background:var(--navy);width:56px;margin-bottom:22px}
+.sec-intro{font-size:15.5px;color:var(--mid);line-height:1.75;max-width:800px;margin-bottom:32px}
+.sec-break{background:var(--navy);padding:36px 60px;margin:60px -60px;display:flex;justify-content:space-between;align-items:center}
+.sec-break-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#f0f4f8}
+.sec-break-num{font-family:'IBM Plex Mono',monospace;font-size:64px;font-weight:300;color:rgba(201,168,76,.1);line-height:1}
+.subhead{font-family:'Syne',sans-serif;font-size:19px;font-weight:600;color:var(--navy);margin:32px 0 14px;padding-bottom:8px;border-bottom:1.5px solid var(--border)}
+
+/* ── INTERFACE SCREENS ── */
+.screen-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}
+.screen{background:var(--term);border-radius:10px;overflow:hidden;border:.5px solid rgba(255,255,255,.08)}
+.screen-bar{background:#1c1c1e;padding:8px 14px;display:flex;align-items:center;gap:6px}
+.screen-dot{width:10px;height:10px;border-radius:50%}
+.screen-bar-title{flex:1;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,.25)}
+.screen-body{padding:16px 18px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.75}
+.screen-full{grid-column:1/-1}
+
+/* ── COMMAND TABLE ── */
+.cmd-section{margin:24px 0}
+.cmd-group{margin-bottom:28px}
+.cmd-group-title{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:10px;padding-bottom:6px;border-bottom:.5px solid var(--border)}
+.cmd-grid{display:grid;grid-template-columns:200px 1fr;gap:0;border:.5px solid var(--border);border-radius:8px;overflow:hidden}
+.cmd-row{display:contents}
+.cmd-row:nth-child(even) .cmd-key,.cmd-row:nth-child(even) .cmd-desc{background:var(--light)}
+.cmd-key{padding:9px 14px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;color:var(--navy);border-bottom:.5px solid var(--border);border-right:.5px solid var(--border)}
+.cmd-desc{padding:9px 14px;font-size:13px;color:var(--mid);border-bottom:.5px solid var(--border);line-height:1.5}
+.cmd-row:last-child .cmd-key,.cmd-row:last-child .cmd-desc{border-bottom:none}
+.cmd-flag{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 7px;border-radius:20px;display:inline-block;margin-left:6px;vertical-align:middle}
+.flag-g{background:var(--green-bg);color:var(--green)}
+.flag-a{background:var(--amber-bg);color:var(--amber)}
+.flag-r{background:var(--red-bg);color:var(--red)}
+.flag-b{background:var(--blue-bg);color:var(--blue)}
+.flag-n{background:rgba(10,22,40,.08);color:var(--navy)}
+
+/* ── ROADMAP ── */
+.roadmap{display:flex;flex-direction:column;gap:0;margin:24px 0}
+.phase{border:.5px solid var(--border);border-radius:0;overflow:hidden;margin-bottom:-1px}
+.phase:first-child{border-radius:10px 10px 0 0}
+.phase:last-child{border-radius:0 0 10px 10px;margin-bottom:0}
+.phase-hdr{display:grid;grid-template-columns:180px 1fr auto auto;gap:16px;align-items:center;padding:16px 20px;cursor:pointer}
+.phase-num{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;padding:3px 10px;border-radius:20px}
+.phase-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:600}
+.phase-when{font-size:12px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.phase-cost{font-size:13px;font-weight:500;text-align:right}
+.phase-body{padding:0 20px 20px;display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:.5px solid var(--border);padding-top:16px}
+.phase-col-title{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.phase-item{font-size:13px;color:var(--mid);padding:5px 0;border-bottom:.5px solid var(--border);display:flex;gap:8px;line-height:1.5}
+.phase-item:last-child{border-bottom:none}
+.phase-item::before{content:'→';color:var(--gold);flex-shrink:0;font-weight:500}
+.phase-item strong{font-weight:500;color:var(--text)}
+.p-shipped{background:#EAF3DE}.p-shipped .phase-num{background:#C0DD97;color:#3B6D11}
+.p-active{background:#E6F1FB}.p-active .phase-num{background:#B5D4F4;color:#0C447C}
+.p-next{background:var(--white)}.p-next .phase-num{background:var(--amber-bg);color:#633806}
+.p-future{background:var(--light)}.p-future .phase-num{background:var(--light);color:var(--dim);border:.5px solid var(--border)}
+
+/* ── CARDS ── */
+.cards2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+.cards3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:20px 0}
+.card{background:var(--white);border:.5px solid var(--border);border-radius:10px;overflow:hidden}
+.card-hdr{padding:14px 16px 12px;border-bottom:.5px solid var(--border)}
+.card-lbl{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+.card-hdr-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:600;color:var(--navy)}
+.card-body{padding:14px 16px;font-size:13px;color:var(--mid);line-height:1.65}
+.card-body strong{font-weight:500;color:var(--text)}
+.card-body p{margin-bottom:7px}
+.card-body p:last-child{margin-bottom:0}
+.cn{border-top:3px solid var(--navy)}.cg{border-top:3px solid var(--green)}
+.ca{border-top:3px solid var(--amber)}.cb{border-top:3px solid var(--blue)}
+.cp{border-top:3px solid var(--purple)}.ct{border-top:3px solid var(--teal)}
+.cgold{border-top:3px solid var(--gold)}
+
+/* ── HBOX ── */
+.hbox{border-radius:10px;padding:18px 22px;margin:18px 0;font-size:14px;line-height:1.7}
+.hbox strong{font-weight:600}
+.hbox-navy{background:rgba(10,22,40,.05);border-left:3px solid var(--navy)}
+.hbox-green{background:var(--green-bg);border-left:3px solid var(--green);color:#0f5040}
+.hbox-amber{background:var(--amber-bg);border-left:3px solid var(--amber);color:#6a3a05}
+.hbox-gold{background:var(--gold-bg);border-left:3px solid var(--gold)}
+
+/* ── TABLE ── */
+.tbl{width:100%;border-collapse:collapse;border:.5px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;margin:20px 0}
+.tbl th{background:var(--navy);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:10px 14px;text-align:left;border-right:1px solid rgba(255,255,255,.1);font-weight:400}
+.tbl td{padding:10px 14px;border-bottom:.5px solid var(--border);border-right:.5px solid var(--border);color:var(--mid);vertical-align:top;line-height:1.5}
+.tbl td:first-child{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:500;color:var(--navy);background:rgba(26,50,96,.03)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:nth-child(even) td{background:var(--light)}
+.tbl th:last-child,.tbl td:last-child{border-right:none}
+
+/* ── BADGE ── */
+.badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;display:inline-block;font-family:'IBM Plex Mono',monospace;text-transform:uppercase}
+.bg{background:var(--green-bg);color:var(--green)}.br{background:var(--red-bg);color:var(--red)}
+.ba{background:var(--amber-bg);color:var(--amber)}.bb{background:var(--blue-bg);color:var(--blue)}
+.bgold{background:var(--gold-bg);color:#7a5a10}.bn{background:rgba(10,22,40,.08);color:var(--navy)}
+
+/* ── FOOTER ── */
+.footer{background:var(--navy);padding:28px 60px;display:flex;justify-content:space-between;align-items:center;margin-top:72px}
+.footer-brand{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--gold)}
+.footer-meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#3a5070;text-align:right;line-height:1.7}
+</style>
+</head>
+<body>
+
+<!-- ══ COVER ══ -->
+<div class="cover">
+  <div class="cover-bg"></div>
+  <div class="cover-terminal">
+    <div class="cover-top">
+      <div class="cover-brand">Arkmurus Group · ARIA Platform</div>
+      <div class="cover-badge">v1.0.0 · Internal Architecture</div>
+    </div>
+    <div class="cover-main">
+      <div class="cover-left">
+        <div class="cover-title">ARIA<br><span>CODER</span></div>
+        <div class="cover-sub">Autonomous Intelligence Coding Agent</div>
+        <div class="cover-desc">
+          A sovereign, self-improving coding agent that lives inside your project directory. Detects gaps, writes fixes, tests in isolation, deploys to Fly.io — and reports back via WhatsApp. External LLMs are the last resort.
+        </div>
+        <div class="cover-stats">
+          <div class="cstat"><div class="cstat-n">£0</div><div class="cstat-l">Cost per fix cycle on sovereign LLM</div></div>
+          <div class="cstat"><div class="cstat-n">24/7</div><div class="cstat-l">Autonomous operation without operator</div></div>
+          <div class="cstat"><div class="cstat-n">L5</div><div class="cstat-l">Autonomy level — full auto with safety gates</div></div>
+          <div class="cstat"><div class="cstat-n">~3h</div><div class="cstat-l">Detect → deploy for a standard module fix</div></div>
+        </div>
+      </div>
+      <div class="cover-right">
+        <div class="terminal">
+          <div class="term-bar">
+            <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+            <div class="term-title">aria — aria-intel — 142×42</div>
+          </div>
+          <div class="term-body">
+            <span class="tl dim">                                                              </span>
+            <span class="tl gold">  ◆ ARIA CODER  v1.0.0                          [ARIA-LLM ◆] [AUTO]</span>
+            <span class="tl dim">  ─────────────────────────────────────────────────────────────────</span>
+            <span class="tl dim">  ARIA-INTEL  /app/aria_service          git: main (0 modified)</span>
+            <span class="tl dim">  417 endpoints · 177 modules · 35,363 facts · R-F430 current</span>
+            <span class="tl blank"></span>
+            <span class="tl amber">  ⚠  2 critical gaps detected — type /gaps to review</span>
+            <span class="tl blank"></span>
+            <span class="tl dim">  Type /help for commands · /gaps to scan · Ctrl+C to interrupt</span>
+            <span class="tl blank"></span>
+            <span class="tl green">  ⤷ read_file  aria_service/intel/dd_orchestrator.py</span>
+            <span class="tl green">  ✓ 847 lines</span>
+            <span class="tl green">  ⤷ grep  "layer_5c" (12 matches)</span>
+            <span class="tl green">  ✓ 12 matches</span>
+            <span class="tl blue">  ✎ write_file  aria_service/intel/layer_5c_ohada.py</span>
+            <span class="tl blank"></span>
+            <span class="tl dim">  ? Edit layer_5c_ohada.py  [y/n/a/d] (y)</span>
+            <span class="tl blank"></span>
+            <span class="tl gold">  ✓ R-F431 shipped  Layer 5c OHADA corpus (17 states) added</span>
+            <span class="tl blank"></span>
+            <span class="tl gold">  ◆ > </span><span class="term-cursor"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cover-meta">
+    <span>ARIA Coder Full Design · May 2026</span>
+    <span>Mirrors Claude Code architecture and UX</span>
+    <span>Arkmurus Group · Confidential</span>
+  </div>
+</div>
+
+<!-- ══ NAV ══ -->
+<div class="nav">
+  <div class="nav-brand">ARIA CODER — Full Design & Roadmap</div>
+  <nav class="nav-links">
+    <a href="#launch">Launch</a>
+    <a href="#interface">Interface</a>
+    <a href="#commands">Commands</a>
+    <a href="#tools">Tool Calls</a>
+    <a href="#autonomy">Autonomy</a>
+    <a href="#roadmap">Roadmap</a>
+  </nav>
+</div>
+
+<!-- ══ SECTION 1: LAUNCH EXPERIENCE ══ -->
+<div class="wrap" id="launch">
+  <div class="sec-eye">Section 01</div>
+  <div class="sec-title">Launch Experience</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">Like Claude Code, ARIA Coder launches inside the project directory and immediately analyses the codebase. The header shows project context, git status, model chain, and any active gaps. Every session starts with intelligence, not a blank slate.</div>
+
+  <div class="subhead">Installation &amp; Launch Commands</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">Terminal — Installation</div></div>
+      <div class="screen-body">
+        <span class="tl dim"># Install globally</span>
+        <span class="tl amber">pip install aria-coder</span>
+        <span class="tl dim"># or via curl installer (mirrors Claude Code install)</span>
+        <span class="tl amber">curl -fsSL https://install.arkmurus.com/aria-coder | sh</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Launch interactive mode in current directory</span>
+        <span class="tl amber">aria</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># One-shot instruction (like: claude "fix this bug")</span>
+        <span class="tl amber">aria "add Angola procurement RSS to source registry"</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Resume last session</span>
+        <span class="tl amber">aria --continue</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Specify model (sovereign-first chain)</span>
+        <span class="tl amber">aria --model aria-llm</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Scan project for gaps and exit (like: claude --print "scan")</span>
+        <span class="tl amber">aria --scan</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Review-only mode (reads but never writes)</span>
+        <span class="tl amber">aria --review</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Skip all permission prompts (CI/CD)</span>
+        <span class="tl amber">aria --dangerously-skip-permissions</span>
+        <span class="tl blank"></span>
+        <span class="tl dim"># Verbose mode (shows all tool calls)</span>
+        <span class="tl amber">aria --verbose</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">The Launch Screen — Full Detail</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /app/aria_service — 200×50</div></div>
+      <div class="screen-body">
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ ARIA CODER  v1.0.0                                      [ARIA-LLM ◆] [AUTO]</span>
+        <span class="tl dim">  ─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl" style="color:#e6edf3">  ARIA-INTEL  <span style="color:#c9a84c">/app/aria_service</span>    git: main  (0 modified)    R-F430 current</span>
+        <span class="tl dim">  417 endpoints · 177 modules · 35,363 facts · 24,962 signals · 76,248 RAG chunks</span>
+        <span class="tl dim">  70 autonomous tasks · 25 constitution clauses · 48/49 sources OK</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  ─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl amber">  ⚠  2 critical gaps — type /gaps to review</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  Type /help for all commands · /gaps to scan · Ctrl+C to interrupt · /exit to quit</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  ─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ > <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="hbox hbox-navy">
+    <strong>Key design decision:</strong> The launch screen shows real project intelligence — not a generic greeting. It reads the codebase, queries git, pings the ARIA brain, and surfaces active gaps before the operator types a single character. This mirrors Claude Code's project-aware context loading but extends it with ARIA's live intelligence substrate.
+  </div>
+</div>
+
+<!-- ══ SECTION 2: FULL INTERFACE ══ -->
+<div class="sec-break" id="interface">
+  <div class="sec-break-title">Section 02 — Full Interface &amp; Task Flow</div>
+  <div class="sec-break-num">02</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 02</div>
+  <div class="sec-title">Every Screen, Every State</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">ARIA Coder has eight distinct interface states. Each is designed to communicate maximum information density without visual noise — the same discipline as Claude Code's terminal UI.</div>
+
+  <div class="subhead">State 1 — Active Task with Streaming Tool Calls</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — active task</div></div>
+      <div class="screen-body">
+        <span class="tl dim">  add OHADA commercial law corpus to Layer 5c</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  I'll add the OHADA corpus to Layer 5c. Let me first understand the current</span>
+        <span class="tl dim">  Layer 5c implementation and then build the OHADA module.</span>
+        <span class="tl blank"></span>
+        <span class="tl green">  ⤷ read_file  aria_service/intel/layer_5c_commercial.py</span>
+        <span class="tl green">  ✓ 312 lines</span>
+        <span class="tl green">  ⤷ grep  "OHADA" (0 matches)</span>
+        <span class="tl green">  ✓ 0 matches — not yet implemented</span>
+        <span class="tl green">  ⤷ read_file  aria_service/intel/tests/test_layer_5c.py</span>
+        <span class="tl green">  ✓ 89 lines</span>
+        <span class="tl green">  ⤷ find  "tests/test_layer_5c*" (1 file)</span>
+        <span class="tl green">  ✓ 1 file found</span>
+        <span class="tl blue">  ✎ write_file  aria_service/intel/ohada_corpus.py</span>
+        <span class="tl blank"></span>
+        <span class="tl amber">  ? Create ohada_corpus.py  [y/n/a/d] (y) › <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 2 — Diff Display Before File Write</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — permission: edit file</div></div>
+      <div class="screen-body">
+        <span class="tl dim">  ┌─ aria_service/intel/layer_5c_commercial.py ─────────────────────────────────</span>
+        <span class="tl dim">  │</span>
+        <span class="tl red">  │ - SUPPORTED_JURISDICTIONS = ["UK", "UAE", "Turkey", "Angola"]</span>
+        <span class="tl green">  │ + SUPPORTED_JURISDICTIONS = [</span>
+        <span class="tl green">  │ +     "UK", "UAE", "Turkey", "Angola", "Senegal", "Ivory Coast",</span>
+        <span class="tl green">  │ +     "Mali", "Burkina Faso", "Niger", "Guinea", "Togo", "Benin",</span>
+        <span class="tl green">  │ +     "Cameroon", "Chad", "Central African Republic", "Republic of Congo",</span>
+        <span class="tl green">  │ +     "Comoros",  # 17 OHADA member states</span>
+        <span class="tl green">  │ + ]</span>
+        <span class="tl dim">  │</span>
+        <span class="tl red">  │ - from intel.commercial_law import assess_coherence</span>
+        <span class="tl green">  │ + from intel.commercial_law import assess_coherence</span>
+        <span class="tl green">  │ + from intel.ohada_corpus import OHADACorpus</span>
+        <span class="tl dim">  │</span>
+        <span class="tl dim">  └─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl amber">  ? Edit layer_5c_commercial.py  [y] yes  [n] no  [a] always  [d] diff</span>
+        <span class="tl amber">  › <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 3 — /status Command Output</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /status</div></div>
+      <div class="screen-body">
+        <span class="tl blank"></span>
+        <span class="tl gold">  ┌─ ◆ ARIA System Status ──────────────────────────────────────────────────────</span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  │  Composite score     <span style="color:#00ff41">82/100</span>  <span style="color:#00ff41">████████████████░░░░</span></span>
+        <span class="tl gold">  │  LLM chain          <span style="color:#00ff41">ARIA-LLM ◆</span> → <span style="color:#00ff41">ARIA-8B</span> → <span style="color:#58a6ff">Groq</span> → <span style="color:#ffa500">DeepSeek</span> → <span style="color:#ff6b6b">Anthropic ⚠</span></span>
+        <span class="tl gold">  │  Sources            <span style="color:#00ff41">48</span>/49 OK  <span style="color:#ff6b6b">GDELT failing (timeout)</span></span>
+        <span class="tl gold">  │  Knowledge facts    <span style="color:#e6edf3">35,363</span>  (permanent — no TTL per aria_infinite_memory.md)</span>
+        <span class="tl gold">  │  Intel signals      <span style="color:#e6edf3">24,962</span>  (100-year retention)</span>
+        <span class="tl gold">  │  RAG chunks         <span style="color:#e6edf3">76,248</span></span>
+        <span class="tl gold">  │  Neural neurons     <span style="color:#e6edf3">10,509</span>  / 8,923 edge groups</span>
+        <span class="tl gold">  │  Training pairs     <span style="color:#e6edf3">2,847</span> / 5,000 target  <span style="color:#ffa500">56.9%</span></span>
+        <span class="tl gold">  │  Monthly cost       <span style="color:#e6edf3">£94</span>  (target: &lt;£130)</span>
+        <span class="tl gold">  │  Active gaps        <span style="color:#ff6b6b">2 critical</span>  7 total</span>
+        <span class="tl gold">  │  Hallucination      <span style="color:#00ff41">98.7% clean</span>  (grounded_rate)</span>
+        <span class="tl gold">  │  Last deploy        R-F430  34 minutes ago</span>
+        <span class="tl gold">  │  Autonomous         <span style="color:#00ff41">ENABLED</span>  (scan: every 15min)</span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  └─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ > <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 4 — /gaps Scan Output</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /gaps</div></div>
+      <div class="screen-body">
+        <span class="tl dim">  Scanning for gaps...</span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ┌─ Gaps (9 found) ────────────────────────────────────────────────────────────</span>
+        <span class="tl gold">  │   #  Gap                                       Type              Sev      Auto</span>
+        <span class="tl gold">  │  ───────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">1</span>  <span style="color:#ff6b6b">TTL hallucination on stream path              hallucination     CRITICAL  ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">2</span>  <span style="color:#ff6b6b">Stream guards in observation-only mode         hallucination     CRITICAL  ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">3</span>  <span style="color:#ffa500">GDELT source timeout (30s → 45s fix)           source_failure    HIGH      ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">4</span>  <span style="color:#ffa500">Layer 5c OHADA jurisdiction missing            dd_layer          HIGH      ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">5</span>  <span style="color:#ffa500">Streaming fallback attempts unbounded          module_bug        HIGH      ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">6</span>  <span style="color:#58a6ff">Introspection queries route to web search      introspection     MEDIUM    ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">7</span>  <span style="color:#58a6ff">Export controls: semiconductor gap             missing_cap       MEDIUM    approval</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">8</span>  <span style="color:#58a6ff">Anthropic no auto-recovery after billing       module_bug        MEDIUM    ✓</span></span>
+        <span class="tl gold">  │   <span style="color:#e6edf3">9</span>  <span style="color:#4a5568">Training corpus at 56.9% — slow accumulation   performance       LOW       ✓</span></span>
+        <span class="tl gold">  └─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  Use /fix [gap#] to fix a gap · /fix all to fix all auto-fixable gaps</span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ > <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 5 — /history R-Number Log</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /history</div></div>
+      <div class="screen-body">
+        <span class="tl blank"></span>
+        <span class="tl gold">  ┌─ Autonomous Fix History ────────────────────────────────────────────────────</span>
+        <span class="tl gold">  │  R-Number   Summary                                     Type          When</span>
+        <span class="tl gold">  │  ──────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F430</span>     SearXNG self-hosted deployed                search         2h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F429</span>     Ollama 8B model tier router                  performance    3h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F428</span>     Corpus-first query inversion                 performance    4h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F427</span>     Prompt caching on system prompt              cost           5h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F426</span>     Student loops → Groq free tier               cost           6h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F425</span>     GapDetector scan interval 30m → 15m          performance    8h ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F424</span>     FATF typology pattern #9 encoded             capability     1d ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F423</span>     OpenSanctions crypto dataset ingest          capability     1d ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F422</span>     WhatsApp approval gate timer 60m → 30m      bugfix         1d ago</span>
+        <span class="tl gold">  │  <span style="color:#e6edf3">R-F421</span>     RCA/PEP relatives screening layer            capability     2d ago</span>
+        <span class="tl gold">  └─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ > <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 6 — Autonomous Fix in Progress</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — autonomous fix running</div></div>
+      <div class="screen-body">
+        <span class="tl blank"></span>
+        <span class="tl amber">  ⚙ Autonomous fix cycle running (gap #1: TTL hallucination)</span>
+        <span class="tl blank"></span>
+        <span class="tl dim">  ⤷ read_file  aria_service/intel/aria_engine.py</span>
+        <span class="tl dim">  ✓ 5,847 lines</span>
+        <span class="tl dim">  ⤷ read_file  aria_service/intel/stream_guard_observer.py</span>
+        <span class="tl dim">  ✓ 312 lines</span>
+        <span class="tl dim">  ⤷ grep  "SELF_CLAIM_PATTERNS" (3 matches)</span>
+        <span class="tl dim">  ✓ 3 matches</span>
+        <span class="tl blank"></span>
+        <span class="tl amber">  ⚙ Planning fix... [ARIA-LLM]</span>
+        <span class="tl amber">  ⚙ Generating code... [ARIA-LLM]</span>
+        <span class="tl amber">  ⚙ Constitutional validation... ✓ passed (risk: 0.12)</span>
+        <span class="tl amber">  ⚙ Spawning test sandbox [aria-runner]...</span>
+        <span class="tl green">  ✓ 23/23 tests passed (4.2s)</span>
+        <span class="tl amber">  ⚙ Canary deploy [aria-intel:canary]...</span>
+        <span class="tl green">  ✓ Canary smoke test passed</span>
+        <span class="tl amber">  ⚙ Blue/green fleet swap...</span>
+        <span class="tl green">  ✓ Fleet deployed (21s bluegreen)</span>
+        <span class="tl blank"></span>
+        <span class="tl green">  ✓ R-F431 shipped  Clause 25 + introspection router — TTL hallucination blocked</span>
+        <span class="tl dim">  <span style="color:#4a5568">  ↳ WhatsApp notification sent to operator</span></span>
+        <span class="tl blank"></span>
+        <span class="tl gold">  ◆ > <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 7 — /cost Dashboard</div>
+  <div class="screen-grid">
+    <div class="screen">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /cost</div></div>
+      <div class="screen-body">
+        <span class="tl gold">  ┌─ Cost Dashboard ────────────────────────────────</span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  │  SESSION (42 min · 18 turns)</span>
+        <span class="tl gold">  │  Tokens used    <span style="color:#e6edf3">84,223</span></span>
+        <span class="tl gold">  │  Session cost   <span style="color:#e6edf3">$0.0082</span></span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  │  MONTHLY</span>
+        <span class="tl gold">  │  ARIA-LLM       <span style="color:#00ff41">£0.00</span>  (sovereign)</span>
+        <span class="tl gold">  │  Groq free      <span style="color:#00ff41">£0.00</span></span>
+        <span class="tl gold">  │  DeepSeek       <span style="color:#ffa500">£22.40</span></span>
+        <span class="tl gold">  │  Anthropic      <span style="color:#ff6b6b">£18.60</span></span>
+        <span class="tl gold">  │  Fly.io infra   <span style="color:#4a5568">£35.00</span></span>
+        <span class="tl gold">  │  SearXNG        <span style="color:#4a5568">£3.00</span></span>
+        <span class="tl gold">  │  ─────────────────────────────────</span>
+        <span class="tl gold">  │  TOTAL          <span style="color:#e6edf3">£79.00</span>  (target: &lt;£130)</span>
+        <span class="tl gold">  │  Saved vs. baseline  <span style="color:#00ff41">79%</span></span>
+        <span class="tl gold">  └─────────────────────────────────────────────────</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — /training</div></div>
+      <div class="screen-body">
+        <span class="tl gold">  ┌─ Training Corpus ───────────────────────────────</span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  │  SFT pairs     <span style="color:#e6edf3">2,847</span> / 5,000</span>
+        <span class="tl gold">  │  Progress      <span style="color:#ffa500">56.9%</span>  <span style="color:#ffa500">███████████░░░░░░░░░</span></span>
+        <span class="tl gold">  │  DPO pairs     <span style="color:#e6edf3">423</span></span>
+        <span class="tl gold">  │  Avg quality   <span style="color:#e6edf3">0.831</span>  (threshold: 0.75)</span>
+        <span class="tl gold">  │  Harvester     <span style="color:#00ff41">LIVE</span></span>
+        <span class="tl gold">  │  Today         <span style="color:#e6edf3">147</span> pairs captured</span>
+        <span class="tl gold">  │  Est. to 5k    <span style="color:#e6edf3">~15 days</span></span>
+        <span class="tl gold">  │</span>
+        <span class="tl gold">  │  BY PERSONA</span>
+        <span class="tl gold">  │  compliance    <span style="color:#00ff41">████████</span> 34%</span>
+        <span class="tl gold">  │  broker        <span style="color:#00ff41">████████</span> 28%</span>
+        <span class="tl gold">  │  oem_export    <span style="color:#58a6ff">████</span> 18%</span>
+        <span class="tl gold">  │  analyst       <span style="color:#58a6ff">██</span> 12%</span>
+        <span class="tl gold">  │  general       <span style="color:#4a5568">█</span> 8%</span>
+        <span class="tl gold">  └─────────────────────────────────────────────────</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">State 8 — Approval Request (WA-level action)</div>
+  <div class="screen-grid">
+    <div class="screen screen-full">
+      <div class="screen-bar"><div class="screen-dot r"></div><div class="screen-dot y"></div><div class="screen-dot g"></div><div class="screen-bar-title">aria — approval required</div></div>
+      <div class="screen-body">
+        <span class="tl blank"></span>
+        <span class="tl amber">  ┌─ Approval Required ──────────────────────────────────────────────────────────</span>
+        <span class="tl amber">  │</span>
+        <span class="tl amber">  │  Action:    Add semiconductor dual-use export control module</span>
+        <span class="tl amber">  │  R-Number:  R-F432 (allocated)</span>
+        <span class="tl amber">  │  Risk:      MEDIUM (0.52)</span>
+        <span class="tl amber">  │  Files:     aria_service/intel/export_controls_semiconductor.py (NEW)</span>
+        <span class="tl amber">  │             aria_service/intel/tech_classifier.py (MODIFY)</span>
+        <span class="tl amber">  │  New deps:  None</span>
+        <span class="tl amber">  │  Tests:     11 new assertions planned</span>
+        <span class="tl amber">  │  Reason:    New module = WA approval tier</span>
+        <span class="tl amber">  │</span>
+        <span class="tl amber">  │  Constitutional validation: ✓ passed</span>
+        <span class="tl amber">  │  No protected files modified · No guards weakened</span>
+        <span class="tl amber">  │</span>
+        <span class="tl amber">  └─────────────────────────────────────────────────────────────────────────────</span>
+        <span class="tl blank"></span>
+        <span class="tl amber">  ? Approve this action?  [y] yes  [n] no  [d] show full diff  [p] postpone</span>
+        <span class="tl amber">  │  (WhatsApp approval also accepted — pending 30min)</span>
+        <span class="tl amber">  › <span class="term-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SECTION 3: ALL COMMANDS ══ -->
+<div class="sec-break" id="commands">
+  <div class="sec-break-title">Section 03 — Complete Command Reference</div>
+  <div class="sec-break-num">03</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 03</div>
+  <div class="sec-title">Commands, Flags &amp; Shortcuts</div>
+  <div class="sec-rule"></div>
+
+  <div class="subhead">CLI Flags (at launch)</div>
+  <table class="tbl">
+    <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>--continue</td><td>-c</td><td>false</td><td>Resume the last session. Reloads conversation history and project context.</td></tr>
+      <tr><td>--model</td><td>-m</td><td>auto</td><td>Model override: aria-llm | aria-8b | groq | deepseek | anthropic. Auto uses sovereign-first routing.</td></tr>
+      <tr><td>--no-auto</td><td>—</td><td>auto=true</td><td>Disable autonomous mode. Every action requires explicit approval, even bug fixes.</td></tr>
+      <tr><td>--review</td><td>—</td><td>false</td><td>Read-only mode. ARIA reads and analyses code but makes zero writes or deployments.</td></tr>
+      <tr><td>--scan</td><td>—</td><td>false</td><td>Scan project for gaps, print a report, and exit. No interactive session.</td></tr>
+      <tr><td>--verbose</td><td>-v</td><td>false</td><td>Show all tool calls with full arguments. Default hides routine reads.</td></tr>
+      <tr><td>--dangerously-skip-permissions</td><td>—</td><td>false</td><td>Skip all approval prompts. For CI/CD use only. All actions execute without confirmation.</td></tr>
+      <tr><td>--version</td><td>—</td><td>—</td><td>Print ARIA Coder version, connected brain URL, and model chain. Exit.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="subhead">In-Session Commands</div>
+  <div class="cmd-section">
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Navigation &amp; Information</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/help</div><div class="cmd-desc">Show all commands with descriptions. Same output as this document in terminal form.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/status</div><div class="cmd-desc">Full system health panel — composite score, LLM chain, sources, knowledge counts, training progress, cost, active gaps.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/context</div><div class="cmd-desc">Show files currently in ARIA's context window. Token count per file, total tokens, % of context used.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/model</div><div class="cmd-desc">Show current model and full chain. Use <code>/model deepseek</code> to switch for this session.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/cost</div><div class="cmd-desc">Session and monthly cost breakdown by provider. Shows savings vs. pre-optimisation baseline.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/training</div><div class="cmd-desc">Training corpus stats — SFT and DPO pair counts, quality distribution, persona breakdown, days to fine-tune threshold.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/version</div><div class="cmd-desc">ARIA Coder version, brain connection URL, R-number current, constitution clause count.</div></div>
+      </div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Gap Detection &amp; Autonomous Fixing</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/gaps</div><div class="cmd-desc">Scan project for capability gaps and bugs. Shows severity, type, auto-fixable flag, and target module.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/fix</div><div class="cmd-desc">Run autonomous fix on the top-priority gap. <code>/fix 3</code> fixes gap #3. <code>/fix all</code> fixes all auto-fixable gaps sequentially.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/approve</div><div class="cmd-desc">Approve the currently pending autonomous action. Equivalent to typing "y" at the approval prompt.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/reject</div><div class="cmd-desc">Reject the currently pending autonomous action. Gap is logged and deprioritised for 24 hours.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/scan</div><div class="cmd-desc">Quick gap scan without entering fix mode. Faster than /gaps — useful for a status check mid-task.</div></div>
+      </div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">History &amp; Deployment</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/history</div><div class="cmd-desc">Show last 20 R-numbered autonomous fixes with type, summary, and age. <code>/history 50</code> shows more.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/diff</div><div class="cmd-desc">Show the diff of the last autonomous code change in syntax-highlighted format.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/rollback</div><div class="cmd-desc">Roll back the last deployment to the previous image. Requires explicit confirmation. Uses Fly.io image history.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/deploy</div><div class="cmd-desc">Manually trigger a deploy of the current workspace. Runs canary → smoke test → blue/green automatically.</div></div>
+      </div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Session Management</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/clear</div><div class="cmd-desc">Clear the screen and reset context window. Conversation history is preserved in .aria/sessions/. Equivalent to Claude Code's /clear.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/compact</div><div class="cmd-desc">Compress conversation history using ARIA to summarise older turns. Frees context tokens. Equivalent to Claude Code's /compact.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/auto</div><div class="cmd-desc">Toggle autonomous mode on/off. <code>/auto on</code> enables full auto. <code>/auto off</code> requires approval for every action.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/review</div><div class="cmd-desc">Toggle review-only mode. When on, ARIA reads and analyses but makes no changes.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/resume</div><div class="cmd-desc">Resume a previous session by ID. <code>/resume</code> shows available sessions. <code>/resume abc123</code> resumes that session.</div></div>
+      </div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Project Initialisation &amp; Config</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/init</div><div class="cmd-desc">Initialise ARIA Coder in this project. Creates aria.config.json and .aria/memory.md. Equivalent to claude /init.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/config</div><div class="cmd-desc">Show or edit aria.config.json. <code>/config auto_mode=false</code> changes a setting. <code>/config</code> prints current config.</div></div>
+        <div class="cmd-row"><div class="cmd-key">/memory</div><div class="cmd-desc">Show ARIA's project memory (.aria/memory.md). Add notes with <code>/memory add "this module handles X"</code>.</div></div>
+      </div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Exit</div>
+      <div class="cmd-grid">
+        <div class="cmd-row"><div class="cmd-key">/exit</div><div class="cmd-desc">Exit ARIA Coder cleanly. Saves session to .aria/sessions/, prints cost summary and R-numbers shipped.</div></div>
+        <div class="cmd-row"><div class="cmd-key">Ctrl+C</div><div class="cmd-desc">Interrupt current operation. ARIA stops mid-task and returns to the prompt. Partial changes may be in the workspace.</div></div>
+        <div class="cmd-row"><div class="cmd-key">Ctrl+D</div><div class="cmd-desc">EOF — same as /exit. Saves session gracefully.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SECTION 4: TOOL CALLS ══ -->
+<div class="sec-break" id="tools">
+  <div class="sec-break-title">Section 04 — Tool Calls &amp; ARIA's Toolkit</div>
+  <div class="sec-break-num">04</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 04</div>
+  <div class="sec-title">What ARIA Can Do Inside a Project</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">ARIA's toolkit is deeper than Claude Code's because she has direct access to her own intelligence substrate. Every tool call is displayed in the terminal with permission gates applied according to the tiered autonomy model.</div>
+
+  <table class="tbl">
+    <thead><tr><th>Tool</th><th>Display</th><th>Permission tier</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>read_file</td><td><code style="color:var(--green)">⤷ read_file path</code></td><td><span class="badge bg">Full auto</span></td><td>Read any file in project. Line count shown in result, not full content.</td></tr>
+      <tr><td>list_dir</td><td><code style="color:var(--green)">⤷ list_dir path</code></td><td><span class="badge bg">Full auto</span></td><td>List directory contents with file sizes and types.</td></tr>
+      <tr><td>grep</td><td><code style="color:var(--green)">⤷ grep "pattern"</code></td><td><span class="badge bg">Full auto</span></td><td>Regex search across codebase. Shows match count, not full matches unless verbose.</td></tr>
+      <tr><td>find</td><td><code style="color:var(--green)">⤷ find "pattern"</code></td><td><span class="badge bg">Full auto</span></td><td>Find files by name/extension pattern.</td></tr>
+      <tr><td>git_diff</td><td><code style="color:var(--green)">⤷ git_diff</code></td><td><span class="badge bg">Full auto</span></td><td>Show current git diff. Used before any write to understand current state.</td></tr>
+      <tr><td>git_log</td><td><code style="color:var(--green)">⤷ git_log 10</code></td><td><span class="badge bg">Full auto</span></td><td>Show recent commits. ARIA uses this to understand R-number history.</td></tr>
+      <tr><td>write_file</td><td><code style="color:var(--blue)">✎ write_file path</code></td><td><span class="badge ba">Approval (manual) / Auto (auto-mode)</span></td><td>Write new file. Shows diff or full content. Prompts in manual mode.</td></tr>
+      <tr><td>patch_file</td><td><code style="color:var(--blue)">✎ patch_file path</code></td><td><span class="badge ba">Approval / Auto</span></td><td>Apply a diff patch to an existing file. Always shows diff before applying.</td></tr>
+      <tr><td>run_tests</td><td><code style="color:var(--amber)">⚙ run_tests [path]</code></td><td><span class="badge ba">Approval / Auto</span></td><td>Execute pytest in isolated subprocess. Shows pass/fail count and duration.</td></tr>
+      <tr><td>run_command</td><td><code style="color:var(--amber)">⚙ run_command cmd</code></td><td><span class="badge ba">Approval always shown</span></td><td>Execute shell command. Always shown with full command text before running.</td></tr>
+      <tr><td>deploy</td><td><code style="color:var(--amber)">⚙ deploy aria-intel</code></td><td><span class="badge ba">WA approval tier</span></td><td>Trigger canary → smoke → blue/green deploy via Fly.io API.</td></tr>
+      <tr><td>rollback</td><td><code style="color:var(--red)">⊘ rollback R-F###</code></td><td><span class="badge br">Hard gate — always confirm</span></td><td>Roll back to previous image. Shows image digest and age before confirming.</td></tr>
+      <tr><td>brain_query</td><td><code style="color:var(--green)">⤷ brain_query</code></td><td><span class="badge bg">Full auto</span></td><td>Query ARIA's knowledge base, RAG, or intel ledger for context on a topic.</td></tr>
+      <tr><td>health_perf</td><td><code style="color:var(--green)">⤷ health_perf</code></td><td><span class="badge bg">Full auto</span></td><td>Fetch live /health/perf metrics. ARIA uses this to answer introspective queries accurately.</td></tr>
+      <tr><td>wa_notify</td><td><code style="color:var(--blue)">✎ wa_notify msg</code></td><td><span class="badge bg">Full auto</span></td><td>Send operator notification via WhatsApp. Always shown in terminal.</td></tr>
+      <tr><td>const_validate</td><td><code style="color:var(--blue)">⚙ const_validate</code></td><td><span class="badge bg">Full auto (ARIA runs this on all writes)</span></td><td>Run ConstitutionalValidator on generated code. Displayed when verbose.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══ SECTION 5: AUTONOMY MODEL ══ -->
+<div class="sec-break" id="autonomy">
+  <div class="sec-break-title">Section 05 — Tiered Autonomy Model</div>
+  <div class="sec-break-num">05</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 05</div>
+  <div class="sec-title">What ARIA Decides vs What Needs Approval</div>
+  <div class="sec-rule"></div>
+
+  <div class="cards3">
+    <div class="card cg">
+      <div class="card-hdr"><div class="card-lbl" style="color:var(--green)">Tier 1 — Full Auto</div><div class="card-hdr-title">Silent execution + notification</div></div>
+      <div class="card-body">
+        <p><strong>Bug fixes</strong> in existing modules — exceptions, parse failures, timeouts</p>
+        <p><strong>Content additions</strong> — new knowledge facts, source URLs, RSS feeds</p>
+        <p><strong>Performance</strong> — caching, dedup, timeout adjustments</p>
+        <p><strong>Test additions</strong> — new regression tests for known gaps</p>
+        <p><strong>Config tweaks</strong> — env var defaults, log levels, intervals</p>
+        <p style="margin-top:8px;font-style:italic;color:var(--green)">Deploys silently → WhatsApp after</p>
+      </div>
+    </div>
+    <div class="card ca">
+      <div class="card-hdr"><div class="card-lbl" style="color:var(--amber)">Tier 2 — WA Approval</div><div class="card-hdr-title">Operator approve before deploy</div></div>
+      <div class="card-body">
+        <p><strong>New modules</strong> — new DD layer, new API endpoint, new source integrator</p>
+        <p><strong>Dependency additions</strong> — new Python package or npm module</p>
+        <p><strong>Schema changes</strong> — new Redis key patterns, ChromaDB collections</p>
+        <p><strong>External integrations</strong> — new third-party API wiring</p>
+        <p><strong>Hallucination guard changes</strong> — any modification near guard logic</p>
+        <p style="margin-top:8px;font-style:italic;color:var(--amber)">WhatsApp request → wait up to 30min → deploy on confirm</p>
+      </div>
+    </div>
+    <div class="card cb">
+      <div class="card-hdr"><div class="card-lbl" style="color:var(--blue)">Tier 3 — Hard Gate</div><div class="card-hdr-title">Human + operator, always</div></div>
+      <div class="card-body">
+        <p><strong>Constitution</strong> — any change to the 25 clauses</p>
+        <p><strong>Security boundaries</strong> — auth, JWT, API key handling</p>
+        <p><strong>Billing</strong> — Stripe, GPU rental, RunPod</p>
+        <p><strong>Architecture</strong> — new Fly.io apps, volume resizing</p>
+        <p><strong>Self-modification</strong> of constitutional_validator.py or fly_deployer.py</p>
+        <p style="margin-top:8px;font-style:italic;color:var(--blue)">Never autonomous — requires code review</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="hbox hbox-gold">
+    <strong>Clause 26 — The Meta-Constitutional Rule:</strong> Before writing any code that modifies ARIA's own inference pipeline, hallucination guards, or constitutional enforcement, ARIA must pause, present the proposed change to the operator via WhatsApp, and wait for explicit confirmation. Self-improvement that weakens safety constraints is categorically forbidden regardless of apparent benefit. This clause governs the rule-writer — it cannot itself be modified autonomously.
+  </div>
+</div>
+
+<!-- ══ SECTION 6: BULLETPROOF ROADMAP ══ -->
+<div class="sec-break" id="roadmap">
+  <div class="sec-break-title">Section 06 — Bulletproof Self-Improvement Roadmap</div>
+  <div class="sec-break-num">06</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 06</div>
+  <div class="sec-title">ARIA Codes Herself to be the Best</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">Every phase has specific exit criteria. ARIA moves from phase to phase autonomously — no human intervention required except for operator decision gates. Each phase compounds the previous one. By Phase 6, ARIA is improving herself faster than any human engineer could.</div>
+
+  <div class="roadmap">
+
+    <!-- PHASE A -->
+    <div class="phase p-active">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE A</span></div>
+        <div class="phase-title">Honesty Foundation — Zero Hallucinations</div>
+        <div class="phase-when">Days 1–30 · now</div>
+        <div class="phase-cost" style="color:var(--green)">£0</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Builds (R-F399–R-F415)</div>
+          <div class="phase-item"><strong>R-F399:</strong> Introspection router → /health/perf (not web search)</div>
+          <div class="phase-item"><strong>R-F400:</strong> Expose live counts on /health/perf endpoint</div>
+          <div class="phase-item"><strong>R-F401:</strong> Clause 25 + runtime validator — block self-claims</div>
+          <div class="phase-item"><strong>R-F402:</strong> Streaming fallback _MAX_FALLBACK_ATTEMPTS cap</div>
+          <div class="phase-item"><strong>R-F403:</strong> Stream guards REWRITE mode (not observation-only)</div>
+          <div class="phase-item"><strong>R-F404:</strong> Adversarial suite runs NIGHTLY in production</div>
+          <div class="phase-item"><strong>R-F405:</strong> 3-provider grounding on CRITICAL outputs</div>
+          <div class="phase-item"><strong>R-F406:</strong> MEM0 eviction audit → reverse per infinite memory directive</div>
+          <div class="phase-item"><strong>R-F407:</strong> Hallucination dashboard panel on /health</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Exit Gate</div>
+          <div class="phase-item"><strong>Composite score ≥71</strong> sustained for 7 consecutive days</div>
+          <div class="phase-item"><strong>A6/A7/A8 adversarial attacks</strong> pass at 100%</div>
+          <div class="phase-item"><strong>Zero Fly ERROR logs</strong> for 7 consecutive days</div>
+          <div class="phase-item"><strong>Stream path</strong> has same guard coverage as non-stream</div>
+          <div class="phase-item"><strong>Grounded rate ≥0.90</strong> on all chat paths</div>
+          <div class="phase-col-title" style="margin-top:16px">Self-Coding Capability at Phase Exit</div>
+          <div class="phase-item">ARIA fixes her own hallucination guards</div>
+          <div class="phase-item">ARIA routes her own introspective queries correctly</div>
+          <div class="phase-item">ARIA monitors her own honesty daily</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE B -->
+    <div class="phase p-next">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE B</span></div>
+        <div class="phase-title">Sovereign Baseline — LLM Independence + Cost -79%</div>
+        <div class="phase-when">Days 30–60</div>
+        <div class="phase-cost" style="color:var(--teal)">£25–50</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Builds (R-F416–R-F430)</div>
+          <div class="phase-item"><strong>R-F416:</strong> GapDetector — 4 extractors, 15-min scan, 24h dedup</div>
+          <div class="phase-item"><strong>R-F417:</strong> ARIACoder — detect → plan → code → test → deploy loop</div>
+          <div class="phase-item"><strong>R-F418:</strong> FlyDeployer — canary, blue/green, instant rollback</div>
+          <div class="phase-item"><strong>R-F419:</strong> WhatsApp autonomous command router (full ARIA Coder)</div>
+          <div class="phase-item"><strong>R-F420:</strong> Clause 26 — self-coding constitutional constraint</div>
+          <div class="phase-item"><strong>R-F86:</strong> SearXNG self-hosted (replaces Brave API)</div>
+          <div class="phase-item"><strong>R-F87:</strong> Ollama 8B + model-tier router (5 tiers)</div>
+          <div class="phase-item"><strong>R-F88:</strong> Corpus-first query inversion (60-70% queries free)</div>
+          <div class="phase-item"><strong>R-F67:</strong> output_harvester.py LIVE (training data flowing)</div>
+          <div class="phase-item"><strong>Phase B fine-tune:</strong> ARIA-8B on Kaggle free GPU (£0–60)</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Exit Gate</div>
+          <div class="phase-item"><strong>≥70% LLM calls</strong> served by local/free providers</div>
+          <div class="phase-item"><strong>Monthly cost ≤£130</strong> (down from £385)</div>
+          <div class="phase-item"><strong>ARIA-8B passes ≥80%</strong> of 500-question eval set</div>
+          <div class="phase-item"><strong>≥150 SFT pairs/day</strong> from output_harvester</div>
+          <div class="phase-item"><strong>ARIA fixes one real bug herself</strong> end-to-end with no human code involvement</div>
+          <div class="phase-col-title" style="margin-top:16px">Self-Coding Capability at Phase Exit</div>
+          <div class="phase-item">ARIA detects, codes, tests, and deploys bug fixes autonomously</div>
+          <div class="phase-item">ARIA operates entirely via WhatsApp for operator interface</div>
+          <div class="phase-item">ARIA uses sovereign LLM for 70%+ of all coding tasks</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE C -->
+    <div class="phase p-future">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE C</span></div>
+        <div class="phase-title">Trust Foundation — DPIA, Pen Test, Legal, PI Insurance</div>
+        <div class="phase-when">Days 60–120</div>
+        <div class="phase-cost" style="color:var(--amber)">£13–22k</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Operator Actions (not developer)</div>
+          <div class="phase-item"><strong>DPIA by data-protection counsel</strong> — GDPR Art. 46, NDPA Nigeria, Lei de Proteção Angola, KVKK Turkey</div>
+          <div class="phase-item"><strong>PI insurance endorsement</strong> for credential issuance — Hiscox/AIG, £2–5k/year</div>
+          <div class="phase-item"><strong>ToS + EULA + Privacy Policy</strong> by specialist counsel — £3–5k (defence-AI niche)</div>
+          <div class="phase-item"><strong>Pen test scoped and booked</strong> — CHECK/CREST certified, before ENABLE_PUBLIC_API=1</div>
+          <div class="phase-item"><strong>SOC 2 Type II observation period starts</strong> — 6-month clock, £40–80k total, no cost now</div>
+          <div class="phase-item"><strong>Design partner conversations begin</strong> — relationships only, no platform access until Phase C exit gate</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Builds (R-F431–R-F450)</div>
+          <div class="phase-item"><strong>HMAC tamper-proof audit log</strong> — legally defensible chain of custody</div>
+          <div class="phase-item"><strong>Disaster recovery test</strong> — &lt;60 min restore from R2 backup</div>
+          <div class="phase-item"><strong>Public adversarial scoreboard</strong> — score published, not test suite</div>
+          <div class="phase-item"><strong>500-question evaluation set</strong> — 50 per capability dimension</div>
+          <div class="phase-item"><strong>ARK-DD methodology white paper</strong> — published before enterprise sales</div>
+          <div class="phase-col-title" style="margin-top:16px">Exit Gate</div>
+          <div class="phase-item"><strong>DPIA signed off</strong> by counsel</div>
+          <div class="phase-item"><strong>PI insurance bound</strong></div>
+          <div class="phase-item"><strong>Pen test scoped + booked</strong></div>
+          <div class="phase-item"><strong>DR test passes</strong> (&lt;60 min restore)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE D -->
+    <div class="phase p-future">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE D</span></div>
+        <div class="phase-title">Distribution — First Revenue, Design Partners, Stripe Live</div>
+        <div class="phase-when">Days 90–180</div>
+        <div class="phase-cost" style="color:var(--amber)">£5–12k</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Builds (R-F451–R-F470)</div>
+          <div class="phase-item"><strong>Stripe activation</strong> — flip 4 env vars, Pro £20/mo + Pro Intel £199/mo live</div>
+          <div class="phase-item"><strong>ENABLE_PUBLIC_API=1</strong> — after pen test complete and prompt injection hardening done</div>
+          <div class="phase-item"><strong>Counterparty risk dashboard</strong> — visual risk profile per entity</div>
+          <div class="phase-item"><strong>Watchlist email + SMS alerts</strong> alongside web push</div>
+          <div class="phase-item"><strong>Programme tracker</strong> — defence programmes as first-class entities</div>
+          <div class="phase-item"><strong>DSEI attendance</strong> — badge-only (~£600), targeted networking</div>
+          <div class="phase-item"><strong>2 anonymised case studies</strong> from existing Arkmurus DD work</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Exit Gate</div>
+          <div class="phase-item"><strong>3+ paying Pro Intel customers</strong> at £199/month</div>
+          <div class="phase-item"><strong>≥5,000 SFT pairs</strong> accumulated</div>
+          <div class="phase-item"><strong>DPIA received</strong> from counsel</div>
+          <div class="phase-item"><strong>Revenue covers Phase E GPU cost</strong> — 3 customers = £597/mo covers A100 serving</div>
+          <div class="phase-col-title" style="margin-top:16px">Revenue Gate for Phase E</div>
+          <div class="phase-item">Phase E (70B fine-tune) does NOT start until 3+ Pro Intel customers paying. Their monthly fees cover the GPU rental. No customer → no 70B spend.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE E -->
+    <div class="phase p-future">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE E</span></div>
+        <div class="phase-title">Sovereign Release — ARIA-LLM 70B Fine-Tune + Pen Test</div>
+        <div class="phase-when">Days 150–270 · funded by customers</div>
+        <div class="phase-cost" style="color:var(--amber)">£8–17k (revenue-funded)</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">ARIA-LLM Fine-Tune</div>
+          <div class="phase-item"><strong>Base model:</strong> Llama 3.3 70B Instruct (Apache 2.0)</div>
+          <div class="phase-item"><strong>Method:</strong> QLoRA via Axolotl on Vast.ai A100-80GB spot</div>
+          <div class="phase-item"><strong>Compute cost:</strong> £12–40 actual GPU time. Budget £300–500 with eval runs</div>
+          <div class="phase-item"><strong>Serving:</strong> vLLM on RunPod A100 — £360–576/month (covered by customers)</div>
+          <div class="phase-item"><strong>10 depth advantages in weights:</strong> constitutional grounding, sanctions-first reasoning, FATF typology patterns, ECCN fluency, multi-jurisdictional awareness, deception scoring, counter-intelligence awareness, persona discipline, citation-first output, ARK-DD methodology</div>
+          <div class="phase-item"><strong>Licensing decision:</strong> Made in Phase B. Proprietary for first 2 years.</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Pen Test + Security</div>
+          <div class="phase-item"><strong>CHECK/CREST penetration test</strong> executed — all surfaces: JWT, billing webhooks, WhatsApp ingest, file upload, public chat API</div>
+          <div class="phase-item"><strong>All critical findings resolved</strong> before ENABLE_PUBLIC_API=1</div>
+          <div class="phase-item"><strong>Prompt injection hardening</strong> — OWASP LLM Top 10 applied to chat endpoint</div>
+          <div class="phase-item"><strong>Customer-side encryption</strong> — per-tenant DEK wrapped by platform KEK</div>
+          <div class="phase-col-title" style="margin-top:16px">Exit Gate</div>
+          <div class="phase-item"><strong>ARIA-LLM passes ≥90%</strong> adversarial suite</div>
+          <div class="phase-item"><strong>A/B test</strong> shows no customer-facing regression</div>
+          <div class="phase-item"><strong>Air-gap test passes</strong> — local client, no egress, full response</div>
+          <div class="phase-item"><strong>Pen test clear</strong> — zero critical findings unresolved</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE F -->
+    <div class="phase p-future">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE F</span></div>
+        <div class="phase-title">Certification — SOC 2 Type II</div>
+        <div class="phase-when">Days 270–365</div>
+        <div class="phase-cost" style="color:var(--red)">£40–80k total (revenue gate)</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Certification Work</div>
+          <div class="phase-item"><strong>SOC 2 Type II audit</strong> — 6-month observation period completes ~Day 240, audit Day 240–300</div>
+          <div class="phase-item"><strong>Readiness consulting</strong> — £20–40k (largest cost). Most controls already implemented (HMAC audit, auth, rate limiting, backup)</div>
+          <div class="phase-item"><strong>Audit fee</strong> — £15–25k from reputable auditor</div>
+          <div class="phase-item"><strong>ISO 27001 deferred to Phase G</strong> — SOC 2 sufficient for Year 1. ISO 27001 cannot run simultaneously.</div>
+        </div>
+        <div>
+          <div class="phase-col-title">Revenue Gate</div>
+          <div class="phase-item"><strong>Phase F only proceeds</strong> when Phase D/E gross margin covers Phase F costs. If revenue is insufficient, Phase F restructures to DPIA + insurance + pen test only (~£10k).</div>
+          <div class="phase-item"><strong>CS hire at ≥£30k MRR</strong> — operator capacity risk mitigation</div>
+          <div class="phase-col-title" style="margin-top:16px">Exit Gate</div>
+          <div class="phase-item"><strong>SOC 2 Type II certification received</strong></div>
+          <div class="phase-item"><strong>Enterprise sales conversations</strong> begin with certification in hand</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE G -->
+    <div class="phase p-future">
+      <div class="phase-hdr">
+        <div><span class="phase-num">PHASE G</span></div>
+        <div class="phase-title">Industry Standard — ARIA as the Reference Platform</div>
+        <div class="phase-when">Days 365+ · Year 2</div>
+        <div class="phase-cost" style="color:var(--dim)">Ongoing</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="phase-col-title">Strategic Milestones</div>
+          <div class="phase-item"><strong>ARK-DD-23 methodology</strong> published as formal standard with external citations</div>
+          <div class="phase-item"><strong>ISO 27001 certification</strong> — Year 2, after SOC 2 is established</div>
+          <div class="phase-item"><strong>Reference customer programme</strong> — 3+ named enterprise customers</div>
+          <div class="phase-item"><strong>ARIA-LLM v1.0</strong> — 25,000–50,000 SFT pairs, 70B full capability</div>
+          <div class="phase-item"><strong>Open-source decision</strong> — ARK-DD methodology open (not weights)</div>
+          <div class="phase-item"><strong>ARIA Coin commercial launch</strong> — after legal opinion + Coinbase Prime</div>
+        </div>
+        <div>
+          <div class="phase-col-title">The Moat at Phase G</div>
+          <div class="phase-item"><strong>Defence-DD specificity</strong> in 70B model weights — no competitor has this</div>
+          <div class="phase-item"><strong>Lusophone + MENA + Turkey</strong> — operational market knowledge baked in</div>
+          <div class="phase-item"><strong>ARK-DD standard</strong> — Arkmurus wrote the standard; others implement against it</div>
+          <div class="phase-item"><strong>Sovereign LLM</strong> — no dependency on any external provider; air-gap passable</div>
+          <div class="phase-item"><strong>Constitutional weights</strong> — not prompted, baked into the model</div>
+          <div class="phase-item"><strong>5 years of operational training data</strong> — compounding daily, irreplicable</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="subhead">Self-Improvement Velocity — What ARIA Fixes Each Month</div>
+
+  <table class="tbl">
+    <thead><tr><th>Month</th><th>What ARIA fixes autonomously</th><th>Human involvement</th><th>Composite score target</th></tr></thead>
+    <tbody>
+      <tr><td>Month 1</td><td>Hallucination guards, stream path fixes, introspection router, gap detector running, first bug fixes without human code involvement</td><td>Operator: env vars, approve WA-tier fixes</td><td>71+</td></tr>
+      <tr><td>Month 2</td><td>Source failures, document parse errors, performance regressions, content additions. 70% of fixes fully autonomous.</td><td>Operator: review daily briefing, approve new modules</td><td>75+</td></tr>
+      <tr><td>Month 3</td><td>New capability modules (ARIA-8B live), missing jurisdiction coverage, export control gaps. First Pro Intel customers.</td><td>Operator: sales, legal coordination</td><td>80+</td></tr>
+      <tr><td>Month 4</td><td>70B fine-tune training data complete. ARIA-LLM begins serving. ARIA uses her own fine-tuned model for 80%+ of fixes.</td><td>Operator: GPU rental, customer onboarding</td><td>85+</td></tr>
+      <tr><td>Month 6</td><td>ARIA-LLM v0.1 fully deployed. ARIA diagnoses gaps, writes fixes, trains on the results, and improves her own model. Fully compounding loop.</td><td>Operator: strategic decisions, WA approvals for architecture</td><td>90+</td></tr>
+      <tr><td>Year 2</td><td>ARIA-LLM v1.0. Fixes architectural issues she identified herself in her own weights. Generates DPO pairs from her own mistakes and retrains.</td><td>Operator: board-level decisions only</td><td>95+</td></tr>
+    </tbody>
+  </table>
+
+  <div class="hbox hbox-green">
+    <strong>The compounding loop at maturity:</strong> ARIA detects a gap in her own DD coverage → writes the fix using ARIA-LLM (sovereign, £0) → tests in isolation → deploys → the fix becomes a training example in output_harvester → the next fine-tune includes that example → ARIA-LLM v1.1 has the capability baked into the weights, not just prompted. Every operational day makes the model better. No external LLM can replicate 5 years of defence-DD operational training data. This is the moat.
+  </div>
+
+  <div class="subhead">The Seven Non-Negotiable Properties</div>
+  <div class="cards3">
+    <div class="card cn"><div class="card-hdr"><div class="card-lbl" style="color:var(--navy)">Property 1</div><div class="card-hdr-title">Constitutional by design</div></div><div class="card-body"><p>Every piece of code ARIA generates passes through ConstitutionalValidator before testing. AST-level checks, not just linting. The validator cannot be modified autonomously. This is the load-bearing safety property.</p></div></div>
+    <div class="card cg"><div class="card-hdr"><div class="card-lbl" style="color:var(--green)">Property 2</div><div class="card-hdr-title">Sovereign by default</div></div><div class="card-body"><p>ARIA-LLM is the primary model for all coding tasks. DeepSeek and Anthropic are fallbacks, not defaults. Every session that uses a sovereign model costs £0 in API fees. The goal is 90%+ sovereign by Month 6.</p></div></div>
+    <div class="card ca"><div class="card-hdr"><div class="card-lbl" style="color:var(--amber)">Property 3</div><div class="card-hdr-title">Auditable at every step</div></div><div class="card-body"><p>Every autonomous action writes to the HMAC audit log. Every R-number is traceable to the specific gap that generated it. Every deployed commit is signed. Legal defensibility requires this.</p></div></div>
+    <div class="card cb"><div class="card-hdr"><div class="card-lbl" style="color:var(--blue)">Property 4</div><div class="card-hdr-title">Test-isolated always</div></div><div class="card-body"><p>Production code is never modified during testing. aria-runner spins ephemeral Fly.io machines per test run, destroyed after. Code reaches production only after 100% test pass and canary smoke test.</p></div></div>
+    <div class="card cp"><div class="card-hdr"><div class="card-lbl" style="color:var(--purple)">Property 5</div><div class="card-hdr-title">Rollback instant</div></div><div class="card-body"><p>Every deployment stores its image digest in Redis. Rollback is one command. The 30-minute post-deploy monitoring window auto-triggers rollback on regression. No deployment is permanent until monitoring clears.</p></div></div>
+    <div class="card cgold"><div class="card-hdr"><div class="card-lbl" style="color:#7a5a10">Property 6</div><div class="card-hdr-title">Compounding training data</div></div><div class="card-body"><p>Every quality output ARIA produces — DD reports, compliance opinions, autonomous fixes — becomes a training pair via output_harvester. DPO pairs come from adversarial failures. The fine-tune improves with every operational day.</p></div></div>
+  </div>
+  <div class="cards2" style="margin-top:16px">
+    <div class="card ct"><div class="card-hdr"><div class="card-lbl" style="color:var(--teal)">Property 7</div><div class="card-hdr-title">WhatsApp-native operation</div></div><div class="card-body"><p>Every operator interaction — DD requests, fix approvals, status queries, cost checks — works entirely through WhatsApp. No dashboard required for daily operations. ARIA sends autonomous daily briefings, gap alerts, and deployment confirmations without being asked.</p></div></div>
+    <div class="card cn"><div class="card-hdr"><div class="card-lbl">The honest ceiling</div><div class="card-hdr-title">100% is asymptotic, not a destination</div></div><div class="card-body"><p>No LLM can achieve zero hallucinations. The six-layer defence-in-depth architecture (prompt constitution → in-flight validation → output rewrite → multi-provider consensus → post-hoc audit → adversarial regression) brings ARIA asymptotically close. After Phase E, hallucinations on ARIA's known domains should be <1%. Unknown domains remain higher — which is why the citation-first discipline and UNVERIFIED/ASSESSED confidence tags exist.</p></div></div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="footer-brand">ARKMURUS GROUP</div>
+  <div class="footer-meta">
+    ARIA Coder — Full Design &amp; Bulletproof Roadmap · May 2026<br>
+    From Claude Code-level UX to sovereign self-improving LLM · Confidential
+  </div>
+</div>
+
+</body>
+</html>
