@@ -75,12 +75,31 @@ class CoderToolbox:
     # ── deploy ─────────────────────────────────────────────────────────────
 
     def deploy(self, target: str = "--all", timeout: int = 600) -> ToolResult:
-        """Run scripts/deploy.sh with the given target. target can be --all,
-        --intel, --web, --wa, or a combination like --web --wa."""
-        script = self.root / "scripts" / "deploy.sh"
-        if not script.exists():
-            return ToolResult(f"error: deploy script not found at {script}", is_error=True)
-        return self._tb.run(f"bash {script} {target}", timeout=timeout)
+        """Run the deploy script with the given target. target can be --all,
+        --intel, --web, --wa, or a combination like --web --wa.
+
+        Uses deploy.sh on Linux/macOS (via bash) and deploy.ps1 on Windows
+        (via PowerShell) so the tool works on any platform without manual
+        intervention. R-F1195.
+        """
+        import platform as _plat
+        is_windows = _plat.system().lower() == "windows"
+        if is_windows:
+            ps_script = self.root / "scripts" / "deploy.ps1"
+            if ps_script.exists():
+                # Map --all → -All, --intel → -Intel, --web → -Web, --wa → -Wa
+                parts = target.split()
+                ps_args = " ".join(
+                    "-" + p.lstrip("-").capitalize() for p in parts
+                )
+                return self._tb.run(
+                    f'powershell -NoProfile -Command "& {ps_script} {ps_args}"',
+                    timeout=timeout,
+                )
+        sh_script = self.root / "scripts" / "deploy.sh"
+        if not sh_script.exists():
+            return ToolResult(f"error: deploy script not found at {sh_script}", is_error=True)
+        return self._tb.run(f"bash {sh_script} {target}", timeout=timeout)
 
     # ── test runner ────────────────────────────────────────────────────────
 
