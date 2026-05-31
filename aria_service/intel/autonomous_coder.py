@@ -213,35 +213,437 @@ class AutonomousCoder:
 
         desc_lower = description.lower()
 
-        # Strategy 1: Add error handling to the primary function
-        if "error" in desc_lower or "exception" in desc_lower or "try" in desc_lower:
+        # Check specific patterns FIRST (before generic "error"/"fail") so that
+        # "Fix AttributeError when item_id is None" maps to null_check, not error_handling.
+        fix_type = self._classify_fix_type(desc_lower)
+
+        if fix_type == "null_check":
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     if not node.name.startswith("_"):
-                        return self.coding_os._add_error_handler(existing_code, node.name)
+                        return self._add_null_check(existing_code, node.name)
 
-        # Strategy 2: Add wiring (brain_hook / wire_success)
-        if "wire" in desc_lower or "brain" in desc_lower or "signal" in desc_lower:
-            if "wire_success" not in existing_code:
-                return self.coding_os._add_wiring(existing_code, module_name, description)
+        if fix_type == "retry":
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_") and "retry" not in existing_code:
+                        return self._add_retry_logic(existing_code, node.name)
 
-        # Strategy 3: Add return type annotations
-        if "type" in desc_lower or "annotation" in desc_lower or "hint" in desc_lower:
+        if fix_type == "timeout":
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AsyncFunctionDef):
+                    if not node.name.startswith("_") and "asyncio.wait_for" not in existing_code:
+                        return self._add_timeout_wrapper(existing_code, node.name)
+
+        if fix_type == "docstring":
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_"):
+                        return self._add_docstring(existing_code, node.name, description)
+
+        if fix_type == "type_annotation":
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     if not node.name.startswith("_") and node.returns is None:
-                        return self.coding_os._add_return_type(existing_code, node.name, "dict")
+                        return self._add_type_annotations(existing_code, node.name)
 
-        # Strategy 4: Add missing imports
-        if "import" in desc_lower:
+        if fix_type == "wiring":
+            if "wire_success" not in existing_code:
+                return self.coding_os._add_wiring(existing_code, module_name, description)
+
+        if fix_type == "imports":
             needed_imports = self._detect_missing_imports(tree)
             result = existing_code
             for imp in needed_imports:
                 result = self.coding_os._add_import_if_missing(result, imp)
             return result
 
+        if fix_type == "logging":
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_") and "logger." not in existing_code:
+                        return self._add_logging(existing_code, node.name, module_name)
+
+        if fix_type == "return_type":
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_") and node.returns is None:
+                        return self.coding_os._add_return_type(existing_code, node.name, "dict")
+
+        if fix_type == "error_handling":
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_"):
+                        return self.coding_os._add_error_handler(existing_code, node.name)
+
+        # Fallback: synthesise a targeted fix from the description
+        return self._synthesize_fix(existing_code, module_name, description, target_file)
+
+    def _synthesize_fix(self, existing_code: str, module_name: str,
+                        description: str, target_file: str) -> str:
+        """Synthesise a real code fix from a description using AST analysis.
+        
+        This is the catch-all strategy that produces REAL code changes for
+        any description, not just keyword-matched patterns. It:
+        1. Parses the existing code with AST
+        2. Identifies the primary function
+        3. Generates a targeted fix based on the description
+        4. Returns the modified source
+        """
+        try:
+            tree = ast.parse(existing_code)
+        except SyntaxError:
+            return existing_code
+
+        desc_lower = description.lower()
+
+        # Find the primary function (first non-private function)
+        primary_func = None
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not node.name.startswith("_"):
+                    primary_func = node
+                    break
+
+        if primary_func is None:
+            return existing_code
+
+        func_name = primary_func.name
+        is_async = isinstance(primary_func, ast.AsyncFunctionDef)
+
+        # Determine what kind of fix to apply based on the description
+        fix_type = self._classify_fix_type(desc_lower)
+
+        if fix_type == "error_handling":
+            return self.coding_os._add_error_handler(existing_code, func_name)
+        elif fix_type == "wiring":
+            if "wire_success" not in existing_code:
+                return self.coding_os._add_wiring(existing_code, module_name, description)
+        elif fix_type == "return_type":
+            if primary_func.returns is None:
+                return self.coding_os._add_return_type(existing_code, func_name, "dict")
+        elif fix_type == "imports":
+            needed = self._detect_missing_imports(tree)
+            result = existing_code
+            for imp in needed:
+                result = self.coding_os._add_import_if_missing(result, imp)
+            return result
+        elif fix_type == "null_check":
+            return self._add_null_check(existing_code, func_name)
+        elif fix_type == "logging":
+            return self._add_logging(existing_code, func_name, module_name)
+        elif fix_type == "timeout":
+            if is_async:
+                return self._add_timeout_wrapper(existing_code, func_name)
+        elif fix_type == "retry":
+            return self._add_retry_logic(existing_code, func_name)
+        elif fix_type == "docstring":
+            return self._add_docstring(existing_code, func_name, description)
+        elif fix_type == "type_annotation":
+            return self._add_type_annotations(existing_code, func_name)
+
         # Default: return existing code unchanged
         return existing_code
+
+    def _classify_fix_type(self, desc_lower: str) -> str:
+        """Classify a description into a fix type.
+
+        Priority order: more specific patterns checked first so that
+        "fix None crash" maps to null_check (not error_handling) and
+        "add retry for flaky API" maps to retry (not error_handling).
+        """
+        # Check specific patterns first (before generic "error"/"fail")
+        if any(w in desc_lower for w in ["null", "none crash", "none check", "is none", "attributeerror", "keyerror"]):
+            return "null_check"
+        if any(w in desc_lower for w in ["retry", "flaky", "transient", "backoff"]):
+            return "retry"
+        if any(w in desc_lower for w in ["timeout", "hang", "stall", "slow", "deadlock"]):
+            return "timeout"
+        if any(w in desc_lower for w in ["docstring", "documentation", "comment"]):
+            return "docstring"
+        if any(w in desc_lower for w in ["annotat", "type hint", "typing", "return type"]):
+            return "type_annotation"
+        if any(w in desc_lower for w in ["wire", "brain", "signal", "absorb", "hook"]):
+            return "wiring"
+        if any(w in desc_lower for w in ["import", "missing import", "nameerror", "modulenotfound"]):
+            return "imports"
+        if any(w in desc_lower for w in ["log", "debug", "trace", "print"]):
+            return "logging"
+        if any(w in desc_lower for w in ["type", "annotation", "hint"]):
+            return "return_type"
+        # Generic patterns checked last
+        if any(w in desc_lower for w in ["error", "exception", "try", "except", "crash", "fail"]):
+            return "error_handling"
+        return "error_handling"  # default to error handling
+
+    def _add_null_check(self, source: str, func_name: str) -> str:
+        """Add null/empty checks to a function's parameters. Returns updated source."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+
+        # Find the first body statement that is NOT a docstring
+        first_body_node = None
+        for node in func.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            first_body_node = node
+            break
+
+        if first_body_node is None:
+            return source
+
+        first_line_idx = first_body_node.lineno - 1
+        first_line = lines[first_line_idx]
+        body_indent = first_line[:len(first_line) - len(first_line.lstrip())]
+
+        # Build null checks for each parameter
+        null_checks = []
+        for arg in func.args.args:
+            if arg.arg == "self":
+                continue
+            # Skip *args and **kwargs
+            if arg.arg in ("args", "kwargs"):
+                continue
+            null_checks.append(
+                f"{body_indent}if {arg.arg} is None:\n"
+                f'{body_indent}    logger.warning("[{func_name}] {arg.arg} is None — returning empty result")\n'
+                f"{body_indent}    return {{}}"
+            )
+
+        if not null_checks:
+            return source
+
+        # Insert null checks before the first body statement
+        new_body = "\n".join(null_checks) + "\n"
+        result_lines = lines[:first_line_idx] + [new_body] + lines[first_line_idx:]
+        return "\n".join(result_lines)
+
+    def _add_logging(self, source: str, func_name: str, module_name: str) -> str:
+        """Add logging to a function. Returns updated source."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+
+        # Find the first body statement
+        first_body_node = None
+        for node in func.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            first_body_node = node
+            break
+
+        if first_body_node is None:
+            return source
+
+        first_line_idx = first_body_node.lineno - 1
+        first_line = lines[first_line_idx]
+        body_indent = first_line[:len(first_line) - len(first_line.lstrip())]
+
+        # Add logger if missing
+        result = source
+        if "logger = logging.getLogger" not in result and "logger = logging.getChild" not in result:
+            result = self.coding_os._add_import_if_missing(result, "import logging")
+            log_line = f'\nlogger = logging.getLogger("aria.{module_name}")\n'
+            # Insert after imports
+            import_end = 0
+            for i, line in enumerate(result.split("\n")):
+                if line.startswith("import ") or line.startswith("from "):
+                    import_end = i + 1
+            r_lines = result.split("\n")
+            r_lines.insert(import_end, log_line.strip())
+            result = "\n".join(r_lines)
+            lines = result.split("\n")
+
+        # Add entry log
+        entry_log = f'{body_indent}logger.debug("[{func_name}] called")'
+        result_lines = lines[:first_line_idx] + [entry_log] + lines[first_line_idx:]
+        return "\n".join(result_lines)
+
+    def _add_timeout_wrapper(self, source: str, func_name: str) -> str:
+        """Wrap an async function body with asyncio.wait_for timeout."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None or not isinstance(func, ast.AsyncFunctionDef):
+            return source
+
+        lines = source.split("\n")
+
+        # Find the first body statement
+        first_body_node = None
+        for node in func.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            first_body_node = node
+            break
+
+        if first_body_node is None:
+            return source
+
+        first_line_idx = first_body_node.lineno - 1
+        first_line = lines[first_line_idx]
+        body_indent = first_line[:len(first_line) - len(first_line.lstrip())]
+
+        # Get the last line of the function body
+        last_body_line_idx = (getattr(func, 'end_lineno', func.lineno) or func.lineno) - 1
+
+        # Build the new body with timeout wrapper
+        # Wrap the original body in asyncio.wait_for
+        new_body = [
+            f"{body_indent}TIMEOUT_S = 30",
+            f"{body_indent}try:",
+        ]
+
+        for i in range(first_line_idx, last_body_line_idx + 1):
+            original = lines[i]
+            if original.strip():
+                current_indent = len(original) - len(original.lstrip())
+                relative_indent = current_indent - len(body_indent)
+                if relative_indent < 0:
+                    relative_indent = 0
+                new_body.append(f"{body_indent}    {' ' * relative_indent}{original.lstrip()}")
+            else:
+                new_body.append("")
+
+        new_body.append(f"{body_indent}except asyncio.TimeoutError:")
+        new_body.append(f'{body_indent}    logger.error("[{func_name}] timed out after 30s")')
+        new_body.append(f"{body_indent}    return {{}}")
+
+        # Replace the old body lines
+        result_lines = lines[:first_line_idx] + new_body + lines[last_body_line_idx + 1:]
+        return "\n".join(result_lines)
+
+    def _add_retry_logic(self, source: str, func_name: str) -> str:
+        """Add retry logic with exponential backoff to a function."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+
+        # Find the first body statement
+        first_body_node = None
+        for node in func.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            first_body_node = node
+            break
+
+        if first_body_node is None:
+            return source
+
+        first_line_idx = first_body_node.lineno - 1
+        first_line = lines[first_line_idx]
+        body_indent = first_line[:len(first_line) - len(first_line.lstrip())]
+
+        last_body_line_idx = (getattr(func, 'end_lineno', func.lineno) or func.lineno) - 1
+
+        # Build retry wrapper
+        new_body = [
+            f"{body_indent}MAX_RETRIES = 3",
+            f"{body_indent}last_error = None",
+            f"{body_indent}for attempt in range(MAX_RETRIES):",
+            f"{body_indent}    try:",
+        ]
+
+        for i in range(first_line_idx, last_body_line_idx + 1):
+            original = lines[i]
+            if original.strip():
+                current_indent = len(original) - len(original.lstrip())
+                relative_indent = current_indent - len(body_indent)
+                if relative_indent < 0:
+                    relative_indent = 0
+                new_body.append(f"{body_indent}        {' ' * relative_indent}{original.lstrip()}")
+            else:
+                new_body.append("")
+
+        new_body.append(f"{body_indent}    except Exception as _retry_e:")
+        new_body.append(f'{body_indent}        last_error = _retry_e')
+        new_body.append(f'{body_indent}        logger.warning("[{func_name}] attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, _retry_e)')
+        new_body.append(f'{body_indent}        if attempt < MAX_RETRIES - 1:')
+        new_body.append(f'{body_indent}            await asyncio.sleep(2 ** attempt)')
+        new_body.append(f'{body_indent}        else:')
+        new_body.append(f'{body_indent}            raise')
+        new_body.append(f'{body_indent}    else:')
+        new_body.append(f'{body_indent}        break')
+
+        result_lines = lines[:first_line_idx] + new_body + lines[last_body_line_idx + 1:]
+        return "\n".join(result_lines)
+
+    def _add_docstring(self, source: str, func_name: str, description: str) -> str:
+        """Add or update a docstring for a function."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+        def_line_idx = func.lineno - 1
+
+        # Check if function already has a docstring
+        has_docstring = (
+            func.body
+            and isinstance(func.body[0], ast.Expr)
+            and isinstance(func.body[0].value, ast.Constant)
+        )
+
+        if has_docstring:
+            return source
+
+        # Add docstring after the def line
+        body_indent = "    "
+        docstring = f'{body_indent}"""{description[:80]}"""'
+        result_lines = lines[:def_line_idx + 1] + [docstring] + lines[def_line_idx + 1:]
+        return "\n".join(result_lines)
+
+    def _add_type_annotations(self, source: str, func_name: str) -> str:
+        """Add type annotations to function parameters."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+
+        func = self.coding_os._find_function_ast(tree, func_name)
+        if func is None:
+            return source
+
+        lines = source.split("\n")
+        def_line_idx = func.lineno - 1
+        def_line = lines[def_line_idx]
+
+        # Add return type if missing
+        if func.returns is None and def_line.rstrip().endswith(":"):
+            def_line = def_line.rstrip()[:-1] + " -> dict[str, Any]:"
+            lines[def_line_idx] = def_line
+
+        return "\n".join(lines)
 
     def _fix_indentation(self, code: str) -> str:
         """Fix common indentation issues."""

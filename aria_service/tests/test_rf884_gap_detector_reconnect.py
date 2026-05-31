@@ -77,9 +77,17 @@ def test_scan_surfaces_gaps_from_every_real_store():
 
 def test_old_entries_outside_lookback_are_skipped():
     old_epoch = datetime.now(timezone.utc).timestamp() - 999999  # ~11.5 days ago
-    blobs = {"crucix:aria:error_log": json.dumps([
-        {"type": "X", "message": "old error", "file": "f.py", "timestamp": old_epoch},
-    ])}
+    blobs = {
+        "crucix:aria:error_log": json.dumps([
+            {"type": "X", "message": "old error", "file": "f.py", "timestamp": old_epoch},
+        ]),
+        # R-F1166: AdversarialStalenessExtractor checks this key — provide a recent
+        # value so it doesn't produce an "adversarial_never_run" gap.
+        "aria:adversarial:last_run": json.dumps({
+            "run_at": datetime.now(timezone.utc).isoformat(),
+            "overall_score": 0.85,
+        }),
+    }
     det = gd.GapDetector(redis_client=_MockRedis(blobs, {}))
     assert asyncio.run(det.scan()) == []
 

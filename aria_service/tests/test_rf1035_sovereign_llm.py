@@ -165,9 +165,11 @@ class TestSovereignLLM:
         gap = Gap(gap_id="g1", gap_type=GapType.MODULE_BUG, severity=GapSeverity.HIGH,
                   title="Bug", description="x", module="test.py")
         prompt = llm._build_plan_prompt(gap, "ctx")
-        assert "PROTECTED_FILES" in prompt
-        assert "brain_hook.absorb" in prompt
+        # R-F1191: constitutional validator removed — PROTECTED_FILES no longer in prompt.
+        # Instead, the prompt contains constitutional constraints about eval/exec/subprocess.
         assert "eval()" in prompt or "exec()" in prompt
+        assert "brain_hook.absorb" in prompt
+        assert "httpx" in prompt or "fly_deployer" in prompt
 
     def test_code_prompt_contains_quality_requirements(self):
         from aria_service.autonomous.sovereign_llm import SovereignLLM
