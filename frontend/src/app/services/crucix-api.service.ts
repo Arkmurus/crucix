@@ -315,4 +315,47 @@ export class CrucixApiService {
     return this.http.get(`${this.base}/api/search/entity?q=${encodeURIComponent(query)}`)
       .pipe(catchError(err => of({ success: false, error: err?.error?.error || 'Search failed' })));
   }
+
+  // ── R-F1231: Agent Signup Vault ────────────────────────────────────────────────
+
+  getVault(status = '', agentId = '', search = '', sortBy = 'updated_at', sortDir = 'desc'): Observable<any> {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (agentId) params.set('agent_id', agentId);
+    if (search) params.set('search', search);
+    params.set('sort_by', sortBy);
+    params.set('sort_dir', sortDir);
+    return this.http.get(`${this.base}/api/aria/vault?${params.toString()}`)
+      .pipe(catchError(() => of({ success: false, entries: [], stats: {} })));
+  }
+
+  getVaultEntry(siteId: string): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/vault/${encodeURIComponent(siteId)}`)
+      .pipe(catchError(() => of({ success: false })));
+  }
+
+  recordVaultEntry(entry: any): Observable<any> {
+    return this.http.post(`${this.base}/api/aria/vault`, entry)
+      .pipe(catchError(err => of({ success: false, error: err.error?.error || 'Failed to record' })));
+  }
+
+  updateVaultEntry(siteId: string, updates: any): Observable<any> {
+    return this.http.put(`${this.base}/api/aria/vault/${encodeURIComponent(siteId)}`, updates)
+      .pipe(catchError(err => of({ success: false, error: err.error?.error || 'Failed to update' })));
+  }
+
+  deleteVaultEntry(siteId: string): Observable<any> {
+    return this.http.delete(`${this.base}/api/aria/vault/${encodeURIComponent(siteId)}`)
+      .pipe(catchError(() => of({ success: false })));
+  }
+
+  importVaultFromPortals(agentId = 'dd_orchestrator'): Observable<any> {
+    return this.http.post(`${this.base}/api/aria/vault/import`, { agent_id: agentId })
+      .pipe(catchError(() => of({ success: false, imported: 0 })));
+  }
+
+  getVaultStats(): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/vault/stats`)
+      .pipe(catchError(() => of({ success: false, stats: {} })));
+  }
 }

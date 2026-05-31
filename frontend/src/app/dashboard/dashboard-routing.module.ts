@@ -8,6 +8,7 @@ import { ExplorerComponent } from './explorer/explorer.component';
 import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
 import { SearchComponent } from './search/search.component';
 import { AriaComponent } from './aria/aria.component';
+import { VaultComponent } from './vault/vault.component';
 
 const routes: Routes = [
   {
@@ -20,6 +21,7 @@ const routes: Routes = [
       { path: 'explorer',       component: ExplorerComponent,      data: { title: 'Intelligence Explorer' } },
       { path: 'search',         component: SearchComponent,        data: { title: 'Entity Search' } },
       { path: 'aria',           component: AriaComponent,          data: { title: 'ARIA Intelligence Agent' } },
+      { path: 'vault',          component: VaultComponent,         data: { title: 'Agent Signup Vault' } },
     ]
   }
 ];
