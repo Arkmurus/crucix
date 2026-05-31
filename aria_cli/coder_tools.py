@@ -92,8 +92,12 @@ class CoderToolbox:
                 ps_args = " ".join(
                     "-" + p.lstrip("-").capitalize() for p in parts
                 )
+                # R-F1210: tools.py already wraps commands in
+                # powershell -NoProfile -NonInteractive -Command on Windows.
+                # Nesting another powershell -Command inside that mangles quotes.
+                # Pass the script invocation directly — & is valid PS syntax.
                 return self._tb.run(
-                    f'powershell -NoProfile -Command "& {ps_script} {ps_args}"',
+                    f"& {ps_script} {ps_args}",
                     timeout=timeout,
                 )
         sh_script = self.root / "scripts" / "deploy.sh"
