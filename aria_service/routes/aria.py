@@ -20845,6 +20845,31 @@ async def sources_health_ep() -> dict:
 # ── R-F1231: Agent Signup Vault endpoints ─────────────────────────────
 
 
+@router.get("/vault/stats")
+async def vault_stats_ep() -> dict:
+    """Get vault aggregate statistics."""
+    from ..intel.agent_signup_vault import get_vault
+
+    vault = get_vault()
+    stats = vault.stats()
+    return {"success": True, "stats": stats}
+
+
+@router.post("/vault/import")
+async def vault_import_ep(request: Request) -> dict:
+    """Import registrable portals from portal_registry into the vault."""
+    from ..intel.agent_signup_vault import get_vault
+    from ..intel.portal_registry import PORTALS
+
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    agent_id = body.get("agent_id", "dd_orchestrator")
+
+    vault = get_vault()
+    count = vault.import_from_portal_registry(PORTALS, agent_id=agent_id)
+    stats = vault.stats()
+    return {"success": True, "imported": count, "stats": stats}
+
+
 @router.get("/vault")
 async def vault_list_ep(
     request: Request,
@@ -20876,18 +20901,6 @@ async def vault_list_ep(
     return {"success": True, "entries": entries, "stats": stats, "count": len(entries)}
 
 
-@router.get("/vault/{site_id}")
-async def vault_get_ep(site_id: str) -> dict:
-    """Get a single vault entry by site_id."""
-    from ..intel.agent_signup_vault import get_vault
-
-    vault = get_vault()
-    entry = vault.get(site_id)
-    if entry is None:
-        return {"success": False, "error": f"Site '{site_id}' not found in vault"}
-    return {"success": True, "entry": entry}
-
-
 @router.post("/vault")
 async def vault_record_ep(request: Request) -> dict:
     """Record a new signup in the vault."""
@@ -20911,6 +20924,18 @@ async def vault_record_ep(request: Request) -> dict:
         return {"success": True, "entry": entry}
     except (ValueError, KeyError) as e:
         return {"success": False, "error": str(e)}
+
+
+@router.get("/vault/{site_id}")
+async def vault_get_ep(site_id: str) -> dict:
+    """Get a single vault entry by site_id."""
+    from ..intel.agent_signup_vault import get_vault
+
+    vault = get_vault()
+    entry = vault.get(site_id)
+    if entry is None:
+        return {"success": False, "error": f"Site '{site_id}' not found in vault"}
+    return {"success": True, "entry": entry}
 
 
 @router.put("/vault/{site_id}")
@@ -20945,30 +20970,5 @@ async def vault_delete_ep(site_id: str) -> dict:
     if not deleted:
         return {"success": False, "error": f"Site '{site_id}' not found in vault"}
     return {"success": True, "deleted": site_id}
-
-
-@router.post("/vault/import")
-async def vault_import_ep(request: Request) -> dict:
-    """Import registrable portals from portal_registry into the vault."""
-    from ..intel.agent_signup_vault import get_vault
-    from ..intel.portal_registry import PORTALS
-
-    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
-    agent_id = body.get("agent_id", "dd_orchestrator")
-
-    vault = get_vault()
-    count = vault.import_from_portal_registry(PORTALS, agent_id=agent_id)
-    stats = vault.stats()
-    return {"success": True, "imported": count, "stats": stats}
-
-
-@router.get("/vault/stats")
-async def vault_stats_ep() -> dict:
-    """Get vault aggregate statistics."""
-    from ..intel.agent_signup_vault import get_vault
-
-    vault = get_vault()
-    stats = vault.stats()
-    return {"success": True, "stats": stats}
 
 
