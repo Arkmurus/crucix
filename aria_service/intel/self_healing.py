@@ -926,6 +926,12 @@ class SelfHealingOrchestrator:
             name="self_healing.agent_heartbeat",
         ))
 
+        # R-F1227 — start contract validation loop (24h playbook enforcement)
+        self._tasks.append(asyncio.create_task(
+            self._contract_validation_loop(),
+            name="self_healing.contract_validation",
+        ))
+
         logger.info("[self_healing] All layers started (%d tasks)", len(self._tasks))
 
         wire_success(
@@ -976,6 +982,86 @@ class SelfHealingOrchestrator:
                 break
             except Exception:
                 pass
+
+    async def _contract_validation_loop(self) -> None:
+        """24h playbook enforcement — validate all agent contracts every hour.
+
+        Checks every registered agent's contract for violations:
+          - Missing contracts
+          - Stale heartbeats
+          - Unhealthy dependencies
+          - Expired credentials
+
+        Violations are recorded to Redis and wired to the brain.
+        If any agent has a CRITICAL violation, a capability gap is recorded
+        so the autonomous scheduler can attempt a fix.
+        """
+        await asyncio.sleep(300)  # Wait 5 min after startup
+        while self._running:
+            try:
+                await asyncio.sleep(3600)  # Every hour
+                if not self._running:
+                    break
+
+                from .agent_contract import CONTRACT_REGISTRY
+                violations = await CONTRACT_REGISTRY.validate_all_contracts()
+
+                if not violations:
+                    logger.info("[self_healing] Contract validation: ALL CLEAR — 0 violations")
+                    wire_success(
+                        module="self_healing",
+                        summary="Contract validation: all agents healthy",
+                        source_id="self_healing:contract_validation",
+                    )
+                    continue
+
+                # Log violations
+                total_violations = sum(len(v) for v in violations.values())
+                critical_count = sum(
+                    1 for vv in violations.values()
+                    for v in vv if v.severity == "CRITICAL"
+                )
+                logger.warning(
+                    "[self_healing] Contract validation: %d agents with %d violations "
+                    "(%d critical)",
+                    len(violations), total_violations, critical_count,
+                )
+
+                # Wire to brain
+                wire_failure(
+                    module="self_healing",
+                    detail=(
+                        f"Contract violations: {total_violations} across "
+                        f"{len(violations)} agents ({critical_count} critical)"
+                    ),
+                    gap_type="contract_violation",
+                    source="self_healing:contract_validation",
+                )
+
+                # Record capability gaps for critical violations
+                if critical_count > 0:
+                    try:
+                        from . import capability_gaps as _cg
+                        for agent_id, vv in violations.items():
+                            for v in vv:
+                                if v.severity == "CRITICAL":
+                                    await _cg.record_gap(
+                                        gap_type="contract_violation",
+                                        module=f"agent:{agent_id}",
+                                        description=(
+                                            f"CRITICAL contract violation for {agent_id}: "
+                                            f"{v.description[:200]}"
+                                        ),
+                                        severity="HIGH",
+                                        source="self_healing:contract_validation",
+                                    )
+                    except Exception:
+                        pass
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("[self_healing] Contract validation loop error: %s", e)
 
     async def _diagnostic_loop(self) -> None:
         """Periodic self-diagnostic."""

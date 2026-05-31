@@ -241,3 +241,51 @@ def test_agent_registry_messaging_implemented():
     assert "async def broadcast_message" in source, (
         "AgentRegistry must have broadcast_message method"
     )
+
+
+# ── R-F1227: 24h playbook enforcement ──────────────────────────────────────
+
+
+def test_self_healing_contract_validation_loop():
+    """Verify self_healing has a contract validation loop."""
+    source = _read("aria_service/intel/self_healing.py")
+    assert "_contract_validation_loop" in source, (
+        "self_healing must have a contract validation loop"
+    )
+    assert "validate_all_contracts" in source, (
+        "Contract validation loop must call validate_all_contracts"
+    )
+    assert "CONTRACT_REGISTRY" in source, (
+        "Contract validation loop must import CONTRACT_REGISTRY"
+    )
+
+
+def test_self_healing_wires_contract_violations():
+    """Verify contract violations are wired to the brain."""
+    source = _read("aria_service/intel/self_healing.py")
+    assert "wire_success" in source, (
+        "Contract validation must wire success to brain"
+    )
+    assert "wire_failure" in source, (
+        "Contract validation must wire failure to brain"
+    )
+    assert "record_gap" in source, (
+        "Critical violations must record capability gaps"
+    )
+
+
+def test_wa_notifier_brain_wiring():
+    """Verify wa_notifier wires to the brain."""
+    source = _read("aria_service/autonomous/wa_notifier.py")
+    assert "wire_success" in source, (
+        "wa_notifier must wire success to brain"
+    )
+    assert "wire_failure" in source, (
+        "wa_notifier must wire failure to brain"
+    )
+    assert "wa_notifier:notify" in source, (
+        "Brain signal must reference wa_notifier:notify"
+    )
+    assert "wa_notification_failure" in source, (
+        "Failure gap type must be wa_notification_failure"
+    )

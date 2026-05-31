@@ -168,6 +168,8 @@ class WANotifier:
         `scrub=False` for callers that explicitly format their own
         sanitized message (e.g. structured stage banners that contain
         no PII by construction).
+
+        R-F1227: wires success/failure to the brain on every notify.
         """
         if not text or not text.strip():
             return "skipped:empty"
@@ -190,20 +192,43 @@ class WANotifier:
         }
         url = f"{self.base_url}/api/wa-listener/send"
 
+        outcome = ""
+
         # Build a transient client if none was injected
         if self._client is None:
             try:
                 async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as c:
-                    return await self._post(c, url, payload)
+                    outcome = await self._post(c, url, payload)
             except Exception as e:
                 logger.warning("[wa_notifier] transient client error: %s", e)
-                return f"error:{type(e).__name__}:{str(e)[:200]}"
+                outcome = f"error:{type(e).__name__}:{str(e)[:200]}"
+        else:
+            try:
+                outcome = await self._post(self._client, url, payload)
+            except Exception as e:
+                logger.warning("[wa_notifier] notify error: %s", e)
+                outcome = f"error:{type(e).__name__}:{str(e)[:200]}"
 
+        # R-F1227: wire to brain
         try:
-            return await self._post(self._client, url, payload)
-        except Exception as e:
-            logger.warning("[wa_notifier] notify error: %s", e)
-            return f"error:{type(e).__name__}:{str(e)[:200]}"
+            from ..intel.engine_wiring import wire_success, wire_failure
+            if outcome == "ok":
+                wire_success(
+                    module="wa_notifier",
+                    summary=f"WA notify sent: {text[:80]}",
+                    source_id="wa_notifier:notify",
+                )
+            else:
+                wire_failure(
+                    module="wa_notifier",
+                    detail=f"WA notify failed: {outcome} — {text[:80]}",
+                    gap_type="wa_notification_failure",
+                    source="wa_notifier:notify",
+                )
+        except Exception:
+            pass
+
+        return outcome
 
     async def _post(
         self,

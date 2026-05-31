@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1226,
+  "next_available": 1228,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6740,14 +6740,34 @@
       "title": "Wire ARIA-LLM/RunPod provider — health check, brain wiring, capability test",
       "claimed_at": "2026-05-31T19:21:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "08db5c91",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:31:30Z"
     },
     {
       "r_number": "R-F1225",
       "title": "PowerShell Mastery Module — proper subprocess execution, error analysis, code generation, FastAPI endpoints",
       "claimed_at": "2026-05-31T19:23:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "08db5c91",
+      "notes": null,
+      "shipped_at": "2026-05-31T19:33:26Z"
+    },
+    {
+      "r_number": "R-F1226",
+      "title": "Fix System Health RED — 15 critical failures from wrong entry function names",
+      "claimed_at": "2026-05-31T19:33:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1227",
+      "title": "24h playbook enforcement — self_healing checks all contracts, WA brain wiring, fix gaps",
+      "claimed_at": "2026-05-31T19:36:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
