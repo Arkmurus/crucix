@@ -98,16 +98,15 @@ class TestDrainOperatorStdin:
         assert len(mock_agent.messages) == 1
 
     def test_echoes_to_ui(self, mock_agent: Agent):
-        """Operator messages are echoed to the UI."""
+        """Operator messages are echoed to the UI via operator_message()."""
         q = queue.Queue()
         q.put("Check the logs")
 
         with patch("aria_cli.cli._OPERATOR_QUEUE", q):
             mock_agent._drain_operator_stdin()
 
-        mock_agent.ui.info.assert_called_once()
-        call_arg = mock_agent.ui.info.call_args[0][0]
-        assert "operator" in call_arg.lower()
+        mock_agent.ui.operator_message.assert_called_once()
+        call_arg = mock_agent.ui.operator_message.call_args[0][0]
         assert "Check the logs" in call_arg
 
 

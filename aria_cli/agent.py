@@ -280,8 +280,12 @@ class Agent:
             line = line.strip()
             if not line:
                 continue
-            preview = line if len(line) <= 200 else line[:200] + "…"
-            self.ui.info(f"[operator (mid-task)] {preview}")
+            # R-F1194: use dedicated operator_message UI method
+            if hasattr(self.ui, 'operator_message'):
+                self.ui.operator_message(line)
+            else:
+                preview = line if len(line) <= 200 else line[:200] + "…"
+                self.ui.info(f"[operator (mid-task)] {preview}")
             self.messages.append({
                 "role": "user",
                 "content": (

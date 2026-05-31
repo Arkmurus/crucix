@@ -188,9 +188,13 @@ class _Color:
 
 
 class TerminalUI(AgentUI):
-    """Claude-Code-parity terminal UI with clean message boundaries.
+    """Professional terminal UI with clean message boundaries and real-time chat.
 
-    R-F1045 features:
+    R-F1194 features:
+      - Professional banner with session info
+      - Clean message boundaries with consistent prefixes
+      - Real-time operator chat while ARIA is working
+      - Status bar showing session stats
       - Step counter: "Step 2/5" during multi-tool turns
       - Command echo: "$ pytest -v" before running
       - Live output: streaming with truncation preview
@@ -199,15 +203,6 @@ class TerminalUI(AgentUI):
       - Error recovery: suggests next steps after errors
       - Thinking trace: shows what ARIA is doing
       - Session log: persistent log file
-
-    R-F1143 fixes:
-      - Clean message boundaries: every assistant message starts with a
-        clear "aria >" prefix on its own line, never mid-line
-      - Streaming: first chunk prints the prefix, subsequent chunks append
-        without extra newlines
-      - Tool output: consistent indentation and colour per message type
-      - No double-newlines between streamed content and final text
-      - Spinner always cleared before any output
     """
 
     def __init__(self, *, auto_approve: bool, interactive: bool, color: _Color) -> None:
@@ -231,9 +226,16 @@ class TerminalUI(AgentUI):
         self._last_command = ""
         # R-F1143: track whether we need a newline before the next output
         self._needs_leading_newline = False
+        # R-F1194: session stats
+        self._session_start = 0.0
+        self._tool_count = 0
+        self._error_count = 0
+        self._file_changes = 0
+        self._operator_messages = 0
 
     def start_session(self) -> None:
         """Called at session start to create the log file."""
+        self._session_start = time.time()
         self._session_log = _session_log_path()
         _append_log(self._session_log, f"ARIA Coder v{__version__}")
         _append_log(self._session_log, f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -248,22 +250,18 @@ class TerminalUI(AgentUI):
         """Clear any spinner or residual output before writing a new line."""
         if self._spin_thread is not None:
             self.thinking_stop()
-        # Clear the current line so we don't write over spinner debris
         if self._can_animate:
             sys.stdout.write("\r\033[K")
             sys.stdout.flush()
 
     def assistant(self, text: str) -> None:
-        """Print a complete assistant message with clean boundaries.
-
-        Called when the LLM produces a final text response (no streaming).
-        Always starts on a fresh line with the 'aria >' prefix.
-        """
+        """Print a complete assistant message with clean boundaries."""
         self._ensure_clear_line()
         self._log(f"[aria] {text[:200]}")
-        # Print with a blank line before for visual separation from previous output
         print()
-        print(self.c.cyan("aria > ") + text)
+        # Use a subtle separator line for visual clarity
+        print(self.c.dim("  ─" + "─" * 60))
+        print(self.c.cyan("  ARIA ") + text)
         self._needs_leading_newline = True
 
     # ── live token streaming (never silent) ──────────────────────────────────
@@ -271,10 +269,9 @@ class TerminalUI(AgentUI):
         """Stream a chunk of LLM output. First chunk prints the prefix."""
         if not self._stream_active:
             self._ensure_clear_line()
-            # Print a blank line before the stream for visual separation
             if self._needs_leading_newline:
                 print()
-            sys.stdout.write(self.c.cyan("aria > "))
+            sys.stdout.write(self.c.cyan("  ARIA "))
             self._stream_active = True
             self._streamed_this_turn = True
             self._needs_leading_newline = False
@@ -282,15 +279,14 @@ class TerminalUI(AgentUI):
         sys.stdout.flush()
 
     def stream_end(self) -> None:
-        """Finalise a streaming response. Ensures the output ends with a
-        newline so the next prompt doesn't run onto the same line."""
+        """Finalise a streaming response."""
         if self._stream_active:
             sys.stdout.write("\n")
             sys.stdout.flush()
             self._stream_active = False
             self._needs_leading_newline = True
 
-    # ── step tracking (Claude-Code parity) ──────────────────────────────────
+    # ── step tracking ──────────────────────────────────────────────────────
     def set_step_context(self, current: int, total: int) -> None:
         """Called before each tool call to set the step counter."""
         self._step_number = current
@@ -303,13 +299,9 @@ class TerminalUI(AgentUI):
 
     # ── tool call display ───────────────────────────────────────────────────
     def tool_call(self, name: str, args: dict) -> None:
-        """Display a tool call with consistent formatting.
-
-        Uses a compact single-line format:
-          Step 1/3 · run("pytest -v")
-          Step 2/3 · read_file("foo.py")
-        """
+        """Display a tool call with consistent formatting."""
         self._ensure_clear_line()
+        self._tool_count += 1
         detail = self._summarize(name, args)
         prefix = self._step_prefix()
         if prefix:
@@ -317,7 +309,6 @@ class TerminalUI(AgentUI):
         else:
             line = f"  · {name}({detail})"
 
-        # Command echo for run() — show the actual command
         if name == "run":
             cmd = args.get("command", "")
             self._last_command = cmd[:200]
@@ -328,25 +319,17 @@ class TerminalUI(AgentUI):
             self._log(f"[tool] {name}({detail})")
 
     def tool_result(self, name: str, result: ToolResult) -> None:
-        """Display a tool result with consistent formatting.
-
-        - Errors: red with error recovery suggestion
-        - Command output: dim, truncated if long
-        - File mutations: green
-        - Other results: dim
-        """
+        """Display a tool result with consistent formatting."""
         if result.is_error:
+            self._error_count += 1
             head = result.output.splitlines()[0] if result.output else ""
             print(self.c.red(f"  -> {head[:200]}"))
             self._log(f"[error] {head[:200]}")
-
-            # R-F1045: error recovery suggestion
             suggestion = self._error_suggestion(name, result.output)
             if suggestion:
                 print(self.c.yellow(f"     {suggestion}"))
             return
 
-        # Show result preview for long outputs
         if name == "run" and result.output:
             lines = result.output.splitlines()
             if len(lines) > 5:
@@ -360,8 +343,8 @@ class TerminalUI(AgentUI):
                     print(self.c.dim(f"  | {ln}"))
                 self._log(f"[result] {len(lines)} lines, exit 0")
 
-        # Show diff preview for write_file / edit_file
         if name in ("write_file", "edit_file") and result.mutation:
+            self._file_changes += 1
             print(self.c.green(f"  -> {result.mutation}"))
             self._log(f"[write] {result.mutation}")
 
@@ -389,7 +372,7 @@ class TerminalUI(AgentUI):
         return ""
 
     def info(self, text: str) -> None:
-        """Print an informational message (dim, indented)."""
+        """Print an informational message."""
         self._ensure_clear_line()
         self._log(f"[info] {text}")
         print(self.c.dim(f"  i {text}"))
@@ -417,7 +400,6 @@ class TerminalUI(AgentUI):
         i = 0
         while self._spin_stop is not None and not self._spin_stop.is_set():
             elapsed = int(time.monotonic() - self._spin_start)
-            # Show what ARIA is doing, not just a spinner
             if self._last_output:
                 tail = f"  {self._last_output[:54]}"
             elif self._last_command:
@@ -458,7 +440,7 @@ class TerminalUI(AgentUI):
 
     # ── progress bar for long operations ────────────────────────────────────
     def progress_bar(self, current: int, total: int, label: str = "") -> None:
-        """Show a progress bar like Claude Code: [===>>> ] 45%."""
+        """Show a progress bar: [===>>> ] 45%."""
         if not self._can_animate:
             return
         width = 20
@@ -493,6 +475,16 @@ class TerminalUI(AgentUI):
             self.approve_all = True
             return True
         return ans in {"y", "yes", ""}
+
+    # ── R-F1194: operator message notification ──────────────────────────────
+    def operator_message(self, text: str) -> None:
+        """Notify that an operator message arrived mid-task."""
+        self._operator_messages += 1
+        self._ensure_clear_line()
+        preview = text if len(text) <= 80 else text[:80] + "…"
+        print(self.c.yellow(f"  ┌─ operator message ─────────────────────────────────"))
+        print(self.c.yellow(f"  │ {preview}"))
+        print(self.c.yellow(f"  └────────────────────────────────────────────────────"))
 
     @staticmethod
     def _summarize(name: str, args: dict) -> str:
@@ -579,39 +571,56 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
             cwd: Path, auto_approve: bool = True) -> None:
     mode = color.green("self (crucix ecosystem)") if self_mode else "general project"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
-    guard_state = "constitution + truncation" if guard.constitution_active else "truncation only"
-    approval = color.green("autonomous (free rein)") if auto_approve else "confirm each action"
-    print(color.bold("ARIA Coder") + color.dim(f"  v{__version__}"))
-    print(color.dim(f"  dir:      {cwd}"))
-    print(color.dim(f"  mode:     {mode}"))
-    print(color.dim(f"  guard:    {guard_state}"))
-    print(color.dim(f"  brain:    {brain}"))
-    print(color.dim(f"  model:    {cfg.provider}/{cfg.model}"))
-    print(color.dim(f"  approve:  {approval}"))
+    approval = color.green("autonomous") if auto_approve else "confirm each action"
+    print()
+    print(color.bold("  ╔══════════════════════════════════════════════════════════╗"))
+    print(color.bold("  ║") + color.cyan("  ARIA Coder") + color.dim(f"  v{__version__:<24}") + color.bold("║"))
+    print(color.bold("  ╠══════════════════════════════════════════════════════════╣"))
+    print(color.bold("  ║") + color.dim(f"  directory:  {cwd}") + color.bold(" " * max(1, 50 - len(str(cwd)))) + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  mode:       {mode:<44}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  model:      {cfg.provider}/{cfg.model:<36}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  brain:      {brain:<44}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  approval:   {approval:<44}") + color.bold("║"))
+    print(color.bold("  ╚══════════════════════════════════════════════════════════╝"))
+    print()
 
 
 def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
               task: str, success: bool, color: _Color) -> None:
     changed = agent.toolbox.changed_files
+    in_tok = agent.llm.total_input_tokens
+    out_tok = agent.llm.total_output_tokens
+    total_tok = in_tok + out_tok
+    elapsed = time.time() - ui._session_start if ui._session_start else 0
+    elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
+
+    print()
+    print(color.bold("  ╔══════════════════════════════════════════════════════════╗"))
+    print(color.bold("  ║") + color.cyan("  Session Complete") + color.dim(f"  {'✓' if success else '✗':<33}") + color.bold("║"))
+    print(color.bold("  ╠══════════════════════════════════════════════════════════╣"))
+    print(color.bold("  ║") + color.dim(f"  duration:    {elapsed_str:<44}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  files:       {len(changed):<3} changed{' ' * (41 - len(str(len(changed))))}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  tools:       {ui._tool_count:<3} calls{' ' * (41 - len(str(ui._tool_count)))}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  errors:      {ui._error_count:<3}{' ' * (41 - len(str(ui._error_count)))}") + color.bold("║"))
+    print(color.bold("  ║") + color.dim(f"  tokens:      {total_tok:<3} ({in_tok} in / {out_tok} out){' ' * max(0, 28 - len(str(total_tok)) - len(str(in_tok)) - len(str(out_tok)))}") + color.bold("║"))
+    print(color.bold("  ╚══════════════════════════════════════════════════════════╝"))
+
     if changed:
         print(color.dim(f"\n  files: {', '.join(changed)}"))
+
     status = brain_mod.report_session(
         task=task, success=success, changed_files=changed,
         summary=agent.messages[-1].get("content", "")[:600] if agent.messages else "",
         self_mode=self_mode)
     print(color.dim(f"  {status}"))
 
-    # R-F1045: session summary
-    in_tok = agent.llm.total_input_tokens
-    out_tok = agent.llm.total_output_tokens
-    total_tok = in_tok + out_tok
-    print(color.dim(f"  tokens:  {total_tok} ({in_tok} in / {out_tok} out)"))
-
     # Log final summary
     ui._log(f"─" * 60)
     ui._log(f"Completed: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     ui._log(f"Success: {success}")
     ui._log(f"Files changed: {len(changed)}")
+    ui._log(f"Tools: {ui._tool_count}")
+    ui._log(f"Errors: {ui._error_count}")
     ui._log(f"Tokens: {total_tok}")
     if ui._session_log:
         print(color.dim(f"  session: {ui._session_log}"))
@@ -623,12 +632,12 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
           guard: WriteGuard, cwd: Path, color: _Color) -> None:
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
-    print(color.dim("  commands: /confirm  /changes  /claude  /session  /reset  /gaps  /status  /history  /cost  /help  /exit\n"))
+    print(color.dim("  Type a task or message. /help for commands. Chat with ARIA while she works.\n"))
     last_task = ""
     try:
         while True:
             try:
-                line = _read_operator_input(color.bold("you > "))
+                line = _read_operator_input(color.bold("  you > "))
             except EOFError:
                 break
             if not line:
@@ -637,20 +646,24 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 break
             if line == "/help":
                 print(color.dim(
-                    "  /confirm  toggle asking before edits/commands (default: autonomous)\n"
-                    "  /changes  list files changed this session\n"
-                    "  /claude   read new messages from Claude Code\n"
-                    "  /session  show session log path\n"
-                    "  /gaps     scan for capability gaps and bugs\n"
-                    "  /status   show system health (composite, sources, training, cost)\n"
-                    "  /history  show recent R-numbered fixes\n"
-                    "  /cost     show session and monthly cost breakdown\n"
-                    "  /scan     quick gap scan (faster than /gaps)\n"
-                    "  /model    show/set current model chain\n"
-                    "  /compact  compress conversation history\n"
-                    "  /memory   show or add project memory notes\n"
-                    "  /reset    clear the conversation history\n"
-                    "  /exit     quit"))
+                    "  ┌─ Commands ──────────────────────────────────────────────\n"
+                    "  │  /confirm  toggle asking before edits (default: auto)\n"
+                    "  │  /changes  list files changed this session\n"
+                    "  │  /claude   read new messages from Claude Code\n"
+                    "  │  /session  show session log path\n"
+                    "  │  /gaps     scan for capability gaps and bugs\n"
+                    "  │  /status   show system health\n"
+                    "  │  /history  show recent R-numbered fixes\n"
+                    "  │  /cost     show session and monthly cost\n"
+                    "  │  /scan     quick gap scan\n"
+                    "  │  /model    show current model chain\n"
+                    "  │  /compact  compress conversation history\n"
+                    "  │  /memory   show project memory notes\n"
+                    "  │  /reset    clear conversation history\n"
+                    "  │  /exit     quit\n"
+                    "  └─────────────────────────────────────────────────────────\n"
+                    "  Tip: type a message while ARIA is working and she'll\n"
+                    "  respond to it in real-time."))
                 continue
             if line == "/claude":
                 try:
