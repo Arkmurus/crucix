@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1184,
+  "next_available": 1186,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6323,14 +6323,35 @@
       "title": "Verifiable Ledger System (VLS) — cryptographic chain-of-custody for DD reports",
       "claimed_at": "2026-05-31T14:48:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feb39c62",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:06:54Z"
     },
     {
       "r_number": "R-F1183",
       "title": "Autonomous Fly Machines API deployer — no flyctl dependency",
       "claimed_at": "2026-05-31T14:48:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73854362",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:26:15Z"
+    },
+    {
+      "r_number": "R-F1184",
+      "title": "Wire DD orchestrator to intel_ledger, audit_log, and mem0 — close dark paths",
+      "claimed_at": "2026-05-31T15:16:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73854362",
+      "notes": null,
+      "shipped_at": "2026-05-31T15:25:57Z"
+    },
+    {
+      "r_number": "R-F1185",
+      "title": "Merge AutonomousDeployEngine with MachinesDeployer — SQLite, webhooks, FastAPI endpoints, blockchain stub",
+      "claimed_at": "2026-05-31T15:29:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
