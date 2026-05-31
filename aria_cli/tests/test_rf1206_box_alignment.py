@@ -122,6 +122,45 @@ def test_banner_ascii_fallback_width() -> None:
             os.environ.pop("NO_COLOR", None)
 
 
+def _visible_len(s: str) -> int:
+    """Return visible length, stripping ANSI escape codes."""
+    import re
+    return len(re.sub(r'\033\[[0-9;]*m', '', s))
+
+
+def test_banner_content_lines_aligned_with_colors() -> None:
+    """With ANSI colors enabled, every content line is exactly 56 visible chars.
+
+    R-F1208: The _content() padding function must strip ANSI codes before
+    measuring length, otherwise colored lines (mode, approval) will be shorter
+    than 56 visible chars and the right border will be misaligned.
+    """
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        c = _Color(enabled=True)  # Colors enabled — this triggers the bug
+        cfg = LLMConfig()
+        guard = WriteGuard(self_mode=True)
+        _banner(c, cfg, True, guard, Path.cwd(), auto_approve=True)
+        lines = sys.stdout.getvalue().splitlines()
+    finally:
+        sys.stdout = old_stdout
+
+    bx = _BoxChars()
+    v = bx.v
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith((bx.tl, bx.bl, bx.tm)):
+            continue
+        if stripped.startswith(v) and stripped.endswith(v):
+            inner = stripped[1:-1]  # remove first and last v
+            vis = _visible_len(inner)
+            assert vis == 56, (
+                f"Content line has {vis} visible chars between vertical bars "
+                f"(expected 56). Raw: {stripped[:80]}..."
+            )
+
+
 def test_banner_contains_all_expected_sections() -> None:
     """Banner contains ARIA Coder title, directory, provider, mode, brain, approval."""
     lines = "\n".join(_capture_banner())

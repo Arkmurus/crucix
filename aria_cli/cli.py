@@ -870,9 +870,15 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     h = bx.h * 56
     # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
     # Every content line must be exactly 56 chars between the vertical bars.
+    def _visible_len(s: str) -> int:
+        """Return the visible length of a string, stripping ANSI escape codes."""
+        import re
+        return len(re.sub(r'\033\[[0-9;]*m', '', s))
+
     def _content(s: str) -> str:
-        """Pad string to exactly 56 chars for box content."""
-        return s + " " * (56 - len(s))
+        """Pad string to exactly 56 visible chars for box content.
+        Strips ANSI codes before measuring so colored text aligns correctly."""
+        return s + " " * (56 - _visible_len(s))
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
     title = f"  ARIA Coder  v{__version__}"
@@ -902,9 +908,15 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     bx = _BoxChars()
     h = bx.h * 56
     # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
+    def _visible_len(s: str) -> int:
+        """Return the visible length of a string, stripping ANSI escape codes."""
+        import re
+        return len(re.sub(r'\033\[[0-9;]*m', '', s))
+
     def _content(s: str) -> str:
-        """Pad string to exactly 56 chars for box content."""
-        return s + " " * (56 - len(s))
+        """Pad string to exactly 56 visible chars for box content.
+        Strips ANSI codes before measuring so colored text aligns correctly."""
+        return s + " " * (56 - _visible_len(s))
 
     print()
     print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
