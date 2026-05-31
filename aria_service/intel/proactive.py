@@ -72,19 +72,64 @@ LAST_MASTERY_PREP_HASH_KEY = "crucix:aria:proactive:last_mastery_prep_hash"
 async def push_alert(alert: dict) -> None:
     """Push a proactive alert into the queue. The WhatsApp listener polls
     this queue every minute and surfaces unseen alerts to the team.
+
+    R-F1228: every alert push is wired to the brain so ARIA learns from
+    what she's surfacing. Alert types are categorised for the dashboard:
+      - intel:      intelligence signals, mention spikes, conflict alerts
+      - compliance: sanctions changes, compliance briefs
+      - anomaly:    unusual patterns, mention spikes
+      - briefing:   daily/weekly digests, mastery prep
+      - research:   research task completions, knowledge gaps
+      - meeting:    Zoom meeting summaries and alerts
     """
     try:
         queue = await rs.get_json(ALERT_QUEUE_KEY) or []
         alert.setdefault("ts", time.time())
         alert.setdefault("seen", False)
+        # R-F1228: classify alert type for dashboard filtering
+        alert_type = alert.get("type", "intel")
+        _type_map = {
+            "country_mention_spike": "anomaly",
+            "knowledge_gap": "research",
+            "mastery_prep": "briefing",
+            "daily_briefing": "briefing",
+            "conflict_alert": "intel",
+            "research_complete": "research",
+            "meeting_summary": "meeting",
+            "sanctions_change": "compliance",
+            "compliance_brief": "compliance",
+        }
+        alert["alert_type"] = _type_map.get(alert_type, "intel")
         alert["id"] = f"alert_{int(time.time() * 1000)}_{len(queue)}"
         queue.append(alert)
         queue = queue[-100:]  # cap at 100 unsent alerts
         await rs.set_json(ALERT_QUEUE_KEY, queue, ex=7 * 86400)
-        logger.info("Proactive alert queued: [%s] %s",
-                    alert.get("severity", "info"), alert.get("title", "untitled")[:80])
+        logger.info("Proactive alert queued: [%s/%s] %s",
+                    alert.get("severity", "info"), alert.get("alert_type", "intel"),
+                    alert.get("title", "untitled")[:80])
+
+        # R-F1228: wire to brain
+        try:
+            from .engine_wiring import wire_success
+            wire_success(
+                module="proactive",
+                summary=f"Alert: {alert.get('title', 'untitled')[:120]}",
+                source_id=f"proactive:alert:{alert['id']}",
+            )
+        except Exception:
+            pass
     except Exception as e:
         logger.warning("push_alert failed: %s", e)
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="proactive",
+                detail=f"push_alert failed: {e}",
+                gap_type="alert_failure",
+                source="proactive:push_alert",
+            )
+        except Exception:
+            pass
 
 
 async def get_unseen_alerts(mark_seen: bool = True) -> list[dict]:
@@ -100,6 +145,102 @@ async def get_unseen_alerts(mark_seen: bool = True) -> list[dict]:
     except Exception as e:
         logger.warning("get_unseen_alerts failed: %s", e)
         return []
+
+
+# R-F1228: alert history and detail endpoints for the web notification bell
+
+ALERT_HISTORY_KEY = "crucix:aria:proactive:alert_history"
+
+
+async def get_alert_history(
+    limit: int = 50,
+    alert_type: str = "",
+    severity: str = "",
+) -> list[dict]:
+    """Return recent alerts regardless of seen status. Supports filtering
+    by alert_type (intel, compliance, anomaly, briefing, research, meeting)
+    and severity (critical, high, medium, info).
+
+    This is the endpoint the web notification bell should call to show
+    real-time intelligence alerts.
+    """
+    try:
+        queue = await rs.get_json(ALERT_QUEUE_KEY) or []
+        # Also load from history key for alerts that have been rotated out
+        history = await rs.get_json(ALERT_HISTORY_KEY) or []
+        all_alerts = queue + history
+        # Dedup by id
+        seen_ids: set[str] = set()
+        deduped: list[dict] = []
+        for a in reversed(all_alerts):
+            aid = a.get("id", "")
+            if aid and aid not in seen_ids:
+                seen_ids.add(aid)
+                deduped.append(a)
+        # Apply filters
+        if alert_type:
+            deduped = [a for a in deduped if a.get("alert_type") == alert_type]
+        if severity:
+            deduped = [a for a in deduped if a.get("severity") == severity]
+        return deduped[:limit]
+    except Exception as e:
+        logger.warning("get_alert_history failed: %s", e)
+        return []
+
+
+async def get_alert_by_id(alert_id: str) -> dict | None:
+    """Return a single alert by its ID, with full metadata."""
+    try:
+        queue = await rs.get_json(ALERT_QUEUE_KEY) or []
+        for a in queue:
+            if a.get("id") == alert_id:
+                return a
+        history = await rs.get_json(ALERT_HISTORY_KEY) or []
+        for a in history:
+            if a.get("id") == alert_id:
+                return a
+        return None
+    except Exception as e:
+        logger.warning("get_alert_by_id failed: %s", e)
+        return None
+
+
+async def get_alert_stats() -> dict:
+    """Return alert statistics for the dashboard: counts by type and severity,
+    plus the most recent alert of each type.
+    """
+    try:
+        queue = await rs.get_json(ALERT_QUEUE_KEY) or []
+        unseen = [a for a in queue if not a.get("seen")]
+        by_type: dict[str, int] = {}
+        by_severity: dict[str, int] = {}
+        latest_by_type: dict[str, dict] = {}
+        for a in queue:
+            at = a.get("alert_type", "intel")
+            sev = a.get("severity", "info")
+            by_type[at] = by_type.get(at, 0) + 1
+            by_severity[sev] = by_severity.get(sev, 0) + 1
+            if at not in latest_by_type or a.get("ts", 0) > latest_by_type[at].get("ts", 0):
+                latest_by_type[at] = a
+        return {
+            "total": len(queue),
+            "unseen": len(unseen),
+            "by_type": by_type,
+            "by_severity": by_severity,
+            "latest_by_type": {
+                k: {
+                    "id": v.get("id", ""),
+                    "title": v.get("title", ""),
+                    "severity": v.get("severity", ""),
+                    "ts": v.get("ts", 0),
+                    "seen": v.get("seen", False),
+                }
+                for k, v in latest_by_type.items()
+            },
+        }
+    except Exception as e:
+        logger.warning("get_alert_stats failed: %s", e)
+        return {"total": 0, "unseen": 0, "by_type": {}, "by_severity": {}, "latest_by_type": {}}
 
 
 # ── Behaviour 1: Anomaly watch ──────────────────────────────────────────────

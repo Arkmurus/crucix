@@ -2892,6 +2892,45 @@ async def proactive_alerts_ep(mark_seen: bool = False):
     return {"alerts": alerts, "count": len(alerts)}
 
 
+# R-F1228: real-time intelligence notification endpoints for the web bell
+
+
+@router.get("/proactive/alerts/history")
+async def proactive_alerts_history_ep(
+    limit: int = 50,
+    alert_type: str = "",
+    severity: str = "",
+):
+    """Return recent alerts regardless of seen status. This is the endpoint
+    the web notification bell should call to show real-time intelligence
+    alerts. Supports filtering by alert_type (intel, compliance, anomaly,
+    briefing, research, meeting) and severity (critical, high, medium, info).
+    """
+    alerts = await proactive.get_alert_history(
+        limit=min(limit, 200),
+        alert_type=alert_type,
+        severity=severity,
+    )
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@router.get("/proactive/alerts/{alert_id}")
+async def proactive_alert_detail_ep(alert_id: str):
+    """Return a single alert by its ID with full metadata."""
+    alert = await proactive.get_alert_by_id(alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+
+@router.get("/proactive/alerts/stats")
+async def proactive_alerts_stats_ep():
+    """Return alert statistics for the dashboard: counts by type and
+    severity, plus the most recent alert of each type.
+    """
+    return await proactive.get_alert_stats()
+
+
 @router.get("/student/mastery")
 async def student_mastery_ep():
     """Per-topic competence scores."""
