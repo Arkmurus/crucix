@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..intel import redis_store as rs
+from ..intel.engine_wiring import wire_success, wire_failure
 from . import calibration
 
 if TYPE_CHECKING:
@@ -359,6 +360,13 @@ async def self_assess_output(
     result["scores"] = scores
     result["gaps"] = gaps
     result["duration_ms"] = int((time.time() - t0) * 1000)
+
+    # R-F1219: wire to brain
+    wire_success(
+        module="metacognitive_engine",
+        summary=f"Self-assessment: overall={overall}, {len(gaps)} gaps, {result['duration_ms']}ms",
+        source_id=f"metacognitive:assess:{session_id or 'anon'}",
+    )
     return result
 
 
@@ -414,14 +422,26 @@ async def run_daily_check() -> dict:
             avg_score = 0.0
             drift = "no_data"
 
-        return {
+        result = {
             "check": "daily",
             "total_assessments": stats.get("total", 0),
             "recent_avg_score": round(avg_score, 2),
             "quality_drift": drift,
             "recent_count": len(recent),
         }
+        wire_success(
+            module="metacognitive_engine",
+            summary=f"Daily check: avg_score={avg_score:.2f}, drift={drift}, {len(recent)} recent",
+            source_id="metacognitive:daily_check",
+        )
+        return result
     except Exception as e:
+        wire_failure(
+            module="metacognitive_engine",
+            detail=f"Daily check failed: {e}",
+            gap_type="metacognitive_failure",
+            source="metacognitive:daily_check",
+        )
         return {"check": "daily", "error": str(e)}
 
 
@@ -440,14 +460,26 @@ async def run_weekly_review(llm=None) -> dict:
         category_avgs = {k: round(sum(v)/len(v), 2) for k, v in by_category.items()}
         weak_areas = [k for k, v in category_avgs.items() if v < 0.5]
 
-        return {
+        result = {
             "review": "weekly",
             "total_assessments": stats.get("total", 0),
             "category_averages": category_avgs,
             "weak_areas": weak_areas,
             "recommendations": [f"Focus on improving {a}" for a in weak_areas[:3]],
         }
+        wire_success(
+            module="metacognitive_engine",
+            summary=f"Weekly review: {len(weak_areas)} weak areas, {stats.get('total', 0)} total assessments",
+            source_id="metacognitive:weekly_review",
+        )
+        return result
     except Exception as e:
+        wire_failure(
+            module="metacognitive_engine",
+            detail=f"Weekly review failed: {e}",
+            gap_type="metacognitive_failure",
+            source="metacognitive:weekly_review",
+        )
         return {"review": "weekly", "error": str(e)}
 
 

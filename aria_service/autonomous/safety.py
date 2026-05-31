@@ -30,6 +30,7 @@ import time
 from typing import Any
 
 from ..intel import redis_store as rs
+from ..intel.engine_wiring import wire_success, wire_failure
 
 logger = logging.getLogger("aria.autonomous.safety")
 
@@ -195,6 +196,13 @@ async def check_and_increment_rate(*, key_fmt: str | None = None,
                 "this hour. Skipped (speculative incr rolled back).",
                 key, cap,
             )
+        if not allowed:
+            wire_failure(
+                module="autonomous_safety",
+                detail=f"Rate limit hit: bucket {key} at cap {cap}",
+                gap_type="rate_limited",
+                source="autonomous_safety:check_and_increment_rate",
+            )
         return allowed, new_count
     except Exception as e:
         # R-F457 (2026-05-13) — bounded fail-open. Pre-R-F457 a Redis
@@ -224,6 +232,12 @@ async def check_and_increment_rate(*, key_fmt: str | None = None,
                 "in-memory counter ALSO above cap (%d/%d). Skipping.",
                 e, mem_count, MAX_FIRINGS_PER_HOUR,
             )
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Rate limit Redis failure: {e} — in-memory fallback {'allowed' if allowed else 'denied'} ({mem_count}/{cap})",
+            gap_type="redis_failure",
+            source="autonomous_safety:check_and_increment_rate",
+        )
         return allowed, mem_count
 
 
@@ -261,6 +275,19 @@ async def check_cost_cap() -> tuple[bool, float]:
             "[autonomous safety] daily cost cap hit: $%.4f spent vs cap $%.2f "
             "(redis=$%.4f mem=$%.4f redis_ok=%s). Tasks skipped until %s 00:00 UTC.",
             spent, DAILY_COST_CAP_USD, redis_spent, mem_spent, redis_ok, today,
+        )
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Daily cost cap hit: ${spent:.4f} spent vs ${DAILY_COST_CAP_USD:.2f} cap",
+            gap_type="cost_cap_hit",
+            source="autonomous_safety:check_cost_cap",
+        )
+    elif not redis_ok:
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Cost cap Redis read failed — using in-memory fallback (${mem_spent:.4f})",
+            gap_type="redis_failure",
+            source="autonomous_safety:check_cost_cap",
         )
     return within, spent
 
@@ -380,8 +407,19 @@ async def pause_engine(reason: str = "") -> None:
             "[autonomous safety] engine PAUSED via admin endpoint. Reason: %s",
             reason or "(none)",
         )
+        wire_success(
+            module="autonomous_safety",
+            summary=f"Engine paused: {reason or 'no reason given'}",
+            source_id="autonomous_safety:pause_engine",
+        )
     except Exception as e:
         logger.error("[autonomous safety] failed to set pause flag: %s", e)
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Failed to pause engine: {e}",
+            gap_type="redis_failure",
+            source="autonomous_safety:pause_engine",
+        )
 
 
 async def resume_engine() -> None:
@@ -392,8 +430,19 @@ async def resume_engine() -> None:
         else:
             await rs.set(_PAUSE_KEY, "0")
         logger.info("[autonomous safety] engine RESUMED via admin endpoint")
+        wire_success(
+            module="autonomous_safety",
+            summary="Engine resumed",
+            source_id="autonomous_safety:resume_engine",
+        )
     except Exception as e:
         logger.error("[autonomous safety] failed to clear pause flag: %s", e)
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Failed to resume engine: {e}",
+            gap_type="redis_failure",
+            source="autonomous_safety:resume_engine",
+        )
 
 
 async def is_task_paused(task_id: str) -> bool:
