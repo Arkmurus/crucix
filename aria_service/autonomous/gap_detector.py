@@ -1241,12 +1241,16 @@ class StaticAnalysisExtractor:
 # ── PORTAL COVERAGE EXTRACTOR ────────────────────────────────────────────────
 
 class PortalCoverageExtractor:
-    """R-F1154 — Detects gaps in ARIA's portal registration coverage.
+    """R-F1154/R-F1233 — Detects gaps in ARIA's portal registration coverage.
 
     Runs the portal_coverage_audit to find high-value intelligence portals
     that ARIA is not registered on. Each unregistered portal produces a
     GAP_TYPE="portal_registration" gap so the coder can autonomously run
     the registration pipeline.
+
+    Also checks the agent signup vault for pending/stale signups that need
+    attention — this ensures agents are aware of signups that were prepared
+    but not completed.
 
     Unlike the Redis-based extractors, this one calls the audit function
     directly. It respects the same 2h lookback window to avoid flooding.
@@ -1263,17 +1267,16 @@ class PortalCoverageExtractor:
                 return []
 
         gaps: list[Gap] = []
+
+        # ── Check portal_coverage_audit for unregistered portals ──────────
         try:
             from ..intel.portal_coverage_audit import audit_portal_coverage
             audit = await audit_portal_coverage()
         except Exception as e:
             logger.debug("[PortalCoverageExtractor] audit failed: %s", e)
-            return gaps
+            audit = {}
 
         unregistered = audit.get("unregistered", [])
-        if not unregistered:
-            return gaps
-
         for portal in unregistered[:10]:  # cap at 10 per cycle
             portal_id = portal.get("id", "unknown")
             portal_name = portal.get("name", portal_id)
@@ -1304,6 +1307,46 @@ class PortalCoverageExtractor:
                 },
             )
             gaps.append(gap)
+
+        # ── R-F1233: Check agent signup vault for pending/stale signups ──
+        try:
+            from ..intel.agent_signup_vault import get_vault
+            vault = get_vault()
+            pending = vault.list(status="pending", limit=20)
+            for entry in pending:
+                site_id = entry.get("site_id", "unknown")
+                site_name = entry.get("site_name", site_id)
+                site_url = entry.get("site_url", "")
+                agent_id = entry.get("agent_id", "unknown")
+                created = entry.get("created_at", 0)
+                age_days = (time.time() - created) / 86400 if created else 0
+
+                detail = (
+                    f"Signup for '{site_name}' ({site_id}) is still pending "
+                    f"after {age_days:.1f} days. "
+                    f"URL: {site_url}. Prepared by agent: {agent_id}. "
+                    f"Needs registration action."
+                )
+
+                gap = Gap(
+                    gap_id=_gap_id_for("pending_signup", "agent_signup_vault", site_id),
+                    gap_type="portal_registration",
+                    severity=GapSeverity.LOW if age_days < 7 else GapSeverity.MEDIUM,
+                    title=f"Pending signup: {site_name}",
+                    description=detail,
+                    module="agent_signup_vault",
+                    evidence={
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "url": site_url,
+                        "agent_id": agent_id,
+                        "age_days": round(age_days, 1),
+                        "source": "vault",
+                    },
+                )
+                gaps.append(gap)
+        except Exception as e:
+            logger.debug("[PortalCoverageExtractor] vault check failed: %s", e)
 
         return gaps
 

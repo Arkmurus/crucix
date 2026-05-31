@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1232,
+  "next_available": 1235,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6809,6 +6809,35 @@
       "r_number": "R-F1231",
       "title": "Agent signup vault",
       "claimed_at": "2026-05-31T20:50:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "36763bec",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:19:39Z"
+    },
+    {
+      "r_number": "R-F1232",
+      "title": "Build AST dataflow analysis engine for real code understanding",
+      "claimed_at": "2026-05-31T20:59:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e040330b",
+      "notes": null,
+      "shipped_at": "2026-05-31T21:20:11Z"
+    },
+    {
+      "r_number": "R-F1233",
+      "title": "Wire agent signup vault into agent awareness ecosystem",
+      "claimed_at": "2026-05-31T21:22:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1234",
+      "title": "Close all coder gaps - multi-file, refactoring, test execution, self-healing",
+      "claimed_at": "2026-05-31T21:23:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

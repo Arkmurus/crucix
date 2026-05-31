@@ -237,6 +237,9 @@ class AgentSignupVault:
             "success": True,
         })
 
+        # R-F1233: Notify all agents about the new signup
+        _notify_agents("signup_recorded", site_id, agent_id)
+
         return self.get(site_id)  # type: ignore[return-value]
 
     def update_status(
@@ -301,6 +304,9 @@ class AgentSignupVault:
             "success": True,
         })
 
+        # R-F1233: Notify all agents about the status change
+        _notify_agents("signup_status_updated", site_id)
+
         return self.get(site_id)
 
     def delete(self, site_id: str) -> bool:
@@ -315,6 +321,7 @@ class AgentSignupVault:
                 "site_id": site_id,
                 "success": True,
             })
+            _notify_agents("signup_deleted", site_id)
 
         return deleted
 
@@ -420,6 +427,24 @@ def _wire_to_brain(event: str, details: dict[str, Any]):
         _bh.observe_self_event(source="agent_signup_vault", event=event, details=details)
     except Exception:
         pass  # brain unreachable
+
+
+def _notify_agents(event: str, site_id: str, agent_id: str = "system"):
+    """Broadcast a vault event to all registered agents (lazy import, never crashes).
+
+    This is how agents become aware of vault changes in near-real-time.
+    Fire-and-forget: if the event loop isn't running or the agent registry
+    is unreachable, the notification is silently dropped.
+    """
+    try:
+        from .agent_registry import AgentRegistry
+        import asyncio
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            registry = AgentRegistry()
+            loop.create_task(registry.notify_agents_about_vault(event, site_id, agent_id))
+    except (RuntimeError, Exception):
+        pass  # no running loop or agent registry unreachable — non-critical
 
 
 # ── Module-level singleton ────────────────────────────────────────────

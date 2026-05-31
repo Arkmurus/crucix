@@ -477,6 +477,61 @@ class AgentRegistry:
             )
             return {"total_agents": 0, "active_agents": 0, "stale_agents": 0, "by_type": {}, "agents": []}
 
+    # ── R-F1233: Vault awareness ────────────────────────────────────────────────
+
+    async def get_pending_signups(self, limit: int = 20) -> list[dict]:
+        """Get pending signup tasks from the agent signup vault.
+
+        Any agent can call this to see what signups need attention.
+        Returns entries with status='pending', newest first.
+        """
+        try:
+            from .agent_signup_vault import get_vault
+            vault = get_vault()
+            return vault.list(status="pending", sort_by="created_at", sort_dir="asc", limit=limit)
+        except Exception as e:
+            logger.debug("[R-F1160] get_pending_signups failed: %s", e)
+            return []
+
+    async def get_vault_summary(self) -> dict:
+        """Get a summary of the agent signup vault for agent awareness.
+
+        Agents can include this in their heartbeat to show what they know
+        about the signup landscape.
+        """
+        try:
+            from .agent_signup_vault import get_vault
+            vault = get_vault()
+            stats = vault.stats()
+            return {
+                "total_sites": stats.get("total", 0),
+                "pending": stats.get("by_status", {}).get("pending", 0),
+                "registered": stats.get("by_status", {}).get("registered", 0),
+                "verified": stats.get("by_status", {}).get("verified", 0),
+                "failed": stats.get("by_status", {}).get("failed", 0),
+                "stale_unverified": stats.get("stale_unverified", 0),
+            }
+        except Exception as e:
+            logger.debug("[R-F1160] get_vault_summary failed: %s", e)
+            return {"total_sites": 0, "pending": 0, "registered": 0, "verified": 0, "failed": 0, "stale_unverified": 0}
+
+    async def notify_agents_about_vault(self, event: str, site_id: str, agent_id: str = "system") -> None:
+        """Broadcast a vault event to all agents so they stay aware.
+
+        Called whenever a vault entry is created or updated.
+        Agents receive this as a message and can react accordingly.
+        """
+        try:
+            await self.broadcast_message("vault", {
+                "type": "vault_event",
+                "event": event,
+                "site_id": site_id,
+                "timestamp": time.time(),
+                "source_agent": agent_id,
+            })
+        except Exception as e:
+            logger.debug("[R-F1160] notify_agents_about_vault failed: %s", e)
+
     async def cleanup_stale_agents(self) -> int:
         """Remove agents that haven't sent a heartbeat in too long.
 

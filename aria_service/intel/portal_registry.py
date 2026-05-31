@@ -855,6 +855,32 @@ async def _audit_preparation(
     except Exception:
         pass
 
+    # R-F1233: Record in agent signup vault so all agents are aware
+    try:
+        from .agent_signup_vault import get_vault
+        vault = get_vault()
+        try:
+            vault.record(
+                site_id=portal.id,
+                site_name=portal.name,
+                site_url=portal.url,
+                agent_id="portal_registry",
+                site_type="portal",
+                agent_type="autonomous",
+                status="pending",
+                notes=f"Registration prepared — form fill deferred. CAPTCHA: {portal.requires_captcha}. ToS: {portal.terms_url or 'N/A'}.",
+                metadata={
+                    "registration_type": portal.registration_type,
+                    "requires_captcha": portal.requires_captcha,
+                    "requires_email_verify": portal.requires_email_verify,
+                    "has_signup_fields": bool(portal.signup_fields),
+                },
+            )
+        except ValueError:
+            pass  # already in vault
+    except Exception:
+        logger.debug("[portal_registry] vault record failed (non-fatal): %s", _e)
+
 
 async def _audit_registered(
     portal: PortalDef,
@@ -901,6 +927,33 @@ async def _audit_registered(
         )
     except Exception:
         pass
+
+    # R-F1233: Record in agent signup vault so all agents are aware
+    try:
+        from .agent_signup_vault import get_vault
+        vault = get_vault()
+        try:
+            vault.record(
+                site_id=portal.id,
+                site_name=portal.name,
+                site_url=portal.url,
+                agent_id="portal_registry",
+                site_type="portal",
+                agent_type="autonomous",
+                status="registered",
+                notes=f"Autonomously registered. Identity: {identity_email}.",
+                metadata={
+                    "registration_type": portal.registration_type,
+                    "requires_captcha": portal.requires_captcha,
+                    "requires_email_verify": portal.requires_email_verify,
+                },
+            )
+        except ValueError:
+            # Already in vault — update status to registered
+            vault.update_status(portal.id, "registered",
+                notes=f"Autonomously registered. Identity: {identity_email}.")
+    except Exception:
+        logger.debug("[portal_registry] vault record failed (non-fatal)")
 
 
 async def is_registered(portal_id: str) -> bool:
