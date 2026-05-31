@@ -202,6 +202,9 @@
     <div class="dd-toolbar">
       <input class="dd-search" id="dd-search" placeholder="Search by entity name…" type="search">
       <button class="dd-new-btn" id="dd-new-btn"><i class="bi bi-plus-lg"></i> New DD</button>
+      <button class="dd-act-btn" id="dd-vls-key-btn" title="Export VLS public key for third-party verification (R-F1182)" style="padding:10px 14px;font-size:13px">
+        <i class="bi bi-key"></i> VLS Key
+      </button>
     </div>
 
     <div id="dd-content">
@@ -398,6 +401,8 @@ async function toggleDetail(row, runId) {
     const data = await resp.json();
     const md = data.markdown || (data.report && data.report.markdown) || JSON.stringify(data, null, 2).slice(0, 4000);
     const entityName = (row.querySelector('.col-entity').textContent || '').trim().split(' · ')[0];
+    // R-F1186: canonical_entity_id from the report data (may be null for pre-R-F573 reports)
+    const canonicalId = data.canonical_entity_id || '';
     detailRow.querySelector('.dd-detail').innerHTML =
       '<div class="dd-detail-actions">' +
         '<button class="dd-act-btn primary" data-action="rerun" data-entity="' + escAttr(entityName) + '">' +
@@ -406,6 +411,20 @@ async function toggleDetail(row, runId) {
           '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
         '<button class="dd-act-btn" data-action="copy">' +
           '<i class="bi bi-clipboard"></i> Copy markdown</button>' +
+        // R-F1186: VLS verify button — checks cryptographic integrity of this report
+        '<button class="dd-act-btn" data-action="vls-verify" data-run-id="' + escAttr(runId) + '" ' +
+          'title="Verify VLS cryptographic proof (R-F1182)">' +
+          '<i class="bi bi-shield-check"></i> Verify VLS</button>' +
+        // R-F1186: VLS proof button — shows the raw cryptographic proof
+        '<button class="dd-act-btn" data-action="vls-proof" data-run-id="' + escAttr(runId) + '" ' +
+          'title="View VLS cryptographic proof (R-F1182)">' +
+          '<i class="bi bi-file-lock"></i> VLS Proof</button>' +
+        // R-F1186: Case file button — opens version chain for this entity
+        (canonicalId
+          ? '<button class="dd-act-btn" data-action="case-file" data-canonical-id="' + escAttr(canonicalId) + '" ' +
+            'title="View version chain / case file (R-F573)">' +
+            '<i class="bi bi-diagram-2"></i> Case File</button>'
+          : '') +
         '<button class="dd-act-btn" data-action="delete" data-run-id="' + escAttr(runId) + '" ' +
           'style="margin-left:auto;color:#fca5a5" title="Delete this report (R-F162)">' +
           '<i class="bi bi-trash"></i> Delete report</button>' +
@@ -460,6 +479,113 @@ async function toggleDetail(row, runId) {
       }
       b.disabled = false; b.innerHTML = orig;
     });
+    // R-F1186: VLS verify button — checks cryptographic integrity
+    const vlsVerifyBtn = detailRow.querySelector('[data-action="vls-verify"]');
+    if (vlsVerifyBtn) {
+      vlsVerifyBtn.addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        const rid = b.getAttribute('data-run-id');
+        const orig = b.innerHTML;
+        b.disabled = true;
+        b.innerHTML = '<i class="bi bi-hourglass-split"></i> Verifying…';
+        try {
+          const r = await authed('/api/aria/dd/vls/verify/' + encodeURIComponent(rid));
+          if (!r.ok) {
+            alert('VLS verify failed (HTTP ' + r.status + ')');
+            b.disabled = false; b.innerHTML = orig;
+            return;
+          }
+          const data = await r.json();
+          const verified = data.verified ? '✅ PASS — integrity verified' : '❌ FAIL — ' + (data.reason || 'integrity check failed');
+          const detail = data.hash_valid !== undefined
+            ? '\nHash valid: ' + data.hash_valid + '\nSignature valid: ' + data.signature_valid
+            : '';
+          alert('VLS Verification for ' + rid + ':\n' + verified + detail);
+        } catch (err) {
+          alert('VLS verify error: ' + err.message);
+        }
+        b.disabled = false; b.innerHTML = orig;
+      });
+    }
+    // R-F1186: VLS proof button — shows the raw cryptographic proof
+    const vlsProofBtn = detailRow.querySelector('[data-action="vls-proof"]');
+    if (vlsProofBtn) {
+      vlsProofBtn.addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        const rid = b.getAttribute('data-run-id');
+        const orig = b.innerHTML;
+        b.disabled = true;
+        b.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
+        try {
+          const r = await authed('/api/aria/dd/vls/proof/' + encodeURIComponent(rid));
+          if (!r.ok) {
+            if (r.status === 404) {
+              alert('No VLS proof found for this report. Pre-R-F1182 reports do not have cryptographic proofs.');
+            } else {
+              alert('VLS proof failed (HTTP ' + r.status + ')');
+            }
+            b.disabled = false; b.innerHTML = orig;
+            return;
+          }
+          const data = await r.json();
+          const proof = data.proof || {};
+          const lines = [
+            'VLS Cryptographic Proof',
+            '━━━━━━━━━━━━━━━━━━━━',
+            'Version: ' + (proof.version || '?'),
+            'Timestamp: ' + (proof.timestamp || '?'),
+            'Hash: ' + (proof.hash || '').slice(0, 24) + '…',
+            'Previous hash: ' + (proof.previous_hash || '').slice(0, 24) + '…',
+            'Signature: ' + (proof.signature || '').slice(0, 32) + '…',
+          ];
+          alert(lines.join('\n'));
+        } catch (err) {
+          alert('VLS proof error: ' + err.message);
+        }
+        b.disabled = false; b.innerHTML = orig;
+      });
+    }
+    // R-F1186: Case file button — opens version chain for this entity
+    const caseFileBtn = detailRow.querySelector('[data-action="case-file"]');
+    if (caseFileBtn) {
+      caseFileBtn.addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        const cid = b.getAttribute('data-canonical-id');
+        const orig = b.innerHTML;
+        b.disabled = true;
+        b.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
+        try {
+          const r = await authed('/api/aria/dd/case/' + encodeURIComponent(cid));
+          if (!r.ok) {
+            if (r.status === 404) {
+              alert('No case file found for this entity.');
+            } else {
+              alert('Case file failed (HTTP ' + r.status + ')');
+            }
+            b.disabled = false; b.innerHTML = orig;
+            return;
+          }
+          const data = await r.json();
+          const versions = data.versions || [];
+          const lines = [
+            'Case File: ' + (data.canonical_entity_id || cid),
+            'Total versions: ' + (data.total_versions || 0),
+            '━━━━━━━━━━━━━━━━━━━━',
+          ];
+          for (const v of versions) {
+            lines.push(
+              'v' + (v.version_number || '?') + ' — ' + (v.risk_classification || '?') +
+              ' — ' + (v.generated_at || '').slice(0, 10) +
+              ' — ' + (v.run_id || '').slice(0, 14)
+            );
+          }
+          alert(lines.join('\n'));
+        } catch (err) {
+          alert('Case file error: ' + err.message);
+        }
+        b.disabled = false; b.innerHTML = orig;
+      });
+    }
   } catch (err) {
     detailRow.querySelector('.dd-detail').innerHTML = '<div class="dd-loading">Network error: ' + escText(err.message) + '</div>';
   }
@@ -511,6 +637,31 @@ document.getElementById('dd-new-btn').addEventListener('click', () => {
     btn.disabled = false; btn.innerHTML = orig;
     alert('DD error: ' + err.message);
   });
+});
+
+// R-F1186: VLS Public Key export button
+document.getElementById('dd-vls-key-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('dd-vls-key-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
+  try {
+    const r = await authed('/api/aria/dd/vls/key');
+    if (!r.ok) {
+      alert('VLS key export failed (HTTP ' + r.status + ')');
+      btn.disabled = false; btn.innerHTML = orig;
+      return;
+    }
+    const data = await r.json();
+    const pem = data.public_key_pem || '';
+    // Copy to clipboard
+    await navigator.clipboard.writeText(pem);
+    btn.innerHTML = '<i class="bi bi-check2"></i> Copied to clipboard';
+    setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
+  } catch (err) {
+    alert('VLS key error: ' + err.message);
+    btn.disabled = false; btn.innerHTML = orig;
+  }
 });
 
 loadReports();
