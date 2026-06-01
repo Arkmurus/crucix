@@ -1570,6 +1570,18 @@ class GapDetector:
                 gaps = await self.scan()
                 await self.publish_latest(gaps)
 
+                # R-F1282: wire success to brain so the coder and operator
+                # can see gap_detector is alive and producing results.
+                try:
+                    from aria_service.intel.engine_wiring import wire_success
+                    wire_success(
+                        module="gap_detector",
+                        summary=f"Scan complete: {len(gaps)} actionable gaps",
+                        source_id="gap_detector:run_forever",
+                    )
+                except Exception:
+                    pass
+
                 # R-F1160: tick heartbeat every cycle with current stats
                 if _reg is not None:
                     try:
@@ -1590,5 +1602,17 @@ class GapDetector:
                         pass
                 raise
             except Exception as e:
+                # R-F1282: wire failure to brain so the coder knows
+                # gap_detector is down and can attempt recovery.
+                try:
+                    from aria_service.intel.engine_wiring import wire_failure
+                    wire_failure(
+                        module="gap_detector",
+                        detail=f"Scan error: {e}",
+                        gap_type="agent_cycle_failure",
+                        source="gap_detector:run_forever",
+                    )
+                except Exception:
+                    pass
                 logger.error("[gap_detector] scan error: %s", e, exc_info=True)
             await asyncio.sleep(self.SCAN_INTERVAL_S)

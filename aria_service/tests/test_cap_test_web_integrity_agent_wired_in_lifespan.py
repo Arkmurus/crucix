@@ -60,7 +60,8 @@ def test_agent_registry_registrations_in_main():
         "weekly_report",
         "watchlist_rescreen",
         "tender_monitor",
-        "web_crawler",
+        # R-F1282: web_crawler removed — was a zombie (registered but no loop,
+        # and on-demand calls from company_investigator were broken).
         "web_integrity",
         "self_healing",
     ]

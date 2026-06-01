@@ -1115,12 +1115,11 @@ async def lifespan(app: FastAPI):
         "Crawl defence procurement portals (every 6h)",
     ))
 
-    # Register crawler
-    if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
-        asyncio.create_task(_register_agent(
-            "web_crawler", "search_index",
-            "Web crawl seed domains for search index (every 6h)",
-        ))
+    # R-F1282: web_crawler registration removed — the UniversalWebCrawler
+    # class is only used on-demand from company_investigator (and those
+    # calls were broken — they called module-level functions that don't
+    # exist). No background loop was ever started. If a background crawl
+    # loop is needed in future, add it properly with wiring.
 
     # Register Web Integrity Agent (started below)
     asyncio.create_task(_register_agent(

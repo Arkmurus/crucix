@@ -230,10 +230,33 @@ class ARIACoder:
         while True:
             try:
                 await self._one_cycle()
+                # R-F1282: wire success to brain so the operator can see
+                # the coder is alive and producing results.
+                try:
+                    from aria_service.intel.engine_wiring import wire_success
+                    wire_success(
+                        module="aria_coder",
+                        summary="Coder cycle complete",
+                        source_id="aria_coder:run_forever",
+                    )
+                except Exception:
+                    pass
             except asyncio.CancelledError:
                 logger.info("[aria_coder] cancelled — exiting")
                 raise
             except Exception as e:
+                # R-F1282: wire failure to brain so the operator knows
+                # the coder is down and can investigate.
+                try:
+                    from aria_service.intel.engine_wiring import wire_failure
+                    wire_failure(
+                        module="aria_coder",
+                        detail=f"Cycle error: {e}",
+                        gap_type="agent_cycle_failure",
+                        source="aria_coder:run_forever",
+                    )
+                except Exception:
+                    pass
                 logger.error("[aria_coder] cycle error: %s", e, exc_info=True)
             await asyncio.sleep(SCAN_INTERVAL_S)
 
