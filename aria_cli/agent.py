@@ -295,10 +295,55 @@ class Agent:
                 ),
             })
 
-    def run_turn(self, user_text: str) -> TurnResult:
+    def run_turn(self, user_text: str, timeout: float = 60.0) -> TurnResult:
+        """Run one turn with a timeout. If the LLM doesn't respond within
+        ``timeout`` seconds, returns an aborted TurnResult so the REPL can
+        recover instead of hanging forever."""
         self.messages.append({"role": "user", "content": user_text})
         steps = 0
         sig_counts: dict[str, int] = {}  # R-F1042 loop guard (per turn)
+
+        # ── Thread-based timeout guard ────────────────────────────────────────
+        # On Windows, httpx network calls don't respond to KeyboardInterrupt.
+        # We run the turn in a daemon thread and join with a timeout so the
+        # REPL can always recover.
+        import threading as _threading
+        _result_holder: list[TurnResult | None] = [None]
+        _error_holder: list[Exception | None] = [None]
+
+        def _run() -> None:
+            try:
+                _result_holder[0] = self._run_turn_inner(steps, sig_counts)
+            except Exception as _exc:
+                _error_holder[0] = _exc
+
+        _t = _threading.Thread(target=_run, daemon=True)
+        _t.start()
+        _t.join(timeout=timeout)
+
+        if _t.is_alive():
+            # Timed out — the thread is still running but we give up on it
+            self.messages.pop()  # Remove the user message we added
+            return TurnResult(
+                final_text="LLM timed out — the provider did not respond within "
+                           f"{timeout:.0f}s. Try again or check your connection.",
+                steps=0, aborted=True, resumable=False,
+            )
+
+        if _error_holder[0] is not None:
+            self.messages.pop()
+            raise _error_holder[0]  # type: ignore[misc]
+
+        result = _result_holder[0]
+        if result is None:
+            self.messages.pop()
+            return TurnResult(final_text="LLM returned no result", steps=0,
+                              aborted=True, resumable=False)
+        return result
+
+    def _run_turn_inner(self, steps: int, sig_counts: dict[str, int]) -> TurnResult:
+        """The actual turn logic, extracted so run_turn can wrap it with a
+        timeout thread."""
         while steps < MAX_STEPS:
             # R-F1082: pull any new guidance from Claude (via the bridge) into the
             # conversation before each LLM call — real-time collaboration, mid-task.
