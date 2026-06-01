@@ -112,27 +112,28 @@ def _start_stdin_reader() -> None:
 def _read_operator_input(prompt: str = "") -> str:
     """Read a line from the operator queue (blocking), or fall back to input().
 
-    In interactive mode, reads from the queue so the stdin reader thread
-    can feed lines both to the REPL (blocking) and to mid-task drains
-    (non-blocking). Falls back to input() if the queue is empty (first call).
+    R-F1258: simplified — always writes the prompt, then reads from the queue
+    (blocking). The stdin reader thread feeds lines both to the REPL and to
+    mid-task drains. Falls back to input() if the queue is empty (first call).
     """
     if not sys.stdin.isatty():
-        # Non-interactive (piped input) — read directly
         try:
             return input(prompt).strip()
         except EOFError:
             return ""
 
+    # Write prompt
+    if prompt:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+
+    # Try non-blocking first
     try:
-        # Try non-blocking first — if something is already queued, use it
         return _OPERATOR_QUEUE.get_nowait()
     except queue.Empty:
         pass
 
-    # Blocking read from queue (with prompt)
-    if prompt:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
+    # Blocking read from queue
     try:
         return _OPERATOR_QUEUE.get()
     except (EOFError, OSError):
@@ -397,6 +398,33 @@ class _BoxChars:
     def cross(self) -> str: return "✗" if self._unicode else "x"
 
 
+# ── shared box-drawing helpers ──────────────────────────────────────────────
+# R-F1258: extracted to module level to avoid duplication in _banner, _finalize,
+# /help, /sessions, /gaps, /status, /history, /cost, /plan, /stats.
+import re as _re
+
+
+def _visible_len(s: str) -> int:
+    """Return the visible length of a string, stripping ANSI escape codes."""
+    return len(_re.sub(r'\033\[[0-9;]*m', '', s))
+
+
+def _content(s: str) -> str:
+    """Pad string to exactly 56 visible chars for box content.
+    Strips ANSI codes before measuring so colored text aligns correctly."""
+    return s + " " * (56 - _visible_len(s))
+
+
+def _box_line(corner_left: str, h: str, corner_right: str) -> str:
+    """Build a full-width box border line: '  {corner_left}{56 h}{corner_right}'."""
+    return f"  {corner_left}{h * 56}{corner_right}"
+
+
+def _box_content(v: str, text: str) -> str:
+    """Build a full-width box content line: '  {v}{56 padded text}{v}'."""
+    return f"  {v}{_content(text)}{v}"
+
+
 class TerminalUI(AgentUI):
     """Professional terminal UI with clean message boundaries and real-time chat.
 
@@ -421,6 +449,13 @@ class TerminalUI(AgentUI):
       - Session export (/export)
       - Per-session cost tracking
       - Tab completion for REPL commands
+
+    R-F1258 — terminal UI cleanup:
+      - Compact banner (8 lines instead of 15+)
+      - Clean REPL prompt with history and tab completion
+      - Categorized /help with pagination
+      - Deduplicated box-drawing helpers
+      - Reliable spinner cleanup
     """
 
     # Theme color maps
@@ -519,12 +554,15 @@ class TerminalUI(AgentUI):
             _append_log(self._session_log, text)
 
     def _ensure_clear_line(self) -> None:
-        """Clear any spinner or residual output before writing a new line."""
+        """Clear any spinner or residual output before writing a new line.
+        R-F1258: always clear the line, even when not animating, to prevent
+        residual spinner frames from leaking into the output."""
         if self._spin_thread is not None:
             self.thinking_stop()
-        if self._can_animate:
-            sys.stdout.write("\r\033[K")
-            sys.stdout.flush()
+        # Always write the clear sequence — even without animation, the spinner
+        # may have left a static "~ thinking..." line that needs clearing.
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
 
     def assistant(self, text: str) -> None:
         """Print a complete assistant message with clean boundaries."""
@@ -863,37 +901,23 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
 
 def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
             cwd: Path, auto_approve: bool = True) -> None:
-    mode = color.green("self (crucix ecosystem)") if self_mode else "general project"
+    """Compact banner — 8 lines instead of 15+ (R-F1258)."""
+    mode = color.green("self") if self_mode else "general"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
-    approval = color.green("autonomous") if auto_approve else "confirm each action"
+    approval = color.green("auto") if auto_approve else "confirm"
     bx = _BoxChars()
-    h = bx.h * 56
-    # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
-    # Every content line must be exactly 56 chars between the vertical bars.
-    def _visible_len(s: str) -> int:
-        """Return the visible length of a string, stripping ANSI escape codes."""
-        import re
-        return len(re.sub(r'\033\[[0-9;]*m', '', s))
-
-    def _content(s: str) -> str:
-        """Pad string to exactly 56 visible chars for box content.
-        Strips ANSI codes before measuring so colored text aligns correctly."""
-        return s + " " * (56 - _visible_len(s))
+    h = bx.h
+    v = bx.v
+    dir_short = str(cwd)
+    if len(dir_short) > 50:
+        dir_short = "…" + dir_short[-49:]
     print()
-    print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
-    title = f"  ARIA Coder  v{__version__}"
-    print(color.bold(f"  {bx.v}") + color.cyan(_content(title)) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
-    dir_str = str(cwd)
-    if len(dir_str) > 54:
-        dir_str = "..." + dir_str[-51:]
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {dir_str}")) + color.bold(f"{bx.v}"))
-    prov_model = f"  {cfg.provider}/{cfg.model}"
-    print(color.bold(f"  {bx.v}") + color.dim(_content(prov_model)) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {mode}")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  brain: {brain}")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  {approval}")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.bl}{h}{bx.br}"))
+    print(color.bold(_box_line(bx.tl, h, bx.tr)))
+    print(color.bold(_box_content(v, color.cyan(f"  ARIA Coder  v{__version__}"))))
+    print(color.bold(_box_line(bx.tm, h, bx.mr)))
+    print(color.bold(_box_content(v, color.dim(f"  {dir_short}"))))
+    print(color.bold(_box_content(v, color.dim(f"  {cfg.provider}/{cfg.model}  {mode}  brain:{brain}  {approval}"))))
+    print(color.bold(_box_line(bx.bl, h, bx.br)))
     print()
 
 
@@ -906,30 +930,20 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     elapsed = time.time() - ui._session_start if ui._session_start else 0
     elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
     bx = _BoxChars()
-    h = bx.h * 56
-    # Box width = 2 (prefix) + 1 (v) + 56 (content) + 1 (v) = 60 chars total
-    def _visible_len(s: str) -> int:
-        """Return the visible length of a string, stripping ANSI escape codes."""
-        import re
-        return len(re.sub(r'\033\[[0-9;]*m', '', s))
-
-    def _content(s: str) -> str:
-        """Pad string to exactly 56 visible chars for box content.
-        Strips ANSI codes before measuring so colored text aligns correctly."""
-        return s + " " * (56 - _visible_len(s))
-
+    h = bx.h
+    v = bx.v
     print()
-    print(color.bold(f"  {bx.tl}{h}{bx.tr}"))
+    print(color.bold(_box_line(bx.tl, h, bx.tr)))
     title = f"  Session Complete  {bx.check if success else bx.cross}"
-    print(color.bold(f"  {bx.v}") + color.cyan(_content(title)) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.tm}{h}{bx.mr}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  duration:    {elapsed_str}")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  files:       {len(changed)} changed")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  tools:       {ui._tool_count} calls")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  errors:      {ui._error_count}")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  operator:    {ui._operator_messages} msgs")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.v}") + color.dim(_content(f"  tokens:      {total_tok} ({in_tok} in / {out_tok} out)")) + color.bold(f"{bx.v}"))
-    print(color.bold(f"  {bx.bl}{h}{bx.br}"))
+    print(color.bold(_box_content(v, color.cyan(title))))
+    print(color.bold(_box_line(bx.tm, h, bx.mr)))
+    print(color.bold(_box_content(v, color.dim(f"  duration:    {elapsed_str}"))))
+    print(color.bold(_box_content(v, color.dim(f"  files:       {len(changed)} changed"))))
+    print(color.bold(_box_content(v, color.dim(f"  tools:       {ui._tool_count} calls"))))
+    print(color.bold(_box_content(v, color.dim(f"  errors:      {ui._error_count}"))))
+    print(color.bold(_box_content(v, color.dim(f"  operator:    {ui._operator_messages} msgs"))))
+    print(color.bold(_box_content(v, color.dim(f"  tokens:      {total_tok} ({in_tok} in / {out_tok} out)"))))
+    print(color.bold(_box_line(bx.bl, h, bx.br)))
 
     if changed:
         print(color.dim(f"\n  files: {', '.join(changed)}"))
@@ -969,59 +983,64 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
           guard: WriteGuard, cwd: Path, color: _Color) -> None:
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
-    print(color.dim("  Type a task or message. /help for commands. Chat with ARIA while she works."))
-    print(color.dim("  Tip: type a message while ARIA is working and she'll respond in real-time."))
-    print(color.dim("  Tip: use /chat to toggle chat mode (interrupt ARIA mid-task).\n"))
+    print(color.dim("  /help for commands. Type a message or task."))
+    print(color.dim("  Tip: type while ARIA works — she'll respond mid-task.\n"))
     last_task = ""
+    # R-F1258: simple input history (in-memory, up/down arrows via prompt_toolkit if available)
+    _input_history: list[str] = []
+    _history_idx = 0
     try:
         while True:
             try:
                 ui._ensure_clear_line()
-                line = _read_operator_input(color.bold("  you > "))
+                # R-F1258: clean prompt — just "> " instead of "you > "
+                if PROMPT_TOOLKIT_AVAILABLE:
+                    try:
+                        pt_session = PTPromptSession(
+                            history=PTFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
+                            auto_suggest=PTAutoSuggest(),
+                            completer=PTWordCompleter([
+                                "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
+                                "/claude", "/session", "/sessions", "/export", "/theme",
+                                "/gaps", "/status", "/history", "/cost", "/model", "/compact",
+                                "/memory", "/diff", "/plan", "/stats", "/think", "/clear",
+                                "/version", "/uptime", "/config", "/reset",
+                            ]),
+                            style=PTStyle.from_dict({
+                                "prompt": "bold cyan" if color.on else "",
+                            }),
+                        )
+                        line = pt_session.prompt("  > ", vi_mode=False).strip()
+                    except Exception:
+                        line = _read_operator_input(color.bold("  > ")).strip()
+                else:
+                    line = _read_operator_input(color.bold("  > ")).strip()
             except EOFError:
                 break
             if not line:
                 continue
+            # R-F1258: track input history (skip duplicates)
+            if not _input_history or _input_history[-1] != line:
+                _input_history.append(line)
+            _history_idx = len(_input_history)
             if line in {"/exit", "/quit"}:
                 break
             if line == "/help":
                 bx = _BoxChars()
-                h = bx.h * 56
-                def _hc(s: str) -> str:
-                    """Pad help content to exactly 56 chars."""
-                    return s + " " * (56 - len(s))
-                print(color.dim(
-                    f"  {bx.tl}{h}{bx.tr}\n"
-                    f"  {bx.v}{_hc('  Commands')}{bx.v}\n"
-                    f"  {bx.tm}{h}{bx.mr}\n"
-                    f"  {bx.v}{_hc('  /confirm  toggle asking before edits (auto)')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /changes  list files changed this session')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /chat     how to talk to ARIA while she works')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /claude   read new messages from Claude')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /session  show session log path')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /sessions list saved sessions')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /export   export session to file')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /theme    change color theme')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /gaps     scan for capability gaps/bugs')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /status   show system health')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /history  show composite score history')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /cost     show session and monthly cost')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /model    show current model chain')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /compact  compress conversation history')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /memory   show project memory notes')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /diff     show uncommitted changes')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /plan     show current task plan')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /stats    show session statistics')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /think    show raw thinking trace')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /clear    clear the screen')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /version  show version info')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /uptime   show session duration')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /config   show current configuration')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /reset    clear conversation history')}{bx.v}\n"
-                    f"  {bx.v}{_hc('  /exit     quit')}{bx.v}\n"
-                    f"  {bx.bl}{h}{bx.br}\n"
-                    "  Tip: type a message while ARIA is working and she'll\n"
-                    "  respond to it in real-time."))
+                h = bx.h
+                v = bx.v
+                # R-F1258: categorized help with compact layout
+                print()
+                print(color.bold(_box_line(bx.tl, h, bx.tr)))
+                print(color.bold(_box_content(v, color.cyan("  Commands"))))
+                print(color.bold(_box_line(bx.tm, h, bx.mr)))
+                print(color.bold(_box_content(v, color.dim("  Session:  /session /sessions /export /stats /uptime"))))
+                print(color.bold(_box_content(v, color.dim("  Control:  /confirm /reset /compact /clear /exit"))))
+                print(color.bold(_box_content(v, color.dim("  View:     /changes /diff /plan /think /memory"))))
+                print(color.bold(_box_content(v, color.dim("  System:   /status /gaps /history /cost /model /config /version"))))
+                print(color.bold(_box_content(v, color.dim("  Chat:     /chat /claude /theme"))))
+                print(color.bold(_box_line(bx.bl, h, bx.br)))
+                print(color.dim("  Tip: type while ARIA works — she'll respond mid-task."))
                 continue
             if line == "/chat":
                 print(color.dim(
@@ -1062,17 +1081,16 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line == "/sessions":
                 sessions = ui.session_manager.list_sessions()
                 bx = _BoxChars()
-                h = bx.h * 56
-                def _sc(s: str) -> str:
-                    return s + " " * (56 - len(s))
-                print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                print(color.cyan(f"  {bx.v}{_sc(f'  Sessions ({len(sessions)})')}{bx.v}"))
-                print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                h = bx.h
+                v = bx.v
+                print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                print(color.cyan(_box_content(v, f"  Sessions ({len(sessions)})")))
+                print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                 for s in sessions[:20]:
                     cur = bx.check if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
                     name = s.name[:40]
-                    print(color.cyan(f"  {bx.v}{_sc(f'  [{cur}] {s.id[:16]}  {name}  {s.tool_count} tools')}{bx.v}"))
-                print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                    print(color.cyan(_box_content(v, f"  [{cur}] {s.id[:16]}  {name}  {s.tool_count} tools")))
+                print(color.cyan(_box_line(bx.bl, h, bx.br)))
                 print(color.dim("  /session load <id>  /session delete <id>"))
                 continue
             if line.startswith("/session "):
@@ -1152,19 +1170,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         gaps = data.get("gaps", [])
                         if gaps:
                             bx = _BoxChars()
-                            h = bx.h * 56
-                            def _gc(s: str) -> str:
-                                return s + " " * (56 - len(s))
-                            print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                            print(color.cyan(f"  {bx.v}{_gc(f'  Gaps ({len(gaps)} found)')}{bx.v}"))
-                            print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                            h = bx.h
+                            v = bx.v
+                            print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                            print(color.cyan(_box_content(v, f"  Gaps ({len(gaps)} found)")))
+                            print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                             for i, g in enumerate(gaps[:20], 1):
                                 sev = g.get("severity", "UNKNOWN")
                                 sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
                                 auto = bx.check if g.get("auto_fixable") else "approval"
                                 title = g.get("title", "?")[:50]
-                                print(sev_color(f"  {bx.v}{_gc(f'  {i:2d}  {title}  {sev:8s}  {auto}')}{bx.v}"))
-                            print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                                print(sev_color(_box_content(v, f"  {i:2d}  {title}  {sev:8s}  {auto}")))
+                            print(color.cyan(_box_line(bx.bl, h, bx.br)))
                         else:
                             print(color.dim("  no gaps found"))
                     else:
@@ -1186,21 +1203,20 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         inv = d.get("inventory", {})
                         cost = d.get("cost", {})
                         bx = _BoxChars()
-                        h = bx.h * 56
-                        def _stc(s: str) -> str:
-                            return s + " " * (56 - len(s))
-                        print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                        print(color.cyan(f"  {bx.v}{_stc('  System Status')}{bx.v}"))
-                        print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                        h = bx.h
+                        v = bx.v
+                        print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                        print(color.cyan(_box_content(v, "  System Status")))
+                        print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                         comp = sm.get("composite", 0)
                         comp_str = f"{comp*100:.0f}/100" if comp else "--"
-                        print(color.cyan(f"  {bx.v}{_stc(f'  Composite score     {comp_str}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}{_stc(f'  Sources             {src.get("ok", "?")}/{src.get("total", "?")} OK')}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}{_stc(f'  Knowledge facts     {str(inv.get("knowledge_facts", "?"))}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}{_stc(f'  Intel signals       {str(inv.get("intel_signals", "?"))}')}{bx.v}"))
+                        print(color.cyan(_box_content(v, f"  Composite score     {comp_str}")))
+                        print(color.cyan(_box_content(v, f'  Sources             {src.get("ok", "?")}/{src.get("total", "?")} OK')))
+                        print(color.cyan(_box_content(v, f'  Knowledge facts     {str(inv.get("knowledge_facts", "?"))}')))
+                        print(color.cyan(_box_content(v, f'  Intel signals       {str(inv.get("intel_signals", "?"))}')))
                         cost_str = f"${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "--"
-                        print(color.cyan(f"  {bx.v}{_stc(f'  Monthly cost        {cost_str}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                        print(color.cyan(_box_content(v, f"  Monthly cost        {cost_str}")))
+                        print(color.cyan(_box_line(bx.bl, h, bx.br)))
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
                 except Exception as e:
@@ -1217,19 +1233,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         history = r.json().get("history", [])
                         if history:
                             bx = _BoxChars()
-                            h = bx.h * 56
-                            def _hic(s: str) -> str:
-                                return s + " " * (56 - len(s))
-                            print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                            print(color.cyan(f"  {bx.v}{_hic('  Composite Score History')}{bx.v}"))
-                            print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                            h = bx.h
+                            v = bx.v
+                            print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                            print(color.cyan(_box_content(v, "  Composite Score History")))
+                            print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                             for hist in history[:24]:
                                 ts = hist.get("timestamp", "")[:16]
                                 score = hist.get("composite", 0)
                                 bar_len = int(score * 20)
                                 bar = "█" * bar_len + "░" * (20 - bar_len)
-                                print(color.cyan(f"  {bx.v}{_hic(f'  {ts}  {score*100:5.1f}%  {bar}')}{bx.v}"))
-                            print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                                print(color.cyan(_box_content(v, f"  {ts}  {score*100:5.1f}%  {bar}")))
+                            print(color.cyan(_box_line(bx.bl, h, bx.br)))
                         else:
                             print(color.dim("  no history data"))
                     else:
@@ -1247,19 +1262,18 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     if r.status_code == 200:
                         d = r.json()
                         bx = _BoxChars()
-                        h = bx.h * 56
-                        def _cc(s: str) -> str:
-                            return s + " " * (56 - len(s))
-                        print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                        print(color.cyan(f"  {bx.v}{_cc('  Cost Dashboard')}{bx.v}"))
-                        print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                        h = bx.h
+                        v = bx.v
+                        print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                        print(color.cyan(_box_content(v, "  Cost Dashboard")))
+                        print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                         spend = d.get('monthly_spend', 0)
                         cap = d.get('monthly_cap', 300)
                         remaining = d.get('remaining', 0)
-                        print(color.cyan(f"  {bx.v}{_cc(f'  Monthly spend     ${spend:.2f}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}{_cc(f'  Monthly cap       ${cap:.2f}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.v}{_cc(f'  Remaining         ${remaining:.2f}')}{bx.v}"))
-                        print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                        print(color.cyan(_box_content(v, f"  Monthly spend     ${spend:.2f}")))
+                        print(color.cyan(_box_content(v, f"  Monthly cap       ${cap:.2f}")))
+                        print(color.cyan(_box_content(v, f"  Remaining         ${remaining:.2f}")))
+                        print(color.cyan(_box_line(bx.bl, h, bx.br)))
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
                 except Exception as e:
@@ -1306,38 +1320,36 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line == "/plan":
                 if agent.toolbox.plan:
                     bx = _BoxChars()
-                    h = bx.h * 56
-                    def _pc(s: str) -> str:
-                        return s + " " * (56 - len(s))
-                    print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                    print(color.cyan(f"  {bx.v}{_pc('  Current Plan')}{bx.v}"))
-                    print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
+                    h = bx.h
+                    v = bx.v
+                    print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                    print(color.cyan(_box_content(v, "  Current Plan")))
+                    print(color.cyan(_box_line(bx.tm, h, bx.mr)))
                     for p in agent.toolbox.plan:
                         step = p.get("step", "")
                         status = p.get("status", "pending")
                         sym = {"completed": bx.check, "in_progress": "~", "pending": " "}.get(status, " ")
-                        print(color.cyan(f"  {bx.v}{_pc(f'  [{sym}] {step[:52]}')}{bx.v}"))
-                    print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                        print(color.cyan(_box_content(v, f"  [{sym}] {step[:52]}")))
+                    print(color.cyan(_box_line(bx.bl, h, bx.br)))
                 else:
                     print(color.dim("  no plan set (ARIA hasn't called update_plan yet)"))
                 continue
             if line == "/stats":
                 bx = _BoxChars()
-                h = bx.h * 56
-                def _stc(s: str) -> str:
-                    return s + " " * (56 - len(s))
+                h = bx.h
+                v = bx.v
                 elapsed = time.time() - ui._session_start if ui._session_start else 0
                 elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
-                print(color.cyan(f"  {bx.tl}{h}{bx.tr}"))
-                print(color.cyan(f"  {bx.v}{_stc('  Session Statistics')}{bx.v}"))
-                print(color.cyan(f"  {bx.tm}{h}{bx.mr}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  Duration          {elapsed_str}')}{bx.v}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  Tool calls        {ui._tool_count}')}{bx.v}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  Errors            {ui._error_count}')}{bx.v}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  File changes      {ui._file_changes}')}{bx.v}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  Operator messages {ui._operator_messages}')}{bx.v}"))
-                print(color.cyan(f"  {bx.v}{_stc(f'  Tokens            {agent.llm.total_input_tokens + agent.llm.total_output_tokens} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)')}{bx.v}"))
-                print(color.cyan(f"  {bx.bl}{h}{bx.br}"))
+                print(color.cyan(_box_line(bx.tl, h, bx.tr)))
+                print(color.cyan(_box_content(v, "  Session Statistics")))
+                print(color.cyan(_box_line(bx.tm, h, bx.mr)))
+                print(color.cyan(_box_content(v, f"  Duration          {elapsed_str}")))
+                print(color.cyan(_box_content(v, f"  Tool calls        {ui._tool_count}")))
+                print(color.cyan(_box_content(v, f"  Errors            {ui._error_count}")))
+                print(color.cyan(_box_content(v, f"  File changes      {ui._file_changes}")))
+                print(color.cyan(_box_content(v, f"  Operator messages {ui._operator_messages}")))
+                print(color.cyan(_box_content(v, f"  Tokens            {agent.llm.total_input_tokens + agent.llm.total_output_tokens} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)")))
+                print(color.cyan(_box_line(bx.bl, h, bx.br)))
                 continue
             if line == "/think":
                 # Show the last assistant message's raw content

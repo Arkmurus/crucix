@@ -169,4 +169,4 @@ def test_banner_contains_all_expected_sections() -> None:
     assert "deepseek" in lines or "C:" in lines, "Banner missing provider or directory"
     assert "self" in lines or "general" in lines, "Banner missing mode"
     assert "brain" in lines, "Banner missing brain status"
-    assert "autonomous" in lines or "confirm" in lines, "Banner missing approval status"
+    assert "auto" in lines or "confirm" in lines, "Banner missing approval status"
