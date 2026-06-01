@@ -8,6 +8,9 @@ Tests cover:
 5. The Python client config management works
 6. The Python client streaming request works
 7. The download endpoints include the new Python client
+8. The /download/aria.py endpoint serves the Python client
+9. The .bat has a 'setup' command for token instructions
+10. The .bat auto-downloads aria.py if missing
 """
 from __future__ import annotations
 
@@ -398,3 +401,89 @@ def test_python_client_has_main():
     assert hasattr(mod, "AriaError"), "aria.py must have AriaError exception"
     assert hasattr(mod, "_get_token"), "aria.py must have _get_token()"
     assert hasattr(mod, "_get_server"), "aria.py must have _get_server()"
+
+
+# ── Tests: /download/aria.py endpoint ─────────────────────────────────────────
+
+
+def test_download_aria_py_endpoint():
+    """The /download/aria.py endpoint must serve the Python client file."""
+    resp = client.get("/download/aria.py")
+    assert resp.status_code == 200
+    assert "text/x-python" in resp.headers.get("content-type", "")
+    assert "aria.py" in resp.headers.get("content-disposition", "")
+    assert "send_chat" in resp.text
+    assert "interactive_shell" in resp.text
+    assert "run_setup" in resp.text
+    assert "AriaError" in resp.text
+
+
+# ── Tests: .bat has setup command ──────────────────────────────────────────────
+
+
+def test_client_bat_has_setup_command():
+    """The aria_client/aria.bat must have a 'setup' command for token instructions."""
+    import zipfile, io
+    resp = client.get("/download/client")
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    bat_file = [n for n in names if n.endswith("aria.bat")][0]
+    bat_content = zf.read(bat_file).decode()
+    # Must have a setup command
+    assert '"setup"' in bat_content or "setup" in bat_content.lower(), (
+        "Client .bat must have a setup command"
+    )
+    # Must mention API token in the setup instructions
+    assert "API_TOKEN" in bat_content or "api_token" in bat_content, (
+        "Client .bat setup must mention API token"
+    )
+    # Must mention intel.arkmurus.com as token source
+    assert "intel.arkmurus.com" in bat_content, (
+        "Client .bat must tell user where to get a token"
+    )
+
+
+def test_aria_folder_bat_has_setup_command():
+    """The aria_folder/aria.bat must have a 'setup' command."""
+    import zipfile, io
+    resp = client.get("/download/aria")
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    bat_file = [n for n in names if n.endswith("aria.bat")][0]
+    bat_content = zf.read(bat_file).decode()
+    assert '"setup"' in bat_content or "setup" in bat_content.lower(), (
+        "aria_folder .bat must have a setup command"
+    )
+    assert "API_TOKEN" in bat_content or "api_token" in bat_content
+
+
+def test_download_aria_bat_has_setup_command():
+    """The download_aria.bat must have a 'setup' command."""
+    resp = client.get("/download")
+    assert resp.status_code == 200
+    content = resp.text
+    assert '"setup"' in content or "setup" in content.lower(), (
+        "download_aria.bat must have a setup command"
+    )
+    assert "API_TOKEN" in content or "api_token" in content
+
+
+# ── Tests: .bat auto-downloads aria.py ─────────────────────────────────────────
+
+
+def test_client_bat_can_download_aria_py():
+    """The aria_client/aria.bat must be able to download aria.py from the server."""
+    import zipfile, io
+    resp = client.get("/download/client")
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    bat_file = [n for n in names if n.endswith("aria.bat")][0]
+    bat_content = zf.read(bat_file).decode()
+    # Must reference the download URL for aria.py
+    assert "/download/aria.py" in bat_content, (
+        "Client .bat must know how to download aria.py from the server"
+    )
+    # Must have a download mechanism (PowerShell WebClient or similar)
+    assert "DownloadFile" in bat_content or "WebClient" in bat_content, (
+        "Client .bat must have a download mechanism for aria.py"
+    )

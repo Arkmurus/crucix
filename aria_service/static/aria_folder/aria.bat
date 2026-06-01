@@ -54,6 +54,7 @@ if /i "%input%"=="help" (
     echo.
     echo    help              Show this help
     echo    status            Check ARIA server status
+    echo    setup             Get instructions for API token
     echo    cls               Clear screen
     echo    exit              Quit
     echo.
@@ -77,6 +78,33 @@ if /i "%input%"=="status" (
     goto loop
 )
 
+if /i "%input%"=="setup" (
+    echo.
+    echo   ─── Setup ────────────────────────────────────────────────
+    echo.
+    echo   To use ARIA, you need an API token.
+    echo.
+    echo   Option 1: Get a token from the ARIA web interface
+    echo     Open https://intel.arkmurus.com in your browser
+    echo     Log in or create an account
+    echo     Go to Settings -^> API Tokens -^> Create New Token
+    echo.
+    echo   Option 2: Use the Python setup wizard (recommended)
+    where python.exe >nul 2>nul
+    if not errorlevel 1 (
+        echo     Type: python aria.py --setup
+        echo.
+    ) else (
+        echo     Python is not installed. Install Python 3 from python.org
+        echo     then run: python aria.py --setup
+        echo.
+    )
+    echo   Once you have a token, set it as an environment variable:
+    echo     set ARIA_API_TOKEN=your_token_here
+    echo.
+    goto loop
+)
+
 :: ── Check for token ────────────────────────────────────────────────
 if "%ARIA_API_TOKEN%"=="" (
     if exist "%USERPROFILE%\.aria\config.json" (
@@ -86,23 +114,23 @@ if "%ARIA_API_TOKEN%"=="" (
     )
 )
 
+if "%ARIA_API_TOKEN%"=="" (
+    echo.
+    echo   ❌ No API token found.
+    echo.
+    echo   ARIA requires authentication. You need an API token.
+    echo.
+    echo   Type 'setup' for instructions on getting a token.
+    echo.
+    goto loop
+)
+
 :: ── Send to real ARIA chat endpoint ──────────────────────────────
 echo.
 echo   🧠 ARIA is thinking...
 echo.
 
-if "%ARIA_API_TOKEN%"=="" (
-    echo   ❌ No API token found.
-    echo.
-    echo   ARIA requires authentication. Set the environment variable:
-    echo     set ARIA_API_TOKEN=your_token_here
-    echo.
-    echo   Or get a token at: https://intel.arkmurus.com
-    echo.
-    goto loop
-)
-
-powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Authentication failed. Set ARIA_API_TOKEN or get a new token.' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
+powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Authentication failed. Type: setup' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
 
 if errorlevel 1 (
     echo   ⚠️  Request failed. Trying fallback method...

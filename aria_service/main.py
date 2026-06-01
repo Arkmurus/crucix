@@ -2089,6 +2089,27 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.get("/download/aria.py", response_class=HTMLResponse, include_in_schema=False)
+    async def download_aria_py():
+        """Download the ARIA Python client (aria.py) — for auto-download from .bat."""
+        py_path = _static_os.path.join(_static_dir, "aria_client", "aria.py")
+        try:
+            with open(py_path, encoding="utf-8") as f:
+                content = f.read()
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type="text/x-python",
+                headers={
+                    "Content-Disposition": "attachment; filename=aria.py",
+                },
+            )
+        except Exception as e:
+            return HTMLResponse(
+                content=f"<html><body><h1>Download Error</h1><p>{e}</p></body></html>",
+                status_code=500,
+            )
+
     @app.post("/api/aria/client/chat")
     async def aria_client_chat(request: Request):
         """Chat endpoint for the ARIA terminal client.
