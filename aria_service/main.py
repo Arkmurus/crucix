@@ -1798,7 +1798,7 @@ async def lifespan(app: FastAPI):
     #   7. Never silent
     web_integrity_agent: Optional[Any] = None
     try:
-        from .intel.web_integrity_agent import WebIntegrityAgent
+        from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
         web_integrity_agent = WebIntegrityAgent(
             aria_service_url=f"http://localhost:{settings.effective_port}",
             redis_store=rs if _state_connect_ok else None,
@@ -1806,7 +1806,7 @@ async def lifespan(app: FastAPI):
         await web_integrity_agent.start()
         logger.info(
             "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
-            len(getattr(WebIntegrityAgent, 'WEB_ENDPOINTS', [])),
+            len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
         )
     except Exception as _wia_e:
         logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)

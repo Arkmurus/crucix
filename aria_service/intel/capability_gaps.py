@@ -118,6 +118,83 @@ VALID_GAP_TYPES = frozenset({
     # dashboard poll while >50% of vendors were dark (acled +
     # worldbank_debarred + worldbank_documents in current state).
     "vendor_outage",
+    # R-F1250 batch — all gap types used in production but not registered.
+    # Each was generating "Unknown gap type" WARNING at first emit.
+    # Grouped by source module:
+    "engine_failure",                    # wire_failure default — used everywhere
+    "stage_blocked",                     # self_improve:stage_improvement
+    "powershell_execution_failure",      # powershell_master:execute
+    "access_denied",                     # self_improve:read_own_code
+    "file_not_found",                    # self_improve:read_own_code
+    "read_failure",                      # self_improve:read_own_code
+    "validation_failure",                # self_improve:stage_improvement
+    "truncation_guard",                  # self_improve:stage/deploy
+    "deploy_failure",                    # self_improve:deploy_improvement
+    "validation",                        # self_improve:discard_improvement
+    "not_found",                         # self_improve:discard_improvement
+    "rollback_failure",                  # self_improve:rollback_improvement
+    "boot_state_regression",             # main — boot-time state check
+    "reasoning_library_empty_at_boot",   # main — reasoning library empty
+    "agent_cycle_failure",               # main — agent cycle error
+    "reviewer_exhaustion",               # claude_reviewer
+    "cost_anomaly",                      # cost_monitor
+    "cost_cap_hit",                      # cost_monitor, safety
+    "portal_registration",               # gap_detector
+    "redis_failure",                     # safety
+    "configuration_error",               # sovereign_llm
+    "llm_error",                         # sovereign_llm
+    "wa_notification_failure",           # wa_notifier
+    "integration_failure",               # email_outbound
+    "contract_registration_failure",     # agent_contract
+    "agent_registration_failure",        # agent_registry
+    "code_synthesis_error",              # autonomous_coder
+    "source_failure",                    # bd_strategy
+    "security_threat",                   # behavioural_anomaly, content_scanner, etc.
+    "auto_tune_failure",                 # calibration_auto_tune
+    "compliance_capture_failure",        # compliance_watch
+    "compliance_chain_verification_failure",  # compliance_watch
+    "compliance_stats_failure",          # compliance_watch
+    "compliance_risk",                   # compliance_watch
+    "compliance_observation",            # compliance_watch
+    "clarification_required",            # comprehension
+    "hallucination_guard",               # confidence_footer
+    "performance",                       # continuous_profiler, deadlock_detector, memory_leak_detector
+    "contract_review_regression",        # contract_intelligence
+    "corpus_crawl_high_error_rate",      # corpus_manager
+    "archive_failure",                   # dd_case_archive
+    "layer_extension_failure",           # dd_layer_extensions
+    "sweep_intelligence_failure",        # dd_orchestrator
+    "dialogue_state_failure",            # dialogue_state
+    "entity_no_jurisdiction",            # document_entity_bridge
+    "compliance_engine_failure",         # eliminated_weapons_watchlist, end_user_granularity, etc.
+    "email_send_failure",                # email_reader
+    "entity_graph_singleton",            # entity_graph
+    "honesty_judge_failure",             # honesty_judge
+    "honesty_judge_unsupported_claims",  # honesty_judge
+    "file_integrity_failure",            # kaspersky_mitigation
+    "file_integrity_warning",            # kaspersky_mitigation
+    "file_recovery_failure",             # kaspersky_mitigation
+    "publisher_adapter_failed",          # known_publisher_router
+    "quality_regression",                # llm_eval_framework
+    "alert_failure",                     # proactive
+    "clause_13_uncited_current",         # propaganda_guard
+    "clause_15_no_citation_match",       # response_verifier
+    "query_intent_unclear",              # query_decomposer
+    "rag_offload_event",                 # rag_store
+    "self_claim_violation",              # self_claim_guard
+    "infra_degraded",                    # self_healing
+    "recovery_failure",                  # self_healing
+    "recovery_needed",                   # self_healing
+    "ecosystem_repair",                  # self_healing
+    "contract_violation",                # self_healing
+    "predictor_degraded",                # predictor
+    "premise_verifier_veto",             # premise_verifier
+    "pure_promise_no_resolver",          # pending_actions
+    "shell_company_pattern",             # companies_house
+    "counterparty_deception_high",       # deception_detection
+    "counterparty_deception_medium",     # deception_detection
+    "cost_pressure",                     # tasks
+    "self_runtime",                      # tasks
 })
 
 

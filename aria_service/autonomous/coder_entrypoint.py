@@ -230,6 +230,11 @@ async def start_aria_coder(
     # DeepSeek is unavailable or ARIA_INTERNAL_TOKEN is not set.
     # This gives ARIA real code synthesis (novel business logic) while
     # keeping the AST-based coder as a zero-cost fallback for simple edits.
+    # R-F1250: url must be defined BEFORE SovereignLLM init — the old code
+    # had `url = ...` after the try block, causing a NameError at boot.
+    url = aria_service_url or os.environ.get(
+        "ARIA_SELF_URL", "http://localhost:8000",
+    )
     _llm = None
     try:
         from .sovereign_llm import SovereignLLM
@@ -258,7 +263,7 @@ async def start_aria_coder(
 
     # R-F1032: ensure MODIFIABLE_FILES is populated before the coder starts.
     # _one_cycle imports MODIFIABLE_FILES but it's dynamically populated by
-    # _ensure_modifiable_files() and is EMPTY until that function runs.
+    # _ensure_modifiable_files() and is EMPTY until that function starts.
     # Without this call, the coder sees an empty set and skips every cycle.
     try:
         from ..intel.self_improve import _ensure_modifiable_files
@@ -268,10 +273,6 @@ async def start_aria_coder(
             "[coder_entrypoint] _ensure_modifiable_files failed: %s — "
             "coder may see empty MODIFIABLE_FILES", e,
         )
-
-    url = aria_service_url or os.environ.get(
-        "ARIA_SELF_URL", "http://localhost:8000",
-    )
 
     brain_hook = None
     try:
