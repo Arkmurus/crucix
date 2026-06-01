@@ -123,22 +123,40 @@ class Agent:
         self._all_mutating = MUTATING_TOOLS | CODER_MUTATING_TOOLS
 
     def _repair_dangling_tool_calls(self) -> int:
-        """R-F1120 — ensure every assistant tool_call has a following tool message.
-        A dangling tool_call (e.g. from a mid-loop abort, a crash, or a truncated
-        turn) makes the provider reject EVERY subsequent call with HTTP 400
-        ("tool_calls must be followed by tool messages"), wedging the session
-        permanently. This walks the history and inserts a synthetic tool response
-        for any tool_call that lacks one, in the correct position. Returns the
-        number inserted (0 when the history is already valid)."""
+        """R-F1120 + R-F1283 — keep the message history valid for the provider's
+        tool-call contract in BOTH directions before every LLM call:
+
+          * (R-F1120) every assistant ``tool_calls`` must be followed by a tool
+            message for each call id — insert a synthetic one if missing, else the
+            provider 400s with "tool_calls must be followed by tool messages".
+
+          * (R-F1283) every ``tool`` message must FOLLOW an assistant ``tool_calls``
+            block whose ids include it — drop ORPHAN tool messages, else the
+            provider 400s with "Messages with role 'tool' must be a response to a
+            preceding message with 'tool_calls'". An orphan can appear after a
+            mid-turn timeout/abort that popped or never recorded the assistant
+            message, after history compaction, or when a streamed assistant turn
+            lost its tool_calls — and it wedges EVERY subsequent call.
+
+        Returns the number of repairs (inserts + drops); 0 when already valid."""
         src = self.messages
         out: list[dict] = []
         i = 0
-        inserted = 0
+        repairs = 0
         while i < len(src):
             m = src[i]
+            role = m.get("role")
+            if role == "tool":
+                # Reached at the top level only when this tool message does NOT
+                # follow an assistant tool_calls block (those are consumed in the
+                # inner loop below). It is an orphan — drop it so the provider
+                # doesn't reject the whole request.
+                repairs += 1
+                i += 1
+                continue
             out.append(m)
             i += 1
-            if m.get("role") == "assistant" and m.get("tool_calls"):
+            if role == "assistant" and m.get("tool_calls"):
                 have = set()
                 while i < len(src) and src[i].get("role") == "tool":
                     out.append(src[i])
@@ -153,10 +171,10 @@ class Agent:
                             "content": "error: tool call did not complete "
                                        "(aborted/interrupted); no result available.",
                         })
-                        inserted += 1
-        if inserted:
+                        repairs += 1
+        if repairs:
             self.messages = out
-        return inserted
+        return repairs
 
     def _chat_with_retry(self, steps: int, on_delta=None):
         """Call the LLM, retrying transient failures with exponential backoff.
