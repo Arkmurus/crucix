@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1250,
+  "next_available": 1265,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -6979,14 +6979,162 @@
       "title": "Fix ARIA client wire to live admin",
       "claimed_at": "2026-06-01T00:19:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "51a5e2ef",
+      "notes": null,
+      "shipped_at": "2026-06-01T00:40:06Z"
     },
     {
       "r_number": "R-F1249",
       "title": "Fix NameError in lifespan os.environ",
       "claimed_at": "2026-06-01T00:19:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "34150803",
+      "notes": null,
+      "shipped_at": "2026-06-01T00:25:10Z"
+    },
+    {
+      "r_number": "R-F1250",
+      "title": "Fix all boot-time issues: SovereignLLM url, missing gap types, web integrity endpoint count",
+      "claimed_at": "2026-06-01T00:31:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "53487e67",
+      "notes": null,
+      "shipped_at": "2026-06-01T00:39:30Z"
+    },
+    {
+      "r_number": "R-F1251",
+      "title": "Fix DeepSeek-generated ARIA client to connect to real ARIA server",
+      "claimed_at": "2026-06-01T06:04:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "65461db7",
+      "notes": null,
+      "shipped_at": "2026-06-01T06:15:02Z"
+    },
+    {
+      "r_number": "R-F1252",
+      "title": "Fix brain_hook concurrency, mastery timeouts, and event-loop stalls",
+      "claimed_at": "2026-06-01T06:10:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "401985c1",
+      "notes": null,
+      "shipped_at": "2026-06-01T06:18:59Z"
+    },
+    {
+      "r_number": "R-F1253",
+      "title": "Auto-populate agent signup vault on startup",
+      "claimed_at": "2026-06-01T06:24:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "342578d6",
+      "notes": null,
+      "shipped_at": "2026-06-01T06:32:28Z"
+    },
+    {
+      "r_number": "R-F1254",
+      "title": "Fix ARIA client .bat files",
+      "claimed_at": "2026-06-01T06:46:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5794a1b5",
+      "notes": null,
+      "shipped_at": "2026-06-01T06:49:03Z"
+    },
+    {
+      "r_number": "R-F1255",
+      "title": "Add autonomous DD sweep task for watchlist entities",
+      "claimed_at": "2026-06-01T06:49:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "31d4b5b1",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:08:26Z"
+    },
+    {
+      "r_number": "R-F1256",
+      "title": "Add daily vault registration agent for pending portals",
+      "claimed_at": "2026-06-01T06:49:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "31d4b5b1",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:09:05Z"
+    },
+    {
+      "r_number": "R-F1257",
+      "title": "Fix brain_hook concurrency saturation from web_atlas crawling",
+      "claimed_at": "2026-06-01T06:49:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "31d4b5b1",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:09:08Z"
+    },
+    {
+      "r_number": "R-F1258",
+      "title": "Fix ARIA Coder terminal UI",
+      "claimed_at": "2026-06-01T06:55:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b1b8ccbd",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:08:04Z"
+    },
+    {
+      "r_number": "R-F1259",
+      "title": "Fix terminal UI text overflow",
+      "claimed_at": "2026-06-01T07:10:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1260",
+      "title": "Terminal CLI UI cleanup",
+      "claimed_at": "2026-06-01T07:11:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1261",
+      "title": "ARIA proper Python client",
+      "claimed_at": "2026-06-01T07:15:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1602c673",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:25:22Z"
+    },
+    {
+      "r_number": "R-F1262",
+      "title": "Fix client .bat setup flow circular dependency",
+      "claimed_at": "2026-06-01T07:28:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "04fa37d6",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:34:29Z"
+    },
+    {
+      "r_number": "R-F1263",
+      "title": "Fix CLI terminal text alignment",
+      "claimed_at": "2026-06-01T07:31:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1264",
+      "title": "Zero-friction client setup no Python knowledge needed",
+      "claimed_at": "2026-06-01T07:36:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
