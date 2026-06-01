@@ -37,6 +37,17 @@ _PROVIDER_DEFAULT_MODELS = {
     "ollama": "llama3.1:8b",
     "aria": "aria-coder",
 }
+# R-F1280: which env var holds the credential for each provider. Used so the CLI
+# sends the RIGHT key to the selected provider — never ARIA's internal token to
+# an external API (that 401'd every DeepSeek call).
+_PROVIDER_KEY_ENV = {
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "aria": "ARIA_INTERNAL_TOKEN",
+}
 
 
 class LLMError(RuntimeError):
@@ -68,13 +79,17 @@ class LLMConfig:
             or "aria"
         ).strip().lower()
 
+        # R-F1280: api-key resolution MUST be provider-aware. The old order put
+        # ARIA_INTERNAL_TOKEN ahead of the provider-specific key, so with
+        # provider=deepseek the CLI sent ARIA's *internal* token to DeepSeek's
+        # API and every call 401'd ("api key ...9c2a is invalid"). Pick the key
+        # that belongs to the selected provider; ARIA_INTERNAL_TOKEN is only the
+        # right credential for the in-house `aria` provider.
+        _provider_key = os.getenv(_PROVIDER_KEY_ENV.get(provider, ""), "") if provider else ""
         api_key = (
             os.getenv("ARIA_CODER_LLM_API_KEY")
             or os.getenv("LLM_API_KEY")
-            or os.getenv("ARIA_INTERNAL_TOKEN")
-            or os.getenv("DEEPSEEK_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-            or os.getenv("GROQ_API_KEY")
+            or _provider_key
             or ""
         ).strip()
 
