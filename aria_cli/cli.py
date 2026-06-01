@@ -1933,7 +1933,13 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             last_task = line
             ui._log(f"[user] {line}")
-            agent.run_until_complete(line)
+            try:
+                agent.run_until_complete(line)
+            except KeyboardInterrupt:
+                print("\n" + color.yellow("  ⏹  Cancelled — type a new task or /exit"))
+                # Reset the agent state so it doesn't carry a half-finished turn
+                agent.messages = agent.messages[:-1] if agent.messages else agent.messages
+                continue
     except KeyboardInterrupt:
         print("\n" + color.dim("  interrupted"))
     finally:
