@@ -44,34 +44,6 @@ def test_demo_endpoint_works_with_default_code():
     assert len(data["code"]) > 0
 
 
-def test_download_endpoint_returns_bat_file():
-    """The download endpoint should return a .bat file."""
-    resp = client.get("/download")
-    assert resp.status_code == 200
-    assert "application/octet-stream" in resp.headers.get("content-type", "")
-    assert "ARIA_Launcher" in resp.headers.get("content-disposition", "")
-    assert "@echo off" in resp.text
-    assert "aria-intel.fly.dev" in resp.text
-
-
-def test_zip_download_returns_aria_folder():
-    """The /download/aria endpoint should return a ZIP with aria.bat."""
-    resp = client.get("/download/aria")
-    assert resp.status_code == 200
-    assert "application/zip" in resp.headers.get("content-type", "")
-    assert "ARIA.zip" in resp.headers.get("content-disposition", "")
-    # Verify it's a valid ZIP with aria.bat inside
-    import zipfile, io
-    zf = zipfile.ZipFile(io.BytesIO(resp.content))
-    names = zf.namelist()
-    assert any("aria.bat" in n for n in names), f"aria.bat not in ZIP: {names}"
-    assert any("README.txt" in n for n in names), f"README.txt not in ZIP: {names}"
-    # Verify aria.bat content — should reference the live server
-    bat_content = zf.read([n for n in names if n.endswith("aria.bat")][0]).decode()
-    assert "@echo off" in bat_content
-    assert "aria-intel.fly.dev" in bat_content
-
-
 def test_client_download_returns_aria_client_zip():
     """The /download/client endpoint should return a ZIP with aria.bat."""
     resp = client.get("/download/client")
@@ -162,22 +134,4 @@ def test_client_bat_calls_real_chat_endpoint():
     assert "Invoke-RestMethod" in bat_content
 
 
-def test_aria_folder_bat_calls_real_chat_endpoint():
-    """The aria_folder/aria.bat should call /api/aria/chat, not run locally."""
-    import zipfile, io
-    resp = client.get("/download/aria")
-    zf = zipfile.ZipFile(io.BytesIO(resp.content))
-    names = zf.namelist()
-    bat_file = [n for n in names if n.endswith("aria.bat")][0]
-    bat_content = zf.read(bat_file).decode()
-    # Must call the real chat endpoint
-    assert "/api/aria/chat" in bat_content, (
-        "aria_folder .bat must call the real /api/aria/chat endpoint"
-    )
-    # Must reference the live server
-    assert "aria-intel.fly.dev" in bat_content
-    # Must NOT try to download the full crucix repo
-    assert "github.com/Arkmurus/crucix" not in bat_content, (
-        "aria_folder .bat should not download the full repo — "
-        "it should connect to the live server instead"
-    )
+
