@@ -6,12 +6,13 @@ Tests cover:
 3. The Python client config management works
 4. The Python client streaming request works
 5. The /download/client ZIP is slim (~5KB, no .py files inside)
-6. The /download/aria.py endpoint serves the basic Python client
+6. The /download/aria.py endpoint serves the ARIA Coder client
 7. The /download/aria_tui.py endpoint serves the TUI client
 8. The .bat has a 'token' command for setting API token
 9. The .bat auto-downloads aria.py and aria_tui.py if missing
 10. The /token endpoint serves the API token page
 11. Removed endpoints return 404
+12. The Python client is coder-focused (send_coder_task, not generic chat)
 """
 from __future__ import annotations
 
@@ -194,8 +195,8 @@ def test_python_client_env_var_overrides_config(tmp_path):
 def test_python_client_stream_request_builds_correct_url():
     """The Python client must have streaming functions."""
     mod = _import_client_module("aria_client_mod_stream")
-    assert hasattr(mod, "_stream_request")
-    assert hasattr(mod, "send_chat_stream")
+    assert hasattr(mod, "send_coder_task_stream")
+    assert hasattr(mod, "send_coder_task")
 
 
 # ── Tests: Download endpoint ───────────────────────────────────────────────────
@@ -258,8 +259,8 @@ def test_python_client_has_main():
     assert hasattr(mod, "interactive_shell")
     assert hasattr(mod, "run_setup")
     assert hasattr(mod, "check_status")
-    assert hasattr(mod, "send_chat")
-    assert hasattr(mod, "send_chat_stream")
+    assert hasattr(mod, "send_coder_task")
+    assert hasattr(mod, "send_coder_task_stream")
     assert hasattr(mod, "AriaError")
     assert hasattr(mod, "_get_token")
     assert hasattr(mod, "_get_server")
@@ -269,12 +270,12 @@ def test_python_client_has_main():
 
 
 def test_download_aria_py_endpoint():
-    """The /download/aria.py endpoint must serve the Python client file."""
+    """The /download/aria.py endpoint must serve the ARIA Coder client."""
     resp = client.get("/download/aria.py")
     assert resp.status_code == 200
     assert "text/x-python" in resp.headers.get("content-type", "")
     assert "aria.py" in resp.headers.get("content-disposition", "")
-    assert "send_chat" in resp.text
+    assert "ARIA CODER" in resp.text or "send_coder_task" in resp.text
     assert "interactive_shell" in resp.text
     assert "run_setup" in resp.text
     assert "AriaError" in resp.text
