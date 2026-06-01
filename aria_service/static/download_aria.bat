@@ -20,7 +20,7 @@ cls
 echo.
 echo   ╔══════════════════════════════════════════════════════════════════════╗
 echo   ║                                                                      ║
-echo   ║     █████  ██████  ██  █████       ARIA v2.0                         ║
+echo   ║     █████  ██████  ██  █████       ARIA v2.1                         ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Autonomous Research Intelligence  ║
 echo   ║    ███████ ██████  ██ ███████      One-click Launcher                ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Connected to main server          ║
@@ -29,7 +29,7 @@ echo   ║                                                                      
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check connection (single-line PowerShell — multi-line breaks in cmd)
+:: Check connection
 powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  ✅ Connected to ARIA server (' $d.build_rev ')' -ForegroundColor Green}catch{Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow}" 2>nul || (echo   ⚠️  Could not check connection. Make sure you have internet.)
 
 echo.
@@ -76,18 +76,38 @@ if /i "%input%"=="status" (
     goto loop
 )
 
+:: ── Check for token ────────────────────────────────────────────────
+if "%ARIA_API_TOKEN%"=="" (
+    if exist "%USERPROFILE%\.aria\config.json" (
+        for /f "tokens=2 delims=:," %%a in ('type "%USERPROFILE%\.aria\config.json" ^| findstr "api_token"') do (
+            set "ARIA_API_TOKEN=%%~a"
+        )
+    )
+)
+
 :: ── Send to real ARIA chat endpoint ──────────────────────────────
 echo.
 echo   🧠 ARIA is thinking...
 echo.
 
-powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120;Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}" 2>nul
+if "%ARIA_API_TOKEN%"=="" (
+    echo   ❌ No API token found.
+    echo.
+    echo   ARIA requires authentication. Set the environment variable:
+    echo     set ARIA_API_TOKEN=your_token_here
+    echo.
+    echo   Or get a token at: https://intel.arkmurus.com
+    echo.
+    goto loop
+)
+
+powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Authentication failed. Set ARIA_API_TOKEN or get a new token.' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
 
 if errorlevel 1 (
     echo   ⚠️  Request failed. Trying fallback method...
     where curl.exe >nul 2>nul
     if not errorlevel 1 (
-        curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
+        curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -H "Authorization: Bearer %ARIA_API_TOKEN%" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
             echo   ❌ Could not connect to ARIA server.
             echo      Make sure you have internet access.
             echo      Server: %SERVER%

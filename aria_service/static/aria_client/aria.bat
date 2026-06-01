@@ -3,15 +3,26 @@ title ARIA — Autonomous Research Intelligence Agent
 cd /d "%~dp0"
 
 :: ─────────────────────────────────────────────────
-:: ARIA — Interactive Terminal Client
+:: ARIA — Terminal Client Launcher
 :: ─────────────────────────────────────────────────
-:: Type 'aria' in cmd. Connected to the main ARIA server.
-:: Full intelligence — intent detection, web research, document analysis.
+:: Launches the Python client if available, otherwise
+:: falls back to the PowerShell-based terminal.
 :: ─────────────────────────────────────────────────
 
 set "SERVER=https://aria-intel.fly.dev"
 set "USERNAME=%USERNAME%"
 
+:: ── Try Python client first (preferred) ─────────────────────────────────
+where python.exe >nul 2>nul
+if not errorlevel 1 (
+    python aria.py %*
+    if not errorlevel 1 exit /b 0
+    if errorlevel 1 (
+        rem Python client failed — fall through to PowerShell terminal
+    )
+)
+
+:: ── Fallback: PowerShell-based terminal ─────────────────────────────────
 mode con: cols=90 lines=40
 color 0A
 
@@ -20,16 +31,16 @@ cls
 echo.
 echo   ╔══════════════════════════════════════════════════════════════════════╗
 echo   ║                                                                      ║
-echo   ║     █████  ██████  ██  █████       ARIA v2.0                         ║
+echo   ║     █████  ██████  ██  █████       ARIA v2.1                         ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Autonomous Research Intelligence  ║
-echo   ║    ███████ ██████  ██ ███████      Terminal Client                    ║
+echo   ║    ███████ ██████  ██ ███████      Terminal Client (PowerShell)      ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Connected to main server          ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Full ARIA intelligence            ║
 echo   ║                                                                      ║
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check connection (single-line PowerShell — multi-line breaks in cmd)
+:: Check connection
 powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  ✅ Connected to ARIA server (' $d.build_rev ')' -ForegroundColor Green}catch{Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow}" 2>nul || (echo   ⚠️  Could not check connection. Make sure you have internet.)
 
 echo.
@@ -59,7 +70,7 @@ if /i "%input%"=="help" (
     echo.
     echo   ─── What I can do ────────────────────────────────────────
     echo.
-    echo    Just type your question and I'll use my full intelligence:
+    echo    Just type your question. Full ARIA intelligence:
     echo.
     echo    🌐  Research companies, people, and markets
     echo    🔍  Search the web for current information
@@ -89,13 +100,34 @@ echo.
 echo   🧠 ARIA is thinking...
 echo.
 
-powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120;Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}" 2>nul
+:: Check for token
+if "%ARIA_API_TOKEN%"=="" (
+    if exist "%USERPROFILE%\.aria\config.json" (
+        for /f "tokens=2 delims=:," %%a in ('type "%USERPROFILE%\.aria\config.json" ^| findstr "api_token"') do (
+            set "ARIA_API_TOKEN=%%~a"
+        )
+    )
+)
+
+if "%ARIA_API_TOKEN%"=="" (
+    echo   ❌ No API token found.
+    echo.
+    echo   ARIA requires authentication. Run setup first:
+    echo     python aria.py --setup
+    echo.
+    echo   Or set the environment variable:
+    echo     set ARIA_API_TOKEN=your_token_here
+    echo.
+    goto loop
+)
+
+powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Authentication failed. Run: python aria.py --setup' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
 
 if errorlevel 1 (
     echo   ⚠️  Request failed. Trying fallback method...
     where curl.exe >nul 2>nul
     if not errorlevel 1 (
-        curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
+        curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -H "Authorization: Bearer %ARIA_API_TOKEN%" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
             echo   ❌ Could not connect to ARIA server.
             echo      Make sure you have internet access.
             echo      Server: %SERVER%
