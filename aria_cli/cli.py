@@ -66,6 +66,7 @@ try:
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory as PTAutoSuggest
     from prompt_toolkit.completion import WordCompleter as PTWordCompleter
     from prompt_toolkit.styles import Style as PTStyle
+    from prompt_toolkit.key_binding import KeyBindings
     PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
@@ -1098,9 +1099,17 @@ class TerminalUI(AgentUI):
 
 # ── R-F1267: prompt_toolkit key bindings ──────────────────────────────────────
 def _build_key_bindings():
-    """Build key bindings for the REPL prompt (R-F1267).
-    - Alt+Enter / Esc+Enter: submit multi-line input
+    """Build key bindings for the REPL prompt (R-F1267, fixed R-F1279).
+    - Enter: submit (the universal expectation — Claude-Code parity)
+    - Alt+Enter / Esc+Enter: insert a newline for multi-line input
     - Ctrl+K: command palette (fuzzy search)
+
+    R-F1279: the prompt is created with ``multiline=True`` so pasted/explicit
+    newlines work, but with multiline on, prompt_toolkit's DEFAULT Enter inserts
+    a newline instead of submitting. That made a plain Enter never hand the line
+    to the agent — ARIA appeared to "not respond at all" and the completion menu
+    popped up instead. We bind Enter to submit and move newline insertion to
+    Alt+Enter so the REPL behaves the way every operator expects.
     """
     if not PROMPT_TOOLKIT_AVAILABLE:
         return None
@@ -1108,10 +1117,15 @@ def _build_key_bindings():
         from prompt_toolkit.keys import Keys
         kb = KeyBindings()
 
+        @kb.add("enter")
+        def _(event):
+            """Enter submits the current input."""
+            event.current_buffer.validate_and_handle()
+
         @kb.add("escape", "enter")
         def _(event):
-            """Alt+Enter (or Esc then Enter) submits multi-line input."""
-            event.current_buffer.validate_and_handle()
+            """Alt+Enter (or Esc then Enter) inserts a newline for multi-line input."""
+            event.current_buffer.insert_text("\n")
 
         @kb.add("c-k")
         def _(event):
@@ -1429,11 +1443,15 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 _pause_stdin_reader()
                 try:
                     if PROMPT_TOOLKIT_AVAILABLE:
-                        # R-F1267: multi-line input with Alt+Enter for newline
+                        # R-F1279: Enter submits, Alt+Enter inserts a newline (see
+                        # _build_key_bindings). complete_while_typing=False so the
+                        # /command menu only appears on Tab — natural-language tasks
+                        # don't pop a menu on every keystroke.
                         kb = _build_key_bindings()
                         pt_session = PTPromptSession(
                             history=PTFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
                             auto_suggest=PTAutoSuggest(),
+                            complete_while_typing=False,
                             completer=PTWordCompleter([
                                 "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
                                 "/claude", "/session", "/sessions", "/export", "/theme",
