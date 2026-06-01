@@ -2110,6 +2110,94 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.get("/token", response_class=HTMLResponse, include_in_schema=False)
+    async def token_page(request: Request):
+        """Show the user their API token for use with the terminal client."""
+        token = _os.getenv("ARIA_API_TOKEN", "")
+        masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "(not set)"
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA — Get Your API Token</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    background: #0a0a0f; color: #e0e0e8;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 14px; line-height: 1.6;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  }}
+  .card {{
+    max-width: 600px; width: 90%; margin: 40px auto;
+    background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px;
+    padding: 40px;
+  }}
+  h1 {{ font-size: 24px; margin-bottom: 8px; color: #6c5ce7; }}
+  p {{ color: #8888a0; margin-bottom: 24px; }}
+  .token-box {{
+    background: #0a0a0f; border: 1px solid #1e1e2e; border-radius: 8px;
+    padding: 16px; font-size: 13px; word-break: break-all;
+    color: #00e676; margin-bottom: 24px;
+    user-select: all;
+  }}
+  .token-box:hover {{ border-color: #6c5ce7; }}
+  .step {{ margin-bottom: 16px; padding: 12px; background: #0a0a0f; border-radius: 8px; }}
+  .step-num {{ color: #6c5ce7; font-weight: bold; }}
+  code {{ background: #1e1e2e; padding: 2px 6px; border-radius: 4px; font-size: 12px; }}
+  .btn {{
+    display: inline-block; padding: 10px 20px; border-radius: 8px;
+    background: #6c5ce7; color: #fff; text-decoration: none;
+    font-family: inherit; font-size: 14px; cursor: pointer;
+    border: none; margin-top: 8px;
+  }}
+  .btn:hover {{ background: #7c6cf7; }}
+  .footer {{ margin-top: 24px; color: #555; font-size: 12px; text-align: center; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔑 ARIA API Token</h1>
+  <p>Use this token to connect from the terminal client.</p>
+
+  <div class="token-box">{token or "(no token configured on this server)"}</div>
+
+  <h2 style="font-size:16px;margin-bottom:16px;">How to use it</h2>
+
+  <div class="step">
+    <span class="step-num">1.</span>
+    Download the ARIA client from <a href="/download/client" style="color:#6c5ce7;">here</a>
+    and extract the ZIP.
+  </div>
+
+  <div class="step">
+    <span class="step-num">2.</span>
+    Double-click <code>aria.bat</code> to start.
+  </div>
+
+  <div class="step">
+    <span class="step-num">3.</span>
+    When prompted, paste this token:
+    <br>
+    <code style="display:block;margin-top:8px;padding:8px;font-size:13px;word-break:break-all;">{token}</code>
+  </div>
+
+  <div class="step">
+    <span class="step-num">4.</span>
+    Start asking questions!
+  </div>
+
+  <a href="/download/client" class="btn">⬇ Download ARIA Client</a>
+
+  <div class="footer">
+    Token: {masked} &middot; <a href="/" style="color:#555;">Back to ARIA</a>
+  </div>
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
+
     @app.post("/api/aria/client/chat")
     async def aria_client_chat(request: Request):
         """Chat endpoint for the ARIA terminal client.

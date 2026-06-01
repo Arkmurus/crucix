@@ -5,8 +5,7 @@ cd /d "%~dp0"
 :: ─────────────────────────────────────────────────
 :: ARIA — One-click Launcher
 :: ─────────────────────────────────────────────────
-:: Double-click this file. Connected to the main ARIA server.
-:: Full intelligence — no install needed.
+:: Double-click this file. That's it.
 :: ─────────────────────────────────────────────────
 
 set "SERVER=https://aria-intel.fly.dev"
@@ -23,18 +22,44 @@ echo   ║                                                                      
 echo   ║     █████  ██████  ██  █████       ARIA v2.1                         ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Autonomous Research Intelligence  ║
 echo   ║    ███████ ██████  ██ ███████      One-click Launcher                ║
-echo   ║    ██   ██ ██   ██ ██ ██   ██      Connected to main server          ║
-echo   ║    ██   ██ ██   ██ ██ ██   ██      No install needed                 ║
+echo   ║    ██   ██ ██   ██ ██ ██   ██      Just ask me anything               ║
 echo   ║                                                                      ║
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
 :: Check connection
-powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  ✅ Connected to ARIA server (' $d.build_rev ')' -ForegroundColor Green}catch{Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow}" 2>nul || (echo   ⚠️  Could not check connection. Make sure you have internet.)
+powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  ✅ Connected to ARIA server (' $d.build_rev ')' -ForegroundColor Green}catch{Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow}" 2>nul
+
+:: Check for token
+call :check_token
+
+if "%ARIA_API_TOKEN%"=="" (
+    echo.
+    echo   ─── First-time setup ──────────────────────────────────────
+    echo.
+    echo   To use ARIA, you need an access token.
+    echo.
+    echo   Step 1: Open this link in your browser:
+    echo     %SERVER%/token
+    echo.
+    echo   Step 2: Copy the token you see there
+    echo.
+    echo   Step 3: Paste it below and press Enter
+    echo.
+    set /p "ARIA_API_TOKEN=Paste your token here: "
+    echo.
+    if not "%ARIA_API_TOKEN%"=="" (
+        echo   Token saved for this session.
+        echo.
+    ) else (
+        echo   No token entered. Type 'token' at any time to set one.
+        echo.
+    )
+)
 
 echo.
-echo   Hello %USERNAME%. I'm ARIA — your research intelligence agent.
-echo   Ask me anything. I research, analyse, investigate, and answer.
+echo   Hello %USERNAME%! I'm ARIA — your research intelligence agent.
+echo   Ask me anything: research, analyse, investigate, or just chat.
 echo.
 echo   Type 'help' for commands, or just type your question.
 echo.
@@ -53,7 +78,7 @@ if /i "%input%"=="help" (
     echo.
     echo    help              Show this help
     echo    status            Check ARIA server status
-    echo    setup             Get instructions for API token
+    echo    token             Set or change your API token
     echo    cls               Clear screen
     echo    exit              Quit
     echo.
@@ -68,6 +93,13 @@ if /i "%input%"=="help" (
     echo    📋  Review documents and contracts
     echo    💬  Chat about any topic
     echo.
+    echo   ─── Examples ─────────────────────────────────────────────
+    echo.
+    echo    "Research Acme Corp and their supply chain"
+    echo    "Analyse this code and find bugs: def foo(): pass"
+    echo    "What are the latest defence tenders in Europe?"
+    echo    "Explain quantum computing in simple terms"
+    echo.
     goto loop
 )
 
@@ -77,59 +109,42 @@ if /i "%input%"=="status" (
     goto loop
 )
 
-if /i "%input%"=="setup" (
+if /i "%input%"=="token" (
     echo.
-    echo   ─── Setup ────────────────────────────────────────────────
+    echo   ─── Set your API token ────────────────────────────────────
     echo.
-    echo   To use ARIA, you need an API token.
+    echo   Open this link in your browser to get a token:
+    echo     %SERVER%/token
     echo.
-    echo   Option 1: Get a token from the ARIA web interface
-    echo     Open https://intel.arkmurus.com in your browser
-    echo     Log in or create an account
-    echo     Go to Settings -^> API Tokens -^> Create New Token
+    set /p "ARIA_API_TOKEN=Paste your token here: "
     echo.
-    echo   Option 2: Use the Python setup wizard (recommended)
-    where python.exe >nul 2>nul
-    if not errorlevel 1 (
-        echo     Type: python aria.py --setup
-        echo.
+    if not "%ARIA_API_TOKEN%"=="" (
+        echo   Token saved for this session.
     ) else (
-        echo     Python is not installed. Install Python 3 from python.org
-        echo     then run: python aria.py --setup
-        echo.
+        echo   No token entered.
     )
-    echo   Once you have a token, set it as an environment variable:
-    echo     set ARIA_API_TOKEN=your_token_here
     echo.
     goto loop
 )
 
-:: ── Check for token ────────────────────────────────────────────────
-if "%ARIA_API_TOKEN%"=="" (
-    if exist "%USERPROFILE%\.aria\config.json" (
-        for /f "tokens=2 delims=:," %%a in ('type "%USERPROFILE%\.aria\config.json" ^| findstr "api_token"') do (
-            set "ARIA_API_TOKEN=%%~a"
-        )
-    )
-)
+:: ── Check we have a token before sending ────────────────────────────
+call :check_token
 
 if "%ARIA_API_TOKEN%"=="" (
     echo.
-    echo   ❌ No API token found.
+    echo   ❌ You need an API token first.
     echo.
-    echo   ARIA requires authentication. You need an API token.
-    echo.
-    echo   Type 'setup' for instructions on getting a token.
+    echo   Type 'token' to set one up.
     echo.
     goto loop
 )
 
-:: ── Send to real ARIA chat endpoint ──────────────────────────────
+:: ── Send to ARIA ────────────────────────────────────────────────────
 echo.
 echo   🧠 ARIA is thinking...
 echo.
 
-powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Authentication failed. Type: setup' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
+powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120 -Headers @{'Authorization'='Bearer %ARIA_API_TOKEN%'};Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';if($_.Exception.Response.StatusCode -eq 401){Write-Host '  Your token is invalid. Type: token' -ForegroundColor Yellow}else{Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}}" 2>nul
 
 if errorlevel 1 (
     echo   ⚠️  Request failed. Trying fallback method...
@@ -148,3 +163,12 @@ if errorlevel 1 (
 )
 
 goto loop
+
+:check_token
+if not "%ARIA_API_TOKEN%"=="" goto :eof
+if exist "%USERPROFILE%\.aria\config.json" (
+    for /f "tokens=2 delims=:," %%a in ('type "%USERPROFILE%\.aria\config.json" ^| findstr "api_token"') do (
+        set "ARIA_API_TOKEN=%%~a"
+    )
+)
+goto :eof

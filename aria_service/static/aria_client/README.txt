@@ -3,44 +3,45 @@ ARIA CLIENT v2.1
 
 Connect to ARIA's main server from any Windows computer.
 
-QUICK START:
-  1. Open cmd in this folder
-  2. Run:  python aria.py --setup
-  3. Paste your API token when prompted
-  4. Type:  python aria.py
-  5. Ask ARIA anything
+HOW TO USE:
+  1. Double-click aria.bat
+  2. When asked, open the link shown in your browser
+  3. Copy the token from the webpage
+  4. Paste it into the terminal
+  5. Start asking questions!
 
-Or just double-click aria.bat (requires Python).
+That's it. No install needed. No Python knowledge required.
+
+If you have Python installed, the experience is even better
+(streaming responses, colours, command history).
 
 WHAT YOU GET:
   - Full ARIA intelligence: research, analysis, code review, web search
   - Streaming responses (see results as they're generated)
-  - Command history and tab completion
+  - Command history and tab completion (Python mode)
   - Clear error messages (no more "server may be busy")
   - Single-shot mode:  python aria.py "your question"
 
 REQUIREMENTS:
-  - Python 3.8+ (recommended)
+  - Windows 10 or later
   - Internet connection
-  - ARIA API token (get one at https://intel.arkmurus.com)
+  - An ARIA access token (get one at https://aria-intel.fly.dev/token)
 
 NO INSTALL NEEDED:
-  - No pip install required (uses only Python standard library)
+  - No Python required for basic use
+  - No pip install required
   - No dependencies to download
   - Everything runs on the ARIA server
 
-COMMANDS:
-  python aria.py                  Interactive mode
-  python aria.py "question"       Single question
-  python aria.py --setup          Setup wizard (get token)
-  python aria.py --status         Check server status
-  python aria.py --help           Show help
-
-ENVIRONMENT VARIABLES:
-  ARIA_API_TOKEN    Your API token (or use --setup to save it)
-  ARIA_SERVER       Server URL (default: https://aria-intel.fly.dev)
+ADVANCED (Python mode):
+  If you have Python 3.8+, the client automatically uses it for
+  a better experience. Commands:
+    python aria.py                  Interactive mode
+    python aria.py "question"       Single question
+    python aria.py --setup          Setup wizard
+    python aria.py --status         Check server status
 
 TROUBLESHOOTING:
-  "401 Unauthorized" → Run: python aria.py --setup
-  "Connection error" → Check your internet and run: python aria.py --status
-  "Server error"     → The server may be restarting. Try again in a moment.
+  "Server unreachable" → Check your internet connection
+  "Token invalid"      → Get a new token at https://aria-intel.fly.dev/token
+  "Server busy"        → Wait a moment and try again

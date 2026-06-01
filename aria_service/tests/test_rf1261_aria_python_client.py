@@ -9,8 +9,9 @@ Tests cover:
 6. The Python client streaming request works
 7. The download endpoints include the new Python client
 8. The /download/aria.py endpoint serves the Python client
-9. The .bat has a 'setup' command for token instructions
+9. The .bat has a 'token' command for setting API token
 10. The .bat auto-downloads aria.py if missing
+11. The /token endpoint serves the API token page
 """
 from __future__ import annotations
 
@@ -91,8 +92,8 @@ def test_client_zip_readme_updated():
     assert len(readme_files) > 0
     content = files[readme_files[0]]
     assert "v2.1" in content or "python aria.py" in content
-    assert "ARIA_API_TOKEN" in content
-    assert "--setup" in content
+    assert "token" in content.lower()
+    assert "aria.bat" in content or "double-click" in content.lower()
 
 
 # ── Tests: aria_folder also has auth ───────────────────────────────────────────
@@ -421,51 +422,64 @@ def test_download_aria_py_endpoint():
 # ── Tests: .bat has setup command ──────────────────────────────────────────────
 
 
-def test_client_bat_has_setup_command():
-    """The aria_client/aria.bat must have a 'setup' command for token instructions."""
+def test_client_bat_has_token_command():
+    """The aria_client/aria.bat must have a 'token' command for setting API token."""
     import zipfile, io
     resp = client.get("/download/client")
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
     bat_file = [n for n in names if n.endswith("aria.bat")][0]
     bat_content = zf.read(bat_file).decode()
-    # Must have a setup command
-    assert '"setup"' in bat_content or "setup" in bat_content.lower(), (
-        "Client .bat must have a setup command"
+    # Must have a token command
+    assert '"token"' in bat_content or "token" in bat_content.lower(), (
+        "Client .bat must have a token command"
     )
-    # Must mention API token in the setup instructions
+    # Must mention API token
     assert "API_TOKEN" in bat_content or "api_token" in bat_content, (
-        "Client .bat setup must mention API token"
+        "Client .bat must mention API token"
     )
-    # Must mention intel.arkmurus.com as token source
-    assert "intel.arkmurus.com" in bat_content, (
-        "Client .bat must tell user where to get a token"
+    # Must reference the server token page
+    assert "/token" in bat_content, (
+        "Client .bat must reference the /token endpoint"
     )
 
 
-def test_aria_folder_bat_has_setup_command():
-    """The aria_folder/aria.bat must have a 'setup' command."""
+def test_aria_folder_bat_has_token_command():
+    """The aria_folder/aria.bat must have a 'token' command."""
     import zipfile, io
     resp = client.get("/download/aria")
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
     bat_file = [n for n in names if n.endswith("aria.bat")][0]
     bat_content = zf.read(bat_file).decode()
-    assert '"setup"' in bat_content or "setup" in bat_content.lower(), (
-        "aria_folder .bat must have a setup command"
+    assert '"token"' in bat_content or "token" in bat_content.lower(), (
+        "aria_folder .bat must have a token command"
     )
     assert "API_TOKEN" in bat_content or "api_token" in bat_content
 
 
-def test_download_aria_bat_has_setup_command():
-    """The download_aria.bat must have a 'setup' command."""
+def test_download_aria_bat_has_token_command():
+    """The download_aria.bat must have a 'token' command."""
     resp = client.get("/download")
     assert resp.status_code == 200
     content = resp.text
-    assert '"setup"' in content or "setup" in content.lower(), (
-        "download_aria.bat must have a setup command"
+    assert '"token"' in content or "token" in content.lower(), (
+        "download_aria.bat must have a token command"
     )
     assert "API_TOKEN" in content or "api_token" in content
+
+
+# ── Tests: /token endpoint ──────────────────────────────────────────────────────
+
+
+def test_token_endpoint_serves_html():
+    """The /token endpoint must serve an HTML page with token instructions."""
+    resp = client.get("/token")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "API Token" in resp.text or "token" in resp.text.lower()
+    assert "aria.bat" in resp.text or "ARIA Client" in resp.text
+    assert "/download/client" in resp.text
 
 
 # ── Tests: .bat auto-downloads aria.py ─────────────────────────────────────────
