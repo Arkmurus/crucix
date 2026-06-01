@@ -80,45 +80,58 @@ _STDIN_THREAD: threading.Thread | None = None
 
 
 def _stdin_reader() -> None:
-    """Daemon thread: read sys.stdin lines and put each on the queue.
+    """Daemon thread: read operator input and put each line on the queue.
     When paused (_STDIN_PAUSED), yields stdin to the REPL prompt (R-F1265).
-    Uses msvcrt.kbhit() on Windows for non-blocking availability check,
-    falling back to os.read() with a short timeout on other platforms."""
+
+    Uses msvcrt.kbhit() + msvcrt.getwch() on Windows (console-level input,
+    not stdin — avoids fd conflicts with the REPL). Falls back to
+    select.select() + sys.stdin.readline() on other platforms.
+
+    CRITICAL (R-F1270): Never use os.read() on stdin — it steals raw bytes
+    from Python's buffered I/O, causing the REPL prompt to deadlock when
+    both the thread and the main loop try to read from the same fd."""
     try:
         buf = ""
         while True:
             if _STDIN_PAUSED.is_set():
                 threading.Event().wait(0.1)
                 continue
-            # Check if input is available before blocking on read
             try:
                 import msvcrt
-                if not msvcrt.kbhit():
+                # Windows: use console-level input (kbhit + getwch) to avoid
+                # conflicting with the REPL's stdin reads. This reads keypresses
+                # directly from the console buffer, not from the stdin fd.
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwch()
+                    if ch == "\r" or ch == "\n":
+                        if buf.strip():
+                            _OPERATOR_QUEUE.put(buf.strip())
+                            buf = ""
+                    elif ch == "\b" or ch == "\x7f":  # backspace
+                        buf = buf[:-1]
+                    elif ch == "\x03":  # Ctrl+C
+                        raise KeyboardInterrupt
+                    else:
+                        buf += ch
+                else:
                     threading.Event().wait(0.05)
-                    continue
             except ImportError:
-                # Non-Windows: use select with timeout
+                # Non-Windows: use select with timeout + readline
                 try:
                     import select
                     r, _, _ = select.select([sys.stdin], [], [], 0.05)
-                    if not r:
-                        continue
+                    if r:
+                        line = sys.stdin.readline()
+                        if not line:
+                            break
+                        stripped = line.strip()
+                        if stripped:
+                            _OPERATOR_QUEUE.put(stripped)
+                    else:
+                        threading.Event().wait(0.05)
                 except (ImportError, OSError):
                     threading.Event().wait(0.05)
-                    continue
-            try:
-                chunk = os.read(sys.stdin.fileno(), 4096)
-            except (OSError, ValueError):
-                break
-            if not chunk:
-                break
-            buf += chunk.decode("utf-8", errors="replace")
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                stripped = line.strip()
-                if stripped:
-                    _OPERATOR_QUEUE.put(stripped)
-    except (EOFError, OSError, ValueError):
+    except (EOFError, OSError, ValueError, KeyboardInterrupt):
         pass
 
 
@@ -147,33 +160,31 @@ def _start_stdin_reader() -> None:
 
 
 def _read_operator_input(prompt: str = "") -> str:
-    """Read a line from the operator queue (blocking), or fall back to input().
+    """Read a line from the operator (blocking).
 
-    R-F1258: simplified — always writes the prompt, then reads from the queue
-    (blocking). The stdin reader thread feeds lines both to the REPL and to
-    mid-task drains. Falls back to input() if the queue is empty (first call).
+    R-F1270: Uses input() directly when the REPL is active (stdin is a TTY),
+    which avoids the deadlock caused by reading from the background thread's
+    queue when the thread is paused. The background thread is ONLY for mid-task
+    interject (typing while ARIA works), NOT for REPL input.
+
+    Falls back to the operator queue for non-TTY mode (piped input).
     """
     if not sys.stdin.isatty():
+        # Non-TTY: read from the queue (fed by the background thread)
         try:
-            return input(prompt).strip()
-        except EOFError:
+            return _OPERATOR_QUEUE.get(timeout=30)
+        except queue.Empty:
+            return ""
+        except (EOFError, OSError):
             return ""
 
-    # Write prompt
-    if prompt:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-
-    # Try non-blocking first
+    # TTY mode: use input() directly — this is the REPL prompt.
+    # Do NOT read from the queue here; the queue is for mid-task interject only.
     try:
-        return _OPERATOR_QUEUE.get_nowait()
-    except queue.Empty:
-        pass
-
-    # Blocking read from queue
-    try:
-        return _OPERATOR_QUEUE.get()
-    except (EOFError, OSError):
+        return input(prompt).strip()
+    except EOFError:
+        return ""
+    except KeyboardInterrupt:
         return ""
 
 
@@ -1038,10 +1049,15 @@ class TerminalUI(AgentUI):
             return False
         detail = self._summarize(name, args)
         print(self.c.yellow(f"\n  ARIA wants to run: {self.c.bold(name)}({detail})"))
+        # R-F1270: pause the stdin reader so it doesn't consume keystrokes
+        # meant for input() during approval.
+        _pause_stdin_reader()
         try:
             ans = input("  allow? [y]es / [n]o / [a]ll this session: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             return False
+        finally:
+            _resume_stdin_reader()
         if ans in {"a", "all"}:
             self.approve_all = True
             return True
@@ -1407,10 +1423,12 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
         while True:
             try:
                 ui._ensure_clear_line()
-                if PROMPT_TOOLKIT_AVAILABLE:
-                    try:
-                        # R-F1265: pause stdin reader so prompt_toolkit can read stdin
-                        _pause_stdin_reader()
+                # R-F1270: ALWAYS pause the stdin reader before reading REPL input,
+                # regardless of whether prompt_toolkit is available. This prevents
+                # the background thread from consuming keystrokes meant for input().
+                _pause_stdin_reader()
+                try:
+                    if PROMPT_TOOLKIT_AVAILABLE:
                         # R-F1267: multi-line input with Alt+Enter for newline
                         kb = _build_key_bindings()
                         pt_session = PTPromptSession(
@@ -1430,12 +1448,10 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                             multiline=True,
                         )
                         line = pt_session.prompt("  you > ", vi_mode=False).strip()
-                    except Exception:
+                    else:
                         line = _read_operator_input(color.bold("  you > ")).strip()
-                    finally:
-                        _resume_stdin_reader()
-                else:
-                    line = _read_operator_input(color.bold("  you > ")).strip()
+                finally:
+                    _resume_stdin_reader()
             except EOFError:
                 break
             if not line:
