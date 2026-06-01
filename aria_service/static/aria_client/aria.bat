@@ -29,19 +29,8 @@ echo   ║                                                                      
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check connection
-powershell -NoProfile -Command "& {
-    try {
-        $r = Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;
-        $d = $r.Content | ConvertFrom-Json;
-        Write-Host '  ✅ Connected to ARIA server  (' $d.build_rev ')' -ForegroundColor Green;
-    } catch {
-        Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;
-        Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow;
-    }
-}" 2>nul || (
-    echo   ⚠️  Could not check connection. Make sure you have internet.
-)
+:: Check connection (single-line PowerShell — multi-line breaks in cmd)
+powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  ✅ Connected to ARIA server (' $d.build_rev ')' -ForegroundColor Green}catch{Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow}" 2>nul || (echo   ⚠️  Could not check connection. Make sure you have internet.)
 
 echo.
 echo   Hello %USERNAME%. I'm ARIA — your research intelligence agent.
@@ -91,17 +80,7 @@ if /i "%input%"=="help" (
 
 if /i "%input%"=="status" (
     echo.
-    powershell -NoProfile -Command "& {
-        try {
-            $r = Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;
-            $d = $r.Content | ConvertFrom-Json;
-            Write-Host '  🟢 Server: ONLINE' -ForegroundColor Green;
-            Write-Host '  Build:  ' $d.build_rev;
-            Write-Host '  Uptime: ' $d.uptime_seconds 's';
-        } catch {
-            Write-Host '  🔴 Server: OFFLINE' -ForegroundColor Red;
-        }
-    }"
+    powershell -NoProfile -Command "try{$r=Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;$d=$r.Content|ConvertFrom-Json;Write-Host '  🟢 Server: ONLINE' -ForegroundColor Green;Write-Host '  Build: ' $d.build_rev;Write-Host '  Uptime: ' $d.uptime_seconds 's'}catch{Write-Host '  🔴 Server: OFFLINE' -ForegroundColor Red}"
     goto loop
 )
 
@@ -110,36 +89,10 @@ echo.
 echo   🧠 ARIA is thinking...
 echo.
 
-powershell -NoProfile -Command "& {
-    $body = @{message='%input%'; session_id='client_%USERNAME%'} | ConvertTo-Json;
-    try {
-        $r = Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120;
-        Write-Host '';
-        if ($r.response) {
-            Write-Host $r.response -ForegroundColor Cyan;
-        } elseif ($r.answer) {
-            Write-Host $r.answer -ForegroundColor Cyan;
-        } else {
-            Write-Host ('Response: ' + ($r | ConvertTo-Json -Depth 1)) -ForegroundColor Cyan;
-        }
-        if ($r.tool_used) {
-            Write-Host ('');
-            Write-Host ('  🔧 Used: ' + $r.tool_used) -ForegroundColor Yellow;
-        }
-        if ($r.cached) {
-            Write-Host ('  💾 Cached response') -ForegroundColor DarkGray;
-        }
-    } catch {
-        Write-Host '';
-        Write-Host '  ❌ Error: ' $_.Exception.Message -ForegroundColor Red;
-        Write-Host '';
-        Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow;
-    }
-}" 2>nul
+powershell -NoProfile -Command "$body=@{message='%input%';session_id='client_%USERNAME%'}|ConvertTo-Json;try{$r=Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120;Write-Host '';if($r.response){Write-Host $r.response -ForegroundColor Cyan}elseif($r.answer){Write-Host $r.answer -ForegroundColor Cyan}else{Write-Host ('Response: '+($r|ConvertTo-Json -Depth 1)) -ForegroundColor Cyan};if($r.tool_used){Write-Host '';Write-Host ('  🔧 Used: '+$r.tool_used) -ForegroundColor Yellow};if($r.cached){Write-Host '  💾 Cached response' -ForegroundColor DarkGray}}catch{Write-Host '';Write-Host '  ❌ Error: '$_.Exception.Message -ForegroundColor Red;Write-Host '';Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow}" 2>nul
 
 if errorlevel 1 (
     echo   ⚠️  Request failed. Trying fallback method...
-    :: Fallback: use curl if available
     where curl.exe >nul 2>nul
     if not errorlevel 1 (
         curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
