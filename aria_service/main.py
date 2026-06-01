@@ -2065,6 +2065,27 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.get("/download/aria_tui.py", response_class=HTMLResponse, include_in_schema=False)
+    async def download_aria_tui_py():
+        """Download the ARIA TUI client (aria_tui.py) — for auto-download from .bat."""
+        tui_path = _static_os.path.join(_static_dir, "aria_client", "aria_tui.py")
+        try:
+            with open(tui_path, encoding="utf-8") as f:
+                content = f.read()
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type="text/x-python",
+                headers={
+                    "Content-Disposition": "attachment; filename=aria_tui.py",
+                },
+            )
+        except Exception as e:
+            return HTMLResponse(
+                content=f"<html><body><h1>Download Error</h1><p>{e}</p></body></html>",
+                status_code=500,
+            )
+
     @app.get("/token", response_class=HTMLResponse, include_in_schema=False)
     async def token_page(request: Request):
         """Show the user their API token for use with the terminal client."""

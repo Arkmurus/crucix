@@ -6,31 +6,36 @@ cd /d "%~dp0"
 :: ARIA — Terminal Client
 :: ─────────────────────────────────────────────────
 :: Just double-click this file. That's it.
-:: If you have Python, you get the full experience.
-:: If not, it still works — just paste your token.
 :: ─────────────────────────────────────────────────
 
 set "SERVER=https://aria-intel.fly.dev"
 set "USERNAME=%USERNAME%"
 
-:: ── Step 1: Try Python client (best experience) ────────────────────────
+:: ── Step 1: Try TUI (best experience, requires textual) ──────────────────
+where python.exe >nul 2>nul
+if not errorlevel 1 (
+    if not exist "aria_tui.py" (
+        powershell -NoProfile -Command "try{$w=New-Object Net.WebClient;$w.DownloadFile('%SERVER%/download/aria_tui.py', 'aria_tui.py')}catch{}" 2>nul
+    )
+    if exist "aria_tui.py" (
+        python aria_tui.py %*
+        if not errorlevel 1 exit /b 0
+    )
+)
+
+:: ── Step 2: Try basic Python client ──────────────────────────────────────
 where python.exe >nul 2>nul
 if not errorlevel 1 (
     if not exist "aria.py" (
-        echo.
-        echo   Downloading ARIA Python client...
-        powershell -NoProfile -Command "try{$w=New-Object Net.WebClient;$w.DownloadFile('%SERVER%/download/aria.py', 'aria.py');Write-Host '  Done' -ForegroundColor Green}catch{Write-Host '  Download failed - will use fallback mode' -ForegroundColor Yellow}"
+        powershell -NoProfile -Command "try{$w=New-Object Net.WebClient;$w.DownloadFile('%SERVER%/download/aria.py', 'aria.py')}catch{}" 2>nul
     )
     if exist "aria.py" (
         python aria.py %*
         if not errorlevel 1 exit /b 0
-        if errorlevel 1 (
-            rem Python client had an error — fall through to PowerShell
-        )
     )
 )
 
-:: ── Step 2: PowerShell fallback ────────────────────────────────────────
+:: ── Step 3: PowerShell fallback ──────────────────────────────────────────
 mode con: cols=90 lines=40
 color 0A
 
@@ -39,7 +44,7 @@ cls
 echo.
 echo   ╔══════════════════════════════════════════════════════════════════════╗
 echo   ║                                                                      ║
-echo   ║     █████  ██████  ██  █████       ARIA v2.1                         ║
+echo   ║     █████  ██████  ██  █████       ARIA v2.2                         ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Autonomous Research Intelligence  ║
 echo   ║    ███████ ██████  ██ ███████      Terminal Client                    ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Just ask me anything               ║
@@ -69,7 +74,6 @@ if "%ARIA_API_TOKEN%"=="" (
     set /p "ARIA_API_TOKEN=Paste your token here: "
     echo.
     if not "%ARIA_API_TOKEN%"=="" (
-        rem Save it for this session
         echo   Token saved for this session.
         echo.
     ) else (
@@ -80,7 +84,7 @@ if "%ARIA_API_TOKEN%"=="" (
 
 echo.
 echo   Hello %USERNAME%! I'm ARIA — your research intelligence agent.
-echo   Ask me anything: research, analyse code, investigate, or just chat.
+echo   Ask me anything: research, analyse, investigate, or just chat.
 echo.
 echo   Type 'help' for commands, or just type your question.
 echo.

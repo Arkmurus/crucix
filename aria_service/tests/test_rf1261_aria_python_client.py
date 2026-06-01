@@ -5,12 +5,13 @@ Tests cover:
 2. The Python client handles 401/timeout/5xx with clear messages
 3. The Python client config management works
 4. The Python client streaming request works
-5. The /download/client ZIP is slim (~5KB, no aria.py inside)
-6. The /download/aria.py endpoint serves the Python client
-7. The .bat has a 'token' command for setting API token
-8. The .bat auto-downloads aria.py if missing
-9. The /token endpoint serves the API token page
-10. Removed endpoints return 404
+5. The /download/client ZIP is slim (~5KB, no .py files inside)
+6. The /download/aria.py endpoint serves the basic Python client
+7. The /download/aria_tui.py endpoint serves the TUI client
+8. The .bat has a 'token' command for setting API token
+9. The .bat auto-downloads aria.py and aria_tui.py if missing
+10. The /token endpoint serves the API token page
+11. Removed endpoints return 404
 """
 from __future__ import annotations
 
@@ -331,3 +332,30 @@ def test_client_bat_can_download_aria_py():
     assert "DownloadFile" in bat_content or "WebClient" in bat_content, (
         "Client .bat must have a download mechanism for aria.py"
     )
+
+
+def test_client_bat_can_download_aria_tui():
+    """The aria_client/aria.bat must be able to download aria_tui.py from the server."""
+    import zipfile, io
+    resp = client.get("/download/client")
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    bat_file = [n for n in names if n.endswith("aria.bat")][0]
+    bat_content = zf.read(bat_file).decode()
+    assert "/download/aria_tui.py" in bat_content, (
+        "Client .bat must know how to download aria_tui.py from the server"
+    )
+
+
+# ── Tests: /download/aria_tui.py endpoint ──────────────────────────────────────
+
+
+def test_download_aria_tui_endpoint():
+    """The /download/aria_tui.py endpoint must serve the TUI client."""
+    resp = client.get("/download/aria_tui.py")
+    assert resp.status_code == 200
+    assert "text/x-python" in resp.headers.get("content-type", "")
+    assert "aria_tui.py" in resp.headers.get("content-disposition", "")
+    assert "AriaTUI" in resp.text
+    assert "textual" in resp.text.lower()
+    assert "send_chat" in resp.text or "_send_chat" in resp.text
