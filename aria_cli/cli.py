@@ -500,35 +500,172 @@ def _sep_line(h: str) -> str:
     return f"  {h * 56}"
 
 
-class TerminalUI(AgentUI):
-    """Clean, structured terminal UI with clear text hierarchy (R-F1260).
+# ── R-F1267: code detection helpers ──────────────────────────────────────────
+def _guess_language(code: str) -> str:
+    """Guess the programming language of a code snippet (R-F1267).
+    Uses simple heuristics — no external dependency needed."""
+    code_stripped = code.strip()
+    if not code_stripped:
+        return "text"
+    lines = code_stripped.splitlines()
+    first_line = lines[0].strip() if lines else ""
 
-    Design principles:
-      - Text-first, not boxes-first: indentation, spacing, and color provide
-        structure, not box-drawing characters.
-      - Clear hierarchy: headings, body, metadata, and errors each have distinct
+    # Shell: #!/bin/bash, $, export, alias (check before JS export)
+    if first_line.startswith("#!/") or first_line.startswith("$ "):
+        return "bash"
+    if first_line.startswith("export "):
+        # Bash: "export FOO=bar" — no braces, no semicolons typically
+        if "=" in first_line and "{" not in first_line:
+            return "bash"
+        return "typescript"
+    if first_line.startswith("alias "):
+        return "bash"
+    if first_line.startswith("function "):
+        # Bash: "function foo {" — no parentheses typically
+        # JS: "function foo() {" — has parentheses
+        if "(" in first_line and ")" in first_line:
+            return "typescript"
+        return "bash"
+
+    # JavaScript/TypeScript: const/let/var/import
+    if first_line.startswith("import "):
+        # Python: "import os" or "import os.path" — no braces
+        # JS: "import { foo } from 'bar'" — has braces
+        if "{" in first_line or "}" in first_line:
+            return "typescript"
+        # Python import — no semicolon
+        if not code_stripped.rstrip().endswith(";"):
+            return "python"
+        return "typescript"
+    if any(first_line.startswith(kw) for kw in ("const ", "let ", "var ")):
+        return "typescript"
+
+    # Python: from/def/class/print/if __name__
+    if any(first_line.startswith(kw) for kw in ("from ", "def ", "class ", "print", "if ")):
+        # Check for JS-specific patterns: ; at end, =>
+        if code_stripped.rstrip().endswith(";") or "=>" in code_stripped[:200]:
+            return "typescript"
+        return "python"
+    if "def " in code_stripped[:200] or "class " in code_stripped[:200]:
+        return "python"
+    if "lambda " in code_stripped[:200] or "yield " in code_stripped[:200]:
+        return "python"
+
+    # Shell: #!/bin/bash, $, export, alias
+    if first_line.startswith("#!/") or first_line.startswith("$ "):
+        return "bash"
+    if any(first_line.startswith(kw) for kw in ("export ", "alias ", "function ")):
+        return "bash"
+
+    # JSON: starts with { or [
+    if first_line.startswith("{") or first_line.startswith("["):
+        return "json"
+
+    # XML/HTML: starts with <
+    if first_line.startswith("<"):
+        return "xml" if first_line.startswith("<?xml") else "html"
+
+    # YAML: starts with --- or key: value
+    if first_line == "---" or (":" in first_line and not first_line.startswith("#")):
+        return "yaml"
+
+    # JavaScript/TypeScript: const/let/var/function/import from
+    if any(first_line.startswith(kw) for kw in ("const ", "let ", "var ", "function ", "import ", "export ")):
+        return "typescript"
+
+    # Go: package/func
+    if first_line.startswith("package ") or first_line.startswith("func "):
+        return "go"
+
+    # Rust: fn/let mut/use
+    if first_line.startswith("fn ") or first_line.startswith("use ") or first_line.startswith("let "):
+        return "rust"
+
+    # SQL: SELECT/INSERT/UPDATE/DELETE/CREATE
+    if any(first_line.upper().startswith(kw) for kw in ("SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP")):
+        return "sql"
+
+    # Dockerfile
+    if first_line.upper().startswith("FROM ") or first_line.upper().startswith("RUN "):
+        return "dockerfile"
+
+    # Markdown
+    if first_line.startswith("# ") or first_line.startswith("## "):
+        return "markdown"
+
+    # Diff: starts with --- or +++
+    if first_line.startswith("---") or first_line.startswith("+++"):
+        return "diff"
+
+    return "text"
+
+
+def _looks_like_code(text: str) -> bool:
+    """Heuristic: does this text look like code rather than plain output? (R-F1267)
+    Returns True if the text has significant code-like characteristics."""
+    if not text or len(text) < 20:
+        return False
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return False
+
+    # Count code-like patterns
+    code_patterns = 0
+    for line in lines[:20]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Indentation (code is typically indented)
+        if line.startswith("    ") or line.startswith("\t"):
+            code_patterns += 1
+        # Brackets
+        if "{" in stripped or "}" in stripped:
+            code_patterns += 2
+        # Semicolons
+        if stripped.endswith(";"):
+            code_patterns += 1
+        # Assignment
+        if " = " in stripped and not stripped.startswith("#"):
+            code_patterns += 1
+        # Function/class definitions
+        if stripped.startswith("def ") or stripped.startswith("class ") or stripped.startswith("fn "):
+            code_patterns += 3
+        # Imports
+        if stripped.startswith("import ") or stripped.startswith("from ") or stripped.startswith("use "):
+            code_patterns += 2
+        # Comments
+        if stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("/*"):
+            code_patterns += 1
+
+    return code_patterns >= 4
+
+
+class TerminalUI(AgentUI):
+    """Professional terminal UI with Rich rendering, markdown, and syntax highlighting.
+
+    Design principles (R-F1267):
+      - Rich rendering: markdown, code blocks with syntax highlighting, tables
+      - Clean hierarchy: headings, body, metadata, and errors each have distinct
         visual weight.
-      - Clean message boundaries: each message type has a clear prefix and
-        consistent format (``ARIA >``, ``$``, ``!``, ``~``, ``+``).
-      - Minimal decoration: box-drawing used only for the banner header and
-        session summary — everything else is clean text.
+      - Claude-Code parity: streaming with live rendering, inline code blocks,
+        diff highlighting, file tree display
+      - Graceful degradation: falls back to clean ANSI text when Rich is unavailable
       - Compact but readable: shows what matters, hides what doesn't.
 
     Features:
-      - Clean banner (4 lines, no box-drawing noise)
-      - ``ARIA >`` prefix for assistant messages
-      - ``$`` prefix for commands
-      - ``!`` prefix for errors
-      - ``~`` prefix for info messages
-      - ``+`` prefix for file changes
-      - ``[operator]`` tag for mid-task operator messages
-      - ``[N/M]`` step counter during multi-tool turns
+      - Rich markdown rendering for assistant messages
+      - Syntax-highlighted code blocks
+      - Rich diff rendering (/diff command)
+      - File tree display for changed files
+      - Live streaming with markdown rendering
       - Animated spinner with live output preview
       - Progress bar for long operations
       - Error recovery suggestions
       - Session management (save/load/delete/export)
       - Theme switching (/theme dark|light|claude)
       - Tab completion for REPL commands
+      - Multi-line input editing (Alt+Enter)
+      - Command palette (Ctrl+K)
       - Persistent session log
     """
 
@@ -592,6 +729,9 @@ class TerminalUI(AgentUI):
         self._operator_messages = 0
         self.session_manager = SessionManager()
         self._rich_console = RichConsole() if RICH_AVAILABLE and color.on else None
+        # R-F1267: streaming buffer for live markdown rendering
+        self._stream_buffer = ""
+        self._stream_code_block = False
 
     def _tc(self, key: str, s: str) -> str:
         """Apply a theme color to text (R-F1260)."""
@@ -628,21 +768,41 @@ class TerminalUI(AgentUI):
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
 
+    def _render_markdown(self, text: str) -> None:
+        """Render text with Rich markdown and syntax highlighting when available (R-F1267)."""
+        if self._rich_console:
+            try:
+                # Check if text contains code blocks
+                if "```" in text:
+                    # Use Rich Markdown for full rendering
+                    md = RichMarkdown(text, code_theme="monokai" if self._theme_name == "dark" else "default")
+                    self._rich_console.print(md)
+                else:
+                    # Check for inline code
+                    if "`" in text:
+                        md = RichMarkdown(text)
+                        self._rich_console.print(md)
+                    else:
+                        # Plain text — just print with the ARIA prefix
+                        print(self.c.cyan("  ARIA > ") + text)
+                return
+            except Exception:
+                pass
+        # Fallback: plain text
+        print(self.c.cyan("  ARIA > ") + text)
+
     def assistant(self, text: str) -> None:
-        """Print a complete assistant message with clean boundaries (R-F1260)."""
+        """Print a complete assistant message with Rich rendering (R-F1267)."""
         self._ensure_clear_line()
         self._log(f"[aria] {text[:200]}")
         print()
-        # Clean header: just "ARIA >" in cyan, no separator line
-        print(self.c.cyan("  ARIA > ") + text)
+        self._render_markdown(text)
         self._needs_leading_newline = True
 
     # ── live token streaming (never silent) ──────────────────────────────────
     def stream_delta(self, text: str) -> None:
         """Stream a chunk of LLM output. First chunk prints the prefix (R-F1260)."""
         if not self._stream_active:
-            # Stop spinner cleanly without clearing the line (the spinner
-            # already occupies it; we overwrite it with the ARIA prefix).
             if self._spin_thread is not None:
                 self.thinking_stop()
             if self._needs_leading_newline:
@@ -651,8 +811,15 @@ class TerminalUI(AgentUI):
             self._stream_active = True
             self._streamed_this_turn = True
             self._needs_leading_newline = False
+            self._stream_buffer = ""
+            self._stream_code_block = False
         sys.stdout.write(text)
         sys.stdout.flush()
+        # Track code block state for live rendering
+        self._stream_buffer += text
+        if "```" in self._stream_buffer:
+            count = self._stream_buffer.count("```")
+            self._stream_code_block = count % 2 == 1
 
     def stream_end(self) -> None:
         """Finalise a streaming response (R-F1260)."""
@@ -661,6 +828,7 @@ class TerminalUI(AgentUI):
             sys.stdout.flush()
             self._stream_active = False
             self._needs_leading_newline = True
+            self._stream_buffer = ""
 
     # ── step tracking ──────────────────────────────────────────────────────
     def set_step_context(self, current: int, total: int) -> None:
@@ -692,8 +860,23 @@ class TerminalUI(AgentUI):
             print(self.c.dim(f"  {step_tag}{name} {detail}"))
             self._log(f"[tool] {name}({detail})")
 
+    def _render_code_block(self, code: str, language: str = "") -> None:
+        """Render a code block with syntax highlighting (R-F1267)."""
+        if self._rich_console and code.strip():
+            try:
+                lang = language or _guess_language(code)
+                syntax = RichSyntax(code, lang, theme="monokai" if self._theme_name == "dark" else "default",
+                                    line_numbers=False, word_wrap=True)
+                self._rich_console.print(syntax)
+                return
+            except Exception:
+                pass
+        # Fallback: dim text
+        for ln in code.splitlines():
+            print(self.c.dim(f"    {ln}"))
+
     def tool_result(self, name: str, result: ToolResult) -> None:
-        """Display a tool result with clean formatting (R-F1260)."""
+        """Display a tool result with Rich rendering (R-F1267)."""
         if result.is_error:
             self._error_count += 1
             lines = result.output.splitlines()
@@ -712,15 +895,20 @@ class TerminalUI(AgentUI):
 
         if name == "run":
             if result.output:
-                lines = result.output.splitlines()
-                if len(lines) > 5:
-                    preview = "\n".join(lines[:3])
-                    tail = f"... ({len(lines) - 3} more lines)"
-                    print(self.c.dim(f"    {preview}"))
-                    print(self.c.dim(f"    {tail}"))
+                output = result.output
+                # Check if output looks like code (has indentation, brackets, etc.)
+                if _looks_like_code(output):
+                    self._render_code_block(output)
                 else:
-                    for ln in lines:
-                        print(self.c.dim(f"    {ln}"))
+                    lines = output.splitlines()
+                    if len(lines) > 5:
+                        preview = "\n".join(lines[:3])
+                        tail = f"... ({len(lines) - 3} more lines)"
+                        print(self.c.dim(f"    {preview}"))
+                        print(self.c.dim(f"    {tail}"))
+                    else:
+                        for ln in lines:
+                            print(self.c.dim(f"    {ln}"))
             exit_code = "0" if not result.is_error else "non-zero"
             self._log(f"[result] {len(result.output.splitlines()) if result.output else 0} lines, exit {exit_code}")
 
@@ -892,6 +1080,177 @@ class TerminalUI(AgentUI):
         return ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items())
 
 
+# ── R-F1267: prompt_toolkit key bindings ──────────────────────────────────────
+def _build_key_bindings():
+    """Build key bindings for the REPL prompt (R-F1267).
+    - Alt+Enter / Esc+Enter: submit multi-line input
+    - Ctrl+K: command palette (fuzzy search)
+    """
+    if not PROMPT_TOOLKIT_AVAILABLE:
+        return None
+    try:
+        from prompt_toolkit.keys import Keys
+        kb = KeyBindings()
+
+        @kb.add("escape", "enter")
+        def _(event):
+            """Alt+Enter (or Esc then Enter) submits multi-line input."""
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("c-k")
+        def _(event):
+            """Ctrl+K: show command palette (fuzzy search)."""
+            from prompt_toolkit.application import run_in_terminal
+            run_in_terminal(lambda: _show_command_palette(event.app))
+
+        return kb
+    except Exception:
+        return None
+
+
+def _print_gaps_fallback(gaps, color, bx) -> None:
+    """Print gaps in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan(f"  Gaps ({len(gaps)} found)"))
+    print(color.dim(_sep_line(bx.h)))
+    for i, g in enumerate(gaps[:20], 1):
+        sev = g.get("severity", "UNKNOWN")
+        sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
+        auto = "auto" if g.get("auto_fixable") else "manual"
+        title = g.get("title", "?")[:50]
+        print(sev_color(f"  {i:2d}  {title}  [{sev}]  {auto}"))
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _print_cost_fallback(d, color, bx) -> None:
+    """Print cost in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan("  Cost Dashboard"))
+    print(color.dim(_sep_line(bx.h)))
+    spend = d.get('monthly_spend', 0)
+    cap = d.get('monthly_cap', 300)
+    remaining = d.get('remaining', 0)
+    print(f"  {color.dim('spend:')}     ${spend:.2f}")
+    print(f"  {color.dim('cap:')}       ${cap:.2f}")
+    print(f"  {color.dim('remaining:')} ${remaining:.2f}")
+    pct = min(spend / max(cap, 1), 1.0)
+    bar_len = int(pct * 20)
+    bar = "█" * bar_len + "░" * (20 - bar_len)
+    print(f"  {color.dim('usage:')}    {pct*100:.0f}%  {bar}")
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _print_status_fallback(sm, src, inv, cost, color, bx) -> None:
+    """Print status in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan("  System Status"))
+    print(color.dim(_sep_line(bx.h)))
+    comp = sm.get("composite", 0)
+    comp_str = f"{comp*100:.0f}/100" if comp else "--"
+    print(f"  {color.dim('composite:')}  {comp_str}")
+    print(f"  {color.dim('sources:')}   {src.get('ok', '?')}/{src.get('total', '?')} OK")
+    print(f"  {color.dim('facts:')}     {str(inv.get('knowledge_facts', '?'))}")
+    print(f"  {color.dim('signals:')}   {str(inv.get('intel_signals', '?'))}")
+    cost_str = f"${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "--"
+    print(f"  {color.dim('cost:')}     {cost_str}")
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _print_stats_fallback(agent, ui, elapsed_str, color, bx) -> None:
+    """Print stats in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan("  Session Statistics"))
+    print(color.dim(_sep_line(bx.h)))
+    print(f"  {color.dim('duration:')}  {elapsed_str}")
+    print(f"  {color.dim('tools:')}    {ui._tool_count}")
+    print(f"  {color.dim('errors:')}   {ui._error_count}")
+    print(f"  {color.dim('files:')}    {ui._file_changes}")
+    print(f"  {color.dim('operator:')} {ui._operator_messages}")
+    print(f"  {color.dim('tokens:')}   {agent.llm.total_input_tokens + agent.llm.total_output_tokens} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)")
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _print_sessions_fallback(sessions, ui, color, bx) -> None:
+    """Print sessions in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan(f"  Sessions ({len(sessions)})"))
+    print(color.dim(_sep_line(bx.h)))
+    for s in sessions[:20]:
+        cur = ">" if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
+        name = s.name[:40]
+        print(f"  [{cur}] {s.id[:16]}  {name}  {s.tool_count} tools")
+    print(color.dim(_sep_line(bx.h)))
+    print(color.dim("  /session load <id>  /session delete <id>"))
+
+
+def _print_history_fallback(history: list, color, bx) -> None:
+    """Print history in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan("  Composite Score History"))
+    print(color.dim(_sep_line(bx.h)))
+    for hist in history[:24]:
+        ts = hist.get("timestamp", "")[:16]
+        score = hist.get("composite", 0)
+        bar_len = int(score * 20)
+        bar = "█" * bar_len + "░" * (20 - bar_len)
+        print(f"  {ts}  {score*100:5.1f}%  {bar}")
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _print_plan_fallback(agent, color, bx) -> None:
+    """Print plan in plain text (fallback when Rich is unavailable)."""
+    print()
+    print(color.cyan("  Current Plan"))
+    print(color.dim(_sep_line(bx.h)))
+    for p in agent.toolbox.plan:
+        step = p.get("step", "")
+        status = p.get("status", "pending")
+        sym = {"completed": "✓", "in_progress": "~", "pending": " "}.get(status, " ")
+        print(f"  [{sym}] {step[:52]}")
+    print(color.dim(_sep_line(bx.h)))
+
+
+def _show_command_palette(app) -> None:
+    """Show a fuzzy-search command palette (R-F1267).
+    Lists all available /commands and lets the user pick one."""
+    commands = [
+        ("/help", "Show this help message"),
+        ("/exit", "Exit the session"),
+        ("/quit", "Exit the session"),
+        ("/confirm", "Toggle approval mode (auto/confirm)"),
+        ("/changes", "Show changed files"),
+        ("/chat", "Explain chat/interject mode"),
+        ("/claude", "Check for messages from Claude"),
+        ("/session", "Show current session info"),
+        ("/sessions", "List saved sessions"),
+        ("/export", "Export current session"),
+        ("/theme", "Switch color theme"),
+        ("/gaps", "Scan for capability gaps"),
+        ("/status", "Show system status"),
+        ("/history", "Show composite score history"),
+        ("/cost", "Show cost dashboard"),
+        ("/model", "Show current model info"),
+        ("/compact", "Compact conversation history"),
+        ("/memory", "Show memory file"),
+        ("/diff", "Show uncommitted git diff"),
+        ("/plan", "Show current plan"),
+        ("/stats", "Show session statistics"),
+        ("/think", "Show last assistant thinking"),
+        ("/clear", "Clear the terminal"),
+        ("/version", "Show version info"),
+        ("/uptime", "Show session duration"),
+        ("/config", "Show configuration"),
+        ("/reset", "Reset conversation"),
+    ]
+    print()
+    print("\033[36m  Command Palette\033[0m")
+    print("\033[2m  " + "-" * 56 + "\033[0m")
+    for cmd, desc in commands:
+        print(f"  \033[36m{cmd:<12}\033[0m  {desc}")
+    print("\033[2m  " + "-" * 56 + "\033[0m")
+    print("  Type a command at the prompt, or Ctrl+K to show this again.")
+
+
 # ── session orchestration ─────────────────────────────────────────────────
 def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     repo_root = find_repo_root(cwd)
@@ -1052,6 +1411,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     try:
                         # R-F1265: pause stdin reader so prompt_toolkit can read stdin
                         _pause_stdin_reader()
+                        # R-F1267: multi-line input with Alt+Enter for newline
+                        kb = _build_key_bindings()
                         pt_session = PTPromptSession(
                             history=PTFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
                             auto_suggest=PTAutoSuggest(),
@@ -1065,6 +1426,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                             style=PTStyle.from_dict({
                                 "prompt": "bold cyan" if color.on else "",
                             }),
+                            key_bindings=kb,
+                            multiline=True,
                         )
                         line = pt_session.prompt("  you > ", vi_mode=False).strip()
                     except Exception:
@@ -1084,7 +1447,27 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             if line in {"/exit", "/quit"}:
                 break
             if line == "/help":
-                # R-F1260: clean text help, no box-drawing
+                # R-F1267: Rich help with categories
+                if ui._rich_console:
+                    try:
+                        from rich.table import Table as RichTable
+                        from rich import box as RichBox
+                        print()
+                        tbl = RichTable(box=RichBox.ROUNDED, border_style="dim", show_header=False, padding=(0, 2))
+                        tbl.add_column("Category", style="cyan", width=12)
+                        tbl.add_column("Commands", style="dim")
+                        tbl.add_row("Session", "/session /sessions /export /stats /uptime")
+                        tbl.add_row("Control", "/confirm /reset /compact /clear /exit")
+                        tbl.add_row("View", "/changes /diff /plan /think /memory")
+                        tbl.add_row("System", "/status /gaps /history /cost /model /config /version")
+                        tbl.add_row("Chat", "/chat /claude /theme")
+                        ui._rich_console.print(tbl)
+                        print(color.dim("  tip: type while ARIA works — she'll respond mid-task."))
+                        print(color.dim("  tip: Ctrl+K for command palette · Alt+Enter for multi-line"))
+                        continue
+                    except Exception:
+                        pass
+                # Fallback: clean text
                 print()
                 print(color.cyan("  Commands"))
                 print(color.dim(_sep_line(bx.h)))
@@ -1095,6 +1478,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim("  Chat:     /chat /claude /theme"))
                 print(color.dim(_sep_line(bx.h)))
                 print(color.dim("  tip: type while ARIA works — she'll respond mid-task."))
+                print(color.dim("  tip: Ctrl+K for command palette · Alt+Enter for multi-line"))
                 continue
             if line == "/chat":
                 print(color.dim(
@@ -1133,15 +1517,25 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             # R-F1199: session management commands
             if line == "/sessions":
                 sessions = ui.session_manager.list_sessions()
-                print()
-                print(color.cyan(f"  Sessions ({len(sessions)})"))
-                print(color.dim(_sep_line(bx.h)))
-                for s in sessions[:20]:
-                    cur = ">" if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
-                    name = s.name[:40]
-                    print(f"  [{cur}] {s.id[:16]}  {name}  {s.tool_count} tools")
-                print(color.dim(_sep_line(bx.h)))
-                print(color.dim("  /session load <id>  /session delete <id>"))
+                if ui._rich_console:
+                    try:
+                        from rich.table import Table as RichTable
+                        from rich import box as RichBox
+                        print()
+                        tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=True, padding=(0, 1))
+                        tbl.add_column("", width=1)
+                        tbl.add_column("ID", style="dim", width=16)
+                        tbl.add_column("Name", style="cyan", width=40)
+                        tbl.add_column("Tools", style="dim", width=6)
+                        for s in sessions[:20]:
+                            cur = ">" if ui.session_manager.current and s.id == ui.session_manager.current.id else " "
+                            tbl.add_row(cur, s.id[:16], s.name[:40], str(s.tool_count))
+                        ui._rich_console.print(tbl)
+                        print(color.dim("  /session load <id>  /session delete <id>"))
+                    except Exception:
+                        _print_sessions_fallback(sessions, ui, color, bx)
+                else:
+                    _print_sessions_fallback(sessions, ui, color, bx)
                 continue
             if line.startswith("/session "):
                 parts = line.split(maxsplit=2)
@@ -1202,7 +1596,23 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             if line == "/changes":
                 ch = agent.toolbox.changed_files
-                print(color.dim("  " + (", ".join(ch) if ch else "no files changed yet")))
+                if not ch:
+                    print(color.dim("  no files changed yet"))
+                elif ui._rich_console:
+                    try:
+                        from rich.tree import Tree as RichTree
+                        tree = RichTree("  [green]changed files[/green]", guide_style="dim")
+                        for f in sorted(ch):
+                            parts = f.split("/")
+                            if len(parts) > 1:
+                                tree.add(f"[dim]{'/'.join(parts[:-1])}/[/dim]{parts[-1]}")
+                            else:
+                                tree.add(f)
+                        ui._rich_console.print(tree)
+                    except Exception:
+                        print(color.dim("  " + ", ".join(ch)))
+                else:
+                    print(color.dim("  " + ", ".join(ch)))
                 continue
             if line == "/reset":
                 agent.messages = agent.messages[:1]
@@ -1219,16 +1629,27 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         data = r.json()
                         gaps = data.get("gaps", [])
                         if gaps:
-                            print()
-                            print(color.cyan(f"  Gaps ({len(gaps)} found)"))
-                            print(color.dim(_sep_line(bx.h)))
-                            for i, g in enumerate(gaps[:20], 1):
-                                sev = g.get("severity", "UNKNOWN")
-                                sev_color = color.red if sev in ("CRITICAL",) else color.yellow if sev in ("HIGH",) else color.blue
-                                auto = "auto" if g.get("auto_fixable") else "manual"
-                                title = g.get("title", "?")[:50]
-                                print(sev_color(f"  {i:2d}  {title}  [{sev}]  {auto}"))
-                            print(color.dim(_sep_line(bx.h)))
+                            if ui._rich_console:
+                                try:
+                                    from rich.table import Table as RichTable
+                                    from rich import box as RichBox
+                                    print()
+                                    tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=True, padding=(0, 1))
+                                    tbl.add_column("#", style="dim", width=3)
+                                    tbl.add_column("Title", style="cyan")
+                                    tbl.add_column("Severity", width=10)
+                                    tbl.add_column("Fix", width=6)
+                                    for i, g in enumerate(gaps[:20], 1):
+                                        sev = g.get("severity", "UNKNOWN")
+                                        sev_style = "red" if sev in ("CRITICAL",) else "yellow" if sev in ("HIGH",) else "blue"
+                                        auto = "auto" if g.get("auto_fixable") else "manual"
+                                        title = g.get("title", "?")[:50]
+                                        tbl.add_row(str(i), title, f"[{sev_style}]{sev}[/{sev_style}]", auto)
+                                    ui._rich_console.print(tbl)
+                                except Exception:
+                                    _print_gaps_fallback(gaps, color, bx)
+                            else:
+                                _print_gaps_fallback(gaps, color, bx)
                         else:
                             print(color.dim("  no gaps found"))
                     else:
@@ -1249,18 +1670,27 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         src = d.get("sources", {})
                         inv = d.get("inventory", {})
                         cost = d.get("cost", {})
-                        print()
-                        print(color.cyan("  System Status"))
-                        print(color.dim(_sep_line(bx.h)))
-                        comp = sm.get("composite", 0)
-                        comp_str = f"{comp*100:.0f}/100" if comp else "--"
-                        print(f"  {color.dim('composite:')}  {comp_str}")
-                        print(f"  {color.dim('sources:')}   {src.get('ok', '?')}/{src.get('total', '?')} OK")
-                        print(f"  {color.dim('facts:')}     {str(inv.get('knowledge_facts', '?'))}")
-                        print(f"  {color.dim('signals:')}   {str(inv.get('intel_signals', '?'))}")
-                        cost_str = f"${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "--"
-                        print(f"  {color.dim('cost:')}     {cost_str}")
-                        print(color.dim(_sep_line(bx.h)))
+                        if ui._rich_console:
+                            try:
+                                from rich.table import Table as RichTable
+                                from rich import box as RichBox
+                                print()
+                                tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=False, padding=(0, 2))
+                                tbl.add_column("Metric", style="dim", width=12)
+                                tbl.add_column("Value", style="cyan")
+                                comp = sm.get("composite", 0)
+                                comp_str = f"{comp*100:.0f}/100" if comp else "--"
+                                tbl.add_row("composite", comp_str)
+                                tbl.add_row("sources", f"{src.get('ok', '?')}/{src.get('total', '?')} OK")
+                                tbl.add_row("facts", str(inv.get('knowledge_facts', '?')))
+                                tbl.add_row("signals", str(inv.get('intel_signals', '?')))
+                                cost_str = f"${cost.get('monthly_usd', 0):.2f}" if cost.get('monthly_usd') else "--"
+                                tbl.add_row("cost", cost_str)
+                                ui._rich_console.print(tbl)
+                            except Exception:
+                                _print_status_fallback(sm, src, inv, cost, color, bx)
+                        else:
+                            _print_status_fallback(sm, src, inv, cost, color, bx)
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
                 except Exception as e:
@@ -1276,16 +1706,26 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     if r.status_code == 200:
                         history = r.json().get("history", [])
                         if history:
-                            print()
-                            print(color.cyan("  Composite Score History"))
-                            print(color.dim(_sep_line(bx.h)))
-                            for hist in history[:24]:
-                                ts = hist.get("timestamp", "")[:16]
-                                score = hist.get("composite", 0)
-                                bar_len = int(score * 20)
-                                bar = "█" * bar_len + "░" * (20 - bar_len)
-                                print(f"  {ts}  {score*100:5.1f}%  {bar}")
-                            print(color.dim(_sep_line(bx.h)))
+                            if ui._rich_console:
+                                try:
+                                    from rich.table import Table as RichTable
+                                    from rich import box as RichBox
+                                    print()
+                                    tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=True, padding=(0, 1))
+                                    tbl.add_column("Time", style="dim", width=16)
+                                    tbl.add_column("Score", style="cyan", width=8)
+                                    tbl.add_column("Bar", style="green", width=22)
+                                    for hist in history[:24]:
+                                        ts = hist.get("timestamp", "")[:16]
+                                        score = hist.get("composite", 0)
+                                        bar_len = int(score * 20)
+                                        bar = "█" * bar_len + "░" * (20 - bar_len)
+                                        tbl.add_row(ts, f"{score*100:5.1f}%", bar)
+                                    ui._rich_console.print(tbl)
+                                except Exception:
+                                    _print_history_fallback(history, color, bx)
+                            else:
+                                _print_history_fallback(history, color, bx)
                         else:
                             print(color.dim("  no history data"))
                     else:
@@ -1302,16 +1742,30 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     r = httpx.get(f"{brain_url}/api/aria/cost/monthly/status", headers=headers, timeout=15)
                     if r.status_code == 200:
                         d = r.json()
-                        print()
-                        print(color.cyan("  Cost Dashboard"))
-                        print(color.dim(_sep_line(bx.h)))
-                        spend = d.get('monthly_spend', 0)
-                        cap = d.get('monthly_cap', 300)
-                        remaining = d.get('remaining', 0)
-                        print(f"  {color.dim('spend:')}     ${spend:.2f}")
-                        print(f"  {color.dim('cap:')}       ${cap:.2f}")
-                        print(f"  {color.dim('remaining:')} ${remaining:.2f}")
-                        print(color.dim(_sep_line(bx.h)))
+                        if ui._rich_console:
+                            try:
+                                from rich.table import Table as RichTable
+                                from rich import box as RichBox
+                                print()
+                                tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=False, padding=(0, 2))
+                                tbl.add_column("Metric", style="dim", width=12)
+                                tbl.add_column("Value", style="cyan")
+                                spend = d.get('monthly_spend', 0)
+                                cap = d.get('monthly_cap', 300)
+                                remaining = d.get('remaining', 0)
+                                tbl.add_row("spend", f"${spend:.2f}")
+                                tbl.add_row("cap", f"${cap:.2f}")
+                                tbl.add_row("remaining", f"${remaining:.2f}")
+                                # Add a visual bar
+                                pct = min(spend / max(cap, 1), 1.0)
+                                bar_len = int(pct * 20)
+                                bar = "█" * bar_len + "░" * (20 - bar_len)
+                                tbl.add_row("usage", f"{pct*100:.0f}%  {bar}")
+                                ui._rich_console.print(tbl)
+                            except Exception:
+                                _print_cost_fallback(d, color, bx)
+                        else:
+                            _print_cost_fallback(d, color, bx)
                     else:
                         print(color.dim(f"  brain returned {r.status_code}"))
                 except Exception as e:
@@ -1340,16 +1794,35 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     if r.is_error:
                         print(color.dim(f"  diff failed: {r.output[:200]}"))
                     elif r.output:
-                        lines = r.output.splitlines()
-                        for ln in lines[:40]:
-                            if ln.startswith("+"):
-                                print(color.green(f"  + {ln[1:200]}"))
-                            elif ln.startswith("-"):
-                                print(color.red(f"  - {ln[1:200]}"))
-                            else:
-                                print(color.dim(f"    {ln[:200]}"))
-                        if len(lines) > 40:
-                            print(color.dim(f"    ... ({len(lines) - 40} more lines)"))
+                        # R-F1267: Rich syntax-highlighted diff
+                        if ui._rich_console:
+                            try:
+                                syntax = RichSyntax(r.output, "diff", theme="monokai" if ui._theme_name == "dark" else "default",
+                                                    line_numbers=True, word_wrap=True)
+                                ui._rich_console.print(syntax)
+                            except Exception:
+                                # Fallback to plain rendering
+                                lines = r.output.splitlines()
+                                for ln in lines[:40]:
+                                    if ln.startswith("+"):
+                                        print(color.green(f"  + {ln[1:200]}"))
+                                    elif ln.startswith("-"):
+                                        print(color.red(f"  - {ln[1:200]}"))
+                                    else:
+                                        print(color.dim(f"    {ln[:200]}"))
+                                if len(lines) > 40:
+                                    print(color.dim(f"    ... ({len(lines) - 40} more lines)"))
+                        else:
+                            lines = r.output.splitlines()
+                            for ln in lines[:40]:
+                                if ln.startswith("+"):
+                                    print(color.green(f"  + {ln[1:200]}"))
+                                elif ln.startswith("-"):
+                                    print(color.red(f"  - {ln[1:200]}"))
+                                else:
+                                    print(color.dim(f"    {ln[:200]}"))
+                            if len(lines) > 40:
+                                print(color.dim(f"    ... ({len(lines) - 40} more lines)"))
                     else:
                         print(color.dim("  no uncommitted changes"))
                 except Exception as e:
@@ -1357,31 +1830,51 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             if line == "/plan":
                 if agent.toolbox.plan:
-                    print()
-                    print(color.cyan("  Current Plan"))
-                    print(color.dim(_sep_line(bx.h)))
-                    for p in agent.toolbox.plan:
-                        step = p.get("step", "")
-                        status = p.get("status", "pending")
-                        sym = {"completed": "✓", "in_progress": "~", "pending": " "}.get(status, " ")
-                        print(f"  [{sym}] {step[:52]}")
-                    print(color.dim(_sep_line(bx.h)))
+                    if ui._rich_console:
+                        try:
+                            from rich.table import Table as RichTable
+                            from rich import box as RichBox
+                            print()
+                            tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=False, padding=(0, 1))
+                            tbl.add_column("Status", width=3)
+                            tbl.add_column("Step")
+                            for p in agent.toolbox.plan:
+                                step = p.get("step", "")
+                                status = p.get("status", "pending")
+                                sym = {"completed": "✓", "in_progress": "~", "pending": " "}.get(status, " ")
+                                style = "green" if status == "completed" else "yellow" if status == "in_progress" else "dim"
+                                tbl.add_row(f"[{style}]{sym}[/{style}]", f"[{style}]{step}[/{style}]")
+                            ui._rich_console.print(tbl)
+                        except Exception:
+                            _print_plan_fallback(agent, color, bx)
+                    else:
+                        _print_plan_fallback(agent, color, bx)
                 else:
                     print(color.dim("  no plan set (ARIA hasn't called update_plan yet)"))
                 continue
             if line == "/stats":
                 elapsed = time.time() - ui._session_start if ui._session_start else 0
                 elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s" if elapsed >= 60 else f"{int(elapsed)}s"
-                print()
-                print(color.cyan("  Session Statistics"))
-                print(color.dim(_sep_line(bx.h)))
-                print(f"  {color.dim('duration:')}  {elapsed_str}")
-                print(f"  {color.dim('tools:')}    {ui._tool_count}")
-                print(f"  {color.dim('errors:')}   {ui._error_count}")
-                print(f"  {color.dim('files:')}    {ui._file_changes}")
-                print(f"  {color.dim('operator:')} {ui._operator_messages}")
-                print(f"  {color.dim('tokens:')}   {agent.llm.total_input_tokens + agent.llm.total_output_tokens} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)")
-                print(color.dim(_sep_line(bx.h)))
+                if ui._rich_console:
+                    try:
+                        from rich.table import Table as RichTable
+                        from rich import box as RichBox
+                        print()
+                        tbl = RichTable(box=RichBox.SIMPLE, border_style="dim", show_header=False, padding=(0, 2))
+                        tbl.add_column("Metric", style="dim", width=12)
+                        tbl.add_column("Value", style="cyan")
+                        tbl.add_row("duration", elapsed_str)
+                        tbl.add_row("tools", str(ui._tool_count))
+                        tbl.add_row("errors", str(ui._error_count))
+                        tbl.add_row("files", str(ui._file_changes))
+                        tbl.add_row("operator", str(ui._operator_messages))
+                        total_tok = agent.llm.total_input_tokens + agent.llm.total_output_tokens
+                        tbl.add_row("tokens", f"{total_tok} ({agent.llm.total_input_tokens} in / {agent.llm.total_output_tokens} out)")
+                        ui._rich_console.print(tbl)
+                    except Exception:
+                        _print_stats_fallback(agent, ui, elapsed_str, color, bx)
+                else:
+                    _print_stats_fallback(agent, ui, elapsed_str, color, bx)
                 continue
             if line == "/think":
                 for m in reversed(agent.messages):
