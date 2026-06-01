@@ -1937,7 +1937,11 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 agent.run_until_complete(line)
             except KeyboardInterrupt:
                 print("\n" + color.yellow("  ⏹  Cancelled — type a new task or /exit"))
-                # Reset the agent state so it doesn't carry a half-finished turn
+                agent.messages = agent.messages[:-1] if agent.messages else agent.messages
+                continue
+            except Exception as exc:
+                print("\n" + color.red(f"  ❌ Error: {exc}"))
+                print(color.dim("  The LLM provider may be unavailable. Try again later."))
                 agent.messages = agent.messages[:-1] if agent.messages else agent.messages
                 continue
     except KeyboardInterrupt:

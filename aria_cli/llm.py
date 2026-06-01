@@ -47,7 +47,7 @@ class LLMConfig:
     api_key: str = ""
     model: str = "deepseek-chat"
     base_url: str = "https://api.deepseek.com/v1"
-    timeout: float = 60.0
+    timeout: float = 30.0
     max_tokens: int = 8192
     temperature: float = 0.0
 
@@ -84,7 +84,7 @@ class LLMConfig:
                 else _PROVIDER_BASE_URLS.get(provider, "https://api.deepseek.com/v1"))
         ).rstrip("/")
 
-        timeout = float(os.getenv("ARIA_CODER_LLM_TIMEOUT", "60"))
+        timeout = float(os.getenv("ARIA_CODER_LLM_TIMEOUT", "30"))
         max_tokens = int(os.getenv("ARIA_CODER_LLM_MAX_TOKENS", "8192"))
         return cls(
             provider=provider,
