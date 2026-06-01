@@ -80,14 +80,60 @@ _STDIN_THREAD: threading.Thread | None = None
 
 
 def _stdin_reader() -> None:
-    """Daemon thread: read sys.stdin lines and put each on the queue."""
+    """Daemon thread: read sys.stdin lines and put each on the queue.
+    When paused (_STDIN_PAUSED), yields stdin to the REPL prompt (R-F1265).
+    Uses msvcrt.kbhit() on Windows for non-blocking availability check,
+    falling back to os.read() with a short timeout on other platforms."""
     try:
-        for line in sys.stdin:
-            stripped = line.strip()
-            if stripped:
-                _OPERATOR_QUEUE.put(stripped)
-    except (EOFError, OSError):
+        buf = ""
+        while True:
+            if _STDIN_PAUSED.is_set():
+                threading.Event().wait(0.1)
+                continue
+            # Check if input is available before blocking on read
+            try:
+                import msvcrt
+                if not msvcrt.kbhit():
+                    threading.Event().wait(0.05)
+                    continue
+            except ImportError:
+                # Non-Windows: use select with timeout
+                try:
+                    import select
+                    r, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if not r:
+                        continue
+                except (ImportError, OSError):
+                    threading.Event().wait(0.05)
+                    continue
+            try:
+                chunk = os.read(sys.stdin.fileno(), 4096)
+            except (OSError, ValueError):
+                break
+            if not chunk:
+                break
+            buf += chunk.decode("utf-8", errors="replace")
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                stripped = line.strip()
+                if stripped:
+                    _OPERATOR_QUEUE.put(stripped)
+    except (EOFError, OSError, ValueError):
         pass
+
+
+_STDIN_PAUSED = threading.Event()
+
+
+def _pause_stdin_reader() -> None:
+    """Pause the stdin reader thread so the REPL prompt can read stdin directly.
+    Used when prompt_toolkit is available and takes over stdin (R-F1265)."""
+    _STDIN_PAUSED.set()
+
+
+def _resume_stdin_reader() -> None:
+    """Resume the stdin reader thread after the REPL prompt finishes (R-F1265)."""
+    _STDIN_PAUSED.clear()
 
 
 def _start_stdin_reader() -> None:
@@ -95,6 +141,7 @@ def _start_stdin_reader() -> None:
     global _STDIN_THREAD
     if _STDIN_THREAD is not None and _STDIN_THREAD.is_alive():
         return
+    _STDIN_PAUSED.clear()
     _STDIN_THREAD = threading.Thread(target=_stdin_reader, daemon=True, name="stdin-reader")
     _STDIN_THREAD.start()
 
@@ -404,8 +451,35 @@ def _visible_len(s: str) -> int:
 def _content(s: str) -> str:
     """Pad string to exactly 56 visible chars for box content.
     Strips ANSI codes before measuring so colored text aligns correctly.
-    Used only by _box_content (R-F1260)."""
-    return s + " " * (56 - _visible_len(s))
+    If the visible content exceeds 56 chars, it is truncated with ``…``.
+    Used only by _box_content (R-F1260, R-F1265)."""
+    visible = _visible_len(s)
+    if visible <= 56:
+        return s + " " * (56 - visible)
+
+    # Truncate to fit: walk the string char by char, counting visible width.
+    # Stop at 53 visible chars, append "…" (1 visible char) = 54 total,
+    # leaving 2 trailing spaces so the right border doesn't touch the text.
+    count = 0
+    result: list[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\033":
+            # ANSI escape sequence — keep it intact
+            end = s.find("m", i)
+            if end != -1:
+                result.append(s[i:end + 1])
+                i = end + 1
+                continue
+        if _visible_len(ch) > 0:
+            if count >= 53:
+                result.append("…")
+                break
+            count += 1
+        result.append(ch)
+        i += 1
+    return "".join(result) + "  "
 
 
 def _box_line(corner_left: str, h: str, corner_right: str) -> str:
@@ -787,11 +861,13 @@ class TerminalUI(AgentUI):
 
     # ── R-F1194: operator message notification ──────────────────────────────
     def operator_message(self, text: str) -> None:
-        """Notify that an operator message arrived mid-task (R-F1260)."""
+        """Notify that an operator message arrived mid-task (R-F1260, R-F1265).
+        Prints on a new line without clearing existing output, so streaming
+        content is not disrupted."""
         self._operator_messages += 1
-        self._ensure_clear_line()
         preview = text if len(text) <= 80 else text[:80] + "…"
-        print(self.c.yellow(f"  [operator] {preview}"))
+        sys.stdout.write(f"\n{self.c.yellow(f'  [operator] {preview}')}\n")
+        sys.stdout.flush()
 
     @staticmethod
     def _summarize(name: str, args: dict) -> str:
@@ -886,8 +962,13 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     approval = color.green("auto") if auto_approve else "confirm"
     dir_short = str(cwd)
-    if len(dir_short) > 50:
-        dir_short = "…" + dir_short[-49:]
+    # R-F1265: truncate path to fit within 56-char box.
+    # Line format: "ARIA Coder  vX.Y.Z  <path>" — fixed prefix is ~20 visible chars.
+    # Leave room for the path: 56 - 20 = 36 chars max.
+    prefix_visible = len("ARIA Coder") + 4 + len(__version__) + 2  # 22 for v0.1.0
+    max_path = max(10, 56 - prefix_visible)
+    if len(dir_short) > max_path:
+        dir_short = "…" + dir_short[-(max_path - 1):]
     bx = _BoxChars()
     print()
     print(color.bold(_box_line(bx.tl, bx.h, bx.tr)))
@@ -969,6 +1050,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 ui._ensure_clear_line()
                 if PROMPT_TOOLKIT_AVAILABLE:
                     try:
+                        # R-F1265: pause stdin reader so prompt_toolkit can read stdin
+                        _pause_stdin_reader()
                         pt_session = PTPromptSession(
                             history=PTFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
                             auto_suggest=PTAutoSuggest(),
@@ -986,6 +1069,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         line = pt_session.prompt("  you > ", vi_mode=False).strip()
                     except Exception:
                         line = _read_operator_input(color.bold("  you > ")).strip()
+                    finally:
+                        _resume_stdin_reader()
                 else:
                     line = _read_operator_input(color.bold("  you > ")).strip()
             except EOFError:
