@@ -1811,6 +1811,26 @@ async def lifespan(app: FastAPI):
     except Exception as _wia_e:
         logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
 
+    # R-F1253 — auto-populate agent signup vault from portal registry on boot
+    try:
+        from .intel.agent_signup_vault import get_vault
+        from .intel.portal_registry import PORTALS
+        vault = get_vault()
+        stats = vault.stats()
+        if stats.get("total", 0) == 0:
+            count = vault.import_from_portal_registry(PORTALS, agent_id="system")
+            logger.info(
+                "[R-F1253] Agent signup vault auto-populated: %d portals imported",
+                count,
+            )
+        else:
+            logger.debug(
+                "[R-F1253] Agent signup vault already has %d entries — skipping import",
+                stats["total"],
+            )
+    except Exception as _vault_e:
+        logger.warning("[R-F1253] Vault auto-population failed (non-fatal): %s", _vault_e)
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
 
     # R-F1051 -- start self-healing infrastructure
