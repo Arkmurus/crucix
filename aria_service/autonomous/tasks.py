@@ -451,6 +451,53 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import dd_orchestrator
         return await dd_orchestrator.rescreen_watchlist(llm=llm)
 
+    # R-F1255 (2026-06-01): Full DD sweep — runs the 7-layer orchestrator
+    # on every watchlist entity. This is a COSTLY operation (each entity
+    # costs ~$0.50-2.00 in LLM calls) so it's capped at 3 entities per
+    # cycle and gated behind a separate task with a higher cost cap.
+    elif tool_kind == "dd_full_sweep":
+        from ..intel import dd_orchestrator
+        from ..intel import redis_store as _rs
+
+        watchlist = await _rs.get_json(dd_orchestrator.WATCHLIST_KEY) or []
+        if not watchlist:
+            return {"entities_screened": 0, "results": [], "errors": [],
+                    "message": "watchlist is empty"}
+
+        # Cap at 3 entities per cycle to control cost
+        max_entities = int((task.tool_chain[0] or {}).get("max_entities", 3))
+        entities = watchlist[:max_entities]
+
+        results = []
+        errors = []
+        for entity in entities:
+            name = entity.get("name") or entity.get("entity") or ""
+            entity_type = entity.get("type", "company")
+            try:
+                report = await dd_orchestrator.orchestrate_dd(
+                    {"name": name, "type": entity_type},
+                    llm=llm,
+                    mode="quick",  # quick mode skips network + deep research
+                    cost_cap_usd=1.00,
+                )
+                results.append({
+                    "entity": name,
+                    "success": True,
+                    "risk_score": getattr(report, "composite_score", None),
+                    "report_id": getattr(report, "report_id", None),
+                })
+            except Exception as e:
+                logger.warning("[dd_full_sweep] DD failed for %s: %s", name, e)
+                errors.append({"entity": name, "error": str(e)[:200]})
+
+        return {
+            "entities_screened": len(entities),
+            "results": results,
+            "errors": errors,
+            "success_count": len(results),
+            "error_count": len(errors),
+        }
+
     # R-F69 (2026-05-09): DOJ FCPA enforcement monitoring. Weekly sweep
     # of the DOJ FCPA enforcement listing — extracts named entities
     # (companies, individuals, country exposures, penalty amounts) from
@@ -1198,6 +1245,52 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
     elif tool_kind == "portal_coverage_audit":
         from ..intel import portal_coverage_audit as _pca
         return await _pca.auto_register_gaps(max_portals=3)
+
+    # R-F1256 (2026-06-01): Daily vault registration agent — picks up
+    # pending vault entries and attempts registration. More frequent than
+    # the weekly PORTAL-REGISTRATION-WEEKLY task. Handles portals that
+    # were added to the vault but not yet registered.
+    elif tool_kind == "vault_registration_daily":
+        from ..intel.agent_signup_vault import AgentSignupVault
+        from ..intel import portal_registry as _pr
+
+        vault = AgentSignupVault()
+        try:
+            # Get all pending entries from the vault
+            pending = vault.list(status="pending", limit=10)
+            if not pending:
+                return {"checked": 0, "registered": 0, "message": "no pending entries"}
+
+            results = []
+            for entry in pending:
+                site_id = entry.get("site_id", "")
+                if not site_id:
+                    continue
+                try:
+                    reg_result = await _pr.register_for_portal(site_id)
+                    results.append({
+                        "site_id": site_id,
+                        "site_name": entry.get("site_name", ""),
+                        "success": reg_result.get("success", False),
+                        "message": reg_result.get("message", reg_result.get("error", "")),
+                    })
+                except Exception as e:
+                    logger.warning("[vault_registration_daily] Failed for %s: %s", site_id, e)
+                    results.append({
+                        "site_id": site_id,
+                        "site_name": entry.get("site_name", ""),
+                        "success": False,
+                        "error": str(e)[:200],
+                    })
+
+            success_count = sum(1 for r in results if r.get("success"))
+            return {
+                "checked": len(pending),
+                "registered": success_count,
+                "results": results,
+            }
+        finally:
+            vault.close()
 
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}

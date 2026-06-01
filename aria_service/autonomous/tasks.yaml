@@ -766,6 +766,34 @@ tasks:
     escalate_if: ["RED", "HARD_STOP", "SAR"]
     mem0_tags: [dd, orchestrator, watchlist, weekly, autonomous]
 
+  # ──────────────────────────────────────────────────────────────────
+  # R-F1255 — Full DD sweep on watchlist entities
+  # ──────────────────────────────────────────────────────────────────
+  # Runs the 7-layer DD orchestrator on up to 3 watchlist entities per
+  # cycle. This is a COSTLY operation — each entity costs ~$0.50-2.00
+  # in LLM calls. Uses "quick" mode (skips network + deep research) to
+  # keep costs manageable. Disabled by default — enable only when the
+  # watchlist has entities worth full DD on.
+  - id: WEEKLY-DD-FULL-SWEEP
+    name: Full DD sweep on watchlist entities
+    description: |
+      Weekly Monday 08:00 UTC — runs the full 7-layer DD orchestrator
+      on up to 3 watchlist entities. Uses quick mode to control costs.
+      Each entity gets a fresh DD report with identity, compliance,
+      digital, and verification layers.
+    cron: "0 8 * * mon"
+    enabled: false  # DISABLED by default — enable when watchlist is populated
+    priority: MEDIUM
+    timeout_seconds: 900
+    cost_cap_usd: 5.00
+    tool_chain:
+      - tool: dd_full_sweep
+        max_entities: 3
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["RED", "HARD_STOP", "SAR"]
+    mem0_tags: [dd, orchestrator, full-sweep, weekly, autonomous]
+
   # ═══════════════════════════════════════════════════════════════════
   # KNOWLEDGE FRESHNESS AUDIT — proactive stale-data detection
   # ═══════════════════════════════════════════════════════════════════
@@ -1925,6 +1953,31 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [portals, registration, data_collection, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # R-F1256 — Daily vault registration agent
+  # ──────────────────────────────────────────────────────────────────
+  # Picks up pending vault entries and attempts registration daily.
+  # More frequent than the weekly PORTAL-REGISTRATION-WEEKLY task.
+  # Handles portals that were added to the vault but not yet registered.
+  - id: DAILY-VAULT-REGISTRATION
+    name: Daily vault registration — pick up pending portal signups
+    description: |
+      Daily 05:00 UTC — check the agent_signup_vault for pending entries
+      and attempt registration. This is the fast-follow to the weekly
+      portal coverage audit — portals discovered mid-week get registered
+      within 24h instead of waiting for Sunday.
+    cron: "0 5 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: vault_registration_daily
+    delivery_channels: [mem0, brain_hook]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [portals, registration, vault, daily, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
   # R-F69 (2026-05-09): WEEKLY-FCPA-ENFORCEMENT

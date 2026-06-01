@@ -82,6 +82,10 @@ async def crawl_seed_homepages(limit: int | None = None,
 
     fetched = indexed = skipped = errors = 0
     by_status: dict[str, int] = {}
+    # R-F1257: batch absorbs — collect all indexed pages and fire ONE
+    # absorb per batch instead of one per page (which saturated the
+    # brain_hook background tier with 50+ concurrent tasks).
+    _absorb_batch: list[dict[str, str]] = []
 
     for d in domains:
         url = f"https://{d['domain']}/"
@@ -152,40 +156,56 @@ async def crawl_seed_homepages(limit: int | None = None,
         # via /search but didn't *know* them. Every equivalent customer
         # question still paid an LLM call.
         #
-        # Fire-and-forget brain_hook.absorb with module="web_atlas"
-        # (already registered in _MODULE_TOPICS:78 with osint +
-        # market_intel topics). Failure is non-fatal — the crawl loop
-        # continues regardless. Confidence ASSESSED (one source, no
-        # corroboration — verified_intel pipeline handles upgrades).
+        # R-F1257 (2026-06-01): BATCH absorbs instead of one per page.
+        # Pre-R-F1257 every indexed page fired a separate brain_hook.absorb
+        # as a background task. With 16 concurrent background tiers, 50+
+        # pages per cycle created 50+ background tasks all competing for
+        # the semaphore — saturating the brain_hook pipeline and tripping
+        # the circuit breaker. Now we collect all indexed pages and fire
+        # ONE absorb per batch with a consolidated summary.
         if _indexed_this_iter:
-            try:
-                from aria_service.intel import brain_hook as _bh
-                _title = (result.get("title") or "").strip()
-                _domain = (result.get("domain") or d["domain"]).strip()
-                _body = (result.get("body") or "")
-                _summary = (
-                    f"Indexed page from {_domain}: "
-                    f"{_title[:160] if _title else result.get('url','')[:160]}"
-                )
-                # Cap detail at ~2 KB — neural_memory.learn_from_text
-                # needs >50 chars but doesn't benefit from MB-scale
-                # bodies (the indexer already chunks for FTS).
-                _detail = _body[:2000] if _body else _summary
-                _t = asyncio.create_task(_bh.absorb(
-                    module="web_atlas",
-                    summary=_summary,
-                    detail=_detail,
-                    entity_name=_domain,
-                    success=True,
-                    source_id=result.get("canonical_url") or result.get("url") or "",
-                    confidence="ASSESSED",
-                ))
-                _t.add_done_callback(lambda t: t.result() if not t.cancelled() and t.exception() is None else None)
-            except Exception as e:
-                logger.debug(
-                    "R-F667: brain_hook.absorb dispatch failed for %s "
-                    "(non-fatal): %s", d["domain"], e,
-                )
+            _absorb_batch.append({
+                "domain": (result.get("domain") or d["domain"]).strip(),
+                "title": (result.get("title") or "").strip(),
+                "url": result.get("canonical_url") or result.get("url") or "",
+                "body": (result.get("body") or ""),
+            })
+
+    # R-F1257: fire ONE batch absorb instead of N per-page absorbs.
+    # This prevents saturating the brain_hook background tier when the
+    # crawl indexes 50+ pages in a single cycle.
+    if _absorb_batch:
+        try:
+            from aria_service.intel import brain_hook as _bh
+            _domains = list({p["domain"] for p in _absorb_batch})
+            _titles = [p["title"] for p in _absorb_batch if p["title"]]
+            _summary = (
+                f"Web atlas crawl indexed {len(_absorb_batch)} pages "
+                f"across {len(_domains)} domains: "
+                f"{', '.join(_titles[:5])}"
+                f"{'...' if len(_titles) > 5 else ''}"
+            )
+            # Concatenate first 2000 chars of each page body for neural
+            _detail = "\n\n---\n\n".join(
+                f"[{p['domain']}] {p['title']}: {p['body'][:2000]}"
+                for p in _absorb_batch[:10]  # cap at 10 pages for detail
+            )
+            _t = asyncio.create_task(_bh.absorb(
+                module="web_atlas",
+                summary=_summary,
+                detail=_detail,
+                entity_name=",".join(_domains[:5]),
+                success=True,
+                source_id=f"crawl_batch:{len(_absorb_batch)}_pages",
+                confidence="ASSESSED",
+            ))
+            _t.add_done_callback(
+                lambda t: t.result() if not t.cancelled() and t.exception() is None else None
+            )
+        except Exception as e:
+            logger.debug(
+                "R-F1257: batch brain_hook.absorb failed (non-fatal): %s", e,
+            )
 
     return {
         "fetched": fetched, "indexed": indexed, "skipped": skipped,
