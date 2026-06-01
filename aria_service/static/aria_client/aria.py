@@ -168,7 +168,7 @@ def send_coder_task(task: str, code: str = "", session_id: str = "") -> dict:
     }
     if code:
         body["code_context"] = code
-    return _request("POST", "/api/aria/chat", body, timeout=300)
+    return _request("POST", "/api/aria/chat", body, timeout=180)
 
 
 def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> list[str]:
@@ -200,30 +200,40 @@ def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> l
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=300) as resp:
             buffer = ""
+            last_data_time = time.time()
             while True:
-                chunk = resp.read(4096)
-                if not chunk:
-                    break
-                buffer += chunk.decode("utf-8", errors="replace")
-                while "\n\n" in buffer:
-                    event, buffer = buffer.split("\n\n", 1)
-                    for line in event.split("\n"):
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str.strip() == "[DONE]":
-                                return chunks
-                            try:
-                                parsed = json.loads(data_str)
-                                text = parsed.get("text", parsed.get("response", ""))
-                                if text:
-                                    chunks.append(text)
-                                    sys.stdout.write(text)
-                                    sys.stdout.flush()
-                            except json.JSONDecodeError:
-                                if data_str.strip():
-                                    chunks.append(data_str)
-                                    sys.stdout.write(data_str)
-                                    sys.stdout.flush()
+                try:
+                    chunk = resp.read(4096)
+                    if not chunk:
+                        break
+                    last_data_time = time.time()
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    while "\n\n" in buffer:
+                        event, buffer = buffer.split("\n\n", 1)
+                        for line in event.split("\n"):
+                            if line.startswith("data: "):
+                                data_str = line[6:]
+                                if data_str.strip() == "[DONE]":
+                                    return chunks
+                                try:
+                                    parsed = json.loads(data_str)
+                                    text = parsed.get("text", parsed.get("response", ""))
+                                    if text:
+                                        chunks.append(text)
+                                        sys.stdout.write(text)
+                                        sys.stdout.flush()
+                                except json.JSONDecodeError:
+                                    if data_str.strip():
+                                        chunks.append(data_str)
+                                        sys.stdout.write(data_str)
+                                        sys.stdout.flush()
+                except urllib.error.HTTPError:
+                    raise
+                except (OSError, urllib.error.URLError) as e:
+                    # If we got some data already, return what we have
+                    if chunks:
+                        return chunks
+                    raise
             return chunks
     except urllib.error.HTTPError as e:
         if e.code == 401:
@@ -429,8 +439,8 @@ def interactive_shell() -> None:
 
         # ── Send to ARIA Coder ──────────────────────────────────────────────
         print()
-        print(f"  {c('purple', '█')} {c('bold', 'Coding...')} {c('dim', '(streaming response)')}")
-        print()
+        print(f"  {c('purple', '█')} {c('bold', 'Coding...')}  {c('dim', '(press Ctrl+C to cancel)')}")
+        sys.stdout.flush()
 
         try:
             try:
