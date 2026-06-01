@@ -584,6 +584,7 @@ async def lifespan(app: FastAPI):
         "openai": settings.openai_api_key,
         "gemini": settings.gemini_api_key,
         "deepseek": settings.deepseek_api_key,
+        "groq": os.environ.get("GROQ_API_KEY", ""),
     }
     api_key = (
         settings.llm_api_key

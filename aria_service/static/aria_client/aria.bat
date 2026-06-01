@@ -28,16 +28,18 @@ echo   ║                                                                      
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check connection
+:: Check connection (try PowerShell first, fall back to curl)
 powershell -Command "& {
     try {
         $r = Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;
         $d = $r.Content | ConvertFrom-Json;
         Write-Host '  ✅ Connected to ARIA server  (' $d.build_rev ')' -ForegroundColor Green;
     } catch {
-        Write-Host '  ⚠️  Server unreachable. Some features may not work.' -ForegroundColor Yellow;
+        Write-Host '  ⚠️  Server unreachable.' -ForegroundColor Yellow;
     }
-}"
+}" 2>nul || (
+    echo   ⚠️  Could not check connection. Make sure you have internet.
+)
 
 echo.
 echo   Hello %USERNAME%. I'm ARIA. I find and fix bugs in code.
@@ -128,6 +130,7 @@ goto loop
 echo.
 echo   🔍 Analysing: %desc%
 echo.
+set "FIX_RESULT="
 powershell -Command "& {
     $body = @{description='%desc%'} | ConvertTo-Json;
     try {
@@ -137,7 +140,7 @@ powershell -Command "& {
         Write-Host '  ────────────────────────────────────────────';
         Write-Host '  Title: ' $r.plan.title;
         Write-Host '  Risk:  ' $r.plan.risk_level;
-        Write-Host '  Approach: ' $r.plan.approach;
+        if ($r.plan.approach) { Write-Host '  Approach: ' $r.plan.approach; }
         Write-Host '';
         Write-Host '  📄 Generated Code' -ForegroundColor Green;
         Write-Host '  ────────────────────────────────────────────';
@@ -145,9 +148,16 @@ powershell -Command "& {
         Write-Host '  ────────────────────────────────────────────';
     } catch {
         Write-Host '';
-        Write-Host '  ❌ ' $_.Exception.Message -ForegroundColor Red;
+        Write-Host '  ❌ Error: ' $_.Exception.Message -ForegroundColor Red;
     }
-}"
+}" 2>nul
+if errorlevel 1 (
+    echo   ⚠️  PowerShell failed. Trying curl.exe...
+    curl.exe -s -X POST "%SERVER%/api/aria/coder/demo" -H "Content-Type: application/json" -d "{\"description\":\"%desc%\"}" 2>nul || (
+        echo   ❌ Could not connect to ARIA server.
+        echo      Make sure you have internet access.
+    )
+)
 goto loop
 
 :analyse_code
