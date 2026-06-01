@@ -26,6 +26,7 @@ _PROVIDER_BASE_URLS = {
     "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "mistral": "https://api.mistral.ai/v1",
+    "aria": "",  # base_url is set dynamically from ARIA_SERVICE_URL
 }
 _PROVIDER_DEFAULT_MODELS = {
     "deepseek": "deepseek-chat",
@@ -34,6 +35,7 @@ _PROVIDER_DEFAULT_MODELS = {
     "openrouter": "openrouter/auto",
     "mistral": "mistral-large-latest",
     "ollama": "llama3.1:8b",
+    "aria": "aria-coder",
 }
 
 
@@ -43,10 +45,10 @@ class LLMError(RuntimeError):
 
 @dataclass
 class LLMConfig:
-    provider: str = "deepseek"
+    provider: str = "aria"
     api_key: str = ""
-    model: str = "deepseek-chat"
-    base_url: str = "https://api.deepseek.com/v1"
+    model: str = "aria-coder"
+    base_url: str = ""
     timeout: float = 30.0
     max_tokens: int = 8192
     temperature: float = 0.0
@@ -54,16 +56,22 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> "LLMConfig":
         """Resolve config from env. ARIA_CODER_* overrides, then the generic
-        LLM_*/DEEPSEEK_* vars that the rest of the stack already uses."""
+        LLM_*/DEEPSEEK_* vars that the rest of the stack already uses.
+
+        Default provider is now ``aria`` — the ARIA server's own LLM endpoint
+        (/api/aria/coder/llm). Falls back to deepseek if ARIA_SERVICE_URL is
+        not set or the aria provider is explicitly overridden.
+        """
         provider = (
             os.getenv("ARIA_CODER_LLM_PROVIDER")
             or os.getenv("LLM_PROVIDER")
-            or "deepseek"
+            or "aria"
         ).strip().lower()
 
         api_key = (
             os.getenv("ARIA_CODER_LLM_API_KEY")
             or os.getenv("LLM_API_KEY")
+            or os.getenv("ARIA_INTERNAL_TOKEN")
             or os.getenv("DEEPSEEK_API_KEY")
             or os.getenv("OPENAI_API_KEY")
             or os.getenv("GROQ_API_KEY")
@@ -73,16 +81,25 @@ class LLMConfig:
         model = (
             os.getenv("ARIA_CODER_LLM_MODEL")
             or os.getenv("LLM_MODEL")
-            or _PROVIDER_DEFAULT_MODELS.get(provider, "deepseek-chat")
+            or _PROVIDER_DEFAULT_MODELS.get(provider, "aria-coder")
         ).strip()
 
         ollama_url = (os.getenv("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
-        base_url = (
-            os.getenv("ARIA_CODER_LLM_BASE_URL")
-            or os.getenv("OPENAI_BASE_URL")
-            or (f"{ollama_url}/v1" if provider == "ollama"
-                else _PROVIDER_BASE_URLS.get(provider, "https://api.deepseek.com/v1"))
-        ).rstrip("/")
+
+        if provider == "aria":
+            # ARIA server provider: use the server's own LLM endpoint
+            aria_url = (os.getenv("ARIA_SERVICE_URL") or "http://localhost:8000").rstrip("/")
+            base_url = f"{aria_url}/api/aria"
+            # Use ARIA_INTERNAL_TOKEN for auth
+            if not api_key:
+                api_key = os.getenv("ARIA_INTERNAL_TOKEN", "")
+        else:
+            base_url = (
+                os.getenv("ARIA_CODER_LLM_BASE_URL")
+                or os.getenv("OPENAI_BASE_URL")
+                or (f"{ollama_url}/v1" if provider == "ollama"
+                    else _PROVIDER_BASE_URLS.get(provider, "https://api.deepseek.com/v1"))
+            ).rstrip("/")
 
         timeout = float(os.getenv("ARIA_CODER_LLM_TIMEOUT", "30"))
         max_tokens = int(os.getenv("ARIA_CODER_LLM_MAX_TOKENS", "8192"))
@@ -128,6 +145,10 @@ class LLMClient:
             pass
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        # ARIA provider uses the server's /api/aria/chat endpoint
+        if self.config.provider == "aria":
+            return self._aria_chat(messages)
+
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
@@ -178,12 +199,139 @@ class LLMClient:
             output_tokens=out_tok,
         )
 
+    def _aria_chat(self, messages: list[dict]) -> LLMResponse:
+        """Use the ARIA server's /api/aria/chat endpoint instead of an
+        external LLM provider. This is the same endpoint the downloaded
+        client uses — it works regardless of DeepSeek's status."""
+        # Extract the last user message
+        last_user = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user = m.get("content", "")
+                break
+        if not last_user:
+            raise LLMError("no user message found in conversation")
+
+        url = f"{self.config.base_url}/chat"
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
+        payload = {
+            "message": last_user,
+            "session_id": f"cli_{os.environ.get('USERNAME', 'user')}",
+            "auto_tools": True,
+        }
+
+        try:
+            resp = self._client.post(url, json=payload, headers=headers, timeout=120.0)
+        except httpx.HTTPError as exc:
+            raise LLMError(f"could not reach ARIA server {url}: {exc}") from exc
+
+        if resp.status_code == 401:
+            raise LLMError(
+                "ARIA server returned 401 Unauthorized. "
+                "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup"
+            )
+        if resp.status_code >= 400:
+            raise LLMError(
+                f"ARIA server {url} returned HTTP {resp.status_code}: "
+                f"{resp.text[:500]}"
+            )
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise LLMError(f"ARIA server returned non-JSON: {resp.text[:500]}") from exc
+
+        response_text = data.get("response") or data.get("answer") or json.dumps(data)
+        return LLMResponse(
+            content=response_text,
+            tool_calls=[],
+            raw_message={"role": "assistant", "content": response_text},
+            input_tokens=0,
+            output_tokens=len(response_text),
+        )
+
+    def _aria_chat_stream(self, messages: list[dict], on_delta=None) -> LLMResponse:
+        """Streaming chat via the ARIA server's /api/aria/chat/stream endpoint."""
+        last_user = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user = m.get("content", "")
+                break
+        if not last_user:
+            raise LLMError("no user message found in conversation")
+
+        url = f"{self.config.base_url}/chat/stream"
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
+        payload = {
+            "message": last_user,
+            "session_id": f"cli_{os.environ.get('USERNAME', 'user')}",
+            "auto_tools": True,
+        }
+
+        content_parts: list[str] = []
+        try:
+            with self._client.stream("POST", url, json=payload, headers=headers, timeout=120.0) as resp:
+                if resp.status_code >= 400:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    if resp.status_code == 401:
+                        raise LLMError(
+                            "ARIA server returned 401 Unauthorized. "
+                            "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup"
+                        )
+                    raise LLMError(f"ARIA server {url} returned HTTP {resp.status_code}: {body[:500]}")
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            parsed = json.loads(data_str)
+                            text = parsed.get("text", parsed.get("response", ""))
+                            if text:
+                                content_parts.append(text)
+                                if on_delta is not None:
+                                    try:
+                                        on_delta(text)
+                                    except Exception:
+                                        pass
+                        except json.JSONDecodeError:
+                            if data_str.strip():
+                                content_parts.append(data_str)
+                                if on_delta is not None:
+                                    try:
+                                        on_delta(data_str)
+                                    except Exception:
+                                        pass
+        except httpx.HTTPError as exc:
+            raise LLMError(f"could not reach ARIA server {url}: {exc}") from exc
+
+        content = "".join(content_parts)
+        return LLMResponse(
+            content=content,
+            tool_calls=[],
+            raw_message={"role": "assistant", "content": content},
+            input_tokens=0,
+            output_tokens=len(content),
+        )
+
     def chat_stream(self, messages: list[dict], tools: list[dict] | None = None,
                     on_delta=None) -> LLMResponse:
         """Streaming chat (SSE). Calls on_delta(text) for each content token as it
         arrives so the UI is never silent, accumulates tool_call deltas, and
         returns the same LLMResponse shape as chat(). Falls back semantics match
         chat() on errors (raises LLMError)."""
+        # ARIA provider uses the server's /api/aria/chat/stream endpoint
+        if self.config.provider == "aria":
+            return self._aria_chat_stream(messages, on_delta)
+
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
