@@ -1,0 +1,502 @@
+﻿[
+    {
+        "ID": "7pGPxgX11jYG2T94616vzzyXR",
+        "Version": 1263,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:35:53Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-0d27a1d9931f3cf2492e917314a0f5e3"
+    },
+    {
+        "ID": "XaYvVXJNNq9YPTO1m32xvNBNv",
+        "Version": 1262,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:32:27Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-1f73eb71ef4e5c5774125e4cd770cf8f"
+    },
+    {
+        "ID": "jp1QZVeBBN01OTZOQGm3eRyK",
+        "Version": 1261,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:27:06Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-4098b8f70f48745319aa7943c66897a2"
+    },
+    {
+        "ID": "JLxbo4k22JZxnTvKajblwoLVn",
+        "Version": 1260,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:20:42Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-0e0a324f01d0c5715915d5cc77c5e700"
+    },
+    {
+        "ID": "YgoYklRLL8Xo3fB9xoOaGbo9o",
+        "Version": 1259,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:09:31Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-5031173ab52aafd7bf0744770ce80e36"
+    },
+    {
+        "ID": "OPOl42Nkk3GOmHnw8AMqDVD2a",
+        "Version": 1258,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T18:05:41Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-7021531e4fbca364833ca0351c9d30c7"
+    },
+    {
+        "ID": "B4kyPlJaaLqkxHePJjDg9OaMo",
+        "Version": 1257,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T17:52:34Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-236bc26d9b34f77fe4f490a3382c210c"
+    },
+    {
+        "ID": "DD1znLMGG6J1jF9Y01oZOMKel",
+        "Version": 1256,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T17:33:09Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-04d3f3d6fcdb1bd6a8ae650fb7d75fff"
+    },
+    {
+        "ID": "A4VqvYA66NGVkHqKB2LQ03on",
+        "Version": 1255,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T17:12:36Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-01KSZG8VCEW3EN4W0W6CWKFWTK"
+    },
+    {
+        "ID": "MZzaeRX0025zqI03nxOVA0x96",
+        "Version": 1254,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T16:41:20Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-99673e58b52798ce9ab083969ae4ea4e"
+    },
+    {
+        "ID": "51azqDBYY72aRcNVJ8ZaGaK6J",
+        "Version": 1253,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T16:33:16Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-323b154b501a58ab44a71f4c1ea8a4e0"
+    },
+    {
+        "ID": "beM3yA9RRb2MgTqRm1BOkAP3b",
+        "Version": 1252,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T16:15:53Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-bab8b274fecf79dc6fcb96351f96dcca"
+    },
+    {
+        "ID": "YgoYklRLL8Xo3fBOLPlXmv1DY",
+        "Version": 1251,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T16:03:52Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-3da260f1acb968c41cfef994147ef527"
+    },
+    {
+        "ID": "9zA0gKNwwbBAqTbY0wPvYaDo",
+        "Version": 1250,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T15:57:04Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-b87418970c1b0200a4b80bbf6da11a07"
+    },
+    {
+        "ID": "nRqjnzJmmaOq8HzpBNKbvPlG5",
+        "Version": 1249,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T15:48:08Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-d0fc9a0d1b6a4bff22271f3dd2ae1eef"
+    },
+    {
+        "ID": "e03j7MNppPA38TQv7xBbZKz5g",
+        "Version": 1248,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T15:36:12Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-9ce1d300a91c3fc452a85e3471a02036"
+    },
+    {
+        "ID": "GXmqla3JJGjmpFPjbDLxLXBy",
+        "Version": 1247,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T15:24:20Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-44dee81b37ecae4c1e2a28f71eb8a0b9"
+    },
+    {
+        "ID": "3Ao2wbV00g5oQU551bQA7JLM",
+        "Version": 1246,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T15:04:33Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-bfe5ac1991aa3b628f4849761961a30d"
+    },
+    {
+        "ID": "nRqjnzJmmaOq8HwM27aRZwB9",
+        "Version": 1245,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T14:37:59Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-e9e8b01d82ea8a33a92527074e1c545f"
+    },
+    {
+        "ID": "z49wAzjKKVk97H63j4565G2Y",
+        "Version": 1244,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T14:34:01Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-01KSZ766DR7MG43VQC94N252HK"
+    },
+    {
+        "ID": "wkDoezBKKpMDguqOyy43akAQ",
+        "Version": 1243,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T11:30:20Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-1fb626886672c51ccfbef4d57f6746be"
+    },
+    {
+        "ID": "p2xOXzMKKYnx1CeebQRyme3LN",
+        "Version": 1242,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T11:21:28Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-6af82f29de7ae564d4b9a409561f96b2"
+    },
+    {
+        "ID": "nRqjnzJmmaOq8Hz9K2V9JGXG5",
+        "Version": 1241,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T10:51:48Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-157bc23b4d403801d750e720740ac925"
+    },
+    {
+        "ID": "beM3yA9RRb2MgT9YPm3VwDNz",
+        "Version": 1240,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T10:25:08Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-01KSYRY27AF7KQN7V304FD1ME6"
+    },
+    {
+        "ID": "beM3yA9RRb2MgTzYN52J2oog",
+        "Version": 1239,
+        "Stable": false,
+        "InProgress": false,
+        "Reason": "",
+        "Description": "Release",
+        "Status": "complete",
+        "DeploymentStrategy": "",
+        "Metadata": null,
+        "User": {
+            "ID": "GnZlNzqMlxnvaIKvyOLp",
+            "Name": "",
+            "Email": "acorrea@arkmurus.com",
+            "EnablePaidHobby": false
+        },
+        "EvaluationID": "",
+        "CreatedAt": "2026-05-31T10:13:49Z",
+        "ImageRef": "registry.fly.io/aria-intel:deployment-01KSYRAGB38W5G4E3QX8JEY5BX"
+    }
+]

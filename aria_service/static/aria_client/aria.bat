@@ -3,9 +3,10 @@ title ARIA — Autonomous Research Intelligence Agent
 cd /d "%~dp0"
 
 :: ─────────────────────────────────────────────────
-:: ARIA — Interactive Terminal
+:: ARIA — Interactive Terminal Client
 :: ─────────────────────────────────────────────────
-:: Type 'aria' in cmd. Talk to me. I'll fix your code.
+:: Type 'aria' in cmd. Connected to the main ARIA server.
+:: Full intelligence — intent detection, web research, document analysis.
 :: ─────────────────────────────────────────────────
 
 set "SERVER=https://aria-intel.fly.dev"
@@ -23,27 +24,31 @@ echo   ║     █████  ██████  ██  █████     
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Autonomous Research Intelligence  ║
 echo   ║    ███████ ██████  ██ ███████      Terminal Client                    ║
 echo   ║    ██   ██ ██   ██ ██ ██   ██      Connected to main server          ║
-echo   ║    ██   ██ ██   ██ ██ ██   ██      Type 'help' for commands          ║
+echo   ║    ██   ██ ██   ██ ██ ██   ██      Full ARIA intelligence            ║
 echo   ║                                                                      ║
 echo   ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check connection (try PowerShell first, fall back to curl)
-powershell -Command "& {
+:: Check connection
+powershell -NoProfile -Command "& {
     try {
         $r = Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;
         $d = $r.Content | ConvertFrom-Json;
         Write-Host '  ✅ Connected to ARIA server  (' $d.build_rev ')' -ForegroundColor Green;
     } catch {
-        Write-Host '  ⚠️  Server unreachable.' -ForegroundColor Yellow;
+        Write-Host '  ⚠️  Server unreachable. Check your internet connection.' -ForegroundColor Yellow;
+        Write-Host '     The server is at: %SERVER%' -ForegroundColor Yellow;
     }
 }" 2>nul || (
     echo   ⚠️  Could not check connection. Make sure you have internet.
 )
 
 echo.
-echo   Hello %USERNAME%. I'm ARIA. I find and fix bugs in code.
-echo   Tell me what you need help with.
+echo   Hello %USERNAME%. I'm ARIA — your research intelligence agent.
+echo   Ask me anything: research topics, analyse code, investigate companies,
+echo   review documents, search the web, or just chat.
+echo.
+echo   Type 'help' for commands, or just type your question.
 echo.
 
 :loop
@@ -60,28 +65,39 @@ if /i "%input%"=="help" (
     echo.
     echo    help              Show this help
     echo    status            Check ARIA server status
-    echo    fix ^<description^>  Describe a bug, I'll fix it
-    echo    code ^<code^>       Show me code, I'll analyse it
     echo    cls               Clear screen
     echo    exit              Quit
     echo.
+    echo   ─── What I can do ────────────────────────────────────────
+    echo.
+    echo    Just type your question and I'll use my full intelligence:
+    echo.
+    echo    🌐  Research companies, people, and markets
+    echo    🔍  Search the web for current information
+    echo    📄  Analyse code and find bugs
+    echo    📊  Investigate supply chains and procurement
+    echo    📋  Review documents and contracts
+    echo    💬  Chat about any topic
+    echo.
     echo   ─── Examples ─────────────────────────────────────────────
     echo.
-    echo    fix Add error handling to process_item
-    echo    fix Fix AttributeError when data is None
-    echo    fix Add retry logic for flaky API calls
+    echo    "Research Acme Corp and their supply chain"
+    echo    "Analyse this code and find bugs: def foo(): pass"
+    echo    "What are the latest defence tenders in Europe?"
+    echo    "Explain quantum computing in simple terms"
     echo.
     goto loop
 )
 
 if /i "%input%"=="status" (
     echo.
-    powershell -Command "& {
+    powershell -NoProfile -Command "& {
         try {
             $r = Invoke-WebRequest -Uri '%SERVER%/health/live' -TimeoutSec 5 -UseBasicParsing;
             $d = $r.Content | ConvertFrom-Json;
             Write-Host '  🟢 Server: ONLINE' -ForegroundColor Green;
             Write-Host '  Build:  ' $d.build_rev;
+            Write-Host '  Uptime: ' $d.uptime_seconds 's';
         } catch {
             Write-Host '  🔴 Server: OFFLINE' -ForegroundColor Red;
         }
@@ -89,97 +105,53 @@ if /i "%input%"=="status" (
     goto loop
 )
 
-if /i "%input:~0,3%"=="fix" (
-    set "desc=%input:~4%"
-    if "!desc!"=="" (
-        echo   Tell me what to fix. Example: fix Add error handling
-        goto loop
-    )
-    goto :fix_code
-)
-
-if /i "%input:~0,4%"=="code" (
-    echo.
-    echo   Paste your code below. Type 'done' on its own line when finished.
-    echo.
-    set "code_block="
-    :read_code
-    set /p "code_line=>  "
-    if /i "!code_line!"=="done" goto :analyse_code
-    set "code_block=!code_block!!code_line!\n"
-    goto :read_code
-)
-
-:: Default: send as chat message
+:: ── Send to real ARIA chat endpoint ──────────────────────────────
 echo.
-echo   🧠 Thinking...
-powershell -Command "& {
-    $body = @{message='%input%'; user='%USERNAME%'} | ConvertTo-Json;
+echo   🧠 ARIA is thinking...
+echo.
+
+powershell -NoProfile -Command "& {
+    $body = @{message='%input%'; session_id='client_%USERNAME%'} | ConvertTo-Json;
     try {
-        $r = Invoke-RestMethod -Uri '%SERVER%/api/aria/client/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 30;
+        $r = Invoke-RestMethod -Uri '%SERVER%/api/aria/chat' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120;
         Write-Host '';
-        Write-Host $r.response -ForegroundColor Cyan;
-    } catch {
-        Write-Host '';
-        Write-Host '  ❌ ' $_.Exception.Message -ForegroundColor Red;
-    }
-}"
-goto loop
-
-:fix_code
-echo.
-echo   🔍 Analysing: %desc%
-echo.
-set "FIX_RESULT="
-powershell -Command "& {
-    $body = @{description='%desc%'} | ConvertTo-Json;
-    try {
-        $r = Invoke-RestMethod -Uri '%SERVER%/api/aria/coder/demo' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 30;
-        Write-Host '';
-        Write-Host '  📋 Plan' -ForegroundColor Cyan;
-        Write-Host '  ────────────────────────────────────────────';
-        Write-Host '  Title: ' $r.plan.title;
-        Write-Host '  Risk:  ' $r.plan.risk_level;
-        if ($r.plan.approach) { Write-Host '  Approach: ' $r.plan.approach; }
-        Write-Host '';
-        Write-Host '  📄 Generated Code' -ForegroundColor Green;
-        Write-Host '  ────────────────────────────────────────────';
-        $r.code;
-        Write-Host '  ────────────────────────────────────────────';
-    } catch {
-        Write-Host '';
-        Write-Host '  ❌ Error: ' $_.Exception.Message -ForegroundColor Red;
-    }
-}" 2>nul
-if errorlevel 1 (
-    echo   ⚠️  PowerShell failed. Trying curl.exe...
-    curl.exe -s -X POST "%SERVER%/api/aria/coder/demo" -H "Content-Type: application/json" -d "{\"description\":\"%desc%\"}" 2>nul || (
-        echo   ❌ Could not connect to ARIA server.
-        echo      Make sure you have internet access.
-    )
-)
-goto loop
-
-:analyse_code
-echo.
-echo   🔍 Analysing code...
-powershell -Command "& {
-    $body = @{code='%code_block%'} | ConvertTo-Json;
-    try {
-        $r = Invoke-RestMethod -Uri '%SERVER%/api/aria/client/analyse' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 30;
-        Write-Host '';
-        Write-Host '  📊 Analysis' -ForegroundColor Cyan;
-        Write-Host '  ────────────────────────────────────────────';
-        $r.analysis;
-        Write-Host '';
-        if ($r.fixes) {
-            Write-Host '  🔧 Suggested Fixes' -ForegroundColor Green;
-            Write-Host '  ────────────────────────────────────────────';
-            $r.fixes;
+        if ($r.response) {
+            Write-Host $r.response -ForegroundColor Cyan;
+        } elseif ($r.answer) {
+            Write-Host $r.answer -ForegroundColor Cyan;
+        } else {
+            Write-Host ('Response: ' + ($r | ConvertTo-Json -Depth 1)) -ForegroundColor Cyan;
+        }
+        if ($r.tool_used) {
+            Write-Host ('');
+            Write-Host ('  🔧 Used: ' + $r.tool_used) -ForegroundColor Yellow;
+        }
+        if ($r.cached) {
+            Write-Host ('  💾 Cached response') -ForegroundColor DarkGray;
         }
     } catch {
         Write-Host '';
-        Write-Host '  ❌ ' $_.Exception.Message -ForegroundColor Red;
+        Write-Host '  ❌ Error: ' $_.Exception.Message -ForegroundColor Red;
+        Write-Host '';
+        Write-Host '  The server may be busy. Try again in a moment.' -ForegroundColor Yellow;
     }
-}"
+}" 2>nul
+
+if errorlevel 1 (
+    echo   ⚠️  Request failed. Trying fallback method...
+    :: Fallback: use curl if available
+    where curl.exe >nul 2>nul
+    if not errorlevel 1 (
+        curl.exe -s -X POST "%SERVER%/api/aria/chat" -H "Content-Type: application/json" -d "{\"message\":\"%input%\",\"session_id\":\"client_%USERNAME%\"}" --max-time 120 2>nul || (
+            echo   ❌ Could not connect to ARIA server.
+            echo      Make sure you have internet access.
+            echo      Server: %SERVER%
+        )
+    ) else (
+        echo   ❌ Could not connect to ARIA server.
+        echo      Make sure you have internet access.
+        echo      Server: %SERVER%
+    )
+)
+
 goto loop

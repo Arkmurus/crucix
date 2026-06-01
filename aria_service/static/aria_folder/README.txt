@@ -1,12 +1,20 @@
 ARIA — Autonomous Research Intelligence Agent
 ==============================================
 
-HOW TO RUN:
+HOW TO USE:
   1. Open cmd in this folder
   2. Type: aria
-  3. Open http://localhost:8000 in your browser
+  3. Ask anything — ARIA connects to the main server
 
-That's it. First run downloads Python + dependencies (2-5 min).
-After that, it starts instantly.
+No Python, no install, no downloads. Everything runs on the server.
+Just type your question and ARIA's full intelligence answers.
 
-No admin rights needed. Nothing is installed on your system.
+WHAT ARIA CAN DO:
+  • Research companies, people, and markets
+  • Search the web for current information
+  • Analyse code and find bugs
+  • Investigate supply chains and procurement
+  • Review documents and contracts
+  • Answer questions on any topic
+
+Commands: help, status, cls, exit

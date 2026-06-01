@@ -1,0 +1,11 @@
+{
+  "timestamp": 1780260461.8003666,
+  "pass_pct": 0.0,
+  "avg_score": 92.5,
+  "wiring_pct": 43.4,
+  "total_tests": 1,
+  "passed": 0,
+  "failed": 0,
+  "total_files": 988,
+  "total_issues": 7226
+}
