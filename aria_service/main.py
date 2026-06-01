@@ -2068,6 +2068,87 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
+    @app.post("/api/aria/client/chat")
+    async def aria_client_chat(request: Request):
+        """Chat endpoint for the ARIA terminal client."""
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        user = (body.get("user") or "user").strip()
+
+        if not message:
+            raise HTTPException(status_code=400, detail="message required")
+
+        # Generate a response based on the message
+        msg_lower = message.lower()
+
+        if any(w in msg_lower for w in ["hello", "hi", "hey", "yo"]):
+            return {"response": f"Hey {user}. I'm ARIA. Got code that needs fixing? Describe the bug and I'll take care of it."}
+
+        if "who are you" in msg_lower or "what are you" in msg_lower:
+            return {"response": "I'm ARIA — Autonomous Research Intelligence Agent. I find and fix bugs in code using my own AST analysis engine. No LLM needed. No excuses. Describe a problem and I'll fix it."}
+
+        if "thank" in msg_lower or "thanks" in msg_lower:
+            return {"response": "You're welcome. I'm always here. Got more code to fix?"}
+
+        if "what can you" in msg_lower or "capabilities" in msg_lower or "help" in msg_lower:
+            return {"response": "I can:\n  • Fix error handling — add try/except to any function\n  • Add null checks — prevent AttributeError when data is None\n  • Add retry logic — handle flaky API calls\n  • Add timeouts — prevent hanging async functions\n  • Add logging — debug any function\n  • Add docstrings — document your code\n  • Add type annotations — make your code self-documenting\n  • Analyse code — find bugs before they happen\n\nType 'fix <description>' to get started."}
+
+        if "bug" in msg_lower or "error" in msg_lower or "crash" in msg_lower or "broken" in msg_lower:
+            return {"response": f"I hear you, {user}. Describe the bug in detail — what function, what input, what error. I'll analyse it and generate a fix. Use: fix <description>"}
+
+        if "code" in msg_lower or "script" in msg_lower or "function" in msg_lower:
+            return {"response": "Show me the code. Use the 'code' command to paste it, or describe what you need and I'll write it. Use: fix <description>"}
+
+        # Default: acknowledge and guide
+        return {"response": f"I understand, {user}. If you have code that needs fixing, describe the problem and I'll analyse it. Try: fix Add error handling to process_item"}
+
+    @app.post("/api/aria/client/analyse")
+    async def aria_client_analyse(request: Request):
+        """Analyse code endpoint for the ARIA terminal client."""
+        body = await request.json()
+        code = (body.get("code") or "").strip()
+
+        if not code:
+            raise HTTPException(status_code=400, detail="code required")
+
+        try:
+            import ast
+            tree = ast.parse(code)
+
+            # Analyse the code
+            issues = []
+            func_count = 0
+            has_try = "try:" in code
+            has_logging = "logger." in code or "logging." in code
+            has_docstring = '\"""' in code
+            has_type_hints = "->" in code
+
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_count += 1
+                    if not has_try:
+                        issues.append(f"  • {node.name} — missing error handling")
+                    if not has_logging:
+                        issues.append(f"  • {node.name} — missing logging")
+                    if not has_docstring:
+                        issues.append(f"  • {node.name} — missing docstring")
+                    if not has_type_hints:
+                        issues.append(f"  • {node.name} — missing return type annotation")
+
+            analysis = f"Found {func_count} function(s)."
+            if issues:
+                analysis += f"\n\nIssues detected:\n" + "\n".join(issues[:5])
+                fixes = "Use: fix <description> to generate fixes for each issue."
+            else:
+                fixes = "Code looks clean. No issues detected."
+
+            return {"analysis": analysis, "fixes": fixes}
+
+        except SyntaxError as e:
+            return {"analysis": f"Syntax error: {e}", "fixes": "Fix the syntax error first, then I can analyse the rest."}
+        except Exception as e:
+            return {"analysis": f"Could not analyse: {e}", "fixes": ""}
+
     @app.post("/api/aria/coder/demo")
     async def aria_coder_demo_ep(request: Request):
         """Public demo endpoint — no auth required.

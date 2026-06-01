@@ -85,6 +85,38 @@ def test_client_download_returns_aria_client_zip():
     assert "aria-intel.fly.dev" in bat_content
 
 
+def test_client_chat_responds():
+    """The client chat endpoint should respond to messages."""
+    resp = client.post("/api/aria/client/chat", json={"message": "hello", "user": "test"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "response" in data
+    assert len(data["response"]) > 0
+
+
+def test_client_chat_requires_message():
+    """The client chat endpoint should reject empty messages."""
+    resp = client.post("/api/aria/client/chat", json={})
+    assert resp.status_code == 400
+
+
+def test_client_analyse_analyses_code():
+    """The client analyse endpoint should analyse code."""
+    resp = client.post("/api/aria/client/analyse", json={
+        "code": "def foo():\n    pass\n"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "analysis" in data
+    assert "fixes" in data
+
+
+def test_client_analyse_requires_code():
+    """The client analyse endpoint should reject empty code."""
+    resp = client.post("/api/aria/client/analyse", json={})
+    assert resp.status_code == 400
+
+
 def test_demo_page_served_at_root():
     """The demo HTML page should be served at the root URL."""
     resp = client.get("/")
