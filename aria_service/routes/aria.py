@@ -253,6 +253,11 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     # token. Read-only aggregated metrics; same posture as R-F680.
     "/api/aria/health/perf",                  # self-introspection (R-F396)
     "/api/aria/brain/stats",                  # brain-hook signal stats
+    # R-F1251 (2026-06-01): client learning sync endpoints. Clients send
+    # interaction data and pull learning patterns. Read-only aggregated
+    # metrics; same posture as R-F680.
+    "/api/aria/learning/sync",                # client learning sync
+    "/api/aria/learning/updates",             # client learning updates
 })
 
 
@@ -20970,6 +20975,118 @@ async def vault_delete_ep(site_id: str) -> dict:
     if not deleted:
         return {"success": False, "error": f"Site '{site_id}' not found in vault"}
     return {"success": True, "deleted": site_id}
+
+
+# ── Client Learning Sync ─────────────────────────────────────────────────
+
+@router.post("/learning/sync")
+async def learning_sync_ep(request: Request) -> dict:
+    """Receive learning data from ARIA clients.
+
+    Client interactions (queries + responses) are fed into ARIA's
+    brain_hook pipeline so the neural memory and gap detector learn
+    from every user interaction across all clients.
+    """
+    body = await request.json()
+    interactions = body.get("interactions", [])
+    client_id = body.get("client_id", "unknown")
+    client_version = body.get("client_version", "unknown")
+
+    if not interactions:
+        return {"status": "ok", "received": 0, "message": "no interactions to sync"}
+
+    absorbed = 0
+    for interaction in interactions:
+        try:
+            from ..intel import brain_hook as _bh
+            await _bh.absorb(
+                module="client_learning",
+                content=json.dumps({
+                    "query": interaction.get("query", "")[:2000],
+                    "response": interaction.get("response", "")[:5000],
+                    "model_used": interaction.get("model_used", "unknown"),
+                    "tokens_used": interaction.get("tokens_used", 0),
+                    "cost": interaction.get("cost", 0),
+                    "user_feedback": interaction.get("user_feedback"),
+                    "client_id": client_id,
+                    "client_version": client_version,
+                    "platform": interaction.get("platform", ""),
+                }),
+                source="client_sync",
+                tags=["client_learning", f"client_{client_id[:8]}"],
+            )
+            absorbed += 1
+        except Exception as e:
+            _log.debug("[learning_sync] absorb failed for interaction: %s", e)
+
+    _log.info(
+        "[learning_sync] client=%s v=%s: absorbed %d/%d interactions",
+        client_id[:12], client_version, absorbed, len(interactions),
+    )
+
+    return {
+        "status": "ok",
+        "received": len(interactions),
+        "absorbed": absorbed,
+        "client_id": client_id,
+    }
+
+
+@router.get("/learning/updates")
+async def learning_updates_ep(
+    client_id: str = "",
+    client_version: str = "",
+) -> dict:
+    """Send updated learning patterns to ARIA clients.
+
+    Returns recent capability gaps and mistake patterns that the
+    client can use to improve local suggestions.
+    """
+    patterns = []
+
+    try:
+        from ..intel import capability_gaps as _cg
+        gaps = await _cg.recent(limit=20)
+        for gap in gaps:
+            patterns.append({
+                "type": "capability_gap",
+                "data": {
+                    "title": getattr(gap, "title", str(gap)),
+                    "description": getattr(gap, "description", ""),
+                    "severity": getattr(gap, "severity", "medium"),
+                },
+                "confidence": 0.8,
+            })
+    except Exception as e:
+        _log.debug("[learning_updates] capability_gaps failed: %s", e)
+
+    try:
+        from ..intel import mistake_ledger as _ml
+        mistakes = await _ml.recent(limit=20)
+        for mistake in mistakes:
+            patterns.append({
+                "type": "mistake_pattern",
+                "data": {
+                    "what": getattr(mistake, "what", str(mistake)),
+                    "category": getattr(mistake, "category", "unknown"),
+                    "severity": getattr(mistake, "severity", "medium"),
+                },
+                "confidence": 0.7,
+            })
+    except Exception as e:
+        _log.debug("[learning_updates] mistake_ledger failed: %s", e)
+
+    _log.debug(
+        "[learning_updates] client=%s v=%s: returning %d patterns",
+        client_id[:12] if client_id else "?", client_version, len(patterns),
+    )
+
+    return {
+        "patterns": patterns,
+        "version": client_version,
+        "client_id": client_id,
+        "count": len(patterns),
+    }
 
 
 

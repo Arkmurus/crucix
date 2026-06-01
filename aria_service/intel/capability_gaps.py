@@ -195,6 +195,7 @@ VALID_GAP_TYPES = frozenset({
     "counterparty_deception_medium",     # deception_detection
     "cost_pressure",                     # tasks
     "self_runtime",                      # tasks
+    "blackout",                          # self_restart — heartbeat stale
 })
 
 
