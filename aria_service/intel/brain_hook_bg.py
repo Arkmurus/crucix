@@ -79,6 +79,13 @@ async def absorb_tiers_bg(
             if err:
                 result["errors"].append(err)
 
+            # R-F1252: yield event loop between tiers so SQLite worker
+            # thread can drain its queue and other coroutines can run.
+            # Without this, 3 sequential aiosqlite awaits can stall the
+            # event loop for 3-4s under load (47% thread pool + 12%
+            # aiosqlite in profiler).
+            await asyncio.sleep(0)
+
             if summary:
                 from . import knowledge
                 topic_key = f"{module}:{entity_name}" if entity_name else module
@@ -94,6 +101,8 @@ async def absorb_tiers_bg(
                 result["knowledge_ok"] = ok
                 if err:
                     result["errors"].append(err)
+
+            await asyncio.sleep(0)
 
             if text_for_neural and len(text_for_neural) > 50:
                 from . import neural_memory

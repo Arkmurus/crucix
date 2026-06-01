@@ -387,6 +387,11 @@ async def lpush(key: str, value: str) -> None:
         lst.insert(0, value)
         await _upsert(key, json.dumps(lst, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
+    # R-F1252: yield event loop after list write so aiosqlite's single
+    # worker thread can drain its queue and other coroutines can run.
+    # Without this, sequential lpush/ltrim pairs (common in agent_registry,
+    # capability_gaps, mistake_ledger) stall the event loop for 3-4s.
+    await asyncio.sleep(0)
 
 
 async def lpop(key: str) -> str | None:
@@ -418,6 +423,7 @@ async def ltrim(key: str, start: int, stop: int) -> None:
         trimmed = lst[start:end]
         await _upsert(key, json.dumps(trimmed, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
+    await asyncio.sleep(0)
 
 
 async def llen(key: str) -> int:

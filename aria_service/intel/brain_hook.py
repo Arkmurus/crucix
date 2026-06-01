@@ -952,7 +952,7 @@ _LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "6000"))
 # to disable the timeout (legacy unbounded behaviour) if a slow but
 # necessary batch needs to complete.
 _TIER_TIMEOUT_S = (
-    float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "5000")) / 1000.0
+    float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "8000")) / 1000.0  # R-F1252: raised from 5000 for SQLite headroom
 )
 
 # R-F799 (2026-05-22) — concurrency cap on absorb's expensive tiers.
@@ -967,7 +967,7 @@ _TIER_TIMEOUT_S = (
 # section is skipped (signal counter + _record_signal still fire so
 # observability is preserved). Set ARIA_BRAIN_ABSORB_CONCURRENCY=0
 # to disable the cap entirely (legacy unbounded behaviour).
-_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "8"))  # R-F1056: raised from 2
+_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "16"))  # R-F1056: raised from 2; R-F1252: raised from 8 for 4-vCPU machine
 _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
 )
