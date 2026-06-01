@@ -26,11 +26,11 @@ import urllib.error
 import urllib.request
 import shutil
 import platform
-import subprocess
+import threading
 from pathlib import Path
 from typing import Optional
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 DEFAULT_SERVER = "https://aria-intel.fly.dev"
 CONFIG_DIR = Path.home() / ".aria"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -41,22 +41,10 @@ if platform.system() == "Windows":
     os.system("")
 
 C = {
-    "reset": "\033[0m",
-    "bold": "\033[1m",
-    "dim": "\033[2m",
-    "italic": "\033[3m",
-    "green": "\033[92m",
-    "cyan": "\033[96m",
-    "yellow": "\033[93m",
-    "red": "\033[91m",
-    "magenta": "\033[95m",
-    "blue": "\033[94m",
-    "purple": "\033[38;5;99m",
-    "orange": "\033[38;5;214m",
-    "grey": "\033[90m",
-    "white": "\033[97m",
-    "bg_dark": "\033[48;5;235m",
-    "bg_purple": "\033[48;5;55m",
+    "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "italic": "\033[3m",
+    "green": "\033[92m", "cyan": "\033[96m", "yellow": "\033[93m", "red": "\033[91m",
+    "magenta": "\033[95m", "blue": "\033[94m", "purple": "\033[38;5;99m",
+    "orange": "\033[38;5;214m", "grey": "\033[90m", "white": "\033[97m",
 }
 
 
@@ -106,7 +94,7 @@ class AriaError(Exception):
         super().__init__(message)
 
 
-def _request(method: str, path: str, body: Optional[dict] = None, timeout: int = 180) -> dict:
+def _request(method: str, path: str, body: Optional[dict] = None, timeout: int = 60) -> dict:
     server = _get_server()
     url = f"{server}{path}"
     token = _get_token()
@@ -124,11 +112,6 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: int =
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         status = e.code
-        detail = ""
-        try:
-            detail = e.read().decode("utf-8", errors="replace")[:300]
-        except Exception:
-            pass
         if status == 401:
             raise AriaError(
                 "Authentication failed. Your ARIA Coder token is invalid or missing.\n"
@@ -156,6 +139,41 @@ def check_status() -> dict:
         return {"status": "error", "message": str(e)}
 
 
+# ── Spinner for visible progress ─────────────────────────────────────────────
+
+
+class Spinner:
+    """A simple spinner that runs in a background thread."""
+
+    def __init__(self, message: str = "") -> None:
+        self._message = message
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        self._running = True
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        # Clear the spinner line
+        sys.stdout.write("\r" + " " * shutil.get_terminal_size().columns + "\r")
+        sys.stdout.flush()
+
+    def _spin(self) -> None:
+        dots = ["   ", ".  ", ".. ", "..."]
+        idx = 0
+        while self._running:
+            msg = self._message + dots[idx % 4]
+            sys.stdout.write(f"\r  {c('purple', '█')} {c('bold', msg)}")
+            sys.stdout.flush()
+            idx += 1
+            time.sleep(0.5)
+
+
 # ── Coder API calls ──────────────────────────────────────────────────────────
 
 
@@ -168,7 +186,7 @@ def send_coder_task(task: str, code: str = "", session_id: str = "") -> dict:
     }
     if code:
         body["code_context"] = code
-    return _request("POST", "/api/aria/chat", body, timeout=180)
+    return _request("POST", "/api/aria/chat", body, timeout=120)
 
 
 def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> list[str]:
@@ -198,15 +216,13 @@ def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> l
 
     try:
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             buffer = ""
-            last_data_time = time.time()
             while True:
                 try:
                     chunk = resp.read(4096)
                     if not chunk:
                         break
-                    last_data_time = time.time()
                     buffer += chunk.decode("utf-8", errors="replace")
                     while "\n\n" in buffer:
                         event, buffer = buffer.split("\n\n", 1)
@@ -229,8 +245,7 @@ def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> l
                                         sys.stdout.flush()
                 except urllib.error.HTTPError:
                     raise
-                except (OSError, urllib.error.URLError) as e:
-                    # If we got some data already, return what we have
+                except (OSError, urllib.error.URLError):
                     if chunks:
                         return chunks
                     raise
@@ -310,7 +325,6 @@ def print_banner() -> None:
     print(c("bold", c("purple", f"  ╚{line}╝")))
     print()
 
-    # Check connection
     try:
         status = check_status()
         if "build_rev" in status:
@@ -438,13 +452,25 @@ def interactive_shell() -> None:
             continue
 
         # ── Send to ARIA Coder ──────────────────────────────────────────────
+        # Quick connection check first
+        try:
+            quick = check_status()
+            if "build_rev" not in quick:
+                print()
+                print(c("yellow", "  ⚠️  Server appears offline. Check with 'status'."))
+                print()
+                continue
+        except Exception:
+            pass  # Will fail properly below
+
         print()
-        print(f"  {c('purple', '█')} {c('bold', 'Coding...')}  {c('dim', '(press Ctrl+C to cancel)')}")
-        sys.stdout.flush()
+        spinner = Spinner("Coding")
+        spinner.start()
 
         try:
             try:
                 chunks = send_coder_task_stream(line)
+                spinner.stop()
                 if chunks:
                     print()
                 else:
@@ -452,6 +478,7 @@ def interactive_shell() -> None:
                     response = result.get("response") or result.get("answer") or json.dumps(result, indent=2)
                     print(c("cyan", response))
             except AriaError as e:
+                spinner.stop()
                 if "401" in str(e):
                     print(c("red", f"  ❌ {e}"))
                 elif "timeout" in str(e).lower():
@@ -459,10 +486,13 @@ def interactive_shell() -> None:
                 else:
                     print(c("red", f"  ❌ {e}"))
             except Exception as e:
+                spinner.stop()
                 print(c("red", f"  ❌ Error: {e}"))
         except AriaError as e:
+            spinner.stop()
             print(c("red", f"  ❌ {e}"))
         except Exception as e:
+            spinner.stop()
             print(c("red", f"  ❌ Error: {e}"))
 
         print()
@@ -503,18 +533,21 @@ def main() -> None:
         sys.exit(1)
 
     task = " ".join(args)
-    print(f"  {c('purple', '█')} {c('bold', 'Coding...')}")
-    print()
+    spinner = Spinner("Coding")
+    spinner.start()
 
     try:
         result = send_coder_task(task)
+        spinner.stop()
         response = result.get("response") or result.get("answer") or json.dumps(result, indent=2)
         print(c("cyan", response))
         print()
     except AriaError as e:
+        spinner.stop()
         print(c("red", f"  ❌ {e}"))
         sys.exit(1)
     except Exception as e:
+        spinner.stop()
         print(c("red", f"  ❌ Error: {e}"))
         sys.exit(1)
 
