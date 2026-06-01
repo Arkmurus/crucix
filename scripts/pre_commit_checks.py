@@ -4,6 +4,10 @@ Contains the testable functions used by scripts/pre-commit:
 - check_capability_tests: verifies every changed function has a test
 - find_function_calls: finds await module.fn() calls in code
 - function_exists: checks if a function exists in a module
+- check_wiring_present: verifies every changed module has brain wiring
+- check_windows_compat: flags known Windows-incompatible patterns
+- check_false_success: scans for success:True without verification
+- find_direct_function_calls: finds module.fn() calls (with or without await)
 
 These are imported by scripts/pre-commit and by tests.
 """
@@ -40,6 +44,24 @@ EXEMPT_MODULES = {
     "uuid", "base64", "ssl", "smtplib", "imaplib", "email", "html",
     "socket", "ast", "inspect", "collections", "pathlib",
 }
+
+# Modules that are exempt from wiring checks (test files, routes, config, etc.)
+WIRING_EXEMPT_MODULES = {
+    "__init__", "main", "routes", "engine_wiring", "brain_hook",
+    "mistake_ledger", "capability_gaps", "intel_ledger",
+}
+
+# Known Windows-incompatible patterns (R-F1268)
+WINDOWS_INCOMPATIBLE_PATTERNS: list[tuple[str, str]] = [
+    (r"os\.fork\s*\(", "os.fork() is not available on Windows"),
+    (r"signal\.signal\s*\(", "signal.signal() has limited support on Windows"),
+    (r"fcntl\.", "fcntl is not available on Windows"),
+    (r"resource\.", "resource module is not available on Windows"),
+    (r"pty\.", "pty module is not available on Windows"),
+    (r"subprocess\.Popen\(.*shell\s*=\s*True", "shell=True in subprocess has quoting issues on Windows"),
+    (r"os\.pathsep\s*!=\s*['\"];['\"]", "os.pathsep is ';' on Windows, not ':'"),
+    (r"Path\(.*\)\s*/\s*['\"].*['\"]", "Path concatenation with string may produce wrong separators on Windows"),
+]
 
 
 def find_function_calls(lines: list[str]) -> list[dict]:
@@ -105,6 +127,172 @@ def function_exists(module_path: str, func_name: str) -> bool:
                 pass
             return False
     return True  # Can't find module — pass through
+
+
+def check_wiring_present(files: list[Path]) -> list[str]:
+    """R-F1268 — For every changed file in aria_service/intel/, verify it has
+    at least one wire_success or wire_failure call (brain wiring).
+
+    Modules that are purely data/configuration or are themselves wiring
+    infrastructure are exempt (see WIRING_EXEMPT_MODULES).
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+
+    for file_path in files:
+        # Only check intel modules
+        if "intel" not in file_path.parts:
+            continue
+        if file_path.suffix != ".py":
+            continue
+        if file_path.stem in WIRING_EXEMPT_MODULES:
+            continue
+        if "tests" in file_path.parts:
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        # Check for wire_success or wire_failure calls
+        has_wire_success = "wire_success(" in content
+        has_wire_failure = "wire_failure(" in content
+
+        if not has_wire_success and not has_wire_failure:
+            issues.append(
+                f"  {file_path.name}: NO brain wiring found.\n"
+                f"    Every intel module must call wire_success() and/or wire_failure()\n"
+                f"    to connect to the brain (CLAUDE.md §21a).\n"
+                f"    Add: from .engine_wiring import wire_success, wire_failure\n"
+                f"    And call wire_success() on success, wire_failure() on failure."
+            )
+        elif has_wire_success and not has_wire_failure:
+            issues.append(
+                f"  {file_path.name}: has wire_success but NO wire_failure.\n"
+                f"    Both success AND failure branches must reach a brain sink\n"
+                f"    (anti-hallucination law #6). Add wire_failure() calls to\n"
+                f"    all exception/error paths."
+            )
+        elif has_wire_failure and not has_wire_success:
+            issues.append(
+                f"  {file_path.name}: has wire_failure but NO wire_success.\n"
+                f"    Both success AND failure branches must reach a brain sink\n"
+                f"    (anti-hallucination law #6). Add wire_success() call to\n"
+                f"    the success path."
+            )
+
+    return issues
+
+
+def check_windows_compat(files: list[Path]) -> list[str]:
+    """R-F1268 — Check changed files for known Windows-incompatible patterns.
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+
+    for file_path in files:
+        if file_path.suffix != ".py":
+            continue
+        if "__pycache__" in file_path.parts:
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            for pattern, message in WINDOWS_INCOMPATIBLE_PATTERNS:
+                if re.search(pattern, line):
+                    issues.append(
+                        f"  {file_path.name}:{i + 1} — {message}\n"
+                        f"    Line: {line.strip()[:100]}"
+                    )
+
+    return issues
+
+
+def check_false_success(files: list[Path]) -> list[str]:
+    """R-F1268 — Scan changed files for ``success: True`` or ``"success": True``
+    that is NOT preceded by actual verification logic.
+
+    Flags patterns like:
+    - return {"success": True, ...} without a preceding check
+    - success: True in a dict literal without verification
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+
+    for file_path in files:
+        if file_path.suffix != ".py":
+            continue
+        if "__pycache__" in file_path.parts:
+            continue
+        if "tests" in file_path.parts:
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            # Look for success: True, "success": True, or 'success': True in dict literals
+            if re.search(r"""(?:"success"|'success'|success)\s*:\s*True""", line):
+                # Check if this is preceded by verification logic in the
+                # surrounding 5 lines (a try/except, an if/else, a check call)
+                start = max(0, i - 5)
+                context = "\n".join(lines[start:i + 1])
+                # If no verification keywords found in context, flag it
+                has_verification = any(
+                    kw in context
+                    for kw in ["verify", "check", "validate", "confirm",
+                               "assert", "try:", "except", "if ", "test",
+                               "probe", "ensure", "confirm"]
+                )
+                if not has_verification:
+                    issues.append(
+                        f"  {file_path.name}:{i + 1} — success:True without verification\n"
+                        f"    Line: {line.strip()[:100]}\n"
+                        f"    Returning success:True without verification is a false-success\n"
+                        f"    anti-pattern (anti-hallucination law #4). Add a check first."
+                    )
+
+    return issues
+
+
+def find_direct_function_calls(lines: list[str]) -> list[dict]:
+    """R-F1268 — Find ``module.function()`` calls (with or without await).
+
+    Extends find_function_calls() to also catch non-awaited calls like
+    ``wire_success(...)`` or ``some_module.some_function()``.
+
+    Returns list of dicts with keys: line_num, object, function, code.
+    """
+    calls = []
+    # Match both "await module.fn(" and "module.fn(" patterns
+    pattern = re.compile(r"(?:await\s+)?(\w+)\.(\w+)\s*\(")
+    for i, line in enumerate(lines):
+        for m in pattern.finditer(line):
+            obj = m.group(1)
+            func = m.group(2)
+            if func.startswith("__"):
+                continue
+            if obj in EXEMPT_MODULES:
+                continue
+            calls.append({
+                "line_num": i + 1,
+                "object": obj,
+                "function": func,
+                "code": line.strip()[:100],
+            })
+    return calls
 
 
 def check_capability_tests(files: list[Path]) -> list[str]:

@@ -27,10 +27,48 @@ jobs:
           pip install pytest pytest-asyncio httpx
           pip install -r requirements-dev.txt 2>/dev/null || true
 
-      - name: Pre-commit function-name verification (--check-all)
+      - name: Pre-commit verification (--check-all)
         run: |
           echo "Checking ALL Python files for non-existent function calls..."
           python scripts/pre-commit --check-all
+
+      - name: Wiring audit (structural guard)
+        run: |
+          echo "Checking ALL intel modules for brain wiring..."
+          python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, 'scripts')
+from pre_commit_checks import check_wiring_present
+files = list(Path('aria_service/intel').rglob('*.py'))
+issues = check_wiring_present(files)
+if issues:
+    print('WIRING AUDIT FAILED:')
+    for i in issues:
+        print(i)
+    sys.exit(1)
+print('All intel modules have brain wiring.')
+"
+
+      - name: Windows compatibility check
+        run: |
+          echo "Checking for Windows-incompatible patterns..."
+          python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, 'scripts')
+from pre_commit_checks import check_windows_compat
+files = list(Path('aria_service').rglob('*.py'))
+issues = check_windows_compat(files)
+if issues:
+    print('WINDOWS COMPATIBILITY ISSUES:')
+    for i in issues:
+        print(i)
+    # Don't fail CI on Windows compat (Linux CI can't fully validate)
+    print('Warning: Windows compatibility issues found (non-fatal on Linux CI).')
+else:
+    print('No Windows compatibility issues found.')
+"
 
       - name: Ecosystem audit
         run: |

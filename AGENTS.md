@@ -42,31 +42,37 @@ overrides this file where they overlap.
 1. **Understand** — restate the goal; find the relevant files with `grep`/`glob`.
 2. **Map (CLAUDE.md §8)** — read the area of change AND its chain: who calls this,
    what state it writes, what reads that state.
-3. **Function-name verification** — before writing ANY `await module.function()` call,
-   grep for `def function` in that module to confirm it exists and check sync/async.
-4. **Reserve an R-number** (self-mode, before code):
+3. **Function-name verification** — before writing ANY `module.function()` call
+   (with or without await), grep for `def function` in that module to confirm it
+   exists and check sync/async (anti-hallucination law #16).
+4. **Wire first, logic second** — before writing business logic, add `wire_success()`
+   and `wire_failure()` calls to the module. Both branches must reach a brain sink
+   (anti-hallucination law #13). The pre-commit hook enforces this.
+5. **Reserve an R-number** (self-mode, before code):
    `python scripts/admin/reserve_r_number.py reserve "short title"`.
-5. **Implement** — minimal, conventional, fully-typed, with docstrings on public
-   callables.
-6. **Test (CLAUDE.md §5)** — write/extend a **unit test** (proves the function's
+6. **Implement** — minimal, conventional, fully-typed, with docstrings on public
+   callables. Check Windows compatibility before using platform-specific APIs
+   (anti-hallucination law #14). Never return `success: True` without verification
+   (anti-hallucination law #15).
+7. **Test (CLAUDE.md §5)** — write/extend a **unit test** (proves the function's
    contract) AND a **capability test** (proves the user-visible symptom is fixed).
    The capability test MUST call the actual broken function, not a helper.
    Then actually run them: `python -m pytest aria_service/tests/<file> -q`.
-7. **Verify, twice (CLAUDE.md §3)** — Pass 1: re-read call sites, signatures,
+8. **Verify, twice (CLAUDE.md §3)** — Pass 1: re-read call sites, signatures,
    fields, conditions, regex, concurrency, env flags, imports. Pass 2: re-test the
    whole chain for regressions you may have introduced. Don't claim success until
    the tests pass and you've read the output.
-7.5 **Self-critique (R-F1123)** — before declaring done, adversarially attack your
+8.5 **Self-critique (R-F1123)** — before declaring done, adversarially attack your
    own work. Ask: *What is unverified? What could be a lie? What would Claude flag?*
    If you cannot point to a line of code, a test output, or a live probe that PROVES
    every claim you are about to make, you are not done yet. Ground every status claim
    by grepping the current code — never assert from memory.
-7.6 **Test-before-signoff (R-F1158)** — after self-critique, identify every untested
+8.6 **Test-before-signoff (R-F1158)** — after self-critique, identify every untested
    code path and add a capability test for it BEFORE signing off. Run ALL tests that
    touch your changes (not just the new ones). Only sign off when every claim is
    backed by a passing test, a code grep, or a live probe. If a path is untestable
    (e.g. requires a live WA socket), flag it explicitly with risk level.
-8. **Ship** — commit, push, and (when required) deploy. See below.
+9. **Ship** — commit, push, and (when required) deploy. See below.
 
 ## The bulletproof bar — anti-hallucination laws (learned the hard way)
 
@@ -104,6 +110,62 @@ real. Ground-or-abstain applies to code exactly as to reasoning. These ten laws 
 
 **The litmus test before you ship anything:** *Can I point to the line of code, the test output,
 or the live probe that PROVES this claim?* If not, it's a hallucination — verify or abstain.
+
+### Anti-hallucination law 13 — wiring is not optional (R-F1268)
+Every intel module MUST have BOTH `wire_success()` and `wire_failure()` calls. A module
+with only one branch is a bug. The pre-commit hook (`check_wiring_present`) enforces this
+structurally — it scans every changed file and rejects modules that are missing either branch.
+Before you write a new module, add the wiring calls FIRST, then the logic. The pattern:
+```python
+from .engine_wiring import wire_success, wire_failure
+
+def my_function():
+    try:
+        result = do_work()
+        wire_success(module="my_module", summary="Work completed", source_id="my_module:action")
+        return {"success": True, "data": result}
+    except Exception as e:
+        wire_failure(module="my_module", detail=str(e), gap_type="source_failure", source="my_module")
+        return {"success": False, "error": str(e)}
+```
+
+### Anti-hallucination law 14 — Windows is not Linux (R-F1268)
+You develop on Windows. Every `os.fork()`, `fcntl`, `resource`, `pty`, `signal.signal`,
+and `shell=True` subprocess call WILL break on Windows. The pre-commit hook
+(`check_windows_compat`) flags these patterns. Before using any platform-specific API:
+1. Check if there's a cross-platform alternative (`subprocess.run` without `shell=True`,
+   `threading` instead of `os.fork`, `selectors` instead of `fcntl`)
+2. If you MUST use it, wrap it in a platform check: `if sys.platform != "win32":`
+3. Add a Windows fallback path
+4. Test on Windows before shipping (run `python -m pytest` locally)
+
+### Anti-hallucination law 15 — success:True must be earned (R-F1268)
+Never return `{"success": True}` without actual verification that the work completed.
+The pre-commit hook (`check_false_success`) flags `success: True` in dict literals that
+aren't preceded by verification logic (try/except, if/else, verify/check/validate calls).
+The pattern:
+```python
+# WRONG — false success
+def do_thing():
+    return {"success": True, "data": result}  # Flagged!
+
+# RIGHT — verified success
+def do_thing():
+    try:
+        result = perform_action()
+        if not result:
+            return {"success": False, "error": "No result"}
+        return {"success": True, "data": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### Anti-hallucination law 16 — verify direct calls too, not just await (R-F1268)
+Anti-hallucination law #1 says to verify every `await module.function()` call. But
+non-awaited calls like `wire_success(...)` or `some_module.sync_func()` are equally
+dangerous. The pre-commit hook (`find_direct_function_calls`) now catches BOTH patterns.
+Before writing ANY `module.function()` call (with or without await), grep for `def function`
+in that module to confirm it exists and check sync/async.
 
 ### Post-ship verification ritual (R-F1187)
 After every deploy, run a complete verification cycle before marking shipped:

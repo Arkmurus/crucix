@@ -31,6 +31,10 @@ from pre_commit_checks import (
     ARIA_SERVICE,
     REPO_ROOT,
     check_capability_tests,
+    check_false_success,
+    check_windows_compat,
+    check_wiring_present,
+    find_direct_function_calls,
     find_function_calls,
     function_exists,
     resolve_module,
@@ -155,6 +159,34 @@ def main():
     # Check 2: Capability test requirement (R-F1124)
     cap_issues = check_capability_tests(files)
     issues.extend(cap_issues)
+
+    # Check 3: Wiring presence (R-F1268)
+    wiring_issues = check_wiring_present(files)
+    issues.extend(wiring_issues)
+
+    # Check 4: Windows compatibility (R-F1268)
+    win_issues = check_windows_compat(files)
+    issues.extend(win_issues)
+
+    # Check 5: False success detection (R-F1268)
+    fs_issues = check_false_success(files)
+    issues.extend(fs_issues)
+
+    # Check 6: Direct function call verification (R-F1268)
+    for file_path in files:
+        diff = get_staged_diff(file_path)
+        if not diff:
+            continue
+        added_lines = extract_added_lines(diff)
+        calls = find_direct_function_calls(added_lines)
+        for call in calls:
+            module_path = resolve_module(call["object"], file_path)
+            if module_path is None:
+                continue
+            if not function_exists(module_path, call["function"]):
+                rel = file_path.relative_to(REPO_ROOT)
+                issues.append(f"  {rel}:{call['line_num']} — {call['code']}")
+                issues.append(f"    Function '{call['function']}()' not found in {module_path}")
 
     if issues:
         print("[pre-commit] VERIFICATION FAILED:")
