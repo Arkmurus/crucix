@@ -158,6 +158,101 @@ class CoderToolbox:
         note = f"live build_rev={build_rev!r}, HEAD={sha}"
         return landed, note
 
+    def _head_sha(self) -> str:
+        """Return the short (8-char) HEAD sha, or '' if unavailable. run()
+        prepends an 'exit code: N' header, so take the last real line."""
+        r = self._tb.run("git rev-parse --short=8 HEAD", timeout=15)
+        if r.is_error or not r.output:
+            return ""
+        for ln in reversed(r.output.splitlines()):
+            ln = ln.strip()
+            if ln and not ln.lower().startswith("exit code"):
+                return ln
+        return ""
+
+    # ── ci_deploy (THE autonomous commit→push→CI→fly→verify chain) ──────────
+    def ci_deploy(self, summary: str = "", r_number: str = "",
+                  files: list[str] | None = None, poll_timeout: int = 900) -> ToolResult:
+        """Hands-free autonomous deploy via the CI [deploy] path (R-F1306).
+
+        The robust, no-babysitting deploy and the one to PREFER for autonomous
+        operation: commit any pending changes with a [deploy]-tagged message,
+        push to origin/main, then poll aria-intel's /health/live until build_rev
+        matches HEAD. CI (deploy-fly.yml) sees the [deploy] tag, builds REMOTELY
+        on Depot, canary-deploys, health-verifies and rolls back on failure — so
+        nothing runs as a long LOCAL process (no wedge risk) and the deployed
+        build is guaranteed aligned with origin (commit == push == live build_rev).
+
+        Returns success only when the live build_rev actually reaches HEAD — a
+        deploy is never claimed unproven."""
+        import time as _t
+        tag = "[deploy]"
+        safe_summary = (summary or "autonomous deploy").replace('"', "'").replace("\n", " ")[:80]
+        msg = f"deploy: {safe_summary}" + (f" (R-{r_number})" if r_number else "") + f" {tag}"
+
+        # 1. Commit pending changes (or an empty trigger commit) with [deploy].
+        status = self._tb.run("git status --porcelain", timeout=20)
+        change_lines = [ln for ln in (status.output or "").splitlines()
+                        if ln.strip() and not ln.lower().startswith("exit code")]
+        if change_lines:
+            if files:
+                for f in files:
+                    self._tb.run(f"git add {f}", timeout=30)
+            else:
+                self._tb.run("git add -A", timeout=30)
+            c = self._tb.run(f'git commit -m "{msg}"', timeout=30)
+            if c.is_error:
+                return ToolResult(f"ci_deploy: commit failed:\n{c.output}", is_error=True)
+        else:
+            head_msg = self._tb.run("git log -1 --pretty=%s", timeout=15)
+            if tag not in (head_msg.output or ""):
+                c = self._tb.run(f'git commit --allow-empty -m "{msg}"', timeout=30)
+                if c.is_error:
+                    return ToolResult(f"ci_deploy: trigger commit failed:\n{c.output}", is_error=True)
+
+        # 2. Push — this is what triggers CI. No push ⇒ no deploy ⇒ stop here.
+        push = self._tb.run("git push origin main", timeout=120)
+        if push.is_error:
+            return ToolResult(
+                f"ci_deploy: push to origin/main FAILED — deploy NOT triggered:\n{push.output}\n"
+                f"Resolve first (diverged history? auth?). Never assume a deploy without a clean push.",
+                is_error=True)
+
+        sha = self._head_sha()
+        if not sha:
+            return ToolResult("ci_deploy: pushed, but could not read HEAD sha to verify alignment. "
+                              "Check live build_rev manually before trusting the deploy.", is_error=True)
+
+        # 3. Poll /health/live until the live build_rev matches HEAD (CI builds
+        #    remotely; torch images are slow, so allow generous time).
+        try:
+            import httpx
+        except Exception as exc:  # noqa: BLE001
+            return ToolResult(f"ci_deploy: pushed {sha} ([deploy] triggered CI) but httpx "
+                              f"unavailable to verify: {exc}. Check build_rev manually.", is_error=True)
+        deadline = _t.monotonic() + max(120, int(poll_timeout or 900))
+        last = ""
+        while _t.monotonic() < deadline:
+            try:
+                resp = httpx.get("https://aria-intel.fly.dev/health/live",
+                                 timeout=20.0, follow_redirects=True)
+                last = (resp.json() or {}).get("build_rev", "")
+                if last and sha[:8] in last:
+                    return ToolResult(
+                        f"DEPLOYED & ALIGNED ✅ — pushed {sha} → CI built & canary-deployed; "
+                        f"live build_rev={last!r} now matches HEAD. Hands-free "
+                        f"commit→push→CI→fly chain verified end-to-end.",
+                        mutation=f"ci_deploy {sha}")
+            except Exception:  # noqa: BLE001 — health blips during a deploy are normal
+                pass
+            _t.sleep(15)
+        return ToolResult(
+            f"ci_deploy: pushed {sha} and [deploy] triggered CI, but live build_rev "
+            f"({last!r}) did not reach {sha[:8]} within {poll_timeout}s. The remote build is "
+            f"likely still running (torch is slow) — check GitHub Actions / `flyctl apps releases "
+            f"-a aria-intel`, then re-verify build_rev. Do NOT redeploy blindly.",
+            is_error=True)
+
     # ── test runner ────────────────────────────────────────────────────────
 
     def test(self, path: str = "", pattern: str = "", timeout: int = 300,
@@ -475,8 +570,24 @@ CODER_TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "ci_deploy",
+            "description": "PREFERRED autonomous deploy: commit pending changes with a [deploy]-tagged message, push to origin/main (CI builds remotely + canary-deploys aria-intel), then poll /health/live until build_rev matches HEAD. Fully hands-free, no local flyctl, returns success ONLY when the live build is verified aligned. Use the local `deploy` tool only as a fallback when CI is broken.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "One-line deploy summary for the commit message."},
+                    "r_number": {"type": "string", "description": "R-number like F1234 (optional, included in the message)."},
+                    "files": {"type": "array", "items": {"type": "string"}, "description": "Files to stage (optional; default: all pending)."},
+                    "poll_timeout": {"type": "integer", "description": "Seconds to wait for the live build_rev to match HEAD (default 900 — remote torch builds are slow)."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "deploy",
-            "description": "Run scripts/deploy.sh to deploy to fly.io. target can be --all, --intel, --web, --wa.",
+            "description": "FALLBACK deploy (local flyctl via scripts/deploy.ps1|sh) — prefer ci_deploy for autonomous operation. target can be --all, --intel, --web, --wa. On timeout it verifies the live build_rev before reporting failure.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -604,5 +715,5 @@ CODER_TOOL_SCHEMAS: list[dict] = [
 ]
 
 # Tools that mutate state — gated behind operator approval unless --auto.
-CODER_MUTATING_TOOLS = {"git_commit", "git_push", "deploy", "reserve_r_number",
-                        "ship_r_number", "capability_test"}
+CODER_MUTATING_TOOLS = {"git_commit", "git_push", "deploy", "ci_deploy",
+                        "reserve_r_number", "ship_r_number", "capability_test"}

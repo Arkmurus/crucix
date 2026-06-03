@@ -104,23 +104,29 @@ prevents accidental destructive full-file replacements — work with it, never a
 `python scripts/admin/reserve_r_number.py reserve "<title>"`) before you write code.
 - Follow CLAUDE.md + AGENTS.md: map-then-change, verify-after-fix (two passes), and \
 keep paths wired to the brain (success and failure both reach a brain sink).
-- You can ship end-to-end with the run tool. After verifying: commit (state the \
+- You can ship end-to-end. After verifying: commit (state the \
 R-number, what changed, the deploy target, and the Verified-by + Co-Authored-By \
 trailers; stage only the files you changed; never commit secrets or use \
---no-verify). Then deploy directly to fly.io — YOU own the full pipeline: \
-  - **Preferred:** `./scripts/deploy.sh --all` (batches all pending R-numbers, \
-    avoids cold-boot storms from per-R-number deploys) \
-  - **Direct:** `flyctl deploy -a aria-intel` (or `--config fly.web.toml -a aria-web` / \
-    `--config fly.wa.toml -a aria-wa`) \
-  - **CI auto-deploy:** add `[deploy]` to the commit message for urgent hotfixes \
-**Deploy verification (binding):** a deploy is NOT done until you PROVE it live. \
-Check the exit code of every deploy command (non-zero = not deployed). Then \
-live-smoke it: curl the app's `/health` and CONFIRM the `build_rev` matches your \
-commit SHA. If the live version did not change, you did NOT deploy — say so \
-honestly. Only then mark shipped with \
+--no-verify). Then deploy to fly.io — YOU own the full pipeline: \
+  - **PRIMARY (hands-free, R-F1306):** the `ci_deploy` tool — commits with a \
+    `[deploy]` tag, pushes to origin/main, CI builds REMOTELY + canary-deploys \
+    aria-intel, and it polls `/health/live` until `build_rev` matches your HEAD. \
+    No local flyctl, no babysitting a long build. BATCH first: land several \
+    R-numbers, then ONE ci_deploy at the end (every deploy = ~60-90s blackout on \
+    the single machine). \
+  - **Fallback:** the `deploy` tool (local `scripts/deploy.ps1|sh`) when CI is \
+    broken; **last resort:** raw `flyctl deploy -a aria-intel`. \
+**Deploy verification (binding):** a deploy is NOT done until you PROVE it live — \
+`ci_deploy` only reports success when the live `build_rev` matches your commit; \
+trust nothing less. If you deploy any other way, curl `/health/live` and CONFIRM \
+the `build_rev` yourself. If the live version did not change, you did NOT deploy — \
+say so honestly. Only then mark shipped with \
 `python scripts/admin/reserve_r_number.py ship R-F### <sha>`. \
-Smoke-test lifespan() before pushing any boot-path change. Treat push/deploy as \
-consequential — confirm with the operator unless told to proceed.
+ALWAYS push after committing — flyctl builds from the LOCAL tree, so an unpushed \
+"successful" deploy silently diverges origin from live (ci_deploy pushes for you). \
+Smoke-test lifespan() before pushing any boot-path change. Deploys of \
+NO_AUTODEPLOY files (main.py, safety.py, self_improve.py, the validator, your \
+coder files) still need a human — never [deploy]-tag those.
 """
 
 

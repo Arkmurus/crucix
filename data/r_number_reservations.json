@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1304,
+  "next_available": 1307,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7515,6 +7515,36 @@
       "r_number": "R-F1303",
       "title": "content_scanner: never write EICAR/malware bytes to disk — in-memory checks before temp write (stop Kaspersky quarantine)",
       "claimed_at": "2026-06-03T16:54:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b01b63d5",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:56:53Z"
+    },
+    {
+      "r_number": "R-F1304",
+      "title": "Wire sanctions_canonical modules with brain signals (Â§21a)",
+      "claimed_at": "2026-06-03T17:07:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "071d5829",
+      "notes": null,
+      "shipped_at": "2026-06-03T17:11:00Z"
+    },
+    {
+      "r_number": "R-F1305",
+      "title": "Wire remaining dark intel source modules with brain signals",
+      "claimed_at": "2026-06-03T17:12:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ca6d8ba0",
+      "notes": null,
+      "shipped_at": "2026-06-03T17:17:08Z"
+    },
+    {
+      "r_number": "R-F1306",
+      "title": "ARIA CLI ci_deploy — hands-free commit+[deploy]+push+poll build_rev (autonomous commit-push-CI-fly chain)",
+      "claimed_at": "2026-06-03T17:15:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
