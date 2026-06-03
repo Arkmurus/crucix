@@ -4556,18 +4556,15 @@ app.get('/api/admin/env-check', (req, res) => {
   const tokenSha = token
     ? createHash('sha256').update(token).digest('hex').slice(0, 12)
     : '';
-  // First 4 + last 4 chars are visible-but-safe (1 in 16^8 ≈ 1 in 4 billion
-  // collision chance against any specific known value, so the disclosure
-  // gives nothing useful to an attacker but lets a human verify visually).
-  const tokenPrefix = token.slice(0, 4);
-  const tokenSuffix = token.slice(-4);
+  // R-F1286 — DROPPED the first4/last4 disclosure. This endpoint is on a PUBLIC
+  // host (intel.arkmurus.com); exposing a token's prefix+suffix narrows a brute
+  // force and is needless. The non-reversible sha256 fingerprint + length already
+  // let a human verify the live token matches an expected value, with zero leak.
   const envState = {
     ARIA_SERVICE_URL: !!ARIA_SERVICE_URL,
     ARIA_API_TOKEN_present: !!process.env.ARIA_API_TOKEN,
     ARIA_API_TOKEN_length: token.length,
     ARIA_API_TOKEN_sha256_prefix: tokenSha,
-    ARIA_API_TOKEN_first4: tokenPrefix,
-    ARIA_API_TOKEN_last4: tokenSuffix,
     ARIA_INTERNAL_TOKEN_present: !!process.env.ARIA_INTERNAL_TOKEN,
     INT_TOKEN_present: !!process.env.INT_TOKEN,
     JWT_SECRET_present: !!process.env.JWT_SECRET,
@@ -4578,7 +4575,7 @@ app.get('/api/admin/env-check', (req, res) => {
   };
   res.json({
     env: envState,
-    note: 'sha256_prefix is the first 12 chars of SHA-256(token) — non-reversible. Same input always gives the same fingerprint. first4/last4 are safe-to-show prefix/suffix for visual verification.',
+    note: 'sha256_prefix is the first 12 chars of SHA-256(token) — non-reversible. Same input always gives the same fingerprint; compare it against the expected value to verify the live token without ever exposing it (R-F1286: no partial-token disclosure).',
   });
 });
 
