@@ -753,7 +753,14 @@ class WebIntegrityAgent:
 
                 await self._record_error(check)
 
-        # DIRECTIVE 4: Cross-agent communication
+        # DIRECTIVE 4 / R-F1292 (§21a): wire EVERY cycle to the brain — success AND
+        # failure. Previously this fired only inside `if errors_found > 0`, so a
+        # clean cycle emitted NOTHING and the success branch was dark (ARIA's audit
+        # flagged web_integrity, correctly on this point). The FAILURE path keeps
+        # brain_hook.absorb (rare; wants the full record). The SUCCESS path uses the
+        # lightweight engine_wiring.wire_success — NOT absorb — because this cycle is
+        # high-frequency and absorb's neural/mastery side-effects would inflate the
+        # composite (R-F973 lesson). module="web_integrity" matches the agent_id.
         if errors_found > 0:
             await self._wire_to_brain(
                 module="web_integrity_agent",
@@ -765,9 +772,19 @@ class WebIntegrityAgent:
                     {"endpoint": c.endpoint, "errors": c.errors}
                     for c in checks if not c.passed
                 ]),
-                success=errors_found == 0,
+                success=False,
                 confidence="CONFIRMED",
             )
+        else:
+            try:
+                from .engine_wiring import wire_success
+                wire_success(
+                    module="web_integrity",
+                    summary=f"Integrity cycle clean: all {len(checks)} endpoints healthy",
+                    source_id="web_integrity_agent:_one_cycle",
+                )
+            except Exception:  # noqa: BLE001 — wiring must never break the loop
+                pass
 
         # DIRECTIVE 6: Self-healing — stage fixes for recurring patterns
         actionable = self._detector.get_actionable_patterns()
