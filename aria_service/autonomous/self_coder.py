@@ -263,8 +263,10 @@ class ARIACoder:
     async def _one_cycle(self) -> None:
         gaps = await self.gap_detector.scan()
 
-        # R-F1191: constitutional validator removed. No protected file filtering.
+        # R-F1287: constitutional validator RESTORED — protected-file gaps are
+        # filtered here AND fail-closed at the deploy gate.
         protected_file_gaps = []
+        pending_skip = []
         actionable = []
         for g in gaps:
             if g.severity < GapSeverity.MEDIUM or not g.auto_fixable:
@@ -274,7 +276,25 @@ class ARIACoder:
             if _module_path in _PROTECTED_FILES:
                 protected_file_gaps.append(g)
                 continue
+            # R-F1294: skip if a fix for this module is ALREADY staged + pending
+            # review. Without this the coder regenerates a fix every cycle for a
+            # module whose fix is waiting (AUTO_DEPLOY off → never marked fixed →
+            # re-detected forever → the 186× churn + wasted LLM tokens/R-numbers).
+            try:
+                from ..intel.self_improve import has_pending_staged_fix_for_module
+                if await has_pending_staged_fix_for_module(g.module):
+                    pending_skip.append(g)
+                    continue
+            except Exception:  # noqa: BLE001 — the check must never break the cycle
+                pass
             actionable.append(g)
+
+        if pending_skip:
+            logger.info(
+                "[aria_coder] R-F1294: skipped %d gap(s) — a fix is already staged "
+                "and pending review for: %s",
+                len(pending_skip), [g.module for g in pending_skip][:8],
+            )
 
         if protected_file_gaps:
             logger.warning(

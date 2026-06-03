@@ -289,6 +289,31 @@ def _collapse_pending_duplicates(staged: list[dict]) -> list[dict]:
     return out
 
 
+async def has_pending_staged_fix_for_module(module: str) -> bool:
+    """R-F1294 — True if a staged + pending fix already targets this module.
+
+    Matched by file STEM (basename without .py) so it works regardless of the
+    directory the module lives in (intel/ vs llm/ vs autonomous/), since the coder
+    knows a gap by its module name, not its full path. Used by the autonomous coder
+    to SKIP regenerating a fix for a module whose fix is already waiting for review —
+    the root cause of the 186× churn: with AUTO_DEPLOY off, fix_gap stages but the
+    gap is never marked fixed, so it's re-detected and regenerated every cycle.
+    """
+    m = (module or "").strip()
+    if not m:
+        return False
+    staged = await rs.get_json(STAGED_KEY) or []
+    for s in staged:
+        if s.get("status") != "staged":
+            continue
+        stem = (s.get("file") or "").rsplit("/", 1)[-1]
+        if stem.endswith(".py"):
+            stem = stem[:-3]
+        if stem == m:
+            return True
+    return False
+
+
 async def stage_improvement(
     file_path: str,
     new_content: str,
