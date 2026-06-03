@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1265,
+  "next_available": 1301,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7127,14 +7127,361 @@
       "title": "Fix CLI terminal text alignment",
       "claimed_at": "2026-06-01T07:31:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fc91fdec",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:43:08Z"
     },
     {
       "r_number": "R-F1264",
       "title": "Zero-friction client setup no Python knowledge needed",
       "claimed_at": "2026-06-01T07:36:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d41cbab5",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:43:35Z"
+    },
+    {
+      "r_number": "R-F1265",
+      "title": "Fix CLI banner box overflow and operator interject alignment",
+      "claimed_at": "2026-06-01T07:46:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dbacb3f5",
+      "notes": null,
+      "shipped_at": "2026-06-01T07:50:42Z"
+    },
+    {
+      "r_number": "R-F1266",
+      "title": "Slim client ZIP to 5KB, remove full download",
+      "claimed_at": "2026-06-01T07:46:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9c46c66b",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:04:24Z"
+    },
+    {
+      "r_number": "R-F1267",
+      "title": "ARIA CLI terminal UI overhaul",
+      "claimed_at": "2026-06-01T07:54:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7b06f7b0",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:03:45Z"
+    },
+    {
+      "r_number": "R-F1268",
+      "title": "Structural guard fixes for top 5 recurring coding mistakes",
+      "claimed_at": "2026-06-01T07:55:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0e967d23",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:04:28Z"
+    },
+    {
+      "r_number": "R-F1269",
+      "title": "Fix homepage download section remove dead link",
+      "claimed_at": "2026-06-01T08:06:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2c4b83e",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:16:54Z"
+    },
+    {
+      "r_number": "R-F1270",
+      "title": "Fix ARIA CLI terminal jam on launch",
+      "claimed_at": "2026-06-01T08:10:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "da4f5c97",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:38:47Z"
+    },
+    {
+      "r_number": "R-F1271",
+      "title": "Professional Textual-based ARIA Terminal UI",
+      "claimed_at": "2026-06-01T08:20:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9084e256",
+      "notes": null,
+      "shipped_at": "2026-06-01T08:38:47Z"
+    },
+    {
+      "r_number": "R-F1272",
+      "title": "Rewrite aria.py as ARIA Coder terminal with personality",
+      "claimed_at": "2026-06-01T08:46:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fe0df9db",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:16:17Z"
+    },
+    {
+      "r_number": "R-F1273",
+      "title": "Add visible progress indicator and Ctrl+C handling",
+      "claimed_at": "2026-06-01T09:27:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ebd82314",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:27:23Z"
+    },
+    {
+      "r_number": "R-F1274",
+      "title": "Fix local CLI hanging when DeepSeek is unresponsive",
+      "claimed_at": "2026-06-01T09:30:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b13c5467",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:34:23Z"
+    },
+    {
+      "r_number": "R-F1275",
+      "title": "Bulletproof ARIA Coder client fix all remaining issues",
+      "claimed_at": "2026-06-01T09:36:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8ad99a5d",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:46:32Z"
+    },
+    {
+      "r_number": "R-F1276",
+      "title": "Reduce LLM timeout to 30s catch all errors in REPL loop",
+      "claimed_at": "2026-06-01T09:50:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2c6b37b0",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:50:10Z"
+    },
+    {
+      "r_number": "R-F1277",
+      "title": "Thread-based timeout guard for LLM calls in local CLI",
+      "claimed_at": "2026-06-01T09:54:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dc8d2ddb",
+      "notes": null,
+      "shipped_at": "2026-06-01T09:54:56Z"
+    },
+    {
+      "r_number": "R-F1278",
+      "title": "Change local CLI default provider from DeepSeek to ARIA server",
+      "claimed_at": "2026-06-01T10:00:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0af8ff4f",
+      "notes": null,
+      "shipped_at": "2026-06-01T10:00:14Z"
+    },
+    {
+      "r_number": "R-F1279",
+      "title": "CLI Enter-to-submit regression (multiline swallowed Enter)",
+      "claimed_at": "2026-06-01T11:17:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9561e966",
+      "notes": null,
+      "shipped_at": "2026-06-01T11:22:24Z"
+    },
+    {
+      "r_number": "R-F1280",
+      "title": "CLI api_key resolution sends ARIA_INTERNAL_TOKEN to external providers",
+      "claimed_at": "2026-06-01T11:51:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6ac4bdc6",
+      "notes": null,
+      "shipped_at": "2026-06-01T11:58:47Z"
+    },
+    {
+      "r_number": "R-F1281",
+      "title": "Prompt-injection grader: global refusal markers (correct refusals scored as fails)",
+      "claimed_at": "2026-06-01T12:15:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b125632",
+      "notes": null,
+      "shipped_at": "2026-06-01T14:49:02Z"
+    },
+    {
+      "r_number": "R-F1282",
+      "title": "Fix agent gaps: web_crawler zombie, gap_detector wiring, aria_coder wiring",
+      "claimed_at": "2026-06-01T15:07:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "328ae326",
+      "notes": null,
+      "shipped_at": "2026-06-01T15:11:41Z"
+    },
+    {
+      "r_number": "R-F1283",
+      "title": "CLI orphan tool message causes DeepSeek 400 (tool must follow tool_calls)",
+      "claimed_at": "2026-06-01T15:22:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "86149ab7",
+      "notes": null,
+      "shipped_at": "2026-06-01T15:24:32Z"
+    },
+    {
+      "r_number": "R-F1284",
+      "title": "Fix orphaned tool message causing DeepSeek HTTP 400",
+      "claimed_at": "2026-06-01T15:24:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1285",
+      "title": "Self-coder: AST preservation guard + protect coder files + fix truncation max_tokens",
+      "claimed_at": "2026-06-03T10:19:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1286",
+      "title": "aria-web env-check leaked token first4/last4 on public host",
+      "claimed_at": "2026-06-03T10:28:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1287",
+      "title": "Restore constitutional validator (revert R-F1191) + wire to brain",
+      "claimed_at": "2026-06-03T10:34:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1288",
+      "title": "aria-wa: add outbound /api/wa-listener/send route (proactive sends 404)",
+      "claimed_at": "2026-06-03T10:41:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1289",
+      "title": "Fix 5 missing dispatch-tuple entries: vault_registration_daily, portal_coverage_audit, bd_strategy_generate, dd_full_sweep, news_monitor_poll",
+      "claimed_at": "2026-06-03T10:46:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fc6966ba",
+      "notes": null,
+      "shipped_at": "2026-06-03T10:54:23Z"
+    },
+    {
+      "r_number": "R-F1290",
+      "title": "Transport-layer message sanitization in CLI llm.py (bulletproof tool/tool_calls)",
+      "claimed_at": "2026-06-03T11:20:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1291",
+      "title": "Wire web_integrity_agent and self_healing to brain (dark agent fix)",
+      "claimed_at": "2026-06-03T11:27:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1292",
+      "title": "Wire web_integrity success heartbeat (success branch was dark per 21a)",
+      "claimed_at": "2026-06-03T11:28:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1293",
+      "title": "Self-coder: dedup-by-file + skip-if-pending to kill staging churn (186x same file)",
+      "claimed_at": "2026-06-03T13:54:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1294",
+      "title": "Coder skip-if-pending: stop regenerating fixes for files with a pending staged fix",
+      "claimed_at": "2026-06-03T14:36:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1295",
+      "title": "Diff-based editing: coder emits surgical search/replace, no whole-file truncation",
+      "claimed_at": "2026-06-03T15:03:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1296",
+      "title": "Fix breaker latency trip invariant regression (R-F1252 drift)",
+      "claimed_at": "2026-06-03T15:51:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "74837515",
+      "notes": null,
+      "shipped_at": "2026-06-03T15:54:15Z"
+    },
+    {
+      "r_number": "R-F1297",
+      "title": "ARIA CLI grep parity — context/output_mode/-i/type/head_limit",
+      "claimed_at": "2026-06-03T15:54:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1298",
+      "title": "ARIA CLI background run — run_in_background + read_output/kill/list",
+      "claimed_at": "2026-06-03T15:54:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1299",
+      "title": "ARIA CLI wedge fix — watchdog only the LLM call, not the whole turn (long tools no longer corrupt history)",
+      "claimed_at": "2026-06-03T16:09:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1300",
+      "title": "ARIA CLI deploy tool — on timeout verify live build_rev instead of reporting false failure",
+      "claimed_at": "2026-06-03T16:09:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

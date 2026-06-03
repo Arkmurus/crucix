@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 
@@ -99,6 +100,19 @@ def _env_int(name: str, default: int) -> int:
 LLM_MAX_ATTEMPTS = max(1, _env_int("ARIA_CODER_LLM_RETRIES", 4))
 AUTO_RESUME_MAX = max(0, _env_int("ARIA_CODER_AUTO_RESUME", 4))
 
+# R-F1299: per-LLM-call watchdog. On Windows, httpx network calls don't respond
+# to KeyboardInterrupt, so the LLM call (the only unrecoverable-hang risk in a
+# turn) runs in a daemon thread joined with this timeout. It must comfortably
+# exceed llm.py's own httpx timeouts (≤120s for streaming) so it only fires on a
+# genuinely wedged connection, never on a slow-but-progressing response. Tool
+# execution is NOT covered by this — each tool bounds itself (run's process-tree
+# kill, etc.) — so a legitimately long deploy/test run is never abandoned.
+LLM_CALL_TIMEOUT = max(30, _env_int("ARIA_CODER_LLM_CALL_TIMEOUT", 180))
+
+
+class _LLMCallTimeout(Exception):
+    """Raised when a single LLM network call exceeds LLM_CALL_TIMEOUT."""
+
 # Loop guard: the step cap is effectively unlimited (R-F992), so a model that
 # repeats the SAME tool call with identical args would run nearly forever (the
 # grep('safety') x200 incident). Nudge after this many identical calls, abort after
@@ -121,6 +135,8 @@ class Agent:
         # Merge base + coder tool schemas for the LLM
         self._all_schemas = TOOL_SCHEMAS + CODER_TOOL_SCHEMAS
         self._all_mutating = MUTATING_TOOLS | CODER_MUTATING_TOOLS
+        # R-F1299: per-call LLM watchdog timeout for this turn (None → default).
+        self._call_timeout: float | None = None
 
     def _repair_dangling_tool_calls(self) -> int:
         """R-F1120 + R-F1283 — keep the message history valid for the provider's
@@ -176,10 +192,42 @@ class Agent:
             self.messages = out
         return repairs
 
+    def _invoke_llm(self, stream_fn, on_delta, call_timeout: float):
+        """Run a single LLM network call under a watchdog thread (R-F1299).
+
+        The call does NOT mutate self.messages (it only reads them and streams
+        deltas to the UI), so abandoning a timed-out call thread is safe — unlike
+        the old whole-turn watchdog, which abandoned in-flight TOOL execution and
+        let the orphan thread corrupt tool-call/response pairing. Raises
+        _LLMCallTimeout if the call doesn't return within call_timeout, else
+        re-raises whatever the call raised, else returns the LLMResponse."""
+        holder: dict = {}
+        err: dict = {}
+
+        def _call() -> None:
+            try:
+                if stream_fn is not None and on_delta is not None:
+                    holder["r"] = stream_fn(self.messages, tools=self._all_schemas, on_delta=on_delta)
+                else:
+                    holder["r"] = self.llm.chat(self.messages, tools=self._all_schemas)
+            except Exception as e:  # noqa: BLE001 — surfaced to the caller below
+                err["e"] = e
+
+        t = threading.Thread(target=_call, daemon=True)
+        t.start()
+        t.join(timeout=call_timeout)
+        if t.is_alive():
+            raise _LLMCallTimeout(f"no response within {call_timeout:.0f}s")
+        if "e" in err:
+            raise err["e"]
+        return holder.get("r")
+
     def _chat_with_retry(self, steps: int, on_delta=None):
         """Call the LLM, retrying transient failures with exponential backoff.
         Streams tokens via on_delta when the provider supports it (never silent).
-        Returns the LLMResponse, or a TurnResult on unrecoverable failure."""
+        Each call is individually watchdogged (R-F1299) so a hung connection can't
+        freeze the REPL. Returns the LLMResponse, or a TurnResult on unrecoverable
+        failure."""
         # R-F1120: self-heal any dangling tool_calls BEFORE every LLM call. One
         # dangling tool_call otherwise makes the provider 400 on every turn,
         # wedging the whole session (the loop-guard-abort corruption bug).
@@ -187,13 +235,20 @@ class Agent:
         if repaired:
             self.ui.info(f"[self-heal] repaired {repaired} dangling tool-call(s) in history")
         stream_fn = getattr(self.llm, "chat_stream", None)
+        call_timeout = self._call_timeout or LLM_CALL_TIMEOUT
         for attempt in range(LLM_MAX_ATTEMPTS):
+            last = attempt == LLM_MAX_ATTEMPTS - 1
             try:
-                if stream_fn is not None and on_delta is not None:
-                    return stream_fn(self.messages, tools=self._all_schemas, on_delta=on_delta)
-                return self.llm.chat(self.messages, tools=self._all_schemas)
+                return self._invoke_llm(stream_fn, on_delta, call_timeout)
+            except _LLMCallTimeout as exc:
+                if not last:
+                    self.ui.info(f"[self-heal] LLM call hung ({exc}); retry "
+                                 f"{attempt + 1}/{LLM_MAX_ATTEMPTS - 1}…")
+                    continue
+                # A hung call is recoverable on a fresh attempt → resumable.
+                return TurnResult(final_text=f"LLM call timed out: {exc}", steps=steps,
+                                  aborted=True, resumable=True)
             except LLMError as exc:
-                last = attempt == LLM_MAX_ATTEMPTS - 1
                 if _is_transient(exc) and not last:
                     self.ui.info(f"[self-heal] LLM hiccup ({exc}); retry "
                                  f"{attempt + 1}/{LLM_MAX_ATTEMPTS - 1}…")
@@ -313,49 +368,41 @@ class Agent:
                 ),
             })
 
-    def run_turn(self, user_text: str, timeout: float = 60.0) -> TurnResult:
-        """Run one turn with a timeout. If the LLM doesn't respond within
-        ``timeout`` seconds, returns an aborted TurnResult so the REPL can
-        recover instead of hanging forever."""
+    def run_turn(self, user_text: str, timeout: float | None = None) -> TurnResult:
+        """Run one turn to completion.
+
+        R-F1299: the turn runs SYNCHRONOUSLY — there is no whole-turn watchdog
+        thread. The previous design wrapped the entire turn (including tool
+        execution) in a daemon thread joined with a 60s timeout; when a tool ran
+        longer than that (a deploy is 600s), the watchdog abandoned the
+        still-running thread and popped a message, while the orphaned thread kept
+        appending to self.messages — corrupting tool-call/response pairing and
+        wedging every later turn with HTTP 400 ("tool_calls must be followed by
+        tool messages"). Hang protection now lives where the only unrecoverable
+        hang can occur: each LLM network call is individually watchdogged in
+        _chat_with_retry. Tool execution is bounded by each tool's own timeout
+        (run's process-tree kill, etc.), so a long deploy/test run completes
+        instead of being abandoned.
+
+        ``timeout`` overrides the per-LLM-call watchdog for this turn (seconds);
+        None uses LLM_CALL_TIMEOUT."""
         self.messages.append({"role": "user", "content": user_text})
+        self._call_timeout = timeout
         steps = 0
         sig_counts: dict[str, int] = {}  # R-F1042 loop guard (per turn)
-
-        # ── Thread-based timeout guard ────────────────────────────────────────
-        # On Windows, httpx network calls don't respond to KeyboardInterrupt.
-        # We run the turn in a daemon thread and join with a timeout so the
-        # REPL can always recover.
-        import threading as _threading
-        _result_holder: list[TurnResult | None] = [None]
-        _error_holder: list[Exception | None] = [None]
-
-        def _run() -> None:
-            try:
-                _result_holder[0] = self._run_turn_inner(steps, sig_counts)
-            except Exception as _exc:
-                _error_holder[0] = _exc
-
-        _t = _threading.Thread(target=_run, daemon=True)
-        _t.start()
-        _t.join(timeout=timeout)
-
-        if _t.is_alive():
-            # Timed out — the thread is still running but we give up on it
-            self.messages.pop()  # Remove the user message we added
-            return TurnResult(
-                final_text="LLM timed out — the provider did not respond within "
-                           f"{timeout:.0f}s. Try again or check your connection.",
-                steps=0, aborted=True, resumable=False,
-            )
-
-        if _error_holder[0] is not None:
-            self.messages.pop()
-            raise _error_holder[0]  # type: ignore[misc]
-
-        result = _result_holder[0]
+        try:
+            result = self._run_turn_inner(steps, sig_counts)
+        except Exception as exc:  # noqa: BLE001 — never wedge the next turn
+            # Repair rather than blind-pop: the inner loop may have appended an
+            # assistant tool_calls block, so popping the last message could strip
+            # that and orphan its tool responses. _repair leaves valid history.
+            self._repair_dangling_tool_calls()
+            return TurnResult(final_text=f"turn error: {exc}", steps=steps,
+                              aborted=True, resumable=_is_transient(exc))
+        finally:
+            self._call_timeout = None
         if result is None:
-            self.messages.pop()
-            return TurnResult(final_text="LLM returned no result", steps=0,
+            return TurnResult(final_text="LLM returned no result", steps=steps,
                               aborted=True, resumable=False)
         return result
 

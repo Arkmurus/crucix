@@ -81,29 +81,82 @@ class CoderToolbox:
         Uses deploy.sh on Linux/macOS (via bash) and deploy.ps1 on Windows
         (via PowerShell) so the tool works on any platform without manual
         intervention. R-F1195.
+
+        R-F1300: a fly/Depot build often finishes SERVER-SIDE after the local
+        deploy command times out (torch builds routinely exceed the timeout). A
+        flat "timed out" then reads as failure when the deploy actually LANDED —
+        which is what made ARIA think her deploy failed and retry. So when the
+        command errors/times out, verify the live build_rev against HEAD before
+        reporting failure: if it matches, the deploy succeeded; if not, return the
+        failure plus the §11 guidance (the build may still be running on Depot —
+        check `flyctl apps releases`, don't blindly retry).
         """
         import platform as _plat
         is_windows = _plat.system().lower() == "windows"
-        if is_windows:
-            ps_script = self.root / "scripts" / "deploy.ps1"
-            if ps_script.exists():
-                # Map --all → -All, --intel → -Intel, --web → -Web, --wa → -Wa
-                parts = target.split()
-                ps_args = " ".join(
-                    "-" + p.lstrip("-").capitalize() for p in parts
-                )
-                # R-F1210: tools.py already wraps commands in
-                # powershell -NoProfile -NonInteractive -Command on Windows.
-                # Nesting another powershell -Command inside that mangles quotes.
-                # Pass the script invocation directly — & is valid PS syntax.
-                return self._tb.run(
-                    f"& {ps_script} {ps_args}",
-                    timeout=timeout,
-                )
+        result: ToolResult
         sh_script = self.root / "scripts" / "deploy.sh"
-        if not sh_script.exists():
+        ps_script = self.root / "scripts" / "deploy.ps1"
+        if is_windows and ps_script.exists():
+            # Map --all → -All, --intel → -Intel, --web → -Web, --wa → -Wa
+            parts = target.split()
+            ps_args = " ".join("-" + p.lstrip("-").capitalize() for p in parts)
+            # R-F1210: tools.py already wraps commands in powershell on Windows;
+            # nesting another powershell -Command mangles quotes. & is valid PS.
+            result = self._tb.run(f"& {ps_script} {ps_args}", timeout=timeout)
+        elif sh_script.exists():
+            result = self._tb.run(f"bash {sh_script} {target}", timeout=timeout)
+        else:
             return ToolResult(f"error: deploy script not found at {sh_script}", is_error=True)
-        return self._tb.run(f"bash {sh_script} {target}", timeout=timeout)
+
+        if not result.is_error:
+            return result
+        # The command failed/timed out — but the build may have landed anyway.
+        verify = self._verify_intel_live(target)
+        if verify is not None:
+            landed, note = verify
+            if landed:
+                return ToolResult(
+                    f"deploy command reported an error/timeout, but the live build "
+                    f"matches HEAD — the deploy LANDED. {note}\n"
+                    f"(Do not retry. Mark the R-number shipped.)\n\n"
+                    f"--- original command output (tail) ---\n{result.output[-1500:]}")
+            return ToolResult(
+                f"deploy command failed AND the live build does not match HEAD yet. "
+                f"{note}\nThe build may still be running on Depot — check "
+                f"`flyctl apps releases -a aria-intel` and re-verify the live "
+                f"build_rev before retrying (§11). Do NOT blindly redeploy.\n\n"
+                f"--- original command output (tail) ---\n{result.output[-2000:]}",
+                is_error=True)
+        return result
+
+    def _verify_intel_live(self, target: str) -> "tuple[bool, str] | None":
+        """R-F1300 — compare aria-intel's live build_rev to local HEAD. Returns
+        (landed, human_note) or None if it can't be checked (target excludes
+        intel, no git, or the health endpoint is unreachable)."""
+        if not ("--all" in target or "--intel" in target):
+            return None  # only aria-intel exposes a build_rev to compare
+        head = self._tb.run("git rev-parse --short=8 HEAD", timeout=15)
+        if head.is_error or not head.output:
+            return None
+        # run() prepends an "exit code: N" header; take the last non-empty line.
+        sha = ""
+        for ln in reversed(head.output.splitlines()):
+            ln = ln.strip()
+            if ln and not ln.lower().startswith("exit code"):
+                sha = ln
+                break
+        if not sha:
+            return None
+        try:
+            import httpx
+            resp = httpx.get("https://aria-intel.fly.dev/health/live",
+                             timeout=20.0, follow_redirects=True)
+            build_rev = (resp.json() or {}).get("build_rev", "")
+        except Exception as exc:  # noqa: BLE001
+            return None  # can't verify → fall back to the raw result
+        landed = bool(build_rev) and sha[:8] in build_rev
+        note = f"live build_rev={build_rev!r}, HEAD={sha}"
+        return landed, note
 
     # ── test runner ────────────────────────────────────────────────────────
 

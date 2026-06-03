@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,6 +66,13 @@ class Toolbox:
         # R-F1030: live-output callback — run() calls this for each output line so
         # the UI can show progress during long commands (never silent).
         self.on_output = None
+        # R-F1298: background command registry (Claude-Code run_in_background
+        # parity). Maps a bg id → state dict {proc, command, buffer, cursor,
+        # lines_total, temp_script, lock}. Scoped to this Toolbox (session), so
+        # processes are tied to the session that started them.
+        self._bg: dict[str, dict] = {}
+        self._bg_counter = 0
+        self._bg_lock = threading.Lock()
 
     # ── path helpers ──────────────────────────────────────────────────────
     def _resolve(self, path: str) -> Path:
@@ -201,44 +209,111 @@ class Toolbox:
         return ToolResult(out)
 
     # ── grep ──────────────────────────────────────────────────────────────
-    def grep(self, pattern: str, path: str = ".", glob: str = "") -> ToolResult:
-        # Prefer ripgrep when available (fast, respects .gitignore); fall back
-        # to a pure-Python walk so the tool works everywhere.
-        rg = shutil.which("rg")
+    # Common ripgrep --type names → glob equivalents for the pure-python path.
+    _TYPE_GLOBS = {
+        "py": "*.py", "js": "*.js", "ts": "*.ts", "tsx": "*.tsx", "jsx": "*.jsx",
+        "go": "*.go", "rust": "*.rs", "java": "*.java", "c": "*.c", "cpp": "*.cpp",
+        "json": "*.json", "yaml": "*.yml", "yml": "*.yml", "md": "*.md",
+        "html": "*.html", "css": "*.css", "sh": "*.sh", "toml": "*.toml",
+    }
+
+    def grep(self, pattern: str, path: str = ".", glob: str = "",
+             type: str = "", output_mode: str = "content",
+             case_insensitive: bool = False, context: int = 0,
+             before: int = 0, after: int = 0, head_limit: int = 0) -> ToolResult:
+        """Search file contents with a regex — Claude-Code-parity grep (R-F1297).
+
+        output_mode: 'content' (file:line:match, default) | 'files_with_matches'
+        (matching paths only) | 'count' (per-file match counts). context (-C) adds
+        N lines on each side and overrides before/after (-B/-A). case_insensitive,
+        glob ('*.py'), and type ('py','js',…) filter the search; head_limit caps
+        the result-line count (0 → default 200). Prefers ripgrep, falls back to a
+        pure-Python walk so it works everywhere."""
         base = self._resolve(path)
+        limit = head_limit if head_limit and head_limit > 0 else _MAX_GREP_MATCHES
+        a = context or after
+        b = context or before
+        mode = (output_mode or "content").strip().lower()
+        if mode not in {"content", "files_with_matches", "count"}:
+            mode = "content"
+
+        rg = shutil.which("rg")
         if rg:
-            cmd = [rg, "-n", "--no-heading", "-S", pattern, str(base)]
+            cmd = [rg, "-S"]
+            if case_insensitive:
+                cmd.append("-i")
             if glob:
-                cmd[1:1] = ["-g", glob]
+                cmd += ["-g", glob]
+            if type:
+                cmd += ["-t", type]
+            if mode == "files_with_matches":
+                cmd.append("-l")
+            elif mode == "count":
+                cmd.append("-c")
+            else:  # content
+                cmd += ["-n", "--no-heading"]
+                if a:
+                    cmd += ["-A", str(a)]
+                if b:
+                    cmd += ["-B", str(b)]
+            cmd += [pattern, str(base)]
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 out = proc.stdout
             except Exception:  # noqa: BLE001 — fall through to python
                 out = None
             if out is not None:
-                lines = out.splitlines()[:_MAX_GREP_MATCHES]
-                return ToolResult("\n".join(lines) or f"no matches for {pattern}")
-        # Pure-python fallback
+                all_lines = out.splitlines()
+                lines = all_lines[:limit]
+                more = "" if len(all_lines) <= limit else f"\n... (truncated at {limit})"
+                return ToolResult(("\n".join(lines) + more) or f"no matches for {pattern}")
+
+        # Pure-python fallback (honours every option above).
+        flags = re.IGNORECASE if case_insensitive else 0
         try:
-            rx = re.compile(pattern)
+            rx = re.compile(pattern, flags)
         except re.error as exc:
             return ToolResult(f"invalid regex: {exc}", is_error=True)
+        name_filter = glob or self._TYPE_GLOBS.get((type or "").lower(), "")
+        skip = {".git", "node_modules", "__pycache__", ".venv"}
         results: list[str] = []
+        file_hits: dict[str, int] = {}
         for root, dirs, files in os.walk(base):
-            dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "__pycache__", ".venv"}]
+            dirs[:] = [d for d in dirs if d not in skip]
             for fn in files:
-                if glob and not fnmatch.fnmatch(fn, glob):
+                if name_filter and not fnmatch.fnmatch(fn, name_filter):
                     continue
                 fp = Path(root) / fn
                 try:
-                    for i, line in enumerate(fp.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
-                        if rx.search(line):
-                            results.append(f"{fp.relative_to(self.root).as_posix()}:{i}:{line[:300]}")
-                            if len(results) >= _MAX_GREP_MATCHES:
-                                return ToolResult("\n".join(results) + "\n... (truncated)")
+                    text_lines = fp.read_text(encoding="utf-8", errors="ignore").splitlines()
                 except Exception:  # noqa: BLE001
                     continue
-        return ToolResult("\n".join(results) or f"no matches for {pattern}")
+                rel = fp.relative_to(self.root).as_posix()
+                hits = [i for i, ln in enumerate(text_lines) if rx.search(ln)]
+                if not hits:
+                    continue
+                if mode == "files_with_matches":
+                    results.append(rel)
+                elif mode == "count":
+                    file_hits[rel] = len(hits)
+                else:  # content (with optional context)
+                    emitted: set[int] = set()
+                    for i in hits:
+                        for j in range(max(0, i - b), min(len(text_lines), i + a + 1)):
+                            if j in emitted:
+                                continue
+                            emitted.add(j)
+                            sep = ":" if j == i else "-"
+                            results.append(f"{rel}:{j + 1}{sep}{text_lines[j][:300]}")
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+        if mode == "count":
+            lines = [f"{p}:{c}" for p, c in sorted(file_hits.items())][:limit]
+            return ToolResult("\n".join(lines) or f"no matches for {pattern}")
+        truncated = "\n... (truncated)" if len(results) > limit else ""
+        return ToolResult("\n".join(results[:limit]) + truncated or f"no matches for {pattern}")
 
     # ── run (shell) ───────────────────────────────────────────────────────
     @staticmethod
@@ -264,44 +339,55 @@ class Toolbox:
             except Exception:
                 pass
 
-    def run(self, command: str, timeout: int = 300, cwd: str = "") -> ToolResult:
-        workdir = self._resolve(cwd) if cwd else self.root
-        # Use the platform shell — PowerShell on Windows, /bin/sh elsewhere — so
-        # the model can use the same commands the operator would. We use Popen (not
-        # subprocess.run) so that on timeout we can kill the WHOLE process tree:
-        # subprocess.run's timeout only kills the direct child, leaving orphaned
-        # grandchildren running (that orphaned-process pattern wedged ARIA's loop).
-        _temp_script = _NO_TEMP_SCRIPT
+    def _spawn(self, command: str, workdir: Path) -> "tuple[subprocess.Popen, str]":
+        """Launch a shell command, returning (Popen, temp_script_path). Shared by
+        foreground run() and background runs (R-F1298) so the Windows quoting fix
+        lives in one place. Uses the platform shell — PowerShell on Windows,
+        /bin/sh elsewhere — and a process group so the whole tree can be killed.
+
+        Windows (R-F1211): PowerShell -Command mangles double-quotes (e.g. -k
+        "pattern"); write the command to a temp .ps1 and use -File, which reads
+        the script literally. $LASTEXITCODE is propagated so the child's real exit
+        code surfaces (it stays $null → exit 0 for pure cmdlets)."""
         if sys.platform == "win32":
-            # R-F1211: PowerShell -Command mangles double-quotes in the command
-            # string (e.g. -k "pattern" in pytest). Write the command to a temp
-            # .ps1 script and use -File instead — -File reads the script content
-            # literally, preserving all quotes.
             import tempfile
             tmp = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".ps1", delete=False, encoding="utf-8",
             )
-            # Propagate the child command's real exit code: $LASTEXITCODE is set
-            # by the last native exe; it stays $null (→ exit 0) for pure cmdlets.
             tmp.write(command)
             tmp.write("\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n")
             tmp.close()
-            _temp_script = tmp.name
             argv = [
                 "powershell", "-NoProfile", "-NonInteractive",
-                "-ExecutionPolicy", "Bypass",
-                "-File", _temp_script,
+                "-ExecutionPolicy", "Bypass", "-File", tmp.name,
             ]
             popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            temp_script = tmp.name
         else:
             argv = command
             popen_kwargs = {"shell": True, "start_new_session": True}
+            temp_script = _NO_TEMP_SCRIPT
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, cwd=str(workdir), **popen_kwargs,
+        )
+        return proc, temp_script
 
+    def run(self, command: str, timeout: int = 300, cwd: str = "",
+            run_in_background: bool = False) -> ToolResult:
+        workdir = self._resolve(cwd) if cwd else self.root
+        # R-F1298: background mode — start the process, stream into a ring buffer,
+        # and return immediately so the model can keep working (dev servers, long
+        # builds/watchers). Read it later with read_output, stop it with
+        # kill_command. Claude-Code run_in_background parity.
+        if run_in_background:
+            return self._start_background(command, workdir)
+        # We use Popen (not subprocess.run) so that on timeout we can kill the
+        # WHOLE process tree: subprocess.run's timeout only kills the direct child,
+        # leaving orphaned grandchildren running (that orphaned-process pattern
+        # wedged ARIA's loop).
         try:
-            proc = subprocess.Popen(
-                argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, cwd=str(workdir), **popen_kwargs,
-            )
+            proc, _temp_script = self._spawn(command, workdir)
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"error running command: {exc}", is_error=True)
 
@@ -373,6 +459,101 @@ class Toolbox:
         return ToolResult(f"{header}\n{out}" if out else header,
                           is_error=returncode != 0,
                           mutation=f"ran: {command[:80]}")
+
+    # ── background commands (R-F1298 — run_in_background parity) ─────────────
+    def _start_background(self, command: str, workdir: Path) -> ToolResult:
+        """Start a command detached, draining its output into a bounded ring
+        buffer on a reader thread. Returns a bg id the model uses with
+        read_output / kill_command / list_background."""
+        try:
+            proc, temp_script = self._spawn(command, workdir)
+        except Exception as exc:  # noqa: BLE001
+            return ToolResult(f"error starting background command: {exc}", is_error=True)
+        with self._bg_lock:
+            self._bg_counter += 1
+            bg_id = f"bg{self._bg_counter}"
+        state: dict = {
+            "proc": proc,
+            "command": command,
+            "buffer": deque(maxlen=2000),  # tail of recent output lines
+            "cursor": 0,                    # absolute index already returned
+            "lines_total": 0,               # absolute count ever produced
+            "temp_script": temp_script,
+            "lock": threading.Lock(),
+        }
+
+        def _reader() -> None:
+            try:
+                for line in proc.stdout:  # type: ignore[union-attr]
+                    with state["lock"]:
+                        state["buffer"].append(line.rstrip("\n"))
+                        state["lines_total"] += 1
+            except Exception:  # noqa: BLE001 — reader must never raise
+                pass
+            finally:
+                _cleanup_temp_script(temp_script)
+
+        threading.Thread(target=_reader, daemon=True).start()
+        self._bg[bg_id] = state
+        return ToolResult(
+            f"started in background as {bg_id} (pid {proc.pid}): {command[:80]}\n"
+            f"Use read_output('{bg_id}') for new output, kill_command('{bg_id}') to stop it.",
+            mutation=f"started background {bg_id}: {command[:80]}")
+
+    def read_output(self, bg_id: str, max_lines: int = 0) -> ToolResult:
+        """Return output produced by a background command SINCE THE LAST read,
+        plus its run/exit status. New output only — call repeatedly to follow a
+        log. The ring buffer keeps the last ~2000 lines; older unread lines are
+        reported as lost rather than silently dropped."""
+        state = self._bg.get(bg_id)
+        if state is None:
+            return ToolResult(
+                f"error: no background command '{bg_id}'. Use list_background.",
+                is_error=True)
+        proc = state["proc"]
+        with state["lock"]:
+            total = state["lines_total"]
+            buffered = list(state["buffer"])
+            first_abs = total - len(buffered)
+            start = max(0, state["cursor"] - first_abs)
+            new_lines = buffered[start:]
+            dropped = max(0, first_abs - state["cursor"])
+            state["cursor"] = total
+        head = ""
+        if max_lines and max_lines > 0 and len(new_lines) > max_lines:
+            head = f"... ({len(new_lines) - max_lines} earlier new lines omitted)\n"
+            new_lines = new_lines[-max_lines:]
+        rc = proc.poll()
+        status = "running" if rc is None else f"exited (code {rc})"
+        drop_note = (f"[{dropped} line(s) lost to ring-buffer overflow]\n"
+                     if dropped else "")
+        body = "\n".join(new_lines)
+        if not body:
+            body = "(no new output)" if rc is None else "(no further output)"
+        return ToolResult(f"[{bg_id}] {status}\n{drop_note}{head}{body}")
+
+    def kill_command(self, bg_id: str) -> ToolResult:
+        """Stop a background command (kills the whole process tree)."""
+        state = self._bg.get(bg_id)
+        if state is None:
+            return ToolResult(f"error: no background command '{bg_id}'.", is_error=True)
+        proc = state["proc"]
+        if proc.poll() is not None:
+            return ToolResult(f"[{bg_id}] already exited (code {proc.returncode}).")
+        self._kill_tree(proc)
+        _cleanup_temp_script(state.get("temp_script", ""))
+        return ToolResult(f"[{bg_id}] killed.", mutation=f"killed background {bg_id}")
+
+    def list_background(self) -> ToolResult:
+        """List background commands started this session and their status."""
+        if not self._bg:
+            return ToolResult("no background commands.")
+        lines = []
+        for bg_id, state in self._bg.items():
+            rc = state["proc"].poll()
+            status = "running" if rc is None else f"exited({rc})"
+            lines.append(f"{bg_id}: {status}  {state['command'][:70]}")
+        return ToolResult("\n".join(lines))
 
     # ── update_plan (multi-step planning, like a Claude Code todo list) ─────
     def update_plan(self, plan: list) -> ToolResult:
@@ -543,13 +724,20 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "grep",
-            "description": "Search file contents with a regular expression. Returns file:line:match. Uses ripgrep when available.",
+            "description": "Search file contents with a regular expression. Uses ripgrep when available. output_mode 'content' returns file:line:match (with optional context lines), 'files_with_matches' returns matching paths, 'count' returns per-file match counts.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pattern": {"type": "string"},
-                    "path": {"type": "string"},
+                    "path": {"type": "string", "description": "File or directory to search (optional)."},
                     "glob": {"type": "string", "description": "Filename filter, e.g. '*.py' (optional)."},
+                    "type": {"type": "string", "description": "File-type filter, e.g. 'py', 'js', 'json' (optional)."},
+                    "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"], "description": "Result shape (default 'content')."},
+                    "case_insensitive": {"type": "boolean", "description": "Case-insensitive match (default false)."},
+                    "context": {"type": "integer", "description": "Lines of context on each side of a match (content mode); overrides before/after."},
+                    "before": {"type": "integer", "description": "Lines of context before each match (content mode)."},
+                    "after": {"type": "integer", "description": "Lines of context after each match (content mode)."},
+                    "head_limit": {"type": "integer", "description": "Cap the number of result lines (default 200)."},
                 },
                 "required": ["pattern"],
             },
@@ -559,13 +747,14 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "run",
-            "description": "Run a shell command in the working directory (PowerShell on Windows, sh elsewhere). Use for running tests, git, builds, package managers — anything the operator could type. Returns exit code + combined stdout/stderr.",
+            "description": "Run a shell command in the working directory (PowerShell on Windows, sh elsewhere). Use for running tests, git, builds, package managers — anything the operator could type. Returns exit code + combined stdout/stderr. Set run_in_background=true for long-lived processes (dev servers, watchers): it returns a bg id immediately and you read its output later with read_output.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string"},
-                    "timeout": {"type": "integer", "description": "Seconds before kill (default 300; use 600+ for deploys)."},
+                    "timeout": {"type": "integer", "description": "Seconds before kill (default 300; use 600+ for deploys). Ignored when run_in_background is true."},
                     "cwd": {"type": "string", "description": "Sub-directory to run in (optional)."},
+                    "run_in_background": {"type": "boolean", "description": "Start detached and return immediately with a bg id (default false). Use for servers/watchers/long tasks you want to keep working alongside."},
                 },
                 "required": ["command"],
             },
@@ -594,6 +783,43 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": ["plan"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_output",
+            "description": "Read NEW output from a background command (started via run with run_in_background=true) since your last read, plus its run/exit status. Call repeatedly to follow a server log or wait for a build to finish.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bg_id": {"type": "string", "description": "The background id returned by run, e.g. 'bg1'."},
+                    "max_lines": {"type": "integer", "description": "Cap the new lines returned (0 = all new lines)."},
+                },
+                "required": ["bg_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kill_command",
+            "description": "Stop a background command (kills the whole process tree). Use to shut down a dev server you started.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bg_id": {"type": "string", "description": "The background id, e.g. 'bg1'."},
+                },
+                "required": ["bg_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_background",
+            "description": "List background commands started this session and whether each is still running.",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     # fetch_url removed here because it's already defined in coder_tools.py
