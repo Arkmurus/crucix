@@ -1644,12 +1644,58 @@ app.post('/reset-auth', requireAuth, (_req, res) => {
   }
 });
 
+// ── Outbound send (R-F1288) ────────────────────────────────────────────────
+// The brain's proactive/autonomous WhatsApp delivery (wa_notifier.py /
+// delivery.py) POSTs here with {group_id, message}. This route was MISSING on
+// the canonical isolated app — it only existed on the legacy aria-web listener —
+// so every proactive/scheduled send to aria-wa.internal:5070 404'd. §21b: both
+// outbound success AND failure are forwarded to the brain.
+function _waBrainSignal(signalType, content, metadata) {
+  try {
+    fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+      body:    JSON.stringify({ content, source: 'aria-wa', signal_type: signalType, metadata }),
+      signal:  AbortSignal.timeout(3000),
+    }).catch(() => {});
+  } catch { /* signalling must never throw */ }
+}
+
+app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
+  const b      = req.body || {};
+  const target = b.group_id || b.to || b.chat_id || b.jid || '';
+  const text   = b.message  || b.text || '';
+  if (!target || !text) {
+    return res.status(400).json({ error: 'group_id (or to/chat_id) and message are required' });
+  }
+  if (!sock || !isConnected) {
+    _waBrainSignal('wa_outbound_failed', `WA outbound dropped — not connected (to ${target})`,
+      { chat_id: String(target), reason: 'not_connected' });
+    return res.status(503).json({ error: 'WhatsApp not connected' });
+  }
+  try {
+    const chunks = splitMessage(text);
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 500));
+      await sock.sendMessage(target, { text: chunks[i] });
+    }
+    _waBrainSignal('wa_outbound_sent', `WA outbound sent to ${target} (${text.length} chars)`,
+      { chat_id: String(target), chars: text.length, parts: chunks.length });
+    res.json({ sent: true, to: target, parts: chunks.length, chars: text.length });
+  } catch (e) {
+    _waBrainSignal('wa_outbound_failed', `WA outbound FAILED to ${target}: ${e.message}`,
+      { chat_id: String(target), error: String(e.message || '').slice(0, 200) });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[ARIA Listener] API on port ${PORT}`);
-  console.log(`[ARIA Listener] GET /health   — health check (no auth)`);
-  console.log(`[ARIA Listener] GET /status   — connection status`);
-  console.log(`[ARIA Listener] GET /groups   — list groups + their IDs`);
-  console.log(`[ARIA Listener] GET /messages — recent messages heard`);
+  console.log(`[ARIA Listener] GET  /health             — health check (no auth)`);
+  console.log(`[ARIA Listener] GET  /status             — connection status`);
+  console.log(`[ARIA Listener] GET  /groups             — list groups + their IDs`);
+  console.log(`[ARIA Listener] GET  /messages           — recent messages heard`);
+  console.log(`[ARIA Listener] POST /api/wa-listener/send — outbound (brain proactive sends)`);
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
