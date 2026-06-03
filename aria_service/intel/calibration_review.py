@@ -378,6 +378,16 @@ async def run_calibration_review() -> dict:
             logger.warning("R-F166 overconfident correction failed: %s", exc)
             review["correction_applied"] = {"error": str(exc)[:160], "direction": "down"}
 
+    # R-F1304 — wire to brain (§21a)
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="calibration_review",
+            summary=f"Calibration review: {calibration_status} (mastery {overall_mastery:.0%}, accuracy {estimated_accuracy:.0%})",
+            source_id="calibration_review:run_calibration_review",
+        )
+    except Exception:
+        pass
     return review
 
 

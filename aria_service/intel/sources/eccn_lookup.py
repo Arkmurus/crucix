@@ -90,6 +90,17 @@ def lookup_by_keyword(
     data = _load_data()
     categories = data.get("categories") or {}
     if not categories:
+        # R-F1304 — wire empty data as warning
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sources.eccn_lookup",
+                detail="lookup_by_keyword: no ECCN categories loaded",
+                gap_type="source_failure",
+                source="sources:eccn_lookup:lookup_by_keyword",
+            )
+        except Exception:
+            pass
         return []
 
     text_lower = text.lower()

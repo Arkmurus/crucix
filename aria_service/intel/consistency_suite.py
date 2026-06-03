@@ -453,6 +453,16 @@ async def run_all(llm, limit: int | None = None) -> dict:
     except Exception as e:
         logger.debug("[consistency] brain_hook feed failed: %s", e)
 
+    # R-F1304 — wire to brain (§21a)
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="consistency_suite",
+            summary=f"Consistency suite: {summary['tests_passed']}/{summary['tests_run']} passed (overall {summary['overall_score']:.2f})",
+            source_id="consistency_suite:run_all",
+        )
+    except Exception:
+        pass
     return summary
 
 

@@ -49,6 +49,7 @@ import time
 from typing import Any
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.ofac_sdn")
 
@@ -202,6 +203,7 @@ async def _load_records() -> list[dict]:
         return _CACHE["records"]
 
 
+@wired(module="sources.ofac_sdn", summary="OFAC SDN lookup for {name}")
 async def lookup(
     name: str,
     *,

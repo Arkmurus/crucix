@@ -186,6 +186,17 @@ def check_sanctions(
     """
     queried_name = (name or "").strip()
     if not queried_name:
+        # R-F1304 — wire empty-name case as warning
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sanctions_canonical.lookup",
+                detail="check_sanctions called with empty name",
+                gap_type="input_error",
+                source="sanctions_canonical:lookup:check_sanctions",
+            )
+        except Exception:
+            pass
         return {
             "queried_name": "",
             "verdict": "INSUFFICIENT_DATA",
@@ -336,7 +347,7 @@ def check_sanctions(
             verdict = "REVIEW"
 
     matches.sort(key=lambda m: m["match_score"], reverse=True)
-    return {
+    result = {
         "queried_name": queried_name,
         "queried_normalised": q_normalised,
         "queried_jurisdiction": jurisdiction,
@@ -346,6 +357,17 @@ def check_sanctions(
         "gate_blocked": blocked,
         "cache_status": _cache_status_summary(),
     }
+    # R-F1304 — wire to brain (§21a)
+    try:
+        from ..engine_wiring import wire_success
+        wire_success(
+            module="sanctions_canonical.lookup",
+            summary=f"Sanctions check for {queried_name}: {verdict} ({len(matches)} matches, {len(blocked)} blocked)",
+            source_id="sanctions_canonical:lookup:check_sanctions",
+        )
+    except Exception:
+        pass
+    return result
 
 
 def _cache_status_summary() -> dict[str, Any]:

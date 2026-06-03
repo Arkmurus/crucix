@@ -122,66 +122,90 @@ def replace_source(source: str, rows, batch_size: int = 500) -> int:
     """
     now = time.time()
     inserted = 0
-    with connect() as conn:
-        cur = conn.cursor()
-        # Bracket the refresh in a transaction so a partial parse
-        # never half-replaces the source's rows.
-        cur.execute("BEGIN")
-        try:
-            cur.execute("DELETE FROM entries WHERE source = ?", (source,))
-            for r in rows:
-                cur.execute(
-                    """
-                    INSERT INTO entries
-                      (source, source_uid, formatted_name, normalised_name,
-                       entity_type, countries, addresses, aliases, programs,
-                       designation_at, raw_excerpt, last_refreshed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        source,
-                        r["source_uid"],
-                        r["formatted_name"],
-                        r["normalised_name"],
-                        r.get("entity_type", ""),
-                        json.dumps(r.get("countries", [])),
-                        json.dumps(r.get("addresses", [])),
-                        json.dumps([
-                            {
-                                "formatted": a.get("formatted", ""),
-                                "normalised": a.get("normalised", ""),
-                                "alias_type": a.get("alias_type", ""),
-                            }
-                            for a in r.get("aliases", [])
-                        ]),
-                        json.dumps(r.get("programs", [])),
-                        r.get("designation_at"),
-                        (r.get("raw_excerpt") or "")[:2000],
-                        now,
-                    ),
-                )
-                entry_id = cur.lastrowid
-                for a in r.get("aliases", []):
+    try:
+        with connect() as conn:
+            cur = conn.cursor()
+            # Bracket the refresh in a transaction so a partial parse
+            # never half-replaces the source's rows.
+            cur.execute("BEGIN")
+            try:
+                cur.execute("DELETE FROM entries WHERE source = ?", (source,))
+                for r in rows:
                     cur.execute(
                         """
-                        INSERT INTO aliases
-                          (entry_id, formatted, normalised, alias_type)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO entries
+                          (source, source_uid, formatted_name, normalised_name,
+                           entity_type, countries, addresses, aliases, programs,
+                           designation_at, raw_excerpt, last_refreshed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            entry_id,
-                            a.get("formatted", ""),
-                            a.get("normalised", ""),
-                            a.get("alias_type", ""),
+                            source,
+                            r["source_uid"],
+                            r["formatted_name"],
+                            r["normalised_name"],
+                            r.get("entity_type", ""),
+                            json.dumps(r.get("countries", [])),
+                            json.dumps(r.get("addresses", [])),
+                            json.dumps([
+                                {
+                                    "formatted": a.get("formatted", ""),
+                                    "normalised": a.get("normalised", ""),
+                                    "alias_type": a.get("alias_type", ""),
+                                }
+                                for a in r.get("aliases", [])
+                            ]),
+                            json.dumps(r.get("programs", [])),
+                            r.get("designation_at"),
+                            (r.get("raw_excerpt") or "")[:2000],
+                            now,
                         ),
                     )
-                inserted += 1
-            cur.execute("COMMIT")
+                    entry_id = cur.lastrowid
+                    for a in r.get("aliases", []):
+                        cur.execute(
+                            """
+                            INSERT INTO aliases
+                              (entry_id, formatted, normalised, alias_type)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                entry_id,
+                                a.get("formatted", ""),
+                                a.get("normalised", ""),
+                                a.get("alias_type", ""),
+                            ),
+                        )
+                    inserted += 1
+                cur.execute("COMMIT")
+            except Exception:
+                cur.execute("ROLLBACK")
+                raise
+        logger.info("[sanctions_canonical] replaced %d rows for source=%s", inserted, source)
+        # R-F1304 — wire success to brain (§21a)
+        try:
+            from ..engine_wiring import wire_success
+            wire_success(
+                module="sanctions_canonical.store",
+                summary=f"Replaced {inserted} rows for source={source}",
+                source_id="sanctions_canonical:store:replace_source",
+            )
         except Exception:
-            cur.execute("ROLLBACK")
-            raise
-    logger.info("[sanctions_canonical] replaced %d rows for source=%s", inserted, source)
-    return inserted
+            pass
+        return inserted
+    except Exception as exc:
+        # R-F1304 — wire failure to brain (§21a)
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sanctions_canonical.store",
+                detail=f"replace_source failed for {source}: {exc}",
+                gap_type="source_failure",
+                source="sanctions_canonical:store:replace_source",
+            )
+        except Exception:
+            pass
+        raise
 
 
 def record_refresh(source: str, started_at: float, finished_at: float,
@@ -193,6 +217,24 @@ def record_refresh(source: str, started_at: float, finished_at: float,
             "VALUES (?, ?, ?, ?, ?, ?)",
             (source, started_at, finished_at, rows_loaded, 1 if success else 0, error[:1000]),
         )
+    # R-F1304 — wire to brain (§21a)
+    try:
+        from ..engine_wiring import wire_success, wire_failure as _wf
+        if success:
+            wire_success(
+                module="sanctions_canonical.store",
+                summary=f"Refresh {source}: {rows_loaded} rows loaded",
+                source_id="sanctions_canonical:store:record_refresh",
+            )
+        else:
+            _wf(
+                module="sanctions_canonical.store",
+                detail=f"Refresh {source} failed: {error[:200]}",
+                gap_type="source_failure",
+                source="sanctions_canonical:store:record_refresh",
+            )
+    except Exception:
+        pass
 
 
 def get_last_refresh(source: str | None = None) -> list[dict]:

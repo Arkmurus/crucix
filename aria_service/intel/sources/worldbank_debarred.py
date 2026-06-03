@@ -58,6 +58,7 @@ import time
 from typing import Any
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.worldbank_debarred")
 
@@ -173,6 +174,7 @@ async def _load_records() -> list[dict]:
         return records
 
 
+@wired(module="sources.worldbank_debarred", summary="World Bank debarred lookup for {name}")
 async def lookup(
     name: str,
     *,

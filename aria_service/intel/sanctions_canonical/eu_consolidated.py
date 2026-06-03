@@ -175,9 +175,30 @@ def load_from_file(csv_path: str) -> int:
         rows_loaded = store.replace_source(SOURCE_ID, rows)
         success = True
         logger.info("[eu_consolidated] loaded %d entries from %s", rows_loaded, csv_path)
+        # R-F1304 — wire success to brain (§21a)
+        try:
+            from ..engine_wiring import wire_success
+            wire_success(
+                module="sanctions_canonical.eu_consolidated",
+                summary=f"Loaded {rows_loaded} EU consolidated entries",
+                source_id="sanctions_canonical:eu_consolidated:load_from_file",
+            )
+        except Exception:
+            pass
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         logger.error("[eu_consolidated] load failed: %s", error)
+        # R-F1304 — wire failure to brain (§21a)
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sanctions_canonical.eu_consolidated",
+                detail=f"EU consolidated load failed: {error[:200]}",
+                gap_type="source_failure",
+                source="sanctions_canonical:eu_consolidated:load_from_file",
+            )
+        except Exception:
+            pass
     finally:
         store.record_refresh(
             SOURCE_ID, started, time.time(), rows_loaded, success, error,

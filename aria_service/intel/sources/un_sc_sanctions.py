@@ -38,6 +38,7 @@ import time
 from typing import Any
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.un_sc_sanctions")
 
@@ -179,6 +180,7 @@ async def _load_records() -> list[dict]:
         return _CACHE["records"]
 
 
+@wired(module="sources.un_sc_sanctions", summary="UN SC sanctions lookup for {name}")
 async def lookup(
     name: str,
     *,

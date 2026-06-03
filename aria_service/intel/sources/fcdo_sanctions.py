@@ -43,6 +43,7 @@ import time
 from typing import Any
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.fcdo_sanctions")
 
@@ -176,6 +177,7 @@ async def _load_records() -> list[dict]:
         return _CACHE["records"]
 
 
+@wired(module="sources.fcdo_sanctions", summary="FCDO sanctions lookup for {name}")
 async def lookup(
     name: str,
     *,

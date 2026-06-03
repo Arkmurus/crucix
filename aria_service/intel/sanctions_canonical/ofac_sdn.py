@@ -300,9 +300,30 @@ def load_from_file(xml_path: str) -> int:
         rows_loaded = store.replace_source(SOURCE_ID, parse_xml(xml_path))
         success = True
         logger.info("[ofac_sdn] loaded %d entries from %s", rows_loaded, xml_path)
+        # R-F1304 — wire success to brain (§21a)
+        try:
+            from ..engine_wiring import wire_success
+            wire_success(
+                module="sanctions_canonical.ofac_sdn",
+                summary=f"Loaded {rows_loaded} OFAC SDN entries",
+                source_id="sanctions_canonical:ofac_sdn:load_from_file",
+            )
+        except Exception:
+            pass
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         logger.error("[ofac_sdn] load failed: %s", error)
+        # R-F1304 — wire failure to brain (§21a)
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sanctions_canonical.ofac_sdn",
+                detail=f"OFAC SDN load failed: {error[:200]}",
+                gap_type="source_failure",
+                source="sanctions_canonical:ofac_sdn:load_from_file",
+            )
+        except Exception:
+            pass
     finally:
         store.record_refresh(
             SOURCE_ID, started, time.time(), rows_loaded, success, error,
