@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1301,
+  "next_available": 1304,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7456,32 +7456,65 @@
       "title": "ARIA CLI grep parity — context/output_mode/-i/type/head_limit",
       "claimed_at": "2026-06-03T15:54:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "134e7b42",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:15:41Z"
     },
     {
       "r_number": "R-F1298",
       "title": "ARIA CLI background run — run_in_background + read_output/kill/list",
       "claimed_at": "2026-06-03T15:54:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "134e7b42",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:15:41Z"
     },
     {
       "r_number": "R-F1299",
       "title": "ARIA CLI wedge fix — watchdog only the LLM call, not the whole turn (long tools no longer corrupt history)",
       "claimed_at": "2026-06-03T16:09:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "134e7b42",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:15:41Z"
     },
     {
       "r_number": "R-F1300",
       "title": "ARIA CLI deploy tool — on timeout verify live build_rev instead of reporting false failure",
       "claimed_at": "2026-06-03T16:09:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "134e7b42",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:15:41Z"
+    },
+    {
+      "r_number": "R-F1301",
+      "title": "Fix rs.keys() -> rs.scan_keys() in agent_contract.py + promote failure logging",
+      "claimed_at": "2026-06-03T16:44:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ddb8a0ae",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:54:25Z"
+    },
+    {
+      "r_number": "R-F1302",
+      "title": "Remove dead terminal_ui.py module (zero importers)",
+      "claimed_at": "2026-06-03T16:52:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8877ba5b",
+      "notes": null,
+      "shipped_at": "2026-06-03T16:54:25Z"
+    },
+    {
+      "r_number": "R-F1303",
+      "title": "content_scanner: never write EICAR/malware bytes to disk — in-memory checks before temp write (stop Kaspersky quarantine)",
+      "claimed_at": "2026-06-03T16:54:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

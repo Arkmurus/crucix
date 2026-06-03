@@ -11,6 +11,7 @@ Tests that scan_file correctly BLOCKS real attack payloads:
 """
 from __future__ import annotations
 
+import sys
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -154,8 +155,15 @@ class TestSuspiciousContent:
 class TestScanFile:
     """Proves the full scan pipeline blocks real attacks."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="R-F1303: writing the literal EICAR string to disk is quarantined "
+               "by on-access AV (Kaspersky) before scan_file can read it — an OS/AV "
+               "reality, not a code bug. EICAR detection is covered in-memory by "
+               "TestEicar/scan_bytes, which never touch disk. CI (Linux) runs this.",
+    )
     async def test_eicar_file_blocked(self, tmp_path: Path):
-        """A file containing EICAR string is blocked."""
+        """A file containing EICAR string is blocked (path-based scan)."""
         file_path = tmp_path / "test.txt"
         file_path.write_bytes(EICAR_STRING)
 

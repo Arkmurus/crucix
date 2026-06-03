@@ -408,7 +408,44 @@ async def scan_bytes(
     Returns:
         ScanResult with safe=True if no threats found.
     """
-    # Write to temp file for scanning
+    if not data:
+        return ScanResult(safe=True, file_path=Path(source_name or "bytes"))
+
+    # R-F1303: run the byte-level (in-memory) checks BEFORE writing anything to
+    # disk. EICAR and signature/heuristic hits are caught here and returned
+    # immediately, so a malware-signature file is NEVER materialised on disk —
+    # which an on-access AV (e.g. Kaspersky on a dev machine) quarantines the
+    # instant it is written ("deleting objects"), and which left a delete=False
+    # temp file lingering. Only content that PASSES every in-memory check (i.e.
+    # is not a known signature) is written to a temp file for the path-based
+    # checks (compression bomb / ClamAV).
+    pre_threats: list[dict[str, Any]] = []
+    eicar = check_eicar(data)
+    if eicar:
+        pre_threats.append(eicar)
+    magic = check_magic_bytes(data, claimed_type)
+    if magic:
+        pre_threats.append(magic)
+    pre_threats.extend(check_embedded_scripts(data))
+    pre_threats.extend(check_suspicious_content(data))
+
+    if pre_threats:
+        summary = "; ".join(f"{t['detail']} ({t['severity']})" for t in pre_threats)
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="content_scanner",
+                detail=f"Security threat: {summary}",
+                gap_type="security_threat",
+                source=f"content_scanner:{source_name}",
+            )
+        except Exception:
+            logger.debug("[content_scanner] brain wiring failed", exc_info=True)
+        return ScanResult(safe=False, reason=summary, threats=pre_threats,
+                          file_path=Path(source_name or "bytes"))
+
+    # Clean in memory — now safe to write a temp file for the path-based checks
+    # (archive bomb / ClamAV). Clean content is not quarantined by an AV.
     suffix = f".{claimed_type}" if claimed_type else ".bin"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(data)
