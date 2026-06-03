@@ -257,6 +257,38 @@ async def list_own_files() -> list[dict]:
 
 # ── Improvement Staging ──────────────────────────────────────────────────────
 
+def _collapse_pending_duplicates(staged: list[dict]) -> list[dict]:
+    """R-F1293 — heal a staged queue that piled up under the old byte-identical-only
+    dedup. Collapse PENDING entries to one per (file, change_type) — keeping the
+    newest content and summing supersede_count so churn stays visible. Only entries
+    with the SAME (file, change_type) ever merge, so distinct fixes are preserved.
+    Non-pending entries pass through untouched. Order is preserved.
+    Live 2026-06-03 this turns the 327→~32 backlog into one entry per file."""
+    out: list[dict] = []
+    pos: dict[tuple, int] = {}
+    for s in staged:
+        if s.get("status") != "staged":
+            out.append(s)
+            continue
+        key = (s.get("file"), s.get("change_type"))
+        if key in pos:
+            kept = out[pos[key]]
+            newer = s if s.get("staged_at", 0) >= kept.get("staged_at", 0) else kept
+            merged = dict(newer)
+            merged["supersede_count"] = (
+                kept.get("supersede_count", 0) + s.get("supersede_count", 0) + 1
+            )
+            _firsts = [x.get("first_staged_at") or x.get("staged_at")
+                       for x in (kept, s) if (x.get("first_staged_at") or x.get("staged_at"))]
+            if _firsts:
+                merged["first_staged_at"] = min(_firsts)
+            out[pos[key]] = merged
+        else:
+            pos[key] = len(out)
+            out.append(dict(s))
+    return out
+
+
 async def stage_improvement(
     file_path: str,
     new_content: str,
@@ -384,33 +416,67 @@ async def stage_improvement(
     # Load existing staged improvements
     staged = await rs.get_json(STAGED_KEY) or []
 
-    # R-F903: de-dup. The coder re-stages the same fix every cycle because the
-    # underlying gap recurs and nothing collapses identical proposals. If an
-    # identical (file, new_content) is already staged + pending review, return
-    # that entry instead of accumulating a duplicate. (Live 2026-05-26: 50
-    # staged entries were only 4 unique fixes, churned 20/17/9/4×.)
+    # R-F1293: heal any pre-existing pile-up (the live 327→32 backlog) so the queue
+    # is already 1-per-file before we add this one.
+    _before = len(staged)
+    staged = _collapse_pending_duplicates(staged)
+    if len(staged) < _before:
+        logger.info("[self_improve] R-F1293 collapsed staged queue %d→%d (healed churn backlog)",
+                    _before, len(staged))
+
+    # R-F1293 (supersedes R-F903): ONE pending entry per (file, change_type).
+    # The old R-F903 dedup only collapsed BYTE-IDENTICAL proposals, so the coder's
+    # non-deterministic re-generations of the SAME file piled up unbounded (live
+    # 2026-06-03: memory_leak_detector.py staged 186×, prompt_budget.py 63× — 327
+    # staged entries were only 32 distinct files). Now a new proposal for a
+    # file+type that already has a pending entry SUPERSEDES it (newest wins), so
+    # the queue is bounded at the number of distinct files and a would-be 186-deploy
+    # churn-STORM becomes a single deploy. Each entry carries a `supersede_count`
+    # so a stuck/looping file is visible at a glance (the symptom to fix upstream:
+    # the gap keeps re-surfacing — resolve the gap, don't re-stage forever).
+    # The truncation + AST guards above run BEFORE this point, so a truncated stub
+    # can never supersede a good fix.
+    prior = None
+    kept: list[dict] = []
     for existing in staged:
         if (
             existing.get("status") == "staged"
             and existing.get("file") == file_path
-            and existing.get("new_content") == new_content
+            and existing.get("change_type") == change_type
         ):
-            return {
-                "staged": True,
-                "id": existing["id"],
-                "auto_deployable": existing.get("auto_deployable", False),
-                "description": existing.get("description", description),
-                "duplicate": True,
-            }
+            if existing.get("new_content") == new_content:
+                # True no-op duplicate — identical content already pending.
+                return {
+                    "staged": True,
+                    "id": existing["id"],
+                    "auto_deployable": existing.get("auto_deployable", False),
+                    "description": existing.get("description", description),
+                    "duplicate": True,
+                }
+            prior = existing  # supersede this one (drop from `kept`)
+            continue
+        kept.append(existing)
+    staged = kept
+
+    _supersede_count = (prior.get("supersede_count", 0) + 1) if prior else 0
+    if prior:
+        logger.warning(
+            "[self_improve] R-F1293 churn: re-staged %s (%s) — superseding id=%s "
+            "(now superseded %d×). Newest wins; queue stays 1-per-file. If this count "
+            "is high the gap is not resolving — fix upstream, not by re-staging.",
+            file_path, change_type, prior.get("id"), _supersede_count,
+        )
 
     improvement = {
-        "id": str(uuid.uuid4())[:8],
+        "id": (prior.get("id") if prior else str(uuid.uuid4())[:8]),  # reuse id → stable to pollers
         "file": file_path,
         "change_type": change_type,
         "description": description,
         "reasoning": reasoning,
         "new_content": new_content,
         "staged_at": time.time(),
+        "first_staged_at": (prior.get("first_staged_at") or prior.get("staged_at")) if prior else time.time(),
+        "supersede_count": _supersede_count,
         "auto_deployable": _auto_deploy_allowed(file_path, change_type),
         "status": "staged",
     }
