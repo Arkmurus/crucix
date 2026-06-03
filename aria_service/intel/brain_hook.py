@@ -923,19 +923,6 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # within seconds, well clear of the threshold. Operator can still override
 # via ARIA_BRAIN_LATENCY_TRIP_MS env var.
 #
-# R-F968 (2026-05-28) — raised 3500→6000. The trip threshold MUST sit
-# above the per-tier wall-time ceiling (_TIER_TIMEOUT_S, R-F795), otherwise
-# a SINGLE slow-but-healthy tier hitting its allowed budget trips the
-# breaker. R-F932 set the live tier timeout to 3500ms — equal to the old
-# 3500ms trip threshold — so one slow neural absorb pushed p95 to its
-# configured ceiling and the breaker flapped TRIPPED↔CLOSED every ~60s
-# (live 2026-05-28 16:59-17:00: p95=3665-4205ms reason=absorb(signal_
-# generator), 0 actual loop starvation). 6000ms clears the live 3500ms
-# tier ceiling + the observed ~4200ms steady p95 with margin, while a
-# genuine multi-tier wedge / loop starvation (the 11.6s R-F703 stalls)
-# still spikes p95 well above 6000ms and trips correctly.
-_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "6000"))
-
 # R-F795 (2026-05-22) — per-tier wall-time ceiling. Defensive bound on
 # absorb() wall-time when a downstream tier wedges. Live evidence
 # 2026-05-22 15:59-16:04 UTC: brain_hook absorb p95 hit 1,250,404ms
@@ -953,6 +940,25 @@ _LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "6000"))
 # necessary batch needs to complete.
 _TIER_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "8000")) / 1000.0  # R-F1252: raised from 5000 for SQLite headroom
+)
+
+# R-F968 (2026-05-28) — raised 3500→6000. The trip threshold MUST sit
+# above the per-tier wall-time ceiling (_TIER_TIMEOUT_S, R-F795), otherwise
+# a SINGLE slow-but-healthy tier hitting its allowed budget trips the
+# breaker. R-F932 set the live tier timeout to 3500ms — equal to the old
+# 3500ms trip threshold — so one slow neural absorb pushed p95 to its
+# configured ceiling and the breaker flapped TRIPPED↔CLOSED every ~60s
+# (live 2026-05-28 16:59-17:00: p95=3665-4205ms reason=absorb(signal_
+# generator), 0 actual loop starvation). 6000ms clears the live 3500ms
+# tier ceiling + the observed ~4200ms steady p95 with margin, while a
+# genuine multi-tier wedge / loop starvation (the 11.6s R-F703 stalls)
+# still spikes p95 well above 6000ms and trips correctly.
+# R-F1296 (2026-06-01) — self-maintaining invariant: trip threshold always
+# clears the per-tier ceiling + 2000ms margin. The env override (if set) acts
+# as a FLOOR, so the invariant can never silently drift apart again.
+_LATENCY_TRIP_MS = max(
+    int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "6000")),
+    int(_TIER_TIMEOUT_S * 1000) + 2000,  # always clear the tier ceiling + margin
 )
 
 # R-F799 (2026-05-22) — concurrency cap on absorb's expensive tiers.
