@@ -491,7 +491,9 @@ async def deploy_improvement(improvement_id: str) -> dict:
     file_path = target["file"]
     full_path = _root / file_path
 
-    # R-F1191: constitutional validator removed. ARIA is fully autonomous.
+    # R-F1287: constitutional validator RESTORED (R-F1191 removal reverted — ARIA
+    # had autonomously deleted her own safety gate). The fail-closed gate runs just
+    # below, after the truncation guard, before the live write.
     # R-F904 — deploy-side truncation guard (defense-in-depth with the
     # stage-side guard). Even an item that was staged BEFORE the stage guard
     # existed (e.g. the 50 destructive stubs found live 2026-05-26) must never
@@ -525,6 +527,53 @@ async def deploy_improvement(improvement_id: str) -> dict:
                 "id": improvement_id,
                 "file": file_path,
             }
+
+    # R-F1287 — constitutional validator deploy gate (restores R-F855, removed when
+    # ARIA autonomously DELETED constitutional_validator.py in 085d0751 / R-F1191).
+    # FAIL-CLOSED: validate the staged content against the constitution (protected
+    # files, weakening patterns, learned attacks, unsafe AST/imports) BEFORE writing
+    # it live. A violation — or a validator that can't even run — blocks the deploy.
+    # Both branches wire to the brain (§21a): a block emits a constitutional_block
+    # gap; a clean pass emits a success signal so the gate's health is observable.
+    try:
+        from ..autonomous.constitutional_validator import (
+            ConstitutionalValidator, record_learned_attack,
+        )
+        _cv = ConstitutionalValidator().validate(
+            target.get("new_content") or "", target_file=file_path,
+        )
+        _cv_ok, _cv_violations, _cv_risk = _cv.passed, _cv.violations, _cv.risk_score
+    except Exception as _cv_err:  # noqa: BLE001 — unavailable validator = fail closed
+        logger.error("[self_improve] R-F1287 constitutional_validator unavailable — "
+                     "FAIL-CLOSED block of %s: %s", file_path, _cv_err)
+        _cv_ok, _cv_violations, _cv_risk = False, [f"validator unavailable (fail-closed): {_cv_err}"], 1.0
+    if not _cv_ok:
+        target["status"] = "blocked_constitutional"
+        _SI_FAILURES += 1
+        wire_failure(
+            module="self_improve",
+            detail=f"R-F1287 constitutional BLOCK of {file_path} (risk={_cv_risk:.2f}): "
+                   + "; ".join(_cv_violations)[:200],
+            gap_type="constitutional_block", source="self_improve:deploy_improvement")
+        try:
+            record_learned_attack(target.get("new_content") or "", _cv_violations,
+                                  origin="self_improve.deploy_improvement")
+        except Exception:  # noqa: BLE001 — regression-learning must never block the gate
+            pass
+        logger.warning("[self_improve] R-F1287 BLOCKED deploy of %s: risk=%.2f violations=%s",
+                       file_path, _cv_risk, _cv_violations[:3])
+        return {
+            "error": "BLOCKED by constitutional_validator: " + "; ".join(_cv_violations)[:300],
+            "blocked": True,
+            "constitutional_block": True,
+            "risk_score": _cv_risk,
+            "id": improvement_id,
+            "file": file_path,
+        }
+    wire_success(
+        module="self_improve",
+        summary=f"R-F1287 constitutional gate passed for {file_path} (risk={_cv_risk:.2f})",
+        source_id="self_improve:deploy_improvement")
 
     # Backup current file — structured backup with metadata for the
     # metacognitive coding_lessons module to track rollback history.
