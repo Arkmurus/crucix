@@ -64,6 +64,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.worldbank_documents")
 
@@ -83,6 +84,7 @@ _FIELDS = ",".join([
 
 # ── Core search ────────────────────────────────────────────────────────────
 
+@wired(module="sources.worldbank_documents", summary="WB documents search for {name}")
 async def lookup(
     name: str,
     *,

@@ -454,6 +454,25 @@ async def seed_facts(
     except Exception:
         pass
 
+    # R-F1305 — wire to brain (§21a)
+    try:
+        from ..engine_wiring import wire_success, wire_failure as _wf
+        if errors == 0:
+            wire_success(
+                module="knowledge_packs.latam_asia_pac_seed",
+                summary=f"Seeded {added} LatAm+Asia-Pac facts",
+                source_id="knowledge_packs:latam_asia_pac_seed:seed_facts",
+            )
+        else:
+            _wf(
+                module="knowledge_packs.latam_asia_pac_seed",
+                detail=f"Seeded with {errors} errors ({added} ok)",
+                gap_type="source_failure",
+                source="knowledge_packs:latam_asia_pac_seed:seed_facts",
+            )
+    except Exception:
+        pass
+
     logger.info(
         "[knowledge_pack] LatAm + Asia-Pacific seed complete: "
         "added=%d errors=%d mastery_updated=%d",

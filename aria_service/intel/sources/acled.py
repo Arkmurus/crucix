@@ -41,6 +41,7 @@ from typing import Any
 import httpx
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.acled")
 
@@ -167,6 +168,7 @@ async def _fetch(params: dict, timeout: float = 20.0) -> list[dict] | None:
         return None
 
 
+@wired(module="sources.acled", summary="ACLED lookup for {name}")
 async def lookup(
     name: str,
     *,

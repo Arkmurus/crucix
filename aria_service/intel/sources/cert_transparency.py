@@ -63,6 +63,8 @@ from urllib.parse import quote_plus
 
 import httpx
 
+from ..engine_wiring import wired
+
 logger = logging.getLogger("aria.intel.sources.cert_transparency")
 
 _CRTSH_BASE = "https://crt.sh/"
@@ -138,6 +140,7 @@ def _parse_row(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+@wired(module="sources.cert_transparency", summary="CT search for {term}")
 async def search_certs(
     term: str,
     *,

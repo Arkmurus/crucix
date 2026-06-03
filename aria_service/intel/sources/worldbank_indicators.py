@@ -83,6 +83,7 @@ from typing import Any
 import httpx
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.worldbank_indicators")
 
@@ -118,6 +119,7 @@ def is_available() -> bool:
 
 # ── Indicators v2 — Country indicator fetch ────────────────────────────────
 
+@wired(module="sources.worldbank_indicators", summary="WB indicators for {iso2_or_iso3}")
 async def fetch_country_indicators(
     iso2_or_iso3: str,
     indicators: list[str] | None = None,

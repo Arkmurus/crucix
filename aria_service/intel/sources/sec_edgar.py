@@ -34,6 +34,7 @@ import time
 from typing import Any
 
 from . import _common
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.sec_edgar")
 
@@ -183,6 +184,7 @@ def _annotate_severity(filing: dict) -> str:
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
+@wired(module="sources.sec_edgar", summary="SEC EDGAR lookup for {name}")
 async def lookup(
     name: str,
     *,

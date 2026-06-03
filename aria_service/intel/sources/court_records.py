@@ -51,6 +51,8 @@ from urllib.parse import quote_plus
 
 import httpx
 
+from ..engine_wiring import wired
+
 logger = logging.getLogger("aria.intel.sources.court_records")
 
 _COURTLISTENER_BASE = "https://www.courtlistener.com/api/rest/v3"
@@ -210,6 +212,7 @@ async def search_uk_courts(
         return []
 
 
+@wired(module="sources.court_records", summary="Court records search for {entity}")
 async def search_all(
     entity: str,
     *,

@@ -43,6 +43,7 @@ from typing import Any
 import httpx
 
 from ..ua_rotation import random_ua
+from ..engine_wiring import wired
 
 logger = logging.getLogger("aria.sources.academic")
 
@@ -348,6 +349,7 @@ async def search_crossref(
 # Fan-out — called by web_search
 # ═══════════════════════════════════════════════════════════════════════
 
+@wired(module="sources.academic", summary="Academic search for {query}")
 async def search_all(
     query: str,
     max_results_per_api: int = _MAX_RESULTS_PER_API,
