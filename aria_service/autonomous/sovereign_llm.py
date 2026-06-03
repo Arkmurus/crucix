@@ -38,7 +38,13 @@ except Exception:
 
 CODER_LLM_PATH = "/api/aria/coder/llm"
 DEFAULT_TIMEOUT_S = 120.0
-DEFAULT_MAX_TOKENS = 4096
+# R-F1285 — raised 4096->8192 (DeepSeek's max output). The fixer rewrites WHOLE
+# files; at 4096 tokens any module over ~300-400 lines was physically truncated
+# into a valid-syntax stub (the root cause of the ~11 destructive proposals in the
+# staged queue). 8192 covers the large majority of modules; the AST
+# preservation guard in self_improve.py (R-F1285) catches anything still truncated,
+# and files beyond ~600 lines should move to diff-based edits (tracked follow-up).
+DEFAULT_MAX_TOKENS = 8192
 
 
 class SovereignLLM:

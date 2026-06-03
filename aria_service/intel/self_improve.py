@@ -135,6 +135,18 @@ NO_AUTODEPLOY_FILES: set[str] = {
     "aria_service/autonomous/tasks.yaml",                    # scheduled safety/adversarial tasks
     "aria_service/autonomous/safety.py",                     # autonomy guardrails
     "aria_service/intel/self_improve.py",                    # this file — the deploy/guard config itself
+    # R-F1285 — protect the self-coding subsystem's OWN machinery. Without this
+    # the loop could auto-deploy a truncated stub of the very modules that detect
+    # gaps, generate fixes, and guard the loop — bricking its own ability to
+    # function (and, with the constitutional validator removed in R-F1191, the
+    # truncation guard below is the only thing between a stub and disk).
+    "aria_service/intel/capability_gaps.py",                 # gap intake the coder reads
+    "aria_service/intel/gap_detector.py",                    # gap detection
+    "aria_service/intel/mistake_ledger.py",                  # mistake memory
+    "aria_service/autonomous/self_coder.py",                 # the fixer pipeline
+    "aria_service/autonomous/sovereign_llm.py",              # the fixer's LLM call
+    "aria_service/autonomous/engine.py",                     # autonomous scheduler
+    "aria_service/autonomous/constitutional_validator.py",   # if/when restored
 }
 
 
@@ -319,6 +331,55 @@ async def stage_improvement(
                 "staged": False,
                 "truncation_guard": True,
             }
+
+        # R-F1285 — AST symbol-preservation guard. The 50%-line check above misses
+        # a stub that keeps 51-99% of lines but still drops the tail of the file
+        # (the live queue had ~11 such proposals, e.g. capability_gaps.py 406->180
+        # but also milder ones). For Python, reject any SHRINKING proposal that
+        # deletes a top-level public function/class present in the current file —
+        # the fingerprint of a truncated rewrite. Additive/equal changes and
+        # private-only churn are unaffected, so legitimate fixes pass; a human still
+        # deploys genuine public-symbol removals.
+        if file_path.endswith(".py") and 0 < proposed_lines < current_lines:
+            import ast as _ast
+
+            def _public_syms(src: str) -> set[str]:
+                try:
+                    tree = _ast.parse(src)
+                except Exception:
+                    return set()
+                return {
+                    n.name for n in tree.body
+                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef))
+                    and not n.name.startswith("_")
+                }
+
+            try:
+                cur_src = full_path.read_text(encoding="utf-8")
+            except Exception:
+                cur_src = ""
+            dropped = _public_syms(cur_src) - _public_syms(new_content)
+            if dropped:
+                logger.warning(
+                    "[self_improve] R-F1285 REJECTED stage of %s: drops %d public "
+                    "symbol(s) %s while shrinking %d->%d lines — likely truncation.",
+                    file_path, len(dropped), sorted(dropped)[:6], current_lines, proposed_lines,
+                )
+                _SI_FAILURES += 1
+                wire_failure(module="self_improve",
+                             detail=f"R-F1285 blocked stage of {file_path}: drops {sorted(dropped)[:6]}",
+                             gap_type="truncation_guard", source="self_improve:stage_improvement")
+                return {
+                    "error": (
+                        f"Rejected: proposed content drops top-level public symbol(s) "
+                        f"{sorted(dropped)[:6]} present in the current file while shrinking "
+                        f"it ({current_lines}->{proposed_lines} lines) — almost certainly a "
+                        f"truncated rewrite that would delete working code. ARIA does not "
+                        f"stage symbol-dropping shrinkage."
+                    ),
+                    "staged": False,
+                    "truncation_guard": True,
+                }
 
     # Load existing staged improvements
     staged = await rs.get_json(STAGED_KEY) or []

@@ -84,11 +84,24 @@ def test_ordinary_files_still_autodeploy_under_flag():
 def test_constitution_files_are_the_critical_set():
     """Anchor the exact set so a refactor can't silently shrink it."""
     _si = _reload_self_improve({})
+    # Re-anchored R-F1285: the set grew (R-F851/F902 boot+guard files, then R-F1285
+    # added the self-coding subsystem's own machinery so the loop can't auto-deploy
+    # a truncated stub of the modules that detect/fix/guard gaps).
     assert _si.NO_AUTODEPLOY_FILES == {
+        "aria_service/main.py",
         "aria_service/aria_engine.py",
-        "aria_service/intel/v3_prompts.py",
         "aria_service/routes/aria.py",
+        "aria_service/intel/v3_prompts.py",
         "aria_service/autonomous/tasks.yaml",
+        "aria_service/autonomous/safety.py",
+        "aria_service/intel/self_improve.py",
+        "aria_service/intel/capability_gaps.py",
+        "aria_service/intel/gap_detector.py",
+        "aria_service/intel/mistake_ledger.py",
+        "aria_service/autonomous/self_coder.py",
+        "aria_service/autonomous/sovereign_llm.py",
+        "aria_service/autonomous/engine.py",
+        "aria_service/autonomous/constitutional_validator.py",
     }
 
 
