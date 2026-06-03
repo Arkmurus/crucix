@@ -46,6 +46,46 @@ DEFAULT_TIMEOUT_S = 120.0
 # and files beyond ~600 lines should move to diff-based edits (tracked follow-up).
 DEFAULT_MAX_TOKENS = 8192
 
+# R-F1295 — diff-based editing. Above this size the LLM cannot reliably emit the
+# WHOLE file inside the 8192-token output budget, so the fixer switches to surgical
+# search/replace edits (it only emits the changed regions, never the whole file) —
+# making file size irrelevant and truncation impossible. Whole-file generation
+# stays as the fallback for smaller files and when no edit applies cleanly.
+LARGE_FILE_LINES = int(os.getenv("ARIA_CODER_LARGE_FILE_LINES", "500"))
+
+
+def apply_search_replace(content: str, edits: list[dict]) -> tuple[str, list[str], list[str]]:
+    """R-F1295 — apply surgical search/replace edits to ``content``.
+
+    Each edit is ``{"old": <exact existing snippet>, "new": <replacement>}``. An
+    ``old`` MUST match exactly once (unique) or the edit is rejected — never
+    applied ambiguously, never silently corrupting the file. Returns
+    ``(new_content, applied, failures)``: ``applied`` and ``failures`` are short
+    human-readable labels. A caller treats ANY failure as "fall back to whole-file"
+    so a partial/ambiguous edit can never reach disk.
+    """
+    new = content
+    applied: list[str] = []
+    failures: list[str] = []
+    for i, e in enumerate(edits or []):
+        old = (e or {}).get("old") or ""
+        rep = (e or {}).get("new")
+        if rep is None:
+            rep = ""
+        if not old:
+            failures.append(f"edit[{i}]: empty 'old'")
+            continue
+        n = new.count(old)
+        if n == 0:
+            failures.append(f"edit[{i}]: 'old' not found ({old.strip()[:50]!r})")
+            continue
+        if n > 1:
+            failures.append(f"edit[{i}]: 'old' is ambiguous ({n} matches) — needs more context")
+            continue
+        new = new.replace(old, rep, 1)
+        applied.append(f"edit[{i}]: {old.strip()[:50]!r}")
+    return new, applied, failures
+
 
 class SovereignLLM:
     """Async client for ARIA's coder LLM endpoint."""
@@ -83,6 +123,18 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_code_prompt(plan, existing_code, target_file),
             task="code",
+            prefer_model="aria-llm",
+        )
+
+    async def write_edit(
+        self, plan: dict, existing_code: str, target_file: str,
+    ) -> dict[str, Any]:
+        """R-F1295 — generate surgical search/replace edits for `target_file`
+        instead of the whole file. Used for large files where a whole-file rewrite
+        would truncate. Returns ``{"edits": [{"old": ..., "new": ...}], ...}``."""
+        return await self._call(
+            prompt=self._build_edit_prompt(plan, existing_code, target_file),
+            task="edit",
             prefer_model="aria-llm",
         )
 
@@ -237,6 +289,44 @@ Reply with ONLY valid JSON:
 {{
   "filepath": "{target_file}",
   "code": "complete new file content",
+  "changes_made": ["specific changes"]
+}}"""
+
+    def _build_edit_prompt(
+        self, plan: dict, existing_code: str, target_file: str,
+    ) -> str:
+        return f"""You are ARIA's autonomous self-coding engine. This file is LARGE — do
+NOT rewrite the whole file. Make SURGICAL edits: emit only the exact snippets that
+change, as search/replace pairs. This avoids truncation and preserves everything
+you don't touch.
+
+TARGET FILE: {target_file}
+
+PLAN
+{json.dumps(plan, indent=2)}
+
+EXISTING CONTENT (read-only — find your `old` snippets verbatim in here)
+```python
+{existing_code}
+```
+
+RULES FOR EDITS (critical — a wrong `old` is rejected, not applied):
+- Each `old` must be copied VERBATIM from the existing content above, including
+  exact indentation and whitespace.
+- Each `old` must be UNIQUE in the file — include enough surrounding lines (e.g.
+  the def line + a couple of body lines) that it matches exactly ONE place.
+- `new` is the full replacement for that `old` block.
+- Keep edits minimal and surgical (CLAUDE.md §8). Do NOT delete unrelated code.
+- Same constraints as always: no eval/exec/subprocess/os.system; explicit except
+  types; type hints + docstrings on new public callables.
+
+OUTPUT
+Reply with ONLY valid JSON:
+{{
+  "filepath": "{target_file}",
+  "edits": [
+    {{"old": "<exact existing snippet, unique>", "new": "<replacement>"}}
+  ],
   "changes_made": ["specific changes"]
 }}"""
 

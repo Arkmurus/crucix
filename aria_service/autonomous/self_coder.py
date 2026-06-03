@@ -54,7 +54,11 @@ from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
 from .r_counter import RNumberCounter
 from ..intel.autonomous_coder import AutonomousCoder  # R-F1003 (kept for injection/back-compat)
-from .sovereign_llm import SovereignLLM  # R-F1025: real LLM-backed coder (the contract self_coder reads)
+from .sovereign_llm import (  # R-F1025: real LLM-backed coder (the contract self_coder reads)
+    SovereignLLM,
+    apply_search_replace,  # R-F1295: diff-based editing
+    LARGE_FILE_LINES,
+)
 from .test_runner import TestResult, TestRunner
 
 logger = logging.getLogger("aria.autonomous.self_coder")
@@ -337,6 +341,40 @@ class ARIACoder:
 
     # ── FIX PIPELINE ─────────────────────────────────────────────────────────
 
+    async def _generate_target_code(self, plan_raw: dict, existing: str, target: str) -> str:
+        """R-F1295 — produce the new content for `target`.
+
+        LARGE files (> LARGE_FILE_LINES) use EDIT mode: the LLM emits surgical
+        search/replace blocks and we apply them to `existing`, so the LLM never has
+        to emit the whole file (which truncates past the output budget) and untouched
+        regions are preserved verbatim. Whole-file generation is the fallback for
+        small files and whenever an edit can't be applied cleanly (an `old` snippet
+        not found / ambiguous) — so a partial/ambiguous edit can never corrupt a file.
+        Returns the new content, or "" if nothing was generated.
+        """
+        line_count = (existing.count("\n") + 1) if existing else 0
+        if line_count > LARGE_FILE_LINES and existing:
+            try:
+                edit_raw = await self.llm.write_edit(plan_raw, existing, target)
+                edits = (edit_raw or {}).get("edits") or []
+                if edits:
+                    applied_content, applied, failures = apply_search_replace(existing, edits)
+                    if applied and not failures:
+                        logger.info(
+                            "[aria_coder] R-F1295 edit-mode applied %d surgical edit(s) to %s "
+                            "(%d lines) — no truncation risk", len(applied), target, line_count,
+                        )
+                        return applied_content
+                    logger.warning(
+                        "[aria_coder] R-F1295 edit-mode for %s did not apply cleanly "
+                        "(%d applied, %d failed: %s) — falling back to whole-file",
+                        target, len(applied), len(failures), failures[:3],
+                    )
+            except Exception as e:  # noqa: BLE001 — edit-mode must degrade to whole-file
+                logger.warning("[aria_coder] R-F1295 write_edit failed for %s: %s — falling back", target, e)
+        code_raw = await self.llm.write_code(plan_raw, existing, target)
+        return (code_raw or {}).get("code", "") or ""
+
     async def fix_gap(
         self, gap: Gap, operator_initiated: bool = False,
         force_stage_only: bool = False,
@@ -471,11 +509,12 @@ class ARIACoder:
             )
             for target in plan.target_files:
                 existing = self.codebase.read(target)
-                code_raw = await self.llm.write_code(plan_raw, existing, target)
-                new_code = code_raw.get("code", "")
+                new_code = await self._generate_target_code(plan_raw, existing, target)
                 if not new_code:
                     continue
-                # R-F1191: constitutional validator removed
+                # Guards (R-F1285 truncation/AST, R-F1287 constitutional) run at
+                # stage/deploy — edit-mode additionally makes truncation structurally
+                # impossible (untouched regions are preserved verbatim).
                 plan.code_changes[target] = new_code
                 self.codebase.write_to_workspace(workspace, target, new_code)
 
