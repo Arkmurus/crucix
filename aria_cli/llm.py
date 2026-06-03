@@ -144,6 +144,51 @@ class LLMResponse:
     output_tokens: int = 0
 
 
+def _sanitize_messages(messages: list[dict]) -> list[dict]:
+    """R-F1290 — transport-layer last line of defense. Return a COPY of
+    ``messages`` that satisfies the provider's tool-call contract, so a corrupted
+    history can never 400 the API. Two failure modes are repaired:
+
+      * an ORPHAN ``tool`` message (not preceded by an assistant ``tool_calls``
+        block) → dropped. Otherwise: HTTP 400 "Messages with role 'tool' must be
+        a response to a preceding message with 'tool_calls'".
+      * a ``tool_calls`` with no following tool message → a synthetic error
+        response is inserted. Otherwise: HTTP 400 "tool_calls must be followed by
+        tool messages".
+
+    The agent loop (agent.py) already repairs its own history (R-F1120/R-F1283),
+    but a zombie timeout thread, a resumed session, or any future caller could
+    still hand us a bad array — this guarantees the wire payload is always valid.
+    Pure: does not mutate the input.
+    """
+    out: list[dict] = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        m = messages[i]
+        role = m.get("role")
+        if role == "tool":
+            i += 1  # orphan — drop
+            continue
+        out.append(m)
+        i += 1
+        if role == "assistant" and m.get("tool_calls"):
+            have = set()
+            while i < n and messages[i].get("role") == "tool":
+                out.append(messages[i])
+                have.add(messages[i].get("tool_call_id"))
+                i += 1
+            for tc in (m.get("tool_calls") or []):
+                tcid = tc.get("id")
+                if tcid and tcid not in have:
+                    out.append({
+                        "role": "tool",
+                        "tool_call_id": tcid,
+                        "content": "error: tool call did not complete; no result available.",
+                    })
+    return out
+
+
 class LLMClient:
     """Synchronous OpenAI-compatible chat-completions client with tools."""
 
@@ -170,7 +215,7 @@ class LLMClient:
 
         payload: dict = {
             "model": self.config.model,
-            "messages": messages,
+            "messages": _sanitize_messages(messages),  # R-F1290
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
         }
@@ -353,7 +398,7 @@ class LLMClient:
 
         payload: dict = {
             "model": self.config.model,
-            "messages": messages,
+            "messages": _sanitize_messages(messages),  # R-F1290
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
             "stream": True,
