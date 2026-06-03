@@ -195,8 +195,8 @@ class ContractRegistry:
         contracts: dict[str, AgentContract] = {}
         try:
             rs = self._get_redis()
-            # Scan for contract keys
-            all_keys = await rs.keys(f"{_CONTRACT_KEY}*")
+            # Scan for contract keys (R-F1301: rs.keys -> rs.scan_keys)
+            all_keys = await rs.scan_keys(f"{_CONTRACT_KEY}*")
             if not all_keys:
                 return contracts
             for key in all_keys:
@@ -205,7 +205,18 @@ class ContractRegistry:
                 if contract:
                     contracts[agent_id] = contract
         except Exception as e:
-            logger.debug("[R-F1212] list_contracts failed: %s", e)
+            logger.warning("[R-F1301] list_contracts failed: %s", e)
+            # Wire failure to brain so a future break is visible (§21a)
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="agent_contract",
+                    detail=f"list_contracts failed: {e}",
+                    gap_type="source_failure",
+                    source="agent_contract:list_contracts",
+                )
+            except Exception:
+                pass
         return contracts
 
     async def delete_contract(self, agent_id: str) -> bool:
