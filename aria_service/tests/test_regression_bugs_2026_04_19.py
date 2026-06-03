@@ -108,18 +108,21 @@ def _extract_direct_tool_kinds(source: str) -> set[str]:
 def _extract_dispatch_tuple(source: str) -> set[str]:
     """Pull the `elif tool_kind in (...)` tuple in run_task.
 
-    Strips line comments first — the tuple body contains a `# ... "unsupported
-    tool kind"` explanatory comment that would otherwise leak into the result.
+    Strips line comments from the ENTIRE source first so that parentheses
+    inside comments (e.g. `# R-F1289 (2026-06-01)`) don't truncate the
+    regex match. The old regex `([^)]+)` stopped at the first `)` it found,
+    which was inside a comment — the comment-stripping happened AFTER the
+    match and couldn't recover.
     """
+    # Strip line comments from the whole source first
+    clean = "\n".join(line.split("#", 1)[0] for line in source.splitlines())
     m = re.search(
         r"elif\s+tool_kind\s+in\s*\(([^)]+)\):",
-        source,
+        clean,
         flags=re.DOTALL,
     )
     assert m, "Could not locate dispatch tuple in autonomous/tasks.py"
-    body = "\n".join(
-        line.split("#", 1)[0] for line in m.group(1).splitlines()
-    )
+    body = m.group(1)
     return set(re.findall(r'"([^"]+)"', body))
 
 

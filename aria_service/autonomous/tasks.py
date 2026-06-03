@@ -1529,7 +1529,17 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            # R-F935 -- Compliance Watch private digest task.
                            "compliance_watch",
                            # R-F953 -- daily contract-review self-check canary.
-                           "contract_selfcheck"):
+                           "contract_selfcheck",
+                           # R-F1289 (2026-06-01): 5 handlers existed in
+                           # _execute_direct_tool but were never added to this
+                           # dispatch tuple. Same bug class as the 04-17/18
+                           # marathon — tasks errored "unknown direct tool"
+                           # silently in production.
+                           "bd_strategy_generate",
+                           "dd_full_sweep",
+                           "news_monitor_poll",
+                           "portal_coverage_audit",
+                           "vault_registration_daily"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its
