@@ -364,8 +364,18 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         has_investigate = _re.search(_investigate_keywords, _q_lower)
         has_company = _re.search(_company_keywords, _q_lower)
         has_url = "http" in _q_lower or ".com" in _q_lower or ".co." in _q_lower
+        # R-F1327 — never run the company OSINT pipeline when the user attached a
+        # document. Mirror routes/aria.py §22a / R-F1326: a request like "do a deep
+        # analysis of this NDA" with the NDA text attached matches investigate
+        # ("analysis") + company ("Systems"/"LLC" from the doc) keywords, and the
+        # prefix-strippers don't catch it, so the WHOLE message was passed to
+        # investigate_company -> "Input rejected as non-company" (live 2026-06-04).
+        # This path bypassed _detect_tool_intent's R-F1326 guard entirely. An
+        # attached-document request belongs to the grounded/LLM doc-review path, not
+        # the company investigator — so skip Stage 4 whenever the doc marker is present.
+        _has_attached_doc = "[attached document" in _q_lower
 
-        if has_investigate and (has_company or has_url):
+        if not _has_attached_doc and has_investigate and (has_company or has_url):
             from .company_investigator import investigate_company as _ic
             # Extract company name from question (everything after the
             # investigation keyword, up to punctuation or end)
