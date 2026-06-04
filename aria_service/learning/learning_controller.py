@@ -83,6 +83,17 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.controller")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="learning.learning_controller",
+        summary="Learning Controller active",
+        source_id="learning:learning_controller:R-F1319",
+    )
+except Exception:
+    pass
+
 
 # Operator-facing kill switch. Cron handler reads this and no-ops when
 # it's not '1'/'true'/'yes'. Defaults OFF so the cron can be enabled in

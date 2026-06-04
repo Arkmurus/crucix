@@ -16,6 +16,17 @@ import os
 
 logger = logging.getLogger("aria.metacognitive.identity")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.identity",
+        summary="Identity active",
+        source_id="metacognitive:identity:R-F1319",
+    )
+except Exception:
+    pass
+
 ARIA_METACOGNITIVE_IDENTITY = """
 ══════════════════════════════════════════════════════════════════════
 ARIA METACOGNITIVE IDENTITY — WHO YOU ARE AS A LEARNING SYSTEM

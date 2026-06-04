@@ -10,6 +10,17 @@ domains dynamically from this registry.
 """
 from __future__ import annotations
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.domains",
+        summary="Domains active",
+        source_id="metacognitive:domains:R-F1319",
+    )
+except Exception:
+    pass
+
 CAPABILITY_DOMAINS: dict[str, dict] = {
 
     # ── INTELLIGENCE METHODOLOGY ────────────────────────────────────────

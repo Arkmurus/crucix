@@ -73,6 +73,17 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.output_harvester")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="learning.output_harvester",
+        summary="Output Harvester active",
+        source_id="learning:output_harvester:R-F1319",
+    )
+except Exception:
+    pass
+
 _DATA_DIR = Path(os.getenv("ARIA_HARVEST_DIR", "/data/aria_training"))
 _MIN_LEN = 400
 _MAX_LEN = 6000

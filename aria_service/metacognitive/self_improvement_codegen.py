@@ -36,6 +36,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("aria.metacognitive.codegen")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.self_improvement_codegen",
+        summary="Self Improvement Codegen active",
+        source_id="metacognitive:self_improvement_codegen:R-F1319",
+    )
+except Exception:
+    pass
+
 _PROPOSALS_LIST = "crucix:metacog:codegen:proposals"
 _MAX_PROPOSALS = 100
 

@@ -28,6 +28,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("aria.metacognitive.consciousness")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.consciousness",
+        summary="Consciousness active",
+        source_id="metacognitive:consciousness:R-F1319",
+    )
+except Exception:
+    pass
+
 # Redis keys
 _PROFILE_KEY = "crucix:metacog:consciousness:profile:{domain}"
 _REPORTS_LIST = "crucix:metacog:consciousness:reports"

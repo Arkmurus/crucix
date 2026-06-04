@@ -30,6 +30,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("aria.metacognitive.cycle")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.cycle",
+        summary="Cycle active",
+        source_id="metacognitive:cycle:R-F1319",
+    )
+except Exception:
+    pass
+
 # Redis keys for cycle tracking
 _DAILY_LAST_RUN = "crucix:metacog:cycle:daily_last_run"
 _WEEKLY_LAST_RUN = "crucix:metacog:cycle:weekly_last_run"

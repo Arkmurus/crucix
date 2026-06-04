@@ -26,6 +26,17 @@ from ..intel import redis_store as rs
 
 logger = logging.getLogger("aria.metacognitive.coding_lessons")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.coding_lessons",
+        summary="Coding Lessons active",
+        source_id="metacognitive:coding_lessons:R-F1319",
+    )
+except Exception:
+    pass
+
 # Redis keys
 _LESSONS_LIST = "crucix:metacog:coding_lessons:all"
 _PATTERNS_KEY = "crucix:metacog:coding_lessons:patterns"

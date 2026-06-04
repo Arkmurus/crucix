@@ -31,6 +31,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("aria.metacognitive.gaps")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.gaps",
+        summary="Gaps active",
+        source_id="metacognitive:gaps:R-F1319",
+    )
+except Exception:
+    pass
+
 # Redis keys
 _GAPS_LIST = "crucix:metacog:gaps:detected"
 _CORRECTIONS_LIST = "crucix:metacog:gaps:corrections"

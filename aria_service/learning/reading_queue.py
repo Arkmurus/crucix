@@ -64,6 +64,17 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.learning.reading_queue")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="learning.reading_queue",
+        summary="Reading Queue active",
+        source_id="learning:reading_queue:R-F1319",
+    )
+except Exception:
+    pass
+
 _DB_PATH_ENV = "ARIA_READING_QUEUE_DB_PATH"
 _DEFAULT_DB_PATH = "/data/aria_reading_queue.db"
 

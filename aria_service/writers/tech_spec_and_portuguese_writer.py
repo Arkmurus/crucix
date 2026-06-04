@@ -27,6 +27,17 @@ except ImportError:
 
 logger = logging.getLogger("ARIA.TechSpecWriter")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="writers.tech_spec_and_portuguese_writer",
+        summary="Tech Spec And Portuguese Writer active",
+        source_id="writers:tech_spec_and_portuguese_writer:R-F1319",
+    )
+except Exception:
+    pass
+
 
 class SpecificationLevel(Enum):
     SYSTEM          = "System-level specification"

@@ -52,6 +52,17 @@ from fsrs import Card, Rating, Scheduler
 
 logger = logging.getLogger("aria.learning.fsrs")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="learning.fsrs_scheduler",
+        summary="Fsrs Scheduler active",
+        source_id="learning:fsrs_scheduler:R-F1319",
+    )
+except Exception:
+    pass
+
 
 # Singleton scheduler — parameters are FSRS v6 defaults. The operator can
 # tune these later (per-domain) via a calibration pass; for now defaults

@@ -28,6 +28,17 @@ from . import domains as dom
 
 logger = logging.getLogger("aria.metacognitive.calibration")
 
+# R-F1319: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1319
+    _ws1319(
+        module="metacognitive.calibration",
+        summary="Calibration active",
+        source_id="metacognitive:calibration:R-F1319",
+    )
+except Exception:
+    pass
+
 # Redis key patterns
 _ASSESSMENTS_KEY = "crucix:metacog:calibration:assessments"  # list of JSON
 _DOMAIN_BRIER_KEY = "crucix:metacog:calibration:brier:{domain}"  # JSON aggregate
