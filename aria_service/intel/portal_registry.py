@@ -1872,6 +1872,130 @@ async def lookup_entity_by_uei(uei: str) -> Optional[dict]:
     return None
 
 
+# ── Auto-register all pending portals ──────────────────────────────────
+
+async def auto_register_all() -> dict[str, Any]:
+    """Attempt registration for every unregistered portal.
+
+    Returns a summary dict with counts of registered, skipped, failed,
+    and captcha-deferred portals. Best-effort: individual failures are
+    logged and do not abort the sweep.
+
+    R-F1312: adds automated sweep so pending sources get registered
+    without manual per-portal invocation.
+    """
+    if not _ENABLED:
+        return {"success": False, "error": "Portal registry disabled"}
+
+    results: dict[str, Any] = {
+        "total": len(PORTALS),
+        "already_registered": 0,
+        "newly_registered": 0,
+        "captcha_deferred": 0,
+        "failed": 0,
+        "skipped_open": 0,
+        "details": [],
+    }
+
+    for portal in PORTALS:
+        if portal.registration_type == "none":
+            results["skipped_open"] += 1
+            continue
+
+        try:
+            if await is_registered(portal.id):
+                results["already_registered"] += 1
+                continue
+        except Exception:
+            pass
+
+        try:
+            outcome = await register_for_portal(portal.id)
+            if outcome.get("success"):
+                results["newly_registered"] += 1
+                results["details"].append({
+                    "id": portal.id, "status": "registered",
+                    "message": outcome.get("message", ""),
+                })
+            elif outcome.get("requires_operator"):
+                results["captcha_deferred"] += 1
+                results["details"].append({
+                    "id": portal.id, "status": "captcha_deferred",
+                    "message": outcome.get("message", ""),
+                })
+            else:
+                results["failed"] += 1
+                results["details"].append({
+                    "id": portal.id, "status": "failed",
+                    "message": outcome.get("message", outcome.get("error", "unknown")),
+                })
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({
+                "id": portal.id, "status": "error",
+                "message": str(e)[:200],
+            })
+
+    # Wire result to brain
+    try:
+        from .engine_wiring import wire_success as _ws2, wire_failure as _wf2
+        if results.get("failed", 0) == 0 and results.get("captcha_deferred", 0) == 0:
+            _ws2(
+                module="portal_registry",
+                summary=f"Auto-register: {results['newly_registered']} new, "
+                        f"{results['already_registered']} already registered",
+                source_id="portal_registry:R-F1312",
+            )
+        else:
+            _wf2(
+                module="portal_registry",
+                detail=f"Auto-register: {results['newly_registered']} new, "
+                       f"{results['failed']} failed, "
+                       f"{results['captcha_deferred']} captcha-deferred",
+                gap_type="source_failure",
+                source="portal_registry",
+            )
+    except Exception:
+        pass
+
+    return results
+
+
+# ── Env var check for pending sources ──────────────────────────────────
+
+def get_pending_source_requirements() -> list[dict]:
+    """Return a list of pending sources and what env vars they need.
+
+    R-F1312: gives the operator a clear view of what's blocking each
+    pending source registration.
+    """
+    requirements: list[dict] = []
+    for portal in PORTALS:
+        if portal.registration_type == "none":
+            continue
+        needed_vars: list[str] = []
+        if portal.id == "acled":
+            needed_vars = ["ACLED_EMAIL", "ACLED_PASSWORD"]
+        elif portal.registration_type == "api_key":
+            # API-key portals need their key set as env var
+            key_var = f"{portal.id.upper()}_API_KEY"
+            needed_vars = [key_var]
+        elif portal.registration_type == "email_form":
+            needed_vars = ["ARIA_PORTAL_EMAIL", "ARIA_PORTAL_NAME"]
+
+        requirements.append({
+            "id": portal.id,
+            "name": portal.name,
+            "url": portal.url,
+            "registration_type": portal.registration_type,
+            "requires_captcha": portal.requires_captcha,
+            "needs_env_vars": needed_vars,
+            "env_vars_set": [v for v in needed_vars if os.getenv(v)],
+            "env_vars_missing": [v for v in needed_vars if not os.getenv(v)],
+        })
+    return requirements
+
+
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:

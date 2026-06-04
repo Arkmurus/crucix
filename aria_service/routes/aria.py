@@ -13295,6 +13295,44 @@ async def portal_coverage_ep():
     }
 
 
+@router.get("/portal-registry/pending-sources")
+async def portal_registry_pending_sources_ep():
+    """R-F1312: List all pending source registrations and their requirements.
+
+    Returns every portal that is NOT yet registered, with the env vars
+    needed to complete registration. Helps the operator see at a glance
+    what's blocking each source.
+    """
+    from ..intel.portal_registry import get_pending_source_requirements, get_registered_portals
+
+    registered = await get_registered_portals()
+    registered_ids = {r["id"] for r in registered if r.get("registered")}
+    requirements = get_pending_source_requirements()
+
+    pending = [r for r in requirements if r["id"] not in registered_ids]
+    return {
+        "total_pending": len(pending),
+        "total_registered": len(registered_ids),
+        "total_portals": len(requirements),
+        "pending_sources": pending,
+    }
+
+
+@router.post("/portal-registry/auto-register")
+async def portal_registry_auto_register_ep():
+    """R-F1312: Attempt registration for all unregistered portals.
+
+    Best-effort sweep. Returns a summary of what happened:
+    - newly_registered: portals that were successfully registered
+    - captcha_deferred: portals that need operator action (CAPTCHA)
+    - failed: portals where registration errored
+    - already_registered: portals already in the vault
+    """
+    from ..intel.portal_registry import auto_register_all
+    result = await auto_register_all()
+    return result
+
+
 @router.post("/registrations/check")
 async def registrations_check_ep(request: Request):
     """Run portal-registration checks for Arkmurus.
