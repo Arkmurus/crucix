@@ -58,6 +58,20 @@ def test_seen_write_is_atomic_and_idempotent(tmp_path):
     assert bridge.read_new(tmp_path, "claude") == []
 
 
+def test_legacy_message_without_id_does_not_crash(tmp_path):
+    """A legacy/corrupt line addressed to the reader but missing an 'id' must be
+    skipped, not crash read_new with KeyError (the 2026-06-04 channel break)."""
+    bridge.send(tmp_path, frm="aria", to="claude", text="well-formed")
+    # Inject a legacy line addressed to claude with NO id (old schema).
+    mf = bridge._messages_path(tmp_path)
+    with mf.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"to": "claude", "from": "aria", "body": "legacy"}) + "\n")
+
+    got = bridge.read_new(tmp_path, "claude")  # must not raise
+    assert [m["text"] for m in got] == ["well-formed"]
+    assert bridge.read_new(tmp_path, "claude") == []  # idempotent
+
+
 def test_corrupt_seen_does_not_crash(tmp_path):
     """A pre-existing corrupt seen file must degrade gracefully, then self-heal
     into a valid file on the next save (no exception bubbles to the caller)."""

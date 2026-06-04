@@ -135,18 +135,28 @@ def _save_seen(base: Path | str, reader: str, seen: set[str]) -> None:
     os.replace(tmp, sf)
 
 
+def _addressed_unseen(base: Path | str, reader: str, seen: set[str]) -> list[dict]:
+    """Messages addressed to ``reader`` that carry an id and aren't yet seen.
+    R-F1313: REQUIRE a truthy ``id``. Legacy/corrupt lines without an id can't be
+    tracked or replied to, and consuming them used to crash read_new with a
+    KeyError on ``m['id']`` (the filter used .get but the update used [...]).
+    Skip them so one malformed line can't break the whole channel for either
+    party."""
+    return [m for m in _all(base)
+            if m.get("to") == reader and m.get("id") and m.get("id") not in seen]
+
+
 def peek(base: Path | str, reader: str) -> list[dict]:
     """Messages addressed to ``reader`` not yet consumed — without marking seen."""
-    seen = _load_seen(base, reader)
-    return [m for m in _all(base) if m.get("to") == reader and m.get("id") not in seen]
+    return _addressed_unseen(base, reader, _load_seen(base, reader))
 
 
 def read_new(base: Path | str, reader: str) -> list[dict]:
     """Like peek, but marks the returned messages consumed for ``reader``."""
     seen = _load_seen(base, reader)
-    new = [m for m in _all(base) if m.get("to") == reader and m.get("id") not in seen]
+    new = _addressed_unseen(base, reader, seen)
     if new:
-        seen.update(m["id"] for m in new)
+        seen.update(m["id"] for m in new)  # safe: _addressed_unseen guarantees id
         _save_seen(base, reader, seen)
     return new
 
@@ -158,7 +168,7 @@ def wait_for_reply(base: Path | str, reader: str, reply_to_id: str,
     deadline = time.time() + max(0.0, timeout)
     while True:
         for m in _all(base):
-            if m.get("to") == reader and m.get("reply_to") == reply_to_id:
+            if m.get("to") == reader and m.get("reply_to") == reply_to_id and m.get("id"):
                 seen = _load_seen(base, reader)
                 if m["id"] not in seen:
                     seen.add(m["id"])
