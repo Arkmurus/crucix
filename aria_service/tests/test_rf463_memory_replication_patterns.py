@@ -93,7 +93,19 @@ async def _async_run_daily_backup_picks_up_pattern_keys(monkeypatch):
             return [k for k in _FakeRS.store if k == pattern]
 
     import sys
+    # Patch redis_store in sys.modules. The relative import
+    # `from ..intel import redis_store as rs` resolves via sys.modules,
+    # so this is the correct place to patch. monkeypatch.setitem ensures
+    # the original is restored after the test.
     monkeypatch.setitem(sys.modules, "aria_service.intel.redis_store", _FakeRS)
+    # Also patch the function's __globals__ directly so its lazy import
+    # `from ..intel import redis_store as rs` uses our fake regardless
+    # of import order with other tests.
+    from aria_service.learning import memory_replication as _mr
+    for name in ['run_daily_backup', '_ship_backup_email', '_purge_old_backups']:
+        fn = getattr(_mr, name, None)
+        if fn and hasattr(fn, '__globals__') and isinstance(fn.__globals__, dict):
+            monkeypatch.setitem(fn.__globals__, 'redis_store', _FakeRS)
     # Some functions inside the module also touch the disk-resident files
     # and shipping path; stub the file writes to /tmp so the test stays
     # fast and isolated.

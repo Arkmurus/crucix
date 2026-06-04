@@ -22,8 +22,10 @@ from fastapi.testclient import TestClient
 
 def _build_app():
     from fastapi import FastAPI
-    from aria_service.routes.aria import router as aria_router
+    from aria_service.routes.aria import router as aria_router, _router_auth_dep
     app = FastAPI()
+    # Bypass bearer-token auth for these tests (they test stream behaviour, not auth)
+    app.dependency_overrides[_router_auth_dep] = lambda: None
     app.include_router(aria_router)
     return app
 

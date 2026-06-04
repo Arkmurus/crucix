@@ -61,7 +61,17 @@ def test_rf468_runtime_persistence_uses_no_ttl(monkeypatch):
             return 0
 
     import sys
+    # Patch redis_store in sys.modules. The relative import
+    # `from . import redis_store as rs` resolves via sys.modules,
+    # so this is the correct place to patch.
     monkeypatch.setitem(sys.modules, "aria_service.intel.redis_store", _FakeRS)
+    # Also patch the module's internal _invalidated_set helper which
+    # does its own lazy import of redis_store.
+    from aria_service.intel import mistake_ledger as _ml
+    # Patch the _invalidated_set function's globals directly so its
+    # lazy import `from . import redis_store as rs` uses our fake.
+    if hasattr(_ml, '_invalidated_set') and hasattr(_ml._invalidated_set, '__globals__'):
+        monkeypatch.setitem(_ml._invalidated_set.__globals__, 'redis_store', _FakeRS)
 
     # The implementation also imports its own helper _invalidated_set, which
     # already short-circuits via the patched get_json above.
