@@ -563,7 +563,6 @@ async def absorb(
     R-F1316: self-observes absorb() calls so brain_hook's own health
     is visible to the brain. On failure, records a self_runtime gap
     via observe_self_event so the coder can see it.
-    """
 
     Args:
         module:       Module name (must be a key in _MODULE_TOPICS).
