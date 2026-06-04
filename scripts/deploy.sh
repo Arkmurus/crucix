@@ -128,7 +128,15 @@ deploy_and_verify() {
         else
             # aria-web / aria-wa don't expose the git sha reliably — require a
             # version bump AND a healthy response.
-            local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 8 "https://$app.fly.dev/" 2>/dev/null || echo 000)
+            # R-F1330 — probe a HEALTH endpoint, not "/". aria-wa's "/" is 404 (no
+            # root route), so the old "/" probe false-negatived every aria-wa deploy
+            # even when it succeeded (retry churn / phantom "deploy failed"). Verified
+            # live 2026-06-04: aria-wa /health=200 (/=404); aria-web /healthz=200.
+            local code=000 hp
+            for hp in /health /healthz /; do
+                code=$(curl -s -o /dev/null -w '%{http_code}' -m 8 "https://$app.fly.dev$hp" 2>/dev/null || echo 000)
+                [[ "$code" == "200" ]] && break
+            done
             if [[ "$version_bumped" == true && "$code" == "200" ]]; then
                 echo "  ✅ $app LIVE — version $pre_ver->$now_ver, HTTP $code"
                 ok=true; break

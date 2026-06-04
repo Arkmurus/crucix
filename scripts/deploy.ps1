@@ -149,10 +149,18 @@ function Deploy-And-Verify {
             if ($liveSha) { $shaDisplay = $liveSha }
             Write-Host "  poll $i/36: version $preVer->$nowVer, live build_rev=$shaDisplay (want $GIT_SHORT)"
         } else {
-            try {
-                $code = (Invoke-WebRequest -Uri "https://$App.fly.dev/" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop).StatusCode
-            } catch {
-                $code = 000
+            # R-F1330 — verify via a HEALTH endpoint, not the bare root. aria-wa's
+            # "/" returns 404 (the listener has no root route), so the old "/" probe
+            # ALWAYS false-negatived aria-wa even when the deploy succeeded — causing
+            # retry churn and phantom "deploy failed" (the real reason aria-wa deploys
+            # looked broken). Verified live 2026-06-04: aria-wa /health=200 (/=404);
+            # aria-web /healthz=200. Probe known health paths, accept the first 200.
+            $code = 000
+            foreach ($hp in @('/health', '/healthz', '/')) {
+                try {
+                    $code = (Invoke-WebRequest -Uri "https://$App.fly.dev$hp" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop).StatusCode
+                } catch { $code = 000 }
+                if ($code -eq 200) { break }
             }
             if ($versionBumped -and $code -eq 200) {
                 Write-Host "  [PASS] $App LIVE - version $preVer->$nowVer, HTTP $code"
