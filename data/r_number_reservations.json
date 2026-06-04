@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1321,
+  "next_available": 1322,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7689,6 +7689,15 @@
       "commit_sha": "be1e9e44",
       "notes": null,
       "shipped_at": "2026-06-04T11:03:47Z"
+    },
+    {
+      "r_number": "R-F1321",
+      "title": "Remove WA character caps + bulletproof chunking",
+      "claimed_at": "2026-06-04T11:24:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
