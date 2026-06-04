@@ -49,6 +49,17 @@ from functools import wraps
 
 logger = logging.getLogger("ARIA.CostMonitor")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.cost_monitor",
+        summary="Cost Monitor active",
+        source_id="autonomous:cost_monitor:R-F1320",
+    )
+except Exception:
+    pass
+
 
 # =============================================================================
 # PRICING TABLE

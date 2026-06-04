@@ -27,6 +27,17 @@ from ..intel import redis_store as rs
 
 logger = logging.getLogger("aria.autonomous.dryrun_history")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.dryrun_history",
+        summary="Dryrun History active",
+        source_id="autonomous:dryrun_history:R-F1320",
+    )
+except Exception:
+    pass
+
 _KEY = "crucix:autonomous:dryrun_history"
 _MAX_HOT = 500  # entries kept in the hot list before the head is trimmed
 

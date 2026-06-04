@@ -48,6 +48,17 @@ from .machines_deployer import MachinesDeployer
 
 logger = logging.getLogger("aria.autonomous.autonomous_deploy")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.autonomous_deploy",
+        summary="Autonomous Deploy active",
+        source_id="autonomous:autonomous_deploy:R-F1320",
+    )
+except Exception:
+    pass
+
 # Default paths
 DEFAULT_DB_PATH = Path("/app/data/deployments.db")
 DEFAULT_HEALTH_INTERVAL_S = 60

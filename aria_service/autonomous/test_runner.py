@@ -47,6 +47,17 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.autonomous.test_runner")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.test_runner",
+        summary="Test Runner active",
+        source_id="autonomous:test_runner:R-F1320",
+    )
+except Exception:
+    pass
+
 # ── Safety thresholds (R-F1235) ────────────────────────────────────────────
 
 SAFE_TIMEOUT_S = 60           # max 60s for safe mode (new tests only)

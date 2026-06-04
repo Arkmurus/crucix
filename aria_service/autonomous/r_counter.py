@@ -19,6 +19,17 @@ from typing import Any
 
 logger = logging.getLogger("aria.autonomous.r_counter")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.r_counter",
+        summary="R Counter active",
+        source_id="autonomous:r_counter:R-F1320",
+    )
+except Exception:
+    pass
+
 R_COUNTER_KEY = "crucix:aria:r_counter"
 
 

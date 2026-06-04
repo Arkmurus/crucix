@@ -36,6 +36,17 @@ import httpx
 
 logger = logging.getLogger("aria.autonomous.delivery")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.delivery",
+        summary="Delivery active",
+        source_id="autonomous:delivery:R-F1320",
+    )
+except Exception:
+    pass
+
 
 # Env vars
 # R-F839 (2026-05-23): SEENODE_BASE_URL was overloaded — used as both

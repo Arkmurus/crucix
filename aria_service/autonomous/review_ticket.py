@@ -42,6 +42,17 @@ import httpx
 
 logger = logging.getLogger("aria.autonomous.review_ticket")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.review_ticket",
+        summary="Review Ticket active",
+        source_id="autonomous:review_ticket:R-F1320",
+    )
+except Exception:
+    pass
+
 ENABLE_VAR = "ARIA_CODER_AUTO_DEPLOY_AND_TICKET"
 GH_TOKEN_VAR = "GH_TOKEN"
 GH_REPO_VAR = "ARIA_CODER_GH_REPO"  # e.g. "Arkmurus/crucix"

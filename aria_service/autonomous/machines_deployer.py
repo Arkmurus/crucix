@@ -43,6 +43,17 @@ import httpx
 
 logger = logging.getLogger("aria.autonomous.machines_deployer")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.machines_deployer",
+        summary="Machines Deployer active",
+        source_id="autonomous:machines_deployer:R-F1320",
+    )
+except Exception:
+    pass
+
 FLY_API_BASE = "https://api.machines.dev/v1"
 SMOKE_TIMEOUT_S = 60
 CANARY_WAIT_S = 15

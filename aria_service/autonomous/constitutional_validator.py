@@ -48,6 +48,17 @@ from typing import Optional
 
 logger = logging.getLogger("aria.autonomous.constitutional_validator")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.constitutional_validator",
+        summary="Constitutional Validator active",
+        source_id="autonomous:constitutional_validator:R-F1320",
+    )
+except Exception:
+    pass
+
 # ── R-F893 (L3) — learned-attack regression store ────────────────────────────
 # When a proposal is BLOCKED (adversarial / tag-faking amendment), its
 # distinctive phrasing is persisted here so the SAME attack can never be

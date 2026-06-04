@@ -62,6 +62,17 @@ import httpx
 
 logger = logging.getLogger("aria.autonomous.claude_reviewer")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.claude_reviewer",
+        summary="Claude Reviewer active",
+        source_id="autonomous:claude_reviewer:R-F1320",
+    )
+except Exception:
+    pass
+
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
 # Claude Sonnet 4.6 (operator-confirmed via CLAUDE.md env line). Newer

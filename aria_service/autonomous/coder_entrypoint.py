@@ -22,6 +22,17 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.autonomous.coder_entrypoint")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.coder_entrypoint",
+        summary="Coder Entrypoint active",
+        source_id="autonomous:coder_entrypoint:R-F1320",
+    )
+except Exception:
+    pass
+
 ENABLE_VAR_MASTER = "ARIA_AUTONOMOUS_ENABLED"
 ENABLE_VAR_CODER = "ARIA_CODER_ENABLED"
 

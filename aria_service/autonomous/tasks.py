@@ -40,6 +40,17 @@ from typing import Any
 
 logger = logging.getLogger("aria.autonomous.tasks")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.tasks",
+        summary="Tasks active",
+        source_id="autonomous:tasks:R-F1320",
+    )
+except Exception:
+    pass
+
 
 # ── Task dataclass ─────────────────────────────────────────────────────────
 

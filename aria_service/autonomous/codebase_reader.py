@@ -16,6 +16,17 @@ from typing import Optional
 
 logger = logging.getLogger("aria.autonomous.codebase_reader")
 
+# R-F1320: wire module health to the brain
+try:
+    from aria_service.intel.engine_wiring import wire_success as _ws1320
+    _ws1320(
+        module="autonomous.codebase_reader",
+        summary="Codebase Reader active",
+        source_id="autonomous:codebase_reader:R-F1320",
+    )
+except Exception:
+    pass
+
 DEFAULT_REPO_PATH = Path(os.environ.get("ARIA_REPO_PATH", "/app"))
 PRIMARY_MODULE_MAX_CHARS = 5000
 RELATED_FILE_MAX_CHARS = 2000
