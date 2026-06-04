@@ -327,10 +327,15 @@ async function _handleOcrResult(extracted, ocrResult, filename, caption, groupNa
     `3. *Compliance flags* — any sanctions, export control, ML category, or embargo concerns`,
     `4. *Arkmurus relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
     `5. *Recommended next action* — what should the team do with this information? (investigate further, screen entity, contact source, file in pipeline, ignore)`,
-    captionTrimmed ? `6. *Direct answer to the user's caption* — answer "${captionTrimmed.slice(0, 200)}" specifically.` : ``,
+    // R-F1321: raised caption preview from 200 to 2000 so the LLM sees the
+    // user's full instruction, not just the first sentence.
+    captionTrimmed ? `6. *Direct answer to the user's caption* — answer "${captionTrimmed.slice(0, 2000)}" specifically.` : ``,
     ``,
     `[OCR extracted text — ${charCount} chars via ${method}]:`,
-    `${extracted.slice(0, 4500)}`,
+    // R-F1321: removed 4500-char cap — send the FULL extracted text so the LLM
+    // analyses the entire document, not just the first page. The model's context
+    // window is the real bound, not an arbitrary slice.
+    `${extracted.slice(0, MAX_DOC_CHARS)}`,
     ``,
     `Be specific. Cite numbers and names from the extracted text. Mark every claim with confidence: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN].`,
   ].filter(Boolean).join('\n');
@@ -426,7 +431,8 @@ const RISK_TRIGGERS = [
 ];
 
 function detectComplianceTrigger(text) {
-  const t = text.slice(0, 2000);
+  // R-F1321: removed 2000-char cap — ARIA sees the FULL message for trigger detection
+  const t = text;
   const matched = [];
 
   for (const re of COMPLIANCE_TRIGGERS) {
@@ -730,6 +736,8 @@ const WA_MSG_LIMIT = 4000;
 // R-F1152 — paragraph-aware splitting. Prefers paragraph boundaries (\n\n)
 // over single newlines, and single newlines over spaces, so structured
 // responses (tables, lists, code blocks) don't get cut mid-line.
+// R-F1321: bulletproof — never cuts mid-word; falls back to last space before
+// the limit; if no space found, cuts at limit (pathological single-word case).
 function splitMessage(body) {
   if (body.length <= WA_MSG_LIMIT) return [body];
   const chunks = [];
@@ -741,7 +749,12 @@ function splitMessage(body) {
     if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf('\n', WA_MSG_LIMIT);
     if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf('. ', WA_MSG_LIMIT);
     if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf(' ', WA_MSG_LIMIT);
-    if (cut < WA_MSG_LIMIT * 0.3) cut = WA_MSG_LIMIT;
+    // R-F1321: word-boundary safety — if no space found, find the last space
+    // anywhere before the limit (never cut mid-word)
+    if (cut < WA_MSG_LIMIT * 0.3) {
+      cut = remaining.lastIndexOf(' ', WA_MSG_LIMIT);
+      if (cut < 10) cut = WA_MSG_LIMIT;  // pathological: no space at all
+    }
     const chunk = remaining.slice(0, cut);
     chunks.push(chunk + (cut < WA_MSG_LIMIT ? '' : '\n[continued]'));
     remaining = remaining.slice(cut).replace(/^[\n\s]+/, '');
