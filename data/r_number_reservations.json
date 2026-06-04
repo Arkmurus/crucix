@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1315,
+  "next_available": 1321,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7630,6 +7630,65 @@
       "commit_sha": "0f232258",
       "notes": null,
       "shipped_at": "2026-06-04T10:32:47Z"
+    },
+    {
+      "r_number": "R-F1315",
+      "title": "ci_deploy: deploy aria-intel via local authed flyctl (deploy.ps1 -Intel) to bypass the stale GitHub FLY_API_TOKEN so the autonomous chain reaches fly without manual operator deploy",
+      "claimed_at": "2026-06-04T10:47:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f916e5f0",
+      "notes": null,
+      "shipped_at": "2026-06-04T11:07:37Z"
+    },
+    {
+      "r_number": "R-F1316",
+      "title": "Wire brain_hook.py success and failure branches",
+      "claimed_at": "2026-06-04T10:47:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "43ba64c0",
+      "notes": null,
+      "shipped_at": "2026-06-04T10:50:42Z"
+    },
+    {
+      "r_number": "R-F1317",
+      "title": "HOTFIX brain_hook.py SyntaxError from R-F1316 premature docstring close; add real import/compile capability test (source-grep tests missed it)",
+      "claimed_at": "2026-06-04T10:53:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1318",
+      "title": "Wire mistake_ledger.py success and failure branches",
+      "claimed_at": "2026-06-04T10:54:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "be5d7911",
+      "notes": null,
+      "shipped_at": "2026-06-04T10:55:23Z"
+    },
+    {
+      "r_number": "R-F1319",
+      "title": "Wire learning package 12 modules all dark",
+      "claimed_at": "2026-06-04T10:59:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5db325f6",
+      "notes": null,
+      "shipped_at": "2026-06-04T11:00:58Z"
+    },
+    {
+      "r_number": "R-F1320",
+      "title": "Wire autonomous package 12 dark modules",
+      "claimed_at": "2026-06-04T11:03:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "be1e9e44",
+      "notes": null,
+      "shipped_at": "2026-06-04T11:03:47Z"
     }
   ]
 }
