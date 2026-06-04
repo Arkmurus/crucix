@@ -61,17 +61,10 @@ def test_performance_optimizer_async_logs_parse_errors():
         assert "findings" in result
 
 
-def test_terminal_ui_uses_named_except():
-    """terminal_ui.py uses named except instead of bare except."""
-    with open("aria_service/terminal_ui.py", encoding="utf-8") as f:
-        content = f.read()
-    
-    # Check there are no bare except: blocks (except: without Exception type)
-    import re
-    bare_excepts = re.findall(r"^\s*except\s*:", content, re.MULTILINE)
-    assert len(bare_excepts) == 0, (
-        f"Found {len(bare_excepts)} bare except: blocks in terminal_ui.py"
-    )
+# R-F1307: test_terminal_ui_uses_named_except removed — R-F1302 deleted
+# aria_service/terminal_ui.py (dead module, zero importers), so the file this
+# test read no longer exists. A module deletion's blast radius includes its
+# tests; they must be removed in the same change.
 
 
 def test_seed_compliance_prints_warning():
