@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1312,
+  "next_available": 1315,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7576,27 +7576,60 @@
       "title": "CLI input-handler catch-all — REPL survives any keybinding exception (no more frozen loop)",
       "claimed_at": "2026-06-04T09:38:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "945a892b",
+      "notes": null,
+      "shipped_at": "2026-06-04T09:48:03Z"
     },
     {
       "r_number": "R-F1310",
       "title": "aria-forever supervisor — heartbeat watchdog, crash/stall auto-restart, recovery turn injection",
       "claimed_at": "2026-06-04T09:38:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "945a892b",
+      "notes": null,
+      "shipped_at": "2026-06-04T09:48:03Z"
     },
     {
       "r_number": "R-F1311",
       "title": "Bump document/photo character limits across extraction pipeline",
       "claimed_at": "2026-06-04T09:44:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5006417d",
+      "notes": null,
+      "shipped_at": "2026-06-04T09:50:01Z"
+    },
+    {
+      "r_number": "R-F1312",
+      "title": "Wire portal registration pipeline + add env var checks for pending sources",
+      "claimed_at": "2026-06-04T10:08:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "96f8587f",
+      "notes": null,
+      "shipped_at": "2026-06-04T10:10:49Z"
+    },
+    {
+      "r_number": "R-F1313",
+      "title": "Bulletproof Claude<->ARIA bridge: atomic seen-state, collision-proof ids, policy-safe charter",
+      "claimed_at": "2026-06-04T10:16:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0f232258",
+      "notes": null,
+      "shipped_at": "2026-06-04T10:32:47Z"
+    },
+    {
+      "r_number": "R-F1314",
+      "title": "ci_deploy multi-app awareness: never claim DEPLOYED when a changed target app (aria-wa/aria-web) was not deployed/verified",
+      "claimed_at": "2026-06-04T10:24:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0f232258",
+      "notes": null,
+      "shipped_at": "2026-06-04T10:32:47Z"
     }
   ]
 }
