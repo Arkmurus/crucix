@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1326,
+  "next_available": 1330,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7731,6 +7731,46 @@
       "r_number": "R-F1325",
       "title": "WA listener: tolerate transient brain health-check blips (doc/chat/OCR polls)",
       "claimed_at": "2026-06-04T13:17:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4822a8a9",
+      "notes": null,
+      "shipped_at": "2026-06-04T13:30:03Z"
+    },
+    {
+      "r_number": "R-F1326",
+      "title": "Fix attached-doc + legal-review mis-routing to company_investigator",
+      "claimed_at": "2026-06-04T14:03:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7be52a18",
+      "notes": null,
+      "shipped_at": "2026-06-04T15:07:15Z"
+    },
+    {
+      "r_number": "R-F1327",
+      "title": "reasoning_router Stage-4 company_investigator must skip when a document is attached (the real cause of WhatsApp NDA review -> 'Input rejected as non-company'; bypasses R-F1326/S22a)",
+      "claimed_at": "2026-06-04T14:51:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7be52a18",
+      "notes": null,
+      "shipped_at": "2026-06-04T15:07:16Z"
+    },
+    {
+      "r_number": "R-F1328",
+      "title": "stop EICAR-on-disk: test_wires_threats_to_brain uses in-memory scan_bytes (R-F1303 applied to tests) so Kaspersky stops deleting eicar.txt on every test run",
+      "claimed_at": "2026-06-04T15:25:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12e92fed",
+      "notes": null,
+      "shipped_at": "2026-06-04T15:27:13Z"
+    },
+    {
+      "r_number": "R-F1329",
+      "title": "WhatsApp Markdown formatter",
+      "claimed_at": "2026-06-04T15:25:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

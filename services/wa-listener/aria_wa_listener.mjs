@@ -779,10 +779,75 @@ function splitMessage(body) {
 
 // R-F1151 — emit wa_reply_failed signal when a reply fails, so ARIA learns
 // that replies are not reaching the group (was dark: console.error only).
+
+// R-F1329 — WhatsApp Markdown formatter. WhatsApp supports ONLY:
+//   *bold*  _italic_  ```mono```  ~strikethrough~  bullet lists (-)
+// NO tables (|), NO headers (###), NO horizontal rules (---), NO HTML.
+// This converts common Markdown patterns to WhatsApp-compatible output.
+function formatForWhatsApp(text) {
+  if (!text) return text;
+
+  let result = text;
+
+  // 1. Strip HTML tags (ARIA sometimes returns <b>, <br>, etc.)
+  result = result.replace(/<[^>]+>/g, '');
+
+  // 2. Convert Markdown tables to aligned key:value lines
+  //    A table row like "| Name | Value |" becomes "• Name: Value"
+  //    Separator rows (|---|---|) are removed entirely.
+  result = result.replace(/^\|(.+)\|$/gm, (match, content) => {
+    const cells = content.split('|').map(c => c.trim()).filter(c => c.length > 0);
+    // Skip separator rows (all dashes/colons)
+    if (cells.every(c => /^[-:]+$/.test(c))) return '';
+    if (cells.length === 2) return `\u2022 ${cells[0]}: ${cells[1]}`;
+    if (cells.length >= 2) return cells.map((c, i) => i === 0 ? `\u2022 ${c}` : `  ${c}`).join('\n');
+    return `\u2022 ${cells[0] || ''}`;
+  });
+
+  // 3. Convert ### headers to *bold* with emoji
+  const HEADER_EMOJIS = {
+    overview: '\ud83d\udccb', summary: '\ud83d\udccb', introduction: '\ud83d\udccb',
+    findings: '\ud83d\udd0d', analysis: '\ud83d\udd0d', assessment: '\ud83d\udd0d',
+    conclusion: '\u2705', result: '\u2705', outcome: '\u2705',
+    risk: '\u26a0\ufe0f', risks: '\u26a0\ufe0f', warning: '\u26a0\ufe0f',
+    recommendation: '\ud83d\udca1', recommendations: '\ud83d\udca1', suggestion: '\ud83d\udca1',
+    'next steps': '\u27a1\ufe0f', action: '\u27a1\ufe0f', actions: '\u27a1\ufe0f',
+    details: '\ud83d\udcc4', detail: '\ud83d\udcc4', information: '\ud83d\udcc4',
+    background: '\u2139\ufe0f', context: '\u2139\ufe0f',
+    status: '\ud83d\udcca', progress: '\ud83d\udcca',
+    note: '\ud83d\udcdd', notes: '\ud83d\udcdd',
+    example: '\ud83d\udd0e', examples: '\ud83d\udd0e',
+  };
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, (match, header) => {
+    const key = header.toLowerCase().trim();
+    const emoji = HEADER_EMOJIS[key] || '\ud83d\udccc';
+    return `${emoji} *${header.trim()}*`;
+  });
+
+  // 4. Convert horizontal rules (---, ***, ___) to a blank line
+  result = result.replace(/^[-*_]{3,}\s*$/gm, '');
+
+  // 5. Convert **bold** (double asterisk) to *bold* (single asterisk)
+  result = result.replace(/\*\*(.+?)\*\*/g, '*$1*');
+
+  // 6. Convert inline code `code` to ```code``` (WhatsApp mono)
+  result = result.replace(/(?<!\x60)\x60([^\x60]+)\x60(?!\x60)/g, '\x60\x60\x60$1\x60\x60\x60');
+
+  // 7. Remove excessive blank lines (more than 2 consecutive)
+  result = result.replace(/\n{3,}/g, '\n\n');
+
+  // 8. Trim trailing whitespace per line
+  result = result.split('\n').map(l => l.trimEnd()).join('\n');
+
+  return result.trim();
+}
+
 async function sendReply(chatId, text) {
   if (!sock || !isConnected || !text) return;
   try {
-    const chunks = splitMessage(text);
+    // R-F1329 — format Markdown for WhatsApp before chunking
+    const formatted = formatForWhatsApp(text);
+    const chunks = splitMessage(formatted);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
       await sock.sendMessage(chatId, { text: chunks[i] });
