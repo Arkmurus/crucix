@@ -189,6 +189,18 @@ Only claim `Verified-by: tests` when:
 
 If you didn't write a capability test, say `Verified-by: manual-read` and explain what you checked.
 
+### 19e. Surface stuck / undeployed work — never let it sit silently (binding)
+
+**Operator directive (2026-06-04):** the operator repeatedly had to discover *on his own* that commits were sitting unpushed/undeployed and deploy them by hand — because neither ARIA nor Claude TOLD him. That is a communication failure, not just a deploy-chain failure, and it is the reason he kept intervening manually.
+
+**Rule:** the instant work is blocked or incomplete in a way only the operator can clear — a commit that is committed but **not live**, a push/deploy that **failed**, a credential/secret needed, a tool that won't complete — **say so immediately and explicitly on the channel the operator actually sees** (ARIA → WhatsApp/Telegram/operator ticket; Claude → the session reply). State four things: what is DONE, what is STUCK, WHY, and the exact ACTION needed.
+
+**Every task that produces a commit MUST end with its deploy status, in plain words:**
+- ✅ `live on <app>, build_rev=<sha>` (verified), or
+- ⚠️ `committed + pushed but NOT deployed because <reason> — needs <action>`.
+
+Never report "done" for a code change without saying whether it actually reached the server. A blocker the operator has to find himself is the worst outcome — default to over-reporting it. Use the `BLOCKED:`/`STALLED:` prefixes from §19a, and add `BLOCKED: deploy — <change> is committed but not live because <reason>`.
+
 ## 20. Session ritual
 
 - **Open**: read `memory/platform_buildout_north_star.md` + name open gates + tag tasks (gate-closing / operational / digression).
