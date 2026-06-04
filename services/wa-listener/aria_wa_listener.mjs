@@ -567,18 +567,26 @@ async function readDocumentAsync(payload, chatId, filename) {
   // needs full multi-page OCR (no shortcuts) which can run several minutes. The
   // job has no server cap; this just bounds how long the listener waits.
   // R-F1152 — brain-health check every 30s so we don't poll for 15 min if brain crashed
+  // R-F1325 — tolerate transient blips: only abort after 3 CONSECUTIVE failures (~90s)
   let lastHealthCheck = 0;
+  let docHealthFails = 0;
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, POLL_MS));
     // R-F1152 — abort early if brain is down
+    // R-F1325 — tolerate transient blips: only abort after 3 CONSECUTIVE failures (~90s)
     if (Date.now() - lastHealthCheck > 30000) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+        docHealthFails = 0;  // reset on success
       } catch {
-        console.warn('[ARIA Listener] Brain appears down — aborting doc poll early');
-        throw new Error('brain unreachable during doc poll');
+        docHealthFails = (docHealthFails || 0) + 1;
+        if (docHealthFails >= 3) {
+          console.warn(`[ARIA Listener] Brain unreachable for ${docHealthFails} consecutive checks — aborting doc poll`);
+          throw new Error('brain unreachable during doc poll');
+        }
+        console.warn(`[ARIA Listener] Brain health-check failed (${docHealthFails}/3) — continuing poll`);
       }
     }
     let st;
@@ -670,6 +678,7 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   const t0 = Date.now();
   let interimSent = false;
   let lastHealthCheck = 0;
+  let chatHealthFails = 0;  // R-F1325 — consecutive health-check failures
   // R-F1152 — send typing indicator so users see ARIA is working
   if (chatId && sock && isConnected) {
     sock.sendPresenceUpdate('composing', chatId).catch(() => {});
@@ -682,14 +691,20 @@ async function askARIAAsync(message, senderJid, chatId = null) {
       sock.sendPresenceUpdate('composing', chatId).catch(() => {});
     }
     // R-F1152 — abort early if brain is down (don't poll for 15 min)
+    // R-F1325 — tolerate transient blips: only abort after 3 CONSECUTIVE failures (~90s)
     if (Date.now() - lastHealthCheck > BRAIN_HEALTH_CHECK_INTERVAL_MS) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+        chatHealthFails = 0;  // reset on success
       } catch {
-        console.warn('[ARIA Listener] Brain appears down — aborting chat poll early');
-        throw new Error('brain unreachable during chat poll');
+        chatHealthFails = (chatHealthFails || 0) + 1;
+        if (chatHealthFails >= 3) {
+          console.warn(`[ARIA Listener] Brain unreachable for ${chatHealthFails} consecutive checks — aborting chat poll`);
+          throw new Error('brain unreachable during chat poll');
+        }
+        console.warn(`[ARIA Listener] Brain health-check failed (${chatHealthFails}/3) — continuing poll`);
       }
     }
     if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
@@ -1275,18 +1290,25 @@ async function startListener() {
           const POLL_MS = 3000, MAX_POLLS = 200;  // up to 10 min
           let ocrResult = null;
           let lastHealthCheck = 0;
+          let ocrHealthFails = 0;  // R-F1325 — consecutive health-check failures
           for (let i = 0; i < MAX_POLLS; i++) {
             await new Promise(r => setTimeout(r, POLL_MS));
             // Brain-health check every 30s
+            // R-F1325 — tolerate transient blips: only abort after 3 CONSECUTIVE failures (~90s)
             if (Date.now() - lastHealthCheck > 30000) {
               lastHealthCheck = Date.now();
               try {
-                const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+                const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
                 if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+                ocrHealthFails = 0;  // reset on success
               } catch {
-                console.warn('[ARIA Listener] Brain appears down — aborting OCR poll early');
-                await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
-                ocrResult = null; break;
+                ocrHealthFails = (ocrHealthFails || 0) + 1;
+                if (ocrHealthFails >= 3) {
+                  console.warn(`[ARIA Listener] Brain unreachable for ${ocrHealthFails} consecutive checks — aborting OCR poll`);
+                  await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
+                  ocrResult = null; break;
+                }
+                console.warn(`[ARIA Listener] Brain health-check failed (${ocrHealthFails}/3) — continuing OCR poll`);
               }
             }
             let st;

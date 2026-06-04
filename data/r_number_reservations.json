@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1323,
+  "next_available": 1326,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7708,6 +7708,33 @@
       "commit_sha": "18a1607a",
       "notes": null,
       "shipped_at": "2026-06-04T11:40:46Z"
+    },
+    {
+      "r_number": "R-F1323",
+      "title": "Make portal registration async with job+ack+poll pattern",
+      "claimed_at": "2026-06-04T13:08:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1324",
+      "title": "WA listener: chat+OCR poll must tolerate transient brain blips (retry with backoff, N consecutive failures + longer timeout) instead of aborting document review on first hiccup",
+      "claimed_at": "2026-06-04T13:11:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1325",
+      "title": "WA listener: tolerate transient brain health-check blips (doc/chat/OCR polls)",
+      "claimed_at": "2026-06-04T13:17:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
