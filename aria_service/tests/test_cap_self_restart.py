@@ -244,3 +244,49 @@ async def test_checkpoint_with_error_context(checkpoint_dir):
     cp = await load_latest_checkpoint("test_agent")
     assert cp is not None
     assert "Connection refused" in cp["error_context"]
+
+
+@pytest.mark.asyncio
+async def test_blackout_wedge_contains_asyncio_task_stacks(checkpoint_dir):
+    """R-F1333: the blackout wedge file should contain asyncio task stacks
+    alongside the faulthandler thread dump."""
+    import glob
+    from aria_service.intel.self_restart import (
+        tick_heartbeat, _heartbeats,
+    )
+
+    # Register an agent with a stale heartbeat
+    tick_heartbeat("test_stale_agent")
+    _heartbeats["test_stale_agent"] = 0.0  # force stale (epoch 0 = 1970)
+
+    # Run one iteration of the detector with a very low threshold
+    old_interval = os.environ.get("ARIA_BLACKOUT_CHECK_INTERVAL", "30")
+    old_threshold = os.environ.get("ARIA_BLACKOUT_THRESHOLD", "300")
+    os.environ["ARIA_BLACKOUT_CHECK_INTERVAL"] = "1"
+    os.environ["ARIA_BLACKOUT_THRESHOLD"] = "1"
+
+    try:
+        from aria_service.intel.self_restart import _blackout_detector_loop
+        task = asyncio.create_task(_blackout_detector_loop())
+        await asyncio.sleep(2)
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+        # Check wedge files
+        wedge_files = glob.glob(os.path.join(checkpoint_dir, "..", "wedge_stacks", "blackout_test_stale_agent_*.log"))
+        wedge_files2 = glob.glob(os.path.join(checkpoint_dir, "blackout_test_stale_agent_*.log"))
+        all_wedges = wedge_files + wedge_files2
+
+        if all_wedges:
+            with open(all_wedges[0], "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "asyncio task stacks" in content
+            assert "state_store lock status" in content
+    finally:
+        if old_interval:
+            os.environ["ARIA_BLACKOUT_CHECK_INTERVAL"] = old_interval
+        if old_threshold:
+            os.environ["ARIA_BLACKOUT_THRESHOLD"] = old_threshold
