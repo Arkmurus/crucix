@@ -97,7 +97,7 @@ def test_ci_deploy_auto_deploys_touched_wa_app(monkeypatch, tmp_path):
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha abcd1234"))
     monkeypatch.setattr("time.sleep", lambda s: None)
 
-    r = coder.ci_deploy(summary="async OCR", r_number="F1311", poll_timeout=120)
+    r = coder.ci_deploy(summary="async OCR", r_number="F1311", poll_timeout=120, local=False)
 
     assert not r.is_error
     assert "multi-app" in r.output and "aria-wa" in r.output
@@ -123,7 +123,7 @@ def test_ci_deploy_partial_when_followon_deploy_fails(monkeypatch, tmp_path):
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha abcd1234"))
     monkeypatch.setattr("time.sleep", lambda s: None)
 
-    r = coder.ci_deploy(summary="async OCR", r_number="F1311", poll_timeout=120)
+    r = coder.ci_deploy(summary="async OCR", r_number="F1311", poll_timeout=120, local=False)
 
     assert r.is_error, "a failed follow-on deploy must not be reported as success"
     assert "PARTIAL DEPLOY" in r.output
@@ -144,7 +144,7 @@ def test_ci_deploy_warns_when_deploy_all_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha abcd1234"))
     monkeypatch.setattr("time.sleep", lambda s: None)
 
-    r = coder.ci_deploy(summary="x", r_number="F1311", poll_timeout=120, deploy_all=False)
+    r = coder.ci_deploy(summary="x", r_number="F1311", poll_timeout=120, deploy_all=False, local=False)
 
     assert r.is_error
     assert "PARTIAL DEPLOY" in r.output
@@ -164,7 +164,7 @@ def test_ci_deploy_full_success_when_intel_only(monkeypatch, tmp_path):
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha abcd1234"))
     monkeypatch.setattr("time.sleep", lambda s: None)
 
-    r = coder.ci_deploy(summary="route fix", r_number="F9000", poll_timeout=120)
+    r = coder.ci_deploy(summary="route fix", r_number="F9000", poll_timeout=120, local=False)
 
     assert not r.is_error
     assert "DEPLOYED & ALIGNED" in r.output

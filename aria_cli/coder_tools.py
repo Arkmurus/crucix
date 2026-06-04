@@ -202,6 +202,20 @@ class CoderToolbox:
                 apps.add(app)
         return apps
 
+    def _deploy_targets(self, paths: list[str]) -> set[str]:
+        """Full set of Fly apps a change must deploy to (R-F1315). Extends
+        _apps_touched (which returns only the non-intel apps) with aria-intel
+        when the change touches the Python service / its build inputs. Pure
+        aria_cli/ or docs changes map to nothing (they don't run on a Fly app)."""
+        targets = set(self._apps_touched(paths))
+        norm = [p.replace("\\", "/").strip().lstrip("./").lower()
+                for p in paths if p and p.strip()]
+        intel_prefixes = ("aria_service/", "fly.toml", "dockerfile",
+                          "requirements", "pyproject.toml")
+        if any(p == pre or p.startswith(pre) for p in norm for pre in intel_prefixes):
+            targets.add("aria-intel")
+        return targets
+
     def _pending_deploy_paths(self, sha: str) -> list[str]:
         """Files this deploy carries vs the last deployed state (R-F1314).
         Diffs the last-deployed sha (.last_deploy_sha) against HEAD; falls back
@@ -231,19 +245,23 @@ class CoderToolbox:
         reuses the exact path the operator runs manually. Returns the script's
         ToolResult; is_error propagates a deploy/verify failure to the caller."""
         import os as _os
-        ordered = sorted(apps)
+        ps_flag = {"aria-intel": "-Intel", "aria-wa": "-Wa", "aria-web": "-Web"}
+        sh_flag = {"aria-intel": "--intel", "aria-wa": "--wa", "aria-web": "--web"}
+        ordered = [a for a in ("aria-intel", "aria-wa", "aria-web") if a in apps]
+        if not ordered:
+            return ToolResult("no known deploy targets", is_error=True)
         if _os.name == "nt":
             script = self.root / "scripts" / "deploy.ps1"
             if not script.exists():
                 return ToolResult(f"deploy script missing: {script}", is_error=True)
-            flags = " ".join("-Wa" if a == "aria-wa" else "-Web" for a in ordered)
+            flags = " ".join(ps_flag[a] for a in ordered)
             cmd = (f'powershell -NoProfile -ExecutionPolicy Bypass '
                    f'-File "{script}" {flags}')
         else:
             script = self.root / "scripts" / "deploy.sh"
             if not script.exists():
                 return ToolResult(f"deploy script missing: {script}", is_error=True)
-            flags = " ".join("--wa" if a == "aria-wa" else "--web" for a in ordered)
+            flags = " ".join(sh_flag[a] for a in ordered)
             cmd = f'bash "{script}" {flags}'
         # Remote fly builds (torch/node images) are slow — allow a generous bound.
         return self._tb.run(cmd, timeout=1800)
@@ -251,19 +269,25 @@ class CoderToolbox:
     # ── ci_deploy (THE autonomous commit→push→CI→fly→verify chain) ──────────
     def ci_deploy(self, summary: str = "", r_number: str = "",
                   files: list[str] | None = None, poll_timeout: int = 900,
-                  deploy_all: bool = True) -> ToolResult:
-        """Hands-free autonomous deploy via the CI [deploy] path (R-F1306).
+                  deploy_all: bool = True, local: bool = True) -> ToolResult:
+        """Hands-free autonomous commit→push→deploy→verify chain.
 
-        The robust, no-babysitting deploy and the one to PREFER for autonomous
-        operation: commit any pending changes with a [deploy]-tagged message,
-        push to origin/main, then poll aria-intel's /health/live until build_rev
-        matches HEAD. CI (deploy-fly.yml) sees the [deploy] tag, builds REMOTELY
-        on Depot, canary-deploys, health-verifies and rolls back on failure — so
-        nothing runs as a long LOCAL process (no wedge risk) and the deployed
-        build is guaranteed aligned with origin (commit == push == live build_rev).
+        Commits any pending changes (with a [deploy] tag), pushes to origin/main
+        (GitHub backup), then deploys + verifies.
 
-        Returns success only when the live build_rev actually reaches HEAD — a
-        deploy is never claimed unproven."""
+        R-F1315 — deploy mechanism:
+          * local=True (DEFAULT): deploy every touched app via the trusted local
+            scripts/deploy.ps1|deploy.sh, which runs `flyctl deploy` with the
+            operator's already-authenticated flyctl (canary + health-verify +
+            build_rev check + auto-rollback). This BYPASSES the CI [deploy] path,
+            which is dead while the GitHub FLY_API_TOKEN secret is stale — so the
+            push alone never reaches Fly. This is the path that actually deploys.
+          * local=False: legacy CI path — rely on deploy-fly.yml to build aria-
+            intel remotely, and poll /health/live until build_rev matches HEAD.
+            Use once the FLY_API_TOKEN secret is rotated.
+
+        Returns success only when the deploy is PROVEN (script verified build_rev
+        / version-advance, or live build_rev reached HEAD) — never unproven."""
         import time as _t
         tag = "[deploy]"
         safe_summary = (summary or "autonomous deploy").replace('"', "'").replace("\n", " ")[:80]
@@ -301,6 +325,32 @@ class CoderToolbox:
         if not sha:
             return ToolResult("ci_deploy: pushed, but could not read HEAD sha to verify alignment. "
                               "Check live build_rev manually before trusting the deploy.", is_error=True)
+
+        # 3a. R-F1315 — LOCAL deploy (default). The CI [deploy] path is dead while
+        #     the GitHub FLY_API_TOKEN is stale, so a push alone never reaches Fly.
+        #     Deploy every touched app via the local authed flyctl (deploy.ps1),
+        #     which verifies build_rev / version-advance and rolls back on failure.
+        if local:
+            targets = self._deploy_targets(self._pending_deploy_paths(sha))
+            if not targets:
+                return ToolResult(
+                    f"Pushed {sha}. No Fly-app paths changed (e.g. aria_cli/docs only), "
+                    f"so there is nothing to deploy — code is on origin/main.",
+                    mutation=f"ci_deploy push {sha} (no deploy needed)")
+            apps = ", ".join(sorted(targets))
+            dep = self._deploy_apps(targets)
+            if dep.is_error:
+                return ToolResult(
+                    f"DEPLOY FAILED ⚠️ — pushed {sha}, but the local flyctl deploy of "
+                    f"{apps} did not verify live (canary/health/build_rev check failed or "
+                    f"flyctl not authed here). Those apps may still run OLD code. Do NOT "
+                    f"ship-mark {r_number or 'this R-number'}. Output:\n{dep.output}",
+                    is_error=True, mutation=f"ci_deploy {sha} (deploy failed)")
+            return ToolResult(
+                f"DEPLOYED & ALIGNED ✅ — pushed {sha} and deployed + verified {apps} via "
+                f"local flyctl (canary + health + build_rev check + rollback). Fully "
+                f"hands-free; no CI token, no manual step. Output:\n{dep.output}",
+                mutation=f"ci_deploy {sha} ({apps})")
 
         # 3. Poll /health/live until the live build_rev matches HEAD (CI builds
         #    remotely; torch images are slow, so allow generous time).

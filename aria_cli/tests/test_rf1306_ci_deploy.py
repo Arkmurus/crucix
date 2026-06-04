@@ -59,7 +59,7 @@ def test_ci_deploy_commits_with_deploy_tag_and_verifies(monkeypatch) -> None:
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha abcd1234"))
     _no_sleep(monkeypatch)
 
-    r = coder.ci_deploy(summary="test fix", r_number="F9999", poll_timeout=120)
+    r = coder.ci_deploy(summary="test fix", r_number="F9999", poll_timeout=120, local=False)
 
     assert not r.is_error
     assert "DEPLOYED & ALIGNED" in r.output
@@ -85,7 +85,7 @@ def test_ci_deploy_empty_trigger_commit_when_clean(monkeypatch) -> None:
     monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp("sha feed5678"))
     _no_sleep(monkeypatch)
 
-    r = coder.ci_deploy(summary="batch deploy", poll_timeout=120)
+    r = coder.ci_deploy(summary="batch deploy", poll_timeout=120, local=False)
 
     assert not r.is_error
     assert any("--allow-empty" in c for c in tb.commands)
@@ -106,7 +106,7 @@ def test_ci_deploy_push_failure_stops_and_reports(monkeypatch) -> None:
         raise AssertionError("must not poll health after a failed push")
 
     monkeypatch.setattr("httpx.get", _boom)
-    r = coder.ci_deploy(summary="x", poll_timeout=120)
+    r = coder.ci_deploy(summary="x", poll_timeout=120, local=False)
 
     assert r.is_error
     assert "push" in r.output.lower()
@@ -135,7 +135,7 @@ def test_ci_deploy_timeout_reports_unverified_not_success(monkeypatch) -> None:
 
     monkeypatch.setattr("time.monotonic", _fast_monotonic)
 
-    r = coder.ci_deploy(summary="x", poll_timeout=1)
+    r = coder.ci_deploy(summary="x", poll_timeout=1, local=False)
 
     assert r.is_error
     assert "did not reach" in r.output
