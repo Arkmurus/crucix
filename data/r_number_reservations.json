@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1309,
+  "next_available": 1312,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7565,6 +7565,34 @@
       "r_number": "R-F1308",
       "title": "CLI surrogate-safe input — history write + REPL line sanitize (emoji paste crashed the REPL)",
       "claimed_at": "2026-06-04T09:31:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "18b7509b",
+      "notes": null,
+      "shipped_at": "2026-06-04T09:33:43Z"
+    },
+    {
+      "r_number": "R-F1309",
+      "title": "CLI input-handler catch-all — REPL survives any keybinding exception (no more frozen loop)",
+      "claimed_at": "2026-06-04T09:38:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1310",
+      "title": "aria-forever supervisor — heartbeat watchdog, crash/stall auto-restart, recovery turn injection",
+      "claimed_at": "2026-06-04T09:38:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1311",
+      "title": "Bump document/photo character limits across extraction pipeline",
+      "claimed_at": "2026-06-04T09:44:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

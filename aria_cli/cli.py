@@ -225,6 +225,39 @@ def _ensure_session_dir() -> Path:
     return _SESSION_DIR
 
 
+# ── R-F1310: liveness files for the aria-forever supervisor ─────────────────
+# heartbeat = touched on REPL activity + tool results/stream chunks (throttled);
+# busy      = exists while a turn is in flight. The supervisor restarts the CLI
+# when busy is set but the heartbeat stops advancing (stall), or on crash.
+_HB_LAST = 0.0
+
+
+def _hb_touch(force: bool = False) -> None:
+    """Touch the heartbeat file (throttled to one write per ~5s)."""
+    global _HB_LAST
+    now = time.time()
+    if not force and now - _HB_LAST < 5:
+        return
+    _HB_LAST = now
+    try:
+        (_ensure_session_dir() / "heartbeat").write_text(str(now), encoding="utf-8")
+    except Exception:  # noqa: BLE001 — liveness must never break the CLI
+        pass
+
+
+def _busy_set(on: bool) -> None:
+    """Mark a turn as in-flight (the supervisor only treats a stale heartbeat
+    as a stall while busy — idle at the prompt is never a stall)."""
+    p = _ensure_session_dir() / "busy"
+    try:
+        if on:
+            p.write_text(str(time.time()), encoding="utf-8")
+        else:
+            p.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _session_log_path() -> Path:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return _ensure_session_dir() / f"session_{ts}.log"
@@ -841,6 +874,7 @@ class TerminalUI(AgentUI):
     # ── live token streaming (never silent) ──────────────────────────────────
     def stream_delta(self, text: str) -> None:
         """Stream a chunk of LLM output. First chunk prints the prefix (R-F1260)."""
+        _hb_touch()  # R-F1310: streaming = alive (throttled)
         if not self._stream_active:
             if self._spin_thread is not None:
                 self.thinking_stop()
@@ -916,6 +950,7 @@ class TerminalUI(AgentUI):
 
     def tool_result(self, name: str, result: ToolResult) -> None:
         """Display a tool result with Rich rendering (R-F1267)."""
+        _hb_touch(force=True)  # R-F1310: every completed tool step = alive
         if result.is_error:
             self._error_count += 1
             lines = result.output.splitlines()
@@ -1146,8 +1181,29 @@ def _build_key_bindings():
 
         @kb.add("enter")
         def _(event):
-            """Enter submits the current input."""
-            event.current_buffer.validate_and_handle()
+            """Enter submits the current input.
+
+            R-F1309 — self-heal: an exception escaping THIS handler becomes an
+            unhandled event-loop exception that FREEZES the whole REPL ('Press
+            ENTER to continue…' — the 2026-06-03 surrogate incident froze ARIA
+            twice). The specific cause is fixed (R-F1308), but no input-handler
+            failure may ever take the loop down again: catch everything, salvage
+            the typed text into a sanitized submit, and keep the REPL alive."""
+            try:
+                event.current_buffer.validate_and_handle()
+            except Exception:  # noqa: BLE001 — the REPL must survive any handler error
+                try:
+                    buf = event.current_buffer
+                    text = _sanitize_input_line(buf.text or "")
+                    buf.reset()
+                    if text:
+                        buf.insert_text(text)
+                        buf.validate_and_handle()
+                except Exception:  # noqa: BLE001 — last resort: drop the line, keep the loop
+                    try:
+                        event.current_buffer.reset()
+                    except Exception:
+                        pass
 
         @kb.add("escape", "enter")
         def _(event):
@@ -1158,7 +1214,10 @@ def _build_key_bindings():
         def _(event):
             """Ctrl+K: show command palette (fuzzy search)."""
             from prompt_toolkit.application import run_in_terminal
-            run_in_terminal(lambda: _show_command_palette(event.app))
+            try:
+                run_in_terminal(lambda: _show_command_palette(event.app))
+            except Exception:  # noqa: BLE001 — R-F1309: never crash the loop
+                pass
 
         return kb
     except Exception:
@@ -1460,6 +1519,28 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     last_task = ""
     _input_history: list[str] = []
     _history_idx = 0
+    # R-F1310 — supervisor recovery: if aria-forever restarted us after a crash
+    # or stall, announce it and run a recovery turn so ARIA RESUMES her work
+    # instead of sitting at a blank prompt waiting for a human.
+    _recovered = os.environ.pop("ARIA_RECOVERED", "").strip()
+    if _recovered:
+        print(color.yellow(f"  ♻ aria-forever restarted ARIA after: {_recovered}"))
+        _busy_set(True)
+        _hb_touch(force=True)
+        try:
+            agent.run_until_complete(
+                "[SUPERVISOR RECOVERY] You were automatically restarted after: "
+                f"{_recovered}. In-flight context may be lost. Do this now: "
+                "1) check_claude for new bridge guidance; 2) re-open your task "
+                "list (/gaps + the punch-list) and continue the task you were "
+                "on; 3) if a write/commit/deploy was mid-flight, VERIFY its "
+                "actual state (git status / git log / staged queue) before "
+                "redoing anything. Then report what you resumed."
+            )
+        except Exception as _exc:  # noqa: BLE001 — recovery must not crash the REPL
+            print(color.red(f"  recovery turn failed: {_exc}"))
+        finally:
+            _busy_set(False)
     try:
         while True:
             try:
@@ -1980,6 +2061,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             last_task = line
             ui._log(f"[user] {line}")
+            _busy_set(True)           # R-F1310: turn in flight — stall watch on
+            _hb_touch(force=True)
             try:
                 agent.run_until_complete(line)
             except KeyboardInterrupt:
@@ -1991,6 +2074,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim("  The LLM provider may be unavailable. Try again later."))
                 agent.messages = agent.messages[:-1] if agent.messages else agent.messages
                 continue
+            finally:
+                _busy_set(False)      # R-F1310: idle at prompt is never a stall
     except KeyboardInterrupt:
         print("\n" + color.dim("  interrupted"))
     finally:
