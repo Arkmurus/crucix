@@ -232,3 +232,17 @@ Spotting a dark path during any session is itself an R-number: wire it (success 
 **Exception**: findings that require operator credentials, API keys, legal decisions, or financial commitments are always escalated — the coder cannot set secrets or sign contracts.
 
 **Why this exists**: before R-F1150, ARIA would identify improvements in chat or research output and end the turn with "this should be fixed" — leaving the operator to manually create an R-number and implement it. The coder exists precisely to close this loop. Every finding that can be a Gap MUST become a Gap, not a TODO in a chat message.
+
+## 22. Verification discipline — diagnose from evidence, never fabricate (binding)
+
+**Operator directive (2026-06-04):** a root-cause claim or status statement is only allowed when backed by HARD evidence — code read at `file:line`, a live probe (`flyctl status`, a curl), or a log line actually present. Anything not proven is stated as **UNKNOWN**, and you go GET the evidence instead of inferring. This rule exists because a debugging session produced several fabricated diagnoses that wasted operator time:
+
+- **Treating absence-of-logs as proof.** Outbound `sendReply` is not logged, so "no reply in the WA logs" proved nothing about what the user received. Know what your logs actually capture; "not in logs" ≠ "did not happen."
+- **Asserting a mechanism the code contradicts.** Claimed a "silent failure / returns falsy" when `askARIAAsync` actually `throw`s and `askARIA` returns a visible ⚠️ message. READ the function before claiming its behaviour.
+- **Floating speculation as fact** ("in-memory jobs die on restart", "Kaspersky blocks the child process") with zero verification.
+- **Claiming a deploy/fix worked without confirming the TARGET app's live build_rev/version advanced.**
+
+**How to apply:** cite `file:line` or a probe for every causal claim; when the decisive fact is only observable by the operator (e.g. what shows on their phone), ASK for the exact symptom — that is the opposite of fabricating; verify deploys by the target app's live version, not by "it pushed".
+
+### 22a. Attached-document review must NOT route to an external tool (R-F793 reinforced)
+When the user attaches a document and asks to **review / give feedback on** it, the request MUST go to the LLM-pure document/contract-review path — NEVER to `investigate` / `company_investigator` / `screen`. The 2026-06-04 bug: "review the NDA for feedback" returned `company_investigator.py:685` "No findings could be gathered for {company_name}" because the document was passed as a company name. Root cause: `_DOC_REFERENCE_RE` (routes/aria.py:3276) — which gates the R-F793 LLM-pure handoff at routes/aria.py:4386 — omits legal-doc nouns (`NDA`, `agreement`, `contract`, `clause`, `terms`, `schedule`, `addendum`). The doc-reference handoff must take precedence over every external-tool keyword whenever `[ATTACHED DOCUMENT` is present, and its noun list must cover how people actually name legal docs. Capability test: a chat with an attached doc + "review the NDA for feedback" must NOT dispatch an external tool and must quote the document.
