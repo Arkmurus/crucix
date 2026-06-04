@@ -68,8 +68,35 @@ try:
     from prompt_toolkit.styles import Style as PTStyle
     from prompt_toolkit.key_binding import KeyBindings
     PROMPT_TOOLKIT_AVAILABLE = True
+
+    class PTSafeFileHistory(PTFileHistory):
+        """R-F1308 — surrogate-safe history. A Windows console paste (e.g.
+        WhatsApp text with emoji) can contain lone UTF-16 surrogates;
+        FileHistory.store_string does f.write(t.encode('utf-8')) which raises
+        'surrogates not allowed' INSIDE the key handler — an unhandled
+        event-loop exception that freezes the whole REPL (live incident
+        2026-06-03 ~21:00). History is a convenience: sanitize, and never
+        let it break the loop."""
+
+        def store_string(self, string: str) -> None:
+            try:
+                safe = string.encode("utf-8", errors="replace").decode("utf-8")
+                super().store_string(safe)
+            except Exception:  # noqa: BLE001 — history must never crash input
+                pass
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
+
+
+def _sanitize_input_line(line: str) -> str:
+    """R-F1308 — strip lone surrogates from operator input. They survive a
+    Windows clipboard paste and later explode in ANY utf-8 encode: the history
+    file, json.dumps for the LLM request, the brain wire. Replace rather than
+    crash; the visible text is unchanged for normal input."""
+    try:
+        return line.encode("utf-8", errors="replace").decode("utf-8")
+    except Exception:  # noqa: BLE001
+        return line
 
 
 # ── R-F1141: operator mid-task interject ────────────────────────────────────
@@ -1449,7 +1476,9 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         # don't pop a menu on every keystroke.
                         kb = _build_key_bindings()
                         pt_session = PTPromptSession(
-                            history=PTFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
+                            # R-F1308: surrogate-safe — a pasted emoji crashed
+                            # the raw FileHistory write and froze the REPL.
+                            history=PTSafeFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
                             auto_suggest=PTAutoSuggest(),
                             complete_while_typing=False,
                             completer=PTWordCompleter([
@@ -1465,9 +1494,9 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                             key_bindings=kb,
                             multiline=True,
                         )
-                        line = pt_session.prompt("  you > ", vi_mode=False).strip()
+                        line = _sanitize_input_line(pt_session.prompt("  you > ", vi_mode=False)).strip()
                     else:
-                        line = _read_operator_input(color.bold("  you > ")).strip()
+                        line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
                 finally:
                     _resume_stdin_reader()
             except EOFError:
