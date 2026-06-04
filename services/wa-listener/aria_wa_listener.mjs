@@ -1206,109 +1206,107 @@ async function startListener() {
 
           if (!buffer || buffer.length === 0) {
             await sendReply(chatId, `⚠️ The image appears to be empty.`).catch(() => {});
-          } else {
-            const MAX_BYTES = 8 * 1024 * 1024;
-            const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
-            const b64 = buf.toString('base64');
-            const sizeKb = Math.round(buffer.length / 102.4) / 10;
-            const filename = `wa_${Date.now()}.jpg`;
-            const contextLabel = caption
-              ? `Image shared in WhatsApp group "${groupName}" by ${senderName}. Caption: ${caption.slice(0, 300)}`
-              : `Image shared in WhatsApp group "${groupName}" by ${senderName} (no caption)`;
+            continue;
+          }
 
-            console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
+          const MAX_BYTES = 8 * 1024 * 1024;
+          const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
+          const b64 = buf.toString('base64');
+          const sizeKb = Math.round(buffer.length / 102.4) / 10;
+          const filename = `wa_${Date.now()}.jpg`;
+          const contextLabel = caption
+            ? `Image shared in WhatsApp group "${groupName}" by ${senderName}. Caption: ${caption.slice(0, 300)}`
+            : `Image shared in WhatsApp group "${groupName}" by ${senderName} (no caption)`;
 
-            // ── Async OCR: submit job → get job_id → ack → poll ──────────
-            let ocrJob;
-            try {
-              ocrJob = await brainPost('/api/aria/ocr', {
-                image: b64,
-                filename,
-                context: contextLabel,
-                async: true,  // R-F1311: async mode — returns job_id immediately
-              });
-            } catch (e) {
-              console.warn('[ARIA Listener] OCR dispatch failed:', e.message);
-              // R-F1311: clean customer-facing error — no internal diagnostics leaked
-              await sendReply(chatId, `⚠️ I hit a snag processing that image — my OCR service didn't respond in time. Please try again in a moment, and I'll retry automatically.`).catch(() => {});
-              // Report the failure to the brain so it becomes coder-visible
-              brainPost('/api/aria/brain/signal', {
-                content: `WA image OCR dispatch failed: ${e.message}`,
-                source: `whatsapp_group:${groupName}`,
-                signal_type: 'wa_ocr_failed',
-                metadata: { filename, error: String(e.message || '').slice(0, 200), channel: 'whatsapp_listener' },
-              }).catch(() => {});
-              continue;
-            }
+          console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
 
-            const jobId = ocrJob && ocrJob.job_id;
-            if (!jobId) {
-              // Older brain build without async OCR support — use sync result
-              const extracted = ((ocrJob && ocrJob.text) || '').trim();
-              if (!extracted) {
-                await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
-                continue;
-              }
-              await _handleOcrResult(extracted, ocrJob, filename, caption, groupName, senderName, senderJid, chatId);
-              continue;
-            }
+          // ── Async OCR: submit job → get job_id → ack → poll ──────────
+          let ocrJob;
+          try {
+            ocrJob = await brainPost('/api/aria/ocr', {
+              image: b64,
+              filename,
+              context: contextLabel,
+              async: true,  // R-F1311: async mode — returns job_id immediately
+            });
+          } catch (e) {
+            console.warn('[ARIA Listener] OCR dispatch failed:', e.message);
+            // R-F1311: clean customer-facing error — no internal diagnostics leaked
+            await sendReply(chatId, `⚠️ I hit a snag processing that image — my OCR service didn't respond in time. Please try again in a moment, and I'll retry automatically.`).catch(() => {});
+            // Report the failure to the brain so it becomes coder-visible
+            brainPost('/api/aria/brain/signal', {
+              content: `WA image OCR dispatch failed: ${e.message}`,
+              source: `whatsapp_group:${groupName}`,
+              signal_type: 'wa_ocr_failed',
+              metadata: { filename, error: String(e.message || '').slice(0, 200), channel: 'whatsapp_listener' },
+            }).catch(() => {});
+            continue;
+          }
 
-            // Immediate ack — user knows ARIA is working on it
-            await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
-
-            // Poll for result (mirrors readDocumentAsync pattern)
-            const POLL_MS = 3000, MAX_POLLS = 200;  // up to 10 min
-            let ocrResult = null;
-            let lastHealthCheck = 0;
-            for (let i = 0; i < MAX_POLLS; i++) {
-              await new Promise(r => setTimeout(r, POLL_MS));
-              // Brain-health check every 30s
-              if (Date.now() - lastHealthCheck > 30000) {
-                lastHealthCheck = Date.now();
-                try {
-                  const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
-                  if (!hc.ok) throw new Error(`health returned ${hc.status}`);
-                } catch {
-                  console.warn('[ARIA Listener] Brain appears down — aborting OCR poll early');
-                  await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
-                  ocrResult = null; break;
-                }
-              }
-              let st;
-              try { st = await brainGet(`/api/aria/ocr/result/${jobId}`); }
-              catch { continue; }
-              if (!st) continue;
-              if (st.status === 'done') {
-                ocrResult = st.result || null;
-                break;
-              }
-              if (st.status === 'failed') {
-                console.warn('[ARIA Listener] OCR job failed:', st.error);
-                await sendReply(chatId, `⚠️ I couldn't read that image — the OCR engine returned an error. Please try again or send the text directly.`).catch(() => {});
-                ocrResult = null; break;
-              }
-              if (st.status === 'not_found') {
-                ocrResult = null; break;
-              }
-              // status === 'processing' → keep polling
-            }
-
-            if (!ocrResult) {
-              if (!ocrResult) {  // timed out
-                await sendReply(chatId, `⚠️ Reading that image is taking longer than expected. I'll keep working on it — please ask again in a minute.`).catch(() => {});
-              }
-              continue;
-            }
-
-            const extracted = (ocrResult.text || '').trim();
+          const jobId = ocrJob && ocrJob.job_id;
+          if (!jobId) {
+            // Older brain build without async OCR support — use sync result
+            const extracted = ((ocrJob && ocrJob.text) || '').trim();
             if (!extracted) {
               await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
               continue;
             }
-
-            await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId);
-            }
+            await _handleOcrResult(extracted, ocrJob, filename, caption, groupName, senderName, senderJid, chatId);
+            continue;
           }
+
+          // Immediate ack — user knows ARIA is working on it
+          await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
+
+          // Poll for result (mirrors readDocumentAsync pattern)
+          const POLL_MS = 3000, MAX_POLLS = 200;  // up to 10 min
+          let ocrResult = null;
+          let lastHealthCheck = 0;
+          for (let i = 0; i < MAX_POLLS; i++) {
+            await new Promise(r => setTimeout(r, POLL_MS));
+            // Brain-health check every 30s
+            if (Date.now() - lastHealthCheck > 30000) {
+              lastHealthCheck = Date.now();
+              try {
+                const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+                if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+              } catch {
+                console.warn('[ARIA Listener] Brain appears down — aborting OCR poll early');
+                await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
+                ocrResult = null; break;
+              }
+            }
+            let st;
+            try { st = await brainGet(`/api/aria/ocr/result/${jobId}`); }
+            catch { continue; }
+            if (!st) continue;
+            if (st.status === 'done') {
+              ocrResult = st.result || null;
+              break;
+            }
+            if (st.status === 'failed') {
+              console.warn('[ARIA Listener] OCR job failed:', st.error);
+              await sendReply(chatId, `⚠️ I couldn't read that image — the OCR engine returned an error. Please try again or send the text directly.`).catch(() => {});
+              ocrResult = null; break;
+            }
+            if (st.status === 'not_found') {
+              ocrResult = null; break;
+            }
+            // status === 'processing' → keep polling
+          }
+
+          if (!ocrResult) {
+            await sendReply(chatId, `⚠️ Reading that image is taking longer than expected. I'll keep working on it — please ask again in a minute.`).catch(() => {});
+            continue;
+          }
+
+          const extracted = (ocrResult.text || '').trim();
+          if (!extracted) {
+            await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
+            continue;
+          }
+
+          await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId);
         } catch (e) {
           console.warn('[ARIA Listener] Image processing failed:', e.message);
           // R-F1311: clean customer-facing error — no internal diagnostics leaked
