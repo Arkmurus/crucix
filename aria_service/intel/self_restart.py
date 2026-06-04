@@ -342,6 +342,95 @@ def get_heartbeat_age(agent_id: str = "aria_main") -> float:
 # ── Blackout Detection ────────────────────────────────────────────────────────
 
 
+def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None) -> str | None:
+    """R-F1334: write a blackout wedge dump and return its path (None on failure).
+
+    Extracted from the inline block in _blackout_detector_loop so a capability
+    test can drive the REAL dump path directly (the R-F1333 test depended on
+    import-time env constants and could silently assert nothing). Contents:
+      1. faulthandler thread stacks (R-F1146)
+      2. asyncio task stacks — every alive Task + get_stack() (R-F1333)
+      3. state_store RMW-lock diagnostics incl. HOLDER task + acquire stack
+         (R-F1334 via state_store.get_lock_diagnostics — verified to exist)
+
+    Must be called from inside the running event loop (uses all_tasks()).
+    """
+    try:
+        import faulthandler as _fh
+        if wedge_dir is None:
+            wedge_dir = "/data/wedge_stacks"
+            if not os.path.isdir(wedge_dir):
+                wedge_dir = os.path.join(
+                    os.path.dirname(__file__), "..", "..", "data", "wedge_stacks",
+                )
+        os.makedirs(wedge_dir, exist_ok=True)
+        wedge_path = os.path.join(
+            wedge_dir,
+            f"blackout_{agent_id}_{os.getpid()}_{int(time.time())}.log",
+        )
+        with open(wedge_path, "a", buffering=1, encoding="utf-8") as fh:
+            fh.write(
+                f"\n=== [R-F1146] Blackout detected for {agent_id}: "
+                f"heartbeat stale {stale:.1f}s ===\n"
+            )
+            _fh.dump_traceback(file=fh, all_threads=True)
+            # R-F1333: dump asyncio task stacks. faulthandler only
+            # shows thread stacks — stuck coroutines (awaiting a lock,
+            # semaphore, or queue that never resolves) are invisible.
+            fh.write("\n=== asyncio task stacks ===\n")
+            try:
+                _loop = asyncio.get_running_loop()
+                for _t in asyncio.all_tasks(_loop):
+                    _name = _t.get_name() if hasattr(_t, "get_name") else str(_t)
+                    _coro = _t.get_coro()
+                    _coro_name = getattr(_coro, "__name__", str(_coro)) if _coro else "?"
+                    _done = _t.done()
+                    _cancelled = _t.cancelled()
+                    fh.write(
+                        f"\n--- Task: {_name} ({_coro_name}) "
+                        f"done={_done} cancelled={_cancelled} ---\n"
+                    )
+                    if not _done and not _cancelled:
+                        try:
+                            for _frame in _t.get_stack():
+                                fh.write(
+                                    f"  {_frame.f_code.co_filename}:"
+                                    f"{_frame.f_lineno} {_frame.f_code.co_name}\n"
+                                )
+                        except Exception:
+                            fh.write("  (stack unavailable)\n")
+            except RuntimeError:
+                fh.write("  (no running loop)\n")
+            except Exception as _te:
+                fh.write(f"  (task dump error: {_te})\n")
+            fh.write("=== end asyncio task stacks ===\n")
+            # R-F1334: state_store lock diagnostics — names the HOLDER
+            # (task + acquire stack + hold duration), which plain
+            # asyncio.Lock cannot reveal (the R-F1333 probe saw waiters
+            # only). get_lock_diagnostics() verified in state_store.py.
+            fh.write("\n=== state_store lock status ===\n")
+            try:
+                from . import state_store as _ss
+                _diag = _ss.get_lock_diagnostics()
+                fh.write(f"  initialised={_diag.get('initialised')}\n")
+                fh.write(f"  locked={_diag.get('locked')}\n")
+                fh.write(f"  waiters={_diag.get('waiters')}\n")
+                if _diag.get("locked") and "holder_task" in _diag:
+                    fh.write(f"  holder_task={_diag.get('holder_task')}\n")
+                    fh.write(f"  held_for_s={_diag.get('held_for_s')}\n")
+                    fh.write("  holder acquire stack (innermost last):\n")
+                    for _line in _diag.get("holder_stack") or []:
+                        fh.write(f"    {_line}\n")
+            except Exception as _le:
+                fh.write(f"  (lock probe error: {_le})\n")
+            fh.write("=== end state_store lock status ===\n")
+            fh.write("=== end blackout stack dump ===\n")
+        logger.info("[self_restart] Blackout wedge saved to %s", wedge_path)
+        return wedge_path
+    except Exception:
+        return None  # Non-fatal — wedge capture is best-effort
+
+
 async def _blackout_detector_loop() -> None:
     """Background task that monitors heartbeats and triggers recovery on stall.
 
@@ -403,93 +492,10 @@ async def _blackout_detector_loop() -> None:
                 except Exception as e:
                     logger.error("[self_restart] Failed to save blackout checkpoint: %s", e)
 
-                # Try to capture a wedge stack via faulthandler
-                try:
-                    import faulthandler as _fh
-                    wedge_dir = "/data/wedge_stacks"
-                    if not os.path.isdir(wedge_dir):
-                        wedge_dir = os.path.join(
-                            os.path.dirname(__file__), "..", "..", "data", "wedge_stacks",
-                        )
-                    os.makedirs(wedge_dir, exist_ok=True)
-                    wedge_path = os.path.join(
-                        wedge_dir,
-                        f"blackout_{agent_id}_{os.getpid()}_{int(time.time())}.log",
-                    )
-                    with open(wedge_path, "a", buffering=1, encoding="utf-8") as fh:
-                        fh.write(
-                            f"\n=== [R-F1146] Blackout detected for {agent_id}: "
-                            f"heartbeat stale {stale:.1f}s ===\n"
-                        )
-                        _fh.dump_traceback(file=fh, all_threads=True)
-                        # R-F1333: dump asyncio task stacks. faulthandler only
-                        # shows thread stacks — stuck coroutines (awaiting a lock,
-                        # semaphore, or queue that never resolves) are invisible.
-                        # This section enumerates every alive asyncio Task and
-                        # its get_stack() so the NEXT wedge names its culprit.
-                        fh.write("\n=== asyncio task stacks ===\n")
-                        try:
-                            import asyncio as _aio1333
-                            _loop1333 = _aio1333.get_running_loop()
-                            for _t in _aio1333.all_tasks(_loop1333):
-                                _name = _t.get_name() if hasattr(_t, "get_name") else str(_t)
-                                _coro = _t.get_coro()
-                                _coro_name = getattr(_coro, "__name__", str(_coro)) if _coro else "?"
-                                _done = _t.done()
-                                _cancelled = _t.cancelled()
-                                fh.write(
-                                    f"\n--- Task: {_name} ({_coro_name}) "
-                                    f"done={_done} cancelled={_cancelled} ---\n"
-                                )
-                                if not _done and not _cancelled:
-                                    try:
-                                        for _frame in _t.get_stack():
-                                            fh.write(
-                                                f"  {_frame.f_code.co_filename}:"
-                                                f"{_frame.f_lineno} {_frame.f_code.co_name}\n"
-                                            )
-                                    except Exception:
-                                        fh.write("  (stack unavailable)\n")
-                        except RuntimeError:
-                            fh.write("  (no running loop)\n")
-                        except Exception as _te:
-                            fh.write(f"  (task dump error: {_te})\n")
-                        fh.write("=== end asyncio task stacks ===\n")
-                        # R-F1333: dump state_store lock holder if held >5s.
-                        # The state_store._lock is an asyncio.Lock; when stuck
-                        # it blocks every compound RMW op (lpush, incr, zadd).
-                        # This probes the lock's internal _waiters to find who
-                        # holds it and who's waiting.
-                        fh.write("\n=== state_store lock status ===\n")
-                        try:
-                            from . import state_store as _ss1333
-                            _lock1333 = getattr(_ss1333, "_lock", None)
-                            if _lock1333 is not None:
-                                _locked = _lock1333.locked()
-                                fh.write(f"  locked={_locked}\n")
-                                if _locked:
-                                    # asyncio.Lock doesn't expose the holder
-                                    # directly, but _waiters reveals queued
-                                    # coroutines. The holder is whoever
-                                    # acquired it — we can't see them from
-                                    # outside, but we can see who's waiting.
-                                    _waiters = getattr(_lock1333, "_waiters", None)
-                                    if _waiters:
-                                        fh.write(f"  waiters={len(_waiters)}\n")
-                                        for _i, _w in enumerate(_waiters[:10]):
-                                            _w_coro = getattr(_w, "__coro", None) or getattr(_w, "cr_code", None)
-                                            fh.write(f"  waiter[{_i}]: {_w_coro}\n")
-                                    else:
-                                        fh.write("  waiters=0 (lock held, no waiters)\n")
-                            else:
-                                fh.write("  lock not initialised\n")
-                        except Exception as _le:
-                            fh.write(f"  (lock probe error: {_le})\n")
-                        fh.write("=== end state_store lock status ===\n")
-                        fh.write("=== end blackout stack dump ===\n")
-                    logger.info("[self_restart] Blackout wedge saved to %s", wedge_path)
-                except Exception:
-                    pass  # Non-fatal — wedge capture is best-effort
+                # Capture a wedge dump (threads + asyncio tasks + lock holder).
+                # R-F1334: extracted to _write_wedge_dump so tests drive the
+                # real path. Best-effort — returns None on failure.
+                _write_wedge_dump(agent_id, stale)
 
                 # Wire to brain
                 try:

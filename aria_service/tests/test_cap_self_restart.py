@@ -248,45 +248,44 @@ async def test_checkpoint_with_error_context(checkpoint_dir):
 
 @pytest.mark.asyncio
 async def test_blackout_wedge_contains_asyncio_task_stacks(checkpoint_dir):
-    """R-F1333: the blackout wedge file should contain asyncio task stacks
-    alongside the faulthandler thread dump."""
-    import glob
-    from aria_service.intel.self_restart import (
-        tick_heartbeat, _heartbeats,
-    )
+    """R-F1333 capability, rewritten by R-F1334 to drive the REAL dump path.
 
-    # Register an agent with a stale heartbeat
-    tick_heartbeat("test_stale_agent")
-    _heartbeats["test_stale_agent"] = 0.0  # force stale (epoch 0 = 1970)
+    The original version started _blackout_detector_loop and set
+    ARIA_BLACKOUT_CHECK_INTERVAL/THRESHOLD env vars — but those are read
+    into module constants at IMPORT time (self_restart.py:70,73), so the
+    detector kept its 30s interval, never fired within the 2s window, and
+    the trailing `if all_wedges:` guard skipped every assertion (vacuous
+    green — confirmed live 2026-06-04: zero wedge files written).
 
-    # Run one iteration of the detector with a very low threshold
-    old_interval = os.environ.get("ARIA_BLACKOUT_CHECK_INTERVAL", "30")
-    old_threshold = os.environ.get("ARIA_BLACKOUT_THRESHOLD", "300")
-    os.environ["ARIA_BLACKOUT_CHECK_INTERVAL"] = "1"
-    os.environ["ARIA_BLACKOUT_THRESHOLD"] = "1"
+    Now: call _write_wedge_dump() directly (the exact function the detector
+    invokes) and assert UNCONDITIONALLY on the produced file.
+    """
+    from aria_service.intel.self_restart import _write_wedge_dump
+
+    # A deliberately stuck coroutine the task dump must name.
+    stuck_evt: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    async def _stuck_sentinel():
+        await stuck_evt  # never resolved — suspended for the dump
+
+    sentinel = asyncio.create_task(_stuck_sentinel(), name="rf1334_stuck_sentinel")
+    await asyncio.sleep(0)  # let it reach the await and suspend
 
     try:
-        from aria_service.intel.self_restart import _blackout_detector_loop
-        task = asyncio.create_task(_blackout_detector_loop())
-        await asyncio.sleep(2)
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
-
-        # Check wedge files
-        wedge_files = glob.glob(os.path.join(checkpoint_dir, "..", "wedge_stacks", "blackout_test_stale_agent_*.log"))
-        wedge_files2 = glob.glob(os.path.join(checkpoint_dir, "blackout_test_stale_agent_*.log"))
-        all_wedges = wedge_files + wedge_files2
-
-        if all_wedges:
-            with open(all_wedges[0], "r", encoding="utf-8") as f:
-                content = f.read()
-            assert "asyncio task stacks" in content
-            assert "state_store lock status" in content
+        wedge_path = _write_wedge_dump("test_stale_agent", 301.0, wedge_dir=checkpoint_dir)
+        assert wedge_path is not None, "dump must be written"
+        assert os.path.isfile(wedge_path)
+        with open(wedge_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Sections present
+        assert "asyncio task stacks" in content
+        assert "state_store lock status" in content
+        # The stuck coroutine is NAMED with its suspension point
+        assert "rf1334_stuck_sentinel" in content
+        assert "_stuck_sentinel" in content
     finally:
-        if old_interval:
-            os.environ["ARIA_BLACKOUT_CHECK_INTERVAL"] = old_interval
-        if old_threshold:
-            os.environ["ARIA_BLACKOUT_THRESHOLD"] = old_threshold
+        sentinel.cancel()
+        try:
+            await sentinel
+        except asyncio.CancelledError:
+            pass

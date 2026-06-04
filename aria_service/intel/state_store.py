@@ -59,6 +59,7 @@ import json
 import logging
 import os
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,94 @@ _conn = None  # aiosqlite.Connection — lazy init
 # acquire it to keep the JSON-blob RMW atomic at the Python layer.
 _lock: asyncio.Lock | None = None
 
+# R-F1334: warn when the RMW lock is held longer than this. A multi-second
+# hold means every compound op (lpush/incr/zadd/hset) in the process queued
+# behind one holder — the precursor to the API-wide hangs diagnosed 2026-06-04
+# (endpoints stuck 170s+ while /health/live stayed at 0.5s).
+_LOCK_HOLD_WARN_S = float(os.getenv("ARIA_STATE_LOCK_HOLD_WARN_S", "5.0"))
+
+
+class _DiagLock(asyncio.Lock):
+    """R-F1334: asyncio.Lock that records its holder for wedge diagnostics.
+
+    asyncio.Lock exposes waiters but NOT the holder — when the 2026-06-04
+    starvation wedge hit, the blackout dump (R-F1333) could only say
+    "locked=True, N waiters" with no way to name the coroutine sitting on
+    the lock. This subclass captures the acquiring task's name + caller
+    stack at acquire time so self_restart._write_wedge_dump() and
+    get_lock_diagnostics() can name the culprit directly.
+
+    The caller stack is captured at acquire ENTRY (before any suspension)
+    because once a contended acquire resumes via the event loop, f_back
+    points at the loop runner, not the real caller.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.holder_task: str | None = None
+        self.holder_stack: list[str] | None = None
+        self.acquired_at: float | None = None
+
+    async def acquire(self) -> bool:
+        # Capture the awaiting call chain while it is still on the C stack.
+        # limit=12 keeps the dump short; [:-1] drops this acquire() frame.
+        frames = traceback.extract_stack(limit=12)[:-1]
+        result = await super().acquire()
+        try:
+            task = asyncio.current_task()
+            self.holder_task = task.get_name() if task is not None else "?"
+        except Exception:
+            self.holder_task = "?"
+        self.holder_stack = [f"{f.filename}:{f.lineno} {f.name}" for f in frames]
+        self.acquired_at = time.monotonic()
+        return result
+
+    def release(self) -> None:
+        held_for = (
+            time.monotonic() - self.acquired_at
+            if self.acquired_at is not None
+            else None
+        )
+        if held_for is not None and held_for > _LOCK_HOLD_WARN_S:
+            logger.warning(
+                "[R-F1334] state_store lock held %.1fs (warn>%.1fs) by task=%s; "
+                "acquire stack: %s",
+                held_for,
+                _LOCK_HOLD_WARN_S,
+                self.holder_task,
+                " <- ".join(reversed(self.holder_stack or []))[:2000],
+            )
+        self.holder_task = None
+        self.holder_stack = None
+        self.acquired_at = None
+        super().release()
+
+
+def get_lock_diagnostics() -> dict:
+    """R-F1334: snapshot of the RMW lock for wedge dumps / health probes.
+
+    Safe to call from any thread — reads plain attributes only, never
+    touches the event loop. Returns holder identity when the lock is a
+    _DiagLock and currently held.
+    """
+    if _lock is None:
+        return {"initialised": False, "locked": False}
+    out: dict[str, Any] = {"initialised": True, "locked": _lock.locked()}
+    try:
+        waiters = getattr(_lock, "_waiters", None)
+        out["waiters"] = len(waiters) if waiters else 0
+    except Exception:
+        out["waiters"] = None
+    if isinstance(_lock, _DiagLock) and _lock.locked():
+        out["holder_task"] = _lock.holder_task
+        out["holder_stack"] = list(_lock.holder_stack or [])
+        out["held_for_s"] = (
+            round(time.monotonic() - _lock.acquired_at, 3)
+            if _lock.acquired_at is not None
+            else None
+        )
+    return out
+
 
 def _get_lock() -> asyncio.Lock:
     """Return the module-global lock, creating it inside the running loop
@@ -86,7 +175,7 @@ def _get_lock() -> asyncio.Lock:
     _reset_lock() to bind it to the new loop."""
     global _lock
     if _lock is None:
-        _lock = asyncio.Lock()
+        _lock = _DiagLock()  # R-F1334: holder-tracked (was plain asyncio.Lock)
     return _lock
 
 
