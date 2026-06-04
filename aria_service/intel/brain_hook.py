@@ -28,6 +28,17 @@ logger = logging.getLogger("aria.brain_hook")
 import os
 BRAIN_HOOK_ENABLED = os.environ.get("ARIA_BRAIN_HOOK_ENABLED", "1") == "1"
 
+# R-F1316: wire brain_hook's own health to the brain
+try:
+    from .engine_wiring import wire_success as _ws1316
+    _ws1316(
+        module="brain_hook",
+        summary="Brain Hook active — central learning relay",
+        source_id="brain_hook:R-F1316",
+    )
+except Exception:
+    pass
+
 # Topic mapping: module name → student mastery topics it touches
 _MODULE_TOPICS: dict[str, list[str]] = {
     "dd_orchestrator":      ["compliance", "osint", "finance", "relationships"],
@@ -549,6 +560,11 @@ async def absorb(
 ) -> dict:
     """Feed one intel module's output into all learning tiers.
 
+    R-F1316: self-observes absorb() calls so brain_hook's own health
+    is visible to the brain. On failure, records a self_runtime gap
+    via observe_self_event so the coder can see it.
+    """
+
     Args:
         module:       Module name (must be a key in _MODULE_TOPICS).
         summary:      1-3 sentence summary of what was produced.
@@ -812,6 +828,22 @@ async def absorb(
     result["user_id"] = user_id or ""
     result["sector"] = _sector_normalised
     result["latency_ms"] = 0.0  # actual latency tracked in background task
+
+    # R-F1316: self-observe successful absorb so brain_hook's own health
+    # is visible. Only record every 100th call to avoid infinite recursion
+    # (absorb -> observe_self_event -> absorb -> ...).
+    _absorb_call_count = getattr(absorb, "_call_count", 0) + 1
+    absorb._call_count = _absorb_call_count
+    if _absorb_call_count % 100 == 0:
+        try:
+            await observe_self_event(
+                event="brain_hook_absorb_ok",
+                detail=f"brain_hook absorb OK after {_absorb_call_count} calls",
+                success=True,
+                gap_type=None,
+            )
+        except Exception:
+            pass  # never let self-observation break absorb
 
     return result
 
