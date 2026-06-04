@@ -221,13 +221,18 @@ class TestScanFile:
         assert result.safe is False
         assert "EICAR" in result.reason
 
-    async def test_wires_threats_to_brain(self, tmp_path: Path):
-        """Threats are wired to the brain via wire_failure."""
-        file_path = tmp_path / "eicar.txt"
-        file_path.write_bytes(EICAR_STRING)
+    async def test_wires_threats_to_brain(self):
+        """Threats are wired to the brain via wire_failure.
 
+        R-F1328: scan IN-MEMORY via scan_bytes instead of writing eicar.txt to
+        disk. scan_bytes shares the same wire_failure path as scan_file
+        (content_scanner.py:436 — identical module/gap_type), so the brain-wiring
+        is fully covered, but the literal EICAR signature is NEVER materialised on
+        disk. An on-access AV (Kaspersky on the dev machine) was quarantining
+        eicar.txt as EICAR-Test-File on every test run. Extends R-F1303 to tests.
+        """
         with patch("aria_service.intel.engine_wiring.wire_failure") as mock_wf:
-            result = await scan_file(file_path)
+            result = await scan_bytes(EICAR_STRING, claimed_type="txt")
 
         assert result.safe is False
         mock_wf.assert_called_once()
