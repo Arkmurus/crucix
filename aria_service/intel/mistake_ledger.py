@@ -54,6 +54,17 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.mistake_ledger")
 
+# R-F1318: wire mistake_ledger's own health to the brain
+try:
+    from .engine_wiring import wire_success as _ws1318
+    _ws1318(
+        module="mistake_ledger",
+        summary="Mistake Ledger active — error tracking and prevention",
+        source_id="mistake_ledger:R-F1318",
+    )
+except Exception:
+    pass
+
 CATEGORIES = {
     "correction", "eval_miss", "user_override", "escalation_miss",
     "false_confidence", "silent_failure", "hallucination",
@@ -165,6 +176,17 @@ async def record(
     except Exception as e:
         logger.warning("mistake_ledger: persist failed (%s): %s", mid, e)
         body["_persisted"] = False
+        # R-F1318: wire persist failure to brain so the coder can see it
+        try:
+            from . import brain_hook as _bh1318
+            await _bh1318.observe_self_event(
+                event="mistake_ledger_persist_failed",
+                detail=f"mistake_ledger.record persist failed for {mid}: {e}",
+                success=False,
+                gap_type="self_runtime",
+            )
+        except Exception:
+            pass
 
     logger.warning(
         "[mistake] %s | %s/%s | class=%s | sev=%s | %s",

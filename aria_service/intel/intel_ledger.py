@@ -40,6 +40,17 @@ from . import redis_store as rs
 
 logger = logging.getLogger("aria.intel.ledger")
 
+# R-F1318: wire intel_ledger's own health to the brain
+try:
+    from .engine_wiring import wire_success as _ws1318b
+    _ws1318b(
+        module="intel_ledger",
+        summary="Intel Ledger active — permanent signal store",
+        source_id="intel_ledger:R-F1318",
+    )
+except Exception:
+    pass
+
 KEY = "crucix:intel_ledger"
 # R-F239 (2026-05-11) — MAX_SIGNALS is a WARN THRESHOLD, not a hard cap.
 # Per the infinite-memory rule (memory/aria_infinite_memory.md), signals
