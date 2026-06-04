@@ -116,8 +116,8 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     {"path": "/api/aria/status", "method": "GET", "expected": {"status"}, "critical": False},
 
     # Intelligence outputs
-    {"path": "/api/aria/briefing", "method": "GET", "expected": {"sections", "timestamp"}, "critical": False},
-    {"path": "/api/aria/report", "method": "GET", "expected": {"sections", "sources"}, "critical": False},
+    {"path": "/self/assess/briefing", "method": "GET", "expected": {"briefing"}, "critical": False},
+    {"path": "/api/aria/report", "method": "POST", "expected": {"sections", "sources"}, "critical": False},
 
     # Due diligence
     {"path": "/api/aria/dd/watchlist/alerts/unread-count", "method": "GET",
@@ -128,11 +128,11 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     {"path": "/api/aria/self/improvements", "method": "GET", "expected": {}, "critical": False},
 
     # Cost & autonomy
-    {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"total"}, "critical": False},
-    {"path": "/api/aria/autonomous/status", "method": "GET", "expected": {"enabled"}, "critical": False},
+    {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"total", "monthly_cap"}, "critical": False},
+    {"path": "/api/aria/autonomous/status", "method": "GET", "expected": {"ok", "engine"}, "critical": False},
 
     # Adversarial
-    {"path": "/api/aria/adversarial/status", "method": "GET", "expected": {}, "critical": False},
+    {"path": "/api/aria/adversarial/stats", "method": "GET", "expected": {}, "critical": False},
 ]
 
 
