@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1330,
+  "next_available": 1333,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7772,9 +7772,39 @@
       "title": "WhatsApp Markdown formatter",
       "claimed_at": "2026-06-04T15:25:50Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1923ba9a",
+      "notes": null,
+      "shipped_at": "2026-06-04T15:43:54Z"
+    },
+    {
+      "r_number": "R-F1330",
+      "title": "deploy.ps1/deploy.sh verify non-intel apps via /health (200) not / (404) — aria-wa/web deploys succeed but verify false-negatives, causing retry churn + phantom 'deploy failed'",
+      "claimed_at": "2026-06-04T15:44:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "67219325",
+      "notes": null,
+      "shipped_at": "2026-06-04T16:02:39Z"
+    },
+    {
+      "r_number": "R-F1331",
+      "title": "fix 4 remaining failing R-cluster tests (rf450 docx-routing, rf460 absorb-pause, rf463 backup-pattern-keys, rf468 mistake-ledger-ttl) — Aria mis-claimed these fixed under R-F1326",
+      "claimed_at": "2026-06-04T15:53:20Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1332",
+      "title": "Fix memory leak, heartbeat blackouts, thread pool saturation, and brain_hook timeouts",
+      "claimed_at": "2026-06-04T18:49:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f3179f82",
+      "notes": null,
+      "shipped_at": "2026-06-04T18:56:37Z"
     }
   ]
 }
