@@ -122,7 +122,7 @@ def test_endpoint_returns_banner_and_raised_cap(monkeypatch):
     from fastapi.testclient import TestClient
     from aria_service.intel import document_reader
 
-    big = "X" * 150000
+    big = "X" * 250000  # R-F1311: bumped from 150K to exceed new 200K cap
     res = document_reader.ExtractionResult(
         text=big, method="PyMuPDF", confidence=0.92,
         pages_extracted=44, total_pages=44,
@@ -141,7 +141,7 @@ def test_endpoint_returns_banner_and_raised_cap(monkeypatch):
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["truncated"] is True
-    assert data["total_chars"] == 150000
+    assert data["total_chars"] == 250000  # R-F1311: bumped from 150K to exceed new 200K cap
     assert data["text"].startswith("[!PARTIAL EXTRACTION")
     assert data["returned_chars"] > 10000  # legacy cap is gone
     assert "44/44 pages" in data["text"]

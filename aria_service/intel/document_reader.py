@@ -498,8 +498,8 @@ async def _strategy_vision_pdf(
                 result = await llm.complete(
                     "You are ARIA's document extraction system. Extract all text exactly as it appears.",
                     prompt,
-                    max_tokens=4096,
-                    timeout=60.0,
+                    max_tokens=6000,  # R-F1311: bumped from 4096 — complex multi-page docs need more output budget
+                    timeout=90.0,     # R-F1311: bumped from 60s to match longer extraction
                 )
             extracted = (getattr(result, "text", "") or "").strip()
         except Exception as e:
@@ -551,7 +551,7 @@ async def _strategy_vision_image(
         with cost_tracker.feature("document_reader"):
             result = await llm.complete(
                 "You are ARIA's OCR system. Extract all text exactly as it appears.",
-                prompt, max_tokens=2000, timeout=30.0,
+                prompt, max_tokens=4096, timeout=60.0,  # R-F1311: bumped from 2000/30s — complex images need more budget
             )
         text = (getattr(result, "text", "") or "").strip()
         return ExtractionResult(
@@ -782,8 +782,8 @@ async def _vision_single_chunk(
             result = await llm.complete(
                 "You are ARIA's document extraction system. Extract all text exactly as it appears.",
                 prompt,
-                max_tokens=4096,
-                timeout=90.0,
+                max_tokens=6000,  # R-F1311: bumped from 4096
+                timeout=120.0,   # R-F1311: bumped from 90s
             )
 
         extracted = (getattr(result, "text", "") or "").strip()

@@ -268,6 +268,86 @@ function _recentDocsForFollowup(chatId, question) {
   return matched.length ? matched : [list[list.length - 1]];
 }
 
+// ── Handle OCR result — shared by sync + async image paths ────────────────────
+// R-F1311: extracted from the inline image-processing block so both the sync
+// fallback and the async job+poll path use the same analysis pipeline.
+async function _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId) {
+  const method = ocrResult.method || 'vision';
+  const charCount = extracted.length;
+  const autoInst = ocrResult?.auto_installing;
+  console.log(`[ARIA Listener] OCR ${method}: ${charCount} chars${autoInst ? ' (background install triggered)' : ''}`);
+
+  // Feed extraction to the knowledge pipeline so ARIA learns
+  let factsLearned = 0;
+  try {
+    const dr = await brainPost('/api/aria/read-document', {
+      content: extracted.slice(0, MAX_DOC_CHARS),
+      filename,
+      source: `whatsapp_group:${groupName}:${senderName}`,
+      context: caption || `Image OCR from ${groupName}`,
+      encoding: 'utf-8',
+      mimetype: 'text/plain',
+    }).catch(() => null);
+    factsLearned = dr?.facts_learned || 0;
+  } catch (e) {
+    console.warn('[ARIA Listener] Image-to-knowledge ingest failed:', e.message);
+  }
+
+  // Build the reply — friendly method label
+  const preview = extracted.slice(0, 700).replace(/\n{3,}/g, '\n\n');
+  const more = extracted.length > 700 ? `\n\n_…+${extracted.length - 700} more chars_` : '';
+  const factsLine = factsLearned > 0 ? `\n\n📚 Learned ${factsLearned} new fact(s) — ask me about them.` : '';
+  const methodLabel = {
+    easyocr:        '🟢 local (EasyOCR)',
+    tesseract:      '🟢 local (Tesseract)',
+    ocrspace_free:  '🟡 free public OCR — installing local backend now…',
+  }[method] || (method.startsWith('ollama:') ? `🟢 local (${method})`
+              : method.startsWith('vision:') ? `☁️ ${method}`
+              : method);
+  const installNote = autoInst
+    ? `\n\n_⚙️ Auto-installing local image-reading library in the background — your next image will be ~10x faster and fully offline._`
+    : '';
+
+  // Send the OCR extraction first so the user sees what ARIA read
+  await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${factsLine}${installNote}`).catch(() => {});
+
+  // ALWAYS analyse + explain + research after extraction
+  const captionTrimmed = (caption || '').trim();
+  const userInstruction = captionTrimmed.length >= 3
+    ? `The user attached this caption / instruction: "${captionTrimmed}"`
+    : `The user shared the image with no caption — they expect a senior analyst's read.`;
+
+  const analysisPrompt = [
+    `An image was just shared in the WhatsApp group "${groupName}" by ${senderName}. I have extracted its text via OCR. ${userInstruction}`,
+    ``,
+    `Your task — produce a concise intelligence brief on what this image contains:`,
+    ``,
+    `1. *Document type* — what is this? (invoice / contract / tender notice / business card / screenshot / news article / chart / other)`,
+    `2. *Key entities* — companies, people (with roles), countries, military units, products, contract IDs, dates, monetary values`,
+    `3. *Compliance flags* — any sanctions, export control, ML category, or embargo concerns`,
+    `4. *Arkmurus relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
+    `5. *Recommended next action* — what should the team do with this information? (investigate further, screen entity, contact source, file in pipeline, ignore)`,
+    captionTrimmed ? `6. *Direct answer to the user's caption* — answer "${captionTrimmed.slice(0, 200)}" specifically.` : ``,
+    ``,
+    `[OCR extracted text — ${charCount} chars via ${method}]:`,
+    `${extracted.slice(0, 4500)}`,
+    ``,
+    `Be specific. Cite numbers and names from the extracted text. Mark every claim with confidence: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN].`,
+  ].filter(Boolean).join('\n');
+
+  await sendReply(chatId, `🔎 _Analysing the image content${captionTrimmed ? ` and answering: "${captionTrimmed.slice(0, 100)}"` : ''}…_`).catch(() => {});
+
+  try {
+    const analysis = await askARIA(analysisPrompt, senderJid);
+    if (analysis) {
+      await sendReply(chatId, `🧠 *Analysis:*\n\n${analysis}`).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('[ARIA Listener] Image-analysis chat failed:', e.message);
+    await sendReply(chatId, `⚠️ I extracted the image but my reasoning step failed: ${e.message}`).catch(() => {});
+  }
+}
+
 // ── Feed message to ARIA brain ─────────────────────────────────────────────────
 // R-F1151 — emit wa_feed_failed signal when the brain is unreachable, so ARIA
 // learns that her WA feed is broken (was dark: the error was silently swallowed).
@@ -1104,16 +1184,22 @@ async function startListener() {
       // R-F957 — voice notes (PTT) + audio messages.
       const audioMsg = msg.message?.audioMessage;
 
-      // ── IMAGE PATH: download → /api/aria/ocr → reply with extraction ──
+      // ── IMAGE PATH: download → /api/aria/ocr (async job+ack+poll) → reply ──
+      // R-F1311: the previous path used a SYNCHRONOUS brainPost to /api/aria/ocr,
+      // which blocked on a single HTTP call with the WA listener's 90s brainPost
+      // timeout. Complex images (multi-page scans, dense tables) routinely exceeded
+      // that — the 2026-06-03 incident: operator sent a parts-list image for a real
+      // OEM-sourcing job; OCR started, then 'operation aborted due to timeout' from
+      // the listener→intel call. Now uses the same async job+ack+poll pattern as
+      // readDocumentAsync (R-F873): submit → get job_id → send "reading" ack →
+      // poll until done. The brain job has NO server-side cap, so slow OCR never
+      // times out the WA listener.
       if (imgMsg) {
         const caption = imgMsg.caption || '';
         console.log(`[ARIA Listener] Image shared in ${groupName} by ${senderName}${caption ? ` "${caption.slice(0,60)}"` : ' (no caption)'}`);
 
-        // Immediate ack so the group sees ARIA working
-        await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
-
         try {
-          const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });  // R-F867 — standalone fn, not a socket method
+          const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
           const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
             const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
           })());
@@ -1121,7 +1207,6 @@ async function startListener() {
           if (!buffer || buffer.length === 0) {
             await sendReply(chatId, `⚠️ The image appears to be empty.`).catch(() => {});
           } else {
-            // Cap at 8MB and slice BYTES before base64
             const MAX_BYTES = 8 * 1024 * 1024;
             const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
             const b64 = buf.toString('base64');
@@ -1133,151 +1218,108 @@ async function startListener() {
 
             console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
 
-            let ocrResult = null;
-            let ocrConnectError = null;
+            // ── Async OCR: submit job → get job_id → ack → poll ──────────
+            let ocrJob;
             try {
-              ocrResult = await brainPost('/api/aria/ocr', {
+              ocrJob = await brainPost('/api/aria/ocr', {
                 image: b64,
                 filename,
                 context: contextLabel,
+                async: true,  // R-F1311: async mode — returns job_id immediately
               });
             } catch (e) {
-              console.warn('[ARIA Listener] OCR call failed:', e.message);
-              ocrConnectError = e.message;
-            }
-
-            // If the OCR endpoint itself failed (502/504/network), tell the
-            // user it's an infrastructure issue not an OCR pipeline failure.
-            if (ocrConnectError) {
-              await sendReply(chatId, [
-                `🛑 *I couldn't reach my OCR service.*`,
-                ``,
-                `The image is fine, but my Python intelligence service didn't respond:`,
-                `\`${ocrConnectError}\``,
-                ``,
-                `*Check:*`,
-                `• ARIA Python service is running (\`flyctl status -a <app>\`)`,
-                `• \`BRAIN_SERVICE_URL\` env var points to the live service`,
-                `• Network/firewall allows wa-listener → ARIA traffic`,
-                `• \`flyctl logs -a <aria-service>\` for crashes`,
-                ``,
-                `Once the service is back, send the image again — the OCR pipeline itself is working.`,
-              ].join('\n')).catch(() => {});
+              console.warn('[ARIA Listener] OCR dispatch failed:', e.message);
+              // R-F1311: clean customer-facing error — no internal diagnostics leaked
+              await sendReply(chatId, `⚠️ I hit a snag processing that image — my OCR service didn't respond in time. Please try again in a moment, and I'll retry automatically.`).catch(() => {});
+              // Report the failure to the brain so it becomes coder-visible
+              brainPost('/api/aria/brain/signal', {
+                content: `WA image OCR dispatch failed: ${e.message}`,
+                source: `whatsapp_group:${groupName}`,
+                signal_type: 'wa_ocr_failed',
+                metadata: { filename, error: String(e.message || '').slice(0, 200), channel: 'whatsapp_listener' },
+              }).catch(() => {});
               continue;
             }
 
-            const extracted = (ocrResult?.text || '').trim();
-            const autoInst = ocrResult?.auto_installing;
-
-            if (!extracted) {
-              // OCR pipeline returned nothing usable. Surface the FULL trace
-              // so we can see which backends were tried + why they failed —
-              // no need to access fly.io / seenode logs to debug.
-              const triedList = ocrResult?.tried || [];
-              const note = ocrResult?.note || '';
-              const lastMethod = ocrResult?.method || 'none';
-              const errorDetail = ocrResult?.error || '';
-              const triedLine = triedList.length
-                ? `\n_Backends tried (in order):_ ${triedList.join(' → ')}`
-                : '';
-              const lastLine = lastMethod && lastMethod !== 'none'
-                ? `\n_Last method that returned anything:_ \`${lastMethod}\``
-                : '';
-              const errorLine = errorDetail ? `\n_Error:_ ${errorDetail}` : '';
-              await sendReply(chatId, [
-                `🖼 *I tried to read the image but the OCR pipeline returned no text.*`,
-                ``,
-                `The image looks fine to me visually, so this is most likely an infrastructure issue. Diagnostic trace:`,
-                triedLine,
-                lastLine,
-                errorLine,
-                note ? `\n_Note:_ ${note}` : '',
-                autoInst ? `\n_Background install of local OCR is running — try again in 60s._` : ``,
-                ``,
-                `_Run */vision-status* for full backend diagnostics._`,
-              ].filter(Boolean).join('\n')).catch(() => {});
-            } else {
-              const method = ocrResult.method || 'vision';
-              const charCount = extracted.length;
-              console.log(`[ARIA Listener] OCR ${method}: ${charCount} chars${autoInst ? ' (background install triggered)' : ''}`);
-
-              // Feed extraction to the knowledge pipeline so ARIA learns
-              let factsLearned = 0;
-              try {
-                const dr = await brainPost('/api/aria/read-document', {
-                  content: extracted.slice(0, MAX_DOC_CHARS),
-                  filename,
-                  source: `whatsapp_group:${groupName}:${senderName}`,
-                  context: caption || `Image OCR from ${groupName}`,
-                  encoding: 'utf-8',
-                  mimetype: 'text/plain',
-                }).catch(() => null);
-                factsLearned = dr?.facts_learned || 0;
-              } catch (e) {
-                console.warn('[ARIA Listener] Image-to-knowledge ingest failed:', e.message);
+            const jobId = ocrJob && ocrJob.job_id;
+            if (!jobId) {
+              // Older brain build without async OCR support — use sync result
+              const extracted = ((ocrJob && ocrJob.text) || '').trim();
+              if (!extracted) {
+                await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
+                continue;
               }
+              await _handleOcrResult(extracted, ocrJob, filename, caption, groupName, senderName, senderJid, chatId);
+              continue;
+            }
 
-              // Build the reply — friendly method label
-              const preview = extracted.slice(0, 700).replace(/\n{3,}/g, '\n\n');
-              const more = extracted.length > 700 ? `\n\n_…+${extracted.length - 700} more chars_` : '';
-              const factsLine = factsLearned > 0 ? `\n\n📚 Learned ${factsLearned} new fact(s) — ask me about them.` : '';
-              const methodLabel = {
-                easyocr:        '🟢 local (EasyOCR)',
-                tesseract:      '🟢 local (Tesseract)',
-                ocrspace_free:  '🟡 free public OCR — installing local backend now…',
-              }[method] || (method.startsWith('ollama:') ? `🟢 local (${method})`
-                          : method.startsWith('vision:') ? `☁️ ${method}`
-                          : method);
-              const installNote = autoInst
-                ? `\n\n_⚙️ Auto-installing local image-reading library in the background — your next image will be ~10x faster and fully offline._`
-                : '';
+            // Immediate ack — user knows ARIA is working on it
+            await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
 
-              // ── Send the OCR extraction first so the user sees what ARIA read ─
-              await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${factsLine}${installNote}`).catch(() => {});
-
-              // ── ALWAYS analyse + explain + research after extraction ──────
-              // The "extract → explain → research" pattern. ARIA doesn't just
-              // dump OCR text — she identifies the document, pulls entities,
-              // screens for compliance, and answers any caption question.
-              const captionTrimmed = (caption || '').trim();
-              const userInstruction = captionTrimmed.length >= 3
-                ? `The user attached this caption / instruction: "${captionTrimmed}"`
-                : `The user shared the image with no caption — they expect a senior analyst's read.`;
-
-              const analysisPrompt = [
-                `An image was just shared in the WhatsApp group "${groupName}" by ${senderName}. I have extracted its text via OCR. ${userInstruction}`,
-                ``,
-                `Your task — produce a concise intelligence brief on what this image contains:`,
-                ``,
-                `1. *Document type* — what is this? (invoice / contract / tender notice / business card / screenshot / news article / chart / other)`,
-                `2. *Key entities* — companies, people (with roles), countries, military units, products, contract IDs, dates, monetary values`,
-                `3. *Compliance flags* — any sanctions, export control, ML category, or embargo concerns`,
-                `4. *Arkmurus relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
-                `5. *Recommended next action* — what should the team do with this information? (investigate further, screen entity, contact source, file in pipeline, ignore)`,
-                captionTrimmed ? `6. *Direct answer to the user's caption* — answer "${captionTrimmed.slice(0, 200)}" specifically.` : ``,
-                ``,
-                `[OCR extracted text — ${charCount} chars via ${method}]:`,
-                `${extracted.slice(0, 4500)}`,
-                ``,
-                `Be specific. Cite numbers and names from the extracted text. Mark every claim with confidence: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN].`,
-              ].filter(Boolean).join('\n');
-
-              await sendReply(chatId, `🔎 _Analysing the image content${captionTrimmed ? ` and answering: "${captionTrimmed.slice(0, 100)}"` : ''}…_`).catch(() => {});
-
-              try {
-                const analysis = await askARIA(analysisPrompt, senderJid);
-                if (analysis) {
-                  await sendReply(chatId, `🧠 *Analysis:*\n\n${analysis}`).catch(() => {});
+            // Poll for result (mirrors readDocumentAsync pattern)
+            const POLL_MS = 3000, MAX_POLLS = 200;  // up to 10 min
+            let ocrResult = null;
+            let lastHealthCheck = 0;
+            for (let i = 0; i < MAX_POLLS; i++) {
+              await new Promise(r => setTimeout(r, POLL_MS));
+              // Brain-health check every 30s
+              if (Date.now() - lastHealthCheck > 30000) {
+                lastHealthCheck = Date.now();
+                try {
+                  const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+                  if (!hc.ok) throw new Error(`health returned ${hc.status}`);
+                } catch {
+                  console.warn('[ARIA Listener] Brain appears down — aborting OCR poll early');
+                  await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
+                  ocrResult = null; break;
                 }
-              } catch (e) {
-                console.warn('[ARIA Listener] Image-analysis chat failed:', e.message);
-                await sendReply(chatId, `⚠️ I extracted the image but my reasoning step failed: ${e.message}`).catch(() => {});
               }
+              let st;
+              try { st = await brainGet(`/api/aria/ocr/result/${jobId}`); }
+              catch { continue; }
+              if (!st) continue;
+              if (st.status === 'done') {
+                ocrResult = st.result || null;
+                break;
+              }
+              if (st.status === 'failed') {
+                console.warn('[ARIA Listener] OCR job failed:', st.error);
+                await sendReply(chatId, `⚠️ I couldn't read that image — the OCR engine returned an error. Please try again or send the text directly.`).catch(() => {});
+                ocrResult = null; break;
+              }
+              if (st.status === 'not_found') {
+                ocrResult = null; break;
+              }
+              // status === 'processing' → keep polling
+            }
+
+            if (!ocrResult) {
+              if (!ocrResult) {  // timed out
+                await sendReply(chatId, `⚠️ Reading that image is taking longer than expected. I'll keep working on it — please ask again in a minute.`).catch(() => {});
+              }
+              continue;
+            }
+
+            const extracted = (ocrResult.text || '').trim();
+            if (!extracted) {
+              await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
+              continue;
+            }
+
+            await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId);
             }
           }
         } catch (e) {
           console.warn('[ARIA Listener] Image processing failed:', e.message);
-          await sendReply(chatId, `⚠️ Image processing error: ${e.message}`).catch(() => {});
+          // R-F1311: clean customer-facing error — no internal diagnostics leaked
+          await sendReply(chatId, `⚠️ I hit a snag processing that image. Please try again in a moment.`).catch(() => {});
+          // Report to brain so it becomes coder-visible
+          brainPost('/api/aria/brain/signal', {
+            content: `WA image processing failed: ${e.message}`,
+            source: `whatsapp_group:${groupName}`,
+            signal_type: 'wa_image_processing_failed',
+            metadata: { filename: `wa_${Date.now()}.jpg`, error: String(e.message || '').slice(0, 200) },
+          }).catch(() => {});
         }
       }
 

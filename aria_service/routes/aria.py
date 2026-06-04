@@ -65,25 +65,29 @@ def _stamp_partial_extraction(extracted: str, dropped_summary: str) -> str:
 # verbatim), so this endpoint is the sole binding truncation point. When the
 # extract still exceeds the cap we stamp _stamp_partial_extraction so the chat
 # LLM, the contract self-review pass, and the user all know the tail is gone.
-_EXTRACT_DOC_MAX_CHARS = 60000
+_EXTRACT_DOC_MAX_CHARS = 200000  # R-F1311: bumped from 60K — a 30-page contract is ~150K chars
 
 
-def _capped_doc_text(result) -> dict:
+def _capped_doc_text(result, max_chars: int = 0) -> dict:
     """Build the `text` field + truncation metadata for an extract-document
     response. Caps at _EXTRACT_DOC_MAX_CHARS and, when it truncates, prepends
     the [!PARTIAL EXTRACTION] banner so no downstream consumer mistakes a
     truncated extract for the whole document. Shared by both extract-document
-    endpoints to keep them in sync. R-F849."""
+    endpoints to keep them in sync. R-F849.
+
+    Pass `max_chars` > 0 to override the default cap (R-F1311).
+    """
+    cap = max_chars if max_chars > 0 else _EXTRACT_DOC_MAX_CHARS
     full = result.text or ""
     total = len(full)
-    if total > _EXTRACT_DOC_MAX_CHARS:
-        kept = full[:_EXTRACT_DOC_MAX_CHARS]
+    if total > cap:
+        kept = full[:cap]
         pages = (
             f", {result.pages_extracted}/{result.total_pages} pages"
             if getattr(result, "total_pages", 0) else ""
         )
         dropped = (
-            f"{result.method}: returned first {_EXTRACT_DOC_MAX_CHARS:,} of "
+            f"{result.method}: returned first {cap:,} of "
             f"{total:,} extracted chars{pages}"
         )
         text = _stamp_partial_extraction(kept, dropped)
@@ -13047,6 +13051,24 @@ async def vision_status_ep(request: Request):
 
 
 # 46. POST /api/aria/ocr — Extract text from image
+# R-F1311: supports async mode (async=true) for the WA listener image path.
+# In async mode, enqueues a background OCR job and returns a job_id immediately.
+# The caller polls /api/aria/ocr/result/{job_id} until status='done'.
+# Sync mode (default) returns the result inline as before.
+
+# In-memory OCR job store (mirrors _readdoc_jobs for read-document).
+_ocr_jobs: dict[str, dict] = {}
+_ocr_jobs_lock = asyncio.Lock()
+
+async def _ocr_job_set(job_id: str, data: dict) -> None:
+    async with _ocr_jobs_lock:
+        _ocr_jobs[job_id] = data
+
+async def _ocr_job_get(job_id: str) -> Optional[dict]:
+    async with _ocr_jobs_lock:
+        return _ocr_jobs.get(job_id)
+
+
 @router.post("/ocr")
 async def ocr_ep(request: Request):
     body = await request.json()
@@ -13064,6 +13086,29 @@ async def ocr_ep(request: Request):
     _log.info("OCR request: filename=%s size=%d bytes context=%s",
               filename, len(image_data), context[:120])
 
+    # R-F1311: async mode — enqueue background job, return job_id immediately
+    if body.get("async"):
+        import uuid as _uuid_ocr
+        _job_id = _uuid_ocr.uuid4().hex[:12]
+        await _ocr_job_set(_job_id, {"status": "processing", "filename": filename})
+
+        async def _ocr_async_run():
+            try:
+                llm = get_llm(request)
+                _res = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
+                await _ocr_job_set(_job_id, {"status": "done", "result": _res, "filename": filename})
+            except Exception as _e:
+                _log.warning("R-F1311 async OCR job %s failed: %s", _job_id, _e)
+                await _ocr_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": filename})
+
+        asyncio.create_task(_ocr_async_run(), name=f"ocrjob.{_job_id}")
+        return {
+            "async": True, "job_id": _job_id, "status": "processing",
+            "poll_url": f"/api/aria/ocr/result/{_job_id}",
+            "message": "OCR started — poll the result URL.",
+        }
+
+    # Sync mode (default)
     llm = get_llm(request)
     result = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
 
@@ -13077,6 +13122,20 @@ async def ocr_ep(request: Request):
                      filename, len(image_data), result.get("method"),
                      result.get("tried"), result.get("note"))
     return result
+
+
+@router.get("/ocr/result/{job_id}")
+async def ocr_result_ep(job_id: str):
+    """GET /api/aria/ocr/result/{job_id} — poll OCR job status.
+    R-F1311: mirrors /read-document/result/{job_id} for the async OCR path."""
+    job = await _ocr_job_get(job_id)
+    if not job:
+        return {"status": "not_found", "job_id": job_id}
+    if job["status"] == "done":
+        return {"status": "done", "result": job.get("result"), "job_id": job_id}
+    if job["status"] == "failed":
+        return {"status": "failed", "error": job.get("error", "unknown"), "job_id": job_id}
+    return {"status": "processing", "job_id": job_id}
 
 
 # ── Report Generation ───────────────────────────────────────────────────────
@@ -15244,13 +15303,17 @@ async def extract_document_ep(
     file: UploadFile = File(...),
     context: str = Form(""),
     language_hint: str = Form(""),
+    max_chars: int = Form(0),  # R-F1311: caller can request a higher cap; 0 = use default
     llm=Depends(get_llm),
 ):
     """POST /api/aria/extract-document — multipart upload variant for the
     aria.html composer (📎 Attach). Saves to a temp file preserving the
     extension so document_reader's ext-based strategy dispatch
     (pdf/docx/txt/image) keeps working, runs the 4-strategy pipeline,
-    then cleans up. R-F709 (2026-05-19)."""
+    then cleans up. R-F709 (2026-05-19).
+
+    Optional `max_chars` overrides the default 200K char cap (R-F1311).
+    """
     import os as _os_local
     import tempfile
 
@@ -15282,7 +15345,7 @@ async def extract_document_ep(
             language_hint=language_hint,
         )
         return {
-            **_capped_doc_text(result),
+            **_capped_doc_text(result, max_chars=max_chars),
             "method": result.method,
             "confidence": result.confidence,
             "is_usable": result.is_usable,

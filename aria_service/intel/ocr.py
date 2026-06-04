@@ -692,7 +692,7 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
         if provider_name == "anthropic" and api_key:
             payload = {
                 "model": model or "claude-sonnet-4-6",
-                "max_tokens": 3000,
+                "max_tokens": 4096,  # R-F1311: bumped from 3000 — complex images (tables, org charts) need more output budget
                 "system": _OCR_SYSTEM,
                 "messages": [{
                     "role": "user",
@@ -736,7 +736,7 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
             if base_url:
                 payload = {
                     "model": model or "gpt-4o",
-                    "max_tokens": 3000,
+                    "max_tokens": 4096,  # R-F1311: bumped from 3000
                     "messages": [
                         {"role": "system", "content": _OCR_SYSTEM},
                         {"role": "user", "content": [

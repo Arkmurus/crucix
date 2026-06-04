@@ -522,7 +522,7 @@ def _build_extract_prompt(text: str, form_code: str) -> str:
         f"DOCUMENT TEXT (OCR — may contain artefacts, dual-language Chinese/English, "
         f"or table fragments — extract from the English columns when bilingual):\n"
         f"---BEGIN DOCUMENT---\n"
-        f"{text[:60000]}\n"
+        f"{text[:200000]}\n"  # R-F1311: bumped from 60K — contracts routinely exceed 60K
         f"---END DOCUMENT---\n\n"
         f"Return ONLY the JSON object."
     )

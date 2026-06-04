@@ -289,7 +289,7 @@ async def finalize_reviewed_contract(
             f"USER QUESTION:\n{(user_question or '').strip()[:1500]}\n\n"
             f"YOUR DRAFT REVIEW:\n{(draft_review or '').strip()[:6000]}\n\n"
             f"AUDIT FINDINGS (apply every correction):\n{(findings or '').strip()[:6000]}\n\n"
-            f"FULL DOCUMENT (quote verbatim from this — review EVERY clause to the end):\n{(document_excerpt or '').strip()[:120000]}"
+            f"FULL DOCUMENT (quote verbatim from this — review EVERY clause to the end):\n{(document_excerpt or '').strip()[:200000]}"  # R-F1311: bumped from 120K to match new 200K extraction cap
         )
         with cost_tracker.feature("contract_intelligence"):
             res = await llm.complete(

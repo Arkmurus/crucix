@@ -47,7 +47,7 @@ def test_finalize_returns_clean_review_from_stub():
     assert out and "FINAL REVIEW" in out
     # the synthesis prompt carried the draft, findings AND document for grounding
     p = llm.calls[0]["prompt"]
-    assert "AUDIT FINDINGS" in p and "DOCUMENT EXCERPT" in p and "USER QUESTION" in p
+    assert "AUDIT FINDINGS" in p and ("FULL DOCUMENT" in p or "DOCUMENT EXCERPT" in p) and "USER QUESTION" in p
 
 
 def test_finalize_returns_none_without_llm():
