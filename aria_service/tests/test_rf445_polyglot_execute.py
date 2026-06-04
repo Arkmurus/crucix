@@ -71,7 +71,9 @@ def test_rf445_calls_search_multilingual_per_lang(monkeypatch):
             q, languages=[lang], max_results=5, translate_query=False,
         )
 
-    asyncio.run(asyncio.gather(*(_run_one(l, q) for l, q in _capped)))
+    async def _run_gather():
+        return await asyncio.gather(*(_run_one(l, q) for l, q in _capped))
+    asyncio.run(_run_gather())
 
     assert len(calls) == 4, (
         f"R-F445: expected 4 calls (capped), got {len(calls)}"
@@ -121,7 +123,9 @@ def test_rf445_hits_aggregate_with_lang_tag(monkeypatch):
             q, languages=[lang], max_results=5, translate_query=False,
         )
 
-    results = asyncio.run(asyncio.gather(*(_run_one(l, q) for l, q in queries)))
+    async def _run_gather():
+        return await asyncio.gather(*(_run_one(l, q) for l, q in queries))
+    results = asyncio.run(_run_gather())
     for lang, res_list in results:
         for r in (res_list or [])[:5]:
             hits.append({
@@ -162,7 +166,9 @@ def test_rf445_handles_search_exception_gracefully(monkeypatch):
         except Exception:
             return lang, []
 
-    results = asyncio.run(asyncio.gather(*(_run_one(l, q) for l, q in queries)))
+    async def _run_gather():
+        return await asyncio.gather(*(_run_one(l, q) for l, q in queries))
+    results = asyncio.run(_run_gather())
     # Both lang results present (RU empty due to exception caught)
     assert {l for l, _ in results} == {"ru", "zh"}
     assert results[0][1] == []  # ru → caught

@@ -540,7 +540,9 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # sanctions.screen_with_aliases.
     # R-F444 — read both the renamed flag AND the deprecated one so
     # callers still on the old key keep working until the next release.
-    _has_caller_aliases = (
+    # Use bool() to handle False-or-None correctly (False or None = None,
+    # but we need False for the not-check below).
+    _has_caller_aliases = bool(
         match.get("_has_caller_supplied_aliases")
         or match.get("_has_legal_name_corroboration")
     )
@@ -613,19 +615,19 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         _list_labels = [label for _, _, label in _defence_list_hits(_ds)]
         # R-F434: detect brandified-hostname cap separately from token-
         # overlap demotion so the operator can see which gate fired.
-        # A match is "hostname-capped" when the origin tag is set, there
-        # was no legal-name corroboration, and the topic-derived severity
-        # exceeded AMBER (which is the cap). When this fires, severity
-        # was forced to AMBER regardless of token overlap.
+        # A match is "hostname-capped" when the origin tag is set and there
+        # was no legal-name corroboration. The cap already fired inside
+        # classify_match (reducing severity from hard_stop/red to amber),
+        # so we check the raw flags rather than topic_severity (which is
+        # already post-cap and would be amber == amber → false negative).
         # R-F444 — same renamed-with-fallback pattern as classify_match
-        _has_caller_aliases_m = (
+        _has_caller_aliases_m = bool(
             m.get("_has_caller_supplied_aliases")
             or m.get("_has_legal_name_corroboration")
         )
         hostname_capped = bool(
             m.get("_from_brandified_hostname")
             and not _has_caller_aliases_m
-            and SEVERITY_RANK[topic_severity] > SEVERITY_RANK["amber"]
         )
         per_match.append({
             "name":     candidate_name,

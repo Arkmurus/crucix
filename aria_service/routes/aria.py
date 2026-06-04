@@ -3276,7 +3276,15 @@ _PROFILE_KW     = re.compile(r"\b(profile|build\s+a\s+profile\s+on|background\s+
 _DOC_REFERENCE_RE = re.compile(
     r"\b(?:this|the|that|attached|uploaded)\s+"
     r"(?:document|file|pdf|attachment|report|spreadsheet|"
-    r"screenshot|image|paper|letter|email|memo|brief|deck|note)\b",
+    r"screenshot|image|paper|letter|email|memo|brief|deck|note|"
+    r"nda|agreement|contract|clause|terms|schedule|addendum|"
+    r"mou|loi|sow|t[&\s]*cs)\b",
+    re.IGNORECASE,
+)
+# R-F1326 — also match review/feedback verbs referencing an attached doc,
+# even when the noun is implicit ("review this", "feedback on the attached").
+_DOC_REVIEW_VERB_RE = re.compile(
+    r"\b(?:review|feedback|redline|mark\s+up|comment\s+on|assess)\b",
     re.IGNORECASE,
 )
 
@@ -4383,7 +4391,9 @@ def _detect_tool_intent(message: str) -> dict | None:
     # already returned above, so they still fire — explicit intent wins.
     # Natural-language doc-review questions fall through to LLM-pure
     # below.
-    if "[ATTACHED DOCUMENT" in message and _DOC_REFERENCE_RE.search(msg):
+    if "[ATTACHED DOCUMENT" in message and (
+        _DOC_REFERENCE_RE.search(msg) or _DOC_REVIEW_VERB_RE.search(msg)
+    ):
         return None
 
     # ── Pipeline command intent ──

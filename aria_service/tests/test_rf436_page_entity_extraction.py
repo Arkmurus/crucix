@@ -160,7 +160,7 @@ def test_rf436_capability_extracted_persons_get_sanctions_screened(monkeypatch):
         sanctions, "screen_with_aliases", _fake_screen_with_aliases,
     )
 
-    report = ARKDDReport(run_id="test-rf436", subject_input="Nebraska Gas Turbine Inc")
+    report = ARKDDReport(run_id="test-rf436", target={"name": "Nebraska Gas Turbine Inc"})
     report.identity.entity_name = "Nebraska Gas Turbine Inc"
     report.identity.entity_type = EntityType.COMPANY.value
 

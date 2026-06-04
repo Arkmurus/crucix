@@ -98,9 +98,8 @@ def test_rf513_health_live_returns_new_rev(monkeypatch):
     import aria_service.routes.aria as _aria
     importlib.reload(_aria)
 
-    # Call the endpoint function directly — no TestClient needed.
-    import asyncio
-    response = asyncio.run(_aria.health_live_ep())
+    # Call the endpoint function directly — it's a sync def (R-F723).
+    response = _aria.health_live_ep()
     assert response["status"] == "alive"
     assert response["build_rev"] == "R-F513 · sha deadbeef", (
         f"/health/live build_rev mismatch: {response['build_rev']!r}"

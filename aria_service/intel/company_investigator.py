@@ -79,6 +79,48 @@ class InvestigationReport:
     error: str = ""
 
 
+def _looks_like_document_text(text: str) -> bool:
+    """Heuristic check: is this string likely a document body rather than a
+    company name? Returns True for text that is too long, contains document
+    markers, legal boilerplate, or newlines — none of which belong in a
+    legitimate company name.
+
+    R-F1326: defensive guard against mis-routing when _detect_tool_intent
+    fails to catch a doc-review question and passes the document body as
+    company_name to investigate_company.
+    """
+    if not text:
+        return False
+    # Too long — real company names are under ~100 chars
+    if len(text) > 200:
+        return True
+    # Contains newlines — company names are single-line
+    if "\n" in text or "\r" in text:
+        return True
+    # Contains the attached-document marker
+    if "[ATTACHED DOCUMENT" in text or "[/ATTACHED DOCUMENT]" in text:
+        return True
+    # Contains legal boilerplate phrases
+    _legal_boilerplate = [
+        "confidential", "privileged", "hereby", "hereinafter",
+        "whereas", "witnesseth", "indemnify", "indemnification",
+        "governing law", "force majeure", "entire agreement",
+        "non-disclosure", "non disclosure", "intellectual property",
+        "representations and warranties",
+    ]
+    low = text.lower()
+    if any(p in low for p in _legal_boilerplate):
+        return True
+    # Contains common document-structure markers
+    _doc_markers = [
+        "clause ", "section ", "article ", "schedule ", "exhibit ",
+        "page ", "appendix ",
+    ]
+    if any(p in low for p in _doc_markers):
+        return True
+    return False
+
+
 async def investigate_company(
     company_name: str,
     jurisdiction: str = "",
@@ -105,6 +147,19 @@ async def investigate_company(
 
     if not _ENABLED:
         report.error = "Company investigator disabled (set ARIA_COMPANY_INVESTIGATOR_ENABLED=1)"
+        report.duration_ms = (time.monotonic() - start) * 1000
+        return report
+
+    # R-F1326 — defensive short-circuit: reject inputs that are clearly not
+    # company names (document text, legal boilerplate, overly long strings).
+    # Prevents mis-routing when _detect_tool_intent fails to catch a doc-
+    # review question and passes the document body as company_name.
+    if _looks_like_document_text(company_name):
+        report.error = (
+            "Input appears to be a document or legal text, not a company name. "
+            "Routing to document review instead."
+        )
+        report.summary = f"Input rejected as non-company: {company_name[:80]}..."
         report.duration_ms = (time.monotonic() - start) * 1000
         return report
 

@@ -16,7 +16,18 @@ the real endpoint and asserts:
 """
 from __future__ import annotations
 
+import os as _os
 from fastapi.testclient import TestClient
+
+
+def _auth_header() -> dict:
+    """Return the Authorization header needed by the router auth dependency.
+    The router requires a bearer token when ARIA_API_TOKEN or
+    ARIA_INTERNAL_TOKEN is set in the environment."""
+    token = _os.environ.get("ARIA_API_TOKEN") or _os.environ.get("ARIA_INTERNAL_TOKEN") or ""
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
 
 
 def _build_app():
@@ -53,7 +64,7 @@ def test_rf450_brain_absorb_validates_entity_name_at_endpoint(monkeypatch):
     }
 
     with TestClient(app) as client:
-        r = client.post("/api/aria/brain/absorb", json=payload)
+        r = client.post("/api/aria/brain/absorb", json=payload, headers=_auth_header())
 
     assert r.status_code == 202, (
         f"R-F450: expected 202 Accepted, got {r.status_code} body={r.text}"
@@ -91,7 +102,7 @@ def test_rf450_brain_absorb_escapes_summary_at_endpoint(monkeypatch):
         "entity_name": "Acme Defence Ltd",  # legitimate, should pass
     }
     with TestClient(app) as client:
-        r = client.post("/api/aria/brain/absorb", json=payload)
+        r = client.post("/api/aria/brain/absorb", json=payload, headers=_auth_header())
     assert r.status_code == 202
 
     import time as _time
@@ -127,7 +138,7 @@ def test_rf450_brain_absorb_accepts_legitimate_payload(monkeypatch):
         "success": True,
     }
     with TestClient(app) as client:
-        r = client.post("/api/aria/brain/absorb", json=payload)
+        r = client.post("/api/aria/brain/absorb", json=payload, headers=_auth_header())
     assert r.status_code == 202
 
     import time as _time

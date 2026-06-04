@@ -43,6 +43,15 @@ def test_rf473_record_helper_increments():
         assert _aria._R473_RD_MAX_FILENAME == "slow_giant.pdf"
 
 
+def _auth_header() -> dict:
+    """Return the Authorization header needed by the router auth dependency."""
+    import os as _os
+    token = _os.environ.get("ARIA_API_TOKEN") or _os.environ.get("ARIA_INTERNAL_TOKEN") or ""
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
+
+
 def test_rf473_stats_endpoint_shape():
     """/read-document/stats returns the expected fields."""
     from fastapi import FastAPI
@@ -56,7 +65,7 @@ def test_rf473_stats_endpoint_shape():
     _aria._r473_record_read_doc(2.0, "test.pdf", 1234, "pdf")
 
     with TestClient(app) as client:
-        r = client.get("/api/aria/read-document/stats")
+        r = client.get("/api/aria/read-document/stats", headers=_auth_header())
     assert r.status_code == 200, f"stats endpoint must respond 200, got {r.status_code}"
     data = r.json()
     expected_keys = {
@@ -87,7 +96,7 @@ def test_rf473_zero_calls_safe():
     app.include_router(_aria.router)
 
     with TestClient(app) as client:
-        r = client.get("/api/aria/read-document/stats")
+        r = client.get("/api/aria/read-document/stats", headers=_auth_header())
     assert r.status_code == 200
     data = r.json()
     assert data["total_calls"] == 0

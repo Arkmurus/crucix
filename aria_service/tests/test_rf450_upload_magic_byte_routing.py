@@ -20,9 +20,18 @@ from __future__ import annotations
 
 import base64
 import io
+import os as _os
 import zipfile
 
 from fastapi.testclient import TestClient
+
+
+def _auth_header() -> dict:
+    """Return the Authorization header needed by the router auth dependency."""
+    token = _os.environ.get("ARIA_API_TOKEN") or _os.environ.get("ARIA_INTERNAL_TOKEN") or ""
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
 
 
 def _build_app():
@@ -30,6 +39,8 @@ def _build_app():
     from aria_service.routes.aria import router as aria_router
     app = FastAPI()
     app.include_router(aria_router)
+    # Some endpoints (read-document) access app.state.llm_provider
+    app.state.llm_provider = None
     return app
 
 
@@ -82,7 +93,7 @@ def test_rf450_generic_zip_renamed_as_pdf_does_not_invoke_pdf_parser(monkeypatch
 
     app = _build_app()
     with TestClient(app) as client:
-        r = client.post("/api/aria/read-document", json=payload)
+        r = client.post("/api/aria/read-document", json=payload, headers=_auth_header())
 
     # Endpoint may return 200 (extracted content) or 400 (no content
     # produced because the generic-zip branch isn't a real parser).
@@ -148,7 +159,7 @@ def test_rf450_docx_renamed_as_pdf_routes_to_docx_parser(monkeypatch):
 
     app = _build_app()
     with TestClient(app) as client:
-        r = client.post("/api/aria/read-document", json=payload)
+        r = client.post("/api/aria/read-document", json=payload, headers=_auth_header())
 
     # PDF parser must NOT have been called REGARDLESS of the response
     # status — the load-bearing claim. We check this BEFORE we look at
@@ -203,7 +214,7 @@ def test_rf450_genuine_pdf_with_correct_mime_not_rejected_by_magic_byte():
     }
     app = _build_app()
     with TestClient(app) as client:
-        r = client.post("/api/aria/read-document", json=payload)
+        r = client.post("/api/aria/read-document", json=payload, headers=_auth_header())
 
     # Two acceptable outcomes:
     #   200 — PyMuPDF parsed the stub and the endpoint returned text.

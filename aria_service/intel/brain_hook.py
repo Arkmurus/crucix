@@ -512,7 +512,7 @@ def _absorb_pause_ms() -> int:
 # are queued, at most one starts every pause_ms. Cold-boot storm
 # becomes a paced sequence instead of a simultaneous spike.
 _absorb_global_lock: Optional[asyncio.Lock] = None
-_last_absorb_monotonic: float = 0.0
+_last_absorb_monotonic: float = time.monotonic()  # R-F1326: init to now so first call doesn't skip
 
 
 def _get_absorb_lock() -> asyncio.Lock:

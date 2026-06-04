@@ -17,9 +17,18 @@ honest about what's actually broken (slow embed, not "offline").
 """
 from __future__ import annotations
 
+import os as _os
 import pytest
 from starlette.requests import ClientDisconnect
 from fastapi.testclient import TestClient
+
+
+def _auth_header() -> dict:
+    """Return the Authorization header needed by the router auth dependency."""
+    token = _os.environ.get("ARIA_API_TOKEN") or _os.environ.get("ARIA_INTERNAL_TOKEN") or ""
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
 
 
 def _build_app():
@@ -53,6 +62,7 @@ def test_rf454_client_disconnect_returns_499_not_500(monkeypatch):
         r = client.post(
             "/api/aria/brain/absorb",
             json={"module": "test", "summary": "test"},
+            headers=_auth_header(),
         )
 
     assert r.status_code == 499, (
@@ -75,6 +85,7 @@ def test_rf454_normal_request_still_202(monkeypatch):
         r = client.post(
             "/api/aria/brain/absorb",
             json={"module": "test_module", "summary": "test summary"},
+            headers=_auth_header(),
         )
 
     assert r.status_code == 202, (
@@ -102,6 +113,7 @@ def test_rf454_disconnect_logged_at_info(monkeypatch, caplog):
             client.post(
                 "/api/aria/brain/absorb",
                 json={"module": "test", "summary": "test"},
+                headers=_auth_header(),
             )
 
     assert any("R-F454" in r.message and "disconnected" in r.message.lower()
