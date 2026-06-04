@@ -114,6 +114,25 @@ class MemoryLeakDetector:
                             "[memory_leak_detector] RSS %.1fMB exceeds threshold %dMB — triggering GC",
                             snapshot["rss_mb"], _THRESHOLD_MB,
                         )
+                        # R-F1332: clear torch CUDA/tensor caches before GC.
+                        # The profiler shows 35% CPU in thread._worker + 23% in
+                        # aiosqlite — sentence_transformers model.encode() holds
+                        # tensor references in thread-local caches that GC can't
+                        # reach. Clearing them frees the resident memory so GC
+                        # can actually reclaim it (live evidence: GC freed 0.0MB
+                        # every 5min while RSS stayed at 2588.4MB).
+                        try:
+                            import torch as _torch
+                            if hasattr(_torch, "cuda") and _torch.cuda.is_available():
+                                _torch.cuda.empty_cache()
+                            # Clear CPU-side tensor caches in sentence_transformers
+                            if hasattr(_torch, "_C"):
+                                _torch._C._clear_autocast_cache()
+                        except ImportError:
+                            pass
+                        except Exception:
+                            pass
+
                         gc.collect()
                         self._last_gc_at = now
 

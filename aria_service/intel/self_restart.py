@@ -374,11 +374,23 @@ async def _blackout_detector_loop() -> None:
                 _blackout_counts[agent_id] = _blackout_counts.get(agent_id, 0) + 1
                 count = _blackout_counts[agent_id]
 
-                logger.warning(
-                    "[self_restart] BLACKOUT detected for %s: heartbeat stale "
-                    "for %.1fs (threshold=%.1fs, count=%d)",
-                    agent_id, stale, _BLACKOUT_THRESHOLD_S, count,
-                )
+                # R-F1332: detect agents that have NEVER had a heartbeat tick
+                # (stale == inf) — this means the agent was registered but
+                # never started properly. Log a distinct message so ops can
+                # distinguish "agent crashed" from "agent never started".
+                if stale == float("inf"):
+                    logger.warning(
+                        "[self_restart] AGENT NEVER STARTED for %s: "
+                        "heartbeat was never ticked (threshold=%.1fs). "
+                        "The agent registered but never called tick_heartbeat().",
+                        agent_id, _BLACKOUT_THRESHOLD_S,
+                    )
+                else:
+                    logger.warning(
+                        "[self_restart] BLACKOUT detected for %s: heartbeat stale "
+                        "for %.1fs (threshold=%.1fs, count=%d)",
+                        agent_id, stale, _BLACKOUT_THRESHOLD_S, count,
+                    )
 
                 # Save a blackout checkpoint
                 try:

@@ -1004,7 +1004,7 @@ _LATENCY_TRIP_MS = max(
 # section is skipped (signal counter + _record_signal still fire so
 # observability is preserved). Set ARIA_BRAIN_ABSORB_CONCURRENCY=0
 # to disable the cap entirely (legacy unbounded behaviour).
-_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "16"))  # R-F1056: raised from 2; R-F1252: raised from 8 for 4-vCPU machine
+_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "4"))  # R-F1332: lowered from 16 to 4. 16 concurrent absorbs saturated the 8-worker ThreadPoolExecutor (4-vCPU Fly machine), causing GIL starvation and event-loop stalls. 4 concurrent absorbs keeps the thread pool responsive while still allowing parallel tier processing.
 _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
 )

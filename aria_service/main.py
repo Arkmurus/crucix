@@ -507,6 +507,11 @@ async def lifespan(app: FastAPI):
 
     async def _event_loop_stall_detector():
         import asyncio as _aio
+        # R-F1332: import tick_heartbeat once so the 1s loop doesn't re-import.
+        try:
+            from .intel.self_restart import tick_heartbeat as _tick_hb
+        except ImportError:
+            _tick_hb = None
         # Wait until the lifespan settle window has fully passed before
         # starting to measure. Cold-boot hydration legitimately stalls
         # the loop for tens of seconds (RAG, knowledge load, OCR
@@ -530,6 +535,14 @@ async def lifespan(app: FastAPI):
             elapsed = now - last
             last = now
             _wedge_state["heartbeat"] = now
+            # R-F1332: tick the self_restart heartbeat for aria_main every 1s.
+            # The stall detector already runs every 1s, so this is a free tick
+            # that keeps the blackout detector happy without a separate task.
+            if _tick_hb is not None:
+                try:
+                    _tick_hb("aria_main")
+                except Exception:
+                    pass
             if elapsed > _STALL_WARN_THRESHOLD_S:
                 logger.warning(
                     "[R-F703] event loop stalled for %.2fs (threshold=%.1fs) — "

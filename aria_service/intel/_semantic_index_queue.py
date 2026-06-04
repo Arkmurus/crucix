@@ -31,12 +31,24 @@ encode time. For our use cases (chat retrieval, DD search,
 researcher recall) this is acceptable — the alternative was 20-min
 wedges that broke EVERY surface.
 
+R-F1332: dedicated ThreadPoolExecutor for the semantic index queue.
+Pre-R-F1332, _process_batch used asyncio.to_thread() which uses the
+PROCESS-WIDE default ThreadPoolExecutor. With _ABSORB_CONCURRENCY=16
+and every absorb potentially triggering a knowledge.store_fact →
+enqueue → worker batch → to_thread, the 8-worker pool (4-vCPU Fly
+machine) saturated: 35% CPU in thread._worker, 23% in aiosqlite,
+event loop GIL-starved, heartbeats went stale every 300s. The
+dedicated executor has 2 workers — enough for one encode batch at a
+time with headroom, but never enough to starve the rest of the
+process.
+
 Operator knobs:
   ARIA_INDEX_QUEUE_MAX                queue capacity (default 1000)
   ARIA_INDEX_QUEUE_BATCH_SIZE         max items per encode batch (default 32)
   ARIA_INDEX_QUEUE_BATCH_WINDOW_MS    max ms to wait for batch fill (default 100)
   ARIA_INDEX_QUEUE_DISABLED           if "1", disables queueing — old
                                        synchronous path (legacy fallback)
+  ARIA_INDEX_QUEUE_WORKERS            dedicated thread pool workers (default 2)
 """
 from __future__ import annotations
 
@@ -44,6 +56,7 @@ import asyncio
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 logger = logging.getLogger("aria.semantic_index_queue")
@@ -62,6 +75,24 @@ _DRAIN_TIMEOUT_S = 10.0  # how long to wait for first item before idling
 # the deferral is capped so background indexing can't starve.
 _INTERACTIVE_DEFER_MAX_S = float(os.environ.get("ARIA_INDEX_INTERACTIVE_DEFER_MAX_S", "5"))
 _INTERACTIVE_DEFER_STEP_S = float(os.environ.get("ARIA_INDEX_INTERACTIVE_DEFER_STEP_S", "0.25"))
+
+# R-F1332: dedicated thread pool for semantic index encodes. Prevents
+# saturation of the process-wide default ThreadPoolExecutor (8 workers
+# on 4-vCPU Fly machine) by encode batches. 2 workers is enough for
+# one active batch + one queued; the queue itself provides backpressure.
+_INDEX_EXECUTOR_WORKERS = int(os.environ.get("ARIA_INDEX_QUEUE_WORKERS", "2"))
+_index_executor: Optional[ThreadPoolExecutor] = None
+
+
+def _get_index_executor() -> ThreadPoolExecutor:
+    """Lazy-init the dedicated thread pool for semantic index encodes."""
+    global _index_executor
+    if _index_executor is None:
+        _index_executor = ThreadPoolExecutor(
+            max_workers=_INDEX_EXECUTOR_WORKERS,
+            thread_name_prefix="semantic_index",
+        )
+    return _index_executor
 
 
 def _disabled() -> bool:
@@ -191,7 +222,11 @@ async def _yield_to_interactive() -> float:
 async def _process_batch(batch: list[tuple[str, str, dict]]) -> None:
     """Index a batch of facts. Imported lazily so this module loads
     without forcing semantic_search (which imports torch) on every
-    boot of every other module."""
+    boot of every other module.
+
+    R-F1332: uses the dedicated _index_executor instead of the process-wide
+    default ThreadPoolExecutor (asyncio.to_thread). Prevents encode batches
+    from starving other to_thread callers (knowledge scans, RAG queries)."""
     from .semantic_search import index_fact
 
     def _persist_all():
@@ -204,8 +239,10 @@ async def _process_batch(batch: list[tuple[str, str, dict]]) -> None:
                     fact_id, e,
                 )
 
-    # to_thread keeps the encode work off the event loop.
-    await asyncio.to_thread(_persist_all)
+    # Use the dedicated executor so encode work doesn't compete with
+    # other asyncio.to_thread callers (knowledge scans, RAG queries).
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(_get_index_executor(), _persist_all)
 
 
 def get_stats() -> dict:
@@ -231,6 +268,7 @@ def get_stats() -> dict:
             _worker_task is not None and not _worker_task.done()
         ),
         "started_at_monotonic": _started_at if _started_at else None,
+        "dedicated_executor_workers": _INDEX_EXECUTOR_WORKERS,  # R-F1332
     }
 
 
@@ -268,4 +306,11 @@ async def shutdown(timeout_s: float = 5.0) -> dict:
             await asyncio.wait_for(_worker_task, timeout=1.0)
         except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
             pass
+
+    # R-F1332: shutdown the dedicated executor
+    global _index_executor
+    if _index_executor is not None:
+        _index_executor.shutdown(wait=False)
+        _index_executor = None
+
     return {"drained": drained, "remaining": remaining}
