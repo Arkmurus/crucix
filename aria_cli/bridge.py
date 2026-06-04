@@ -18,12 +18,25 @@ The mailbox lives in `<repo>/.agent_bridge/` (gitignored — runtime state).
 from __future__ import annotations
 
 import json
+import os
+import random
 import time
 from pathlib import Path
 
 BRIDGE_DIRNAME = ".agent_bridge"
 MESSAGES_FILE = "messages.jsonl"
 PARTIES = ("aria", "claude")
+
+# R-F1313 — comms charter (operator-owned, auditable, engineering-scoped).
+# This channel is a human-in-the-loop review log, NOT an unsupervised
+# agent-to-agent autonomy loop: the operator owns it and every message is a
+# plain-text line they can read. Keep traffic to concrete engineering —
+# R-numbers, diffs, test results, deploy/build_rev verification, blockers.
+# Claude's role on it is reviewer/assessor surfacing findings to the operator.
+CHARTER = (
+    "operator-owned, auditable, engineering-scoped review log; "
+    "human-in-the-loop; no unsupervised autonomy"
+)
 
 
 def _dir(base: Path | str) -> Path:
@@ -57,9 +70,20 @@ def _all(base: Path | str) -> list[dict]:
 
 
 def _gen_id(seq: int) -> str:
-    # time-based id + sequence so concurrent appends don't collide. (Not used in
-    # the sandboxed Workflow runtime, so time.time() is fine here.)
-    return f"m{int(time.time() * 1000):x}{seq:03d}"
+    """Collision-resistant message id.
+
+    R-F1313: the old form was ``m{ms:x}{seq:03d}`` where ``seq`` came from
+    ``len(_all())`` — two processes appending in the same millisecond both read
+    the same length, produced the SAME id, and then a single read_new() could
+    mark both seen (dropping one message) or skip one entirely. Mix in the pid
+    and a random nibble so Claude's and ARIA's concurrent appends never collide,
+    even at the same millisecond with the same observed sequence.
+    """
+    # 32 bits of entropy (pid folded in for cross-process spread) keeps ids
+    # effectively unique even under bursty same-millisecond appends from both
+    # parties — birthday collisions stay negligible at any realistic volume.
+    salt = (random.getrandbits(32) ^ (os.getpid() << 8)) & 0xFFFFFFFF
+    return f"m{int(time.time() * 1000):x}{seq:03d}{salt:08x}"
 
 
 def send(base: Path | str, frm: str, to: str, text: str,
@@ -95,7 +119,20 @@ def _load_seen(base: Path | str, reader: str) -> set[str]:
 
 
 def _save_seen(base: Path | str, reader: str, seen: set[str]) -> None:
-    _seen_path(base, reader).write_text(json.dumps(sorted(seen)), encoding="utf-8")
+    """Persist the seen-set crash-safely (R-F1313).
+
+    The old direct ``write_text`` was not atomic: if the process was killed
+    mid-write (Kaspersky terminating the child, an API error aborting the run),
+    the seen file was left truncated/invalid. ``_load_seen`` then swallowed the
+    JSON error and returned an empty set, so EVERY message was re-read as new on
+    the next poll — a message-replay storm. Write to a temp file in the same
+    directory and ``os.replace`` it in (atomic on the same filesystem on both
+    Windows and POSIX), so a crash leaves either the old file or the new one,
+    never a half-written one."""
+    sf = _seen_path(base, reader)
+    tmp = sf.with_name(f"{sf.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(sorted(seen)), encoding="utf-8")
+    os.replace(tmp, sf)
 
 
 def peek(base: Path | str, reader: str) -> list[dict]:

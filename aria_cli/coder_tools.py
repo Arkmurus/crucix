@@ -170,9 +170,88 @@ class CoderToolbox:
                 return ln
         return ""
 
+    def _clean_lines(self, output: str | None) -> list[str]:
+        """Split run() output into real lines, dropping the 'exit code:' header."""
+        return [ln.strip() for ln in (output or "").splitlines()
+                if ln.strip() and not ln.lower().startswith("exit code")]
+
+    # R-F1314 — map changed repo paths to the Fly apps that serve them. The CI
+    # [deploy] tag (and therefore ci_deploy) builds ONLY aria-intel; the Node web
+    # tier and the WhatsApp listener live on SEPARATE Fly apps that CI does not
+    # touch (deploy-fly.yml R-F1157 removed the Node/WA steps). So a change to
+    # those paths is NOT deployed by this chain even though aria-intel verifies
+    # green — that exact mismatch shipped a stale WA listener on 2026-06-04
+    # (R-F1311: async-OCR routes reached aria-intel, the listener never reached
+    # aria-wa, and WhatsApp OCR/document reading broke). ci_deploy must detect it
+    # and refuse to claim full success.
+    _APP_PATH_PREFIXES = (
+        ("aria-wa", ("services/wa-listener/", "fly.wa.toml", "dockerfile.wa")),
+        ("aria-web", ("server.mjs", "frontend/", "dashboard/", "public/",
+                      "fly.web.toml", "dockerfile.web")),
+    )
+
+    def _apps_touched(self, paths: list[str]) -> set[str]:
+        """Non-intel Fly apps a set of changed repo paths affects (R-F1314).
+        ci_deploy only deploys+verifies aria-intel; anything returned here needs
+        a separate `scripts/deploy.ps1 -Wa/-Web` (or deploy.sh --wa/--web)."""
+        apps: set[str] = set()
+        norm = [p.replace("\\", "/").strip().lstrip("./").lower()
+                for p in paths if p and p.strip()]
+        for app, prefixes in self._APP_PATH_PREFIXES:
+            if any(p == pre or p.startswith(pre) for p in norm for pre in prefixes):
+                apps.add(app)
+        return apps
+
+    def _pending_deploy_paths(self, sha: str) -> list[str]:
+        """Files this deploy carries vs the last deployed state (R-F1314).
+        Diffs the last-deployed sha (.last_deploy_sha) against HEAD; falls back
+        to HEAD's own commit when that marker is missing/equal so we always have
+        something to classify."""
+        prev = ""
+        marker = self.root / ".last_deploy_sha"
+        try:
+            if marker.exists():
+                prev = marker.read_text(encoding="utf-8").strip().split()[0]
+        except Exception:  # noqa: BLE001
+            prev = ""
+        if prev and not prev.startswith(sha[:8]) and not sha.startswith(prev[:8]):
+            r = self._tb.run(f"git diff --name-only {prev}..HEAD", timeout=20)
+            paths = self._clean_lines(r.output)
+            if paths:
+                return paths
+        # Fallback: the top commit's files.
+        r = self._tb.run("git show --name-only --pretty=format: HEAD", timeout=20)
+        return self._clean_lines(r.output)
+
+    def _deploy_apps(self, apps: set[str]) -> ToolResult:
+        """Deploy the given non-intel Fly apps via the trusted deploy script
+        (R-F1314). Does NOT reimplement flyctl — it calls scripts/deploy.ps1 (or
+        deploy.sh on POSIX), which already does canary + health-verify + auto-
+        rollback and a version-advance check per app, so Aria's hands-free chain
+        reuses the exact path the operator runs manually. Returns the script's
+        ToolResult; is_error propagates a deploy/verify failure to the caller."""
+        import os as _os
+        ordered = sorted(apps)
+        if _os.name == "nt":
+            script = self.root / "scripts" / "deploy.ps1"
+            if not script.exists():
+                return ToolResult(f"deploy script missing: {script}", is_error=True)
+            flags = " ".join("-Wa" if a == "aria-wa" else "-Web" for a in ordered)
+            cmd = (f'powershell -NoProfile -ExecutionPolicy Bypass '
+                   f'-File "{script}" {flags}')
+        else:
+            script = self.root / "scripts" / "deploy.sh"
+            if not script.exists():
+                return ToolResult(f"deploy script missing: {script}", is_error=True)
+            flags = " ".join("--wa" if a == "aria-wa" else "--web" for a in ordered)
+            cmd = f'bash "{script}" {flags}'
+        # Remote fly builds (torch/node images) are slow — allow a generous bound.
+        return self._tb.run(cmd, timeout=1800)
+
     # ── ci_deploy (THE autonomous commit→push→CI→fly→verify chain) ──────────
     def ci_deploy(self, summary: str = "", r_number: str = "",
-                  files: list[str] | None = None, poll_timeout: int = 900) -> ToolResult:
+                  files: list[str] | None = None, poll_timeout: int = 900,
+                  deploy_all: bool = True) -> ToolResult:
         """Hands-free autonomous deploy via the CI [deploy] path (R-F1306).
 
         The robust, no-babysitting deploy and the one to PREFER for autonomous
@@ -238,6 +317,41 @@ class CoderToolbox:
                                  timeout=20.0, follow_redirects=True)
                 last = (resp.json() or {}).get("build_rev", "")
                 if last and sha[:8] in last:
+                    # R-F1314: aria-intel is aligned — but if this change ALSO
+                    # touches aria-wa / aria-web, the CI [deploy] path did NOT
+                    # deploy them (deploy-fly.yml only builds aria-intel). Make
+                    # the chain truly multi-app: deploy the touched apps via the
+                    # trusted deploy script (canary + health-verify + rollback),
+                    # and NEVER report a clean full deploy unless every touched
+                    # app verified. Disable with deploy_all=False.
+                    other = self._apps_touched(self._pending_deploy_paths(sha))
+                    if other and deploy_all:
+                        apps = ", ".join(sorted(other))
+                        dep = self._deploy_apps(other)
+                        if dep.is_error:
+                            return ToolResult(
+                                f"PARTIAL DEPLOY ⚠️ — aria-intel is aligned (pushed {sha}, "
+                                f"live build_rev={last!r}), but the follow-on deploy of "
+                                f"{apps} FAILED, so those apps are still running OLD code. "
+                                f"Do NOT ship-mark {r_number or 'this R-number'} until each "
+                                f"is verified live. Deploy output:\n{dep.output}",
+                                is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
+                        return ToolResult(
+                            f"DEPLOYED & ALIGNED ✅ (multi-app) — pushed {sha}; aria-intel "
+                            f"build_rev={last!r} matches HEAD via CI, and {apps} deployed + "
+                            f"verified via the deploy script (canary+rollback). Hands-free "
+                            f"commit→push→CI→fly chain verified across every touched app.",
+                            mutation=f"ci_deploy {sha} (aria-intel + {apps})")
+                    if other:  # deploy_all disabled — surface the gap, never fake success
+                        apps = ", ".join(sorted(other))
+                        flags = " ".join("-Wa" if a == "aria-wa" else "-Web"
+                                         for a in sorted(other))
+                        return ToolResult(
+                            f"PARTIAL DEPLOY ⚠️ — aria-intel aligned (pushed {sha}, "
+                            f"build_rev={last!r}), but this change also touches {apps} which "
+                            f"CI does NOT deploy. Run: scripts/deploy.ps1 {flags}. Do NOT "
+                            f"ship-mark {r_number or 'this R-number'} until each verifies live.",
+                            is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
                     return ToolResult(
                         f"DEPLOYED & ALIGNED ✅ — pushed {sha} → CI built & canary-deployed; "
                         f"live build_rev={last!r} now matches HEAD. Hands-free "
