@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1356,
+  "next_available": 1357,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8026,6 +8026,15 @@
       "r_number": "R-F1355",
       "title": "Provisioning: 100GB container disk + vLLM-first fast eval (shim fallback) for same-day train/eval cycles",
       "claimed_at": "2026-06-05T22:01:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1356",
+      "title": "DPO stability: max_grad_norm clip + bf16 (drop 4-bit) + lower lr to fix v0.2 grad-explosion collapse",
+      "claimed_at": "2026-06-05T23:03:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -62,6 +62,10 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--max-seq-len", type=int, default=4096)
     ap.add_argument("--load-in-4bit", action="store_true")
+    # R-F1356: tight gradient clipping to tame the DPO grad-norm explosion
+    # (raw grad-norm hit ~17k on 4-bit; even clip-to-1.0 left a bad direction →
+    # mode collapse). 0.3 + a low lr + bf16 stabilises the update.
+    ap.add_argument("--max-grad-norm", type=float, default=0.3)
     args = ap.parse_args()
 
     _import_or_die()
@@ -136,6 +140,7 @@ def main() -> None:
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
+        max_grad_norm=args.max_grad_norm,  # R-F1356: tame grad-norm explosion
         bf16=True,
         logging_steps=10,
         save_steps=100,
