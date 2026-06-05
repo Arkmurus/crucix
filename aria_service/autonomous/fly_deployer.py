@@ -39,6 +39,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+# R-F1342: bound git/build subprocesses so a hung one can't freeze the
+# event loop (Pillar-1 invariant, mirrors R-F1341). All blocking subprocess
+# work below also runs via asyncio.to_thread so it never blocks the loop.
+_GIT_TIMEOUT_S = float(os.getenv("ARIA_GIT_TIMEOUT_S", "120"))
+
 import httpx
 
 logger = logging.getLogger("aria.autonomous.fly_deployer")
@@ -121,7 +126,10 @@ class FlyDeployer:
         try:
             branch = f"aria-auto/r-f-{r_number}"
 
-            if not self._git_commit(code_changes, branch, r_number, summary):
+            # R-F1342: git is blocking I/O — run it off the event loop.
+            if not await asyncio.to_thread(
+                self._git_commit, code_changes, branch, r_number, summary
+            ):
                 return DeployResult(
                     success=False, app=app, r_number=r_number,
                     error="git commit failed",
@@ -150,7 +158,7 @@ class FlyDeployer:
                     error="canary smoke tests failed — fleet not updated",
                 )
 
-            if not self._deploy_fleet(app, image):
+            if not await asyncio.to_thread(self._deploy_fleet, app, image):  # R-F1342
                 await self._destroy_machine(app, canary_id)
                 return DeployResult(
                     success=False, app=app, r_number=r_number,
@@ -200,7 +208,7 @@ class FlyDeployer:
         prev_image = prev.get("image", "")
         if not prev_image:
             return False
-        ok = self._deploy_fleet(app, prev_image)
+        ok = await asyncio.to_thread(self._deploy_fleet, app, prev_image)  # R-F1342
         if ok:
             logger.warning(
                 "[fly_deployer] ⚠️ rolled back past R-F%d to %s",
@@ -236,17 +244,23 @@ class FlyDeployer:
             return False
 
     def _run_git(self, args: list[str]) -> subprocess.CompletedProcess:
+        # R-F1342: bound every git op. Previously NO timeout → a hung git
+        # (network, lock, prompt) blocked the caller forever; on the event
+        # loop that is a blackout. TimeoutExpired is caught by callers.
         return subprocess.run(  # noqa: S603 — controlled args, repo path
             ["git"] + args,
             capture_output=True, text=True,
             cwd=str(self.repo_path), check=False,
+            timeout=_GIT_TIMEOUT_S,
         )
 
     # ── FLY BUILD + DEPLOY ───────────────────────────────────────────────────
 
     async def _fly_build(self, app: str, branch: str) -> Optional[str]:
         try:
-            result = subprocess.run(  # noqa: S603
+            # R-F1342: 300s build run off the event loop (was blocking it).
+            result = await asyncio.to_thread(
+                subprocess.run,  # noqa: S603
                 [
                     "fly", "deploy", "--build-only",
                     "--app", app,
@@ -331,24 +345,30 @@ class FlyDeployer:
         auto_merge: bool,
     ) -> Optional[str]:
         """Push branch to origin, then open PR OR squash-merge to main."""
-        # Push the feature branch first
-        self._run_git(["push", "--set-upstream", "origin", branch])
+        # R-F1342: all git is blocking I/O — run the whole sequence off the
+        # event loop in one thread hop so it never freezes the loop.
+        def _push_and_maybe_merge() -> None:
+            self._run_git(["push", "--set-upstream", "origin", branch])
+            if auto_merge:
+                # Direct path — squash to main locally + push (R-F462 risk path)
+                self._run_git(["checkout", "main"])
+                self._run_git(["merge", "--squash", branch])
+                self._run_git([
+                    "-c", "commit.gpgsign=false",
+                    "commit", "-m", f"R-F{r_number}: {summary} [auto-merged]",
+                ])
+                self._run_git(["push", "origin", "main"])
+                self._run_git(["branch", "-D", branch])
 
+        await asyncio.to_thread(_push_and_maybe_merge)
         if auto_merge:
-            # Direct path — squash to main locally + push (R-F462 risk path)
-            self._run_git(["checkout", "main"])
-            self._run_git(["merge", "--squash", branch])
-            self._run_git([
-                "-c", "commit.gpgsign=false",
-                "commit", "-m", f"R-F{r_number}: {summary} [auto-merged]",
-            ])
-            self._run_git(["push", "origin", "main"])
-            self._run_git(["branch", "-D", branch])
             return None
 
         # PR path — open a draft PR for review (Claude review hook is R-F805)
         try:
-            result = subprocess.run(  # noqa: S603
+            # R-F1342: gh subprocess off the event loop.
+            result = await asyncio.to_thread(
+                subprocess.run,  # noqa: S603
                 [
                     "gh", "pr", "create",
                     "--title", f"R-F{r_number}: {summary}",

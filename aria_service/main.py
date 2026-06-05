@@ -1342,6 +1342,29 @@ async def lifespan(app: FastAPI):
         _runpod_sched.configured(),
     )
 
+    # ── MEMORY WAL DRAIN (R-F1342, §7 never forget) ─────────────────────
+    # Retries facts that could not be persisted immediately (concurrency
+    # cap / store_fact failure) so nothing is ever forgotten. Runs every
+    # 5 min; no-op when the WAL is empty. Bounded + single-flight.
+    memory_wal_task = None
+
+    async def _memory_wal_drain_loop():
+        await asyncio.sleep(180)  # let boot settle
+        from .intel import memory_wal as _wal
+        from .intel import knowledge as _kn
+        while True:
+            try:
+                pending = _wal.pending_count()
+                if pending:
+                    res = await _wal.drain(_kn.store_fact, max_items=500)
+                    logger.info("[R-F1342] memory_wal drain: %s", res)
+            except Exception as e:
+                logger.warning("[R-F1342] memory_wal drain error: %s", e)
+            await asyncio.sleep(300)
+
+    memory_wal_task = asyncio.create_task(_memory_wal_drain_loop())
+    logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
+
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
     # Hourly background loop that:
     #   - Checks if a daily morning briefing should fire
@@ -1946,6 +1969,8 @@ async def lifespan(app: FastAPI):
         library_consolidate_task.cancel()
     if runpod_sched_task:  # R-F1335
         runpod_sched_task.cancel()
+    if memory_wal_task:  # R-F1342
+        memory_wal_task.cancel()
     if proactive_task:
         proactive_task.cancel()
     if ocr_prewarm_task:

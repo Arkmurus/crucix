@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1335,
+  "next_available": 1343,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7812,14 +7812,93 @@
       "claimed_at": "2026-06-04T19:06:12Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "a7ff26b5",
+      "commit_sha": "63d99d3e",
       "notes": null,
-      "shipped_at": "2026-06-04T19:07:42Z"
+      "shipped_at": "2026-06-05T10:40:09Z"
     },
     {
       "r_number": "R-F1334",
       "title": "wedge diagnostics: asyncio task-stack dump in blackout detector + state_store lock hold watchdog",
       "claimed_at": "2026-06-04T19:06:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "63d99d3e",
+      "notes": null,
+      "shipped_at": "2026-06-05T10:40:09Z"
+    },
+    {
+      "r_number": "R-F1335",
+      "title": "ARIA-LLM activation prep: 500Q eval export + RunPod 10-18 scheduler (dormant) + runbook fix - no live chain change",
+      "claimed_at": "2026-06-05T10:47:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9e1d62c2",
+      "notes": null,
+      "shipped_at": "2026-06-05T13:21:48Z"
+    },
+    {
+      "r_number": "R-F1336",
+      "title": "DPO v0.2 pipeline: golden-vs-v0.1 pair builder + train run",
+      "claimed_at": "2026-06-05T13:11:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "165865be",
+      "notes": null,
+      "shipped_at": "2026-06-05T14:50:04Z"
+    },
+    {
+      "r_number": "R-F1337",
+      "title": "compact system prompt mode for 7B aria_llm serving",
+      "claimed_at": "2026-06-05T13:11:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "165865be",
+      "notes": null,
+      "shipped_at": "2026-06-05T14:50:04Z"
+    },
+    {
+      "r_number": "R-F1338",
+      "title": "small-model user-context reduction: strip heavy injected context for 7B aria_llm serving (keep compliance guards only)",
+      "claimed_at": "2026-06-05T13:47:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9136c582",
+      "notes": null,
+      "shipped_at": "2026-06-05T14:50:04Z"
+    },
+    {
+      "r_number": "R-F1339",
+      "title": "lean serving mode: bypass scratchpad/reasoning-router/self-review when small sovereign model is primary",
+      "claimed_at": "2026-06-05T14:12:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c03ba244",
+      "notes": null,
+      "shipped_at": "2026-06-05T14:50:05Z"
+    },
+    {
+      "r_number": "R-F1340",
+      "title": "v0.2 self-improvement pipeline: gated DPO train+eval+promote-if-better on pod (her own data, no external brain)",
+      "claimed_at": "2026-06-05T15:01:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c59a621a",
+      "notes": null,
+      "shipped_at": "2026-06-05T15:03:42Z"
+    },
+    {
+      "r_number": "R-F1341",
+      "title": "Pillar 1 reliability: bounded self-healing state_store lock (kill the 21-min-hold blackout cascade)",
+      "claimed_at": "2026-06-05T15:40:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1342",
+      "title": "Pillar 1 class-sweep: bound subprocess/render-lock/absorb-task-count (mirror R-F1341 invariant across infra)",
+      "claimed_at": "2026-06-05T16:11:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

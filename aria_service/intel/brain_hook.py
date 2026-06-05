@@ -794,33 +794,64 @@ async def absorb(
     # set) are tagged as priority so they preempt crawler signals.
     _is_interactive = bool(user_id)
     from .brain_hook_bg import absorb_tiers_bg
-    asyncio.create_task(
-        absorb_tiers_bg(
-            module=module,
-            summary=summary,
-            text_for_neural=text_for_neural,
-            source=source,
-            topics=topics,
-            success=success,
-            weight=weight,
-            confidence=confidence,
-            entity_name=entity_name,
-            gap_type=gap_type,
-            gap_detail=gap_detail,
-            sector=_sector_normalised,
-            user_id=user_id,
-            result=result,
-            _get_absorb_concurrency_sem=_get_absorb_concurrency_sem,
-            _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
-            _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
-            _run_tier=_run_tier,
-            _record_signal=_record_signal,
-            _record_latency=_record_latency,
-            _maybe_trip_breaker=_maybe_trip_breaker,
-            _start_ms=_start_ms,
-        ),
-        name=f"bh-{'chat' if _is_interactive else 'bg'}-{module}",
-    )
+    # R-F1342: bound the in-flight bg-task count. Interactive (chat) signals
+    # are always allowed through; only background-burst signals are shed when
+    # the backlog is at the cap — so user-facing quality is never degraded and
+    # the loop can't be buried under thousands of pending absorb tasks.
+    global _pending_absorb, _dropped_absorb
+    # R-F1342: bound the in-flight bg-task COUNT (the pile-up that helped wedge
+    # the loop 2026-06-05). Over the cap, background signals skip the expensive
+    # tier task — but the durable fact is NOT forgotten: it goes to the WAL for
+    # retry (§7 infinite memory). Interactive (chat) signals are never shed.
+    _over_cap = (not _is_interactive) and (_pending_absorb >= _MAX_PENDING_ABSORB)
+    if _over_cap:
+        _dropped_absorb += 1
+        if summary:  # never forget — queue the fact durably for later retry
+            try:
+                from . import memory_wal
+                _tk = f"{module}:{entity_name}" if entity_name else module
+                memory_wal.record_pending_fact(
+                    topic=_tk, content=summary[:2000],
+                    source=source, confidence=confidence,
+                )
+            except Exception:
+                pass
+        if _dropped_absorb % 50 == 1:
+            logger.warning(
+                "[R-F1342] absorb bg backlog at cap (%d) — shed expensive tiers "
+                "for module=%s; fact queued to WAL (%d shed)",
+                _MAX_PENDING_ABSORB, module, _dropped_absorb,
+            )
+    else:
+        _pending_absorb += 1
+        _bh_task = asyncio.create_task(
+            absorb_tiers_bg(
+                module=module,
+                summary=summary,
+                text_for_neural=text_for_neural,
+                source=source,
+                topics=topics,
+                success=success,
+                weight=weight,
+                confidence=confidence,
+                entity_name=entity_name,
+                gap_type=gap_type,
+                gap_detail=gap_detail,
+                sector=_sector_normalised,
+                user_id=user_id,
+                result=result,
+                _get_absorb_concurrency_sem=_get_absorb_concurrency_sem,
+                _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
+                _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
+                _run_tier=_run_tier,
+                _record_signal=_record_signal,
+                _record_latency=_record_latency,
+                _maybe_trip_breaker=_maybe_trip_breaker,
+                _start_ms=_start_ms,
+            ),
+            name=f"bh-{'chat' if _is_interactive else 'bg'}-{module}",
+        )
+        _bh_task.add_done_callback(_dec_pending_absorb)  # R-F1342: track backlog
 
     # Record signal immediately (not in background) so stats are never lost
     await _record_signal(module, success=True, sector=_sector_normalised)
@@ -1009,6 +1040,28 @@ _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
 )
 _absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
+
+# R-F1342 (Pillar-1 invariant): cap the COUNT of in-flight absorb background
+# tasks. Each task's work is already bounded (tier timeouts, concurrency sem,
+# circuit breaker), but NOTHING capped how many absorb_tiers_bg tasks could
+# pile up. Under autonomous burst (228 call sites + 96 tasks) the backlog grew
+# until the p95=24s breaker trip that helped wedge the loop on 2026-06-05.
+# Over the cap we skip the expensive tiers (the signal is still recorded, so
+# observability is preserved) instead of spawning unboundedly.
+_MAX_PENDING_ABSORB = int(os.environ.get("ARIA_MAX_PENDING_ABSORB", "250"))
+_pending_absorb = 0
+_dropped_absorb = 0
+
+
+def _absorb_backlog_stats() -> dict:
+    """Surface backlog health for diagnostics / health endpoints."""
+    return {"pending": _pending_absorb, "dropped": _dropped_absorb,
+            "max_pending": _MAX_PENDING_ABSORB}
+
+
+def _dec_pending_absorb(_task: "asyncio.Task") -> None:
+    global _pending_absorb
+    _pending_absorb = max(0, _pending_absorb - 1)
 
 
 def _get_absorb_concurrency_sem() -> Optional[asyncio.Semaphore]:

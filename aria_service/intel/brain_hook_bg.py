@@ -47,7 +47,15 @@ async def absorb_tiers_bg(
     knowledge, and neural tiers under the concurrency semaphore. The caller
     has already returned by the time this runs, so latency here never
     blocks chat or crawler processing.
+
+    R-F1342 (§7 infinite memory — never forget): whenever the durable fact is
+    NOT persisted this cycle — because the concurrency cap skipped the tiers,
+    or the knowledge tier itself timed out/failed — the fact is appended to the
+    durable write-ahead log (memory_wal) and retried later, so it is never
+    lost. The R-F799 fail-fast-under-contention behaviour is unchanged; the WAL
+    is the safety net beneath it.
     """
+    _fact_persisted = False
     sem = _get_absorb_concurrency_sem()
     acquired = False
     if sem is not None:
@@ -59,7 +67,7 @@ async def absorb_tiers_bg(
         except asyncio.TimeoutError:
             logger.debug(
                 "brain_hook bg: concurrency cap hit (%d in flight) — "
-                "skipping expensive tiers for module=%s",
+                "skipping expensive tiers for module=%s (fact -> WAL)",
                 _ABSORB_CONCURRENCY, module,
             )
             result["errors"].append(
@@ -81,9 +89,6 @@ async def absorb_tiers_bg(
 
             # R-F1252: yield event loop between tiers so SQLite worker
             # thread can drain its queue and other coroutines can run.
-            # Without this, 3 sequential aiosqlite awaits can stall the
-            # event loop for 3-4s under load (47% thread pool + 12%
-            # aiosqlite in profiler).
             await asyncio.sleep(0)
 
             if summary:
@@ -99,6 +104,7 @@ async def absorb_tiers_bg(
                     "knowledge",
                 )
                 result["knowledge_ok"] = ok
+                _fact_persisted = bool(ok)
                 if err:
                     result["errors"].append(err)
 
@@ -121,6 +127,21 @@ async def absorb_tiers_bg(
         if acquired and sem is not None:
             sem.release()
 
+    # ── R-F1342 (§7 never forget): if the durable fact did NOT land this
+    # cycle (cap-skip or store_fact failure), queue it to the WAL for retry.
+    # The R-F799 fast-skip is preserved; this just guarantees no fact is lost.
+    if summary and not _fact_persisted:
+        try:
+            from . import memory_wal
+            topic_key = f"{module}:{entity_name}" if entity_name else module
+            memory_wal.record_pending_fact(
+                topic=topic_key, content=summary[:2000],
+                source=source, confidence=confidence,
+            )
+            result["fact_walled"] = True
+        except Exception as e:
+            result["errors"].append(f"wal: {e}")
+
     if gap_type:
         try:
             from . import capability_gaps
@@ -140,9 +161,12 @@ async def absorb_tiers_bg(
                         module, len(result["errors"]), "; ".join(result["errors"]))
     else:
         logger.info("brain_hook(%s): absorbed [mastery=%s knowledge=%s neural=%s]",
-                     module, result["mastery_ok"], result["knowledge_ok"], result["neural_ok"])
+                     module, result.get("mastery_ok"), result.get("knowledge_ok"),
+                     result.get("neural_ok"))
 
-    _core_ok = result["mastery_ok"] or result["knowledge_ok"]
+    # R-F1342: .get() so durable_only mode (mastery/neural never set) can't
+    # KeyError. The durable knowledge tier is what defines a successful absorb.
+    _core_ok = bool(result.get("mastery_ok") or result.get("knowledge_ok"))
     await _record_signal(module, success=_core_ok, sector=sector)
 
     _elapsed_ms = (time.time() * 1000) - _start_ms
