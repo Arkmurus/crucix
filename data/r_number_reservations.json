@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1348,
+  "next_available": 1349,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7949,6 +7949,16 @@
       "r_number": "R-F1347",
       "title": "P0 security: gate public /token leak + unauth /client/chat + /client/analyse behind require_aria_token",
       "claimed_at": "2026-06-05T17:29:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b6c45978",
+      "notes": null,
+      "shipped_at": "2026-06-05T17:35:47Z"
+    },
+    {
+      "r_number": "R-F1348",
+      "title": "P0-3: DD sanctions screen failures must surface as data_gaps (never silently dropped) + record_gap",
+      "claimed_at": "2026-06-05T17:40:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

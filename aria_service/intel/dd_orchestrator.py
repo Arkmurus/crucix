@@ -72,6 +72,30 @@ logger = logging.getLogger("aria.dd_orchestrator")
 
 from .engine_wiring import wired  # R-F1121 — @wired decorator for brain sinks
 
+
+def _note_dd_screen_gap(report, who: str, exc: Exception) -> None:
+    """R-F1348: a sanctions/entity screen that threw must surface as a visible
+    data_gap in the DD report (never silently dropped — a false negative the
+    operator can't see is the worst failure mode for a compliance product),
+    and be recorded as a brain gap (§21). Best-effort, never raises."""
+    try:
+        report.identity.data_gaps.append(
+            f"Sanctions screen FAILED for {str(who)[:80]} — NOT screened; "
+            f"MANUAL screening required ({str(exc)[:100]})"
+        )
+    except Exception:
+        pass
+    try:
+        import asyncio as _aio
+        from . import capability_gaps as _cg
+        _aio.get_running_loop().create_task(_cg.record_gap(
+            gap_type="module_bug",
+            detail=f"dd sanctions screen threw for {str(who)[:80]}: {str(exc)[:120]}",
+            source="dd_orchestrator.screen_failure",
+        ))
+    except Exception:
+        pass
+
 # R-F896 — flag-level DD goods-screening severities worth recording to the brain
 # as compliance catches. Engine vocab is info/amber/red/hard_stop; routine
 # "info"/clean findings are skipped to avoid noise — only real flags are a
@@ -3764,10 +3788,15 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                     known_aliases=[name] if name else None,
                                 )
                             except Exception as _spe:
-                                logger.debug(
+                                # R-F1348: a screen that THREW must be VISIBLE in
+                                # the report — never silently dropped (a false
+                                # negative the operator can't see is the worst
+                                # failure mode for a compliance product).
+                                logger.warning(
                                     "R-F436 person screen %r failed: %s",
                                     _person[:40], _spe,
                                 )
+                                _note_dd_screen_gap(report, _person, _spe)
                                 continue
                             _matches = (_scr or {}).get("matches") or []
                             if not _matches:
@@ -3832,9 +3861,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             ),
                         )
                 except Exception as _r436_e:
-                    logger.debug(
+                    logger.warning(
                         "R-F436 page-entity screen skipped: %s", _r436_e,
                     )
+                    _note_dd_screen_gap(report, "page-entity screening block", _r436_e)
 
                 # ── R-F437 (2026-05-13) — Wayback historical pivot ────────
                 # Live-only crawl misses the case where a now-clean entity
@@ -3919,10 +3949,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                         known_aliases=[name] if name else None,
                                     )
                                 except Exception as _hspe:
-                                    logger.debug(
+                                    logger.warning(
                                         "R-F437 historical person screen %r failed: %s",
                                         _hp["person"][:40], _hspe,
                                     )
+                                    _note_dd_screen_gap(report, _hp.get("person", "historical person"), _hspe)
                                     continue
                                 _hmatches = (_scr or {}).get("matches") or []
                                 _hclassified = _cm_h(_hmatches, query_name=_hp["person"]) if _hmatches else {"worst_severity": "info", "summary": ""}
@@ -3987,9 +4018,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 for s in _snaps
                             ]
                     except Exception as _r437_e:
-                        logger.debug(
+                        logger.warning(
                             "R-F437 wayback pivot skipped: %s", _r437_e,
                         )
+                        _note_dd_screen_gap(report, "historical (wayback) screening block", _r437_e)
 
                 # ── R-F438 (2026-05-13) — Certificate Transparency pivot ──
                 # Operators commonly bundle several brand domains onto a
