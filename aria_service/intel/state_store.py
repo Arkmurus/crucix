@@ -247,6 +247,33 @@ async def _reconnect() -> None:
         _reconnect_in_progress = False
 
 
+def _is_conn_dead(e: Exception) -> bool:
+    """R-F1352: does this exception indicate the aiosqlite connection itself is
+    dead (vs a query/programming error)? Matches aiosqlite/sqlite3 closed-conn
+    messages so we only churn the connection when reconnecting can actually help."""
+    m = str(e).lower()
+    return any(
+        s in m
+        for s in ("closed", "no active connection", "cannot operate", "connection")
+    )
+
+
+def _schedule_reconnect_if_dead(e: Exception) -> None:
+    """R-F1352: the READ path (plain SELECTs in _row/scan_keys/stats) bypasses
+    _run_locked, so before this it had NO self-heal — once the single shared
+    connection died, every read failed 'Connection closed' forever and the
+    state-reading endpoints (health/perf, autonomous/status) hung. Mirror the
+    write-path self-heal: on a dead-connection read error, fire-and-forget a
+    single-flight reconnect so subsequent reads recover. Never awaited, never
+    raises — the read still returns its graceful default this call."""
+    if _reconnect_in_progress or not _is_conn_dead(e):
+        return
+    try:
+        asyncio.get_running_loop().create_task(_reconnect())
+    except Exception:
+        pass
+
+
 class StateWriteError(Exception):
     """R-F1351: raised by a compound op invoked with critical=True when its
     write did NOT land (lock-acquire timeout, in-lock op timeout, or error).
@@ -440,6 +467,7 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
         await cur.close()
     except Exception as e:
         logger.warning("state_store: SELECT %s failed: %s", key, e)
+        _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
         return None
     if not row:
         return None
@@ -799,6 +827,7 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
         await cur.close()
     except Exception as e:
         logger.warning("state_store: SCAN failed: %s", e)
+        _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
         return []
     matched: list[str] = []
     for (k,) in rows:
@@ -843,4 +872,5 @@ async def stats() -> dict:
         }
     except Exception as e:
         logger.warning("state_store: stats failed: %s", e)
+        _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
         return {"backend": "sqlite", "configured": True, "error": str(e)[:200]}

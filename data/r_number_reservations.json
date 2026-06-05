@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1352,
+  "next_available": 1353,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7989,6 +7989,16 @@
       "r_number": "R-F1351",
       "title": "silent-drop class: StateWriteError + critical mode primitive + capability_gaps adoption (dropped writes distinguishable, not false-success)",
       "claimed_at": "2026-06-05T18:30:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9eca9876",
+      "notes": null,
+      "shipped_at": "2026-06-05T18:31:54Z"
+    },
+    {
+      "r_number": "R-F1352",
+      "title": "state_store READ path self-heals on dead connection (Connection-closed flood)",
+      "claimed_at": "2026-06-05T19:12:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
