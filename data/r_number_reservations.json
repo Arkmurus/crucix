@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1343,
+  "next_available": 1344,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7899,6 +7899,16 @@
       "r_number": "R-F1342",
       "title": "Pillar 1 class-sweep: bound subprocess/render-lock/absorb-task-count (mirror R-F1341 invariant across infra)",
       "claimed_at": "2026-06-05T16:11:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c56b2991",
+      "notes": null,
+      "shipped_at": "2026-06-05T16:35:33Z"
+    },
+    {
+      "r_number": "R-F1343",
+      "title": "RunPod cost-guard + safe recovery tool (balance/runway check, cheapest GPU, refuse-if-insufficient) - prevent balance-drain pod loss",
+      "claimed_at": "2026-06-05T16:50:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
