@@ -2151,8 +2151,18 @@ def _reduce_context_for_small_model(context: str, max_chars: int = 1500) -> str:
             idx = context.find(marker, idx + len(marker))
     if not kept:
         return ""
-    out = "\n\n".join(kept)
-    return "\n\n" + out[:max_chars]
+    # R-F1346 (R-F949 lesson — no silent mid-block slice): assemble WHOLE
+    # whitelisted blocks up to the budget instead of a char-slice that could
+    # truncate a sanctions verdict mid-sentence. The first (highest-priority)
+    # block is always kept in full; later blocks added only if they fit.
+    chosen: list[str] = []
+    used = 0
+    for block in kept:
+        if not chosen or used + len(block) + 2 <= max_chars:
+            chosen.append(block)
+            used += len(block) + 2
+        # else: drop this whole lower-priority block rather than truncate it
+    return "\n\n" + "\n\n".join(chosen)
 
 
 def _format_history_user_prompt(history, lang_hint: str, message: str, context: str) -> str:

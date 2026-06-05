@@ -88,10 +88,26 @@ def test_reducer_handles_empty():
     assert ae._reduce_context_for_small_model(None) == ""
 
 
-def test_reducer_caps_length():
+def test_reducer_never_truncates_a_block_mid_text():
+    """R-F1346 (R-F949 lesson): a single oversized whitelisted block (e.g. a
+    sanctions verdict) is kept WHOLE — never sliced mid-sentence — even past
+    the budget. Truncating a compliance verdict is worse than going over."""
     big = "[SANCTIONS LIVE CHECK — AUTHORITATIVE]\n" + ("x" * 9000)
     out = ae._reduce_context_for_small_model(big, max_chars=500)
-    assert len(out) <= 502  # 2 leading newlines + 500
+    assert out.count("x") == 9000  # full verdict preserved, not cut to 500
+
+
+def test_reducer_drops_whole_lower_priority_blocks_over_budget():
+    """Over budget, later blocks are dropped WHOLE (not truncated). The first
+    (compliance) block always survives intact."""
+    ctx = (
+        "[SANCTIONS LIVE CHECK — AUTHORITATIVE]\nAcme: NOT on OFAC SDN\n\n"
+        "[TOOL: self_introspect — auto-fired]\n" + ("y" * 4000) + "\n"
+    )
+    out = ae._reduce_context_for_small_model(ctx, max_chars=200)
+    assert "Acme: NOT on OFAC SDN" in out          # priority block kept whole
+    assert "yyyy" not in out                        # oversized later block dropped whole
+    assert "self_introspect" not in out
 
 
 # ── the shared builder (both chat paths) ─────────────────────────────────

@@ -1354,7 +1354,7 @@ async def lifespan(app: FastAPI):
         from .intel import knowledge as _kn
         while True:
             try:
-                pending = _wal.pending_count()
+                pending = await asyncio.to_thread(_wal.pending_count)  # R-F1346: off-loop
                 if pending:
                     res = await _wal.drain(_kn.store_fact, max_items=500)
                     logger.info("[R-F1342] memory_wal drain: %s", res)

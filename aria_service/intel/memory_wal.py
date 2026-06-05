@@ -25,6 +25,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -107,8 +108,12 @@ async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
         return {"pending": 0}
     _drain_in_progress = True
     try:
-        with _WAL_PATH.open("r", encoding="utf-8") as fh:
-            lines = [ln for ln in fh if ln.strip()]
+        # R-F1346: read the WAL off the event loop (up to 100k lines) — blocking
+        # file I/O on the loop would be ironic for the reliability theme.
+        def _read():
+            with _WAL_PATH.open("r", encoding="utf-8") as fh:
+                return [ln for ln in fh if ln.strip()]
+        lines = await asyncio.to_thread(_read)
         if not lines:
             return {"pending": 0}
 
@@ -148,10 +153,13 @@ async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
             still_failing = still_failing[:_MAX_WAL_LINES]
 
         # Rewrite the WAL with only what still needs retrying (atomic-ish).
-        tmp = _WAL_PATH.with_suffix(".jsonl.tmp")
-        with tmp.open("w", encoding="utf-8") as fh:
-            fh.writelines(still_failing)
-        tmp.replace(_WAL_PATH)
+        # R-F1346: write off the event loop.
+        def _rewrite():
+            tmp = _WAL_PATH.with_suffix(".jsonl.tmp")
+            with tmp.open("w", encoding="utf-8") as fh:
+                fh.writelines(still_failing)
+            tmp.replace(_WAL_PATH)
+        await asyncio.to_thread(_rewrite)
         return {"retried": processed, "remaining": len(still_failing),
                 "drained_total": _stats["drained"]}
     except Exception as e:

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1346,
+  "next_available": 1347,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7920,14 +7920,25 @@
       "title": "Pillar 1 invariant-1 batch 2: bound headless render-lock + multi_user_os/deep_researcher/provenance unbounded awaits",
       "claimed_at": "2026-06-05T17:00:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e245fe23",
+      "notes": null,
+      "shipped_at": "2026-06-05T17:10:34Z"
     },
     {
       "r_number": "R-F1345",
       "title": "v0.2 training pipeline fix: trl-0.12 processing_class API + pinned coherent deps + import-verify gate (no silent pip-fail)",
       "claimed_at": "2026-06-05T17:06:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e245fe23",
+      "notes": null,
+      "shipped_at": "2026-06-05T17:10:34Z"
+    },
+    {
+      "r_number": "R-F1346",
+      "title": "adversarial-review P2 fixes: memory_wal blocking I/O off-loop + R-F1338 no mid-block sanctions truncation",
+      "claimed_at": "2026-06-05T17:19:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
