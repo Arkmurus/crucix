@@ -183,7 +183,8 @@ activation, run something like:
 
 ```bash
 # 1. Build the 500-Q eval JSONL from the golden seed
-python -m aria_service.intel.eval_runner --export /workspace/datasets/aria_eval_500q.jsonl
+# (R-F1335: the old `eval_runner --export` command never existed — this is the real one)
+python scripts/train/export_eval_500q.py --out /workspace/datasets/aria_eval_500q.jsonl
 
 # 2. Run the eval against the SFT adapter (served via vLLM, step 3 above)
 python scripts/train/eval_aria_llm.py \

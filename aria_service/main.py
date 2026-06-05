@@ -1217,6 +1217,7 @@ async def lifespan(app: FastAPI):
     quiz_task = None
     reading_task = None
     library_consolidate_task = None
+    runpod_sched_task = None  # R-F1335
 
     async def _quiz_loop():
         # First quiz happens 20 min after startup (staggered from research
@@ -1327,6 +1328,19 @@ async def lifespan(app: FastAPI):
     reading_task = asyncio.create_task(_reading_loop())
     library_consolidate_task = asyncio.create_task(_library_consolidate_loop())
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
+
+    # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
+    # ARIA runs her own GPU reasoning window: pod ON 10:00-18:00
+    # Europe/London (her sovereign ARIA-LLM serves as chain primary),
+    # pod OFF outside it (DeepSeek takes over via the cooldown chain).
+    # Harmless no-op until RUNPOD_API_KEY + ARIA_RUNPOD_POD_ID secrets
+    # are set. Loop ticks its own self_restart heartbeat.
+    from .intel import runpod_scheduler as _runpod_sched
+    runpod_sched_task = asyncio.create_task(_runpod_sched.scheduler_loop())
+    logger.info(
+        "[R-F1335] RunPod scheduler started (configured=%s)",
+        _runpod_sched.configured(),
+    )
 
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
     # Hourly background loop that:
@@ -1930,6 +1944,8 @@ async def lifespan(app: FastAPI):
         reading_task.cancel()
     if library_consolidate_task:
         library_consolidate_task.cancel()
+    if runpod_sched_task:  # R-F1335
+        runpod_sched_task.cancel()
     if proactive_task:
         proactive_task.cancel()
     if ocr_prewarm_task:

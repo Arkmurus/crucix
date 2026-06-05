@@ -101,3 +101,4 @@ playwright>=1.40.0
 # in-infra. Decodes Opus/OGG via bundled PyAV. Model baked in the Dockerfile so
 # it loads from disk offline (HF_HUB_OFFLINE). Flag-gated (ARIA_VOICE_TRANSCRIBE_ENABLED).
 faster-whisper>=1.0.0
+tzdata>=2024.1  # R-F1335: IANA db for zoneinfo Europe/London (no-op where system tzdata exists)
