@@ -54,6 +54,14 @@ _RENDER_TIMEOUT = float(os.environ.get("LIGHTPANDA_RENDER_TIMEOUT", "20"))
 # (caller is a background indexer / researcher, not the chat hot path).
 _RENDER_LOCK: asyncio.Lock | None = None
 
+# R-F1344 (Pillar-1 invariant, mirrors R-F1341): bound the process-wide render
+# lock so one hung render (subprocess/Playwright stall) can't queue every other
+# render behind it and starve the loop. A waiter that can't acquire in
+# _RENDER_LOCK_ACQUIRE_S gives up → caller falls back to httpx. The render
+# itself is capped at _RENDER_OP_MAX_S so a stalled render aborts + releases.
+_RENDER_LOCK_ACQUIRE_S = float(os.environ.get("LIGHTPANDA_LOCK_ACQUIRE_S", "15"))
+_RENDER_OP_MAX_S = float(os.environ.get("LIGHTPANDA_RENDER_MAX_S", "45"))
+
 
 def _get_render_lock() -> asyncio.Lock:
     """Lazy-init the module-level render lock. Lazy because asyncio.Lock()
@@ -122,9 +130,17 @@ async def fetch_rendered_html(
     # fast (1-3 s) so queueing on this lock for an extraction path is
     # acceptable. Without the lock, three concurrent extractions all
     # spawn Lightpanda on the same port; only one wins.
-    async with _get_render_lock():
-
-
+    # R-F1344: bounded acquire — never let a stalled render starve the queue.
+    lock = _get_render_lock()
+    try:
+        await asyncio.wait_for(lock.acquire(), timeout=_RENDER_LOCK_ACQUIRE_S)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "headless: render-lock acquire timed out after %.0fs — falling back "
+            "to httpx (caller handles empty return)", _RENDER_LOCK_ACQUIRE_S,
+        )
+        return ""
+    try:
         # R-F1001 - wire to brain
         from .engine_wiring import wire_success
         wire_success(
@@ -132,8 +148,21 @@ async def fetch_rendered_html(
             summary="Fetch Rendered Html",
             source_id="headless:R-F1001",
         )
-
-        return await _fetch_rendered_html_locked(url, timeout)
+        # R-F1344: bound the whole render so a hung subprocess/Playwright can't
+        # hold the lock forever. _fetch_rendered_html_locked's finally cleans up
+        # the Lightpanda subprocess on cancellation.
+        return await asyncio.wait_for(
+            _fetch_rendered_html_locked(url, timeout), timeout=_RENDER_OP_MAX_S,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("headless: render exceeded %.0fs — aborted (httpx fallback)",
+                       _RENDER_OP_MAX_S)
+        return ""
+    finally:
+        try:
+            lock.release()
+        except RuntimeError:
+            pass
 
 
 async def _fetch_rendered_html_locked(url: str, timeout: float) -> str:
