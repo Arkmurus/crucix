@@ -781,6 +781,13 @@ class TerminalUI(AgentUI):
         self._theme = self.THEMES[self._theme_name]
         self.approve_all = False
         self._can_animate = sys.stdout.isatty()
+        # R-F1354: Claude-Code-style glyphs with cp1252 ASCII fallback. Reuses
+        # the same encoding probe _BoxChars uses (utf in stdout encoding, or
+        # Windows 10+ conhost which renders Unicode even under cp1252).
+        self._unicode = _BoxChars._probe_unicode()
+        # token count for the spinner ` · ↓ N tokens` tail; set by the agent
+        # wiring (callable returning an int) — None when unavailable.
+        self._token_getter: "callable | None" = None
         self._spin_stop: threading.Event | None = None
         self._spin_thread: threading.Thread | None = None
         self._stream_active = False
@@ -809,6 +816,47 @@ class TerminalUI(AgentUI):
         """Apply a theme color to text (R-F1260)."""
         code = self._theme.get(key, "0")
         return f"\033[{code}m{s}\033[0m" if self.c.on else s
+
+    # R-F1354: Claude-Code-style glyphs with ASCII fallback for cp1252 terminals.
+    _GLYPHS = {
+        "bullet": ("●", "*"),    # tool-call filled bullet
+        "branch": ("⎿", "\\"),   # tool-result tree branch
+        "spark": ("✦", "*"),     # spinner sparkle
+        "down": ("↓", "v"),      # tokens-down arrow
+        "ellipsis": ("…", "..."),
+    }
+
+    def _g(self, key: str) -> str:
+        """Return the unicode glyph or its ASCII fallback for this terminal."""
+        uni, ascii_ = self._GLYPHS[key]
+        return uni if self._unicode else ascii_
+
+    # R-F1354: Claude-Code-style whimsical gerunds, rotated by a counter.
+    _GERUNDS = ("Pondering", "Moseying", "Noodling", "Schlepping",
+                "Conjuring", "Percolating", "Ruminating", "Finessing")
+
+    @staticmethod
+    def _fmt_elapsed(seconds: float) -> str:
+        """Format elapsed seconds as ``Xm Ys`` (>=60s) or ``Ys`` (R-F1354)."""
+        s = int(seconds)
+        return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
+
+    def _spin_line(self, counter: int, elapsed: float, *, tokens: int | None = None,
+                   tail: str = "") -> str:
+        """Build the spinner line (R-F1354, extracted for testability).
+
+        Format: ``{✦} {Gerund}… ({elapsed} · ↓ {tokens} tokens){tail}``.
+        The ``· ↓ N tokens`` segment appears ONLY when ``tokens`` is given.
+        Gerund rotates by ``counter`` (deterministic, not random). Sparkle is
+        yellow; the body is dim.
+        """
+        spark = self.c.yellow(self._g("spark"))
+        gerund = self._GERUNDS[counter % len(self._GERUNDS)]
+        inner = self._fmt_elapsed(elapsed)
+        if tokens is not None:
+            inner += f" {self.c.dim('·')} {self._g('down')} {tokens} tokens"
+        body = self.c.dim(f"{gerund}{self._g('ellipsis')} ({inner}){tail}")
+        return f"{spark} {body}"
 
     def set_theme(self, theme: str) -> None:
         """Switch color theme (R-F1260)."""
@@ -922,15 +970,16 @@ class TerminalUI(AgentUI):
         detail = self._summarize(name, args)
         prefix = self._step_prefix()
 
+        bullet = self.c.green(self._g("bullet"))
         if name == "run":
             cmd = args.get("command", "")
             self._last_command = cmd[:200]
-            step_tag = f"{prefix} " if prefix else ""
-            print(self.c.dim(f"  {step_tag}$ {cmd[:200]}"))
+            step_tag = f"{self.c.dim(prefix)} " if prefix else ""
+            print(f"{bullet} {step_tag}run({cmd[:200]})")
             self._log(f"[cmd] $ {cmd[:200]}")
         else:
-            step_tag = f"{prefix} " if prefix else ""
-            print(self.c.dim(f"  {step_tag}{name} {detail}"))
+            step_tag = f"{self.c.dim(prefix)} " if prefix else ""
+            print(f"{bullet} {step_tag}{name}({detail})")
             self._log(f"[tool] {name}({detail})")
 
     def _render_code_block(self, code: str, language: str = "") -> None:
@@ -948,23 +997,48 @@ class TerminalUI(AgentUI):
         for ln in code.splitlines():
             print(self.c.dim(f"    {ln}"))
 
+    def _branch_lines(self, lines: list[str], *, color=None, width: int = 200) -> None:
+        """Render result lines under a tool call with a tree branch (R-F1354).
+
+        First line:      ``  ⎿  {content}`` (branch glyph, dim)
+        Following lines: ``     {content}`` (aligned beneath, dim)
+        ``color`` is a _Color method applied to the CONTENT; the branch glyph
+        and the leading indent are always dim. Empty ``lines`` prints nothing.
+        """
+        if not lines:
+            return
+        tint = color or self.c.dim
+        print(self._branch_lead(tint(lines[0][:width])))
+        for ln in lines[1:]:
+            print(f"     {tint(ln[:width])}")
+
+    def _branch_lead(self, content: str) -> str:
+        """Return the lead result line: ``  ⎿  {content}`` (branch glyph dim).
+        ``content`` is pre-colored by the caller."""
+        branch = self.c.dim("  " + self._g("branch") + "  ")
+        return f"{branch}{content}"
+
+    def _trunc_hint(self, remaining: int) -> None:
+        """Print the ``… +N lines`` truncation hint, aligned + dim (R-F1354)."""
+        if remaining > 0:
+            print(f"     {self.c.dim(self._g('ellipsis') + f' +{remaining} lines')}")
+
     def tool_result(self, name: str, result: ToolResult) -> None:
-        """Display a tool result with Rich rendering (R-F1267)."""
+        """Display a tool result with Rich rendering (R-F1267, R-F1354)."""
         _hb_touch(force=True)  # R-F1310: every completed tool step = alive
         if result.is_error:
             self._error_count += 1
             lines = result.output.splitlines()
             head = lines[0] if lines else ""
-            print(self.c.red(f"  ! {head[:200]}"))
+            # lead error line uses the branch glyph (dim) + red content.
+            print(self._branch_lead(self.c.red(head[:200])))
             self._log(f"[error] {head[:200]}")
-            if len(lines) > 1:
-                for ln in lines[1:11]:
-                    print(self.c.dim(f"    {ln[:200]}"))
-                if len(lines) > 11:
-                    print(self.c.dim(f"    ... ({len(lines) - 11} more lines)"))
+            for ln in lines[1:11]:
+                print(f"     {self.c.dim(ln[:200])}")
+            self._trunc_hint(len(lines) - 11 if len(lines) > 11 else 0)
             suggestion = self._error_suggestion(name, result.output)
             if suggestion:
-                print(self.c.yellow(f"    {suggestion}"))
+                print(f"     {self.c.yellow(suggestion)}")
             return
 
         if name == "run":
@@ -976,24 +1050,20 @@ class TerminalUI(AgentUI):
                 else:
                     lines = output.splitlines()
                     if len(lines) > 5:
-                        preview = "\n".join(lines[:3])
-                        tail = f"... ({len(lines) - 3} more lines)"
-                        print(self.c.dim(f"    {preview}"))
-                        print(self.c.dim(f"    {tail}"))
+                        self._branch_lines(lines[:3])
+                        self._trunc_hint(len(lines) - 3)
                     else:
-                        for ln in lines:
-                            print(self.c.dim(f"    {ln}"))
+                        self._branch_lines(lines)
             exit_code = "0" if not result.is_error else "non-zero"
             self._log(f"[result] {len(result.output.splitlines()) if result.output else 0} lines, exit {exit_code}")
 
         if name in ("write_file", "edit_file") and result.mutation:
             self._file_changes += 1
-            print(self.c.green(f"  + {result.mutation}"))
+            print(self._branch_lead(self.c.green(result.mutation)))
             self._log(f"[write] {result.mutation}")
 
         if name in {"update_plan", "ask_claude", "check_claude"}:
-            for ln in result.output.splitlines():
-                print(self.c.dim(f"    {ln}"))
+            self._branch_lines(result.output.splitlines())
 
     def _error_suggestion(self, name: str, output: str) -> str:
         """Suggest recovery steps after common errors (R-F1260)."""
@@ -1038,27 +1108,37 @@ class TerminalUI(AgentUI):
             print(self.c.dim(f"  ~ {label}..."), flush=True)
 
     def _spin(self) -> None:
-        """Animated spinner with context label and live output preview (R-F1260)."""
-        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        i = 0
+        """Claude-Code-style spinner: ✦ {Gerund}… (elapsed · ↓ N tokens) (R-F1354).
+
+        The redraw cadence, \\r\\033[K carriage-return clear, live-output tail and
+        thread/stop logic are unchanged from R-F1260 — only the rendered line
+        format and the gerund/token presentation are new.
+        """
         last_tail = ""
         while self._spin_stop is not None and not self._spin_stop.is_set():
-            elapsed = int(time.monotonic() - self._spin_start)
+            elapsed = time.monotonic() - self._spin_start
             if self._last_output:
-                tail = self._last_output.strip()[:60]
-                if tail != last_tail:
-                    last_tail = tail
-                tail = f"  {tail}"
+                t = self._last_output.strip()[:60]
+                if t != last_tail:
+                    last_tail = t
+                tail = f"  {t}"
             elif self._last_command:
                 tail = f"  {self._last_command[:60]}"
             else:
                 tail = ""
-            prefix = self._step_prefix()
-            label = f"{prefix} {self._spin_label}" if prefix else self._spin_label
-            line = f"  {frames[i % len(frames)]} {label} ({elapsed}s){tail}"
-            sys.stdout.write("\r\033[K" + self.c.dim(line[:140]))
+            # Gerund rotates ~every 3s (deterministic by elapsed, not random).
+            counter = int(elapsed // 3)
+            tokens = None
+            if self._token_getter is not None:
+                try:
+                    tk = self._token_getter()
+                    if tk:
+                        tokens = int(tk)
+                except Exception:  # noqa: BLE001
+                    tokens = None
+            line = self._spin_line(counter, elapsed, tokens=tokens, tail=tail)
+            sys.stdout.write("\r\033[K" + line[:160])
             sys.stdout.flush()
-            i += 1
             tick = 0.08 if self._last_output else 0.15
             self._spin_stop.wait(tick)
         sys.stdout.write("\r\033[K")
@@ -1405,6 +1485,8 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     theme = getattr(args, "theme", "dark")
     ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color, theme=theme)
     toolbox.on_output = ui.tool_output
+    # R-F1354: feed the spinner a live token count (output tokens so far).
+    ui._token_getter = lambda: llm.total_output_tokens
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,
                   auto_approve=args.auto)
 
@@ -1916,8 +1998,20 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     print(color.dim(f"  cost failed: {e}"))
                 continue
             if line == "/model":
-                print(color.dim(f"  model: {cfg.get('model', 'auto')}"))
-                print(color.dim(f"  chain: deepseek (active) · anthropic (cooldown)"))
+                # R-F1354: dynamic — read the REAL configured provider/model from
+                # cfg instead of the old hardcoded "deepseek · anthropic". If the
+                # provider/base_url points at the sovereign ARIA-LLM, show that.
+                _prov = (getattr(cfg, "provider", "") or "").lower()
+                _burl = (getattr(cfg, "base_url", "") or "").lower()
+                _is_aria = (
+                    _prov in {"aria", "aria-llm"}
+                    or "aria-llm" in _burl
+                    or "runpod" in _burl
+                    or "/api/aria" in _burl
+                )
+                active = "aria-llm" if _is_aria else (_prov or "unknown")
+                print(color.dim(f"  model: {getattr(cfg, 'model', 'auto') or 'auto'}"))
+                print(color.dim(f"  chain: {active} (active)  ·  {getattr(cfg, 'base_url', '') or 'n/a'}"))
                 continue
             if line == "/compact":
                 before = len(agent.messages)
