@@ -150,7 +150,8 @@ def get_lock_diagnostics() -> dict:
     _DiagLock and currently held.
     """
     if _lock is None:
-        return {"initialised": False, "locked": False}
+        return {"initialised": False, "locked": False,
+                "op_timeouts": dict(_op_timeout_counts)}  # R-F1341
     out: dict[str, Any] = {"initialised": True, "locked": _lock.locked()}
     try:
         waiters = getattr(_lock, "_waiters", None)
@@ -165,6 +166,7 @@ def get_lock_diagnostics() -> dict:
             if _lock.acquired_at is not None
             else None
         )
+    out["op_timeouts"] = dict(_op_timeout_counts)  # R-F1341
     return out
 
 
@@ -184,6 +186,105 @@ def _reset_lock() -> None:
     Called from connect() to handle pytest's per-test loops cleanly."""
     global _lock
     _lock = None
+
+
+# ── R-F1341: bounded, self-healing locked-op wrapper ──────────────────────
+# Root cause of the recurring blackout (proven 2026-06-05 via R-F1334 lock
+# diagnostics): one state_store.hset acquired the global RMW lock and its
+# in-lock aiosqlite write never returned — lock held 1311s with 140 waiters,
+# starving the event loop until the heartbeat went stale → blackout. Every
+# compound op shared ONE asyncio.Lock around ONE aiosqlite connection with no
+# timeout, so a single stalled write took down the whole app.
+#
+# Fix: every compound op now runs through _run_locked(), which bounds BOTH
+#   (a) lock ACQUISITION — a waiter that can't get the lock in
+#       _ACQUIRE_TIMEOUT_S gives up and returns a safe default, so a stalled
+#       holder can never starve the loop into a blackout, AND
+#   (b) the in-lock OPERATION — if the aiosqlite read+write exceeds
+#       _OP_TIMEOUT_S the holder aborts, releases the lock, and triggers a
+#       single-flight connection reset (self-heal) so a wedged connection
+#       doesn't poison every subsequent op.
+# A fatal "one stall = whole-app blackout" becomes "one stall = one dropped
+# write + auto-reconnect", which is the reliability floor for 99.99% uptime.
+_OP_TIMEOUT_S = float(os.getenv("ARIA_STATE_OP_TIMEOUT_S", "15"))
+_ACQUIRE_TIMEOUT_S = float(os.getenv("ARIA_STATE_ACQUIRE_TIMEOUT_S", "20"))
+_op_timeout_counts = {"acquire": 0, "op": 0, "reconnect": 0}
+_reconnect_in_progress = False
+
+
+async def _reconnect() -> None:
+    """Single-flight: drop the wedged aiosqlite connection and reopen it.
+    Does NOT touch the lock (callers may hold it). Safe to call concurrently —
+    only the first caller reconnects; the rest no-op."""
+    global _conn, _reconnect_in_progress
+    if _reconnect_in_progress:
+        return
+    _reconnect_in_progress = True
+    try:
+        import aiosqlite
+
+        old, _conn = _conn, None
+        if old is not None:
+            try:
+                await asyncio.wait_for(old.close(), timeout=5.0)
+            except Exception:
+                pass  # the whole point is that it was wedged
+        if _DB_PATH is None:
+            return
+        conn = await aiosqlite.connect(str(_DB_PATH))
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA foreign_keys=OFF")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        await conn.commit()
+        _conn = conn
+        _op_timeout_counts["reconnect"] += 1
+        logger.warning("[R-F1341] state_store connection reset (self-heal) #%d",
+                       _op_timeout_counts["reconnect"])
+    except Exception as e:
+        logger.error("[R-F1341] state_store reconnect failed: %s", e)
+    finally:
+        _reconnect_in_progress = False
+
+
+async def _run_locked(op_name: str, factory, default=None):
+    """Run a compound RMW op under the global lock with bounded acquire +
+    bounded execution. Never lets a single stalled op blackout the app."""
+    lock = _get_lock()
+    try:
+        await asyncio.wait_for(lock.acquire(), timeout=_ACQUIRE_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        _op_timeout_counts["acquire"] += 1
+        _diag = get_lock_diagnostics()
+        logger.error(
+            "[R-F1341] state_store %s: lock-acquire timed out after %.0fs "
+            "(holder=%s held_for=%ss waiters=%s) — dropping write to keep the "
+            "event loop alive", op_name, _ACQUIRE_TIMEOUT_S,
+            _diag.get("holder_task"), _diag.get("held_for_s"), _diag.get("waiters"),
+        )
+        return default
+    try:
+        return await asyncio.wait_for(factory(), timeout=_OP_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        _op_timeout_counts["op"] += 1
+        logger.error(
+            "[R-F1341] state_store %s: in-lock op exceeded %.0fs — aborting + "
+            "resetting connection (self-heal)", op_name, _OP_TIMEOUT_S,
+        )
+        # Reconnect off the critical path so we release the lock promptly.
+        try:
+            asyncio.get_running_loop().create_task(_reconnect())
+        except Exception:
+            pass
+        return default
+    except Exception as e:
+        logger.warning("[R-F1341] state_store %s failed: %s", op_name, e)
+        return default
+    finally:
+        try:
+            lock.release()
+        except RuntimeError:
+            pass  # already released / not held — never raise from the wrapper
 
 
 def _now() -> float:
@@ -471,11 +572,12 @@ async def _read_list(key: str) -> tuple[list, float | None]:
 
 
 async def lpush(key: str, value: str) -> None:
-    async with _get_lock():
+    async def _op():
         lst, expires_at = await _read_list(key)
         lst.insert(0, value)
         await _upsert(key, json.dumps(lst, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
+    await _run_locked("lpush", _op)  # R-F1341: bounded + self-healing
     # R-F1252: yield event loop after list write so aiosqlite's single
     # worker thread can drain its queue and other coroutines can run.
     # Without this, sequential lpush/ltrim pairs (common in agent_registry,
@@ -492,7 +594,7 @@ async def lpop(key: str) -> str | None:
     Returns:
         The popped value, or None if the list is empty.
     """
-    async with _get_lock():
+    async def _op():
         lst, expires_at = await _read_list(key)
         if not lst:
             return None
@@ -500,10 +602,11 @@ async def lpop(key: str) -> str | None:
         await _upsert(key, json.dumps(lst, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
         return str(val) if val is not None else None
+    return await _run_locked("lpop", _op)  # R-F1341
 
 
 async def ltrim(key: str, start: int, stop: int) -> None:
-    async with _get_lock():
+    async def _op():
         lst, expires_at = await _read_list(key)
         if not lst:
             return
@@ -512,6 +615,7 @@ async def ltrim(key: str, start: int, stop: int) -> None:
         trimmed = lst[start:end]
         await _upsert(key, json.dumps(trimmed, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
+    await _run_locked("ltrim", _op)  # R-F1341
     await asyncio.sleep(0)
 
 
@@ -530,7 +634,7 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
 
 async def incr(key: str, amount: int = 1) -> int:
     """Atomic integer increment (atomic due to the lock + UPSERT)."""
-    async with _get_lock():
+    async def _op():
         row = await _row(key, expected_kind="string")
         try:
             current = int(row[0]) if row else 0
@@ -541,11 +645,12 @@ async def incr(key: str, amount: int = 1) -> int:
         await _upsert(key, str(new_val), kind="string",
                       expires_at=expires_at, keepttl=True)
         return new_val
+    return await _run_locked("incr", _op, default=0)  # R-F1341
 
 
 async def incrbyfloat(key: str, amount: float) -> float:
     """Atomic float increment."""
-    async with _get_lock():
+    async def _op():
         row = await _row(key, expected_kind="string")
         try:
             current = float(row[0]) if row else 0.0
@@ -556,6 +661,7 @@ async def incrbyfloat(key: str, amount: float) -> float:
         await _upsert(key, f"{new_val:.6f}", kind="string",
                       expires_at=expires_at, keepttl=True)
         return new_val
+    return await _run_locked("incrbyfloat", _op, default=0.0)  # R-F1341
 
 
 async def expire(key: str, seconds: int) -> bool:
@@ -588,7 +694,7 @@ async def _read_zset(key: str) -> tuple[list[tuple[float, str]], float | None]:
 
 
 async def zadd(key: str, score: float, member: str) -> None:
-    async with _get_lock():
+    async def _op():
         entries, expires_at = await _read_zset(key)
         # Remove existing member, then re-insert with the new score
         entries = [(s, m) for s, m in entries if m != member]
@@ -596,6 +702,7 @@ async def zadd(key: str, score: float, member: str) -> None:
         entries.sort(key=lambda x: x[0])
         await _upsert(key, json.dumps(entries, default=str), kind="zset",
                       expires_at=expires_at, keepttl=True)
+    await _run_locked("zadd", _op)  # R-F1341
 
 
 async def zrevrange(key: str, start: int, stop: int) -> list[str]:
@@ -606,13 +713,14 @@ async def zrevrange(key: str, start: int, stop: int) -> list[str]:
 
 
 async def zrem(key: str, member: str) -> bool:
-    async with _get_lock():
+    async def _op():
         entries, expires_at = await _read_zset(key)
         before = len(entries)
         entries = [(s, m) for s, m in entries if m != member]
         await _upsert(key, json.dumps(entries, default=str), kind="zset",
                       expires_at=expires_at, keepttl=True)
         return len(entries) < before
+    return bool(await _run_locked("zrem", _op, default=False))  # R-F1341
 
 
 async def zcard(key: str) -> int:
@@ -634,11 +742,12 @@ async def _read_hash(key: str) -> tuple[dict, float | None]:
 
 
 async def hset(key: str, mapping: dict) -> None:
-    async with _get_lock():
+    async def _op():
         existing, expires_at = await _read_hash(key)
         existing.update(mapping)
         await _upsert(key, json.dumps(existing, default=str), kind="hash",
                       expires_at=expires_at, keepttl=True)
+    await _run_locked("hset", _op)  # R-F1341: was the 1311s-hold blackout culprit
 
 
 async def hgetall(key: str) -> dict:

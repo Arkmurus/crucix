@@ -107,7 +107,10 @@ async def test_diaglock_no_warn_on_short_hold(monkeypatch, caplog):
 def test_get_lock_diagnostics_uninitialised():
     state_store._reset_lock()
     diag = state_store.get_lock_diagnostics()
-    assert diag == {"initialised": False, "locked": False}
+    assert diag["initialised"] is False
+    assert diag["locked"] is False
+    # R-F1341: op_timeout counters are surfaced even before the lock binds
+    assert "op_timeouts" in diag
 
 
 # ── Capability: the real wedge dump names the culprit ────────────────────
