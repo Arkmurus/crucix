@@ -80,8 +80,19 @@ log "=== v0.2 self-improvement run ==="
 log "preflight ok — DPO pairs: $(wc -l < "${DPO_FILE}")"
 
 # ── Deps ───────────────────────────────────────────────────────────────
-log "installing training deps (idempotent)…"
-pip install -q trl peft bitsandbytes accelerate datasets 2>&1 | tail -2 || fail "dep install failed"
+# R-F1345: pin a COHERENT set (the base image's transformers + a mismatched
+# peft caused "Could not import BloomPreTrainedModel" and the v0.2 run failed).
+# trl 0.12 uses processing_class (dpo_train.py R-F1345). Do NOT pipe pip
+# through tail — that masked the failure exit code last time.
+log "installing pinned training deps…"
+pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
+    "accelerate>=0.34" bitsandbytes datasets || fail "dep install failed"
+# Fail FAST if the training stack can't actually import (the real failure mode).
+python - <<'PYCHECK' || fail "training deps import check failed — aborting before train"
+import transformers, peft, trl, bitsandbytes, accelerate  # noqa
+from trl import DPOTrainer, DPOConfig  # noqa
+print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__}")
+PYCHECK
 
 # ── Baseline eval of v0.1 (so the gate has a reference) ────────────────
 # Reuse the committed v0.1 report if present on the pod; else eval now.

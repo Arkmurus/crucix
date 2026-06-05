@@ -123,11 +123,14 @@ def main() -> None:
         report_to="none",
     )
 
+    # R-F1345: trl >=0.12 renamed DPOTrainer's `tokenizer` arg to
+    # `processing_class`. Use processing_class (works trl 0.12+); the old
+    # `tokenizer=` raised "unexpected keyword" and broke the v0.2 run.
     trainer = DPOTrainer(
         model=model,
         args=dpo_config,
         train_dataset=ds,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
     )
     trainer.train()
     trainer.save_model(str(args.output_dir))
