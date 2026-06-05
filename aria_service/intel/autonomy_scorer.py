@@ -9,17 +9,29 @@ then maps to five autonomy tiers:
   0.35–55 LOW     — research only, no mutations
   < 0.35  NONE    — engine paused, only self-assessment tasks run
 
-Signal weights:
-  mastery          30%  — student.get_mastery_report().overall_mastery
-  verification     35%  — source_verifier grounded rate (the REAL grounding)
-  predictor_gate   20%  — 1.0 - (blocks_24h / 10), clamped [0,1]
-  honesty_rate     15%  — honesty_judge recent-window score (R-F906: was
-                          mislabeled "grounded_rate"; renamed because it
-                          reads the honesty judge, not source grounding)
+Signal weights (R-F1350 — HONEST composite):
+  mastery          30%  — capability (headline_mastery)
+  verification     45%  — source_verifier grounded rate (the REAL grounding)
+  honesty_rate     25%  — honesty_judge recent-window score
 
-HARD OVERRIDE: predictor BLOCK overrides all signals — if predictor
-has blocked >5 tasks in 24h, tier drops to NONE regardless of
-composite score.
+R-F1350: predictor_gate was REMOVED from the weighted composite. It was
+`1.0 - blocks_24h/10` at 20% weight, but `blocks_24h` is written ONLY by the
+autonomous task-block loop (tasks.py) — chat/DD never touch it — so in normal
+operation it is a near-permanent 1.0 = a +0.20 constant unrelated to honesty
+or grounding. It inflated Phase A gate #1's "composite >=71%" by ~0.20 and
+double-counted (predictor is ALSO the hard override below). It now serves ONLY
+its legitimate purpose: the hard safety override. The freed 20% was given to
+the two signals that actually measure honesty — verification (grounding, +10)
+and honesty_rate (+10) — so every weighted component now measures real
+honesty/grounding/capability.
+
+CONFIDENCE: the composite renormalises over the signals that have REAL data
+(no silent 0.5 padding). `confidence` = fraction of weight backed by data;
+`low_confidence` flags a score built mostly on defaults — so the number is
+honest about how much it actually knows.
+
+HARD OVERRIDE: if the predictor has blocked >5 tasks in 24h, tier drops to
+NONE regardless of composite score.
 
 Also includes 80/20 self-improvement scorer with compliance_risk_reduction
 weight (20%) for prioritizing compliance gaps over general accuracy.
@@ -59,11 +71,14 @@ TIER_LABELS = {
     AutonomyTier.FULL: "FULL — all channels, autonomous",
 }
 
-# Signal weights
+# Signal weights (R-F1350: predictor removed from weights → override-only;
+# its 20% redistributed to the real honesty signals).
 W_MASTERY = 0.30
-W_VERIFICATION = 0.35
-W_PREDICTOR = 0.20
-W_HONESTY = 0.15  # R-F906: renamed from W_GROUNDED (signal reads honesty judge)
+W_VERIFICATION = 0.45  # R-F1350: 0.35 + 0.10 (was predictor's)
+W_HONESTY = 0.25       # R-F1350: 0.15 + 0.10 (was predictor's)
+# Below which `confidence` (fraction of weight backed by real data) the
+# composite is flagged low_confidence rather than presented as a hard number.
+MIN_CONFIDENCE = 0.60
 
 # Tier thresholds
 TIER_THRESHOLDS = [
@@ -80,10 +95,10 @@ PREDICTOR_BLOCK_OVERRIDE = 5
 
 async def compute_composite() -> dict:
     """Compute the composite autonomy score from all four signals."""
+    # R-F1350: predictor_gate is no longer a weighted signal (override-only).
     signals: dict[str, float | None] = {
         "mastery": None,
         "verification": None,
-        "predictor_gate": None,
         "honesty_rate": None,
     }
     details: dict[str, Any] = {}
@@ -145,15 +160,17 @@ async def compute_composite() -> dict:
         logger.debug("autonomy scorer: verification failed: %s", e)
         details["verification_source"] = "error"
 
-    # 3. Predictor gate health (20%)
+    # 3. Predictor blocks — read for the HARD OVERRIDE only (R-F1350: no
+    # longer a weighted signal; blocks_24h is written only by the autonomous
+    # task-block loop, so as a weight it was a near-constant +0.20).
     try:
         from . import redis_store as rs
-        blocks_24h = int(await rs.get("crucix:predictor:blocks:24h") or 0)
-        # Score: 1.0 at 0 blocks, 0.0 at 10+ blocks
-        signals["predictor_gate"] = max(0.0, 1.0 - (blocks_24h / 10.0))
-        details["predictor_blocks_24h"] = blocks_24h
+        details["predictor_blocks_24h"] = int(
+            await rs.get("crucix:predictor:blocks:24h") or 0
+        )
     except Exception as e:
-        logger.debug("autonomy scorer: predictor failed: %s", e)
+        logger.debug("autonomy scorer: predictor blocks read failed: %s", e)
+        details["predictor_blocks_24h"] = 0
 
     # 4. Honesty rate from judge (15%) — R-F906.
     #
@@ -199,25 +216,33 @@ async def compute_composite() -> dict:
         logger.debug("autonomy scorer: honesty failed: %s", e)
         details["honesty_rate_source"] = "error"
 
-    # Compute weighted composite (use 0.5 default for missing signals)
-    weighted_sum = 0.0
-    total_weight = 0.0
-    for signal, weight in [
+    # R-F1350: compute over the signals that have REAL data and renormalise —
+    # no silent 0.5 padding (padding flattered a data-starved score toward
+    # neutral). `confidence` = fraction of total weight backed by real data;
+    # a low-confidence score is flagged, not dressed up as a hard number.
+    _WEIGHTS = [
         ("mastery", W_MASTERY),
         ("verification", W_VERIFICATION),
-        ("predictor_gate", W_PREDICTOR),
         ("honesty_rate", W_HONESTY),
-    ]:
+    ]
+    _total_weight = sum(w for _, w in _WEIGHTS)
+    measured_sum = 0.0
+    measured_weight = 0.0
+    for signal, weight in _WEIGHTS:
         val = signals[signal]
         if val is not None:
-            weighted_sum += val * weight
-            total_weight += weight
-        else:
-            # Use neutral default for missing signals
-            weighted_sum += 0.5 * weight
-            total_weight += weight
+            measured_sum += val * weight
+            measured_weight += weight
 
-    composite = round(weighted_sum / total_weight, 4) if total_weight > 0 else 0.5
+    if measured_weight > 0:
+        composite = round(measured_sum / measured_weight, 4)
+    else:
+        composite = 0.5  # genuinely no data — neutral prior, flagged below
+    confidence = round(measured_weight / _total_weight, 4) if _total_weight else 0.0
+    low_confidence = confidence < MIN_CONFIDENCE
+    details["confidence"] = confidence
+    details["low_confidence"] = low_confidence
+    details["signals_measured"] = [s for s, _ in _WEIGHTS if signals[s] is not None]
 
     # Determine tier
     tier = AutonomyTier.NONE
@@ -240,7 +265,9 @@ async def compute_composite() -> dict:
         "tier_label": TIER_LABELS[tier],
         "signals": {k: round(v, 4) if v is not None else None for k, v in signals.items()},
         "weights": {"mastery": W_MASTERY, "verification": W_VERIFICATION,
-                    "predictor_gate": W_PREDICTOR, "honesty_rate": W_HONESTY},
+                    "honesty_rate": W_HONESTY},  # R-F1350: predictor is override-only
+        "confidence": confidence,          # R-F1350: fraction of weight with real data
+        "low_confidence": low_confidence,  # R-F1350: True when mostly defaults
         "override": override,
         "computed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "details": details,
@@ -265,9 +292,10 @@ async def compute_composite() -> dict:
         from .engine_wiring import wire_success as _ws
         _ws(
             module="autonomy_scorer",
-            summary=f"Composite score: {composite:.3f} (tier={tier.name})",
+            summary=f"Composite score: {composite:.3f} (tier={tier.name}, conf={confidence})",
             detail=f"mastery={signals['mastery']} verification={signals['verification']} "
-                   f"predictor={signals['predictor_gate']} honesty={signals['honesty_rate']} "
+                   f"honesty={signals['honesty_rate']} confidence={confidence} "
+                   f"low_conf={low_confidence} blocks={details.get('predictor_blocks_24h')} "
                    f"override={override}",
             source_id="autonomy_scorer",
         )

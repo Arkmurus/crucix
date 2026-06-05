@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1350,
+  "next_available": 1351,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7969,6 +7969,16 @@
       "r_number": "R-F1349",
       "title": "wave-2 P0s: UBO walk NameError (wire_success import) + Zoom webhook unauth/SSRF gate",
       "claimed_at": "2026-06-05T17:45:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "888fdff0",
+      "notes": null,
+      "shipped_at": "2026-06-05T17:51:47Z"
+    },
+    {
+      "r_number": "R-F1350",
+      "title": "honest composite: predictor_gate is a near-constant +0.20 unrelated to honesty - make the autonomy/honesty composite measure REAL grounding",
+      "claimed_at": "2026-06-05T18:17:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
