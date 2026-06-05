@@ -51,7 +51,10 @@ def load_failed_questions(eval_report: Path, eval_set: Path) -> list[dict]:
 
     by_seed = {e.get("seed_id"): e for e in SEED_ENTRIES}
     report = json.loads(eval_report.read_text(encoding="utf-8"))
-    results = (report.get("dd_eval") or {}).get("results") or []
+    # eval_aria_llm.py writes the dd block under "defence_dd" (not "dd_eval").
+    results = (
+        (report.get("defence_dd") or report.get("dd_eval") or {}).get("results") or []
+    )
     failed_keys = {
         r["question"] for r in results
         if r.get("passed") is False or r.get("error")
