@@ -257,11 +257,12 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     # token. Read-only aggregated metrics; same posture as R-F680.
     "/api/aria/health/perf",                  # self-introspection (R-F396)
     "/api/aria/brain/stats",                  # brain-hook signal stats
-    # R-F1251 (2026-06-01): client learning sync endpoints. Clients send
-    # interaction data and pull learning patterns. Read-only aggregated
-    # metrics; same posture as R-F680.
-    "/api/aria/learning/sync",                # client learning sync
-    "/api/aria/learning/updates",             # client learning updates
+    # R-F1347 (2026-06-05): REMOVED /learning/sync + /learning/updates from the
+    # public bypass. R-F1251 made them public, but /learning/sync is a brain
+    # WRITE (feeds neural memory + gap detector) — public = unauthenticated
+    # memory poisoning, and /learning/updates leaked ARIA's own capability-gaps
+    # + mistake-ledger. They now require_aria_token (the terminal client already
+    # holds the token for /client/chat, so it authenticates here too).
 })
 
 
@@ -21111,7 +21112,7 @@ async def vault_delete_ep(site_id: str) -> dict:
 
 # ── Client Learning Sync ─────────────────────────────────────────────────
 
-@router.post("/learning/sync")
+@router.post("/learning/sync", dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth brain WRITE
 async def learning_sync_ep(request: Request) -> dict:
     """Receive learning data from ARIA clients.
 
@@ -21164,7 +21165,7 @@ async def learning_sync_ep(request: Request) -> dict:
     }
 
 
-@router.get("/learning/updates")
+@router.get("/learning/updates", dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth gap/mistake leak
 async def learning_updates_ep(
     client_id: str = "",
     client_version: str = "",

@@ -2139,9 +2139,17 @@ if _static_os.path.isdir(_static_dir):
                 status_code=500,
             )
 
-    @app.get("/token", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/token", response_class=HTMLResponse, include_in_schema=False,
+             dependencies=[Depends(require_aria_token)])  # R-F1347: was PUBLIC — leaked the master token
     async def token_page(request: Request):
-        """Show the user their API token for use with the terminal client."""
+        """Show the user their API token for use with the terminal client.
+
+        R-F1347: GATED behind require_aria_token. This page renders the full
+        bearer token; without the gate it was a public master-key leak
+        (anyone could GET /token and control all routes). The operator
+        retrieves the token from fly secrets to bootstrap; this page is a
+        convenience for already-authenticated callers only.
+        """
         token = _os.getenv("ARIA_API_TOKEN", "")
         masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "(not set)"
         html = f"""<!DOCTYPE html>
@@ -2227,7 +2235,8 @@ if _static_os.path.isdir(_static_dir):
 </html>"""
         return HTMLResponse(content=html)
 
-    @app.post("/api/aria/client/chat")
+    @app.post("/api/aria/client/chat",
+              dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth full-LLM spend
     async def aria_client_chat(request: Request):
         """Chat endpoint for the ARIA terminal client.
 
@@ -2254,7 +2263,8 @@ if _static_os.path.isdir(_static_dir):
         result = await chat_ep(chat_req, request)
         return result
 
-    @app.post("/api/aria/client/analyse")
+    @app.post("/api/aria/client/analyse",
+              dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth full-LLM spend
     async def aria_client_analyse(request: Request):
         """Analyse code endpoint for the ARIA terminal client.
 
