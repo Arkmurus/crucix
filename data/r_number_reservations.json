@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1349,
+  "next_available": 1350,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7959,6 +7959,16 @@
       "r_number": "R-F1348",
       "title": "P0-3: DD sanctions screen failures must surface as data_gaps (never silently dropped) + record_gap",
       "claimed_at": "2026-06-05T17:40:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "38a67ac0",
+      "notes": null,
+      "shipped_at": "2026-06-05T17:44:32Z"
+    },
+    {
+      "r_number": "R-F1349",
+      "title": "wave-2 P0s: UBO walk NameError (wire_success import) + Zoom webhook unauth/SSRF gate",
+      "claimed_at": "2026-06-05T17:45:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

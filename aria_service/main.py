@@ -2504,18 +2504,30 @@ async def zoom_webhook_ep(request: Request):
         from .intel import zoom_integration as zoom
         body = await request.json()
 
-        # Verify Zoom signature if webhook secret is set
+        # Verify Zoom signature. R-F1349: when a secret is configured the
+        # signature is REQUIRED — previously `if _WEBHOOK_SECRET and signature:`
+        # let an attacker bypass the whole check by simply OMITTING the
+        # x-zm-signature header (empty → falsy → skipped), reaching the
+        # download/SSRF path unauthenticated. Now: secret set → must have a
+        # valid signature, else 401.
         signature = request.headers.get("x-zm-signature", "")
         timestamp = request.headers.get("x-zm-request-timestamp", "")
-        if zoom._WEBHOOK_SECRET and signature:
+        if zoom._WEBHOOK_SECRET:
             raw_body = await request.body()
-            if not zoom.verify_webhook_signature(raw_body, signature, timestamp):
+            if not signature or not zoom.verify_webhook_signature(raw_body, signature, timestamp):
                 from fastapi import HTTPException
-                raise HTTPException(status_code=401, detail="Invalid Zoom webhook signature")
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid or missing Zoom webhook signature",
+                )
 
         llm = getattr(app.state, "llm_provider", None)
         result = await zoom.handle_webhook(body, llm=llm)
         return result
+    except HTTPException:
+        # R-F1349: let the 401 signature rejection propagate — the broad
+        # except below otherwise swallowed it and returned 200 (auth bypass).
+        raise
     except Exception as e:
         logger.warning("Zoom webhook error: %s", e)
         return {"error": str(e)}
