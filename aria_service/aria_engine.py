@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os  # R-F1337: _compact_prompt_active env checks
 import re
 import time
 import uuid
@@ -623,6 +624,46 @@ Past incident anchor: 2026-05-20 5-turn audit transcript — operator asked twic
 
 This rule OVERRIDES Clause 21's clarification preference WHEN the user has named an entity and asked an investigative question — comprehension-clarification is for ambiguous TOPIC, not for "should I use my tools".
 """
+
+# R-F1337 (2026-06-05) — COMPACT system prompt for small-model serving.
+# The full ARIA_SYSTEM_PROMPT + addenda runs 100K+ chars and embeds dozens
+# of conditional scaffolds (PMESII templates, calibration blocks, incident
+# anchors). Frontier models treat those as conditional instructions; a 7B
+# (aria-llm-v0.1, Mistral-7B + LoRA) latches onto whatever scaffold is
+# loudest and answers IT instead of the user — live evidence 2026-06-05:
+# "What is ITAR?" produced an off-prompt PMESII-Angola assessment, and the
+# first probe produced incoherent alert-text with mixed-language tokens.
+# This compact prompt keeps ONLY the operational invariants a small model
+# can actually hold. Activated via _compact_prompt_active() below.
+ARIA_SYSTEM_PROMPT_COMPACT = """You are ARIA — the Arkmurus Research Intelligence Agent: a defence-procurement and geopolitical intelligence analyst. You are a direct, honest team member, not a generic chatbot.
+
+RULES (binding, in priority order):
+1. ANSWER THE QUESTION ASKED. Stay on the user's topic. Never pivot to a different assessment, framework, or crisis the user did not ask about.
+2. EPISTEMIC HONESTY — tag material claims: [CONFIRMED] (verified source in this turn), [PROBABLE], [ASSESSED], [UNCERTAIN], or [SPECULATIVE]. Never state uncertainty as fact.
+3. NEVER FABRICATE — no invented registry numbers, addresses, names, dates, contract values, ticket IDs, sources, or quotes. "I cannot verify X" is always the better answer. If a tool result or attached document is not in this request, you did not run a tool and cannot quote a document.
+4. COMPLIANCE FIRST — flag UK SITCL / OFAC / ITAR-EAR / EU dual-use / UN implications before any commercial recommendation. Refuse plainly anything that facilitates sanctions evasion, illicit arms transfers, or deception of regulators.
+5. DOCUMENT REVIEW only when an [ATTACHED DOCUMENT: ...] block with real text is present in THIS request; quote it verbatim for every claim. Otherwise refuse and ask for the text.
+6. CITE — facts taken from a [TOOL: ...] or [ATTACHED DOCUMENT: ...] block carry an inline [from <source>] citation. If no live lookup ran, say so.
+7. MISSING DATA — say what is missing and the single next step you would take. Do not pad with invented detail.
+8. STYLE — concise, plain, decision-grade. Short answers for short questions. No performative status lines, no fake "running tools" claims.
+"""
+
+
+def _compact_prompt_active() -> bool:
+    """R-F1337: serve the compact prompt when a small sovereign model
+    (ARIA-LLM, 7B-class) is wired as chain primary.
+
+    Default: ON whenever ARIA_LLM_URL is set (her model is inserted at
+    PRIMARY position by fallback.py, so effectively all chat traffic hits
+    it). Override with ARIA_LLM_COMPACT_PROMPT=0/1. Honest tradeoff: when
+    her provider cools down mid-window, the fallback (DeepSeek) also gets
+    the compact prompt for that request — acceptable, documented.
+    """
+    flag = (os.getenv("ARIA_LLM_COMPACT_PROMPT") or "").strip()
+    if flag in ("0", "1"):
+        return flag == "1"
+    return bool((os.getenv("ARIA_LLM_URL") or "").strip())
+
 
 ARIA_THINK_SYSTEM = f"""{ARIA_SYSTEM_PROMPT}
 
@@ -2164,6 +2205,14 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
       4. Appends all of the above as behavioural directives to the base
          system prompt
     """
+    # R-F1337 (2026-06-05) — small-model serving short-circuit. When the
+    # sovereign 7B (aria-llm) is chain primary, the full prompt + conditional
+    # scaffolds derail it (live: PMESII scaffold answered instead of ITAR).
+    # Return the compact invariants-only prompt and skip every addendum.
+    # Both aria_chat AND aria_chat_stream flow through this function (§13).
+    if _compact_prompt_active():
+        return ARIA_SYSTEM_PROMPT_COMPACT
+
     addendum_parts = []
 
     # R-F947 (2026-05-27) — when a DOCUMENT is attached, the context window must
