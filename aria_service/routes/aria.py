@@ -7405,6 +7405,23 @@ async def chat_ep(req: ChatRequest, request: Request):
                     f"{tool_context}"
                 )
 
+            # R-F1339 — LEAN SERVING MODE. When the small sovereign model
+            # (aria-llm 7B) is chain primary, SKIP the agentic pre-passes
+            # below (scratchpad "Think Before Speak" + comprehension
+            # "UNDERSTOOD AS:"). A 7B-class model cannot hold these
+            # meta-instructions AND answer — live 2026-06-05: it emitted the
+            # scratchpad/self-critique scaffold ("🔴 FAIL — web_explorer
+            # ran…", off-prompt PMESII) instead of answering. The raw
+            # endpoint with a clean prompt answered ITAR correctly in 2.4s,
+            # so lean mode reproduces that: clean message → model. Frontier
+            # models keep the full pipeline (flag off). Pairs with R-F1337
+            # (compact system prompt) + R-F1338 (context reduction).
+            try:
+                from ..aria_engine import _compact_prompt_active as _cpa
+                _lean_serving = _cpa()
+            except Exception:
+                _lean_serving = False
+
             # ── Scratchpad pre-pass (Clause 22 — Think Before Speak) ──
             # Instructs the LLM to produce a <scratchpad>...</scratchpad>
             # block before the user-visible response. Post-processor
@@ -7414,23 +7431,24 @@ async def chat_ep(req: ChatRequest, request: Request):
             # latency/cost is flat vs the old single-pass path.
             _scratchpad_applied = False
             _sp_prefix = ""  # R-F942 — always bound for the empty-response salvage
-            try:
-                from ..intel import scratchpad as _sp
-                _complexity_hint = ""
-                # Try to reuse comprehension complexity if we computed it
+            if not _lean_serving:
                 try:
-                    from ..intel import comprehension as _comp
-                    _ca = _comp.analyse(req.message)
-                    if not _ca.is_trivial:
-                        _complexity_hint = _ca.complexity.value
-                except Exception:
-                    pass
-                _sp_prefix = _sp.build_prefix(req.message, complexity=_complexity_hint)
-                if _sp_prefix:
-                    message_for_llm = f"{message_for_llm}{_sp_prefix}"
-                    _scratchpad_applied = True
-            except Exception as e:
-                _log.debug("[scratchpad] prefix build failed (non-fatal): %s", e)
+                    from ..intel import scratchpad as _sp
+                    _complexity_hint = ""
+                    # Try to reuse comprehension complexity if we computed it
+                    try:
+                        from ..intel import comprehension as _comp
+                        _ca = _comp.analyse(req.message)
+                        if not _ca.is_trivial:
+                            _complexity_hint = _ca.complexity.value
+                    except Exception:
+                        pass
+                    _sp_prefix = _sp.build_prefix(req.message, complexity=_complexity_hint)
+                    if _sp_prefix:
+                        message_for_llm = f"{message_for_llm}{_sp_prefix}"
+                        _scratchpad_applied = True
+                except Exception as e:
+                    _log.debug("[scratchpad] prefix build failed (non-fatal): %s", e)
 
             # ── Comprehension pre-pass (Clause 21, 2026-04-18) ───────
             # Pure-regex analyse() + a prompt prefix injected into the
@@ -7441,10 +7459,13 @@ async def chat_ep(req: ChatRequest, request: Request):
             # rare CRITICAL+UNCLEAR case. Also routes a pending_action
             # when clarification is needed so the operator sees it in
             # the daily briefing.
+            # R-F1339: skipped in lean mode (the "UNDERSTOOD AS:" restatement
+            # derails a 7B). The compact system prompt's rule 1 ("ANSWER THE
+            # QUESTION ASKED") carries the intent without the meta-prefix.
             try:
                 from ..intel import comprehension as _comp
                 _comp_analysis = _comp.analyse(req.message)
-                if not _comp_analysis.is_trivial:
+                if not _lean_serving and not _comp_analysis.is_trivial:
                     _comp_prefix = _comp.build_prefix(_comp_analysis)
                     if _comp_prefix:
                         # Prepend (not append) — the prefix sets the
