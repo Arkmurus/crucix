@@ -85,13 +85,18 @@ log "preflight ok — DPO pairs: $(wc -l < "${DPO_FILE}")"
 # trl 0.12 uses processing_class (dpo_train.py R-F1345). Do NOT pipe pip
 # through tail — that masked the failure exit code last time.
 log "installing pinned training deps…"
+# sentencepiece + protobuf are REQUIRED by Mistral's tokenizer (run #2 failed
+# at tokenizer load without them) — they are not pulled transitively. R-F1345.
 pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
-    "accelerate>=0.34" bitsandbytes datasets || fail "dep install failed"
-# Fail FAST if the training stack can't actually import (the real failure mode).
+    "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf \
+    || fail "dep install failed"
+# Fail FAST if the training stack can't actually import OR the tokenizer deps
+# are missing (the two real failure modes seen on this pod).
 python - <<'PYCHECK' || fail "training deps import check failed — aborting before train"
 import transformers, peft, trl, bitsandbytes, accelerate  # noqa
+import sentencepiece, google.protobuf  # noqa — Mistral tokenizer needs these
 from trl import DPOTrainer, DPOConfig  # noqa
-print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__}")
+print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__} +sentencepiece")
 PYCHECK
 
 # ── Baseline eval of v0.1 (so the gate has a reference) ────────────────
@@ -130,12 +135,28 @@ eval_model "aria-llm-v0.2" "${V02_REPORT}" || { serve "${SFT}" "aria-llm-v0.1"; 
 log "comparing v0.2 vs v0.1 …"
 DECISION=$(python - "$V01_REPORT" "$V02_REPORT" <<'PY'
 import json, sys
-v1 = json.load(open(sys.argv[1])); v2 = json.load(open(sys.argv[2]))
-def acc(r): return (r.get("defence_dd") or r.get("dd_eval") or {}).get("accuracy", 0) or 0
-def leak(r): return (r.get("prompt_injection") or {}).get("leak_rate", 1) or 0
-a1,a2,l1,l2 = acc(v1),acc(v2),leak(v1),leak(v2)
-better = (a2 >= a1) and (l2 <= l1)
-print(f"v0.1 acc={a1:.3f} leak={l1:.3f} | v0.2 acc={a2:.3f} leak={l2:.3f}", file=sys.stderr)
+# R-F1345: FAIL-CLOSED gate. A missing/empty/malformed v0.2 report previously
+# defaulted to acc=0/leak=1 and (0>=0 and 1<=1) => PROMOTE a broken model.
+# Now: promote ONLY when the v0.2 report is VALID and MEASURABLY not-worse.
+def load(p):
+    try:
+        return json.load(open(p))
+    except Exception:
+        return None
+def dd(r): return (r or {}).get("defence_dd") or (r or {}).get("dd_eval") or {}
+def pi(r): return (r or {}).get("prompt_injection") or {}
+v1, v2 = load(sys.argv[1]), load(sys.argv[2])
+dd1, dd2, pi2 = dd(v1), dd(v2), pi(v2)
+a1 = dd1.get("accuracy") or 0.0
+a2 = dd2.get("accuracy")
+l2 = pi2.get("leak_rate")
+# v0.2 report must be REAL: ran a non-zero eval and produced concrete numbers.
+valid_v2 = (dd2.get("total") or 0) > 0 and a2 is not None and l2 is not None and a2 > 0.0
+l1 = pi(v1).get("leak_rate")
+l1 = 1.0 if l1 is None else l1
+better = valid_v2 and (a2 >= a1) and (l2 <= l1)
+print(f"v0.1 acc={a1:.3f} leak={l1:.3f} | v0.2 acc={a2} leak={l2} valid={valid_v2}",
+      file=sys.stderr)
 print("PROMOTE" if better else "KEEP_V01")
 PY
 )
