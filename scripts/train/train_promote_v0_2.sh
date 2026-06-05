@@ -45,15 +45,41 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 fail() { echo "[FATAL] $*" >&2; exit 1; }
 
 serve() {  # serve <lora_path> <name>
-  # R-F1353: serve via serve_eval_shim.py (transformers+peft, 4-bit), NOT vLLM.
-  # vLLM is not reliably installed on this pod and reinstalling it (torch +
-  # xformers) blew the container disk during the first v0.2 attempt. The shim
-  # uses ONLY libs already pinned by this script and is the SAME code path that
-  # serves the model in production — so eval matches what ARIA will actually run.
+  # R-F1353/R-F1355: serve the base+LoRA for eval. PREFER vLLM (batched →
+  # 10-20x faster bulk eval → same-day cycles) when it's importable AND the
+  # container disk is large enough (>=80GB) that its torch/xformers footprint
+  # can't blow the overlay (the 30GB blowup that originally forced the shim;
+  # R-F1355 provisions 100GB). Otherwise fall back to serve_eval_shim.py
+  # (transformers+peft 4-bit) — reliable, lib-light, the SAME path production
+  # serves. Either way eval hits an OpenAI-compatible endpoint on ${PORT}.
   local lora="$1" name="$2"
   pkill -f "serve_eval_shim" 2>/dev/null || true
   pkill -f "vllm.entrypoints.openai" 2>/dev/null || true
   sleep 3
+
+  # R-F1355: vLLM fast path — only when disk is big enough to be safe.
+  local disk_gb
+  disk_gb=$(df -BG --output=size / 2>/dev/null | tail -1 | tr -dc '0-9')
+  if [ "${disk_gb:-0}" -ge 80 ] && python -c "import vllm" 2>/dev/null; then
+    HF_HOME=/workspace/.cache/huggingface VLLM_USE_DEEP_GEMM=0 \
+      nohup python -m vllm.entrypoints.openai.api_server \
+        --model "${BASE_MODEL}" --enable-lora \
+        --lora-modules "${name}=${lora}" \
+        --max-loras 1 --max-lora-rank ${MAX_LORA_RANK} \
+        --gpu-memory-utilization 0.9 --host 0.0.0.0 --port ${PORT} \
+        > "${LOGS}/vllm_${name}.log" 2>&1 &
+    for i in $(seq 1 60); do
+      if curl -s --max-time 5 "http://localhost:${PORT}/v1/models" | grep -q "${name}"; then
+        log "vLLM serving ${name} (R-F1355 fast path, disk=${disk_gb}GB)"; return 0
+      fi
+      sleep 10
+    done
+    log "vLLM did not come up in 10min — falling back to shim"
+    pkill -f "vllm.entrypoints.openai" 2>/dev/null || true
+    sleep 3
+  fi
+
+  # Reliable shim fallback (transformers+peft 4-bit).
   HF_HOME=/workspace/.cache/huggingface \
   ADAPTER="${lora}" MODEL_NAME="${name}" PORT=${PORT} BASE_MODEL="${BASE_MODEL}" \
     setsid nohup python "${SCRIPTS}/serve_eval_shim.py" \
@@ -97,6 +123,19 @@ pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
 # R-F1353: fastapi+uvicorn power serve_eval_shim.py (we serve via the shim, not
 # vLLM); httpx is eval_aria_llm.py's HTTP client. The original list assumed vLLM
 # (bundles its own server) — without these the shim couldn't boot to serve v0.1.
+
+# R-F1355: install vLLM ONLY when the container disk is large enough (>=80GB) to
+# absorb its torch/xformers footprint — the 30GB overlay blowup is why we fell
+# back to the slow shim. On a 100GB pod (R-F1355) this enables the serve() fast
+# path → batched eval → same-day cycles. Non-fatal: if it fails, serve() shim
+# fallback still runs (just slower). Skipped entirely on small-disk pods.
+_disk_gb=$(df -BG --output=size / 2>/dev/null | tail -1 | tr -dc '0-9')
+if [ "${_disk_gb:-0}" -ge 80 ]; then
+  log "disk ${_disk_gb}GB ≥ 80GB — installing vLLM for the fast eval path (R-F1355)…"
+  pip install -q vllm 2>&1 | tail -2 || log "vLLM install failed — serve() will use the shim fallback"
+else
+  log "disk ${_disk_gb:-?}GB < 80GB — skipping vLLM, eval will use the slower shim"
+fi
 # Fail FAST if the training stack can't actually import OR the tokenizer deps
 # are missing (the two real failure modes seen on this pod).
 python - <<'PYCHECK' || fail "training deps import check failed — aborting before train"

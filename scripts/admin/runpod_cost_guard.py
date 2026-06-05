@@ -166,7 +166,11 @@ def cmd_recover(args) -> int:
         "name": "aria-llm-serve",
         "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
         "gpuTypeIds": GPU_PREFERENCE,  # RunPod picks the first available; cheapest-first
-        "gpuCount": 1, "containerDiskInGb": 30,
+        # R-F1355: 100GB container disk. The 30GB overlay was the root of the
+        # vLLM disk-blowup (torch/xformers reinstall) that forced the slow
+        # transformers shim — so bulk evals ran overnight. 100GB lets vLLM
+        # (batched, 10-20x faster) serve eval → same-day train/eval cycles.
+        "gpuCount": 1, "containerDiskInGb": 100,
         "networkVolumeId": MODEL_VOLUME_ID, "dataCenterIds": [args.datacenter],
         "ports": ["8888/http", "22/tcp"],
         "env": {"PUBLIC_KEY": os.getenv("ARIA_RUNPOD_PUBKEY", "")},
