@@ -2114,9 +2114,59 @@ def _compact_history_content(content: str, max_chars: int = 2000) -> str:
     return c
 
 
+# R-F1338: blocks kept in the user-side context when a small sovereign
+# model (aria-llm 7B) is serving. The full 7-layer recall + intel + mode
+# + scratchpad context derails a 7B (live 2026-06-05: ITAR -> PMESII-Angola
+# ramble, "UNDERSTOOD AS:"/"DAILY SUBSCRIPTION STATUS" fragments) EVEN with
+# the compact system prompt (R-F1337). The clean direct-endpoint probe
+# (no context) answered ITAR correctly in 2.4s — so for a 7B we strip the
+# injected context down to ONLY compliance-critical authoritative blocks.
+# Attached documents and [TOOL: ...] results are NOT here — they live in
+# `message` and are always preserved.
+# Compliance-critical (sanctions verdict) + anti-fabrication grounding
+# (self_introspect live counts, Clause 25 — without it a 7B invents its own
+# task/source/fact counts on capability questions; Pass-2 R-F1338 finding).
+_SMALL_MODEL_CONTEXT_WHITELIST = ("[SANCTIONS LIVE CHECK", "[TOOL: self_introspect")
+
+
+def _reduce_context_for_small_model(context: str, max_chars: int = 1500) -> str:
+    """R-F1338: keep only whitelisted authoritative blocks from the injected
+    context for small-model serving; drop recall/intel/mode/scratchpad noise.
+
+    A "block" runs from its marker to the next blank-line-separated bracketed
+    block (`\\n\\n[`) or end-of-context. Returns "" when nothing is
+    whitelisted (the model then answers from the compact system prompt +
+    user message alone — the condition that worked at the direct endpoint).
+    """
+    if not context:
+        return ""
+    kept: list[str] = []
+    for marker in _SMALL_MODEL_CONTEXT_WHITELIST:
+        idx = context.find(marker)
+        while idx != -1:
+            nxt = context.find("\n\n[", idx + len(marker))
+            block = context[idx: nxt if nxt != -1 else len(context)].strip()
+            if block:
+                kept.append(block)
+            idx = context.find(marker, idx + len(marker))
+    if not kept:
+        return ""
+    out = "\n\n".join(kept)
+    return "\n\n" + out[:max_chars]
+
+
 def _format_history_user_prompt(history, lang_hint: str, message: str, context: str) -> str:
     """Build the user_prompt with history compaction. SHARED by aria_chat and
     aria_chat_stream so the two paths stay in lockstep (CLAUDE.md §13)."""
+    # R-F1338: small-model guard — strip heavy context + long history so a 7B
+    # answers the user's actual message instead of latching onto an injected
+    # scaffold. Applied here (the single shared builder) so chat + stream stay
+    # in lockstep. No-op for frontier models (flag off).
+    if _compact_prompt_active():
+        context = _reduce_context_for_small_model(context)
+        if history and len(history) > 2:
+            history = history[-2:]  # last exchange only — long history derails a 7B
+
     if not history:
         return f"{lang_hint}{message}{context}"
     recent_cutoff = 10 * 2  # last 10 exchanges in full (after compaction)
