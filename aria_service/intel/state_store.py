@@ -247,9 +247,27 @@ async def _reconnect() -> None:
         _reconnect_in_progress = False
 
 
-async def _run_locked(op_name: str, factory, default=None):
+class StateWriteError(Exception):
+    """R-F1351: raised by a compound op invoked with critical=True when its
+    write did NOT land (lock-acquire timeout, in-lock op timeout, or error).
+
+    R-F1341 made _run_locked return a `default` on any failure so a stalled
+    write can't blackout the event loop — correct, but it silently disabled
+    every caller's `except` branch, so a dropped write was reported as success.
+    For DATA-INTEGRITY writes (evidentiary hash-chains, the cost cap, the gap
+    ledger) that silent drop is worse than an exception: a caller that advances
+    a head-hash or reports cost-recorded on a dropped write corrupts state.
+    Such callers pass critical=True and handle StateWriteError (e.g. do NOT
+    advance the chain / retry / WAL). Non-critical callers keep the
+    return-default behaviour — no blackout, no new crash surface."""
+
+
+async def _run_locked(op_name: str, factory, default=None, critical: bool = False):
     """Run a compound RMW op under the global lock with bounded acquire +
-    bounded execution. Never lets a single stalled op blackout the app."""
+    bounded execution. Never lets a single stalled op blackout the app.
+
+    R-F1351: when critical=True, a failed write RAISES StateWriteError instead
+    of silently returning `default`, so data-integrity callers can react."""
     lock = _get_lock()
     try:
         await asyncio.wait_for(lock.acquire(), timeout=_ACQUIRE_TIMEOUT_S)
@@ -262,6 +280,8 @@ async def _run_locked(op_name: str, factory, default=None):
             "event loop alive", op_name, _ACQUIRE_TIMEOUT_S,
             _diag.get("holder_task"), _diag.get("held_for_s"), _diag.get("waiters"),
         )
+        if critical:
+            raise StateWriteError(f"{op_name}: lock-acquire timeout")
         return default
     try:
         return await asyncio.wait_for(factory(), timeout=_OP_TIMEOUT_S)
@@ -276,9 +296,15 @@ async def _run_locked(op_name: str, factory, default=None):
             asyncio.get_running_loop().create_task(_reconnect())
         except Exception:
             pass
+        if critical:
+            raise StateWriteError(f"{op_name}: in-lock op timeout")
         return default
+    except StateWriteError:
+        raise  # already distinguishable — don't re-wrap
     except Exception as e:
         logger.warning("[R-F1341] state_store %s failed: %s", op_name, e)
+        if critical:
+            raise StateWriteError(f"{op_name}: {e}") from e
         return default
     finally:
         try:
@@ -571,13 +597,14 @@ async def _read_list(key: str) -> tuple[list, float | None]:
         return [], row[2]
 
 
-async def lpush(key: str, value: str) -> None:
+async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     async def _op():
         lst, expires_at = await _read_list(key)
         lst.insert(0, value)
         await _upsert(key, json.dumps(lst, default=str), kind="list",
                       expires_at=expires_at, keepttl=True)
-    await _run_locked("lpush", _op)  # R-F1341: bounded + self-healing
+    # R-F1351: critical=True → raise StateWriteError on drop (hash-chain ledgers).
+    await _run_locked("lpush", _op, critical=critical)
     # R-F1252: yield event loop after list write so aiosqlite's single
     # worker thread can drain its queue and other coroutines can run.
     # Without this, sequential lpush/ltrim pairs (common in agent_registry,
@@ -632,7 +659,7 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
 
 # ── Counters ─────────────────────────────────────────────────────────────
 
-async def incr(key: str, amount: int = 1) -> int:
+async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
     """Atomic integer increment (atomic due to the lock + UPSERT)."""
     async def _op():
         row = await _row(key, expected_kind="string")
@@ -645,10 +672,10 @@ async def incr(key: str, amount: int = 1) -> int:
         await _upsert(key, str(new_val), kind="string",
                       expires_at=expires_at, keepttl=True)
         return new_val
-    return await _run_locked("incr", _op, default=0)  # R-F1341
+    return await _run_locked("incr", _op, default=0, critical=critical)  # R-F1341/1351
 
 
-async def incrbyfloat(key: str, amount: float) -> float:
+async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> float:
     """Atomic float increment."""
     async def _op():
         row = await _row(key, expected_kind="string")
@@ -661,7 +688,7 @@ async def incrbyfloat(key: str, amount: float) -> float:
         await _upsert(key, f"{new_val:.6f}", kind="string",
                       expires_at=expires_at, keepttl=True)
         return new_val
-    return await _run_locked("incrbyfloat", _op, default=0.0)  # R-F1341
+    return await _run_locked("incrbyfloat", _op, default=0.0, critical=critical)  # R-F1341/1351
 
 
 async def expire(key: str, seconds: int) -> bool:
@@ -741,13 +768,14 @@ async def _read_hash(key: str) -> tuple[dict, float | None]:
         return {}, row[2]
 
 
-async def hset(key: str, mapping: dict) -> None:
+async def hset(key: str, mapping: dict, *, critical: bool = False) -> None:
     async def _op():
         existing, expires_at = await _read_hash(key)
         existing.update(mapping)
         await _upsert(key, json.dumps(existing, default=str), kind="hash",
                       expires_at=expires_at, keepttl=True)
-    await _run_locked("hset", _op)  # R-F1341: was the 1311s-hold blackout culprit
+    # R-F1341: was the 1311s-hold blackout culprit. R-F1351: critical passthrough.
+    await _run_locked("hset", _op, critical=critical)
 
 
 async def hgetall(key: str) -> dict:

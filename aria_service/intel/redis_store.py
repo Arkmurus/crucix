@@ -240,10 +240,10 @@ async def set_json(key: str, obj: Any, ex: int | None = None,
     await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
 
 
-async def lpush(key: str, value: str) -> None:
+async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     if _use_sqlite():
         from . import state_store as _ss
-        await _ss.lpush(key, value)
+        await _ss.lpush(key, value, critical=critical)  # R-F1351
         return
     if _client:
         try:
@@ -330,14 +330,15 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
     return lst[start : stop + 1 if stop >= 0 else None]
 
 
-async def incr(key: str, amount: int = 1) -> int:
+async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
     """Atomic integer increment. Used by rate-limit token buckets and
     similar counters where racing callers must not lose increments.
     Falls back to a non-atomic get+set on the in-memory store.
+    R-F1351: critical=True raises StateWriteError on drop (sqlite path).
     """
     if _use_sqlite():
         from . import state_store as _ss
-        return await _ss.incr(key, amount)
+        return await _ss.incr(key, amount, critical=critical)  # R-F1351
     if _client:
         try:
             return int(await _client.incrby(key, amount))
@@ -350,14 +351,15 @@ async def incr(key: str, amount: int = 1) -> int:
     return new_val
 
 
-async def incrbyfloat(key: str, amount: float) -> float:
+async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> float:
     """Atomic float increment for cost / metric counters. Used by the
     autonomous engine cost cap so concurrent task cost writes don't
     race. Falls back to non-atomic get+set on the in-memory store.
+    R-F1351: critical=True raises StateWriteError on drop (sqlite path).
     """
     if _use_sqlite():
         from . import state_store as _ss
-        return await _ss.incrbyfloat(key, amount)
+        return await _ss.incrbyfloat(key, amount, critical=critical)  # R-F1351
     if _client:
         try:
             return float(await _client.incrbyfloat(key, amount))
@@ -456,11 +458,11 @@ async def zcard(key: str) -> int:
     return len(raw)
 
 
-async def hset(key: str, mapping: dict) -> None:
+async def hset(key: str, mapping: dict, *, critical: bool = False) -> None:
     """Set multiple hash fields."""
     if _use_sqlite():
         from . import state_store as _ss
-        await _ss.hset(key, mapping)
+        await _ss.hset(key, mapping, critical=critical)  # R-F1351
         return
     if _client:
         try:

@@ -257,19 +257,28 @@ async def record_gap(
         "sector": (sector or "").strip()[:64],
     }
 
-    await rs.lpush(KEY, json.dumps(entry, default=str))
-    await rs.ltrim(KEY, 0, MAX_GAPS - 1)
-    # Set the dedupe sentinel AFTER the write so a failed lpush doesn't
-    # silently suppress the next try.
-    await rs.set(dedupe_key, "1", ex=_DEDUPE_WINDOW_SECONDS)
-
-    # Strip newlines/control chars so multi-line gap_detail (e.g. rlaif's
-    # query echo) doesn't split the log entry across lines and confuse
-    # downstream log parsers / fly-log search. Live evidence
-    # 2026-05-01 07:30:17: a digest-generation prompt with an embedded
-    # `\n` rendered as a stray "Inclu..." next-line fragment in fly logs.
+    # R-F1351: persist the gap as a CRITICAL write. Pre-R-F1351 a dropped
+    # lpush (lock contention) returned None silently and the code below still
+    # logged "gap recorded" — the coder was blinded to the very bug this gap
+    # was meant to surface. Now a drop raises StateWriteError → we log it
+    # loudly (the gap is at least visible in the ERROR stream) and skip the
+    # dedupe sentinel so the next attempt retries instead of being suppressed.
     _safe = " ".join((detail or "")[:120].split())
-    logger.info("Capability gap recorded: [%s] %s", gap_type, _safe)
+    try:
+        from .state_store import StateWriteError
+    except Exception:  # pragma: no cover
+        StateWriteError = ()  # type: ignore
+    try:
+        await rs.lpush(KEY, json.dumps(entry, default=str), critical=True)
+        await rs.ltrim(KEY, 0, MAX_GAPS - 1)
+        # Dedupe sentinel only AFTER a confirmed write.
+        await rs.set(dedupe_key, "1", ex=_DEDUPE_WINDOW_SECONDS)
+        logger.info("Capability gap recorded: [%s] %s", gap_type, _safe)
+    except StateWriteError as _e:
+        logger.error(
+            "[R-F1351] Capability gap NOT persisted (dropped under contention) "
+            "— [%s] %s — %s", gap_type, _safe, _e,
+        )
     return entry
 
 

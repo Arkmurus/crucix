@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1351,
+  "next_available": 1352,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -7979,6 +7979,16 @@
       "r_number": "R-F1350",
       "title": "honest composite: predictor_gate is a near-constant +0.20 unrelated to honesty - make the autonomy/honesty composite measure REAL grounding",
       "claimed_at": "2026-06-05T18:17:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "51a1471d",
+      "notes": null,
+      "shipped_at": "2026-06-05T18:22:45Z"
+    },
+    {
+      "r_number": "R-F1351",
+      "title": "silent-drop class: StateWriteError + critical mode primitive + capability_gaps adoption (dropped writes distinguishable, not false-success)",
+      "claimed_at": "2026-06-05T18:30:02Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
