@@ -45,19 +45,22 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 fail() { echo "[FATAL] $*" >&2; exit 1; }
 
 serve() {  # serve <lora_path> <name>
+  # R-F1353: serve via serve_eval_shim.py (transformers+peft, 4-bit), NOT vLLM.
+  # vLLM is not reliably installed on this pod and reinstalling it (torch +
+  # xformers) blew the container disk during the first v0.2 attempt. The shim
+  # uses ONLY libs already pinned by this script and is the SAME code path that
+  # serves the model in production — so eval matches what ARIA will actually run.
   local lora="$1" name="$2"
+  pkill -f "serve_eval_shim" 2>/dev/null || true
   pkill -f "vllm.entrypoints.openai" 2>/dev/null || true
   sleep 3
-  HF_HOME=/workspace/.cache/huggingface VLLM_USE_DEEP_GEMM=0 \
-    nohup python -m vllm.entrypoints.openai.api_server \
-      --model "${BASE_MODEL}" --enable-lora \
-      --lora-modules "${name}=${lora}" \
-      --max-loras 1 --max-lora-rank ${MAX_LORA_RANK} \
-      --gpu-memory-utilization 0.9 --host 0.0.0.0 --port ${PORT} \
-      > "${LOGS}/vllm_${name}.log" 2>&1 &
-  for i in $(seq 1 40); do
+  HF_HOME=/workspace/.cache/huggingface \
+  ADAPTER="${lora}" MODEL_NAME="${name}" PORT=${PORT} BASE_MODEL="${BASE_MODEL}" \
+    setsid nohup python "${SCRIPTS}/serve_eval_shim.py" \
+      > "${LOGS}/shim_${name}.log" 2>&1 < /dev/null &
+  for i in $(seq 1 60); do   # cached model load ~3-4 min; 60*10s = 10 min cap
     if curl -s --max-time 5 "http://localhost:${PORT}/v1/models" | grep -q "${name}"; then
-      log "vLLM serving ${name}"; return 0
+      log "shim serving ${name}"; return 0
     fi
     sleep 10
   done
@@ -117,8 +120,12 @@ python "${SCRIPTS}/dpo_train.py" \
   --sft-checkpoint "${SFT}" \
   --dpo-file "${DPO_FILE}" \
   --output-dir "${DPO_OUT}" \
-  --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 --max-seq-len 4096 \
+  --epochs 1 --beta 0.3 --lr 2e-6 --batch-size 2 --max-seq-len 4096 \
   --load-in-4bit 2>&1 | tee "${LOGS}/dpo_train.log"
+  # R-F1353: beta 0.1→0.3 (stronger KL anchor to the SFT policy) + lr 5e-6→2e-6.
+  # With the format fix (conversational pairs) the model now trains in-distribution;
+  # these conservative knobs further bound how far DPO can drift in one epoch on
+  # only ~396 pairs, preventing reward-over-optimisation / collapse.
 
 if [ ! -d "${DPO_OUT}" ] || [ -z "$(ls -A "${DPO_OUT}" 2>/dev/null)" ]; then
   log "DPO training produced no checkpoint — RESTORING v0.1 serving"
@@ -129,6 +136,45 @@ fi
 # ── Eval v0.2 ──────────────────────────────────────────────────────────
 log "serving v0.2 for evaluation…"
 serve "${DPO_OUT}" "aria-llm-v0.2" || { serve "${SFT}" "aria-llm-v0.1"; fail "v0.2 would not serve; rolled back to v0.1"; }
+
+# ── R-F1353 COHERENCE GATE (cost-safety) ───────────────────────────────
+# The first v0.2 attempt mode-collapsed into garbage tokens. The full 500-Q
+# eval would catch it via the promote gate, but only after ~$1.5 of GPU. This
+# 3-prompt smoke costs ~$0.10 and aborts a degenerate model FIRST.
+log "coherence smoke (3 prompts) before the full eval…"
+COHERENT=$(python - <<'PY'
+import json, urllib.request
+def ask(q):
+    body = json.dumps({"model": "aria-llm-v0.2",
+                       "messages": [{"role": "user", "content": q}],
+                       "max_tokens": 150, "temperature": 0.3}).encode()
+    req = urllib.request.Request("http://localhost:8888/v1/chat/completions",
+                                 body, {"Content-Type": "application/json"})
+    return json.load(urllib.request.urlopen(req, timeout=120))["choices"][0]["message"]["content"]
+QS = ["What is the main due-diligence risk with a sanctions-adjacent counterparty?",
+      "In two sentences, why does ultimate beneficial ownership matter in KYC?",
+      "What should a compliance team verify before onboarding a new supplier?"]
+bad = 0
+for q in QS:
+    try:
+        t = ask(q)
+    except Exception as e:
+        print(f"  ask failed: {e}", file=__import__('sys').stderr); bad += 1; continue
+    deg = any(m in t for m in ("tier=", "self_hosted", "[Layers", "comp_web", "=10000")) or len(t.strip()) < 25
+    rep = any(t.count(t[i:i+12]) > 6 for i in range(0, max(0, len(t) - 12), 12)) if len(t) >= 12 else False
+    if deg or rep:
+        bad += 1
+        print(f"  DEGENERATE sample: {t[:120]!r}", file=__import__('sys').stderr)
+print("COHERENT" if bad == 0 else "DEGENERATE")
+PY
+)
+log "coherence: ${COHERENT}"
+if [ "${COHERENT}" != "COHERENT" ]; then
+  serve "${SFT}" "aria-llm-v0.1" || fail "ROLLBACK FAILED — pod has no serving model!"
+  fail "v0.2 is DEGENERATE (coherence gate) — rolled back to v0.1 BEFORE the full eval. Inspect ${LOGS}/dpo_train.log + ${DPO_OUT}."
+fi
+log "coherence OK → running full 500-Q eval"
+
 eval_model "aria-llm-v0.2" "${V02_REPORT}" || { serve "${SFT}" "aria-llm-v0.1"; fail "v0.2 eval failed; rolled back to v0.1"; }
 
 # ── GATE: promote only if v0.2 >= v0.1 on accuracy AND leak ────────────

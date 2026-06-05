@@ -104,6 +104,30 @@ def main() -> None:
     ds = load_dataset("json", data_files=str(args.dpo_file), split="train")
     logger.info("DPO pairs: %d", len(ds))
 
+    # R-F1353: FORMAT CONSISTENCY — the v0.2 collapse root cause.
+    # SFT (sft_train.py:_format_chat) trained on conversational `messages`, so
+    # SFTTrainer applied the Mistral chat template ([INST]…[/INST]); serving
+    # (serve_eval_shim.py) also calls apply_chat_template. But the DPO pairs are
+    # RAW STRINGS, which TRL's maybe_apply_chat_template leaves UN-templated —
+    # so DPO trained the model on a different prompt format than SFT+serving,
+    # dragging it off-distribution into mode-collapse. Wrap the string pairs as
+    # conversational so DPOTrainer applies the SAME template. No-op if the data
+    # is already conversational (idempotent / future-proof).
+    if len(ds) and isinstance(ds[0].get("prompt"), str):
+        def _to_conversational(ex):
+            return {
+                "prompt": [{"role": "user", "content": ex["prompt"]}],
+                "chosen": [{"role": "assistant", "content": ex["chosen"]}],
+                "rejected": [{"role": "assistant", "content": ex["rejected"]}],
+            }
+        ds = ds.map(
+            _to_conversational,
+            remove_columns=ds.column_names,  # drop raw str prompt/chosen/rejected/meta
+            desc="R-F1353 wrap conversational",
+        )
+        logger.info("R-F1353: wrapped %d raw-string pairs as conversational "
+                    "(chat template will now match SFT + serving)", len(ds))
+
     dpo_config = DPOConfig(
         output_dir=str(args.output_dir),
         num_train_epochs=args.epochs,
