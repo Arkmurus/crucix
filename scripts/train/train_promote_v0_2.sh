@@ -92,14 +92,19 @@ log "installing pinned training deps…"
 # at tokenizer load without them) — they are not pulled transitively. R-F1345.
 pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
     "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf \
+    fastapi uvicorn httpx \
     || fail "dep install failed"
+# R-F1353: fastapi+uvicorn power serve_eval_shim.py (we serve via the shim, not
+# vLLM); httpx is eval_aria_llm.py's HTTP client. The original list assumed vLLM
+# (bundles its own server) — without these the shim couldn't boot to serve v0.1.
 # Fail FAST if the training stack can't actually import OR the tokenizer deps
 # are missing (the two real failure modes seen on this pod).
 python - <<'PYCHECK' || fail "training deps import check failed — aborting before train"
 import transformers, peft, trl, bitsandbytes, accelerate  # noqa
 import sentencepiece, google.protobuf  # noqa — Mistral tokenizer needs these
+import fastapi, uvicorn, httpx  # noqa — R-F1353: shim serving + eval HTTP client
 from trl import DPOTrainer, DPOConfig  # noqa
-print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__} +sentencepiece")
+print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__} +sentencepiece +fastapi")
 PYCHECK
 
 # ── Baseline eval of v0.1 (so the gate has a reference) ────────────────
