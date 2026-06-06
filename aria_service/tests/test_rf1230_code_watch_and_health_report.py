@@ -125,12 +125,40 @@ class TestCodeWatchGetTestPath:
 
 
 class TestCodeWatchRunVerification:
-    """Test run_verification_pass — the full verification pipeline."""
+    """Test run_verification_pass — the full verification pipeline.
 
-    def test_verification_pass_returns_expected_structure(self):
+    R-F1371: these tests previously called run_verification_pass() LIVE,
+    which spawned `pytest` as a subprocess (with no changed file → the WHOLE
+    suite, i.e. pytest-inside-pytest) plus the ecosystem-audit subprocess.
+    On Windows the nested spawn wedged at Popen._get_handles until
+    pytest-timeout killed the run — this single test aborted every full
+    baseline run (the 'test_rf1230 wedge'). Per test discipline #4, mock the
+    subprocess boundaries; the structure CONTRACT is what these tests pin.
+    """
+
+    @staticmethod
+    def _stub_boundaries(monkeypatch):
+        import scripts.code_watch as cw
+
+        monkeypatch.setattr(
+            cw, "_run_pytest",
+            lambda test_path=None: {
+                "success": True, "passed": 1, "failed": 0, "errors": 0,
+                "output": "stubbed (R-F1371 — no pytest-in-pytest)",
+            },
+        )
+        monkeypatch.setattr(
+            cw, "_run_ecosystem_audit",
+            lambda: {"success": True, "output": "stubbed", "returncode": 0},
+        )
+        # No brain/network from unit tests.
+        monkeypatch.setattr(cw, "_wire_to_brain", lambda event, details: None)
+
+    def test_verification_pass_returns_expected_structure(self, monkeypatch):
         """A verification pass should return a dict with expected keys."""
         from scripts.code_watch import run_verification_pass
 
+        self._stub_boundaries(monkeypatch)
         results = run_verification_pass()
         assert isinstance(results, dict)
         assert "timestamp" in results
@@ -140,13 +168,31 @@ class TestCodeWatchRunVerification:
         assert "overall" in results
         assert isinstance(results["overall"], bool)
 
-    def test_verification_pass_with_specific_file(self, tmp_py_file):
+    def test_verification_pass_with_specific_file(self, tmp_py_file, monkeypatch):
         """Running verification on a specific file should work."""
         from scripts.code_watch import run_verification_pass
 
+        self._stub_boundaries(monkeypatch)
         results = run_verification_pass([tmp_py_file])
         assert isinstance(results, dict)
         assert "self_review" in results
+
+    def test_rf1371_failure_propagates_to_overall(self, monkeypatch):
+        """Contract: a failing pytest or audit flips overall=False (the part
+        the old live test could never deterministically exercise)."""
+        import scripts.code_watch as cw
+        from scripts.code_watch import run_verification_pass
+
+        self._stub_boundaries(monkeypatch)
+        monkeypatch.setattr(
+            cw, "_run_pytest",
+            lambda test_path=None: {
+                "success": False, "passed": 0, "failed": 2, "errors": 0,
+                "output": "stubbed failure",
+            },
+        )
+        results = run_verification_pass()
+        assert results["overall"] is False
 
 
 # ── code_health_report tests ─────────────────────────────────────────

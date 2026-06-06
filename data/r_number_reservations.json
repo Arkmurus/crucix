@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1367,
+  "next_available": 1372,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8127,6 +8127,53 @@
       "r_number": "R-F1366",
       "title": "DeepSeek pinned as ARIA-Coder main LLM (generation + review), chain fallback",
       "claimed_at": "2026-06-06T13:31:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5c77e5e2",
+      "notes": null,
+      "shipped_at": "2026-06-06T14:00:20Z"
+    },
+    {
+      "r_number": "R-F1367",
+      "title": "aria CLI brain -> direct DeepSeek (reverses R-F1356 server-chat routing)",
+      "claimed_at": "2026-06-06T14:10:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5c77e5e2",
+      "notes": null,
+      "shipped_at": "2026-06-06T14:12:42Z"
+    },
+    {
+      "r_number": "R-F1368",
+      "title": "LLM health checker + request queue + response cache for ARIA-LLM resilience",
+      "claimed_at": "2026-06-06T14:36:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1369",
+      "title": "deploy.ps1 false ALL-PASS verdict - flyctl stdout pollutes Deploy-And-Verify return",
+      "claimed_at": "2026-06-06T14:38:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1370",
+      "title": "i18n loadLocale infinite recursion when default locale file missing - /api/locales 500",
+      "claimed_at": "2026-06-06T14:38:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1371",
+      "title": "test_rf1230 suite wedge - verification tests spawned live pytest-in-pytest + audit subprocess",
+      "claimed_at": "2026-06-06T14:45:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

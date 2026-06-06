@@ -125,7 +125,14 @@ function Deploy-And-Verify {
     # --wait-timeout flag tells flyctl to block until the build finishes
     # (up to 15 min for cold builds with Playwright Chromium).
     Write-Host "  Running: flyctl deploy --config $Config --app $App --wait-timeout ${TimeoutSeconds}s"
-    flyctl deploy --remote-only --config $Config --app $App --wait-timeout $TimeoutSeconds @buildArgs
+    # R-F1369: pipe flyctl output to the HOST stream. Run bare, flyctl's stdout
+    # lands in this function's OUTPUT stream, so the caller's
+    # `$result = Deploy-And-Verify ...` captured a truthy array even when the
+    # function returned $false — `-not $result` was always $false, a FAILED
+    # app never incremented $failures, and the script printed
+    # "ALL DEPLOYS VERIFIED LIVE" over a [FAIL] (live incident 2026-06-06:
+    # aria-web build died on a DNS blip; the final banner still said ALL PASS).
+    flyctl deploy --remote-only --config $Config --app $App --wait-timeout $TimeoutSeconds @buildArgs 2>&1 | ForEach-Object { Write-Host $_ }
     $rc = $LASTEXITCODE
     if ($rc -ne 0) {
         Write-Host "  [WARN] flyctl exited $rc - verifying anyway (it sometimes deploys then errors on wait)"
@@ -183,18 +190,21 @@ function Deploy-And-Verify {
 Set-Content -Path "$REPO_ROOT/.last_deploy_sha" -Value $GIT_SHORT -NoNewline
 
 # ---- Execute deploys ----
+# R-F1369: judge ONLY the function's final return value (last element), never
+# the whole output stream — any stray stdout from a helper would otherwise make
+# a $false return look truthy and swallow the failure (see Deploy-And-Verify).
 $failures = 0
 if ($Intel) {
-    $result = Deploy-And-Verify "aria-intel" "fly.toml" 900
-    if (-not $result) { $failures++ }
+    $result = @(Deploy-And-Verify "aria-intel" "fly.toml" 900)[-1]
+    if ($result -ne $true) { $failures++ }
 }
 if ($Web) {
-    $result = Deploy-And-Verify "aria-web" "fly.web.toml" 600
-    if (-not $result) { $failures++ }
+    $result = @(Deploy-And-Verify "aria-web" "fly.web.toml" 600)[-1]
+    if ($result -ne $true) { $failures++ }
 }
 if ($Wa) {
-    $result = Deploy-And-Verify "aria-wa" "fly.wa.toml" 600
-    if (-not $result) { $failures++ }
+    $result = @(Deploy-And-Verify "aria-wa" "fly.wa.toml" 600)[-1]
+    if ($result -ne $true) { $failures++ }
 }
 
 Write-Host ""
