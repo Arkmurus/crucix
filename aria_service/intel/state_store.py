@@ -560,6 +560,8 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
         await _conn.commit()
     except Exception as e:
         logger.warning("state_store: UPSERT %s failed: %s", key, e)
+        _schedule_reconnect_if_dead(e)  # R-F1388: trigger self-heal on dead conn
+        raise  # R-F1388: propagate so callers (e.g. _chat_job_set) know the write failed
 
 
 # ─────────────────────────────────────────────────────────────────────────
