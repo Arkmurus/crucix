@@ -11620,6 +11620,17 @@ async def coder_llm_ep(request: Request):
 # Engine must be started (ARIA_AUTONOMOUS_ENABLED=1 + ARIA_CODER_ENABLED=1)
 # otherwise these endpoints return 503.
 
+# R-F1363 — strong references to in-flight coder background tasks. asyncio only
+# keeps a WEAK reference to the result of create_task(); with the event loop
+# saturated by the ~96 periodic intel tasks (live: multiple outbound httpx every
+# second), a fire-and-forget _run_fix() task with no stored ref was garbage-
+# collected before it ever ran fix_gap — so operator /coder/request calls queued
+# (returned a fix_id) but NEVER executed (0 fix_gap log lines, status stuck at
+# "queued"). The autonomous loop was unaffected because it AWAITS fix_gap inside
+# a long-lived coroutine (a live strong ref). Holding the task here until done
+# guarantees execution; the done-callback drops the ref so the set self-cleans.
+_CODER_BG_TASKS: set = set()
+
 async def _queue_coder_request(
     coder, description: str, *,
     module_hint: str | None = None,
@@ -11672,16 +11683,35 @@ async def _queue_coder_request(
         _log.warning("[coder/request] queued-event write failed: %s", e)
 
     async def _run_fix():
+        # R-F1363 — log start/result so execution is VISIBLE in fly logs (was
+        # silent: only an error branch existed, so a never-started task left no
+        # trace at all).
+        _log.info(
+            "[coder/request] background fix STARTING fix_id=%s gap_id=%s",
+            pre_fix_id, pre_gap_id,
+        )
         try:
-            await coder.operator_fix_request(
+            result = await coder.operator_fix_request(
                 description, module_hint=module_hint, force_stage=force_stage,
             )
+            _log.info(
+                "[coder/request] background fix DONE fix_id=%s status=%s",
+                pre_fix_id,
+                getattr(result, "status", None) or getattr(result, "outcome", result),
+            )
         except Exception as e:
-            _log.error("[coder/request] background fix raised: %s", e)
+            _log.error(
+                "[coder/request] background fix raised fix_id=%s: %s",
+                pre_fix_id, e,
+            )
 
-    _asyncio.create_task(
+    # R-F1363 — hold a strong ref until the task finishes (see _CODER_BG_TASKS
+    # comment above); discard on completion so the set doesn't grow unbounded.
+    _bg_task = _asyncio.create_task(
         _run_fix(), name=f"aria_coder.request.{pre_fix_id}",
     )
+    _CODER_BG_TASKS.add(_bg_task)
+    _bg_task.add_done_callback(_CODER_BG_TASKS.discard)
 
     return {
         "queued": True,
