@@ -572,9 +572,16 @@ class LLMResponseCache(LLMProvider):
         return getattr(self._inner, item)
 
     @staticmethod
-    def _cache_key(system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
-        """Deterministic cache key from prompt content + temperature."""
-        raw = f"{system_prompt}|{user_message}|{temperature}"
+    def _cache_key(system_prompt: str, user_message: str) -> str:
+        """Deterministic cache key from prompt content only.
+
+        Temperature is intentionally excluded from the key because callers
+        do not pass it through the LLMProvider.complete() interface — the
+        cache is for deterministic-ish requests and a temperature mismatch
+        would produce a false cache miss, not a wrong answer. If a future
+        caller varies temperature, plumb it through as a parameter here.
+        """
+        raw = f"{system_prompt}|{user_message}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _get_cached(self, key: str) -> Optional[str]:
@@ -605,9 +612,7 @@ class LLMResponseCache(LLMProvider):
         timeout: float = 60.0,
         prefer_provider: str = "",
     ) -> LLMResult:
-        # Only cache deterministic-ish requests (low temperature)
-        temperature = 0.7  # default — callers don't pass it, but we use 0.7 as baseline
-        key = self._cache_key(system_prompt, user_message, temperature)
+        key = self._cache_key(system_prompt, user_message)
 
         cached = self._get_cached(key)
         if cached is not None:
