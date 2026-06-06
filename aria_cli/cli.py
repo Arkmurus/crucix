@@ -67,6 +67,9 @@ try:
     from prompt_toolkit.completion import WordCompleter as PTWordCompleter
     from prompt_toolkit.styles import Style as PTStyle
     from prompt_toolkit.key_binding import KeyBindings
+    # R-F1383 — patch_stdout lets the agent (running in a worker thread)
+    # print ABOVE the always-active bottom input box without corrupting it.
+    from prompt_toolkit.patch_stdout import patch_stdout as PTPatchStdout
     PROMPT_TOOLKIT_AVAILABLE = True
 
     class PTSafeFileHistory(PTFileHistory):
@@ -261,6 +264,90 @@ def _busy_set(on: bool) -> None:
 def _session_log_path() -> Path:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return _ensure_session_dir() / f"session_{ts}.log"
+
+
+# ── R-F1383: professional terminal — threaded turns + anchored input box ────
+# The operator's complaints (2026-06-06): (1) no Claude-Code-style input box;
+# (2) typing mid-task was INVISIBLE (the msvcrt reader consumes keys without
+# echo); (3) module logging flooded the screen ("takes the entire screen
+# running logs"). Design: the agent turn runs in a WORKER thread while the
+# main thread keeps the prompt_toolkit input box open at the bottom
+# (patch_stdout renders agent output ABOVE it). A line submitted while ARIA
+# works goes to _OPERATOR_QUEUE — visible, editable, with history — and the
+# agent drains it at its next step (R-F1141 mechanism, unchanged).
+_TURN_STATE: dict = {"busy": False, "task": "", "started": 0.0}
+
+
+def _turn_worker(agent, line: str, color) -> threading.Thread:
+    """Run one agent turn in a daemon worker thread (R-F1383).
+
+    Only used when auto-approve is ON (the default): in --confirm mode the
+    agent calls input() for approvals, which must own stdin — those turns
+    keep the legacy inline path."""
+    _TURN_STATE.update(busy=True, task=line[:64], started=time.time())
+    _busy_set(True)
+    _hb_touch(force=True)
+
+    def _w() -> None:
+        try:
+            agent.run_until_complete(line)
+        except Exception as exc:  # noqa: BLE001 — surface, never kill the REPL
+            print("\n" + color.red(f"  ❌ Error: {exc}"))
+            print(color.dim("  The LLM provider may be unavailable. Try again later."))
+            try:
+                if agent.messages:
+                    agent.messages = agent.messages[:-1]
+            except Exception:
+                pass
+        finally:
+            _TURN_STATE.update(busy=False, task="")
+            _busy_set(False)
+            _hb_touch(force=True)
+            print(color.dim("  ─ done — input box is live, type the next task ─"))
+
+    t = threading.Thread(target=_w, daemon=True, name="aria-turn")
+    t.start()
+    return t
+
+
+def _toolbar_text(cfg, self_mode: bool):
+    """Bottom status bar under the input box (R-F1383). Live state: what ARIA
+    is doing, for how long, and that typing steers her — or idle hints."""
+    if _TURN_STATE["busy"]:
+        secs = int(time.time() - (_TURN_STATE["started"] or time.time()))
+        mm, ss = divmod(secs, 60)
+        return (
+            f" ● ARIA working — {_TURN_STATE['task']}  ({mm:02d}:{ss:02d})"
+            f"  ·  type + Enter to guide her mid-task"
+        )
+    mode = "self" if self_mode else "general"
+    return f" ○ ready  ·  {cfg.provider}/{cfg.model}  ·  {mode}  ·  /help for commands"
+
+
+def _quiet_console_logging() -> None:
+    """R-F1383 — keep the terminal professional: ALL module logging (aria_service
+    imports in self-mode emit MASTERY/absorb/intel walls) goes to a session
+    logfile; only ERROR+ reaches the console. The CLI's own UI prints via
+    print(), not logging, so nothing user-facing is lost."""
+    import logging as _logging
+    root = _logging.getLogger()
+    try:
+        logfile = _ensure_session_dir() / "cli.log"
+        fh = _logging.FileHandler(str(logfile), encoding="utf-8")
+        fh.setLevel(_logging.INFO)
+        fh.setFormatter(_logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s"))
+        # Replace any existing console handlers with the file handler + a
+        # console handler that only lets ERROR+ through.
+        for h in list(root.handlers):
+            root.removeHandler(h)
+        ch = _logging.StreamHandler()
+        ch.setLevel(_logging.ERROR)
+        ch.setFormatter(_logging.Formatter("  %(levelname)s %(name)s: %(message)s"))
+        root.addHandler(fh)
+        root.addHandler(ch)
+        root.setLevel(_logging.INFO)
+    except Exception:  # noqa: BLE001 — logging cosmetics must never break the CLI
+        pass
 
 
 def _append_log(path: Path, line: str) -> None:
@@ -1597,7 +1684,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
     print(color.dim("  /help for commands · type a message or task"))
-    print(color.dim("  tip: type while ARIA works — she'll respond mid-task\n"))
+    print(color.dim("  the input box stays live while ARIA works — type + Enter to guide her mid-task\n"))
     last_task = ""
     _input_history: list[str] = []
     _history_idx = 0
@@ -1623,6 +1710,53 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             print(color.red(f"  recovery turn failed: {_exc}"))
         finally:
             _busy_set(False)
+    # R-F1383 — ONE PromptSession for the whole session (was rebuilt per loop):
+    # an anchored, Claude-Code-style input box that stays LIVE while ARIA works
+    # (turns run in a worker thread; patch_stdout renders her output above the
+    # box). Mid-task lines are visible/editable and go to _OPERATOR_QUEUE.
+    pt_session = None
+    _LAST_SIGINT = [0.0]  # R-F1383 — double-Ctrl+C force-quit window
+    if PROMPT_TOOLKIT_AVAILABLE:
+        # R-F1279: Enter submits, Alt+Enter inserts a newline (see
+        # _build_key_bindings). complete_while_typing=False so the
+        # /command menu only appears on Tab — natural-language tasks
+        # don't pop a menu on every keystroke.
+        kb = _build_key_bindings()
+        pt_session = PTPromptSession(
+            # R-F1308: surrogate-safe — a pasted emoji crashed
+            # the raw FileHistory write and froze the REPL.
+            history=PTSafeFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
+            auto_suggest=PTAutoSuggest(),
+            complete_while_typing=False,
+            completer=PTWordCompleter([
+                "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
+                "/claude", "/session", "/sessions", "/export", "/theme",
+                "/gaps", "/status", "/history", "/cost", "/model", "/compact",
+                "/memory", "/diff", "/plan", "/stats", "/think", "/clear",
+                "/version", "/uptime", "/config", "/reset",
+            ]),
+            style=PTStyle.from_dict({
+                "prompt": "bold cyan" if color.on else "",
+                "bottom-toolbar": "noreverse bg:#1c1f2e #8ea0c8" if color.on else "",
+            }),
+            key_bindings=kb,
+            multiline=True,
+            bottom_toolbar=lambda: _toolbar_text(cfg, self_mode),
+        )
+
+    def _boxed_prompt() -> str:
+        """Render the anchored input box and read one line (R-F1383)."""
+        import shutil as _shutil
+        w = max(40, min(_shutil.get_terminal_size((100, 24)).columns - 2, 120))
+        top = "╭─ you " + "─" * (w - 7)
+        line_ = pt_session.prompt(
+            [("class:prompt", top + "\n"), ("class:prompt", "│ ❯ ")],
+            vi_mode=False,
+            refresh_interval=1.0,   # keeps the working-timer toolbar live
+        )
+        print(color.dim("╰" + "─" * (w - 1)))
+        return line_
+
     try:
         while True:
             try:
@@ -1632,39 +1766,54 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 # the background thread from consuming keystrokes meant for input().
                 _pause_stdin_reader()
                 try:
-                    if PROMPT_TOOLKIT_AVAILABLE:
-                        # R-F1279: Enter submits, Alt+Enter inserts a newline (see
-                        # _build_key_bindings). complete_while_typing=False so the
-                        # /command menu only appears on Tab — natural-language tasks
-                        # don't pop a menu on every keystroke.
-                        kb = _build_key_bindings()
-                        pt_session = PTPromptSession(
-                            # R-F1308: surrogate-safe — a pasted emoji crashed
-                            # the raw FileHistory write and froze the REPL.
-                            history=PTSafeFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
-                            auto_suggest=PTAutoSuggest(),
-                            complete_while_typing=False,
-                            completer=PTWordCompleter([
-                                "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
-                                "/claude", "/session", "/sessions", "/export", "/theme",
-                                "/gaps", "/status", "/history", "/cost", "/model", "/compact",
-                                "/memory", "/diff", "/plan", "/stats", "/think", "/clear",
-                                "/version", "/uptime", "/config", "/reset",
-                            ]),
-                            style=PTStyle.from_dict({
-                                "prompt": "bold cyan" if color.on else "",
-                            }),
-                            key_bindings=kb,
-                            multiline=True,
-                        )
-                        line = _sanitize_input_line(pt_session.prompt("  you > ", vi_mode=False)).strip()
+                    if pt_session is not None:
+                        # R-F1383: prompt stays open even while a turn runs —
+                        # patch_stdout routes worker output above the box.
+                        with PTPatchStdout(raw=True):
+                            line = _sanitize_input_line(_boxed_prompt()).strip()
                     else:
                         line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
                 finally:
-                    _resume_stdin_reader()
+                    # Fallback (no prompt_toolkit): the msvcrt reader provides
+                    # mid-task interject, so resume it only on that path.
+                    if pt_session is None:
+                        _resume_stdin_reader()
             except EOFError:
                 break
+            except KeyboardInterrupt:
+                # R-F1383 — Ctrl+C: graceful stop request while ARIA works;
+                # twice within 5s force-quits. Idle: hint, never exit by accident.
+                now_ = time.time()
+                if _TURN_STATE["busy"]:
+                    if now_ - _LAST_SIGINT[0] < 5:
+                        print(color.yellow("  force-quit"))
+                        break
+                    _LAST_SIGINT[0] = now_
+                    _OPERATOR_QUEUE.put(
+                        "STOP — operator pressed Ctrl+C. Halt the current task at the "
+                        "next safe point and summarise exactly where you stopped."
+                    )
+                    print(color.yellow("  ⏹ stop requested — ARIA halts at her next step. Ctrl+C again within 5s to force-quit."))
+                    continue
+                print(color.dim("  (Ctrl+C — type /exit to quit)"))
+                continue
             if not line:
+                continue
+            # R-F1383 — a line submitted while ARIA is mid-task is operator
+            # guidance: queue it (the agent drains _OPERATOR_QUEUE at the top
+            # of each loop step, R-F1141) and keep the box live. Slash
+            # commands still work mid-task EXCEPT new-task dispatch below.
+            if _TURN_STATE["busy"] and not line.startswith("/"):
+                _OPERATOR_QUEUE.put(line)
+                print(color.yellow(f"  ▸ sent to ARIA mid-task — she'll act on it at her next step"))
+                continue
+            if _TURN_STATE["busy"] and line in {"/exit", "/quit"}:
+                print(color.yellow("  ARIA is mid-task. /exit again after she finishes, or Ctrl+C twice to force."))
+                continue
+            if _TURN_STATE["busy"] and line in {"/reset", "/compact"}:
+                # R-F1383 — these mutate agent.messages, which the worker thread
+                # is appending to. Defer instead of racing.
+                print(color.yellow(f"  {line} is deferred while ARIA works — run it when she finishes."))
                 continue
             # R-F1258: track input history (skip duplicates)
             if not _input_history or _input_history[-1] != line:
@@ -1794,7 +1943,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         f.write(f"Created: {s.created_at}\n")
                         f.write(f"Tools: {s.tool_count} | Errors: {s.error_count} | Files: {s.file_changes}\n")
                         f.write("=" * 60 + "\n\n")
-                        for m in agent.messages:
+                        # R-F1383: snapshot — worker thread appends mid-task.
+                        for m in list(agent.messages):
                             role = m.get("role", "?")
                             content = m.get("content", "")[:500]
                             f.write(f"[{role.upper()}]\n{content}\n\n")
@@ -2115,7 +2265,9 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     _print_stats_fallback(agent, ui, elapsed_str, color, bx)
                 continue
             if line == "/think":
-                for m in reversed(agent.messages):
+                # R-F1383: snapshot — the worker thread appends to agent.messages
+                # mid-task; iterating the live list can raise mid-iteration.
+                for m in reversed(list(agent.messages)):
                     if m.get("role") == "assistant" and m.get("content", "").strip():
                         print(color.dim(f"  {m['content'][:2000]}"))
                         if len(m["content"]) > 2000:
@@ -2155,6 +2307,12 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             last_task = line
             ui._log(f"[user] {line}")
+            # R-F1383 — threaded turn keeps the input box live for mid-task
+            # guidance. Requires auto-approve (the default): in --confirm mode
+            # the agent owns stdin for approval prompts, so run inline.
+            if pt_session is not None and agent.auto_approve:
+                _turn_worker(agent, line, color)
+                continue
             _busy_set(True)           # R-F1310: turn in flight — stall watch on
             _hb_touch(force=True)
             try:
@@ -2214,14 +2372,25 @@ def main(argv: list[str] | None = None) -> int:
                    and os.getenv("NO_COLOR") is None)
     cwd = Path.cwd()
 
+    # R-F1383 — professional terminal: module logging (aria_service imports in
+    # self-mode emit MASTERY/absorb walls) goes to ~/.aria/sessions/cli.log;
+    # only ERROR+ reaches the screen. Must run BEFORE _build_agent imports the
+    # brain modules so their import-time logging is already routed.
+    _quiet_console_logging()
+
     oneshot_text = args.oneshot or (" ".join(args.task).strip() if args.task else "")
     interactive = not oneshot_text
 
     agent, ui, cfg, self_mode, guard = _build_agent(cwd, args, color, interactive)
 
-    # R-F1141: start the stdin reader daemon thread for operator mid-task interject
+    # R-F1141: start the stdin reader daemon thread for operator mid-task
+    # interject. R-F1383: only needed as the NO-prompt_toolkit fallback — with
+    # prompt_toolkit the input box itself stays live mid-task; the reader
+    # stays paused so it can't steal keystrokes from the box.
     if interactive:
         _start_stdin_reader()
+        if PROMPT_TOOLKIT_AVAILABLE:
+            _pause_stdin_reader()
 
     if interactive:
         _repl(agent, ui, cfg, self_mode, guard, cwd, color)

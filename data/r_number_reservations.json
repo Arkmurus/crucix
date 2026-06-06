@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1378,
+  "next_available": 1385,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8224,14 +8224,80 @@
       "claimed_at": "2026-06-06T15:12:08Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "0c812c2a",
+      "commit_sha": "91a24c2c",
       "notes": null,
-      "shipped_at": "2026-06-06T15:27:08Z"
+      "shipped_at": "2026-06-06T15:32:26Z"
     },
     {
       "r_number": "R-F1377",
       "title": "WA doc parsing+review 15-min timeouts - chatjob + readdoc async tasks GC-able (bare create_task, R-F1363 pt1 class)",
       "claimed_at": "2026-06-06T15:18:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1378",
+      "title": "Full autonomy readiness review + web_integrity deploy-window noise fix + remaining gap closure",
+      "claimed_at": "2026-06-06T15:29:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1379",
+      "title": "Close remaining Phase A gates: 500-Q eval verification + design-partner outreach automation",
+      "claimed_at": "2026-06-06T15:34:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb465a8f",
+      "notes": null,
+      "shipped_at": "2026-06-06T15:37:12Z"
+    },
+    {
+      "r_number": "R-F1380",
+      "title": "Final pre-launch fixes: state_store test assertion, web_integrity sustained-failure detection, chat_job write failure loudness",
+      "claimed_at": "2026-06-06T15:46:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a9179db",
+      "notes": null,
+      "shipped_at": "2026-06-06T15:50:51Z"
+    },
+    {
+      "r_number": "R-F1381",
+      "title": "Fix web_integrity boot-window noise for internal endpoints + Phase B readiness",
+      "claimed_at": "2026-06-06T20:13:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bdd6d281",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:23:32Z"
+    },
+    {
+      "r_number": "R-F1382",
+      "title": "Hunting audit: find and fix remaining errors, bugs, and dark paths",
+      "claimed_at": "2026-06-06T20:27:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1383",
+      "title": "aria CLI professional UI - persistent bottom input box, visible mid-task interject, log-noise routing",
+      "claimed_at": "2026-06-06T20:36:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1384",
+      "title": "Fix context assembly order: current message must be last, not buried under recalled context",
+      "claimed_at": "2026-06-06T20:37:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
