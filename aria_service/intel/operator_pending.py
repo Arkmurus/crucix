@@ -153,9 +153,9 @@ _PENDING_CATALOGUE: list[dict[str, Any]] = [
     {
         "key": "phase_a_eval_seed",
         "kind": "manual",
-        "title": "Eval seed at 454/500 — operator owes ~46 more domain entries",
-        "why": "Phase A gate #6: 500-Q v1 eval set must be frozen before Phase B exit can be assessed.",
-        "priority": 1,
+        "title": "500-Q eval set complete (500/500 entries, 52 categories at target) — frozen per Gate #6",
+        "why": "Phase A gate #6: 500-Q v1 eval set is complete and frozen. eval_golden_seed.py has 500 entries across all 52 categories at target. No further operator action needed.",
+        "priority": 0,
         "memory_ref": "memory/eval_500q_v1_gap_list.md",
     },
 ]

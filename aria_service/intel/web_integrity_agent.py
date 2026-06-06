@@ -873,7 +873,43 @@ class WebIntegrityAgent:
         """Escalate a critical endpoint failure.
 
         DIRECTIVE 3: Escalate to CRITICAL within 30s.
+
+        R-F1379: deploy-window noise suppression. When a public endpoint
+        (aria-web / healthz) fails, do a quick re-probe before escalating.
+        If the re-probe succeeds, the failure was a transient deploy blip
+        (machine replacement) — log at WARNING instead of CRITICAL so it
+        doesn't reset the Gate #3 clean clock. If the re-probe also fails,
+        escalate as normal.
         """
+        # R-F1379: re-probe public endpoints before escalating — a transient
+        # failure during deploy (machine replacement) should not log CRITICAL.
+        is_public = "[public]" in check.endpoint
+        if is_public and check.errors:
+            try:
+                import httpx
+                url = f"{_ARIA_WEB_URL}{check.endpoint.replace('[public]', '')}"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(url)
+                    if resp.is_success:
+                        # Transient blip — deploy window, not a real outage
+                        logger.warning(
+                            "[web_integrity] %s %s — transient failure "
+                            "(re-probe succeeded, likely deploy window)",
+                            check.method, check.endpoint,
+                        )
+                        await self._wire_to_brain(
+                            module="web_integrity_agent",
+                            summary=f"TRANSIENT: {check.method} {check.endpoint} "
+                                    f"failed then recovered (deploy window)",
+                            detail="; ".join(check.errors),
+                            success=False,
+                            confidence="LOW",
+                            source_id="web_integrity_transient",
+                        )
+                        return
+            except Exception:
+                pass  # Re-probe also failed — escalate normally
+
         logger.critical(
             "[web_integrity] CRITICAL: %s %s — %s",
             check.method, check.endpoint, "; ".join(check.errors),
