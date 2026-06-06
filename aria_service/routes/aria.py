@@ -11764,8 +11764,16 @@ async def coder_request_ep(request: Request):
             ),
         )
 
+    # R-F1363 — operator-initiated requests ALWAYS force-stage for human review.
+    # The operator explicitly asked for the change, so the generated code must
+    # land in /api/aria/self/staged (never silently discarded). force_stage means
+    # human-review staging, NEVER auto-deploy (§21c AUTO_DEPLOY stays off). Without
+    # this, a fix that the reviewer FLAGS (e.g. when the DeepSeek reviewer is
+    # unreachable → default-flag) was dropped with success=False, so the operator
+    # never saw the code ARIA generated — violating §19e (surface, never discard).
     return await _queue_coder_request(
         coder, description, module_hint=module_hint, source=source,
+        force_stage=True,
     )
 
 
