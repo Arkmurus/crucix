@@ -350,13 +350,22 @@ def build_footer(
         # read as "ungrounded / from memory" and undersold a full document review
         # (live 2026-05-28 contract review). Lead with the document as the
         # grounding; only add external counts if she ALSO cited external sources.
-        head += "  ·  *Grounded in:* attached document"
+        # R-F1384 — when grounded_rate=0.0 and sources=0, say "Reviewing attached
+        # document" instead of claiming it's grounded (honest footer).
         if has_verification:
             v = verification or {}
             cited = int(v.get("cited", 0) or 0)
-            if cited > 0:
-                unverified = int(v.get("unverified", 0) or 0)
-                head += f" + {cited - unverified} external grounded / {unverified} unverified"
+            unverified = int(v.get("unverified", 0) or 0)
+            grounded = cited - unverified
+            rate = v.get("grounded_rate")
+            if isinstance(rate, (int, float)) and float(rate) <= 0.0 and grounded <= 0:
+                head += "  ·  *Reviewing attached document*"
+            else:
+                head += "  ·  *Grounded in:* attached document"
+                if cited > 0:
+                    head += f" + {cited - unverified} external grounded / {unverified} unverified"
+        else:
+            head += "  ·  *Reviewing attached document*"
     elif has_verification:
         v = verification or {}
         cited = int(v.get("cited", 0) or 0)

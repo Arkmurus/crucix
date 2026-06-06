@@ -2200,8 +2200,21 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
         if history and len(history) > 2:
             history = history[-2:]  # last exchange only — long history derails a 7B
 
+    # R-F1384: context MUST come BEFORE [Current message] so the model's
+    # "what is the specific question" instruction latches onto the CURRENT
+    # message (the last thing it reads), not recalled context material.
+    # All three return branches follow this order. The comprehension prefix
+    # is appended right before [Current message] as a final directive.
+    _comprehension_prefix = (
+        "\n\n[COMPREHENSION DIRECTIVE]\n"
+        "Answer ONLY the question in [Current message]. "
+        "Do NOT answer earlier questions from history or recalled context; "
+        "if an earlier request appears unfinished, note that in one line "
+        "at the end instead of answering it.\n"
+        "[/COMPREHENSION DIRECTIVE]"
+    )
     if not history:
-        return f"{lang_hint}{message}{context}"
+        return f"{lang_hint}{context}{_comprehension_prefix}\n\n[Current message]\nUser: {message}"
     recent_cutoff = 10 * 2  # last 10 exchanges in full (after compaction)
     if len(history) > recent_cutoff:
         older = history[:-recent_cutoff]
@@ -2218,13 +2231,14 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
             f"{lang_hint}"
             f"[Earlier in conversation — summary]\n{older_summary}\n\n"
             f"[Recent conversation]\n{recent_formatted}\n\n"
-            f"[Current message]\nUser: {message}{context}"
+            f"{context}{_comprehension_prefix}\n\n"
+            f"[Current message]\nUser: {message}"
         )
     formatted = "\n\n".join(
         f"{'User' if m['role'] == 'user' else 'ARIA'}: {_compact_history_content(m['content'])}"
         for m in history
     )
-    return f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+    return f"{lang_hint}[Previous conversation]\n{formatted}\n\n{context}{_comprehension_prefix}\n\n[Current message]\nUser: {message}"
 
 
 def _context_search_query(message: str, max_chars: int = 1500) -> str:
