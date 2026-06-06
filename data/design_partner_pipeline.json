@@ -5,7 +5,9 @@
     "status": "identified",
     "notes": "Existing Arkmurus network contact \u2014 compliance officers who understand DD pain points. Reach out via existing Arkmurus relationships.",
     "created_at": "2026-05-29T23:36:03.026220+00:00",
-    "contacted_at": null
+    "contacted_at": null,
+    "draft_ready": true,
+    "draft_path": "data/design_partner_drafts.md"
   },
   {
     "name": "Defence broker / intermediary (Lusophone Africa)",
@@ -13,7 +15,9 @@
     "status": "identified",
     "notes": "Lusophone moat \u2014 they need Portuguese-language DD that competitors don't offer. Leverage Arkmurus's existing Lusophone book.",
     "created_at": "2026-05-29T23:36:06.395778+00:00",
-    "contacted_at": null
+    "contacted_at": null,
+    "draft_ready": true,
+    "draft_path": "data/design_partner_drafts.md"
   },
   {
     "name": "Export control lawyer / firm",
@@ -21,7 +25,9 @@
     "status": "identified",
     "notes": "ITAR/EAR/SITCL advisory firms who could white-label ARIA DD reports. Target: UK firms with defence practice.",
     "created_at": "2026-05-29T23:36:09.173492+00:00",
-    "contacted_at": null
+    "contacted_at": null,
+    "draft_ready": true,
+    "draft_path": "data/design_partner_drafts.md"
   },
   {
     "name": "MoD procurement advisor (former)",
@@ -29,6 +35,8 @@
     "status": "identified",
     "notes": "Former UK MoD procurement professional who understands the buyer side. Can validate ARIA's DD methodology against real procurement needs.",
     "created_at": "2026-05-29T23:36:12.248183+00:00",
-    "contacted_at": null
+    "contacted_at": null,
+    "draft_ready": true,
+    "draft_path": "data/design_partner_drafts.md"
   }
 ]
