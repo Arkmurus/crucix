@@ -661,6 +661,34 @@ async def lifespan(app: FastAPI):
     app.state.llm_provider = llm
     app.state.current_data = None  # Will be set by sweep integration
 
+    # ── R-F1368: LLM resilience layer — health checker, request queue, cache ──
+    # Start the background health probe for ARIA-LLM (sovereign 14B on RunPod).
+    # Only activates when ARIA_LLM_URL is set. The health checker updates the
+    # circuit_breaker registry so the fallback chain routes around a dead
+    # sovereign model without waiting for a user request to discover the outage.
+    llm_health_checker = None
+    llm_request_queue = None
+    llm_response_cache = None
+    try:
+        from .llm.resilience import LLMHealthChecker, LLMRequestQueue, LLMResponseCache
+        # 1. Health checker — background probe
+        llm_health_checker = LLMHealthChecker()
+        await llm_health_checker.start()
+        # 2. Request queue — semaphore-based concurrency limiter
+        llm_request_queue = LLMRequestQueue(llm)
+        # 3. Response cache — LRU cache for repeated queries
+        llm_response_cache = LLMResponseCache(llm_request_queue)
+        # Replace the LLM provider with the wrapped chain
+        app.state.llm_provider = llm_response_cache
+        logger.info(
+            "[R-F1368] LLM resilience layer active: health_checker=%s queue=%s cache=%s",
+            llm_health_checker.is_available() if hasattr(llm_health_checker, 'is_available') else False,
+            llm_request_queue.get_stats() if hasattr(llm_request_queue, 'get_stats') else {},
+            llm_response_cache.get_stats() if hasattr(llm_response_cache, 'get_stats') else {},
+        )
+    except Exception as _resilience_e:
+        logger.warning("[R-F1368] LLM resilience layer init failed (non-fatal): %s", _resilience_e)
+
     if llm and llm.is_configured:
         logger.info(f"LLM provider: {llm.name} ✓")
     else:
@@ -1940,6 +1968,14 @@ async def lifespan(app: FastAPI):
             logger.info("[R-F1207] Web Integrity Agent stopped")
         except Exception as _wia_e:
             logger.warning("[R-F1207] Web Integrity Agent stop failed: %s", _wia_e)
+
+    # R-F1368 -- stop LLM health checker
+    if llm_health_checker is not None:
+        try:
+            await llm_health_checker.stop()
+            logger.info("[R-F1368] LLM health checker stopped")
+        except Exception as _hc_e:
+            logger.warning("[R-F1368] LLM health checker stop failed: %s", _hc_e)
 
     try:
         from .autonomous import engine as _autonomous_engine

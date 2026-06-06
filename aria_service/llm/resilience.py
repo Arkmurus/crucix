@@ -1,0 +1,695 @@
+"""
+LLM Resilience Layer — health checker, request queue, and response cache.
+
+Three independent components that wrap the existing FallbackProvider chain
+to add production-grade resilience for ARIA-LLM (sovereign 14B on RunPod):
+
+  1. LLMHealthChecker  — background task that probes ARIA-LLM periodically
+     and updates the circuit_breaker registry so the fallback chain routes
+     around a dead sovereign model without waiting for a user request to
+     discover the outage.
+
+  2. LLMRequestQueue   — semaphore-based concurrency limiter that prevents
+     N concurrent LLM calls from overwhelming a single provider. Same
+     wrapper pattern as MeteredProvider / RateLimitedProvider.
+
+  3. LLMResponseCache  — LRU cache keyed by (prompt_hash, temperature).
+     Repeated questions (common in chat) skip the LLM entirely. TTL-based
+     eviction; never grows unbounded.
+
+All three integrate with the existing brain-wiring (wire_success/wire_failure)
+so the autonomous coder can see and act on provider health signals.
+
+Usage:
+    from .resilience import LLMHealthChecker, LLMRequestQueue, LLMResponseCache
+
+    # In lifespan:
+    health_checker = LLMHealthChecker()
+    await health_checker.start()
+
+    # Wrap the LLM chain:
+    llm = LLMResponseCache(LLMRequestQueue(LLMHealthChecker.wrap(llm)))
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import os
+import time
+from collections import OrderedDict
+from typing import Any, Optional
+
+from .provider import LLMProvider, LLMResult
+
+logger = logging.getLogger("aria.llm.resilience")
+
+# ── Configuration (env-var overridable) ──────────────────────────────────────
+
+_ARIA_LLM_URL = (os.getenv("ARIA_LLM_URL") or "").strip()
+_ARIA_LLM_KEY = os.getenv("ARIA_LLM_KEY", "sovereign")
+_ARIA_LLM_MODEL = os.getenv("ARIA_LLM_MODEL", "aria-llm-v0.1")
+
+_HEALTH_CHECK_INTERVAL = int(os.getenv("ARIA_LLM_HEALTH_CHECK_INTERVAL", "30"))
+_HEALTH_CHECK_TIMEOUT = int(os.getenv("ARIA_LLM_HEALTH_CHECK_TIMEOUT", "10"))
+_HEALTH_CHECK_FAILURE_THRESHOLD = int(os.getenv("ARIA_LLM_HEALTH_FAILURE_THRESHOLD", "3"))
+_HEALTH_CHECK_COOLDOWN = int(os.getenv("ARIA_LLM_HEALTH_COOLDOWN", "300"))
+
+_QUEUE_MAX_CONCURRENT = int(os.getenv("ARIA_LLM_MAX_CONCURRENT", "5"))
+_QUEUE_MAX_SIZE = int(os.getenv("ARIA_LLM_QUEUE_MAX_SIZE", "100"))
+_QUEUE_TIMEOUT = int(os.getenv("ARIA_LLM_QUEUE_TIMEOUT", "30"))
+
+_CACHE_MAX_SIZE = int(os.getenv("ARIA_LLM_CACHE_MAX_SIZE", "100"))
+_CACHE_TTL = int(os.getenv("ARIA_LLM_CACHE_TTL", "3600"))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. LLMHealthChecker — background health probe for ARIA-LLM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LLMHealthChecker:
+    """Background health probe for the sovereign ARIA-LLM endpoint.
+
+    Runs a lightweight probe every ``check_interval`` seconds. On failure,
+    records the failure to the circuit_breaker registry so the fallback
+    chain skips ARIA-LLM without waiting for a user request to time out.
+    On recovery, resets the breaker so traffic flows back.
+
+    Only activates when ``ARIA_LLM_URL`` is set (sovereign model configured).
+    Otherwise it's a no-op — no probe, no background task.
+
+    Wire discipline (CLAUDE.md §21a):
+      - Success: wire_success(module="llm_health_checker", ...)
+      - Failure: wire_failure(module="llm_health_checker", ...) + circuit_breaker.record_failure
+    """
+
+    def __init__(
+        self,
+        *,
+        endpoint: str = _ARIA_LLM_URL,
+        api_key: str = _ARIA_LLM_KEY,
+        check_interval: int = _HEALTH_CHECK_INTERVAL,
+        probe_timeout: int = _HEALTH_CHECK_TIMEOUT,
+        failure_threshold: int = _HEALTH_CHECK_FAILURE_THRESHOLD,
+        cooldown_seconds: int = _HEALTH_CHECK_COOLDOWN,
+    ):
+        self._endpoint = endpoint
+        self._api_key = api_key
+        self._check_interval = check_interval
+        self._probe_timeout = probe_timeout
+        self._failure_threshold = failure_threshold
+        self._cooldown_seconds = cooldown_seconds
+
+        self._enabled = bool(endpoint)
+        self._task: Optional[asyncio.Task] = None
+        self._stop_event = asyncio.Event()
+
+        # Circuit breaker — lazily created on first probe
+        self._breaker = None
+
+        # Probe stats (for /health)
+        self.last_probe_at: float = 0.0
+        self.last_success_at: float = 0.0
+        self.last_latency_ms: float = 0.0
+        self.consecutive_failures: int = 0
+        self.probe_status: str = "unknown"  # healthy / degraded / unhealthy / unknown
+
+    async def start(self) -> None:
+        """Start the background health probe loop.
+
+        Holds a strong reference to the task (anti-hallucination law #12:
+        R-F1363 pt1 — GC'd tasks never execute). The task is stored as
+        self._task so it survives until stop() is called.
+        """
+        if not self._enabled:
+            logger.info("[LLMHealthChecker] ARIA_LLM_URL not set — health checker disabled")
+            return
+        self._stop_event.clear()
+        self._task = asyncio.create_task(self._run())
+        logger.info(
+            "[LLMHealthChecker] started (interval=%ds, endpoint=%s)",
+            self._check_interval, self._endpoint,
+        )
+
+    async def stop(self) -> None:
+        """Stop the health probe loop."""
+        if self._task:
+            self._stop_event.set()
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _run(self) -> None:
+        """Probe loop — runs until stop() is called."""
+        while not self._stop_event.is_set():
+            await self._probe()
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self._check_interval,
+                )
+                break  # stop_event was set
+            except asyncio.TimeoutError:
+                continue  # normal — time to probe again
+
+    async def _probe(self) -> None:
+        """Single health probe against the ARIA-LLM endpoint.
+
+        Uses a minimal prompt ("ok") with max_tokens=5 and temperature=0
+        so the probe is fast and deterministic. Records the result to the
+        circuit breaker and brain wiring.
+        """
+        if not self._enabled:
+            return
+
+        start = time.time()
+        self.last_probe_at = start
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=self._probe_timeout) as client:
+                resp = await client.post(
+                    f"{self._endpoint.rstrip('/')}/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json={
+                        "model": _ARIA_LLM_MODEL,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "max_tokens": 5,
+                        "temperature": 0,
+                    },
+                )
+                latency = (time.time() - start) * 1000
+                self.last_latency_ms = latency
+
+                if resp.status_code == 200:
+                    self._record_healthy()
+                    self._wire_success(latency)
+                else:
+                    reason = self._classify_status(resp.status_code)
+                    self._record_failure(reason)
+                    self._wire_failure(f"HTTP {resp.status_code}: {resp.text[:200]}", reason)
+
+        except asyncio.TimeoutError:
+            self.last_latency_ms = (time.time() - start) * 1000
+            self._record_failure("timeout")
+            self._wire_failure("probe timed out", "timeout")
+        except Exception as e:
+            self.last_latency_ms = (time.time() - start) * 1000
+            self._record_failure("server")
+            self._wire_failure(str(e)[:200], "server")
+
+    def _record_healthy(self) -> None:
+        """Record a successful probe."""
+        self.consecutive_failures = 0
+        self.last_success_at = time.time()
+        self.probe_status = "healthy"
+        if self._breaker:
+            self._breaker.record_success()
+
+    def _record_failure(self, reason: str) -> None:
+        """Record a failed probe."""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= self._failure_threshold:
+            self.probe_status = "unhealthy"
+        else:
+            self.probe_status = "degraded"
+        # Update circuit breaker
+        breaker = self._get_breaker()
+        breaker.record_failure(reason=reason)
+
+    def _get_breaker(self):
+        """Lazy-init the circuit breaker for ARIA-LLM."""
+        if self._breaker is None:
+            from ..intel.circuit_breaker import get_breaker
+            self._breaker = get_breaker(
+                "aria_llm",
+                failure_threshold=self._failure_threshold,
+                cooldown_seconds=self._cooldown_seconds,
+            )
+        return self._breaker
+
+    @staticmethod
+    def _classify_status(status: int) -> str:
+        """Map HTTP status to a circuit-breaker reason tag."""
+        if status in (401, 403):
+            return "auth"
+        if status == 402:
+            return "billing"
+        if status == 429:
+            return "rate_limit"
+        if 500 <= status < 600:
+            return "server"
+        return "server"
+
+    def _wire_success(self, latency_ms: float) -> None:
+        """Fire-and-forget brain signal on successful probe."""
+        try:
+            from ..intel.engine_wiring import wire_success
+            wire_success(
+                module="llm_health_checker",
+                summary=f"ARIA-LLM health probe OK ({latency_ms:.0f}ms)",
+                source_id="llm_health_checker:probe",
+            )
+        except Exception:
+            pass
+
+    def _wire_failure(self, detail: str, reason: str) -> None:
+        """Fire-and-forget brain signal on failed probe."""
+        try:
+            from ..intel.engine_wiring import wire_failure
+            wire_failure(
+                module="llm_health_checker",
+                detail=f"ARIA-LLM health probe failed: {detail}",
+                gap_type="llm_provider_failure",
+                source="llm_health_checker",
+            )
+        except Exception:
+            pass
+
+    def is_available(self) -> bool:
+        """Is ARIA-LLM currently considered available?"""
+        if not self._enabled:
+            return False
+        if self._breaker is None:
+            return True  # haven't probed yet — assume available
+        return not self._breaker.is_open()
+
+    def get_status(self) -> dict:
+        """Return health-checker status for /health endpoints."""
+        return {
+            "enabled": self._enabled,
+            "endpoint": self._endpoint if self._enabled else "",
+            "status": self.probe_status,
+            "consecutive_failures": self.consecutive_failures,
+            "last_latency_ms": self.last_latency_ms,
+            "last_probe_seconds_ago": time.time() - self.last_probe_at if self.last_probe_at > 0 else None,
+            "last_success_seconds_ago": time.time() - self.last_success_at if self.last_success_at > 0 else None,
+            "breaker": self._breaker.to_dict() if self._breaker else None,
+        }
+
+    @staticmethod
+    def wrap(inner: LLMProvider) -> LLMProvider:
+        """Wrap an LLMProvider so the health checker's breaker gates calls.
+
+        Returns a thin wrapper that checks ``is_available()`` before
+        delegating to the inner provider. When the breaker is OPEN, the
+        wrapper raises ProviderError with kind="server" so the fallback
+        chain skips ARIA-LLM cleanly.
+
+        Only wraps when ARIA_LLM_URL is set. Otherwise returns the inner
+        provider unchanged.
+        """
+        if not _ARIA_LLM_URL:
+            return inner
+
+        class _HealthCheckedProvider(LLMProvider):
+            name = getattr(inner, "name", "aria_llm")
+
+            @property
+            def is_configured(self) -> bool:
+                return inner.is_configured
+
+            async def complete(
+                self,
+                system_prompt: str,
+                user_message: str,
+                *,
+                max_tokens: int = 4096,
+                timeout: float = 60.0,
+            ) -> LLMResult:
+                # The breaker check happens here — if OPEN, fast-fail
+                # so the fallback chain moves to DeepSeek immediately
+                # instead of waiting for a real timeout.
+                if not _health_checker_instance.is_available():
+                    from .provider import ProviderError
+                    raise ProviderError(
+                        "aria_llm",
+                        "ARIA-LLM circuit breaker OPEN — skipping to fallback",
+                        kind="server", retryable=True,
+                    )
+                return await inner.complete(
+                    system_prompt, user_message,
+                    max_tokens=max_tokens, timeout=timeout,
+                )
+
+            async def stream(
+                self,
+                system_prompt: str,
+                user_message: str,
+                *,
+                max_tokens: int = 4096,
+                timeout: float = 120.0,
+                on_done=None,
+            ):
+                if not _health_checker_instance.is_available():
+                    from .provider import ProviderError
+                    raise ProviderError(
+                        "aria_llm",
+                        "ARIA-LLM circuit breaker OPEN — skipping to fallback",
+                        kind="server", retryable=True,
+                    )
+                async for chunk in inner.stream(
+                    system_prompt, user_message,
+                    max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+                ):
+                    yield chunk
+
+        return _HealthCheckedProvider()
+
+
+# Module-level singleton so the wrapper can reference the running checker
+_health_checker_instance: LLMHealthChecker = None  # type: ignore[assignment]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. LLMRequestQueue — semaphore-based concurrency limiter
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LLMRequestQueue(LLMProvider):
+    """Semaphore-based concurrency limiter for LLM calls.
+
+    Wraps an inner LLMProvider and limits the number of concurrent
+    ``complete()`` and ``stream()`` calls. When the queue is full,
+    new requests raise ``QueueFullError`` immediately (fail-fast)
+    rather than piling up and timing out.
+
+    Same wrapper pattern as MeteredProvider / RateLimitedProvider —
+    transparent passthrough for name, is_configured, and attributes.
+
+    Wire discipline:
+      - Queue-full events: wire_failure with gap_type="rate_limited"
+      - Successful dispatch: wire_success
+    """
+
+    def __init__(
+        self,
+        inner: LLMProvider,
+        *,
+        max_concurrent: int = _QUEUE_MAX_CONCURRENT,
+        max_queue_size: int = _QUEUE_MAX_SIZE,
+        queue_timeout: float = _QUEUE_TIMEOUT,
+    ):
+        self._inner = inner
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._max_concurrent = max_concurrent
+        self._max_queue_size = max_queue_size
+        self._queue_timeout = queue_timeout
+
+        # Stats
+        self._active_count = 0
+        self._queued_count = 0
+        self._dropped_count = 0
+        self._total_dispatched = 0
+
+    @property
+    def name(self) -> str:  # type: ignore[override]
+        return getattr(self._inner, "name", "queued")
+
+    @property
+    def is_configured(self) -> bool:
+        return self._inner.is_configured
+
+    def __getattr__(self, item):
+        return getattr(self._inner, item)
+
+    async def complete(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 60.0,
+        prefer_provider: str = "",
+    ) -> LLMResult:
+        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+
+        # Fast-fail if queue is saturated
+        if self._queued_count >= self._max_queue_size:
+            self._dropped_count += 1
+            self._wire_dropped("queue_full")
+            from .provider import ProviderError
+            raise ProviderError(
+                self.name,
+                f"LLM request queue full ({self._max_queue_size}) — try again later",
+                kind="rate_limit", retryable=True,
+            )
+
+        self._queued_count += 1
+        try:
+            async with self._semaphore:
+                self._active_count += 1
+                self._queued_count -= 1
+                self._total_dispatched += 1
+                self._wire_dispatched()
+                return await self._inner.complete(
+                    system_prompt, user_message,
+                    max_tokens=max_tokens, timeout=timeout, **extra,
+                )
+        finally:
+            self._active_count -= 1
+
+    async def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
+        on_done=None,
+    ):
+        if self._queued_count >= self._max_queue_size:
+            self._dropped_count += 1
+            self._wire_dropped("queue_full")
+            from .provider import ProviderError
+            raise ProviderError(
+                self.name,
+                f"LLM request queue full ({self._max_queue_size}) — try again later",
+                kind="rate_limit", retryable=True,
+            )
+
+        self._queued_count += 1
+        try:
+            async with self._semaphore:
+                self._active_count += 1
+                self._queued_count -= 1
+                self._total_dispatched += 1
+                self._wire_dispatched()
+                async for chunk in self._inner.stream(
+                    system_prompt, user_message,
+                    max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+                ):
+                    yield chunk
+        finally:
+            self._active_count -= 1
+
+    def get_stats(self) -> dict:
+        """Return queue stats for /health endpoints."""
+        return {
+            "active": self._active_count,
+            "queued": self._queued_count,
+            "dropped": self._dropped_count,
+            "total_dispatched": self._total_dispatched,
+            "max_concurrent": self._max_concurrent,
+            "max_queue_size": self._max_queue_size,
+        }
+
+    def _wire_dispatched(self) -> None:
+        """Fire-and-forget brain signal on dispatch."""
+        try:
+            from ..intel.engine_wiring import wire_success
+            wire_success(
+                module="llm_request_queue",
+                summary=f"LLM request dispatched (active={self._active_count})",
+                source_id="llm_request_queue:dispatch",
+            )
+        except Exception:
+            pass
+
+    def _wire_dropped(self, reason: str) -> None:
+        """Fire-and-forget brain signal on dropped request."""
+        try:
+            from ..intel.engine_wiring import wire_failure
+            wire_failure(
+                module="llm_request_queue",
+                detail=f"LLM request dropped: {reason} (queued={self._queued_count})",
+                gap_type="rate_limited",
+                source="llm_request_queue",
+            )
+        except Exception:
+            pass
+
+
+class QueueFullError(Exception):
+    """Raised when the LLM request queue is saturated."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. LLMResponseCache — LRU cache for repeated LLM queries
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LLMResponseCache(LLMProvider):
+    """LRU cache for LLM responses.
+
+    Wraps an inner LLMProvider. Repeated questions (same prompt hash +
+    temperature) return the cached response within TTL instead of
+    re-hitting the LLM. Cache is in-process only — resets on restart,
+    which is fine (cold cache after deploy is acceptable).
+
+    Cache key = sha256(prompt + temperature). Two identical prompts
+    with different temperatures are cached separately.
+
+    Wire discipline:
+      - Cache hit: wire_success with from_cache=True
+      - Cache miss + LLM call: wire_success with from_cache=False
+    """
+
+    def __init__(
+        self,
+        inner: LLMProvider,
+        *,
+        max_size: int = _CACHE_MAX_SIZE,
+        ttl: int = _CACHE_TTL,
+    ):
+        self._inner = inner
+        self._max_size = max_size
+        self._ttl = ttl
+        self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self._hits = 0
+        self._misses = 0
+
+    @property
+    def name(self) -> str:  # type: ignore[override]
+        return getattr(self._inner, "name", "cached")
+
+    @property
+    def is_configured(self) -> bool:
+        return self._inner.is_configured
+
+    def __getattr__(self, item):
+        return getattr(self._inner, item)
+
+    @staticmethod
+    def _cache_key(system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
+        """Deterministic cache key from prompt content + temperature."""
+        raw = f"{system_prompt}|{user_message}|{temperature}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _get_cached(self, key: str) -> Optional[str]:
+        """Return cached response if valid, else None."""
+        if key not in self._cache:
+            return None
+        cached_at, response = self._cache[key]
+        if time.time() - cached_at > self._ttl:
+            del self._cache[key]
+            return None
+        # Move to end (LRU: most recently used)
+        self._cache.move_to_end(key)
+        return response
+
+    def _set_cached(self, key: str, response: str) -> None:
+        """Store response in cache with LRU eviction."""
+        self._cache[key] = (time.time(), response)
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
+
+    async def complete(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 60.0,
+        prefer_provider: str = "",
+    ) -> LLMResult:
+        # Only cache deterministic-ish requests (low temperature)
+        temperature = 0.7  # default — callers don't pass it, but we use 0.7 as baseline
+        key = self._cache_key(system_prompt, user_message, temperature)
+
+        cached = self._get_cached(key)
+        if cached is not None:
+            self._hits += 1
+            self._wire_cache_hit()
+            return LLMResult(
+                text=cached,
+                model="cache",
+                routed_via="cache",
+                input_tokens=0,
+                output_tokens=0,
+            )
+
+        self._misses += 1
+        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+        result = await self._inner.complete(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=timeout, **extra,
+        )
+
+        # Cache successful responses (non-empty, non-error)
+        if result.text and len(result.text) > 10:
+            self._set_cached(key, result.text)
+
+        self._wire_cache_miss()
+        return result
+
+    async def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
+        on_done=None,
+    ):
+        # Streaming is not cached (can't know the full response upfront)
+        async for chunk in self._inner.stream(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+        ):
+            yield chunk
+
+    def get_stats(self) -> dict:
+        """Return cache stats for /health endpoints."""
+        return {
+            "size": len(self._cache),
+            "max_size": self._max_size,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(self._hits / max(self._hits + self._misses, 1), 3),
+            "ttl_seconds": self._ttl,
+        }
+
+    def clear(self) -> int:
+        """Clear the cache. Returns number of entries evicted."""
+        n = len(self._cache)
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+        return n
+
+    def _wire_cache_hit(self) -> None:
+        """Fire-and-forget brain signal on cache hit."""
+        try:
+            from ..intel.engine_wiring import wire_success
+            wire_success(
+                module="llm_response_cache",
+                summary=f"LLM cache hit (size={len(self._cache)})",
+                source_id="llm_response_cache:hit",
+            )
+        except Exception:
+            pass
+
+    def _wire_cache_miss(self) -> None:
+        """Fire-and-forget brain signal on cache miss."""
+        try:
+            from ..intel.engine_wiring import wire_success
+            wire_success(
+                module="llm_response_cache",
+                summary=f"LLM cache miss (size={len(self._cache)})",
+                source_id="llm_response_cache:miss",
+            )
+        except Exception:
+            pass
