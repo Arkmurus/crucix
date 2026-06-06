@@ -210,6 +210,16 @@ async def start_aria_coder(
         logger.warning(
             "[coder_entrypoint] ARIA_INTERNAL_TOKEN unset — refusing to start",
         )
+        try:
+            from aria_service.intel.engine_wiring import wire_failure as _wf1381
+            _wf1381(
+                module="autonomous.coder_entrypoint",
+                detail="ARIA_INTERNAL_TOKEN unset — coder refused to start",
+                gap_type="engine_failure",
+                source="coder_entrypoint",
+            )
+        except Exception:
+            pass
         return None
 
     # R-F808 (2026-05-22): live-deploy refused on first activation —
@@ -231,6 +241,16 @@ async def start_aria_coder(
                 "[coder_entrypoint] redis_store import failed: %s — "
                 "refusing to start", e,
             )
+            try:
+                from aria_service.intel.engine_wiring import wire_failure as _wf1381b
+                _wf1381b(
+                    module="autonomous.coder_entrypoint",
+                    detail=f"redis_store import failed: {e}",
+                    gap_type="engine_failure",
+                    source="coder_entrypoint",
+                )
+            except Exception:
+                pass
             return None
 
     # Lazy imports — keep `import aria_service.autonomous` cheap
