@@ -7162,7 +7162,15 @@ async def chat_ep(req: ChatRequest, request: Request):
     # R-F1377: the job task is held in _ASYNC_JOB_TASKS — see that comment.
     if getattr(req, "async_mode", False):
         _cjob_id = str(uuid.uuid4())[:12]
-        await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id})
+        # R-F1380: if the job-store write fails, return 503 immediately so the
+        # WA listener falls back to sync mode instead of polling forever for a
+        # job that was never persisted (the 'chat job expired' / 'not_found'
+        # class the operator reported).
+        if not await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id}):
+            raise HTTPException(
+                status_code=503,
+                detail="Async job store unavailable — try again or use sync mode",
+            )
         _req_sync = req.model_copy(update={"async_mode": False})
         # chat_ep only reads request.app.state (via get_llm/get_intel_data), so a
         # minimal shim survives past the original request's lifecycle. The shim's
@@ -9059,14 +9067,21 @@ _READDOC_JOB_PREFIX = "crucix:aria:readdoc_job:"
 _READDOC_JOB_TTL_S = 3600  # 1h — long enough for a WA poll window + retries
 
 
-async def _readdoc_job_set(job_id: str, data: dict) -> None:
+async def _readdoc_job_set(job_id: str, data: dict) -> bool:
+    """Store a read-document job result. Returns True on success, False on failure.
+
+    R-F1380: returns False so callers can return 503 instead of 202 when
+    the store write fails — same silent-drop class as _chat_job_set.
+    """
     try:
         from ..intel import redis_store as _rs_rd
         import time as _t_rd
         await _rs_rd.set_json(_READDOC_JOB_PREFIX + job_id, {**data, "ts": _t_rd.time()},
                               ex=_READDOC_JOB_TTL_S)
+        return True
     except Exception as e:
         _log.warning("R-F873 readdoc job-store set failed for %s: %s", job_id, e)
+        return False
 
 
 async def _readdoc_job_get(job_id: str) -> Optional[dict]:
@@ -9112,14 +9127,23 @@ def _hold_job_task(task) -> None:
     task.add_done_callback(_ASYNC_JOB_TASKS.discard)
 
 
-async def _chat_job_set(job_id: str, data: dict) -> None:
+async def _chat_job_set(job_id: str, data: dict) -> bool:
+    """Store a chat job result. Returns True on success, False on failure.
+
+    R-F1380: returns False so callers can return 503 instead of 202 when
+    the store write fails — a 202 that says 'processing' when the job was
+    never persisted causes the WA listener to poll forever and eventually
+    get 'not_found' (the silent-drop class the operator reported).
+    """
     try:
         from ..intel import redis_store as _rs_cj
         import time as _t_cj
         await _rs_cj.set_json(_CHAT_JOB_PREFIX + job_id, {**data, "ts": _t_cj.time()},
                               ex=_CHAT_JOB_TTL_S)
+        return True
     except Exception as e:
         _log.warning("R-F916 chat job-store set failed for %s: %s", job_id, e)
+        return False
 
 
 async def _chat_job_get(job_id: str) -> Optional[dict]:
@@ -9239,7 +9263,13 @@ async def read_document_ep(request: Request):
         _r873_body["defer_intel"] = True
         _job_id = _uuid873.uuid4().hex[:12]
         _fname = _r873_body.get("filename", "")
-        await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname})
+        # R-F1380: if the job-store write fails, return 503 immediately so the
+        # WA listener falls back to sync mode instead of polling forever.
+        if not await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname}):
+            raise HTTPException(
+                status_code=503,
+                detail="Async job store unavailable — try again or use sync mode",
+            )
 
         async def _r873_run():
             try:

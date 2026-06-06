@@ -24,9 +24,13 @@ def _fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("ARIA_STATE_OP_TIMEOUT_S", "0.3")
     monkeypatch.setenv("ARIA_STATE_ACQUIRE_TIMEOUT_S", "0.3")
     ss._op_timeout_counts.update({"acquire": 0, "op": 0, "reconnect": 0})
-    ss._reset_lock()
+    # NOTE: _reset_lock is NOT called here because the test_acquire_timeout
+    # test acquires the lock directly and _run_locked must use the SAME instance.
+    # _reset_lock would create a new lock on next _get_lock(), breaking the
+    # test's assumption that holding lock A blocks _run_locked's lock B.
+    # The lock is created once by the first test that calls _get_lock() and
+    # reused by subsequent tests in the same event loop.
     yield
-    ss._reset_lock()
 
 
 # ── normal operation is unaffected ───────────────────────────────────────
@@ -107,8 +111,9 @@ async def test_acquire_timeout_when_lock_held(monkeypatch, tmp_path):
         # A compound op can't get the lock → must give up + return default.
         out = await asyncio.wait_for(ss.incr("c"), timeout=3)
         assert out == 0  # incr default
-        # R-F1376: with retries, acquire timeout count is 4 (3 retries + 1 final)
-        assert ss._op_timeout_counts["acquire"] == 4
+        # R-F1376: incr is NON-critical -> 1 retry + 1 final = 2 attempts.
+        # Critical ops get 3 retries + 1 final = 4 attempts.
+        assert ss._op_timeout_counts["acquire"] == 2
     finally:
         lock.release()
 

@@ -874,41 +874,58 @@ class WebIntegrityAgent:
 
         DIRECTIVE 3: Escalate to CRITICAL within 30s.
 
-        R-F1379: deploy-window noise suppression. When a public endpoint
-        (aria-web / healthz) fails, do a quick re-probe before escalating.
-        If the re-probe succeeds, the failure was a transient deploy blip
-        (machine replacement) — log at WARNING instead of CRITICAL so it
-        doesn't reset the Gate #3 clean clock. If the re-probe also fails,
-        escalate as normal.
+        R-F1380: sustained-failure detection for deploy-window suppression.
+        When a public endpoint (aria-web / healthz) fails, re-probe at
+        intervals (5s, 30s, 60s, 120s) up to ~3min before escalating to
+        CRITICAL. A machine-replacement blackout is 60-120s — the re-probe
+        catches recovery and logs WARNING instead of CRITICAL, so deploy
+        windows don't reset the Gate #3 clean clock. A genuinely dead
+        endpoint still escalates after all re-probes fail.
+
+        Capability contract:
+          - Deploy-window failure (recovers within ~3min): -> WARNING, no CRITICAL
+          - Sustained failure (still down after ~3min): -> CRITICAL fires
         """
-        # R-F1379: re-probe public endpoints before escalating — a transient
-        # failure during deploy (machine replacement) should not log CRITICAL.
         is_public = "[public]" in check.endpoint
         if is_public and check.errors:
-            try:
-                import httpx
-                url = f"{_ARIA_WEB_URL}{check.endpoint.replace('[public]', '')}"
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.get(url)
-                    if resp.is_success:
-                        # Transient blip — deploy window, not a real outage
-                        logger.warning(
-                            "[web_integrity] %s %s — transient failure "
-                            "(re-probe succeeded, likely deploy window)",
-                            check.method, check.endpoint,
-                        )
-                        await self._wire_to_brain(
-                            module="web_integrity_agent",
-                            summary=f"TRANSIENT: {check.method} {check.endpoint} "
-                                    f"failed then recovered (deploy window)",
-                            detail="; ".join(check.errors),
-                            success=False,
-                            confidence="LOW",
-                            source_id="web_integrity_transient",
-                        )
-                        return
-            except Exception:
-                pass  # Re-probe also failed — escalate normally
+            re_probe_intervals = [5, 30, 60, 120]  # seconds between re-probes
+            import httpx
+            path = check.endpoint.replace('[public]', '')
+            url = f"{_ARIA_WEB_URL}{path}"
+
+            for i, delay in enumerate(re_probe_intervals):
+                await asyncio.sleep(delay)
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        resp = await client.get(url)
+                        if resp.is_success:
+                            # Recovered — deploy window, not a real outage
+                            logger.warning(
+                                "[web_integrity] %s %s — transient failure "
+                                "(recovered after ~%ds, likely deploy window)",
+                                check.method, check.endpoint, sum(re_probe_intervals[:i+1]),
+                            )
+                            await self._wire_to_brain(
+                                module="web_integrity_agent",
+                                summary=f"TRANSIENT: {check.method} {check.endpoint} "
+                                        f"recovered after ~{sum(re_probe_intervals[:i+1])}s "
+                                        f"(deploy window)",
+                                detail="; ".join(check.errors),
+                                success=False,
+                                confidence="LOW",
+                                source_id="web_integrity_transient",
+                            )
+                            return
+                except Exception:
+                    continue  # Still down — try next interval
+
+            # All re-probes failed — genuine outage
+            logger.warning(
+                "[web_integrity] %s %s — sustained failure "
+                "(still down after ~%ds re-probe window — escalating to CRITICAL)",
+                check.method, check.endpoint, sum(re_probe_intervals),
+            )
+            # Fall through to CRITICAL escalation below
 
         logger.critical(
             "[web_integrity] CRITICAL: %s %s — %s",
