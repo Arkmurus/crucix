@@ -1682,6 +1682,22 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     # ── ASSEMBLE in priority order (primary first, recall second) ──
     total = ""
 
+    # R-F1365 — when the sovereign 14B is chain-primary it must read EVERY char
+    # of injected context before it generates a token, so a 20000-char context
+    # is the main reason chat is slow on it. Trim the budget to 6000 chars for
+    # the sovereign path (keeps the highest-priority primary layers — RAG,
+    # knowledge, live_intel — which are added first). The full cloud chain keeps
+    # the 20000 budget. Override via ARIA_LLM_CONTEXT_CHARS.
+    if _compact_prompt_active():
+        try:
+            budget = int((os.getenv("ARIA_LLM_CONTEXT_CHARS") or "6000").strip())
+            if budget < 1000:
+                budget = 6000
+        except (TypeError, ValueError):
+            budget = 6000
+    else:
+        budget = MAX_CONTEXT_CHARS
+
     # Self-infra quarantine note — leads the context so the LLM treats it
     # as the dominant directive even before any retrieval-layer content lands.
     if self_infra_query:
@@ -1692,7 +1708,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         layer = results.get(name, "")
         if not layer:
             continue
-        if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+        if len(total) + len(layer) > budget:
             continue
         total += layer
 
@@ -1712,7 +1728,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
             layer = results.get(name, "")
             if not layer:
                 continue
-            if len(total) + len(fence_header) + len(recall_total) + len(layer) + len(fence_footer) > MAX_CONTEXT_CHARS:
+            if len(total) + len(fence_header) + len(recall_total) + len(layer) + len(fence_footer) > budget:
                 continue
             recall_total += layer
         if recall_total:
@@ -1722,7 +1738,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
             layer = results.get(name, "")
             if not layer:
                 continue
-            if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+            if len(total) + len(layer) > budget:
                 continue
             total += layer
 
@@ -3470,7 +3486,20 @@ async def _aria_chat_impl(
     # failure (rate-limit, 500 error). 2026-04-11 Hanwha incident:
     # the first attempt at 75s was too tight and both Anthropic and
     # DeepSeek timed out mid-generation.
-    _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
+    # R-F1365 — when the sovereign 14B is chain-primary, cap the per-provider
+    # budget at ARIA_LLM_TIMEOUT (default 40s) so a slow/stuck 14B fails over to
+    # the funded DeepSeek fallback fast instead of burning 120s. The fallback
+    # gives DeepSeek its OWN full 40s afterwards (ample for DeepSeek). The coder
+    # path passes its own explicit 120s and is unaffected by this chat-only cap.
+    if _compact_prompt_active():
+        try:
+            _llm_timeout = float((os.getenv("ARIA_LLM_TIMEOUT") or "40").strip())
+            if _llm_timeout < 10:
+                _llm_timeout = 40.0
+        except (TypeError, ValueError):
+            _llm_timeout = 40.0
+    else:
+        _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
 
     _log_chat_payload_telemetry(
         path="chat", session_id=session_id,
@@ -4205,10 +4234,21 @@ async def _aria_chat_stream_impl(
         system_prompt=system_prompt, user_prompt=user_prompt,
         intel_context=context, history=history, raw_message=message,
     )
+    # R-F1365 — sovereign 14B gets a short per-provider budget so a slow stream
+    # fails over to the funded DeepSeek fallback fast (see the /chat path above).
+    if _compact_prompt_active():
+        try:
+            _stream_timeout = float((os.getenv("ARIA_LLM_TIMEOUT") or "40").strip())
+            if _stream_timeout < 10:
+                _stream_timeout = 40.0
+        except (TypeError, ValueError):
+            _stream_timeout = 40.0
+    else:
+        _stream_timeout = 120.0
     try:
         async for chunk in llm.stream(
             system_prompt, user_prompt,
-            max_tokens=_completion_max_tokens(message), timeout=120.0,
+            max_tokens=_completion_max_tokens(message), timeout=_stream_timeout,
             on_done=_on_stream_done,
         ):
             full_text += chunk
