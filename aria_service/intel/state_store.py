@@ -206,8 +206,21 @@ def _reset_lock() -> None:
 #       doesn't poison every subsequent op.
 # A fatal "one stall = whole-app blackout" becomes "one stall = one dropped
 # write + auto-reconnect", which is the reliability floor for 99.99% uptime.
-_OP_TIMEOUT_S = float(os.getenv("ARIA_STATE_OP_TIMEOUT_S", "15"))
-_ACQUIRE_TIMEOUT_S = float(os.getenv("ARIA_STATE_ACQUIRE_TIMEOUT_S", "20"))
+_OP_TIMEOUT_S: float = 15.0  # overridden by _timeout_config()
+_ACQUIRE_TIMEOUT_S: float = 20.0  # overridden by _timeout_config()
+
+
+def _timeout_config() -> tuple[float, float]:
+    """Read timeout values from env vars at call time.
+
+    R-F1376: moved from module-level constants to call-time reads so tests
+    can monkeypatch env vars without needing importlib.reload (which
+    duplicates class definitions and breaks isinstance checks).
+    """
+    return (
+        float(os.getenv("ARIA_STATE_OP_TIMEOUT_S", "15")),
+        float(os.getenv("ARIA_STATE_ACQUIRE_TIMEOUT_S", "20")),
+    )
 _op_timeout_counts = {"acquire": 0, "op": 0, "reconnect": 0}
 _reconnect_in_progress = False
 
@@ -294,29 +307,60 @@ async def _run_locked(op_name: str, factory, default=None, critical: bool = Fals
     bounded execution. Never lets a single stalled op blackout the app.
 
     R-F1351: when critical=True, a failed write RAISES StateWriteError instead
-    of silently returning `default`, so data-integrity callers can react."""
+    of silently returning `default`, so data-integrity callers can react.
+
+    R-F1376: bounded retry with exponential backoff on lock-acquire timeout.
+    A transient contention burst (e.g. 40 concurrent writes during cold-start
+    hydration) no longer logs ERROR on every attempt — only the final failure
+    after all retries are exhausted. This directly reduces the ERROR count
+    that holds Gate #3 open."""
     lock = _get_lock()
+    op_timeout, acquire_timeout = _timeout_config()
+    last_error: Exception | None = None
+    # Non-critical ops retry once (fast fail — they return default anyway).
+    # Critical ops retry 3 times (more persistence for data-integrity writes).
+    max_retries = 3 if critical else 1
+    for attempt in range(max_retries + 1):
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=acquire_timeout)
+        except asyncio.TimeoutError:
+            _op_timeout_counts["acquire"] += 1
+            last_error = None  # timeout is not an exception
+            if attempt < max_retries:
+                _diag = get_lock_diagnostics()
+                logger.warning(
+                    "[R-F1376] state_store %s: lock-acquire timed out after "
+                    "%.0fs (attempt %d/%d, holder=%s held_for=%ss waiters=%s) "
+                    "— retrying with backoff",
+                    op_name, acquire_timeout, attempt + 1, max_retries + 1,
+                    _diag.get("holder_task"), _diag.get("held_for_s"),
+                    _diag.get("waiters"),
+                )
+                await asyncio.sleep(2 ** attempt)  # exponential backoff: 1s, 2s, 4s
+                continue
+            # Final failure — log ERROR
+            _diag = get_lock_diagnostics()
+            logger.error(
+                "[R-F1341] state_store %s: lock-acquire timed out after %.0fs "
+                "(%d attempts, holder=%s held_for=%ss waiters=%s) — dropping "
+                "write to keep the event loop alive",
+                op_name, acquire_timeout, max_retries + 1,
+                _diag.get("holder_task"), _diag.get("held_for_s"),
+                _diag.get("waiters"),
+            )
+            if critical:
+                raise StateWriteError(f"{op_name}: lock-acquire timeout after {max_retries + 1} attempts")
+            return default
+        # Lock acquired — proceed
+        break
+
     try:
-        await asyncio.wait_for(lock.acquire(), timeout=_ACQUIRE_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        _op_timeout_counts["acquire"] += 1
-        _diag = get_lock_diagnostics()
-        logger.error(
-            "[R-F1341] state_store %s: lock-acquire timed out after %.0fs "
-            "(holder=%s held_for=%ss waiters=%s) — dropping write to keep the "
-            "event loop alive", op_name, _ACQUIRE_TIMEOUT_S,
-            _diag.get("holder_task"), _diag.get("held_for_s"), _diag.get("waiters"),
-        )
-        if critical:
-            raise StateWriteError(f"{op_name}: lock-acquire timeout")
-        return default
-    try:
-        return await asyncio.wait_for(factory(), timeout=_OP_TIMEOUT_S)
+        return await asyncio.wait_for(factory(), timeout=op_timeout)
     except asyncio.TimeoutError:
         _op_timeout_counts["op"] += 1
         logger.error(
             "[R-F1341] state_store %s: in-lock op exceeded %.0fs — aborting + "
-            "resetting connection (self-heal)", op_name, _OP_TIMEOUT_S,
+            "resetting connection (self-heal)", op_name, op_timeout,
         )
         # Reconnect off the critical path so we release the lock promptly.
         try:

@@ -20,8 +20,9 @@ from aria_service.intel import state_store as ss
 @pytest.fixture(autouse=True)
 def _fresh(monkeypatch, tmp_path):
     # Fast timeouts so tests run quickly; isolated DB per test.
-    monkeypatch.setattr(ss, "_OP_TIMEOUT_S", 0.3)
-    monkeypatch.setattr(ss, "_ACQUIRE_TIMEOUT_S", 0.3)
+    # R-F1376: timeouts are now read from env vars at call time via _timeout_config().
+    monkeypatch.setenv("ARIA_STATE_OP_TIMEOUT_S", "0.3")
+    monkeypatch.setenv("ARIA_STATE_ACQUIRE_TIMEOUT_S", "0.3")
     ss._op_timeout_counts.update({"acquire": 0, "op": 0, "reconnect": 0})
     ss._reset_lock()
     yield
@@ -106,7 +107,8 @@ async def test_acquire_timeout_when_lock_held(monkeypatch, tmp_path):
         # A compound op can't get the lock → must give up + return default.
         out = await asyncio.wait_for(ss.incr("c"), timeout=3)
         assert out == 0  # incr default
-        assert ss._op_timeout_counts["acquire"] == 1
+        # R-F1376: with retries, acquire timeout count is 4 (3 retries + 1 final)
+        assert ss._op_timeout_counts["acquire"] == 4
     finally:
         lock.release()
 
