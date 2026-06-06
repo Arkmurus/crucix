@@ -11526,6 +11526,26 @@ async def coder_llm_ep(request: Request):
             detail="LLM provider not configured (set LLM_PROVIDER + LLM_API_KEY)",
         )
 
+    # R-F1366 — the coder PINS DeepSeek as its main LLM (operator 2026-06-06:
+    # "make deepseek the main LLM for aria coder so deepseek can help fix
+    # aria"). The sovereign 14B takes the chain head when ARIA_LLM_URL is set
+    # (R-F93) — viable for chat, too weak to write complete fixes. Best-effort:
+    # only forwarded when the named provider is actually in the chain; the
+    # chain still falls back through normal order if DeepSeek cools down.
+    # Re-point via ARIA_CODER_LLM_PROVIDER (e.g. aria_llm once it's strong).
+    import os as _os
+    coder_provider = (
+        _os.getenv("ARIA_CODER_LLM_PROVIDER", "deepseek") or ""
+    ).strip().lower()
+    chain_names = [
+        getattr(p, "name", "") for p in (getattr(llm, "providers", None) or [])
+    ]
+    prefer_kwargs = (
+        {"prefer_provider": coder_provider}
+        if coder_provider and coder_provider in chain_names
+        else {}
+    )
+
     # Minimal system framing — the bulk of instructions lives in the prompt
     # itself (built by sovereign_llm._build_*_prompt methods).
     system_prompt = (
@@ -11536,8 +11556,10 @@ async def coder_llm_ep(request: Request):
     )
 
     _log.info(
-        "[coder/llm] task=%s prefer_model=%s max_tokens=%d prompt_len=%d",
-        task, prefer_model or "auto", max_tokens, len(prompt),
+        "[coder/llm] task=%s prefer_model=%s pinned_provider=%s max_tokens=%d prompt_len=%d",
+        task, prefer_model or "auto",
+        (prefer_kwargs.get("prefer_provider") or "chain-default"),
+        max_tokens, len(prompt),
     )
 
     try:
@@ -11546,6 +11568,7 @@ async def coder_llm_ep(request: Request):
             user_message=prompt,
             max_tokens=max_tokens,
             timeout=120.0,
+            **prefer_kwargs,
         )
     except Exception as e:
         _log.error("[coder/llm] llm.complete failed: %s", e)

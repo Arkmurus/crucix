@@ -134,11 +134,13 @@ class TestSovereignLLM:
         result = asyncio.run(self.llm.write_tests({"title": "Fix"}, "new code", 9999))
         assert result == expected
 
-    def test_write_tests_prefers_aria_8b(self):
+    def test_write_tests_prefers_coder_main_llm(self):
+        """R-F1366: all coder tasks (tests included) hint the operator-
+        designated main coder LLM — deepseek by default (was aria-8b)."""
         self.client.post = AsyncMock(return_value=_mock_response(200, {}))
         import asyncio
         asyncio.run(self.llm.write_tests({"title": "Fix"}, "new code", 9999))
-        assert self.client.post.call_args[1]["json"]["prefer_model"] == "aria-8b"
+        assert self.client.post.call_args[1]["json"]["prefer_model"] == "deepseek"
 
     # ── analyse_failure ────────────────────────────────────────────────────
 

@@ -175,11 +175,16 @@ class RateLimitedProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 60.0,
+        prefer_provider: str = "",
     ) -> LLMResult:
         await self._acquire_slot()
+        # R-F1366 — forward per-call provider preference (only when set; a
+        # bare inner provider doesn't accept the kwarg).
+        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
         result = await self._inner.complete(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout,
+            **extra,
         )
         result.routed_via = f"rate_limited:{self._inner.name}"
         return result

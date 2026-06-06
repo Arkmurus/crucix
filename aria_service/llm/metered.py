@@ -137,18 +137,24 @@ class MeteredProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 60.0,
+        prefer_provider: str = "",
     ) -> LLMResult:
         await self._enforce_monthly_cap()
         started = time.time()
         success = True
         error = ""
         result: LLMResult | None = None
+        # R-F1366 — forward the per-call provider preference to the fallback
+        # chain. Only when non-empty: a single (non-chain) inner provider
+        # doesn't accept the kwarg, and the default path must stay identical.
+        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
         try:
             result = await self._inner.complete(
                 system_prompt,
                 user_message,
                 max_tokens=max_tokens,
                 timeout=timeout,
+                **extra,
             )
             return result
         except Exception as e:

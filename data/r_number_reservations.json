@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1363,
+  "next_available": 1367,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8089,6 +8089,44 @@
       "r_number": "R-F1362",
       "title": "serve_eval_shim: optional ADAPTER (serve a base model with no LoRA) — to serve Qwen2.5-14B-Instruct as ARIA's sovereign brain",
       "claimed_at": "2026-06-06T01:09:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1363",
+      "title": "coder bg task GC fix + execution logging (operator requests never ran)",
+      "claimed_at": "2026-06-06T10:43:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5846a76c",
+      "notes": null,
+      "shipped_at": "2026-06-06T12:25:53Z"
+    },
+    {
+      "r_number": "R-F1364",
+      "title": "honest writing_code progress count (target+new files)",
+      "claimed_at": "2026-06-06T12:45:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b8a67995",
+      "notes": null,
+      "shipped_at": "2026-06-06T12:53:39Z"
+    },
+    {
+      "r_number": "R-F1365",
+      "title": "14B chat viability: trim sovereign context budget + fast DeepSeek failover timeout",
+      "claimed_at": "2026-06-06T12:51:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1366",
+      "title": "DeepSeek pinned as ARIA-Coder main LLM (generation + review), chain fallback",
+      "claimed_at": "2026-06-06T13:31:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

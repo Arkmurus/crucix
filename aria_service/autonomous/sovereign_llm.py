@@ -38,6 +38,12 @@ except Exception:
 
 CODER_LLM_PATH = "/api/aria/coder/llm"
 DEFAULT_TIMEOUT_S = 120.0
+# R-F1366 — DeepSeek is the coder's main LLM (operator 2026-06-06). The
+# endpoint pins the actual provider via ARIA_CODER_LLM_PROVIDER (default
+# deepseek); this hint keeps client-side logs/attribution honest. The
+# sovereign 14B (aria_llm) stays the CHAT chain head — it is not strong
+# enough yet to write complete fixes.
+PREFER_MODEL = os.getenv("ARIA_CODER_PREFER_MODEL", "deepseek")
 # R-F1285 — raised 4096->8192 (DeepSeek's max output). The fixer rewrites WHOLE
 # files; at 4096 tokens any module over ~300-400 lines was physically truncated
 # into a valid-syntax stub (the root cause of the ~11 destructive proposals in the
@@ -113,7 +119,7 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_plan_prompt(gap, codebase_context),
             task="plan",
-            prefer_model="aria-llm",
+            prefer_model=PREFER_MODEL,
         )
 
     async def write_code(
@@ -123,7 +129,7 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_code_prompt(plan, existing_code, target_file),
             task="code",
-            prefer_model="aria-llm",
+            prefer_model=PREFER_MODEL,
         )
 
     async def write_edit(
@@ -135,7 +141,7 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_edit_prompt(plan, existing_code, target_file),
             task="edit",
-            prefer_model="aria-llm",
+            prefer_model=PREFER_MODEL,
         )
 
     async def write_tests(
@@ -145,7 +151,7 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_test_prompt(plan, new_code, r_number),
             task="test",
-            prefer_model="aria-8b",  # simpler task, free tier preferred
+            prefer_model=PREFER_MODEL,
         )
 
     async def analyse_failure(
@@ -155,7 +161,7 @@ class SovereignLLM:
         return await self._call(
             prompt=self._build_healing_prompt(error, code, attempt),
             task="heal",
-            prefer_model="aria-llm",
+            prefer_model=PREFER_MODEL,
         )
 
     # ── PRIVATE ──────────────────────────────────────────────────────────────

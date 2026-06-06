@@ -339,9 +339,16 @@ class FallbackProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 90.0,  # bumped from 60s — DeepSeek needs more for complex queries
+        prefer_provider: str = "",
     ) -> LLMResult:
         """Try each non-cooling provider with its OWN `timeout`-second
         budget, up to ``_MAX_FALLBACK_ATTEMPTS`` providers.
+
+        ``prefer_provider`` (R-F1366): per-call reorder — the named provider
+        is tried FIRST, the rest follow in normal chain order as fallback.
+        Cooldowns are still respected; an unknown name is a no-op. Used by
+        the coder path (/api/aria/coder/llm) to pin DeepSeek as its main
+        LLM while the sovereign 14B holds the chain head for chat.
 
         Design history:
           - 2026-04-11: split caller_timeout evenly across providers.
@@ -360,11 +367,25 @@ class FallbackProvider(LLMProvider):
         last_error = None
         attempted = 0
 
-        for provider in self.providers:
+        # R-F1366 — per-call provider preference (see docstring).
+        order = self.providers
+        if prefer_provider:
+            preferred = [p for p in self.providers if p.name == prefer_provider]
+            if preferred:
+                order = preferred + [
+                    p for p in self.providers if p.name != prefer_provider
+                ]
+            else:
+                logger.debug(
+                    "prefer_provider=%r not in chain %s — using normal order",
+                    prefer_provider, [p.name for p in self.providers],
+                )
+
+        for provider in order:
             if attempted >= self._MAX_FALLBACK_ATTEMPTS:
                 logger.warning(
                     "Fallback chain stopped after %d attempts; %d providers untried",
-                    attempted, len(self.providers) - attempted,
+                    attempted, len(order) - attempted,
                 )
                 break
 

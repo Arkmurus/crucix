@@ -91,15 +91,16 @@ API_KEY_VAR = "ANTHROPIC_API_KEY"
 # (factory_provider_name, api_key_env, model_env, default_model).
 # A tier is skipped when its key env is empty. base_url left to the
 # factory defaults (DeepSeek → api.deepseek.com, etc.).
-# R-F1239: Ollama added as the FIRST review tier (before any paid provider).
-# When OLLAMA_URL is set, Ollama serves all code reviews for $0.
-# Paid providers (Anthropic, DeepSeek, Groq, Gemini) are emergency fallbacks
-# only — they fire when Ollama is unavailable or the review needs a second
-# opinion. The self-check (AST-only, always free) is the last resort.
+# R-F1366: DeepSeek is the FIRST review tier — operator 2026-06-06: "make
+# deepseek the main LLM for aria coder so deepseek can help fix aria". The
+# funded DeepSeek both writes the fixes (via /api/aria/coder/llm) and
+# reviews them; a free local Ollama (when OLLAMA_URL is set) is the next
+# tier, then the paid fallbacks. The self-check (deterministic, always
+# free) remains the last resort — never a blind APPROVED (R-F923).
 _REVIEW_CHAIN: tuple[tuple[str, str, str, str], ...] = (
+    ("deepseek", "DEEPSEEK_API_KEY",    "DEEPSEEK_MODEL",        "deepseek-chat"),
     ("ollama",   "OLLAMA_URL",          "OLLAMA_MODEL",          "llama3.2:3b"),
     ("anthropic","ANTHROPIC_API_KEY",   "ARIA_CODER_CLAUDE_REVIEW_MODEL", "claude-sonnet-4-6"),
-    ("deepseek", "DEEPSEEK_API_KEY",    "DEEPSEEK_MODEL",        "deepseek-chat"),
     ("groq",     "GROQ_API_KEY",        "GROQ_MODEL",            "llama-3.3-70b-versatile"),
     ("gemini",   "GEMINI_API_KEY",      "GEMINI_MODEL",          "gemini-3.1-pro"),
 )
@@ -312,6 +313,17 @@ class ClaudeReviewer:
                 api_key = ""  # Ollama doesn't need an API key
             else:
                 api_key = os.environ.get(key_env, "").strip()
+                # R-F1366: live machines key DeepSeek via LLM_API_KEY
+                # (LLM_PROVIDER=deepseek) rather than DEEPSEEK_API_KEY.
+                # Without this fallback the reviewer skipped the DeepSeek
+                # tier entirely and auto-flagged every coder fix.
+                if (
+                    not api_key
+                    and pname == "deepseek"
+                    and os.environ.get("LLM_PROVIDER", "").strip().lower()
+                    == "deepseek"
+                ):
+                    api_key = os.environ.get("LLM_API_KEY", "").strip()
                 if not api_key:
                     continue
             model = os.environ.get(model_env, "").strip() or default_model
