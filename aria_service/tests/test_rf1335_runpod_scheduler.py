@@ -6,22 +6,29 @@ wiring fires on both branches; unconfigured = harmless no-op. Plus the
 500-Q eval export the activation runbook needs (its old command never
 existed).
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
+
+# R-F1375: zoneinfo may not have the IANA timezone database on all platforms
+# (notably Windows). Skip the entire module if Europe/London is unavailable.
+try:
+    from zoneinfo import ZoneInfo
+    LONDON = ZoneInfo("Europe/London")
+except (ImportError, KeyError, Exception):
+    import pytest
+    pytest.skip("zoneinfo Europe/London not available on this platform", allow_module_level=True)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
 from aria_service.intel import runpod_scheduler as rps
-
-
-LONDON = ZoneInfo("Europe/London")
 
 
 @pytest.fixture(autouse=True)
