@@ -29,7 +29,10 @@ from transformers import (
 from peft import PeftModel
 
 BASE = os.environ.get("BASE_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
-ADAPTER = os.environ["ADAPTER"]
+# R-F1362: ADAPTER is OPTIONAL. With no adapter the shim serves the BASE model
+# directly (e.g. Qwen2.5-14B-Instruct as ARIA's sovereign brain); with one it
+# serves base+LoRA (e.g. the Mistral v0.2 DPO adapter).
+ADAPTER = os.environ.get("ADAPTER", "").strip()
 MODEL_NAME = os.environ.get("MODEL_NAME", "aria-llm")
 PORT = int(os.environ.get("PORT", "8888"))
 
@@ -45,14 +48,14 @@ _bnb = BitsAndBytesConfig(
     load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
     bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
 ) if _use_4bit else None
-_tok = AutoTokenizer.from_pretrained(ADAPTER, trust_remote_code=True)
+_tok = AutoTokenizer.from_pretrained(ADAPTER or BASE, trust_remote_code=True)
 if _tok.pad_token is None:
     _tok.pad_token = _tok.eos_token
 _base = AutoModelForCausalLM.from_pretrained(
     BASE, torch_dtype=torch.bfloat16, device_map="auto",
     quantization_config=_bnb, trust_remote_code=True,
 )
-_model = PeftModel.from_pretrained(_base, ADAPTER)
+_model = PeftModel.from_pretrained(_base, ADAPTER) if ADAPTER else _base  # R-F1362
 _model.eval()
 print("[shim] model ready", flush=True)
 
