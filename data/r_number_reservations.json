@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1361,
+  "next_available": 1362,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8071,6 +8071,15 @@
       "r_number": "R-F1360",
       "title": "sovereign chat path: cap completion to 800 tokens when ARIA_LLM active (4000 tok x slow 7B = 150-250s timeout->degraded)",
       "claimed_at": "2026-06-06T00:31:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1361",
+      "title": "serve_eval_shim SSE streaming (stream:true) so aria-intel /chat/stream + the CLI work; streaming also avoids single-shot timeout",
+      "claimed_at": "2026-06-06T00:37:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -16,11 +16,16 @@ Env:
   PORT         default 8888
 """
 import os
+import json as _json
+import threading
 
 import torch
 import uvicorn
 from fastapi import FastAPI, Request
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from fastapi.responses import StreamingResponse
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TextIteratorStreamer,
+)
 from peft import PeftModel
 
 BASE = os.environ.get("BASE_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
@@ -85,12 +90,71 @@ def models():
     return {"object": "list", "data": [{"id": MODEL_NAME, "object": "model"}]}
 
 
+# R-F1361: token-by-token streaming via TextIteratorStreamer in a worker thread.
+# aria-intel's /chat/stream (and the CLI) POST stream:true and expect OpenAI SSE
+# ("data: {delta}\n\n" … "data: [DONE]"). Without it the provider's stream parser
+# got a single JSON blob and fell back to DeepSeek ($0) → degraded. Streaming also
+# keeps the connection alive token-by-token, dodging single-shot read timeouts.
+def _start_stream(messages, max_tokens, temperature):
+    prompt = _tok.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True,
+    )
+    inputs = _tok(prompt, return_tensors="pt", truncation=True,
+                  max_length=8192).to(_model.device)
+    streamer = TextIteratorStreamer(
+        _tok, skip_prompt=True, skip_special_tokens=True,
+    )
+    kw = dict(
+        **inputs, max_new_tokens=max_tokens, streamer=streamer,
+        do_sample=temperature > 0, temperature=max(temperature, 0.01),
+        pad_token_id=_tok.pad_token_id,
+    )
+    t = threading.Thread(target=lambda: _model.generate(**kw), daemon=True)
+    t.start()
+    return streamer, t
+
+
+async def _sse(messages, max_tokens, temperature):
+    async with _gpu_lock:  # serialise GPU across the whole stream
+        streamer, t = await asyncio.to_thread(
+            _start_stream, messages, max_tokens, temperature,
+        )
+        _SENTINEL = object()
+
+        def _next():
+            try:
+                return next(streamer)
+            except StopIteration:
+                return _SENTINEL
+
+        while True:
+            piece = await asyncio.to_thread(_next)
+            if piece is _SENTINEL:
+                break
+            if piece:
+                chunk = {"id": "shim", "object": "chat.completion.chunk",
+                         "model": MODEL_NAME,
+                         "choices": [{"index": 0, "delta": {"content": piece},
+                                      "finish_reason": None}]}
+                yield f"data: {_json.dumps(chunk)}\n\n"
+        done = {"id": "shim", "object": "chat.completion.chunk", "model": MODEL_NAME,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+        yield f"data: {_json.dumps(done)}\n\n"
+        yield "data: [DONE]\n\n"
+        await asyncio.to_thread(t.join)
+
+
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 512))
     temperature = float(body.get("temperature", 0.3))
+    if body.get("stream"):
+        return StreamingResponse(
+            _sse(messages, max_tokens, temperature),
+            media_type="text/event-stream",
+        )
     async with _gpu_lock:  # serialise GPU; one generation at a time
         text = await asyncio.to_thread(
             _blocking_generate, messages, max_tokens, temperature,
