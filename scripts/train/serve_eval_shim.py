@@ -28,11 +28,18 @@ ADAPTER = os.environ["ADAPTER"]
 MODEL_NAME = os.environ.get("MODEL_NAME", "aria-llm")
 PORT = int(os.environ.get("PORT", "8888"))
 
-print(f"[shim] loading base={BASE} adapter={ADAPTER} (4-bit)…", flush=True)
+# R-F1359: default to bf16, NOT 4-bit. 4-bit (bitsandbytes) inference is
+# ~1.6 tok/s here — 125s for a 3-sentence answer — which times out every client
+# (CLI 30s, aria-intel ~90s) → degraded mode. The 7B fits easily in bf16 on an
+# 80GB A100 (~14GB) and runs ~10x faster, making it usable interactively. Set
+# SHIM_4BIT=1 only on a small GPU that can't hold bf16.
+_use_4bit = os.environ.get("SHIM_4BIT", "0") == "1"
+_dtype_label = "4-bit" if _use_4bit else "bf16"
+print(f"[shim] loading base={BASE} adapter={ADAPTER} ({_dtype_label})…", flush=True)
 _bnb = BitsAndBytesConfig(
     load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
     bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
-)
+) if _use_4bit else None
 _tok = AutoTokenizer.from_pretrained(ADAPTER, trust_remote_code=True)
 if _tok.pad_token is None:
     _tok.pad_token = _tok.eos_token
