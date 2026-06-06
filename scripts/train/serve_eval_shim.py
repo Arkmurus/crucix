@@ -46,6 +46,32 @@ print("[shim] model ready", flush=True)
 
 app = FastAPI()
 
+# R-F1358: serialise GPU access + keep the event loop free. The previous version
+# called _model.generate() (blocking, 30-120s) directly inside the async handler,
+# which froze uvicorn's event loop — so even /v1/models health checks timed out,
+# aria-intel marked aria_llm "down", and timed-out generations piled up as
+# zombies. Now generation runs in a worker thread (event loop stays responsive)
+# and a lock serialises GPU use so concurrent requests queue cleanly.
+import asyncio
+_gpu_lock = asyncio.Lock()
+
+
+def _blocking_generate(messages, max_tokens, temperature):
+    prompt = _tok.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True,
+    )
+    inputs = _tok(prompt, return_tensors="pt", truncation=True,
+                  max_length=8192).to(_model.device)
+    with torch.no_grad():
+        out = _model.generate(
+            **inputs, max_new_tokens=max_tokens,
+            do_sample=temperature > 0, temperature=max(temperature, 0.01),
+            pad_token_id=_tok.pad_token_id,
+        )
+    return _tok.decode(
+        out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True,
+    )
+
 
 @app.get("/v1/models")
 def models():
@@ -58,20 +84,10 @@ async def chat(req: Request):
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 512))
     temperature = float(body.get("temperature", 0.3))
-    prompt = _tok.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True,
-    )
-    inputs = _tok(prompt, return_tensors="pt", truncation=True,
-                  max_length=8192).to(_model.device)
-    with torch.no_grad():
-        out = _model.generate(
-            **inputs, max_new_tokens=max_tokens,
-            do_sample=temperature > 0, temperature=max(temperature, 0.01),
-            pad_token_id=_tok.pad_token_id,
+    async with _gpu_lock:  # serialise GPU; one generation at a time
+        text = await asyncio.to_thread(
+            _blocking_generate, messages, max_tokens, temperature,
         )
-    text = _tok.decode(
-        out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True,
-    )
     return {
         "id": "shim", "object": "chat.completion", "model": MODEL_NAME,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text},

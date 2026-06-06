@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1357,
+  "next_available": 1359,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8035,6 +8035,24 @@
       "r_number": "R-F1356",
       "title": "DPO stability: max_grad_norm clip + bf16 (drop 4-bit) + lower lr to fix v0.2 grad-explosion collapse",
       "claimed_at": "2026-06-05T23:03:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1357",
+      "title": "DPO data length-balance: truncate verbose rejected to ~chosen length (fix 4.7x length bias causing DPO divergence)",
+      "claimed_at": "2026-06-05T23:29:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1358",
+      "title": "serve_eval_shim non-blocking: to_thread generate + GPU lock (sync generate blocked the event loop -> health checks timed out -> aria-intel degraded)",
+      "claimed_at": "2026-06-06T00:04:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
