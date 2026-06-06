@@ -2078,6 +2078,13 @@ def _completion_max_tokens(message: str) -> int:
     Briefs get 8000; everything else keeps 4000 (latency/cost unchanged for the
     common case). Reuses the R-F864 periodic-brief detector so 'cache it?',
     'serve it?' and 'how long?' all agree on what a brief is."""
+    # R-F1360: when the sovereign 7B is serving (bf16 shim, ~10 tok/s), a
+    # 4000-token completion takes 150-250s → past the 120s chat timeout →
+    # aria-intel times out aria_llm → degraded mode. Cap the sovereign path to
+    # 800 tokens (~80s, inside the timeout); a lean answer also suits a 7B. The
+    # full cloud chain (DeepSeek etc.) keeps the 4000/8000 budgets.
+    if _compact_prompt_active():
+        return 800
     try:
         from .intel.reasoning_library import _looks_like_periodic_brief
         if message and _looks_like_periodic_brief(message.lower()):
