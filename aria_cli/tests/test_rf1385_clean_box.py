@@ -24,16 +24,17 @@ def _ui():
 
 
 def test_rf1385_toolbar_renders_box_base_and_status():
+    """R-F1389: toolbar base is now a clean '─' rule (no ╰ corner)."""
     cfg = types.SimpleNamespace(provider="deepseek", model="deepseek-chat")
     cli._TURN_STATE.update(busy=False, task="")
     out = cli._toolbar_text(cfg, self_mode=True)
     base, status = out.split("\n", 1)
-    assert base.startswith("╰") and set(base[1:]) == {"─"}, "line 1 must close the box"
+    assert set(base) == {"─"}, "line 1 must be a clean horizontal rule"
     assert "ready" in status
     cli._TURN_STATE.update(busy=True, task="polish", started=time.time())
     try:
         out2 = cli._toolbar_text(cfg, self_mode=True)
-        assert out2.splitlines()[0].startswith("╰")
+        assert set(out2.splitlines()[0]) == {"─"}
         assert "working" in out2
     finally:
         cli._TURN_STATE.update(busy=False, task="")

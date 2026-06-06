@@ -324,21 +324,21 @@ def _box_width() -> int:
 
 
 def _toolbar_text(cfg, self_mode: bool):
-    """R-F1385 — the toolbar IS the box base: line 1 closes the rectangle
-    (operator: 'has a ceiling but not a base'), line 2 is the live status.
-    Rendered while typing, so the box is COMPLETE at all times."""
+    """R-F1389 — clean toolbar: base rule + one-line status.
+    The base rule mirrors the top rule from _boxed_prompt, completing the
+    input box visually. The status line sits below it, always visible."""
     w = _box_width()
-    base = "╰" + "─" * (w - 1)
+    base = "─" * w
     if _TURN_STATE["busy"]:
         secs = int(time.time() - (_TURN_STATE["started"] or time.time()))
         mm, ss = divmod(secs, 60)
         status = (
-            f" ● ARIA working — {_TURN_STATE['task']}  ({mm:02d}:{ss:02d})"
-            f"  ·  type + Enter to guide her mid-task"
+            f"● working — {_TURN_STATE['task']}  ({mm:02d}:{ss:02d})"
+            f"  ·  type + Enter to guide mid-task"
         )
     else:
         mode = "self" if self_mode else "general"
-        status = f" ○ ready  ·  {cfg.provider}/{cfg.model}  ·  {mode}  ·  /help for commands"
+        status = f"○ ready  ·  {cfg.provider}/{cfg.model}  ·  {mode}  ·  /help for commands"
     return base + "\n" + status[: w - 1]
 
 
@@ -1004,7 +1004,7 @@ class TerminalUI(AgentUI):
         sys.stdout.flush()
 
     def _render_markdown(self, text: str) -> None:
-        """Render text with Rich markdown and syntax highlighting when available (R-F1267)."""
+        """Render text with Rich markdown and syntax highlighting when available (R-F1389)."""
         if self._rich_console:
             try:
                 # Check if text contains code blocks
@@ -1019,12 +1019,12 @@ class TerminalUI(AgentUI):
                         self._rich_console.print(md)
                     else:
                         # Plain text — just print with the ARIA prefix
-                        print(self.c.cyan("  ARIA > ") + text)
+                        print(self.c.cyan("  ARIA  ") + text)
                 return
             except Exception:
                 pass
         # Fallback: plain text
-        print(self.c.cyan("  ARIA > ") + text)
+        print(self.c.cyan("  ARIA  ") + text)
 
     def assistant(self, text: str) -> None:
         """Print a complete assistant message with Rich rendering (R-F1267)."""
@@ -1043,7 +1043,7 @@ class TerminalUI(AgentUI):
                 self.thinking_stop()
             if self._needs_leading_newline:
                 print()
-            sys.stdout.write(self.c.cyan("  ARIA > "))
+            sys.stdout.write(self.c.cyan("  ARIA  "))
             self._stream_active = True
             self._streamed_this_turn = True
             self._needs_leading_newline = False
@@ -1209,10 +1209,10 @@ class TerminalUI(AgentUI):
         return ""
 
     def info(self, text: str) -> None:
-        """Print an informational message (R-F1260)."""
+        """Print an informational message (R-F1389)."""
         self._ensure_clear_line()
         self._log(f"[info] {text}")
-        print(self.c.dim(f"  ~ {text}"))
+        print(self.c.dim(f"  · {text}"))
 
     # ── always-on activity indicator ────────────────────────────────────────
     def thinking_start(self, label: str = "thinking") -> None:
@@ -1638,28 +1638,23 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
 
 def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
             cwd: Path, auto_approve: bool = True) -> None:
-    """Clean, compact banner — 4 lines, no box-drawing noise (R-F1260).
+    """Clean, compact banner — Claude Code style, no box-drawing (R-F1389).
 
-    Uses _box_content to align all content lines to the 56-char box width,
-    with vertical bars (║/|) on both sides for visual structure (R-F1263).
+    A colored title line with a subtle separator underneath. Clean, minimal,
+    professional — the input box below provides the interactive structure.
     """
     mode = color.green("self") if self_mode else "general"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     approval = color.green("auto") if auto_approve else "confirm"
     dir_short = str(cwd)
-    # R-F1265: truncate path to fit within 56-char box.
-    # Line format: "ARIA Coder  vX.Y.Z  <path>" — fixed prefix is ~20 visible chars.
-    # Leave room for the path: 56 - 20 = 36 chars max.
-    prefix_visible = len("ARIA Coder") + 4 + len(__version__) + 2  # 22 for v0.1.0
-    max_path = max(10, 56 - prefix_visible)
-    if len(dir_short) > max_path:
-        dir_short = "…" + dir_short[-(max_path - 1):]
+    # Truncate path to a reasonable length
+    if len(dir_short) > 60:
+        dir_short = "…" + dir_short[-59:]
     bx = _BoxChars()
     print()
-    print(color.bold(_box_line(bx.tl, bx.h, bx.tr)))
-    print(color.bold(_box_content(bx.v, f"{color.cyan('ARIA Coder')}  v{__version__}  {color.dim(dir_short)}")))
-    print(color.bold(_box_content(bx.v, f"{color.dim(f'{cfg.provider}/{cfg.model}  {mode}  brain:{brain}  {approval}')}")))
-    print(color.bold(_box_line(bx.bl, bx.h, bx.br)))
+    print(f"  {color.cyan('ARIA')} {color.dim('v' + __version__)}  {color.dim(dir_short)}")
+    print(f"  {color.dim(f'{cfg.provider}/{cfg.model}  ·  {mode}  ·  brain:{brain}  ·  {approval}')}")
+    print(f"  {color.dim(bx.h * 40)}")
     print()
 
 
@@ -1674,16 +1669,15 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     bx = _BoxChars()
     icon = bx.check if success else bx.cross
     print()
-    print(color.bold(_box_line(bx.tl, bx.h, bx.tr)))
-    print(color.bold(_box_content(bx.v, f"{color.cyan('Session Complete')}  {icon}")))
-    print(color.bold(_box_line(bx.tm, bx.h, bx.mr)))
-    print(_box_content(bx.v, f"{color.dim('duration:')}  {elapsed_str}"))
-    print(_box_content(bx.v, f"{color.dim('files:')}    {len(changed)} changed"))
-    print(_box_content(bx.v, f"{color.dim('tools:')}    {ui._tool_count} calls"))
-    print(_box_content(bx.v, f"{color.dim('errors:')}   {ui._error_count}"))
-    print(_box_content(bx.v, f"{color.dim('operator:')} {ui._operator_messages} msgs"))
-    print(_box_content(bx.v, f"{color.dim('tokens:')}   {total_tok} ({in_tok} in / {out_tok} out)"))
-    print(color.bold(_box_line(bx.bl, bx.h, bx.br)))
+    print(f"  {color.cyan('Session Complete')}  {icon}")
+    print(f"  {color.dim(bx.h * 40)}")
+    print(f"  {color.dim('duration:')}  {elapsed_str}")
+    print(f"  {color.dim('files:')}    {len(changed)} changed")
+    print(f"  {color.dim('tools:')}    {ui._tool_count} calls")
+    print(f"  {color.dim('errors:')}   {ui._error_count}")
+    print(f"  {color.dim('operator:')} {ui._operator_messages} msgs")
+    print(f"  {color.dim('tokens:')}   {total_tok} ({in_tok} in / {out_tok} out)")
+    print(f"  {color.dim(bx.h * 40)}")
 
     if changed:
         print(color.dim(f"\n  files: {', '.join(changed)}"))
@@ -1724,8 +1718,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     bx = _BoxChars()
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
-    print(color.dim("  /help for commands · type a message or task"))
-    print(color.dim("  the input box stays live while ARIA works — type + Enter to guide her mid-task\n"))
+    print(color.dim("  /help for commands  ·  type a message or task"))
+    print(color.dim("  input box stays live while ARIA works — type + Enter to guide her mid-task\n"))
     last_task = ""
     _input_history: list[str] = []
     _history_idx = 0
@@ -1786,21 +1780,20 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
         )
 
     def _boxed_prompt() -> str:
-        """Render the anchored input box and read one line (R-F1383/F1385).
+        """Render the anchored input box and read one line (R-F1389).
 
-        The box is complete WHILE typing: top rule + '│ ❯ ' input edge here,
-        base rule + status via the bottom toolbar (_toolbar_text). A leading
-        blank line keeps a clean margin from ARIA's output above; the closing
-        rule is reprinted after submit so the SCROLLBACK copy of the box is
-        complete too (the toolbar vanishes once the prompt returns)."""
+        Clean, Claude-Code-style input: a thin top rule, a `❯ ` prompt,
+        and a matching base rule after submit. No redundant labels — the
+        `❯ ` is enough to signal input. A leading blank line keeps a clean
+        margin from ARIA's output above."""
         w = _box_width()
-        top = "╭─ you " + "─" * (w - 7)
+        top = "─" * w
         line_ = pt_session.prompt(
-            [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "│ ❯ ")],
+            [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "❯ ")],
             vi_mode=False,
             refresh_interval=1.0,   # keeps the working-timer toolbar live
         )
-        print(color.dim("╰" + "─" * (w - 1)))
+        print(color.dim("─" * w))
         return line_
 
     try:

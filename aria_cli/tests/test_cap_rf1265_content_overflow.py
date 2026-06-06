@@ -56,17 +56,14 @@ def test_banner_does_not_overflow_with_long_path() -> None:
         output = sys.stdout.getvalue()
         lines = output.splitlines()
 
-        # Line 2 should contain the title
-        assert "ARIA Coder" in lines[2], f"Banner missing title: {lines[2]}"
+        # Line 1 should contain the title
+        assert "ARIA" in lines[1], f"Banner missing title: {lines[1]}"
 
-        # The box should be well-formed: each content line should have
-        # vertical bars at the start and end
+        # No box-drawing characters in the new clean layout
         bx = _BoxChars()
         for line in lines[1:]:
-            if bx.v in line:
-                # Content line — should start with "  " + v and end with v
-                assert line.strip().startswith(bx.v), f"Content line missing left border: {line}"
-                assert line.strip().endswith(bx.v), f"Content line missing right border: {line}"
+            assert bx.tl not in line, f"Banner should not have box corners: {line}"
+            assert bx.bl not in line, f"Banner should not have box corners: {line}"
     finally:
         sys.stdout = old_stdout
 

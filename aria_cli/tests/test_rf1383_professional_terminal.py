@@ -101,6 +101,7 @@ def test_rf1383_midtask_line_reaches_operator_queue():
 
 
 def test_rf1383_toolbar_states():
+    """R-F1389: toolbar uses clean '─' rule and 'guide mid-task' text."""
     cfg = types.SimpleNamespace(provider="deepseek", model="deepseek-chat")
     cli._TURN_STATE.update(busy=False, task="")
     idle = cli._toolbar_text(cfg, self_mode=True)
@@ -110,7 +111,7 @@ def test_rf1383_toolbar_states():
         busy = cli._toolbar_text(cfg, self_mode=True)
         assert "working" in busy and "fix the NDA bug" in busy
         assert "01:0" in busy  # mm:ss elapsed rendered
-        assert "guide her mid-task" in busy
+        assert "guide mid-task" in busy
     finally:
         cli._TURN_STATE.update(busy=False, task="")
 

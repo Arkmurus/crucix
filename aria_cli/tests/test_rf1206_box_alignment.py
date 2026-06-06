@@ -35,25 +35,25 @@ def _capture_banner() -> list[str]:
 
 
 def test_banner_has_clean_structure() -> None:
-    """Banner has 5 lines: blank, top-rule, title+version+dir, config, bottom-rule."""
+    """Banner has 5 lines: blank, title+version+dir, config, separator, blank."""
     lines = _capture_banner()
     assert len(lines) >= 5, f"Expected at least 5 banner lines, got {len(lines)}"
 
-    # Line 0: blank line (print() before the box)
-    # Line 1: top rule (starts with spaces + box-drawing corner)
-    assert lines[1].strip(), "Banner line 1 (top rule) should not be empty"
+    # Line 0: blank line (print() before the header)
+    # Line 1: contains ARIA title
+    assert "ARIA" in lines[1], f"Banner missing 'ARIA' title: {lines[1]}"
 
-    # Line 2: contains ARIA Coder title
-    assert "ARIA Coder" in lines[2], f"Banner missing 'ARIA Coder' title: {lines[2]}"
+    # Line 2: contains config info
+    assert lines[2].strip(), "Banner line 2 (config) should not be empty"
 
-    # Line 4: bottom rule (starts with spaces + box-drawing corner)
-    assert lines[4].strip(), "Banner line 4 (bottom rule) should not be empty"
+    # Line 3: separator line (horizontal rule)
+    assert lines[3].strip(), "Banner line 3 (separator) should not be empty"
 
 
 def test_banner_contains_all_expected_sections() -> None:
-    """Banner contains ARIA Coder title, directory, provider, mode, brain, approval."""
+    """Banner contains ARIA title, directory, provider, mode, brain, approval."""
     lines = "\n".join(_capture_banner())
-    assert "ARIA Coder" in lines, "Banner missing 'ARIA Coder' title"
+    assert "ARIA" in lines, "Banner missing 'ARIA' title"
     assert "v0.1.0" in lines, "Banner missing version"
     assert "deepseek" in lines or "C:" in lines, "Banner missing provider or directory"
     assert "self" in lines or "general" in lines, "Banner missing mode"
@@ -61,18 +61,15 @@ def test_banner_contains_all_expected_sections() -> None:
     assert "auto" in lines or "confirm" in lines, "Banner missing approval status"
 
 
-def test_banner_has_box_structure() -> None:
-    """Banner uses box-drawing characters for alignment (R-F1263)."""
+def test_banner_has_clean_text_structure() -> None:
+    """Banner uses clean text layout — no box-drawing (R-F1389)."""
     lines = "\n".join(_capture_banner())
     bx = _BoxChars()
-    # Top rule should start with a corner character
-    assert bx.tl in lines, f"Banner missing top-left corner: {bx.tl}"
-    # Bottom rule should start with a corner character
-    assert bx.bl in lines, f"Banner missing bottom-left corner: {bx.bl}"
-    # Content lines should have vertical bars for alignment
-    assert bx.v in lines, f"Banner missing vertical bars: {bx.v}"
+    # No box-drawing corners in the new clean layout
+    assert bx.tl not in lines, f"Banner should not have top-left corner: {bx.tl}"
+    assert bx.bl not in lines, f"Banner should not have bottom-left corner: {bx.bl}"
     # Title should be present
-    assert "ARIA Coder" in lines, "Banner missing 'ARIA Coder' title"
+    assert "ARIA" in lines, "Banner missing 'ARIA' title"
 
 
 def test_banner_ascii_fallback() -> None:
@@ -82,10 +79,7 @@ def test_banner_ascii_fallback() -> None:
         os.environ["NO_COLOR"] = "1"
         lines = _capture_banner()
         assert len(lines) >= 5, f"Expected at least 5 banner lines, got {len(lines)}"
-        assert "ARIA Coder" in lines[2], "Banner missing 'ARIA Coder' title"
-        # Should use ASCII +-| instead of Unicode box-drawing
-        assert "+" in lines[1], "ASCII fallback should use + for corners"
-        assert "|" in lines[2], "ASCII fallback should use | for vertical bars"
+        assert "ARIA" in lines[1], "Banner missing 'ARIA' title"
     finally:
         if old_no_color is not None:
             os.environ["NO_COLOR"] = old_no_color
@@ -104,6 +98,6 @@ def test_banner_with_colors() -> None:
         _banner(c, cfg, True, guard, Path.cwd(), auto_approve=True)
         lines = sys.stdout.getvalue().splitlines()
         assert len(lines) >= 5, f"Expected at least 5 banner lines, got {len(lines)}"
-        assert "ARIA Coder" in lines[2], "Banner missing 'ARIA Coder' title"
+        assert "ARIA" in lines[1], "Banner missing 'ARIA' title"
     finally:
         sys.stdout = old_stdout
