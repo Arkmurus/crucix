@@ -7159,6 +7159,7 @@ async def chat_ep(req: ChatRequest, request: Request):
     # re-runs THIS handler in SYNC mode (async_mode=False) — zero behaviour
     # drift between the fast and async paths — and return a job_id immediately.
     # The caller polls /chat/result/{job_id}. Mirrors R-F873 read-document.
+    # R-F1377: the job task is held in _ASYNC_JOB_TASKS — see that comment.
     if getattr(req, "async_mode", False):
         _cjob_id = str(uuid.uuid4())[:12]
         await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id})
@@ -7193,7 +7194,9 @@ async def chat_ep(req: ChatRequest, request: Request):
                 except Exception:
                     pass
 
-        asyncio.create_task(_r916_run(), name=f"chatjob.{_cjob_id}")
+        # R-F1377 — strong ref: a GC'd chat job = WA review reply that never
+        # arrives (poll runs to the listener's ceiling, user sees a timeout).
+        _hold_job_task(asyncio.create_task(_r916_run(), name=f"chatjob.{_cjob_id}"))
         return {
             "async": True, "job_id": _cjob_id, "status": "processing",
             "poll_url": f"/api/aria/chat/result/{_cjob_id}",
@@ -9092,6 +9095,22 @@ async def read_document_result_ep(job_id: str):
 _CHAT_JOB_PREFIX = "crucix:aria:chat_job:"
 _CHAT_JOB_TTL_S = 1800  # 30m — covers an 8-min WA poll window + retries
 
+# R-F1377 — strong refs for the USER-VISIBLE async job tasks (chatjob + readdoc).
+# Same defect class as R-F1363 pt1 (_CODER_BG_TASKS below): asyncio.create_task
+# holds only a WEAK reference, so under a saturated event loop (~96 autonomous
+# tasks + absorb storms) a bare job task can be garbage-collected mid-flight.
+# The job store then stays "processing" forever and the WhatsApp listener polls
+# until its 15-minute ceiling — the operator sees "extraction timed out" on
+# document parsing and "ARIA is temporarily unavailable" on the review reply.
+# Holding the task here guarantees execution; the done-callback self-cleans.
+_ASYNC_JOB_TASKS: set = set()
+
+
+def _hold_job_task(task) -> None:
+    """Pin an async-job task (chatjob.* / readdoc.*) until it completes."""
+    _ASYNC_JOB_TASKS.add(task)
+    task.add_done_callback(_ASYNC_JOB_TASKS.discard)
+
 
 async def _chat_job_set(job_id: str, data: dict) -> None:
     try:
@@ -9235,7 +9254,11 @@ async def read_document_ep(request: Request):
                 _log.warning("R-F873 async read-document job %s failed: %s", _job_id, _e)
                 await _readdoc_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": _fname})
 
-        _r725_asyncio.create_task(_r873_run(), name=f"readdoc.{_job_id}")
+        # R-F1377 — strong ref: a GC'd extraction job = document parse that
+        # never finishes ("extraction timed out after 15 minutes" on WA).
+        _hold_job_task(
+            _r725_asyncio.create_task(_r873_run(), name=f"readdoc.{_job_id}")
+        )
         return {
             "async": True, "job_id": _job_id, "status": "processing",
             "poll_url": f"/api/aria/read-document/result/{_job_id}",
@@ -13194,7 +13217,9 @@ async def ocr_ep(request: Request):
                 _log.warning("R-F1311 async OCR job %s failed: %s", _job_id, _e)
                 await _ocr_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": filename})
 
-        asyncio.create_task(_ocr_async_run(), name=f"ocrjob.{_job_id}")
+        # R-F1377 — strong ref: a GC'd OCR job = scanned-document parse that
+        # never finishes (polled store stuck at "processing").
+        _hold_job_task(asyncio.create_task(_ocr_async_run(), name=f"ocrjob.{_job_id}"))
         return {
             "async": True, "job_id": _job_id, "status": "processing",
             "poll_url": f"/api/aria/ocr/result/{_job_id}",
@@ -18111,10 +18136,14 @@ async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
         "result": None,
         "error": None,
     }
-    # asyncio.create_task — fire-and-forget; the task captures the
-    # current event loop. The task lifetime outlives this HTTP request.
+    # R-F1377 — strong ref (was fire-and-forget): asyncio holds only a weak
+    # reference, so a GC'd run left _ADV_RUN_REGISTRY stuck at "queued" and
+    # the poll_url never resolved. The task lifetime outlives this HTTP
+    # request; _hold_job_task pins it until done.
     import asyncio as _asyncio
-    _asyncio.create_task(_adv_run_background(run_id, body.attack_ids))
+    _hold_job_task(_asyncio.create_task(
+        _adv_run_background(run_id, body.attack_ids), name=f"advrun.{run_id}",
+    ))
     return {
         "run_id": run_id,
         "status": "queued",

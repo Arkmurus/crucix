@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1374,
+  "next_available": 1378,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8194,6 +8194,44 @@
       "r_number": "R-F1373",
       "title": "agent_bridge.py identity flag - ARIA's replies sent via the script were tagged claude->aria and invisible to Claude's inbox",
       "claimed_at": "2026-06-06T14:57:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1374",
+      "title": "Phase A gate closure: wire remaining critical paths, enable env vars, verify autonomy readiness",
+      "claimed_at": "2026-06-06T15:00:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1375",
+      "title": "Fix test_rf1335_runpod_scheduler.py zoneinfo collection error on Windows",
+      "claimed_at": "2026-06-06T15:09:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "87388e68",
+      "notes": null,
+      "shipped_at": "2026-06-06T15:10:35Z"
+    },
+    {
+      "r_number": "R-F1376",
+      "title": "Fix state_store lock-timeout burst with bounded retry + backoff",
+      "claimed_at": "2026-06-06T15:12:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c812c2a",
+      "notes": null,
+      "shipped_at": "2026-06-06T15:27:08Z"
+    },
+    {
+      "r_number": "R-F1377",
+      "title": "WA doc parsing+review 15-min timeouts - chatjob + readdoc async tasks GC-able (bare create_task, R-F1363 pt1 class)",
+      "claimed_at": "2026-06-06T15:18:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
