@@ -68,6 +68,18 @@ def _api_key() -> str | None:
     return (os.getenv("ARIA_LLM_KEY") or "").strip() or None
 
 
+def _max_model_len() -> int:
+    """Context window of the served ARIA-LLM, in tokens. Must match the vLLM
+    `--max-model-len`. R-F1363: used to clamp max_tokens so prompt+completion
+    never overflows (vLLM returns HTTP 400 otherwise). Default 32768 = the
+    Qwen2.5-14B window we serve; override via ARIA_LLM_MAX_MODEL_LEN."""
+    try:
+        v = int((os.getenv("ARIA_LLM_MAX_MODEL_LEN") or "32768").strip())
+        return v if v >= 512 else 32768
+    except (TypeError, ValueError):
+        return 32768
+
+
 async def complete(
     prompt: str,
     *,
@@ -101,6 +113,33 @@ async def complete(
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
+
+    # R-F1363 — clamp max_tokens so (prompt + completion) never exceeds the
+    # served model's context window. The coder requests max_tokens up to 8192;
+    # with an 8192-token vLLM window ANY prompt overflowed → "maximum context
+    # length is 8192 … you requested 8231" HTTP 400, which soft-cooled the
+    # provider and failed every self-coding fix at the plan step. We reserve the
+    # estimated prompt tokens (+ a margin) out of the window so a completion
+    # always fits. ARIA_LLM_MAX_MODEL_LEN must match the vLLM --max-model-len.
+    max_model_len = _max_model_len()
+    prompt_chars = len(system) + len(prompt)
+    est_prompt_tokens = prompt_chars // 4 + 32   # ~4 chars/token + framing
+    safe_max_tokens = max_model_len - est_prompt_tokens - 256  # 256 = margin
+    if safe_max_tokens < max_tokens:
+        if safe_max_tokens < 256:
+            logger.warning(
+                "[aria_llm] prompt (~%d tok) leaves only %d tok in the %d window; "
+                "clamping completion to 256",
+                est_prompt_tokens, safe_max_tokens, max_model_len,
+            )
+            safe_max_tokens = 256
+        else:
+            logger.info(
+                "[aria_llm] clamped max_tokens %d→%d to fit %d-token window "
+                "(prompt ~%d tok)",
+                max_tokens, safe_max_tokens, max_model_len, est_prompt_tokens,
+            )
+        max_tokens = safe_max_tokens
 
     body = {
         "model":       _model_name(),
