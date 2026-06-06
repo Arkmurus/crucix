@@ -173,6 +173,39 @@ async def _ensure_modifiable_files() -> None:
     logger.info("[self_improve] R-F996: MODIFIABLE_FILES populated with %d files", len(MODIFIABLE_FILES))
 
 
+# R-F1363 — directories where the coder may CREATE brand-new files. MODIFIABLE_FILES
+# only ever contains EXISTING tracked files (R-F996), so a new-capability gap (every
+# operator "add X" request) produced a file that failed staging with "not in
+# whitelist" — the coder could improve existing code but never grow the ecosystem.
+# We allow new .py files ONLY under these safe dirs (new intel capabilities + their
+# tests), still block every PROTECTED_FILES path, and everything goes to STAGING for
+# operator review — never auto-deploy (§21c). Creating a new file cannot overwrite
+# existing code, so this widens capability without weakening the modify-guard.
+SAFE_NEW_FILE_DIRS: tuple[str, ...] = (
+    "aria_service/intel/",
+    "aria_service/tests/",
+)
+
+
+def _is_safe_new_file(file_path: str) -> bool:
+    """True if file_path is a permissible BRAND-NEW file the coder may create."""
+    fp = (file_path or "").replace("\\", "/").strip()
+    if not fp.endswith(".py"):
+        return False
+    if not any(fp.startswith(d) for d in SAFE_NEW_FILE_DIRS):
+        return False
+    if ".." in fp:  # no path traversal
+        return False
+    try:
+        from ..autonomous.constitutional_validator import PROTECTED_FILES
+        if fp in PROTECTED_FILES:
+            return False
+    except Exception:
+        # If the protected list can't be loaded, fail CLOSED for safety.
+        return False
+    return True
+
+
 def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
     """Whether a staged change may AUTO-deploy (no human in the loop).
 
@@ -323,7 +356,10 @@ async def stage_improvement(
 ) -> dict:
     """Stage a code improvement for review."""
     global _SI_STAGED, _SI_FAILURES
-    if file_path not in MODIFIABLE_FILES:
+    # R-F1363 — allow either modifying an existing tracked file OR creating a new
+    # file in a safe dir (intel/ capabilities + tests/). Both still route to
+    # staging for operator review; PROTECTED_FILES stays locked either way.
+    if file_path not in MODIFIABLE_FILES and not _is_safe_new_file(file_path):
         _SI_FAILURES += 1
         wire_failure(module="self_improve", detail=f"Cannot stage {file_path} — not modifiable",
                      gap_type="stage_blocked", source="self_improve:stage_improvement")
