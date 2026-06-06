@@ -502,11 +502,6 @@ class ARIACoder:
                     )
 
             # STEP 4 — generate code per target file + validate each
-            await self._publish_progress(
-                fix_id, "writing_code",
-                f"Writing code for {len(plan.target_files)} file(s)",
-                target_files=plan.target_files,
-            )
             # R-F1363 — write BOTH modified files AND newly-created files. The
             # plan separates target_files (modify) from new_files (create); a
             # MISSING_CAPABILITY gap (every operator "add X" request) puts the
@@ -520,6 +515,11 @@ class ARIACoder:
                 )
                 if f and not f.rstrip().endswith("/")
             ]
+            await self._publish_progress(
+                fix_id, "writing_code",
+                f"Writing code for {len(files_to_write)} file(s)",
+                target_files=files_to_write,
+            )
             for target in files_to_write:
                 existing = self.codebase.read(target)
                 new_code = await self._generate_target_code(plan_raw, existing, target)
