@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1385,
+  "next_available": 1388,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8158,27 +8158,30 @@
       "title": "deploy.ps1 false ALL-PASS verdict - flyctl stdout pollutes Deploy-And-Verify return",
       "claimed_at": "2026-06-06T14:38:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c4150d7d",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:28Z"
     },
     {
       "r_number": "R-F1370",
       "title": "i18n loadLocale infinite recursion when default locale file missing - /api/locales 500",
       "claimed_at": "2026-06-06T14:38:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c4150d7d",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:29Z"
     },
     {
       "r_number": "R-F1371",
       "title": "test_rf1230 suite wedge - verification tests spawned live pytest-in-pytest + audit subprocess",
       "claimed_at": "2026-06-06T14:45:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c4150d7d",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:29Z"
     },
     {
       "r_number": "R-F1372",
@@ -8195,9 +8198,10 @@
       "title": "agent_bridge.py identity flag - ARIA's replies sent via the script were tagged claude->aria and invisible to Claude's inbox",
       "claimed_at": "2026-06-06T14:57:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0ae9b255",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:29Z"
     },
     {
       "r_number": "R-F1374",
@@ -8233,9 +8237,10 @@
       "title": "WA doc parsing+review 15-min timeouts - chatjob + readdoc async tasks GC-able (bare create_task, R-F1363 pt1 class)",
       "claimed_at": "2026-06-06T15:18:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c03457f1",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:30Z"
     },
     {
       "r_number": "R-F1378",
@@ -8290,14 +8295,42 @@
       "title": "aria CLI professional UI - persistent bottom input box, visible mid-task interject, log-noise routing",
       "claimed_at": "2026-06-06T20:36:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "870f57fd",
+      "notes": null,
+      "shipped_at": "2026-06-06T20:52:30Z"
     },
     {
       "r_number": "R-F1384",
       "title": "Fix context assembly order: current message must be last, not buried under recalled context",
       "claimed_at": "2026-06-06T20:37:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1385",
+      "title": "aria CLI polish pt2 - complete box (base via toolbar), clean bottom margin, capped tool-output verbosity",
+      "claimed_at": "2026-06-06T21:06:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1386",
+      "title": "Fix wrong-answer P0: reorder _format_history_user_prompt so context precedes current message",
+      "claimed_at": "2026-06-06T21:10:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1387",
+      "title": "Fix wrong-answer P0: reorder user prompt so context precedes current message",
+      "claimed_at": "2026-06-06T21:10:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

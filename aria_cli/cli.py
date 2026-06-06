@@ -278,15 +278,19 @@ def _session_log_path() -> Path:
 _TURN_STATE: dict = {"busy": False, "task": "", "started": 0.0}
 
 
-def _turn_worker(agent, line: str, color) -> threading.Thread:
+def _turn_worker(agent, line: str, color, ui=None) -> threading.Thread:
     """Run one agent turn in a daemon worker thread (R-F1383).
 
     Only used when auto-approve is ON (the default): in --confirm mode the
     agent calls input() for approvals, which must own stdin — those turns
-    keep the legacy inline path."""
+    keep the legacy inline path. R-F1385: while the worker runs behind the
+    live input box, the UI goes into ANCHORED mode (spinner off — the bottom
+    toolbar carries the activity; \\r redraws would spam lines above the box)."""
     _TURN_STATE.update(busy=True, task=line[:64], started=time.time())
     _busy_set(True)
     _hb_touch(force=True)
+    if ui is not None:
+        ui.anchored = True
 
     def _w() -> None:
         try:
@@ -300,28 +304,42 @@ def _turn_worker(agent, line: str, color) -> threading.Thread:
             except Exception:
                 pass
         finally:
+            if ui is not None:
+                ui.anchored = False
             _TURN_STATE.update(busy=False, task="")
             _busy_set(False)
             _hb_touch(force=True)
-            print(color.dim("  ─ done — input box is live, type the next task ─"))
+            print(color.dim("  ✓ task finished — the input box is live"))
 
     t = threading.Thread(target=_w, daemon=True, name="aria-turn")
     t.start()
     return t
 
 
+def _box_width() -> int:
+    """Terminal-fitted box width shared by the top rule, base rule and toolbar
+    (R-F1385 — mismatched widths looked broken)."""
+    import shutil as _shutil
+    return max(40, min(_shutil.get_terminal_size((100, 24)).columns - 2, 120))
+
+
 def _toolbar_text(cfg, self_mode: bool):
-    """Bottom status bar under the input box (R-F1383). Live state: what ARIA
-    is doing, for how long, and that typing steers her — or idle hints."""
+    """R-F1385 — the toolbar IS the box base: line 1 closes the rectangle
+    (operator: 'has a ceiling but not a base'), line 2 is the live status.
+    Rendered while typing, so the box is COMPLETE at all times."""
+    w = _box_width()
+    base = "╰" + "─" * (w - 1)
     if _TURN_STATE["busy"]:
         secs = int(time.time() - (_TURN_STATE["started"] or time.time()))
         mm, ss = divmod(secs, 60)
-        return (
+        status = (
             f" ● ARIA working — {_TURN_STATE['task']}  ({mm:02d}:{ss:02d})"
             f"  ·  type + Enter to guide her mid-task"
         )
-    mode = "self" if self_mode else "general"
-    return f" ○ ready  ·  {cfg.provider}/{cfg.model}  ·  {mode}  ·  /help for commands"
+    else:
+        mode = "self" if self_mode else "general"
+        status = f" ○ ready  ·  {cfg.provider}/{cfg.model}  ·  {mode}  ·  /help for commands"
+    return base + "\n" + status[: w - 1]
 
 
 def _quiet_console_logging() -> None:
@@ -868,6 +886,12 @@ class TerminalUI(AgentUI):
         self._theme = self.THEMES[self._theme_name]
         self.approve_all = False
         self._can_animate = sys.stdout.isatty()
+        # R-F1385 — anchored mode: a threaded turn is running behind the live
+        # input box. The \r\033[K spinner CANNOT redraw in place there —
+        # patch_stdout turns every tick into a NEW line above the box (the
+        # "entire screen running logs" mess). In anchored mode the spinner is
+        # OFF; the bottom toolbar carries the live activity instead.
+        self.anchored = False
         # R-F1354: Claude-Code-style glyphs with cp1252 ASCII fallback. Reuses
         # the same encoding probe _BoxChars uses (utf in stdout encoding, or
         # Windows 10+ conhost which renders Unicode even under cp1252).
@@ -972,6 +996,10 @@ class TerminalUI(AgentUI):
         """Clear any spinner or residual output before writing a new line (R-F1260)."""
         if self._spin_thread is not None:
             self.thinking_stop()
+        # R-F1385 — anchored mode: there is no in-place spinner line to clear,
+        # and \r\033[K through patch_stdout just emits noise above the box.
+        if self.anchored:
+            return
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
 
@@ -1133,7 +1161,16 @@ class TerminalUI(AgentUI):
                 output = result.output
                 # Check if output looks like code (has indentation, brackets, etc.)
                 if _looks_like_code(output):
-                    self._render_code_block(output)
+                    # R-F1385 — CAP code-looking output. A pytest/build run that
+                    # "looks like code" was rendered FULL-LENGTH (hundreds of
+                    # lines — the "takes the entire screen" complaint). Show the
+                    # head; the complete output is always in the session log.
+                    _code_lines = output.splitlines()
+                    if len(_code_lines) > 20:
+                        self._render_code_block("\n".join(_code_lines[:20]))
+                        self._trunc_hint(len(_code_lines) - 20)
+                    else:
+                        self._render_code_block(output)
                 else:
                     lines = output.splitlines()
                     if len(lines) > 5:
@@ -1186,6 +1223,10 @@ class TerminalUI(AgentUI):
         self._spin_label = label
         self._spin_start = time.monotonic()
         self._last_output = ""
+        # R-F1385 — anchored mode: the bottom toolbar shows live activity; an
+        # in-place spinner would print a new line per tick above the box.
+        if self.anchored:
+            return
         if self._can_animate:
             self._spin_stop = threading.Event()
             self._spin_thread = threading.Thread(target=self._spin, daemon=True)
@@ -1745,12 +1786,17 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
         )
 
     def _boxed_prompt() -> str:
-        """Render the anchored input box and read one line (R-F1383)."""
-        import shutil as _shutil
-        w = max(40, min(_shutil.get_terminal_size((100, 24)).columns - 2, 120))
+        """Render the anchored input box and read one line (R-F1383/F1385).
+
+        The box is complete WHILE typing: top rule + '│ ❯ ' input edge here,
+        base rule + status via the bottom toolbar (_toolbar_text). A leading
+        blank line keeps a clean margin from ARIA's output above; the closing
+        rule is reprinted after submit so the SCROLLBACK copy of the box is
+        complete too (the toolbar vanishes once the prompt returns)."""
+        w = _box_width()
         top = "╭─ you " + "─" * (w - 7)
         line_ = pt_session.prompt(
-            [("class:prompt", top + "\n"), ("class:prompt", "│ ❯ ")],
+            [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "│ ❯ ")],
             vi_mode=False,
             refresh_interval=1.0,   # keeps the working-timer toolbar live
         )
@@ -2311,7 +2357,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             # guidance. Requires auto-approve (the default): in --confirm mode
             # the agent owns stdin for approval prompts, so run inline.
             if pt_session is not None and agent.auto_approve:
-                _turn_worker(agent, line, color)
+                _turn_worker(agent, line, color, ui)
                 continue
             _busy_set(True)           # R-F1310: turn in flight — stall watch on
             _hb_touch(force=True)
