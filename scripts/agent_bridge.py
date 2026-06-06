@@ -4,12 +4,22 @@ Run from the crucix repo (or any subdir). Lets Claude Code (or the operator)
 see ARIA's questions and reply. ARIA's side is the ask_claude / check_claude
 tools in the aria CLI; both talk to the same `<repo>/.agent_bridge/` mailbox.
 
+R-F1373: `--as {claude,aria}` sets WHO is speaking (default claude). This
+exists because on 2026-06-06 ARIA used this script directly (instead of her
+ask_claude tool) to answer Claude — every message was hardcoded
+frm="claude", so her replies were tagged claude->aria and Claude's
+inbox/watcher (which reads to="claude") never surfaced them; the operator
+had to relay "aria left you a note" by hand. If you are ARIA, either use
+your ask_claude tool or pass `--as aria` here.
+
 Usage:
   python scripts/agent_bridge.py inbox            # new questions/notes from ARIA (marks read)
   python scripts/agent_bridge.py peek             # same, but don't mark read
   python scripts/agent_bridge.py reply <id> "..." # answer a specific question
   python scripts/agent_bridge.py send "..."       # send ARIA an unprompted note
   python scripts/agent_bridge.py log [N]          # last N messages, both directions
+  python scripts/agent_bridge.py --as aria send "..."   # ARIA -> Claude
+  python scripts/agent_bridge.py --as aria inbox        # ARIA reads Claude's notes
 """
 from __future__ import annotations
 
@@ -38,24 +48,32 @@ def _fmt(m: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agent_bridge", description="Claude<->ARIA mailbox")
+    # R-F1373 — identity of the SPEAKER. Hardcoded "claude" made ARIA's
+    # script-sent replies invisible to Claude's inbox (see module docstring).
+    p.add_argument(
+        "--as", dest="ident", choices=["claude", "aria"], default="claude",
+        help="who is speaking (default: claude). ARIA must pass --as aria.",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("inbox", help="new messages from ARIA (marks read)")
-    sub.add_parser("peek", help="new messages from ARIA (does not mark read)")
+    sub.add_parser("inbox", help="new messages addressed to you (marks read)")
+    sub.add_parser("peek", help="new messages addressed to you (does not mark read)")
     r = sub.add_parser("reply", help="answer a question by id")
     r.add_argument("id")
     r.add_argument("text")
-    s = sub.add_parser("send", help="send ARIA a note")
+    s = sub.add_parser("send", help="send the other agent a note")
     s.add_argument("text")
     lg = sub.add_parser("log", help="recent messages both ways")
     lg.add_argument("n", nargs="?", type=int, default=20)
     args = p.parse_args(argv)
 
     base = _base()
+    me = args.ident
+    other = "aria" if me == "claude" else "claude"
 
     if args.cmd in ("inbox", "peek"):
-        msgs = bridge.read_new(base, "claude") if args.cmd == "inbox" else bridge.peek(base, "claude")
+        msgs = bridge.read_new(base, me) if args.cmd == "inbox" else bridge.peek(base, me)
         if not msgs:
-            print("(no new messages from ARIA)")
+            print(f"(no new messages from {other.upper()})")
         else:
             for m in msgs:
                 print(_fmt(m))
@@ -63,14 +81,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "reply":
-        msg = bridge.send(base, frm="claude", to="aria", text=args.text,
+        msg = bridge.send(base, frm=me, to=other, text=args.text,
                           kind="answer", reply_to=args.id)
         print(f"replied (id {msg['id']}, reply_to {args.id})")
         return 0
 
     if args.cmd == "send":
-        msg = bridge.send(base, frm="claude", to="aria", text=args.text, kind="note")
-        print(f"sent note to ARIA (id {msg['id']})")
+        msg = bridge.send(base, frm=me, to=other, text=args.text, kind="note")
+        print(f"sent note to {other.upper()} (id {msg['id']})")
         return 0
 
     if args.cmd == "log":

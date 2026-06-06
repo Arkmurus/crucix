@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1372,
+  "next_available": 1374,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8148,9 +8148,10 @@
       "title": "LLM health checker + request queue + response cache for ARIA-LLM resilience",
       "claimed_at": "2026-06-06T14:36:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "051bcc3c",
+      "notes": null,
+      "shipped_at": "2026-06-06T14:48:56Z"
     },
     {
       "r_number": "R-F1369",
@@ -8174,6 +8175,25 @@
       "r_number": "R-F1371",
       "title": "test_rf1230 suite wedge - verification tests spawned live pytest-in-pytest + audit subprocess",
       "claimed_at": "2026-06-06T14:45:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1372",
+      "title": "Fix LLMResponseCache temperature key + wire remaining dark modules",
+      "claimed_at": "2026-06-06T14:54:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "67536d45",
+      "notes": null,
+      "shipped_at": "2026-06-06T14:58:26Z"
+    },
+    {
+      "r_number": "R-F1373",
+      "title": "agent_bridge.py identity flag - ARIA's replies sent via the script were tagged claude->aria and invisible to Claude's inbox",
+      "claimed_at": "2026-06-06T14:57:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
