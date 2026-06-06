@@ -161,12 +161,18 @@ class TestOcrJobPinned:
             body = r.json()
             assert body.get("async") is True and body.get("job_id")
 
+            # A junk payload fails FAST — the job may be terminal (and the
+            # pin already self-cleaned) before this line runs. Pinned-while-
+            # running OR already-terminal both prove execution; the bug was
+            # eternal "processing". (Same no-wall-clock-races rule as
+            # R-F1376's test redesign — the pin mechanic itself is asserted
+            # deterministically in TestHoldHelperUnit.)
             held_names = {t.get_name() for t in aria_routes._ASYNC_JOB_TASKS}
-            assert any(n.startswith("ocrjob.") for n in held_names), (
-                f"ocr job task not pinned; held={held_names}"
-            )
-
+            pinned = any(n.startswith("ocrjob.") for n in held_names)
             final = _poll_job(client, body["poll_url"])
+            assert pinned or final.get("status") in ("done", "failed"), (
+                f"neither pinned nor terminal: held={held_names} final={final}"
+            )
             assert final.get("status") in ("done", "failed"), final
 
         held_after = {t.get_name() for t in aria_routes._ASYNC_JOB_TASKS}
