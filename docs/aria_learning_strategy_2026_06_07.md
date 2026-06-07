@@ -117,6 +117,7 @@ Items from the 360 that an autonomous ARIA makes WORSE if left open:
 | WS-3a | Heatmap curriculum generator (weakest-cell study loop) | **ARIA** | cell scores move on re-eval | WS-0a |
 | WS-4a | Weekly train cycle runbook + scripts (extend `scripts/train/`) | **Claude** | one full Mon–Fri cycle executed | WS-0b, WS-2a |
 | WS-4b | Shadow tier (parallel answer + judge compare + daily rate to brain) | **Claude** | shadow rate visible on a live endpoint | WS-4a |
+| WS-4c | RunPod window ARIA-managed (CLAUDE.md §24): stop-only mode (`ARIA_RUNPOD_AUTOSTART=0`, never auto-start, force-stop out-of-window/claim-less pods), work-claim key for cycle scripts, BLOCKED-alert to operator on creds/API/stop failure, pod-hours in cost status. Capability test: RUNNING pod outside window → stopped + alert; cycle claim → not stopped | **ARIA** | drill: forgotten pod auto-stopped ≤1 reconcile interval + operator alerted | — |
 | WS-5a | Staged-queue grading E2a/E2b (batch #1 = 48 entries) | **Claude + operator** | every entry graded; streak counter starts | — |
 | WS-5b | Demotion automation + canary/rollback drill | **Claude** | C-L3 + C-L5 pass | WS-1a, WS-5a |
 | WS-5c | Cost-cap fixes ($50/day success-path + atomic rollup) | **Claude** | C-L4: live `daily_spent_usd` accrues on success | — |
@@ -145,7 +146,8 @@ Items from the 360 that an autonomous ARIA makes WORSE if left open:
 **Honest answer on timeframe: ~8 weeks to sovereign-reasoning primary, ~10 weeks to full autonomous coding — IF the data engine starts in week 1 and the heatmap/eval curves cooperate.** The two things that can stretch it: (a) the 14B plateaus below the 80% bar → response is more DPO cycles + curriculum, re-forecast +2-4 weeks, NOT a lowered bar; (b) operator actions (ACLED, design partners, pod nods) — everything code-side can be ready while those wait. The two things that can shorten it: the v0.2 baseline comes back much higher than 21.6% once the scorer is honest (plausible — the scorer was failing correct answers), and the coder streak running clean on the first 20.
 
 ## 5. Cost envelope
-RunPod: ~$8–18/week (train + eval) → ~$70–180 total to launch. DeepSeek judge+teacher usage inside the existing $300/mo cap (watch `/cost/monthly/status`; judge calls are cheap, batched). No new third-party services (§6) — everything runs on what exists: files, DeepSeek, RunPod, the brain.
+RunPod: ~$8–18/week (train + eval) → ~$70–180 total to launch.
+**Pod window (CLAUDE.md §24, ARIA-managed — operator never starts/stops manually):** pre-shadow = cycle-slots only (Tue ~09:00–15:00 SFT / Wed ~09:00–13:00 DPO / Thu ~09:00–11:00 eval, Europe/London), scripts start+stop, scheduler stop-only backstop force-stops forgotten pods outside 09:00–18:00 UK. Shadow phase = daily 10:00–18:00 UK window mode (auto-start/auto-stop), serving on a cheaper inference GPU (A40/L40S class); A100 reserved for training days. DeepSeek judge+teacher usage inside the existing $300/mo cap (watch `/cost/monthly/status`; judge calls are cheap, batched). No new third-party services (§6) — everything runs on what exists: files, DeepSeek, RunPod, the brain.
 
 ## 6. Risks + pre-committed responses
 | Risk | Response (pre-committed, no debate at the time) |
