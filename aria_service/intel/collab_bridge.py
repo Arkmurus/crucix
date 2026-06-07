@@ -1,0 +1,183 @@
+"""R-F1409 — server-mediated Claude<->ARIA collaboration bridge.
+
+ONE ARIA, many I/O surfaces (Coder CLI / intel / web / wa). The collaboration
+mailbox lives HERE, on the server (aria-intel), so:
+  - the always-on ARIA brain that backs intel/web/wa,
+  - the ARIA Coder CLI, and
+  - Claude (the senior reviewer)
+all read and write the SAME channel. This replaces the old local-file mailbox
+(`.agent_bridge/`) that ONLY the local CLI could see — which is what created the
+"two ARIAs / notes never arrive" split-brain the operator hit.
+
+Design notes
+------------
+- CURSOR-BASED, not consume-on-read. Every reader tracks its own last-seen seq,
+  so a message is NEVER destroyed by being read. Claude and ARIA poll
+  independently; nothing is lost and nothing is double-consumed by whoever
+  reads first (the failure mode of the local `_seen` file approach).
+- Monotonic integer `seq` from an atomic redis INCR guarantees a total order
+  and stable cursors across processes.
+- Bounded: the log is trimmed to the last MAX_LOG entries on write (collab
+  traffic is low-volume; this is a chat channel, not telemetry).
+- §21a wired: send() records a metric signal; the autonomous drain
+  (drain_for_aria) absorbs inbound notes to the brain AND records a gap for
+  actionable items so the coder loop picks them up — success and failure both
+  reach a sink.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Any, Optional
+
+from . import redis_store as rs
+
+logger = logging.getLogger("aria.collab_bridge")
+
+_LOG_KEY = "crucix:aria:collab:log"
+_SEQ_KEY = "crucix:aria:collab:seq"
+_CURSOR_KEY = "crucix:aria:collab:cursor:{reader}"
+MAX_LOG = 500  # keep the last N collaboration messages
+
+VALID_PARTIES = ("claude", "aria")
+
+
+async def send(
+    frm: str,
+    to: str,
+    text: str,
+    *,
+    kind: str = "note",
+    reply_to: str = "",
+) -> dict:
+    """Append one message to the shared collaboration log. Returns the stored
+    message dict (incl. its monotonic `seq` and `id`)."""
+    frm = (frm or "").strip().lower()
+    to = (to or "").strip().lower()
+    if frm not in VALID_PARTIES or to not in VALID_PARTIES:
+        raise ValueError(f"frm/to must be one of {VALID_PARTIES}; got frm={frm!r} to={to!r}")
+    if not (text or "").strip():
+        raise ValueError("text is required")
+
+    # Atomic monotonic seq → total order + stable cursors across processes.
+    seq = await rs.incr(_SEQ_KEY)
+    msg = {
+        "seq": int(seq),
+        "id": f"cb_{int(seq)}",
+        "ts": time.time(),
+        "frm": frm,
+        "to": to,
+        "text": text[:20000],
+        "kind": (kind or "note")[:32],
+        "reply_to": reply_to or "",
+    }
+    try:
+        await rs.lpush(_LOG_KEY, json.dumps(msg))
+        # Trim to the most-recent MAX_LOG (lpush prepends → keep head 0..MAX_LOG-1)
+        try:
+            await rs.ltrim(_LOG_KEY, 0, MAX_LOG - 1)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("[R-F1409] collab send persist failed: %s", e)
+        raise
+
+    # §21a — low-frequency metric signal (not brain_hook.absorb: that has
+    # mastery/neural side-effects unsuited to a transport channel).
+    # _record_signal(module, success: bool) is async (brain_hook.py:1328).
+    try:
+        from . import brain_hook
+        await brain_hook._record_signal("collab_bridge", True)
+    except Exception:
+        pass
+    logger.info("[R-F1409] collab %s->%s %s (seq=%d)", frm, to, msg["kind"], seq)
+    return msg
+
+
+async def _read_log() -> list[dict]:
+    """Return the full log oldest-first."""
+    try:
+        raw = await rs.lrange(_LOG_KEY, 0, MAX_LOG - 1)
+    except Exception as e:
+        logger.warning("[R-F1409] collab read failed: %s", e)
+        return []
+    out: list[dict] = []
+    for item in raw or []:
+        try:
+            out.append(json.loads(item))
+        except Exception:
+            continue
+    # lpush prepends newest → reverse to oldest-first for cursor semantics
+    out.sort(key=lambda m: m.get("seq", 0))
+    return out
+
+
+async def poll(reader: str, after_seq: int = 0) -> list[dict]:
+    """Return messages addressed TO `reader` with seq > after_seq, oldest-first.
+    Cursor-based: the caller passes the highest seq it has already processed.
+    Does NOT mutate any cursor — pure read (use get_cursor/set_cursor to persist
+    a server-side reader position, e.g. the autonomous loop)."""
+    reader = (reader or "").strip().lower()
+    msgs = await _read_log()
+    return [m for m in msgs if m.get("to") == reader and int(m.get("seq", 0)) > int(after_seq)]
+
+
+async def get_cursor(reader: str) -> int:
+    try:
+        v = await rs.get(_CURSOR_KEY.format(reader=reader))
+        return int(v) if v else 0
+    except Exception:
+        return 0
+
+
+async def set_cursor(reader: str, seq: int) -> None:
+    try:
+        await rs.set(_CURSOR_KEY.format(reader=reader), str(int(seq)))
+    except Exception as e:
+        logger.debug("[R-F1409] set_cursor failed: %s", e)
+
+
+async def drain_for_aria() -> dict:
+    """Server-side consumer: pull new Claude→ARIA notes (since ARIA's cursor),
+    make the ONE ARIA aware of each (brain absorb) and record an actionable gap
+    so the coder loop picks up tasks, then advance the cursor.
+
+    Returns a summary {drained, last_seq}. Safe to call every loop cycle;
+    cursor-guarded so each note is acted on once.
+    """
+    cursor = await get_cursor("aria")
+    new = await poll("aria", after_seq=cursor)
+    if not new:
+        return {"drained": 0, "last_seq": cursor}
+
+    drained = 0
+    last_seq = cursor
+    for m in new:
+        text = (m.get("text") or "").strip()
+        seq = int(m.get("seq", 0))
+        if text:
+            # Make the one ARIA aware (brain absorb). We do NOT blanket-record
+            # a capability_gap here: a collaboration note is not a defect, and
+            # forcing it through record_gap (no fitting gap_type) would pollute
+            # the gap store + mislead the coder. A dedicated collab-log→coder
+            # extractor (separate R-number) can selectively promote genuinely
+            # actionable notes later.
+            try:
+                from . import brain_hook
+                await brain_hook.absorb(
+                    module="collab_bridge",
+                    summary=f"Claude→ARIA: {text[:160]}",
+                    detail=text[:2000],
+                    success=True,
+                    confidence="CONFIRMED",
+                    source_id=f"collab:{m.get('id','')}",
+                )
+            except Exception as e:
+                logger.warning("[R-F1409] absorb of Claude note failed: %s", e)
+        last_seq = max(last_seq, seq)
+        drained += 1
+
+    await set_cursor("aria", last_seq)
+    logger.info("[R-F1409] drained %d Claude→ARIA note(s), cursor→%d", drained, last_seq)
+    return {"drained": drained, "last_seq": last_seq}

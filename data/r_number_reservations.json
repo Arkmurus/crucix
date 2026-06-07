@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1409,
+  "next_available": 1410,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8529,6 +8529,16 @@
       "r_number": "R-F1408",
       "title": "stop GitHub Actions email noise - drop push trigger on deploy-fly + paths-ignore ci",
       "claimed_at": "2026-06-07T18:22:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1be3382a",
+      "notes": null,
+      "shipped_at": "2026-06-07T18:25:30Z"
+    },
+    {
+      "r_number": "R-F1409",
+      "title": "server-mediated Claude<->ARIA bridge - endpoints + autonomous drain + poll",
+      "claimed_at": "2026-06-07T19:42:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
