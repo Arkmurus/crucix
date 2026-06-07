@@ -700,13 +700,21 @@ function signalChatFailure(message, senderJid, errMsg) {
   } catch { /* never let observability break the reply path */ }
 }
 
-async function askARIA(message, senderJid, chatId = null) {
+async function askARIA(message, senderJid, chatId = null, requestId = null) {
   // R-F982 — ALL chats go through the async job+poll path (no 90s sync cap).
+  // T0★ — generate a request_id if not provided (R-F1411)
+  const rid = requestId || `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
+  const t0 = Date.now();
   try {
-    return await askARIAAsync(message, senderJid, chatId);
+    const answer = await askARIAAsync(message, senderJid, chatId, rid);
+    return answer;
   } catch (e) {
     console.error('[ARIA Listener] Async chat failed:', e.message);
     signalChatFailure(message, senderJid, `async: ${e.message}`);
+    // T0★ — report timeout/error outcome (R-F1411)
+    const elapsed = Date.now() - t0;
+    const outcome = e.message.includes('timed out') || e.message.includes('timeout') ? 'timeout_fallback' : 'error';
+    reportOutcome('wa', rid, 'chat_response', outcome, elapsed, e.message);
     // R-F1170 — helpful error with alternatives
     return '⚠️ I hit a timeout on that one — the research is taking longer than expected. Please try again, or if you have a specific URL or document, share it and I can work from that directly.';
   }
@@ -716,7 +724,7 @@ async function askARIA(message, senderJid, chatId = null) {
 // /chat/result/{job_id}. Mirrors readDocumentAsync (R-F873). chatId (optional)
 // only drives the interim "researching…" acknowledgement; the final answer is
 // returned to the caller, which sends it exactly as for a sync reply.
-async function askARIAAsync(message, senderJid, chatId = null) {
+async function askARIAAsync(message, senderJid, chatId = null, requestId = null) {
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
   let job;
   try {
@@ -919,8 +927,31 @@ function formatForWhatsApp(text) {
   return result.trim();
 }
 
-async function sendReply(chatId, text) {
+// ── T0★ outcome reporting (R-F1411) ──────────────────────────────────────
+// Reports delivery outcomes to the brain so ARIA knows whether her outputs
+// actually reached the user. Every surface (WA, web, TG, email, CLI, API)
+// uses the same /api/aria/outcome endpoint.
+async function reportOutcome(surface, requestId, intendedResult, actualOutcome, latencyMs, detail) {
+  try {
+    await fetch(`${BRAIN_URL}/api/aria/outcome`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+      body: JSON.stringify({
+        surface,
+        request_id: requestId,
+        intended_result: intendedResult,
+        actual_outcome: actualOutcome,
+        latency_ms: latencyMs || 0,
+        detail: detail || '',
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+  } catch { /* outcome reporting must never break the reply path */ }
+}
+
+async function sendReply(chatId, text, requestId) {
   if (!sock || !isConnected || !text) return;
+  const t0 = Date.now();
   try {
     // R-F1329 — format Markdown for WhatsApp before chunking
     const formatted = formatForWhatsApp(text);
@@ -929,8 +960,16 @@ async function sendReply(chatId, text) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
       await sock.sendMessage(chatId, { text: chunks[i] });
     }
+    // T0★ — report success outcome (R-F1411)
+    if (requestId) {
+      reportOutcome('wa', requestId, 'send_reply', 'delivered_real_answer', Date.now() - t0);
+    }
   } catch (e) {
     console.error('[ARIA Listener] Reply failed:', e.message);
+    // T0★ — report failure outcome (R-F1411)
+    if (requestId) {
+      reportOutcome('wa', requestId, 'send_reply', 'send_failed', Date.now() - t0, e.message);
+    }
     try {
       fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
         method:  'POST',
@@ -1332,6 +1371,9 @@ async function startListener() {
         senderJid.replace('@s.whatsapp.net','').replace('@g.us','') ||
         'Unknown';
 
+      // T0★ — unique request_id from the WA message key (R-F1411)
+      const requestId = msg.key.id || `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
+
       // Get group name
       let groupName = groupNames.get(chatId);
       if (!groupName) {
@@ -1699,9 +1741,9 @@ async function startListener() {
           let response = await handleCommand(cmd, args, senderJid);
           if (response === null) {
             // Unknown command — ask ARIA
-            response = await askARIA(text, senderJid, chatId);
+            response = await askARIA(text, senderJid, chatId, requestId);
           }
-          if (response) await sendReply(chatId, response);
+          if (response) await sendReply(chatId, response, requestId);
         } catch (e) {
           console.error('[ARIA Listener] Command error:', e.message);
           // R-F1170 — helpful error with alternatives
@@ -1743,8 +1785,8 @@ async function startListener() {
           console.log(`[ARIA Listener] R-F912 re-attached ${blocks.length}/${_docs.length} recent document(s) to follow-up mention`);
         }
         try {
-          const response = await askARIA(q, senderJid, chatId);
-          if (response) await sendReply(chatId, response);
+          const response = await askARIA(q, senderJid, chatId, requestId);
+          if (response) await sendReply(chatId, response, requestId);
         } catch (e) {
           console.error('[ARIA Listener] Mention reply error:', e.message);
           // R-F1170 — helpful error with alternatives
@@ -1893,14 +1935,18 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   const b      = req.body || {};
   const target = b.group_id || b.to || b.chat_id || b.jid || '';
   const text   = b.message  || b.text || '';
+  // T0★ — accept optional request_id from caller (R-F1411)
+  const rid    = b.request_id || `outbound_${target.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
   if (!target || !text) {
     return res.status(400).json({ error: 'group_id (or to/chat_id) and message are required' });
   }
   if (!sock || !isConnected) {
     _waBrainSignal('wa_outbound_failed', `WA outbound dropped — not connected (to ${target})`,
       { chat_id: String(target), reason: 'not_connected' });
+    reportOutcome('wa', rid, 'outbound_send', 'send_failed', 0, 'not_connected');
     return res.status(503).json({ error: 'WhatsApp not connected' });
   }
+  const t0 = Date.now();
   try {
     const chunks = splitMessage(text);
     for (let i = 0; i < chunks.length; i++) {
@@ -1909,10 +1955,12 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
     }
     _waBrainSignal('wa_outbound_sent', `WA outbound sent to ${target} (${text.length} chars)`,
       { chat_id: String(target), chars: text.length, parts: chunks.length });
+    reportOutcome('wa', rid, 'outbound_send', 'delivered_real_answer', Date.now() - t0);
     res.json({ sent: true, to: target, parts: chunks.length, chars: text.length });
   } catch (e) {
     _waBrainSignal('wa_outbound_failed', `WA outbound FAILED to ${target}: ${e.message}`,
       { chat_id: String(target), error: String(e.message || '').slice(0, 200) });
+    reportOutcome('wa', rid, 'outbound_send', 'send_failed', Date.now() - t0, e.message);
     res.status(500).json({ error: e.message });
   }
 });

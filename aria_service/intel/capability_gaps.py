@@ -196,6 +196,7 @@ VALID_GAP_TYPES = frozenset({
     "cost_pressure",                     # tasks
     "self_runtime",                      # tasks
     "blackout",                          # self_restart — heartbeat stale
+    "delivery_failure",                  # outcome_wire — delivery to surface failed
 })
 
 

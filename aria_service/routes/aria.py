@@ -12048,6 +12048,110 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
             "captured": sig_type == "whatsapp_group_message"}
 
 
+# ── T0★ outcome-wire endpoints (R-F1411) ──────────────────────────────────
+
+
+@router.post("/outcome")
+async def outcome_record_ep(request: Request):
+    """Record a delivery outcome from any surface (WA, web, TG, email, CLI, API).
+
+    Body: {
+        surface: str,          # Channel name (wa, web, tg, email, cli, api, ...)
+        request_id: str,       # Unique request identifier (e.g. WA msg.key.id)
+        intended_result: str,  # What was supposed to happen (e.g. "send_reply")
+        actual_outcome: str,   # delivered_real_answer | timeout_fallback | error | send_failed
+        latency_ms: int,       # Wall-clock time from request to outcome (ms)
+        detail?: str,          # Human-readable detail (error message, etc.)
+    }
+
+    Returns: {recorded: bool, gap_recorded: bool, deduped: bool}
+    """
+    from starlette.requests import ClientDisconnect as _disc1411
+    try:
+        body = await request.json()
+    except _disc1411:
+        _log.info("R-F1411 outcome: client disconnected before body read")
+        return Response(status_code=499)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+    surface = (body.get("surface") or "").strip()
+    request_id = (body.get("request_id") or "").strip()
+    intended_result = (body.get("intended_result") or "").strip()
+    actual_outcome = (body.get("actual_outcome") or "").strip()
+    latency_ms = body.get("latency_ms", 0)
+    detail = (body.get("detail") or "").strip()
+
+    if not surface or not request_id or not intended_result or not actual_outcome:
+        raise HTTPException(status_code=400, detail="surface, request_id, intended_result, actual_outcome required")
+
+    valid_outcomes = {"delivered_real_answer", "timeout_fallback", "error", "send_failed"}
+    if actual_outcome not in valid_outcomes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"actual_outcome must be one of: {', '.join(sorted(valid_outcomes))}",
+        )
+
+    try:
+        from ..intel.outcome_wire import OutcomeRecord, record_outcome
+        record = OutcomeRecord(
+            surface=surface,
+            request_id=request_id,
+            intended_result=intended_result,
+            actual_outcome=actual_outcome,  # type: ignore[arg-type]
+            latency_ms=int(latency_ms) if latency_ms else 0,
+            detail=detail,
+        )
+        result = await record_outcome(record)
+        return result
+    except Exception as e:
+        _log.error("R-F1411 outcome record failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/outcome/health")
+async def outcome_health_ep(surface: str = "wa", hours: int = 24):
+    """Get delivery health stats for a surface.
+
+    Query params:
+        surface: Channel name (default: wa).
+        hours:   Lookback window in hours (default: 24).
+
+    Returns: {surface, hours, total, success_count, success_rate,
+              by_outcome: {outcome: count}, recent_failures: [...]}
+    """
+    try:
+        from ..intel.outcome_wire import get_surface_health
+        return await get_surface_health(surface=surface.strip(), hours=int(hours))
+    except Exception as e:
+        _log.error("R-F1411 outcome health failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/outcomes")
+async def outcome_list_ep(surface: str = "wa", hours: int = 24):
+    """List delivery outcomes for a surface.
+
+    Query params:
+        surface: Channel name (default: wa).
+        hours:   Lookback window in hours (default: 24).
+
+    Returns: {surface, hours, count, outcomes: [...]}
+    """
+    try:
+        from ..intel.outcome_wire import get_outcomes
+        outcomes = await get_outcomes(surface=surface.strip(), hours=int(hours))
+        return {
+            "surface": surface,
+            "hours": hours,
+            "count": len(outcomes),
+            "outcomes": [vars(o) for o in outcomes],
+        }
+    except Exception as e:
+        _log.error("R-F1411 outcome list failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/brain/absorb")
 async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     """Central learning endpoint. Accepts output from any intel module and
