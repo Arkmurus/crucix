@@ -131,6 +131,26 @@ Items from the 360 that an autonomous ARIA makes WORSE if left open:
 
 ---
 
+## 4a. Standing weekly operating calendar (UK time — binding from Mon 2026-06-08)
+
+| Day | Window | What runs | Pod |
+|---|---|---|---|
+| Mon | — | Data cut: week's judge-admitted pairs frozen + contamination-checked, manifest committed | off |
+| Tue | 09:00–15:00 | SFT cycle on the 14B (~$5–15) | on (script-managed) |
+| Wed | 09:00–13:00 | DPO on the week's preference pairs | on (script-managed) |
+| Thu | 09:00–11:00 | Full eval: 500-Q + adversarial + coding-replay, judge-graded (~$2–3) | on (script-managed) |
+| Fri | by EOD | Promotion decision vs §1 bar + ARIA's 5-line scoreboard (§8); Claude re-verifies before relay | off |
+| Daily | 07:00 | RUN-EVAL-DAILY (judge-graded, server-side) + Telegram digest | off |
+
+Pod outside these windows = force-stopped by ARIA (§24 CLAUDE.md / WS-4c). Operator touches nothing.
+
+**Week 1 (Mon 8 – Fri 12 Jun) — bootstrap variant** (first real SFT cycle needs WS-2a data engine; expected first full production cycle Mon 15 Jun):
+- Mon 8 09:00–11:00 — WS-0b dual baselines (v0.2 + DeepSeek, same judge, frozen 500-Q) — pod ~2h (operator spend-nod required; pending)
+- Mon 8 PM — operator OP-4 spot-check #1 (10 judge-graded answers, ~20 min)
+- Tue 9 09:00–15:00 — SFT harness DRY-RUN on existing small corpus (pipeline shakeout, not a real cycle)
+- Wed 10 / Thu 11 — held: dry-run second pass if needed; ARIA lands WS-2a/2b + WS-4c in parallel
+- Fri 12 — first Friday scoreboard from ARIA
+
 ## 4. Timeline (data-driven; dates are *expected*, gates are binding)
 
 | Week | Milestone | Exit proof |

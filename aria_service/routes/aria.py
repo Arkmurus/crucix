@@ -263,6 +263,17 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     # memory poisoning, and /learning/updates leaked ARIA's own capability-gaps
     # + mistake-ledger. They now require_aria_token (the terminal client already
     # holds the token for /client/chat, so it authenticates here too).
+    # R-F1399 (2026-06-07): agent-ecosystem introspection endpoints. Read-only
+    # aggregated metrics; no PII or secrets. ARIA must be able to self-audit
+    # her own agents without a bearer token — the operator dashboard and
+    # autonomous self-diagnostic loops both need these.
+    "/api/aria/agents",                       # agent registry — who's alive, what they're doing
+    "/api/aria/capability-gaps",              # what ARIA knows she can't do
+    "/api/aria/capability-gaps/summary",      # gap summary for dashboards
+    "/api/aria/self/mistakes/stats",          # mistake ledger stats
+    "/api/aria/self/mistakes/recent",         # recent mistakes (read-only, no PII)
+    "/api/aria/vault/stats",                  # agent signup vault stats
+    "/api/aria/vault",                        # vault entries list (read-only)
 })
 
 
