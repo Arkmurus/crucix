@@ -147,7 +147,7 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
 ## 18. Operator-pending external actions
 
 Always surface, never silently retry:
-- `ACLED_EMAIL` + `ACLED_PASSWORD` (Phase A gate #5)
+- `ACLED_EMAIL` + `ACLED_PASSWORD` (Phase A gate #5) — **DEFERRED by operator 2026-06-07: "we won't be signing up to it as yet until we have the MVP launched."** Do not chase; gate #5's ACLED item is parked until MVP launch. Re-surface only at MVP-launch planning.
 
 Resolved / declined items (kept here as the audit trail — DO NOT re-add to the pickup list):
 - `ARIA_OUTPUT_HARVEST_ENABLED=1` — set 2026-05-22 R-F794 (fly aria-intel). Gate #5 partial close.
@@ -267,3 +267,44 @@ When the user attaches a document and asks to **review / give feedback on** it, 
 2. **Reproduce the OPERATOR'S ACTUAL PATH, not a proxy.** The capability test must drive the same entry point and (as near as possible) the same input the operator hit — for a WhatsApp doc review that is the *document-upload-with-caption* flow with the operator's wording, asserting the reply is a real review that **quotes the document**, not merely that an internal classifier returned a value. **A test that is green while the live flow fails is a WRONG test — widen its coverage, don't just patch the symptom.**
 3. **CROSS-CHECK independently.** The reviewer (Claude) MUST independently re-run the tests and reproduce the symptom before relaying "fixed" to the operator — never pass through the author's unverified claim. For a customer-facing fix, the operator confirming on the real channel is the final gate.
 4. **If you cannot run or reproduce it, say so plainly** ("not verified — could not run X"), never imply it works.
+
+## 24. RunPod compute window — ARIA-managed, operator NEVER has to remember (binding)
+
+**Operator directive (2026-06-07):** "ARIA should manage that to ensure me as an operator I don't forget to start the pod and stop the pod — make this a rule, never missed or forgotten."
+
+**The pod schedule (declared here; changes are operator-declared and recorded here):**
+- **Phase NOW (train/eval cycles, pre-shadow):** the pod runs ONLY during weekly-cycle slots — Tue ~09:00-15:00 (SFT), Wed ~09:00-13:00 (DPO), Thu ~09:00-11:00 (eval), Europe/London. Cycle scripts start AND stop the pod programmatically (`serve_and_eval_v02.sh` pattern: resume → work → stop). The scheduler runs in **stop-only mode**: it NEVER auto-starts, and force-stops any pod found RUNNING outside 09:00-18:00 UK or without an active work-claim. A forgotten pod survives at most one reconcile interval (~2 min past the window).
+- **Shadow phase (from ~week 3-4 per the learning strategy):** daily window **10:00-18:00 Europe/London**, scheduler in window mode (auto-start at open, auto-stop at close; DeepSeek serves off-hours per §14). Serving should move to a cheaper inference GPU (A40/L40S class); A100 only on training days.
+
+**The mechanism (R-F1335 runpod_scheduler + WS-4c extension):**
+1. Scheduler stays ENABLED at all times once `ARIA_RUNPOD_POD_ID` + `RUNPOD_API_KEY` are set. It is §21-wired (every start/stop/failure → brain) and heartbeat-watched.
+2. **Stop-only vs window mode** is env-declared (`ARIA_RUNPOD_AUTOSTART`); pre-shadow = stop-only. Flipping to window mode is the shadow-phase activation step.
+3. **Never silent:** missing creds, API failure, or a pod that won't stop = `BLOCKED:` alert to the operator channel (WA/Telegram), per §19a/§19e. A pod left burning that the operator discovers himself is the §19e worst-outcome.
+4. Every cycle that needs the pod sets a short-TTL work-claim; ARIA stops claim-less RUNNING pods even inside the window.
+5. Daily cost line: pod runtime hours surface in the cost status the operator already watches (§17).
+
+**Until WS-4c ships:** `ARIA_RUNPOD_POD_ID` stays UNSET (scheduler no-op) so window-mode cannot auto-start a pod nobody needs; the weekly-cycle scripts remain the only starter and always stop the pod in their final step.
+
+**Standing spend approval (operator, 2026-06-07):** "the weekly cycle cost, lets do it." The weekly train/eval cycle (~$8-18/wk: Tue SFT / Wed DPO / Thu eval) runs WITHOUT per-run asks. Hard caps that still require an explicit ask: any single run projected >$20, or month-to-date GPU spend reaching $80. Condition attached by operator: training must be REAL — pre-flight review of the training pipeline + dataset quality before any paid cycle; a cycle that would train on unreviewed/contaminated data is cancelled, not run.
+
+## 25. ARIA proprioception — output-awareness is REAL, not a slogan (binding)
+
+**Operator directive (2026-06-07):** "ARIA sees/hears/knows everything" (§20 Rule Zero) must be TRUE, not empty words. She must be aware of her entire ecosystem the way a human is aware of their limbs — and the acute, recurring gap is **OUTPUT-awareness on WhatsApp**. Today ARIA repeatedly failed to deliver on WA (doc-investigation timeout, Iraq-sanctions timeout) and the **server brain did not KNOW the user received nothing** — so she could not self-heal. A limb she cannot feel is not hers.
+
+**Binding requirements (every output channel — WA/web/TG):**
+1. **Delivery-outcome MUST be reported to the brain.** For every request, the delivering surface (aria_wa_listener.mjs, web, TG) reports back to the brain: `delivered_real_answer | timeout_fallback | error | send_failed`, with `request_id` + latency. The brain CANNOT infer this — outbound sends aren't logged; "not in logs ≠ didn't happen" (§22). The surface must TELL it.
+2. **The brain correlates request→outcome.** On any non-success it records to the brain + a WA-health ledger AND records a gap (§21e) so the self-heal/coder loop can act. **Output failure is a first-class self-heal trigger**, not a silent drop.
+3. **ARIA can answer "did I deliver X?"** — a proprioception surface: per-request delivery status + per-channel success rate + recent failures, queryable and on the dashboard.
+4. **No output channel ships without its delivery-outcome wire** (success AND failure). This makes §20 (sees/hears/knows) and §21 (everything wired) true for the OUTPUT path, not just inputs.
+
+**WA must be MASTERED, not patched:** robust infra (async-complete-and-push so a slow job still delivers; dedup before media; idempotent capture) + the output-awareness loop above so ARIA self-codes/self-heals when she detects her own output failures. Stop the recurring WA errors at the root.
+
+### 25a. Proprioception is ECOSYSTEM-WIDE, not WhatsApp-only (operator 2026-06-07)
+
+WhatsApp is the acute example, **not the scope**. The delivery-outcome / self-awareness requirement applies to ARIA's ENTIRE ecosystem — every limb must report its outcome so the one brain feels its whole self:
+- **All output surfaces:** WhatsApp, web UI, Telegram, email, the `aria` Coder CLI, API responses.
+- **All engines/pipelines:** DD orchestrator (did the report actually generate + deliver?), investigate/research, sanctions screen, briefings, exports/PDFs.
+- **All autonomous loops:** engine tasks, gap_detector→coder, self_improve, research/student loops, runpod_scheduler — each reports did-it-do-its-job, not just that it ticked.
+- **Cross-tier:** Node web + WA + the Python brain.
+
+**Rule:** for ANY action ARIA takes that produces a result for a user, another agent, or herself, she must KNOW whether the intended result was actually produced — success AND failure reach the brain + a queryable proprioception surface, and failure is a self-heal trigger. WA is the **first implementation and the TEMPLATE**; generalize the same outcome-wire pattern to every surface and engine after WA proves it. "Sees/hears/knows everything" = aware of the state and outcome of every limb, always.

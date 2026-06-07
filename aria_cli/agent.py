@@ -79,10 +79,23 @@ class TurnResult:
 _TRANSIENT_MARKERS = (
     "timeout", "timed out", "connection", "connect", "reset", "temporarily",
     "unavailable", "429", "500", "502", "503", "504", "overloaded", "rate limit",
+    # R-F1418 — DNS/getaddrinfo errors (today's exact bug: a DNS blip failed the
+    # whole turn because these strings weren't in the marker list)
+    "getaddrinfo", "11001", "could not reach", "name resolution",
+    "dns", "dns resolution", "dns lookup", "temporary failure in name resolution",
 )
 
 
 def _is_transient(exc: Exception) -> bool:
+    """Check if an exception is a transient error worth retrying.
+
+    R-F1418 — checks the LLMError.transient attribute FIRST (set by llm.py
+    based on httpx exception TYPE, not string sniffing), then falls back to
+    string matching for backward compatibility with non-LLMError exceptions.
+    """
+    # R-F1418 — prefer the typed transient flag from LLMError
+    if hasattr(exc, "transient"):
+        return bool(exc.transient)
     msg = str(exc).lower()
     return any(m in msg for m in _TRANSIENT_MARKERS)
 

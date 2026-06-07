@@ -51,7 +51,16 @@ _PROVIDER_KEY_ENV = {
 
 
 class LLMError(RuntimeError):
-    """Raised when the LLM endpoint is unreachable or returns an error."""
+    """Raised when the LLM endpoint is unreachable or returns an error.
+
+    Attributes:
+        transient: True if the error is likely transient (network blip, DNS,
+                   timeout, 5xx) and worth retrying. False for hard errors
+                   (auth, bad request, context length).
+    """
+    def __init__(self, message: str, transient: bool = True):
+        super().__init__(message)
+        self.transient = transient
 
 
 @dataclass
@@ -227,22 +236,26 @@ class LLMClient:
         try:
             resp = self._client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
-            raise LLMError(f"could not reach LLM endpoint {url}: {exc}") from exc
+            # R-F1418 — network/DNS/timeout errors are always transient
+            raise LLMError(f"could not reach LLM endpoint {url}: {exc}", transient=True) from exc
 
         if resp.status_code >= 400:
+            # R-F1418 — 429/5xx are transient; 4xx (except 429) are hard errors
+            _is_transient_http = resp.status_code in (429,) or resp.status_code >= 500
             raise LLMError(
                 f"LLM endpoint {url} returned HTTP {resp.status_code}: "
-                f"{resp.text[:500]}"
+                f"{resp.text[:500]}",
+                transient=_is_transient_http,
             )
 
         try:
             data = resp.json()
         except Exception as exc:  # noqa: BLE001
-            raise LLMError(f"LLM endpoint returned non-JSON: {resp.text[:500]}") from exc
+            raise LLMError(f"LLM endpoint returned non-JSON: {resp.text[:500]}", transient=False) from exc
 
         choices = data.get("choices") or []
         if not choices:
-            raise LLMError(f"LLM endpoint returned no choices: {json.dumps(data)[:500]}")
+            raise LLMError(f"LLM endpoint returned no choices: {json.dumps(data)[:500]}", transient=False)
 
         message = choices[0].get("message") or {}
         usage = data.get("usage") or {}
@@ -270,7 +283,7 @@ class LLMClient:
                 last_user = m.get("content", "")
                 break
         if not last_user:
-            raise LLMError("no user message found in conversation")
+            raise LLMError("no user message found in conversation", transient=False)
 
         url = f"{self.config.base_url}/chat"
         headers = {"Content-Type": "application/json"}
@@ -286,23 +299,28 @@ class LLMClient:
         try:
             resp = self._client.post(url, json=payload, headers=headers, timeout=120.0)
         except httpx.HTTPError as exc:
-            raise LLMError(f"could not reach ARIA server {url}: {exc}") from exc
+            # R-F1418 — network/DNS/timeout errors are always transient
+            raise LLMError(f"could not reach ARIA server {url}: {exc}", transient=True) from exc
 
         if resp.status_code == 401:
             raise LLMError(
                 "ARIA server returned 401 Unauthorized. "
-                "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup"
+                "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup",
+                transient=False,
             )
         if resp.status_code >= 400:
+            # R-F1418 — 429/5xx are transient; other 4xx are hard errors
+            _is_transient_http = resp.status_code in (429,) or resp.status_code >= 500
             raise LLMError(
                 f"ARIA server {url} returned HTTP {resp.status_code}: "
-                f"{resp.text[:500]}"
+                f"{resp.text[:500]}",
+                transient=_is_transient_http,
             )
 
         try:
             data = resp.json()
         except Exception as exc:
-            raise LLMError(f"ARIA server returned non-JSON: {resp.text[:500]}") from exc
+            raise LLMError(f"ARIA server returned non-JSON: {resp.text[:500]}", transient=False) from exc
 
         response_text = data.get("response") or data.get("answer") or json.dumps(data)
         return LLMResponse(
@@ -321,7 +339,7 @@ class LLMClient:
                 last_user = m.get("content", "")
                 break
         if not last_user:
-            raise LLMError("no user message found in conversation")
+            raise LLMError("no user message found in conversation", transient=False)
 
         url = f"{self.config.base_url}/chat/stream"
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
@@ -342,9 +360,15 @@ class LLMClient:
                     if resp.status_code == 401:
                         raise LLMError(
                             "ARIA server returned 401 Unauthorized. "
-                            "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup"
+                            "Set ARIA_INTERNAL_TOKEN or run: python aria.py --setup",
+                            transient=False,
                         )
-                    raise LLMError(f"ARIA server {url} returned HTTP {resp.status_code}: {body[:500]}")
+                    # R-F1418 — 429/5xx are transient; other 4xx are hard errors
+                    _is_transient_http = resp.status_code in (429,) or resp.status_code >= 500
+                    raise LLMError(
+                        f"ARIA server {url} returned HTTP {resp.status_code}: {body[:500]}",
+                        transient=_is_transient_http,
+                    )
                 for line in resp.iter_lines():
                     if not line:
                         continue
@@ -371,7 +395,8 @@ class LLMClient:
                                     except Exception:
                                         pass
         except httpx.HTTPError as exc:
-            raise LLMError(f"could not reach ARIA server {url}: {exc}") from exc
+            # R-F1418 — network/DNS/timeout errors are always transient
+            raise LLMError(f"could not reach ARIA server {url}: {exc}", transient=True) from exc
 
         content = "".join(content_parts)
         return LLMResponse(
@@ -417,7 +442,12 @@ class LLMClient:
             with self._client.stream("POST", url, json=payload, headers=headers) as resp:
                 if resp.status_code >= 400:
                     body = resp.read().decode("utf-8", errors="replace")
-                    raise LLMError(f"LLM endpoint {url} returned HTTP {resp.status_code}: {body[:500]}")
+                    # R-F1418 — 429/5xx are transient; other 4xx are hard errors
+                    _is_transient_http = resp.status_code in (429,) or resp.status_code >= 500
+                    raise LLMError(
+                        f"LLM endpoint {url} returned HTTP {resp.status_code}: {body[:500]}",
+                        transient=_is_transient_http,
+                    )
                 for line in resp.iter_lines():
                     if not line:
                         continue
@@ -458,7 +488,8 @@ class LLMClient:
                         if fn.get("arguments"):
                             slot["function"]["arguments"] += fn["arguments"]
         except httpx.HTTPError as exc:
-            raise LLMError(f"could not reach LLM endpoint {url}: {exc}") from exc
+            # R-F1418 — network/DNS/timeout errors are always transient
+            raise LLMError(f"could not reach LLM endpoint {url}: {exc}", transient=True) from exc
 
         content = "".join(content_parts)
         tool_calls = [tool_acc[i] for i in sorted(tool_acc)]

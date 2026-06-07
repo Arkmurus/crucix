@@ -8664,9 +8664,10 @@
       "title": "fix memory_wal lost-append race - rotate+lock+orphan-recovery (never forget)",
       "claimed_at": "2026-06-07T21:35:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e1ed787d",
+      "notes": null,
+      "shipped_at": "2026-06-07T21:45:45Z"
     }
   ]
 }

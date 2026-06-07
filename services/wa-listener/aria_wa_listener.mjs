@@ -103,6 +103,11 @@ const AUTH_DIR      = process.env.WA_LISTENER_AUTH_DIR  || './wa-listener-auth';
 const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
 const BRAIN_URL     = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
+// R-F1413 — async-complete-and-push callback URL. The brain POSTs completed
+// job results here so deep queries deliver even after the poll loop times out.
+// Defaults to the WA listener's own /send endpoint (internal Fly DNS).
+const CALLBACK_URL  = process.env.WA_LISTENER_CALLBACK_URL
+  || 'http://aria-wa.internal:5070/api/wa-listener/send';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
 // R-F963 (2026-05-28, operator choice) — a voice note is a deliberate act aimed
@@ -728,7 +733,9 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
   let job;
   try {
-    job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true });
+    // R-F1413 — pass callback_url so the brain pushes the result when done
+    // (async-complete-and-push: safety net for deep queries that exceed the poll budget)
+    job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true, callback_url: CALLBACK_URL });
   } catch (e) {
     // Dispatch itself failed (brain down / network) — fall back to a best-effort
     // sync attempt so a transient blip doesn't silently drop the question.
@@ -740,6 +747,15 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   if (!jobId) {
     // Older brain build without async chat support — it returned the sync result.
     return (job && (job.response || job.answer)) || 'No response.';
+  }
+  // R-F1413 — register the job_id → chat mapping for async-complete-and-push callback
+  // deliveredViaCallback flag prevents double-delivery when both poll and callback fire
+  if (jobId && chatId) {
+    _asyncJobMap.set(jobId, { chatId, requestId, senderJid, ts: Date.now(), deliveredViaCallback: false });
+    // Evict stale entries after 30 min (the brain job TTL is 1h)
+    for (const [jid, entry] of _asyncJobMap) {
+      if (Date.now() - entry.ts > 1800000) _asyncJobMap.delete(jid);
+    }
   }
   // R-F982 — fast-first polling so quick chats stay snappy now that ALL chats are
   // async. Most answers land in a few seconds: poll at 1s for the first 30s, then
@@ -821,6 +837,10 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
     }
     notFoundStreak = 0;
     if (st.status === 'done') {
+      // R-F1413 — prevent double-delivery: mark as delivered so the callback
+      // doesn't also send the result (race: poll wins, callback is redundant)
+      const mapping = _asyncJobMap.get(jobId);
+      if (mapping) mapping.deliveredViaCallback = true;
       const res = st.result || {};
       return res.response || res.answer || 'No response.';
     }
@@ -1931,6 +1951,10 @@ function _waBrainSignal(signalType, content, metadata) {
   } catch { /* signalling must never throw */ }
 }
 
+// R-F1413 — async-complete-and-push: map of job_id → {chatId, requestId, senderJid}
+// Used by the callback endpoint to deliver results to the right chat.
+const _asyncJobMap = new Map();
+
 app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   const b      = req.body || {};
   const target = b.group_id || b.to || b.chat_id || b.jid || '';
@@ -1965,13 +1989,69 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   }
 });
 
+// R-F1413 — async-complete-and-push callback endpoint.
+// The brain POSTs completed job results here when the WA listener's poll loop
+// has already timed out. This ensures deep queries still deliver.
+app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const jobId = b.job_id || '';
+  const status = b.status || '';
+  const message = b.message || b.result?.response || b.result?.answer || '';
+  const error = b.error || '';
+
+  if (!jobId) {
+    return res.status(400).json({ error: 'job_id required' });
+  }
+
+  // Look up the chat mapping
+  const mapping = _asyncJobMap.get(jobId);
+  if (!mapping) {
+    // Job mapping expired or never registered — can't deliver
+    console.warn(`[ARIA Listener] R-F1413 callback for unknown job ${jobId} — no chat mapping`);
+    return res.status(404).json({ error: 'job mapping not found' });
+  }
+
+  const { chatId, requestId } = mapping;
+
+  if (status === 'failed' || !message) {
+    console.warn(`[ARIA Listener] R-F1413 callback for job ${jobId} — ${status}: ${error}`);
+    // Report the failure outcome
+    reportOutcome('wa', requestId, 'chat_response', 'error', 0, error || 'callback returned no message');
+    return res.json({ delivered: false, reason: 'job_failed' });
+  }
+
+  // Prevent double-delivery: if the poll loop already sent the result, skip
+  if (mapping.deliveredViaCallback) {
+    return res.json({ delivered: false, reason: 'already_delivered_via_poll' });
+  }
+  mapping.deliveredViaCallback = true;
+
+  // Deliver the result to WhatsApp
+  const t0 = Date.now();
+  try {
+    const chunks = splitMessage(message);
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 500));
+      await sock.sendMessage(chatId, { text: chunks[i] });
+    }
+    reportOutcome('wa', requestId, 'chat_response', 'delivered_real_answer', Date.now() - t0);
+    console.log(`[ARIA Listener] R-F1413 callback delivered job ${jobId} to ${chatId} (${message.length} chars)`);
+    res.json({ delivered: true, to: chatId, parts: chunks.length });
+  } catch (e) {
+    reportOutcome('wa', requestId, 'chat_response', 'send_failed', Date.now() - t0, e.message);
+    console.error(`[ARIA Listener] R-F1413 callback send failed for job ${jobId}: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[ARIA Listener] API on port ${PORT}`);
-  console.log(`[ARIA Listener] GET  /health             — health check (no auth)`);
-  console.log(`[ARIA Listener] GET  /status             — connection status`);
-  console.log(`[ARIA Listener] GET  /groups             — list groups + their IDs`);
-  console.log(`[ARIA Listener] GET  /messages           — recent messages heard`);
-  console.log(`[ARIA Listener] POST /api/wa-listener/send — outbound (brain proactive sends)`);
+  console.log(`[ARIA Listener] GET  /health               — health check (no auth)`);
+  console.log(`[ARIA Listener] GET  /status               — connection status`);
+  console.log(`[ARIA Listener] GET  /groups               — list groups + their IDs`);
+  console.log(`[ARIA Listener] GET  /messages             — recent messages heard`);
+  console.log(`[ARIA Listener] POST /api/wa-listener/send     — outbound (brain proactive sends)`);
+  console.log(`[ARIA Listener] POST /api/wa-listener/callback — async job callback (R-F1413)`);
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
