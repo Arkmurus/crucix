@@ -51,6 +51,33 @@ def _stamp_partial_extraction(extracted: str, dropped_summary: str) -> str:
     ) + extracted
 
 
+def _extract_pdf_text_sync(raw_bytes: bytes) -> tuple[str, int]:
+    """R-F1419 — synchronous PyMuPDF text extraction, to be run via
+    asyncio.to_thread so it NEVER blocks the event loop.
+
+    fitz.open + per-page page.get_text() is CPU-bound; on a large or
+    many-page PDF the inline loop wedged the loop for seconds-to-minutes
+    (R-F1398 moved OCR off-loop but this text path was the remaining
+    on-loop wedge — the WA doc-review route runs this in a background
+    create_task, i.e. on the loop). Returns (full_text_with_page_markers,
+    total_pages). Raises ImportError if PyMuPDF is absent so the caller
+    can fall back to the OCR path exactly as before.
+    """
+    import fitz  # PyMuPDF — ImportError propagates to the caller's OCR fallback
+    doc = fitz.open(stream=raw_bytes, filetype="pdf")
+    try:
+        page_parts = []
+        for pg_idx, page in enumerate(doc):
+            pg_text = page.get_text().strip()
+            if pg_text:
+                page_parts.append(f"[Page {pg_idx + 1}]\n{pg_text}")
+        full_text = "\n\n".join(page_parts)
+        total_pages = len(doc)
+    finally:
+        doc.close()
+    return full_text, total_pages
+
+
 # R-F849 (2026-05-24) — extract-document char cap. Pre-R-F849 both
 # /extract-document and /extract-document-json sliced the extract to the
 # first 10K chars with no banner: a real multi-page contract exceeded that,
@@ -350,6 +377,13 @@ class ChatRequest(BaseModel):
     # "⚠️ ARIA is temporarily unavailable." incident (2026-05-26 16:53/16:56Z).
     # Mirrors the R-F873 read-document async job pattern exactly.
     async_mode: bool = False
+    # R-F1413 (2026-06-07) — async-complete-and-push: optional callback URL.
+    # When set, the brain POSTs the completed job result to this URL as a
+    # fire-and-forget background task. This is the safety net for deep queries
+    # that exceed the WA listener's poll budget — the result arrives via
+    # callback even if the poll loop times out. The callback URL should point
+    # to the caller's delivery endpoint (e.g. WA listener's /api/wa-listener/send).
+    callback_url: str = ""
 
 class ThinkRequest(BaseModel):
     question: str
@@ -7183,25 +7217,36 @@ async def chat_ep(req: ChatRequest, request: Request):
                 detail="Async job store unavailable — try again or use sync mode",
             )
         _req_sync = req.model_copy(update={"async_mode": False})
+        # R-F1413 — capture callback_url for async-complete-and-push
+        # R-F1413 — capture callback_url and validate against SSRF allowlist
+        _callback_url = getattr(req, "callback_url", "") or ""
+        if _callback_url and not _is_callback_allowed(_callback_url):
+            _log.warning("R-F1413 callback URL %s not in allowlist — ignoring", _callback_url)
+            _callback_url = ""
         # chat_ep only reads request.app.state (via get_llm/get_intel_data), so a
         # minimal shim survives past the original request's lifecycle. The shim's
         # .json() is never called on the chat path (req is already parsed).
         _shim916 = _ReadDocBodyRequest(request.app, {})
 
         async def _r916_run():
+            _result_data = None
+            _error_msg = None
             try:
                 _res = await chat_ep(_req_sync, _shim916)
                 if isinstance(_res, dict):
+                    _result_data = _res
                     await _chat_job_set(_cjob_id, {"status": "done", "result": _res,
                                                    "session_id": session_id})
                 else:
                     _sc = getattr(_res, "status_code", "?")
+                    _error_msg = f"chat returned HTTP {_sc}"
                     await _chat_job_set(_cjob_id, {"status": "failed",
-                                                   "error": f"chat returned HTTP {_sc}",
+                                                   "error": _error_msg,
                                                    "session_id": session_id})
             except Exception as _e:
                 _log.warning("R-F916 async chat job %s failed: %s", _cjob_id, _e)
-                await _chat_job_set(_cjob_id, {"status": "failed", "error": str(_e)[:300],
+                _error_msg = str(_e)[:300]
+                await _chat_job_set(_cjob_id, {"status": "failed", "error": _error_msg,
                                                "session_id": session_id})
                 try:  # R-F921 — wire the failure to ARIA's brain so she SEES it.
                     from ..intel import brain_hook as _bh916
@@ -7212,6 +7257,10 @@ async def chat_ep(req: ChatRequest, request: Request):
                     )
                 except Exception:
                     pass
+
+            # R-F1413 — async-complete-and-push: fire callback URL if provided
+            if _callback_url:
+                _fire_and_forget_callback(_callback_url, _cjob_id, _result_data, _error_msg, session_id)
 
         # R-F1377 — strong ref: a GC'd chat job = WA review reply that never
         # arrives (poll runs to the listener's ceiling, user sees a timeout).
@@ -9152,6 +9201,70 @@ def _hold_job_task(task) -> None:
     task.add_done_callback(_ASYNC_JOB_TASKS.discard)
 
 
+# R-F1413 — async-complete-and-push: fire callback URL when a job completes.
+# Fire-and-forget: never blocks the job completion path. The callback POSTs
+# the result to the caller's delivery endpoint (e.g. WA listener's /send).
+# R-F1413 — SSRF allowlist: only internal WA listener is a valid callback target.
+# Never accept arbitrary callback_urls from callers.
+_CALLBACK_ALLOWLIST = (
+    "http://aria-wa.internal:5070/api/wa-listener/send",
+    "http://aria-wa.internal:5070/api/wa-listener/callback",
+    "http://localhost:5070/api/wa-listener/send",
+    "http://localhost:5070/api/wa-listener/callback",
+)
+
+
+def _is_callback_allowed(url: str) -> bool:
+    """Check if a callback URL is on the SSRF allowlist."""
+    return url in _CALLBACK_ALLOWLIST
+
+
+async def _fire_and_forget_callback(callback_url: str, job_id: str,
+                                     result_data: dict | None,
+                                     error_msg: str | None,
+                                     session_id: str) -> None:
+    """POST the job result to the callback URL as a fire-and-forget task.
+
+    R-F1413 — SSRF-guarded: only allowlisted internal URLs are accepted.
+    Retries 3x with exponential backoff (1s, 3s, 5s) for transient failures.
+    Never blocks the job completion path (fire-and-forget).
+    """
+    # R-F1413 — SSRF guard: reject non-allowlisted URLs
+    if not _is_callback_allowed(callback_url):
+        _log.warning("R-F1413 callback URL %s not in allowlist — skipping", callback_url)
+        return
+
+    import httpx as _httpx1413
+    body = {
+        "job_id": job_id,
+        "session_id": session_id,
+        "status": "done" if result_data else "failed",
+    }
+    if result_data:
+        body["result"] = result_data
+        # Extract the answer text for the WA listener's /send endpoint
+        answer = result_data.get("response") or result_data.get("answer") or ""
+        if answer:
+            body["message"] = answer
+    if error_msg:
+        body["error"] = error_msg
+
+    # R-F1413 — retry 3x with exponential backoff (1s, 3s, 5s)
+    _backoffs = (1.0, 3.0, 5.0)
+    for _attempt in range(len(_backoffs) + 1):
+        try:
+            async with _httpx1413.AsyncClient(timeout=30.0) as _client1413:
+                await _client1413.post(callback_url, json=body)
+            return  # success
+        except Exception as _e1413:
+            if _attempt < len(_backoffs) - 1:
+                import asyncio as _asyncio1413
+                await _asyncio1413.sleep(_backoffs[_attempt])
+            else:
+                _log.warning("R-F1413 callback to %s failed for job %s after %d retries: %s",
+                             callback_url, job_id, _attempt + 1, _e1413)
+
+
 async def _chat_job_set(job_id: str, data: dict) -> bool:
     """Store a chat job result. Returns True on success, False on failure.
 
@@ -9500,20 +9613,16 @@ async def _read_document_ep_impl(request: Request):
         # ingests each page as a separate RAG entry in the background.
         if "pdf" in mime_lower or fname_lower.endswith(".pdf"):
             try:
-                import fitz  # PyMuPDF
-                doc = fitz.open(stream=raw_bytes, filetype="pdf")
-                # Per-page text: join so /read-document still returns a
-                # single flat string for backward compatibility, but each
-                # page is clearly demarcated with a [Page N] marker so
-                # downstream LLM prompts can cite page numbers.
-                page_parts = []
-                for pg_idx, page in enumerate(doc):
-                    pg_text = page.get_text().strip()
-                    if pg_text:
-                        page_parts.append(f"[Page {pg_idx + 1}]\n{pg_text}")
-                _full_text = "\n\n".join(page_parts)
+                # R-F1419 — run the CPU-bound PyMuPDF parse OFF the event
+                # loop. Per-page text is demarcated with [Page N] markers so
+                # downstream LLM prompts can cite page numbers; the helper
+                # returns the concatenated string for backward compatibility.
+                # to_thread propagates ImportError (no PyMuPDF) to the OCR
+                # fallback below, exactly as the old inline `import fitz` did.
+                _full_text, _total_pages = await asyncio.to_thread(
+                    _extract_pdf_text_sync, raw_bytes,
+                )
                 _full_chars = len(_full_text)
-                _total_pages = len(doc)
                 _pdf_summary = (
                     f"PyMuPDF returned {_total_pages} pages totalling "
                     f"{_full_chars} chars; only the first {MAX_DOC_CHARS} "
@@ -9522,7 +9631,6 @@ async def _read_document_ep_impl(request: Request):
                 extracted = _stamp_partial_extraction(
                     _full_text[:MAX_DOC_CHARS], _pdf_summary,
                 )
-                doc.close()
                 # Fire-and-forget deep ingest (per-page RAG chunks +
                 # image OCR). Runs in the background so /read-document
                 # stays responsive.
