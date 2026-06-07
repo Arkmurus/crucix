@@ -20,6 +20,24 @@ from typing import Any, Optional
 
 import json
 
+
+def _should_force_restart(
+    stale_s: float, armed: bool, enabled: bool, ceiling_s: float
+) -> bool:
+    """R-F1417 — decide whether the off-loop wedge watchdog should force a
+    process exit (so Fly cold-boots the machine and ARIA self-recovers).
+
+    Pure + module-level so the dangerous os._exit it gates is unit-testable.
+    Returns True ONLY when self-restart is enabled, the detector is armed
+    (i.e. past the cold-boot settle window — never fires during boot), and
+    the heartbeat has been stale past the hard ceiling (genuinely wedged,
+    not a legitimate slow op).
+    """
+    try:
+        return bool(enabled and armed and float(stale_s) > float(ceiling_s))
+    except (TypeError, ValueError):
+        return False
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -437,6 +455,19 @@ async def lifespan(app: FastAPI):
         "last_dump": 0.0,
     }
     _STALL_WARN_THRESHOLD_S = 5.0
+    # R-F1417 — hard-wedge self-restart ceiling. If the event-loop heartbeat
+    # stays stale this long, the loop is genuinely wedged (no legitimate stall
+    # survives this — the detector only arms after the 120s cold-boot settle,
+    # and real stalls are seconds). The on-loop detector + blackout detector
+    # are themselves frozen in a wedge, so this OFF-LOOP daemon thread is the
+    # ONLY actor that can still run — it forces a process exit so Fly cold-boots
+    # the machine. Default 90s = 18x the 5s warn threshold. Env-tunable; the
+    # kill-switch disables it entirely.
+    _HARD_WEDGE_CEILING_S = float(_os.getenv("ARIA_WEDGE_HARD_CEILING_S", "90"))
+    _WEDGE_SELF_RESTART = (
+        _os.getenv("ARIA_WEDGE_SELF_RESTART_ENABLED", "1").strip().lower()
+        not in ("0", "false", "no", "off")
+    )
     _WEDGE_DUMP_DEBOUNCE_S = 30.0  # don't dump more than once per 30s
 
     # R-F814 (2026-05-22) — local sys import for is_finalizing() guard
@@ -495,6 +526,42 @@ async def lifespan(app: FastAPI):
                     except Exception:
                         # Daemon must never crash — swallow and continue.
                         pass
+                # R-F1417 — REAL recovery: if the loop is wedged past the hard
+                # ceiling, nothing on the loop can recover it. This off-loop
+                # daemon is the only actor left, so force a process exit → Fly
+                # cold-boots the machine → ARIA self-recovers. Gated by a tested
+                # pure predicate so the dangerous os._exit only fires when
+                # genuinely wedged (armed + far past any legitimate stall) and
+                # never when the kill-switch is off.
+                if _should_force_restart(
+                    stale, _wedge_state.get("armed", False),
+                    _WEDGE_SELF_RESTART, _HARD_WEDGE_CEILING_S,
+                ):
+                    try:
+                        if _wedge_log_fh is not None:
+                            _wedge_log_fh.write(
+                                f"\n=== [R-F1417] HARD WEDGE {stale:.1f}s > "
+                                f"ceiling {_HARD_WEDGE_CEILING_S:.0f}s — forcing "
+                                f"os._exit(1) so Fly cold-boots the machine ===\n"
+                            )
+                            _fh.dump_traceback(file=_wedge_log_fh, all_threads=True)
+                            _wedge_log_fh.flush()
+                    except Exception:
+                        pass
+                    try:
+                        logger.critical(
+                            "[R-F1417] event loop wedged %.1fs > hard ceiling "
+                            "%.1fs — forcing process exit so Fly restarts the "
+                            "machine (self-recovery from blackout)",
+                            stale, _HARD_WEDGE_CEILING_S,
+                        )
+                    except Exception:
+                        pass
+                    # os._exit (not sys.exit): immediate, no atexit/cleanup that
+                    # would hang on the wedged loop. Durable writers are atomic
+                    # (os.replace) / WAL crash-consistent, so an exit mid-write
+                    # is safe. Fly's on-failure restart cold-boots us.
+                    _os._exit(1)
             except Exception:
                 # Defensive: keep watchdog alive across any failure.
                 continue

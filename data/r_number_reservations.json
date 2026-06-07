@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1410,
+  "next_available": 1418,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8521,9 +8521,10 @@
       "title": "R-F1407: CLI bridge idle-poll daemon for real-time Claude notes",
       "claimed_at": "2026-06-07T18:13:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fab6162b",
+      "notes": null,
+      "shipped_at": "2026-06-07T19:56:20Z"
     },
     {
       "r_number": "R-F1408",
@@ -8539,6 +8540,80 @@
       "r_number": "R-F1409",
       "title": "server-mediated Claude<->ARIA bridge - endpoints + autonomous drain + poll",
       "claimed_at": "2026-06-07T19:42:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f8a8b10",
+      "notes": null,
+      "shipped_at": "2026-06-07T19:49:50Z"
+    },
+    {
+      "r_number": "R-F1410",
+      "title": "DRAIN-COLLAB-BRIDGE autonomous task + CLI bridge server switch",
+      "claimed_at": "2026-06-07T19:56:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2c38fd78",
+      "notes": null,
+      "shipped_at": "2026-06-07T19:58:47Z"
+    },
+    {
+      "r_number": "R-F1411",
+      "title": "T0star reusable outcome-wire primitive + WA delivery-outcome reporting",
+      "claimed_at": "2026-06-07T20:29:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1412",
+      "title": "ARIA indestructibility - resilience hardening initiative (real recovery from blackout/error/anything)",
+      "claimed_at": "2026-06-07T20:55:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1413",
+      "title": "T0-1: WA async-complete-and-push for deep queries (fix timeout)",
+      "claimed_at": "2026-06-07T20:56:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1414",
+      "title": "T0-2: Sanctions/country query routes to live screen not static table",
+      "claimed_at": "2026-06-07T20:56:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1415",
+      "title": "T0-3: Embargo table correctness - Iraq government exception",
+      "claimed_at": "2026-06-07T20:56:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1416",
+      "title": "T0-4: Multi-company doc investigation per-entity routing",
+      "claimed_at": "2026-06-07T20:56:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1417",
+      "title": "self-restart on hard wedge - off-loop watchdog os._exit so Fly cold-boots (real recovery)",
+      "claimed_at": "2026-06-07T21:01:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
