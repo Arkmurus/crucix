@@ -175,6 +175,34 @@ _STDIN_PAUSED = threading.Event()
 _CLAUDE_BRIDGE_EVENT = threading.Event()
 _CLAUDE_BRIDGE_BASE: Path | None = None  # set once at REPL start
 _PT_SESSION: Any = None  # R-F1407: module-level ref so the bridge poller can wake the prompt
+# R-F1423: poll the bridge every 5s (was 20s) so idle resume is near-instant
+# after Claude replies, not up to 20s later.
+_BRIDGE_POLL_INTERVAL_S = float(os.getenv("ARIA_BRIDGE_POLL_INTERVAL_S", "5"))
+
+
+def _wake_prompt_threadsafe() -> None:
+    """R-F1423 — return the blocking prompt() from the poller daemon thread,
+    THREAD-SAFELY. prompt_toolkit's Application is not thread-safe; calling
+    app.exit() directly from this daemon thread (R-F1407b) returned the prompt
+    once in a single-shot test but NOT reliably in the repeated submit-then-idle
+    flow. The supported way is to schedule the exit ON the app's own running
+    event loop via loop.call_soon_threadsafe; fall back to a direct call only
+    if no running loop is reachable. Never raises (daemon must survive)."""
+    pt = _PT_SESSION
+    app = getattr(pt, "app", None) if pt is not None else None
+    if app is None:
+        return
+    try:
+        loop = getattr(app, "loop", None)
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(lambda: app.exit(result=""))
+        else:
+            app.exit(result="")  # fallback: no running loop reachable
+    except Exception:
+        try:
+            app.exit(result="")
+        except Exception:
+            pass
 
 
 def _claude_bridge_poller() -> None:
@@ -209,21 +237,22 @@ def _claude_bridge_poller() -> None:
                     "what you should do next, adjust now.]\n" + text
                 )
             _CLAUDE_BRIDGE_EVENT.set()
-            # R-F1407b: wake the prompt so it returns and the next loop
-            # iteration picks up the queued message WITHOUT operator keypress.
-            # app.exit() sets the Application future, which causes prompt()
-            # to return. We pass result="" (empty string) so the REPL loop
-            # treats it as a wake signal (line 1945: if not line: continue)
-            # and loops back to drain _OPERATOR_QUEUE.
-            # This REPLACES the old _pt.app.invalidate() which only redrew
-            # the screen and NEVER unblocked prompt() — the relay killer.
-            try:
-                _pt = _PT_SESSION
-                if _pt is not None and hasattr(_pt, 'app'):
-                    _pt.app.exit(result="")
-            except Exception:
-                pass
-        threading.Event().wait(20)
+            # R-F1407b/c: wake the prompt so it returns and the next loop
+            # iteration drains _OPERATOR_QUEUE WITHOUT an operator keypress.
+            # R-F1423: call app.exit() the THREAD-SAFE way. The R-F1407b
+            # version called _pt.app.exit() DIRECTLY from this daemon thread —
+            # prompt_toolkit's Application is not thread-safe, so that worked
+            # once (single-shot test) but did NOT reliably return the blocking
+            # prompt() in the repeated submit-then-idle flow (operator: "she
+            # doesn't go back live after submitting until I prompt"). The
+            # supported pattern is to schedule exit() ON the app's own event
+            # loop via call_soon_threadsafe. Fall back to a direct call if the
+            # loop isn't available. The queue-drain at the REPL top still
+            # catches the message if the wake misses, so this is wake-latency,
+            # not correctness — but the thread-safe wake is what makes idle
+            # resume actually happen.
+            _wake_prompt_threadsafe()
+        threading.Event().wait(_BRIDGE_POLL_INTERVAL_S)
 
 
 

@@ -192,15 +192,29 @@ def test_app_exit_contract():
 
 
 def test_poller_uses_app_exit_not_invalidate():
-    """Structural proof: the poller function uses app.exit() not app.invalidate()."""
-    from aria_cli.cli import _claude_bridge_poller
+    """Structural proof: the wake uses app.exit() not app.invalidate().
+    R-F1423: the wake moved out of the poller into the thread-safe helper
+    _wake_prompt_threadsafe, so the structural checks target that helper; the
+    poller must call it."""
+    from aria_cli.cli import _claude_bridge_poller, _wake_prompt_threadsafe
     import inspect
 
-    source = inspect.getsource(_claude_bridge_poller)
+    poller_source = inspect.getsource(_claude_bridge_poller)
+    assert "_wake_prompt_threadsafe" in poller_source, (
+        "Poller must call _wake_prompt_threadsafe() to wake the prompt"
+    )
+
+    source = inspect.getsource(_wake_prompt_threadsafe)
 
     # Must use app.exit()
     assert "app.exit" in source, (
-        "Poller must call app.exit() to wake the prompt"
+        "wake helper must call app.exit() to return the prompt"
+    )
+    # R-F1423: must wake THREAD-SAFELY (schedule on the app loop), not a raw
+    # cross-thread app.exit() (the R-F1407b bug that failed the repeat flow).
+    assert "call_soon_threadsafe" in source, (
+        "wake must be thread-safe (loop.call_soon_threadsafe), not a raw "
+        "cross-thread app.exit()"
     )
 
     # Must NOT use app.invalidate()
