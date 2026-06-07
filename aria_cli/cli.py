@@ -209,13 +209,18 @@ def _claude_bridge_poller() -> None:
                     "what you should do next, adjust now.]\n" + text
                 )
             _CLAUDE_BRIDGE_EVENT.set()
-            # Wake the prompt so it returns and the next loop iteration
-            # picks up the queued message without operator keypress.
-            # Uses the module-level _PT_SESSION reference set in _repl().
+            # R-F1407b: wake the prompt so it returns and the next loop
+            # iteration picks up the queued message WITHOUT operator keypress.
+            # app.exit() sets the Application future, which causes prompt()
+            # to return. We pass result="" (empty string) so the REPL loop
+            # treats it as a wake signal (line 1945: if not line: continue)
+            # and loops back to drain _OPERATOR_QUEUE.
+            # This REPLACES the old _pt.app.invalidate() which only redrew
+            # the screen and NEVER unblocked prompt() — the relay killer.
             try:
                 _pt = _PT_SESSION
                 if _pt is not None and hasattr(_pt, 'app'):
-                    _pt.app.invalidate()
+                    _pt.app.exit(result="")
             except Exception:
                 pass
         threading.Event().wait(20)
