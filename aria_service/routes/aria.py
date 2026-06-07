@@ -9084,18 +9084,32 @@ async def _readdoc_job_set(job_id: str, data: dict) -> bool:
         return False
 
 
-async def _readdoc_job_get(job_id: str) -> Optional[dict]:
+# R-F1392 — sentinel: the job store READ failed (dead conn / self-heal window).
+# Distinct from None (= key genuinely absent). Pre-R-F1392 both collapsed to
+# not_found → the WA listener killed a LIVE job as "extraction job expired"
+# (operator hit this 3× on 2026-06-07 with CIS of VCR S.L_.pdf).
+_JOB_STORE_ERROR = "__job_store_error__"
+
+
+async def _readdoc_job_get(job_id: str):
+    """Returns the job dict, None (genuinely missing), or _JOB_STORE_ERROR
+    (store-layer read failure — caller should answer 503 so the poller retries)."""
+    from ..intel import redis_store as _rs_rd
     try:
-        from ..intel import redis_store as _rs_rd
-        return await _rs_rd.get_json(_READDOC_JOB_PREFIX + job_id)
-    except Exception:
-        return None
+        return await _rs_rd.get_json_strict(_READDOC_JOB_PREFIX + job_id)
+    except Exception as e:  # StoreReadError + anything else store-layer
+        _log.warning("R-F1392 readdoc job-store read failed for %s: %s", job_id, e)
+        return _JOB_STORE_ERROR
 
 
 @router.get("/read-document/result/{job_id}")
 async def read_document_result_ep(job_id: str):
-    """R-F873 — poll an async read-document job. status: processing|done|failed|not_found."""
+    """R-F873 — poll an async read-document job. status: processing|done|failed|not_found.
+    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found."""
     job = await _readdoc_job_get(job_id)
+    if job == _JOB_STORE_ERROR:
+        raise HTTPException(status_code=503,
+                            detail="job store temporarily unavailable — keep polling")
     if not job:
         return {"status": "not_found", "job_id": job_id}
     return {"job_id": job_id, **job}
@@ -9146,20 +9160,27 @@ async def _chat_job_set(job_id: str, data: dict) -> bool:
         return False
 
 
-async def _chat_job_get(job_id: str) -> Optional[dict]:
+async def _chat_job_get(job_id: str):
+    """R-F1392 — same store-error/missing distinction as _readdoc_job_get
+    ("chat job expired" hit the operator 4× on 2026-06-06 via this path)."""
+    from ..intel import redis_store as _rs_cj
     try:
-        from ..intel import redis_store as _rs_cj
-        return await _rs_cj.get_json(_CHAT_JOB_PREFIX + job_id)
-    except Exception:
-        return None
+        return await _rs_cj.get_json_strict(_CHAT_JOB_PREFIX + job_id)
+    except Exception as e:
+        _log.warning("R-F1392 chat job-store read failed for %s: %s", job_id, e)
+        return _JOB_STORE_ERROR
 
 
 @router.get("/chat/result/{job_id}")
 async def chat_result_ep(job_id: str):
     """R-F916 — poll an async /chat job. status: processing|done|failed|not_found.
     On 'done', `result` carries the full chat response dict (response, session_id,
-    sources, confidence, …) exactly as the sync /chat path returns it."""
+    sources, confidence, …) exactly as the sync /chat path returns it.
+    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found."""
     job = await _chat_job_get(job_id)
+    if job == _JOB_STORE_ERROR:
+        raise HTTPException(status_code=503,
+                            detail="job store temporarily unavailable — keep polling")
     if not job:
         return {"status": "not_found", "job_id": job_id}
     return {"job_id": job_id, **job}

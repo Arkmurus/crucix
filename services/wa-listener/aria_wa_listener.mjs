@@ -223,6 +223,29 @@ function _cacheRecentDoc(chatId, senderName, filename, text) {
   _persistRecentDocs();                          // R-F964 — survive restarts
 }
 
+// R-F1391 — record a FAILED read so a follow-up mention can be honest about it.
+// Live failure 2026-06-07: "CIS of VCR S.L_.pdf" failed extraction (brain 503),
+// so it never entered the cache; the operator's "investigate the companies in
+// this document" follow-up then re-attached the PREVIOUS day's NDA (the newest
+// successfully-cached doc) with a MUST-review-verbatim instruction — ARIA
+// confidently reviewed the WRONG document. A failed read now leaves a marker
+// entry; the follow-up path surfaces "I couldn't read X — resend it" instead of
+// silently substituting an older doc. A successful re-send of the same filename
+// replaces the marker (same findIndex-by-filename slot as _cacheRecentDoc).
+function _cacheFailedDocRead(chatId, senderName, filename, error) {
+  const fname = filename || 'document';
+  const list = _recentDocs.get(chatId) || [];
+  const idx = list.findIndex(d => d.filename === fname);
+  const entry = {
+    filename: fname, text: '', failed: true,
+    error: String(error || 'unknown').slice(0, 200),
+    ts: Date.now(), sender: senderName || 'someone',
+  };
+  if (idx >= 0) list[idx] = entry; else list.push(entry);
+  _recentDocs.set(chatId, _pruneChatDocs(list));
+  _persistRecentDocs();
+}
+
 // R-F964 — persist the recent-doc cache to the aria-wa volume so a listener
 // restart (deploy, crash, watchdog) no longer makes ARIA "forget" a document
 // the operator shared minutes/hours earlier. Best-effort: any failure is logged
@@ -260,6 +283,19 @@ function _recentDocsForFollowup(chatId, question) {
   if (list.length === 0) { _recentDocs.delete(chatId); return []; }
   _recentDocs.set(chatId, list);                           // persist the prune
   if (list.length === 1) return list;
+  // R-F1391 — if the MOST RECENT doc FAILED to read, it dominates: the user is
+  // almost certainly asking about the doc they just sent, so never let an older
+  // doc silently stand in for it (live 2026-06-07: stale ATNA NDA reviewed in
+  // place of the failed CIS of VCR). Exception: the question explicitly names
+  // an older successfully-read doc by filename.
+  const newest = list[list.length - 1];
+  if (newest.failed) {
+    const qlf = question.toLowerCase();
+    const named = list.filter(d => !d.failed &&
+      d.filename.replace(/\.[a-z0-9]+$/i, '').split(/[\s_\-]+/)
+        .some(w => w.length >= 4 && qlf.includes(w.toLowerCase())));
+    return named.length ? named : [newest];
+  }
   if (_MULTI_DOC_PATTERN.test(question)) return list;      // wants all
   const ql = question.toLowerCase();
   const matched = list.filter(d =>
@@ -552,7 +588,31 @@ async function brainGet(path) {
 // Returns the read-document result dict on success; throws on failure/timeout;
 // falls back to a legacy sync result if the brain is an older build.
 async function readDocumentAsync(payload, chatId, filename) {
-  const job = await brainPost('/api/aria/read-document', { ...payload, async: true });
+  // R-F1393 — retry the initial POST on retryable failures (5xx/429/network).
+  // Live 2026-06-07 11:42Z: ONE transient 503 (brain job-store blip, R-F1380)
+  // dropped the whole document and told the operator to resend. brainPost
+  // already classifies these as retryable (R-F1153) but nothing retried.
+  // 3 attempts (2s/5s backoff), then ONE sync-mode attempt — the async job
+  // store can be down while extraction itself works (R-F869 80s server cap
+  // fits inside brainPost's 90s client timeout).
+  let job = null, lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise(r => setTimeout(r, attempt === 1 ? 2000 : 5000));
+    try {
+      job = await brainPost('/api/aria/read-document', { ...payload, async: true });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (e.retryable === false) throw e;   // auth/4xx — retrying won't help
+      console.warn(`[ARIA Listener] R-F1393 read-document POST attempt ${attempt + 1}/3 failed: ${e.message}`);
+    }
+  }
+  if (lastErr) {
+    console.warn('[ARIA Listener] R-F1393 async read-document unavailable after 3 attempts — trying sync mode once');
+    const sync = await brainPost('/api/aria/read-document', { ...payload });
+    return sync && sync.result ? sync.result : (sync || null);
+  }
   const jobId = job && job.job_id;
   if (!jobId) {
     // Older brain build without async support — it returned the sync result.
@@ -570,6 +630,7 @@ async function readDocumentAsync(payload, chatId, filename) {
   // R-F1325 — tolerate transient blips: only abort after 3 CONSECUTIVE failures (~90s)
   let lastHealthCheck = 0;
   let docHealthFails = 0;
+  let notFoundStreak = 0;   // R-F1392 — tolerate transient store blips
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, POLL_MS));
     // R-F1152 — abort early if brain is down
@@ -593,9 +654,17 @@ async function readDocumentAsync(payload, chatId, filename) {
     try { st = await brainGet(`/api/aria/read-document/result/${jobId}`); }
     catch { continue; }                    // transient poll error — keep waiting
     if (!st) continue;
+    if (st.status === 'not_found') {
+      // R-F1392 — a transient store blip (state_store self-heal window) can
+      // read as not_found for a poll or two; only 3 CONSECUTIVE not_found
+      // means the job truly expired. (Live 2026-06-07 10:04Z: a single blip
+      // killed a healthy extraction 38s in — the TTL is 1 hour.)
+      if (++notFoundStreak >= 3) throw new Error('extraction job expired');
+      continue;
+    }
+    notFoundStreak = 0;
     if (st.status === 'done')      return st.result || null;
     if (st.status === 'failed')    throw new Error(st.error || 'extraction failed');
-    if (st.status === 'not_found') throw new Error('extraction job expired');
     // status === 'processing' → keep polling
   }
   throw new Error('extraction timed out after 15 minutes');
@@ -679,6 +748,7 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   let interimSent = false;
   let lastHealthCheck = 0;
   let chatHealthFails = 0;  // R-F1325 — consecutive health-check failures
+  let notFoundStreak = 0;   // R-F1392 — tolerate transient store blips
   // R-F1152 — send typing indicator so users see ARIA is working
   if (chatId && sock && isConnected) {
     sock.sendPresenceUpdate('composing', chatId).catch(() => {});
@@ -734,12 +804,19 @@ async function askARIAAsync(message, senderJid, chatId = null) {
     try { st = await brainGet(`/api/aria/chat/result/${jobId}`); }
     catch { continue; }                    // transient poll error — keep waiting
     if (!st) continue;
+    if (st.status === 'not_found') {
+      // R-F1392 — only 3 CONSECUTIVE not_found = truly expired (store blips
+      // read as not_found for a poll; "chat job expired" hit the operator 4×
+      // on 2026-06-06 from exactly this).
+      if (++notFoundStreak >= 3) throw new Error('chat job expired');
+      continue;
+    }
+    notFoundStreak = 0;
     if (st.status === 'done') {
       const res = st.result || {};
       return res.response || res.answer || 'No response.';
     }
     if (st.status === 'failed')    throw new Error(st.error || 'chat job failed');
-    if (st.status === 'not_found') throw new Error('chat job expired');
     // status === 'processing' → keep polling
   }
   throw new Error('chat job timed out after 15 minutes');
@@ -1518,6 +1595,10 @@ async function startListener() {
                 // ("analyse this contract") honestly said "no document in my
                 // context." Surface it so the user can retry or paste the text.
                 console.warn(`[ARIA Listener] R-F856 read-document returned null for ${filename}: ${_docErr || 'unknown'}`);
+                // R-F1391 — leave a failure marker so a follow-up mention says
+                // "I couldn't read X" instead of re-attaching an OLDER cached
+                // doc as a silent substitute (the wrong-document failure class).
+                _cacheFailedDocRead(chatId, senderName, filename, _docErr);
                 // R-F887 — report this tier failure to the brain so it becomes
                 // coder-visible (capability_gap → R-F884). The contract-504 class
                 // of failure was previously invisible to the brain/coder.
@@ -1642,6 +1723,13 @@ async function startListener() {
           const blocks = [];
           let budget = MAX_DOC_CHARS;                 // total across ALL attached docs
           for (const _doc of _docs) {
+            if (_doc.failed) {
+              // R-F1391 — this doc FAILED to read: attach the truth, not a
+              // stale substitute. ARIA must tell the user instead of reviewing
+              // whatever older document happens to be cached.
+              blocks.push(`[DOCUMENT READ FAILURE — "${_doc.filename}" (sent by ${_doc.sender}) could NOT be read: ${_doc.error}. You DO NOT have its contents. Tell the user plainly that you could not read "${_doc.filename}" and ask them to resend it or paste the key text. You MUST NOT review, summarise, or answer from any OTHER document, memory, or prior context as a substitute for it.]`);
+              continue;
+            }
             if (budget <= 0) break;
             let body = _doc.text;
             if (body.length > budget) {

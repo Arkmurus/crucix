@@ -235,6 +235,43 @@ async def get_json(key: str) -> Any:
     return None
 
 
+class StoreReadError(Exception):
+    """R-F1392 — a read failed at the STORE layer (dead conn / reconnect
+    window), as opposed to the key being genuinely absent. Raised only by the
+    *_strict readers; the plain get()/get_json() keep their graceful
+    None-on-error contract."""
+
+
+async def get_strict(key: str) -> Optional[str]:
+    """R-F1392: like get(), but a store-layer failure raises StoreReadError so
+    callers (async job-poll endpoints) can answer 503-retry instead of a false
+    not_found. None means the key is genuinely absent."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        try:
+            return await _ss.get_strict(key)
+        except _ss.StateReadError as e:
+            raise StoreReadError(str(e)) from e
+    if _client:
+        try:
+            return await _client.get(key)
+        except Exception as e:
+            raise StoreReadError(f"Redis GET {key} failed: {e}") from e
+    return _mem_store.get(key)
+
+
+async def get_json_strict(key: str) -> Any:
+    """R-F1392: get_json over get_strict — raises StoreReadError on store
+    failure; None only when the key is genuinely absent."""
+    raw = await get_strict(key)
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            logger.warning("JSON parse failed for key %s: %s", key, e)
+    return None
+
+
 async def set_json(key: str, obj: Any, ex: int | None = None,
                    keepttl: bool = False) -> None:
     await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)

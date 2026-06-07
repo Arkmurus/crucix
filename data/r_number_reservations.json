@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1391,
+  "next_available": 1394,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8361,6 +8361,34 @@
       "r_number": "R-F1390",
       "title": "aria CLI flicker fix - coalesce streaming + drop periodic repaint (patch_stdout per-token repaint = blink)",
       "claimed_at": "2026-06-07T09:05:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7dc04657",
+      "notes": null,
+      "shipped_at": "2026-06-07T09:11:51Z"
+    },
+    {
+      "r_number": "R-F1391",
+      "title": "WA failed-read marker - never re-attach stale doc after a failed read",
+      "claimed_at": "2026-06-07T12:07:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1392",
+      "title": "readdoc/chat job store-error returns 503 not not_found + listener tolerance",
+      "claimed_at": "2026-06-07T12:07:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1393",
+      "title": "WA listener retries 5xx on read-document POST",
+      "claimed_at": "2026-06-07T12:07:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

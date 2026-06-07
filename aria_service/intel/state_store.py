@@ -287,6 +287,17 @@ def _schedule_reconnect_if_dead(e: Exception) -> None:
         pass
 
 
+class StateReadError(Exception):
+    """R-F1392: raised by get_strict() when a READ failed at the store layer
+    (dead/closed connection, reconnect window) — as opposed to the key being
+    genuinely absent. Live 2026-06-07: during a self-heal window every job-poll
+    read returned None → /read-document/result said not_found → the WA listener
+    declared a LIVE extraction 'expired' and the operator was told to resend.
+    Callers that must distinguish 'key missing' from 'store down' (async job
+    polls) use get_strict; everything else keeps the graceful None-on-error
+    contract of get()."""
+
+
 class StateWriteError(Exception):
     """R-F1351: raised by a compound op invoked with critical=True when its
     write did NOT land (lock-acquire timeout, in-lock op timeout, or error).
@@ -571,6 +582,30 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 async def get(key: str) -> str | None:
     row = await _row(key, expected_kind="string")
     return row[0] if row else None
+
+
+async def get_strict(key: str) -> str | None:
+    """R-F1392: like get(), but a store-layer failure RAISES StateReadError
+    instead of silently returning None. A None return therefore means the key
+    is GENUINELY absent/expired — which is what the async job-poll endpoints
+    need to honestly answer not_found vs 503-retry (see StateReadError)."""
+    if _conn is None:
+        raise StateReadError(
+            f"state_store: no connection (reconnect in progress) reading {key}")
+    try:
+        cur = await _conn.execute(
+            "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,))
+        row = await cur.fetchone()
+        await cur.close()
+    except Exception as e:
+        _schedule_reconnect_if_dead(e)  # same self-heal as the graceful path
+        raise StateReadError(f"state_store: SELECT {key} failed: {e}") from e
+    if not row:
+        return None
+    value, kind, expires_at = row
+    if _expired(expires_at) or kind != "string":
+        return None  # genuinely absent (expired / wrong kind) — not a store error
+    return value
 
 
 # R-F669 (2026-05-17): CLAUDE.md §7 — "ARIA has infinite memory. No TTL
