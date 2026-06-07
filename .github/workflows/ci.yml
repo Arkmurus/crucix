@@ -5,6 +5,13 @@ name: CI
 on:
   push:
     branches: [main]
+    # R-F1408: skip CI on doc/data/memory-only pushes (the bulk of our commits
+    # are R-number registry, training data, docs) so they don't spawn a test
+    # run + email on every non-code change.
+    paths-ignore:
+      - 'docs/**'
+      - 'data/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
 

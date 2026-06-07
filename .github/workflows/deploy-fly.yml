@@ -12,8 +12,12 @@ name: Deploy ARIA to Fly.io
 # R-numbers since the last deploy tag and deploys them as one batch.
 
 on:
-  push:
-    branches: [main]
+  # R-F1408: push trigger REMOVED 2026-06-07. It fired on every push but the
+  # deploy job is gated on '[deploy]' in the commit message, so normal pushes
+  # produced a skipped job → GitHub "No jobs were run" → an email per push
+  # (operator noise). Deploys are manual anyway (CLAUDE.md §11/§20; the CI
+  # FLY_API_TOKEN is stale). Keep workflow_dispatch so a manual CI deploy is
+  # still available once the token is rotated.
   workflow_dispatch:
     inputs:
       reason:

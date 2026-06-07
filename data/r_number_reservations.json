@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1401,
+  "next_available": 1409,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8457,6 +8457,78 @@
       "r_number": "R-F1400",
       "title": "break state_store lock-storm feedback loop - skip-list + batched error-count + rate-limited warn + waiter shed",
       "claimed_at": "2026-06-07T13:33:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1401",
+      "title": "Tier 0c: held-out eval split + relocate training reports",
+      "claimed_at": "2026-06-07T18:09:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1402",
+      "title": "Tier 1a: BD tender-to-lead wire",
+      "claimed_at": "2026-06-07T18:09:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1403",
+      "title": "Tier 1b: WebIntegrityAgent brain_hook injection fix",
+      "claimed_at": "2026-06-07T18:09:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1404",
+      "title": "Tier 1c: S-3 training data pipeline builder (WS-2a/2b)",
+      "claimed_at": "2026-06-07T18:09:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1405",
+      "title": "Tier 1d: gate-7 real design-partner counter",
+      "claimed_at": "2026-06-07T18:09:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1406",
+      "title": "Stagger 06:00 UTC cron cluster + Thu quiet window",
+      "claimed_at": "2026-06-07T18:09:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1407",
+      "title": "R-F1407: CLI bridge idle-poll daemon for real-time Claude notes",
+      "claimed_at": "2026-06-07T18:13:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1408",
+      "title": "stop GitHub Actions email noise - drop push trigger on deploy-fly + paths-ignore ci",
+      "claimed_at": "2026-06-07T18:22:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
