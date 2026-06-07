@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1421,
+  "next_available": 1422,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8643,6 +8643,16 @@
       "r_number": "R-F1420",
       "title": "fsync durable writers before os.replace - knowledge + ledger (no data loss on crash)",
       "claimed_at": "2026-06-07T21:30:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "41f67315",
+      "notes": null,
+      "shipped_at": "2026-06-07T21:32:33Z"
+    },
+    {
+      "r_number": "R-F1421",
+      "title": "wrap boot intel inits - one subsystem failure degrades not total-outage (F28 class)",
+      "claimed_at": "2026-06-07T21:33:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

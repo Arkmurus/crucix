@@ -21,6 +21,32 @@ from typing import Any, Optional
 import json
 
 
+async def _run_boot_inits(inits) -> list:
+    """R-F1421 — run each (name, async init_fn) in order, ISOLATING failures.
+
+    Pre-R-F1421 the intel inits were bare `await x.init()` with no guard: one
+    throw made the lifespan raise → uvicorn never reached `yield` → the app
+    never served → TOTAL OUTAGE (the 2026-04-27 F28 class). A degraded-but-up
+    ARIA that surfaces which subsystem failed beats a fully-dark one. Returns
+    the list of failed subsystem names (empty = all ok). Module-level + pure
+    over its inputs so the isolation is unit-testable.
+    """
+    failed = []
+    for name, fn in inits:
+        try:
+            await fn()
+        except Exception as e:  # noqa: BLE001 — isolate per-subsystem
+            failed.append(name)
+            try:
+                logger.error(
+                    "[R-F1421] intel init '%s' FAILED at boot (degrading, "
+                    "staying up): %s", name, e, exc_info=True,
+                )
+            except Exception:
+                pass
+    return failed
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -264,13 +290,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("error-ledger handler install failed (non-fatal): %s", e)
 
-    # Initialize all intel modules
-    await knowledge.init()
-    await intel_ledger.init()
-    await contacts.init()
-    await competitors.init()
-    await training_data.init()
-    await neural_memory.init()
+    # Initialize all intel modules — R-F1421: each isolated so one subsystem
+    # failing degrades that subsystem instead of aborting the whole lifespan
+    # (an unwrapped throw here = never reach `yield` = total outage, F28 class).
+    _boot_init_failures = await _run_boot_inits([
+        ("knowledge", knowledge.init),
+        ("intel_ledger", intel_ledger.init),
+        ("contacts", contacts.init),
+        ("competitors", competitors.init),
+        ("training_data", training_data.init),
+        ("neural_memory", neural_memory.init),
+    ])
+    if _boot_init_failures:
+        logger.error(
+            "[R-F1421] %d/6 intel subsystems failed to init: %s — ARIA is UP "
+            "but DEGRADED; these are unavailable until fixed/restarted.",
+            len(_boot_init_failures), _boot_init_failures,
+        )
+    try:
+        app.state.boot_init_failures = _boot_init_failures
+    except Exception:
+        pass
 
     # ── R-F504 (2026-05-14) — ARIA's own search index ───────────────────
     # Opens a separate SQLite file at /data/aria_search.db (configurable
