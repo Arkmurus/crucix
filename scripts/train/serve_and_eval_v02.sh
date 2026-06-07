@@ -27,13 +27,15 @@
 #   is ~42 min; pod resume + vLLM init + health probes add overhead).
 #   The original $0.47 estimate was optimistic — this is the honest number.
 #
-# Instrument consistency: BOTH the fresh DeepSeek baseline AND the v0.2 eval
-# use eval_runner.run_eval() — the proven live path. Do NOT use
-# llm_eval_framework.evaluate(model="deepseek") for the baseline; that path
-# has an import bug (LLMPipeline vs LLMTrainingPipeline) and is deferred for
-# post-T-R1 fix. The script below calls eval_runner via the Python inline
-# block, which routes through _aria_chat_session() — the same code the
-# WhatsApp user hits.
+# Instrument consistency (R-F1430): BOTH the v0.2 eval AND the fresh DeepSeek
+# baseline use scripts/train/eval_aria_llm.py — the ONLY pod-runnable harness
+# (self-contained raw httpx). Do NOT use eval_runner.run_eval() or
+# llm_eval_framework.evaluate() here: both import the full FastAPI app +
+# redis_store + all intel modules, which are NOT installed on a bare RunPod
+# pod (the pod has torch/transformers/vLLM only). The old version of this
+# script called eval_golden_seed.get_all() (does not exist) + llm_eval_framework
+# (import bug + wrong provider path) and was guaranteed to crash AFTER the
+# 45-min model load — wasting the whole paid cycle. Fixed in R-F1430.
 # =============================================================================
 set -euo pipefail
 
@@ -42,10 +44,26 @@ POD_ID="${RUNPOD_POD_ID:?RUNPOD_POD_ID not set}"
 API_KEY="${RUNPOD_API_KEY:?RUNPOD_API_KEY not set}"
 API_BASE="${RUNPOD_API_BASE:-https://api.runpod.io/v2}"
 
-MODEL_NAME="aria-llm-v0.2"
-MODEL_PATH="/workspace/checkpoints/aria_llm_v0_2_dpo"  # DPO adapter
-BASE_MODEL="Qwen/Qwen2.5-14B-Instruct"
-MAX_MODEL_LEN=32768
+# R-F1430: ALWAYS stop the pod on EXIT (crash, error, OR success) so a failure
+# can never leave the A100 billing open-ended. Pre-R-F1430 the script used
+# `set -e` with NO trap, so any error before the final stop step left the pod
+# running indefinitely (~$1.89/hr) — and step 5's eval was guaranteed to crash.
+# This trap is the single biggest cost-safety fix.
+_stop_pod() {
+  echo "[trap] stopping pod $POD_ID to prevent runaway GPU billing..."
+  curl -s -X POST "$API_BASE/pods/$POD_ID/stop" -H "Authorization: Bearer $API_KEY" >/dev/null 2>&1 || true
+}
+trap _stop_pod EXIT
+
+# R-F1430: model identity from the SINGLE SOURCE OF TRUTH (model_config.sh) —
+# scripts no longer disagree on base model / adapter / context window.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/train/model_config.sh
+source "$SCRIPT_DIR/model_config.sh"
+MODEL_NAME="$ARIA_MODEL_NAME"
+MODEL_PATH="$ARIA_ADAPTER_PATH"
+BASE_MODEL="$ARIA_BASE_MODEL"
+MAX_MODEL_LEN="$ARIA_MAX_MODEL_LEN"
 VLLM_PORT=8000
 
 EVAL_OUTPUT="data/training/aria_llm_v02_eval.json"
@@ -125,104 +143,62 @@ ssh -p "$POD_PORT" "root@$POD_HOST" bash -s << 'REMOTE'
 REMOTE
 
 # Wait for vLLM to load model (~45s for 14B)
-echo "      Waiting for vLLM to load model..."
-sleep 45
-
 # ── Step 4: Health probe ───────────────────────────────────────────────────
-echo "[4/6] Probing vLLM endpoint..."
+# R-F1430: poll for the FULL 14B load window (~5-10 min from the volume), not a
+# fixed 45s sleep + 120s probe — the old wait proceeded to eval a NOT-ready
+# endpoint, producing an all-error eval on a paid cycle. Up to ~12 min; if it
+# never comes ready, abort LOUD (the EXIT trap stops the pod).
+echo "[4/6] Probing vLLM endpoint (14B load can take 5-10 min)..."
 PROXY_URL="https://${POD_ID}-8000.proxy.runpod.net"
-for i in $(seq 1 12); do
+VLLM_READY=0
+for i in $(seq 1 48); do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROXY_URL/v1/models" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     echo "      vLLM ready at $PROXY_URL (attempt $i)"
     MODELS=$(curl -s "$PROXY_URL/v1/models" | python3 -m json.tool 2>/dev/null || echo "")
     echo "      Models: $MODELS"
+    VLLM_READY=1
     break
   fi
-  echo "      HTTP $HTTP_CODE — waiting 10s..."
-  sleep 10
+  echo "      HTTP $HTTP_CODE — model still loading, waiting 15s (attempt $i/48)..."
+  sleep 15
 done
+if [ "$VLLM_READY" != "1" ]; then
+  echo "ERROR: vLLM did not become ready after ~12 min — aborting (trap stops the pod)." >&2
+  exit 1
+fi
 
-# ── Step 5: Run the 500-Q eval ─────────────────────────────────────────────
-echo "[5/6] Running 500-Q eval against $MODEL_NAME..."
-echo "      Setting ARIA_LLM_URL=$PROXY_URL/v1"
-echo "      Setting ARIA_LLM_MODEL=$MODEL_NAME"
+# ── Step 5: Run the eval — SAME instrument for v0.2 AND the DeepSeek baseline ─
+# R-F1430: the old step called eval_golden_seed.get_all() (does NOT exist →
+# AttributeError AFTER the 45-min load) then llm_eval_framework (LLMPipeline
+# import bug + AriaLLMProvider wrong path → every Q returns [ERROR]). NEITHER
+# runs on a bare pod (both import the full FastAPI app). The pod-correct,
+# self-contained instrument is scripts/train/eval_aria_llm.py (raw httpx). Run
+# it for BOTH the v0.2 endpoint AND the DeepSeek baseline with the SAME eval
+# set so the comparison is apples-to-apples (the promotion bar depends on it).
+echo "[5/6] Running eval (same instrument: v0.2 + DeepSeek baseline)..."
+mkdir -p data/eval_reports
 
-# Run the eval via the Python framework
-# Uses the llm_eval_framework.evaluate() function with model="aria-llm"
-# which connects to ARIA_LLM_URL
-ARIA_LLM_URL="$PROXY_URL/v1" \
-ARIA_LLM_MODEL="$MODEL_NAME" \
-ARIA_LLM_KEY="" \
-python3 -c "
-import asyncio
-import json
-import os
-import sys
+echo "      → v0.2 ($MODEL_NAME) at $PROXY_URL/v1"
+python3 "$SCRIPT_DIR/eval_aria_llm.py" \
+  --target "$PROXY_URL/v1" \
+  --model "$MODEL_NAME" \
+  --eval-set "$ARIA_EVAL_SET" \
+  --out "data/eval_reports/aria_llm_v02_eval.json" 2>&1 | tee "$LOG_DIR/eval_v02.log"
 
-# Ensure the repo is on the path
-sys.path.insert(0, '.')
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  echo "      → DeepSeek baseline (deepseek-chat) at https://api.deepseek.com/v1"
+  python3 "$SCRIPT_DIR/eval_aria_llm.py" \
+    --target "https://api.deepseek.com/v1" \
+    --model "deepseek-chat" \
+    --api-key "$DEEPSEEK_API_KEY" \
+    --eval-set "$ARIA_EVAL_SET" \
+    --out "data/eval_reports/deepseek_baseline_eval.json" 2>&1 | tee "$LOG_DIR/eval_deepseek.log"
+else
+  echo "      ⚠ DEEPSEEK_API_KEY not set — skipping DeepSeek baseline. Set it for the apples-to-apples comparison the promotion bar needs."
+fi
 
-from aria_service.intel.llm_eval_framework import evaluate
-from aria_service.intel.eval_golden_seed import get_all
-
-async def main():
-    # Load the 500-Q golden seed
-    seed_data = await get_all()
-    print(f'Loaded {len(seed_data)} seed entries')
-
-    # Convert to EvalQuestion objects
-    from aria_service.intel.llm_eval_framework import EvalQuestion
-    questions = [
-        EvalQuestion(
-            id=s.get('seed_id', f'q_{i}'),
-            question=s.get('question', ''),
-            expected_answer=s.get('expected_answer', ''),
-            category=s.get('category', 'general'),
-            requires_refusal=s.get('requires_refusal', False),
-            requires_grounding=s.get('requires_grounding', True),
-        )
-        for i, s in enumerate(seed_data or [])
-        if s.get('question') and s.get('expected_answer')
-    ]
-    print(f'Converted {len(questions)} questions')
-
-    # Run evaluation
-    result = await evaluate(
-        model_a='aria-llm',
-        questions=questions,
-        sample_size=500,
-    )
-
-    # Save result
-    output = {
-        'target': os.environ.get('ARIA_LLM_URL', ''),
-        'model': os.environ.get('ARIA_LLM_MODEL', 'aria-llm-v0.2'),
-        'started_at': result.timestamp,
-        'finished_at': asyncio.get_event_loop().time(),
-        'model_a': {
-            'overall_score': result.model_a.overall_score if result.model_a else 0,
-            'avg_correctness': result.model_a.avg_correctness if result.model_a else 0,
-            'avg_grounded_rate': result.model_a.avg_grounded_rate if result.model_a else 0,
-            'avg_refusal_accuracy': result.model_a.avg_refusal_accuracy if result.model_a else 0,
-            'questions_attempted': result.model_a.questions_attempted if result.model_a else 0,
-            'questions_passed': result.model_a.questions_passed if result.model_a else 0,
-        },
-        'question_count': result.question_count,
-        'duration_s': result.duration_s,
-    }
-
-    out_path = '$EVAL_OUTPUT'
-    with open(out_path, 'w') as f:
-        json.dump(output, f, indent=2, default=str)
-    print(f'Results saved to {out_path}')
-    print(json.dumps(output, indent=2, default=str))
-
-asyncio.run(main())
-" 2>&1 | tee "$LOG_DIR/eval_output.log"
-
-echo "      Eval complete. Results:"
-head -30 "$LOG_DIR/eval_output.log"
+echo "      Eval complete. Reports in data/eval_reports/ (v0.2 + DeepSeek)."
 
 # ── Step 6: Stop the pod ───────────────────────────────────────────────────
 echo "[6/6] Stopping pod $POD_ID..."
@@ -232,6 +208,6 @@ echo "      Pod stop requested."
 
 echo ""
 echo "=== Done ==="
-echo "Eval results: $EVAL_OUTPUT"
-echo "Logs:        $LOG_DIR"
-echo "Total cost:  ~$2-3 (60-90 min A100 80GB at ~$1.89/hr)"
+echo "Eval reports: data/eval_reports/aria_llm_v02_eval.json + deepseek_baseline_eval.json"
+echo "Logs:         $LOG_DIR"
+echo "Total cost:   ~\$2-3 (60-90 min A100 80GB at ~\$1.89/hr); pod stopped by EXIT trap."
