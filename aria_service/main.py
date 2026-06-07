@@ -1935,8 +1935,10 @@ async def lifespan(app: FastAPI):
     web_integrity_agent: Optional[Any] = None
     try:
         from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
+        from .intel import brain_hook as _bh_wia
         web_integrity_agent = WebIntegrityAgent(
             aria_service_url=f"http://localhost:{settings.effective_port}",
+            brain_hook=_bh_wia,
             redis_store=rs if _state_connect_ok else None,
         )
         await web_integrity_agent.start()
