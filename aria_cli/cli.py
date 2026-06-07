@@ -168,6 +168,59 @@ def _stdin_reader() -> None:
 
 _STDIN_PAUSED = threading.Event()
 
+# R-F1407: Claude bridge idle-poll daemon — polls for new Claude messages
+# every ~20s even while the CLI sits idle at the prompt. When a message
+# arrives, it's queued for the next turn and the prompt is woken so ARIA
+# acts without the operator having to type anything.
+_CLAUDE_BRIDGE_EVENT = threading.Event()
+_CLAUDE_BRIDGE_BASE: Path | None = None  # set once at REPL start
+_PT_SESSION: Any = None  # R-F1407: module-level ref so the bridge poller can wake the prompt
+
+
+def _claude_bridge_poller() -> None:
+    """Daemon thread: poll the bridge for new Claude→ARIA messages every ~20s.
+
+    When a message is found, queue it on _OPERATOR_QUEUE and signal the
+    REPL loop to wake and process it. Never breaks the prompt loop.
+    """
+    base = _CLAUDE_BRIDGE_BASE
+    if not base:
+        return
+    try:
+        from . import bridge as _bridge
+    except Exception:
+        return
+    while True:
+        try:
+            new = _bridge.read_new(base, reader="aria")
+        except Exception:
+            threading.Event().wait(20)
+            continue
+        if new:
+            for m in new:
+                text = (m.get("text") or "").strip()
+                if not text:
+                    continue
+                tag = "reply" if m.get("reply_to") else m.get("kind", "note")
+                preview = text if len(text) <= 200 else text[:200] + "…"
+                _OPERATOR_QUEUE.put(
+                    "[LIVE MESSAGE FROM CLAUDE — your senior reviewer, via the agent "
+                    "bridge. Treat as high-priority guidance: read it, and if it changes "
+                    "what you should do next, adjust now.]\n" + text
+                )
+            _CLAUDE_BRIDGE_EVENT.set()
+            # Wake the prompt so it returns and the next loop iteration
+            # picks up the queued message without operator keypress.
+            # Uses the module-level _PT_SESSION reference set in _repl().
+            try:
+                _pt = _PT_SESSION
+                if _pt is not None and hasattr(_pt, 'app'):
+                    _pt.app.invalidate()
+            except Exception:
+                pass
+        threading.Event().wait(20)
+
+
 
 def _pause_stdin_reader() -> None:
     """Pause the stdin reader thread so the REPL prompt can read stdin directly.
@@ -1776,6 +1829,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     # (turns run in a worker thread; patch_stdout renders her output above the
     # box). Mid-task lines are visible/editable and go to _OPERATOR_QUEUE.
     pt_session = None
+    _PT_SESSION = None  # R-F1407: reset module-level ref for bridge poller wake
     _LAST_SIGINT = [0.0]  # R-F1383 — double-Ctrl+C force-quit window
     if PROMPT_TOOLKIT_AVAILABLE:
         # R-F1279: Enter submits, Alt+Enter inserts a newline (see
@@ -1804,6 +1858,15 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
             multiline=True,
             bottom_toolbar=lambda: _toolbar_text(cfg, self_mode),
         )
+        _PT_SESSION = pt_session  # R-F1407: module-level ref for bridge poller wake
+
+    # R-F1407: start the Claude bridge poller daemon (idle-wake for real-time notes)
+    _CLAUDE_BRIDGE_BASE = find_repo_root(cwd)
+    _CLAUDE_BRIDGE_EVENT.clear()
+    _bridge_thread = threading.Thread(
+        target=_claude_bridge_poller, daemon=True, name="claude-bridge-poller"
+    )
+    _bridge_thread.start()
 
     def _boxed_prompt() -> str:
         """Render the anchored input box and read one line (R-F1389).
@@ -1829,24 +1892,37 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     try:
         while True:
             try:
-                ui._ensure_clear_line()
-                # R-F1270: ALWAYS pause the stdin reader before reading REPL input,
-                # regardless of whether prompt_toolkit is available. This prevents
-                # the background thread from consuming keystrokes meant for input().
-                _pause_stdin_reader()
+                # R-F1407: check for Claude bridge messages before blocking on prompt.
+                # If a message arrived while we were processing the last turn, drain
+                # it immediately without waiting for operator input.
+                _CLAUDE_BRIDGE_EVENT.clear()
+                claude_line = None
                 try:
-                    if pt_session is not None:
-                        # R-F1383: prompt stays open even while a turn runs —
-                        # patch_stdout routes worker output above the box.
-                        with PTPatchStdout(raw=True):
-                            line = _sanitize_input_line(_boxed_prompt()).strip()
-                    else:
-                        line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
-                finally:
-                    # Fallback (no prompt_toolkit): the msvcrt reader provides
-                    # mid-task interject, so resume it only on that path.
-                    if pt_session is None:
-                        _resume_stdin_reader()
+                    claude_line = _OPERATOR_QUEUE.get_nowait()
+                except Exception:
+                    pass
+                if claude_line is not None:
+                    line = claude_line
+                    # Skip the prompt entirely — process the Claude message as a turn
+                else:
+                    ui._ensure_clear_line()
+                    # R-F1270: ALWAYS pause the stdin reader before reading REPL input,
+                    # regardless of whether prompt_toolkit is available. This prevents
+                    # the background thread from consuming keystrokes meant for input().
+                    _pause_stdin_reader()
+                    try:
+                        if pt_session is not None:
+                            # R-F1383: prompt stays open even while a turn runs —
+                            # patch_stdout routes worker output above the box.
+                            with PTPatchStdout(raw=True):
+                                line = _sanitize_input_line(_boxed_prompt()).strip()
+                        else:
+                            line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
+                    finally:
+                        # Fallback (no prompt_toolkit): the msvcrt reader provides
+                        # mid-task interject, so resume it only on that path.
+                        if pt_session is None:
+                            _resume_stdin_reader()
             except EOFError:
                 break
             except KeyboardInterrupt:
