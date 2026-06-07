@@ -6,6 +6,31 @@ Live build at time of writing: `9386aa6f`. Probe against live.
 
 ---
 
+## TIER 0★ — MASTER ARIA-WA + OUTPUT-AWARENESS (operator's #1; CLAUDE.md §25)
+
+**The principle:** ARIA must feel her own limbs. Today she failed to deliver on WhatsApp and the SERVER BRAIN DID NOT KNOW the user got nothing — so she couldn't self-heal. "Sees/hears/knows everything" is empty words until the OUTPUT path reports back. Fix the infra AND the awareness loop so she self-codes/self-heals on her own output failures.
+
+### T0★-1 — WA delivery-outcome wire (proprioception; the keystone)
+Right now the WA listener sends the user a real answer OR a "⚠️ timeout"/error — but the brain never learns WHICH. Close the loop:
+- WA listener assigns a `request_id` per inbound request and reports to the brain on COMPLETION: `delivered_real_answer | timeout_fallback | error | send_failed` + latency (new brain endpoint, e.g. `POST /api/aria/wa/delivery-outcome`, auth). Mirror for web/TG later.
+- Brain correlates request→outcome, writes a **WA-health ledger** + brain signal; on any non-success records a **gap** (§21e) → self-heal/coder trigger. Success AND failure both wired (§21a/§25).
+**Capability test:** a forced WA timeout produces a `timeout_fallback` outcome the brain records + a gap appears for the coder; a clean answer produces `delivered_real_answer`. Assert the brain can report the outcome of a given request_id.
+
+### T0★-2 — Proprioception surface ("did I deliver X?")
+Endpoint + dashboard tile: per-channel delivery success rate (24h/7d), recent failures with reason, and per-request status lookup. This is how ARIA (and the operator) SEE her output health.
+**Capability test:** after N requests with mixed outcomes, the surface returns the correct success rate + lists the failures.
+
+### T0★-3 — WA robust infra (stop the recurring errors at root)
+- **async-complete-and-push** (= T0-1 below): a slow job still delivers when ready instead of a timeout. THE fix for the recurring "hit a timeout".
+- dedup BEFORE media branches; idempotent capture on reconnect churn; sendReply send-fail → reported (feeds T0★-1, not silent).
+**Capability test:** a 3-min research job delivers its real result to WA; a Baileys reconnect does not double-process a doc.
+
+### T0★-4 — Self-heal on output failure
+Wire the WA-health gaps (T0★-1) into the existing self-heal/coder loop so a pattern of WA failures auto-produces a fix proposal (staged, per §21c). Close the loop end-to-end: failure → awareness → gap → coder → staged fix.
+**Capability test:** a recorded WA output-failure gap is picked up by the gap_detector/coder on its next scan.
+
+---
+
 ## TIER 0 — OPERATOR-FACING LIVE FAILURES (highest; these are what the operator hits)
 
 ### T0-1 — WhatsApp deep-query TIMEOUT (recurring; hit on BOTH the doc-investigation and the Iraq query)
