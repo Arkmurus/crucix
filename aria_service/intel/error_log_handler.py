@@ -118,6 +118,19 @@ _SKIP_SUBSTRINGS = (
     # detections, not code defects — they belong in a security channel).
     "prompt injection detected",
     "output sanitisation total",
+    # R-F1400 — cascade-killer for the 2026-06-07 lock-storm death spiral
+    # (~2887 waiters): state_store logged each lock-acquire timeout at
+    # WARNING (state_store.py R-F1376), this handler turned EVERY such
+    # warning into a new lock-guarded rs.incr (loop.create_task below),
+    # which itself timed out 20s later and logged another warning →
+    # self-amplifying feedback loop that never drains. Same class as the
+    # F54 cascade above. The state_store contention/self-heal lines are
+    # operational telemetry, not coder-actionable defects — they already
+    # reach diagnostics via _op_timeout_counts + get_lock_diagnostics.
+    "lock-acquire timed out",
+    "connection reset (self-heal)",
+    "cannot operate on a closed database",
+    "lock held",
 )
 
 
@@ -167,17 +180,36 @@ class ErrorLedgerHandler(logging.Handler):
 
 _ERROR_COUNT_KEY = "crucix:aria:error_ledger:count"
 
+# R-F1400: batch the error-count increments instead of one lock-guarded
+# rs.incr task PER warning. Under a warning storm the per-warning incr was
+# itself a lock contender (the 2026-06-07 feedback loop). Accumulate in
+# memory and flush at most once per _FLUSH_INTERVAL_S with a single
+# incr(amount) — the self_coder post-deploy monitor (R-F994) still sees
+# the same totals, just up to a few seconds later.
+_FLUSH_INTERVAL_S = 5.0
+_pending_count = 0
+_last_flush_at = 0.0
+
 
 def _increment_error_count(loop: asyncio.AbstractEventLoop) -> None:
-    """Fire-and-forget Redis INCR for the error count key.
+    """Batched fire-and-forget INCR for the error count key (R-F994/R-F1400).
 
     The self_coder post-deploy monitor reads this key to detect
     regressions after an auto-deploy. Pre-R-F994 the key had no
     producer, so the monitor was a permanent no-op.
     """
+    global _pending_count, _last_flush_at
     try:
+        import time as _time
+
+        _pending_count += 1
+        now = _time.monotonic()
+        if now - _last_flush_at < _FLUSH_INTERVAL_S:
+            return  # accumulate — a later warning (or the next one) flushes
+        flush_amount, _pending_count = _pending_count, 0
+        _last_flush_at = now
         from . import redis_store as _rs
-        loop.create_task(_rs.incr(_ERROR_COUNT_KEY))
+        loop.create_task(_rs.incr(_ERROR_COUNT_KEY, flush_amount))
     except Exception:
         pass
 

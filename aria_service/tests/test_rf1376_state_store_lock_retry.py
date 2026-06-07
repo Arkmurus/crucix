@@ -86,7 +86,13 @@ class TestStateStoreLockRetry:
     @pytest.mark.asyncio
     async def test_persistent_contention_logs_error_after_retries(self):
         """A persistent lock contention logs ERROR after all retries exhausted."""
+        from aria_service.intel import state_store as _ss
         from aria_service.intel.state_store import _get_lock
+
+        # R-F1400: contention logs are now rate-limited per level per 10s
+        # window. Clear the window so this test's final-failure ERROR is the
+        # first in its window (else a prior test's ERROR demotes it to DEBUG).
+        _ss._last_log_at.clear()
 
         # Hold the lock for longer than the total retry window
         lock = _get_lock()
@@ -228,7 +234,12 @@ class TestCapabilityStateStoreLockBurst:
           - 10 concurrent operations all retry and succeed after holder releases
           - Assert: 0 ERRORs, >= 1 WARNING (the retry messages)
         """
+        from aria_service.intel import state_store as _ss
         from aria_service.intel.state_store import _get_lock
+
+        # R-F1400: clear the per-level rate-limit window so this test's first
+        # retry WARNING logs at WARNING (not demoted by a prior test).
+        _ss._last_log_at.clear()
 
         errors_logged = []
         warnings_logged = []
@@ -288,7 +299,12 @@ class TestCapabilityStateStoreLockBurst:
         This proves the R-F1341 safety drop survives: when the lock is held
         indefinitely, the final retry logs ERROR and returns the default.
         """
+        from aria_service.intel import state_store as _ss
         from aria_service.intel.state_store import _get_lock
+
+        # R-F1400: clear the per-level rate-limit window so this test's
+        # final-failure ERROR is the first in its window.
+        _ss._last_log_at.clear()
 
         errors_logged = []
 

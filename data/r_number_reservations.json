@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1399,
+  "next_available": 1401,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8439,6 +8439,24 @@
       "r_number": "R-F1398",
       "title": "event-loop lag monitor - name the wedge window",
       "claimed_at": "2026-06-07T12:32:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1399",
+      "title": "WS-4c RunPod lifecycle: stop-only scheduler + work-claim + alerts + cost surfacing",
+      "claimed_at": "2026-06-07T13:08:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1400",
+      "title": "break state_store lock-storm feedback loop - skip-list + batched error-count + rate-limited warn + waiter shed",
+      "claimed_at": "2026-06-07T13:33:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

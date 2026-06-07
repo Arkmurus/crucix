@@ -230,6 +230,35 @@ _reconnect_in_progress = False
 # answers well inside this; a stuck write (the R-F1341 1311s hset) never does.
 _PROBE_TIMEOUT_S = float(os.getenv("ARIA_STATE_PROBE_TIMEOUT_S", "5.0"))
 
+# R-F1400 — lock-storm guards (2026-06-07 death spiral: ~2887 waiters).
+# Shed new lock entrants once the waiter queue is past this cap — joining a
+# queue this deep can only time out and amplify the storm.
+_WAITER_SHED_THRESHOLD = int(os.getenv("ARIA_STATE_WAITER_SHED", "500"))
+# Contention telemetry is rate-limited to one line per level per window; the
+# rest go to DEBUG. Per-op WARNING/ERROR spam was itself loop pressure AND
+# (pre-fix) each line spawned a locked incr via error_log_handler → feedback
+# loop. Per-LEVEL windows so a genuine isolated final-failure ERROR (which
+# feeds Gate #3 and is a real dropped write) stays visible even right after a
+# retry WARNING, while a storm of either level is throttled.
+_WARN_INTERVAL_S = float(os.getenv("ARIA_STATE_WARN_INTERVAL_S", "10.0"))
+_last_log_at: dict[int, float] = {}
+
+
+def _log_rate_limited(level: int, msg: str, *args) -> None:
+    """One log at `level` per _WARN_INTERVAL_S window (per level); the rest
+    of that level's lines in the window go to DEBUG."""
+    now = time.monotonic()
+    if now - _last_log_at.get(level, 0.0) >= _WARN_INTERVAL_S:
+        _last_log_at[level] = now
+        logger.log(level, msg, *args)
+    else:
+        logger.debug(msg, *args)
+
+
+def _warn_rate_limited(msg: str, *args) -> None:
+    """Back-compat shim: rate-limited WARNING."""
+    _log_rate_limited(logging.WARNING, msg, *args)
+
 
 async def _reconnect() -> None:
     """Single-flight: drop the wedged aiosqlite connection and reopen it.
@@ -359,6 +388,24 @@ async def _run_locked(op_name: str, factory, default=None, critical: bool = Fals
     lock = _get_lock()
     op_timeout, acquire_timeout = _timeout_config()
     last_error: Exception | None = None
+
+    # R-F1400 — waiter shed (2026-06-07 lock-storm: ~2887 waiters, all
+    # timing out at 20s, queue growing faster than it drained). When the
+    # waiter queue is already past the cap, joining it can only deepen the
+    # storm: shed immediately at DEBUG (the storm itself is surfaced by the
+    # rate-limited warning below + _op_timeout_counts, not per-op spam).
+    waiters_now = len(getattr(lock, "_waiters", None) or ())
+    if waiters_now > _WAITER_SHED_THRESHOLD:
+        _op_timeout_counts["acquire"] += 1
+        _warn_rate_limited(
+            "[R-F1400] state_store %s: shedding — %d waiters already queued "
+            "(cap %d); returning default to keep the event loop alive",
+            op_name, waiters_now, _WAITER_SHED_THRESHOLD,
+        )
+        if critical:
+            raise StateWriteError(f"{op_name}: waiter queue over cap ({waiters_now})")
+        return default
+
     # Non-critical ops retry once (fast fail — they return default anyway).
     # Critical ops retry 3 times (more persistence for data-integrity writes).
     max_retries = 3 if critical else 1
@@ -370,7 +417,11 @@ async def _run_locked(op_name: str, factory, default=None, critical: bool = Fals
             last_error = None  # timeout is not an exception
             if attempt < max_retries:
                 _diag = get_lock_diagnostics()
-                logger.warning(
+                # R-F1400: rate-limited — under the 2026-06-07 storm this
+                # line fired thousands of times in seconds; the log volume
+                # was itself event-loop pressure (and pre-R-F1400 each line
+                # spawned a new locked incr via error_log_handler).
+                _warn_rate_limited(
                     "[R-F1376] state_store %s: lock-acquire timed out after "
                     "%.0fs (attempt %d/%d, holder=%s held_for=%ss waiters=%s) "
                     "— retrying with backoff",
@@ -380,9 +431,13 @@ async def _run_locked(op_name: str, factory, default=None, critical: bool = Fals
                 )
                 await asyncio.sleep(2 ** attempt)  # exponential backoff: 1s, 2s, 4s
                 continue
-            # Final failure — log ERROR
+            # Final failure — a real dropped write: keep it at ERROR (feeds
+            # Gate #3, must stay visible) but rate-limited per-level so a
+            # storm can't emit thousands. R-F1376 single-drop ERROR contract
+            # preserved (first ERROR in the window logs at ERROR).
             _diag = get_lock_diagnostics()
-            logger.error(
+            _log_rate_limited(
+                logging.ERROR,
                 "[R-F1341] state_store %s: lock-acquire timed out after %.0fs "
                 "(%d attempts, holder=%s held_for=%ss waiters=%s) — dropping "
                 "write to keep the event loop alive",
