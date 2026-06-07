@@ -466,6 +466,30 @@ tasks:
     mem0_tags: [airtable, retry-buffer, infrastructure]
 
   # ──────────────────────────────────────────────────────────────────
+  # DRAIN-COLLAB-BRIDGE (R-F1410) — drain Claude→ARIA notes from the
+  # server-mediated collaboration bridge. Runs every 2 minutes so Claude's
+  # notes reach the ONE ARIA brain (intel/web/wa) without relay delay.
+  # cursor-guarded: each note is absorbed once. Both branches wired (§21a).
+  # ──────────────────────────────────────────────────────────────────
+  - id: DRAIN-COLLAB-BRIDGE
+    name: Drain Claude→ARIA collaboration bridge
+    description: |
+      Every 2 minutes — drain new Claude→ARIA notes from the server-
+      mediated collaboration bridge (collab_bridge.py). Each note is
+      absorbed into the brain once (cursor-guarded). This is how Claude's
+      guidance reaches the ONE ARIA brain without relay delay.
+    cron: "*/2 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 30
+    cost_cap_usd: 0.0
+    tool_chain:
+      - tool: collab_bridge_drain
+    delivery_channels: [mem0]
+    escalate_if: []
+    mem0_tags: [collab, bridge, infrastructure]
+
+  # ──────────────────────────────────────────────────────────────────
   # REFRESH-SANCTIONS-CANONICAL (R-F526) — pull OFAC SDN + EU
   # Consolidated CSV from upstream + replace the local canonical store.
   # Runs slightly BEFORE DAILY-SANCTIONS-SCREENING so the screening

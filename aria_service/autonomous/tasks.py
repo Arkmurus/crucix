@@ -1303,6 +1303,22 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         finally:
             vault.close()
 
+    # R-F1410: DRAIN-COLLAB-BRIDGE — drain Claude→ARIA notes from the
+    # server-mediated collaboration bridge. Runs every ~1-2 min so Claude's
+    # notes reach the ONE ARIA brain (intel/web/wa) without relay delay.
+    # cursor-guarded: each note is absorbed once. Both branches wired (§21a).
+    elif tool_kind == "collab_bridge_drain":
+        try:
+            from ..intel import collab_bridge
+            result = await collab_bridge.drain_for_aria()
+            drained = result.get("drained", 0)
+            if drained > 0:
+                logger.info("[R-F1410] DRAIN-COLLAB-BRIDGE: drained %d note(s)", drained)
+            return result
+        except Exception as e:
+            logger.warning("[R-F1410] DRAIN-COLLAB-BRIDGE failed: %s", e)
+            return {"drained": 0, "last_seq": 0, "error": str(e)[:200]}
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
