@@ -225,10 +225,29 @@ _op_timeout_counts = {"acquire": 0, "op": 0, "reconnect": 0}
 _reconnect_in_progress = False
 
 
+# R-F1397: how long the SELECT 1 health probe may take before the connection
+# is declared wedged and replaced. A merely-backlogged worker thread usually
+# answers well inside this; a stuck write (the R-F1341 1311s hset) never does.
+_PROBE_TIMEOUT_S = float(os.getenv("ARIA_STATE_PROBE_TIMEOUT_S", "5.0"))
+
+
 async def _reconnect() -> None:
     """Single-flight: drop the wedged aiosqlite connection and reopen it.
     Does NOT touch the lock (callers may hold it). Safe to call concurrently —
-    only the first caller reconnects; the rest no-op."""
+    only the first caller reconnects; the rest no-op.
+
+    R-F1397 (live 2026-06-07 — self-heal #2 fired 80s after a fresh boot and
+    each heal failed every in-flight op with 'Cannot operate on a closed
+    database', which the job pollers read as 'job expired'):
+      (a) PROBE before churning — if SELECT 1 answers, the connection was
+          merely backlogged (slow op), not dead; replacing it would only
+          fail every in-flight op for nothing.
+      (b) NEW-CONN-FIRST swap — open the replacement BEFORE closing the old
+          conn, so there is no `_conn is None` window in which reads return
+          false not_founds and _upsert used to silently drop writes.
+      (c) On reopen failure keep the OLD (dead) conn in place — its errors
+          keep scheduling reconnects (self-healing), whereas a None conn
+          made reads return None silently and never healed."""
     global _conn, _reconnect_in_progress
     if _reconnect_in_progress:
         return
@@ -236,12 +255,19 @@ async def _reconnect() -> None:
     try:
         import aiosqlite
 
-        old, _conn = _conn, None
+        old = _conn
         if old is not None:
             try:
-                await asyncio.wait_for(old.close(), timeout=5.0)
+                cur = await asyncio.wait_for(old.execute("SELECT 1"),
+                                             timeout=_PROBE_TIMEOUT_S)
+                await cur.fetchone()
+                await cur.close()
+                logger.info(
+                    "[R-F1397] state_store probe OK — connection healthy, "
+                    "skipping reset (slow op, not a dead conn)")
+                return
             except Exception:
-                pass  # the whole point is that it was wedged
+                pass  # dead or wedged — proceed with replacement
         if _DB_PATH is None:
             return
         conn = await aiosqlite.connect(str(_DB_PATH))
@@ -250,10 +276,15 @@ async def _reconnect() -> None:
         await conn.execute("PRAGMA foreign_keys=OFF")
         await conn.execute("PRAGMA busy_timeout=5000")
         await conn.commit()
-        _conn = conn
+        _conn = conn  # R-F1397: swap only once the replacement is ready
         _op_timeout_counts["reconnect"] += 1
         logger.warning("[R-F1341] state_store connection reset (self-heal) #%d",
                        _op_timeout_counts["reconnect"])
+        if old is not None:
+            try:
+                await asyncio.wait_for(old.close(), timeout=5.0)
+            except Exception:
+                pass  # the whole point is that it was wedged
     except Exception as e:
         logger.error("[R-F1341] state_store reconnect failed: %s", e)
     finally:
@@ -550,7 +581,21 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
     # serialises through one worker thread. Compound RMW ops (lpush etc.)
     # hold _get_lock() themselves to keep their read+write atomic.
     if _conn is None:
-        return
+        # R-F1397: raising matches the R-F1388 contract (callers already
+        # handle a raised write failure). The old silent `return` made a
+        # job-store set_json "succeed" during a reconnect window — the 202
+        # said processing but the job was never stored, so the poller got
+        # not_found forever ("extraction job expired").
+        # NOT StateWriteError: _run_locked re-raises that type even for
+        # non-critical compound ops (lpush/hset would crash their callers
+        # instead of returning the graceful default). OperationalError is
+        # caught by _run_locked's generic branch AND matches _is_conn_dead
+        # ("connection") so the read-path self-heal fires too.
+        import sqlite3
+        e = sqlite3.OperationalError(
+            f"state_store: no connection (reconnect in progress) writing {key}")
+        _schedule_reconnect_if_dead(e)
+        raise e
     try:
         if keepttl and expires_at is None:
             # Preserve existing expires_at; only update value

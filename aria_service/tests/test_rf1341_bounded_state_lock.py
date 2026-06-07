@@ -120,16 +120,25 @@ async def test_acquire_timeout_when_lock_held(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_op_timeout_triggers_reconnect(monkeypatch, tmp_path):
+    """R-F1341 + R-F1397: an in-lock op timeout fires the self-heal task, but
+    the heal now PROBES first — a healthy (merely slow) connection is KEPT,
+    not churned. Pre-R-F1397 this test asserted a churn here; churning a
+    healthy conn failed every in-flight op with 'Cannot operate on a closed
+    database' (live 2026-06-07). The genuinely-dead-conn churn path is
+    covered by test_rf1397_state_conn_churn.py."""
     await ss.connect(str(tmp_path / "s.db"))
-    calls = {"n": 0}
     async def _hang(*a, **k):
         await asyncio.sleep(30)
     monkeypatch.setattr(ss, "_read_hash", _hang)
 
+    op_before = ss._op_timeout_counts["op"]
+    rc_before = ss._op_timeout_counts["reconnect"]
     await asyncio.wait_for(ss.hset("h", {"x": "1"}), timeout=3)
-    await asyncio.sleep(0.2)  # let the reconnect task run
-    assert ss._op_timeout_counts["reconnect"] >= 1
-    # After self-heal the connection is usable again (read_hash restored).
+    await asyncio.sleep(0.5)  # let the probe/heal task run
+    assert ss._op_timeout_counts["op"] >= op_before + 1   # timeout still counted
+    # conn was healthy → probe OK → NO churn (R-F1397)
+    assert ss._op_timeout_counts["reconnect"] == rc_before
+    # The connection is still usable (it was never the problem).
     monkeypatch.undo()
     await ss.hset("h2", {"ok": "1"})
     assert (await ss.hgetall("h2")).get("ok") == "1"

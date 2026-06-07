@@ -1022,8 +1022,16 @@ def _clean_tesseract_output(text: str) -> str:
 
 
 # ── Local OCR backend #2: Tesseract with PIL preprocessing ─────────────────
-async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
-    """Use Tesseract OCR with image preprocessing for better accuracy.
+def _tesseract_extract_sync(image_data: bytes) -> Optional[dict]:
+    """Synchronous Tesseract body — call ONLY via asyncio.to_thread (see
+    _ocr_via_tesseract below).
+
+    R-F1398 (live 2026-06-07, proven by the R-F704 wedge dump at 11:24:18Z):
+    this body used to run INLINE in the async wrapper, so the 4 PSM passes +
+    PIL preprocessing executed ON the event loop thread. A scanned multi-page
+    PDF (pdf_deep_ingest → extract_text_from_image, one call per embedded
+    image) blocked the loop for 210s+ — /health/live failed 3×8s checks and
+    the WA listener declared the brain down mid-extraction.
 
     Improvements over the previous version:
       - Auto-grayscale conversion
@@ -1109,6 +1117,15 @@ async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
     except Exception as e:
         logger.debug("Tesseract OCR failed: %s", e)
         return None
+
+
+async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
+    """R-F1398 — run the CPU/subprocess-bound Tesseract extraction in a
+    worker thread so OCR can never block the event loop. pytesseract waits
+    on its subprocess synchronously and the PIL resize/autocontrast passes
+    are CPU-bound; inline they wedged the loop 210s+ on a scanned PDF."""
+    import asyncio
+    return await asyncio.to_thread(_tesseract_extract_sync, image_data)
 
 
 # ── Local OCR backend #3: Ollama vision model auto-detection ───────────────

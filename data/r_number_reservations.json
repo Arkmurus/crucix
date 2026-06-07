@@ -8372,27 +8372,30 @@
       "title": "WA failed-read marker - never re-attach stale doc after a failed read",
       "claimed_at": "2026-06-07T12:07:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48186aef",
+      "notes": null,
+      "shipped_at": "2026-06-07T12:37:40Z"
     },
     {
       "r_number": "R-F1392",
       "title": "readdoc/chat job store-error returns 503 not not_found + listener tolerance",
       "claimed_at": "2026-06-07T12:07:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48186aef",
+      "notes": null,
+      "shipped_at": "2026-06-07T12:37:40Z"
     },
     {
       "r_number": "R-F1393",
       "title": "WA listener retries 5xx on read-document POST",
       "claimed_at": "2026-06-07T12:07:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48186aef",
+      "notes": null,
+      "shipped_at": "2026-06-07T12:37:40Z"
     },
     {
       "r_number": "R-F1394",
@@ -8418,9 +8421,10 @@
       "title": "LLM-judge eval scorer - replaces cosine-only grading (WS-0a)",
       "claimed_at": "2026-06-07T12:31:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2809b2b1",
+      "notes": null,
+      "shipped_at": "2026-06-07T12:37:29Z"
     },
     {
       "r_number": "R-F1397",
