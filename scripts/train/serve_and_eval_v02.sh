@@ -39,9 +39,25 @@
 # =============================================================================
 set -euo pipefail
 
+# R-F1431: resolve repo paths + auto-load the creds we need from the repo .env
+# FIRST (before the required-var checks) so the operator does not have to export
+# anything by hand — RUNPOD_API_KEY + DEEPSEEK_API_KEY already live in .env.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [ -f "$REPO_ROOT/.env" ]; then
+  for _k in RUNPOD_API_KEY RUNPOD_POD_ID DEEPSEEK_API_KEY RUNPOD_API_BASE; do
+    if [ -z "${!_k:-}" ]; then
+      _v=$(grep -E "^${_k}=" "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'' | tr -d '\r')
+      [ -n "$_v" ] && export "$_k=$_v"
+    fi
+  done
+fi
+
 # ── Config ──────────────────────────────────────────────────────────────────
-POD_ID="${RUNPOD_POD_ID:?RUNPOD_POD_ID not set}"
-API_KEY="${RUNPOD_API_KEY:?RUNPOD_API_KEY not set}"
+# POD_ID defaults to the known v0.2 serving pod (7ei3hldcpz4j2v, per model_config.sh);
+# override with RUNPOD_POD_ID if it was recreated.
+POD_ID="${RUNPOD_POD_ID:-7ei3hldcpz4j2v}"
+API_KEY="${RUNPOD_API_KEY:?RUNPOD_API_KEY not set (expected in .env or env)}"
 API_BASE="${RUNPOD_API_BASE:-https://api.runpod.io/v2}"
 
 # R-F1430: ALWAYS stop the pod on EXIT (crash, error, OR success) so a failure
@@ -57,7 +73,7 @@ trap _stop_pod EXIT
 
 # R-F1430: model identity from the SINGLE SOURCE OF TRUTH (model_config.sh) —
 # scripts no longer disagree on base model / adapter / context window.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# (SCRIPT_DIR + REPO_ROOT already resolved at the top for the .env cred-load.)
 # shellcheck source=scripts/train/model_config.sh
 source "$SCRIPT_DIR/model_config.sh"
 MODEL_NAME="$ARIA_MODEL_NAME"
@@ -65,6 +81,27 @@ MODEL_PATH="$ARIA_ADAPTER_PATH"
 BASE_MODEL="$ARIA_BASE_MODEL"
 MAX_MODEL_LEN="$ARIA_MAX_MODEL_LEN"
 VLLM_PORT=8000
+
+# R-F1431: step 5's eval runs LOCALLY (httpx → pod proxy URL), NOT on the pod.
+# So it needs (a) a local Python that HAS httpx — the repo venv, not the Windows
+# Store `python3` shim which has no deps and just opens the Store; and (b) a
+# LOCAL eval-set file — the SSOT ARIA_EVAL_SET default is a /workspace POD path
+# (right for on-pod training, wrong for the local harness). Resolve both here so
+# the run does not crash AFTER the paid 14B load (the exact cycle-waster R-F1430
+# fixed for the on-pod side). Override either via PYTHON_BIN / ARIA_LOCAL_EVAL_SET.
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [ -z "$PYTHON_BIN" ]; then
+  if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/Scripts/python.exe"   # Windows venv
+  elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/bin/python"           # POSIX venv
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
+LOCAL_EVAL_SET="${ARIA_LOCAL_EVAL_SET:-$REPO_ROOT/data/eval_reports/aria_eval_500q.jsonl}"
+echo "      Python:    $PYTHON_BIN"
+echo "      Eval set:  $LOCAL_EVAL_SET (local)"
 
 EVAL_OUTPUT="data/training/aria_llm_v02_eval.json"
 TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
@@ -88,7 +125,7 @@ curl -s -X POST "$API_BASE/pods/$POD_ID/resume" \
 echo "      Waiting for pod to start..."
 for i in $(seq 1 30); do
   STATUS=$(curl -s "$API_BASE/pods/$POD_ID" \
-    -H "Authorization: Bearer $API_KEY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pod',{}).get('desiredStatus',''))" 2>/dev/null || echo "unknown")
+    -H "Authorization: Bearer $API_KEY" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('pod',{}).get('desiredStatus',''))" 2>/dev/null || echo "unknown")
   if [ "$STATUS" = "RUNNING" ]; then
     echo "      Pod is RUNNING (attempt $i)"
     break
@@ -99,8 +136,8 @@ done
 
 # Get pod host/port for SSH
 POD_DATA=$(curl -s "$API_BASE/pods/$POD_ID" -H "Authorization: Bearer $API_KEY")
-POD_HOST=$(echo "$POD_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('host',''))" 2>/dev/null || echo "")
-POD_PORT=$(echo "$POD_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('port',''))" 2>/dev/null || echo "22")
+POD_HOST=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('host',''))" 2>/dev/null || echo "")
+POD_PORT=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('port',''))" 2>/dev/null || echo "22")
 echo "      Host: $POD_HOST:$POD_PORT"
 
 # ── Step 2: Wait for SSH readiness ─────────────────────────────────────────
@@ -113,6 +150,22 @@ for i in $(seq 1 20); do
   echo "      Waiting 10s..."
   sleep 10
 done
+
+# ── Step 3a: VERIFY adapter base matches BASE_MODEL (the #1 cycle-waster) ────
+# R-F1431: automate the manual "verify adapter_config.json" step. A LoRA adapter
+# trained on one base CANNOT load on another — a silent mismatch wastes the whole
+# paid 14B load. Read the adapter's recorded base ON THE POD and abort LOUD if it
+# disagrees with the configured BASE_MODEL (the EXIT trap stops the pod).
+echo "[3a] Verifying adapter base matches $BASE_MODEL..."
+ADAPTER_BASE=$(ssh -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" \
+  "python3 -c \"import json;print(json.load(open('$MODEL_PATH/adapter_config.json')).get('base_model_name_or_path',''))\"" 2>/dev/null || echo "")
+echo "      adapter base: '${ADAPTER_BASE:-<unreadable>}' (expected: $BASE_MODEL)"
+if [ -n "$ADAPTER_BASE" ] && [ "$ADAPTER_BASE" != "$BASE_MODEL" ]; then
+  echo "ERROR: adapter base ('$ADAPTER_BASE') != configured BASE_MODEL ('$BASE_MODEL')." >&2
+  echo "       Re-run with:  export ARIA_BASE_MODEL='$ADAPTER_BASE'  (and fix --model in the ssh vLLM block if needed)." >&2
+  echo "       Aborting before the paid model load (trap stops the pod)." >&2
+  exit 1
+fi
 
 # ── Step 3: Launch vLLM ────────────────────────────────────────────────────
 echo "[3/6] Launching vLLM with $MODEL_NAME..."
@@ -155,7 +208,7 @@ for i in $(seq 1 48); do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROXY_URL/v1/models" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     echo "      vLLM ready at $PROXY_URL (attempt $i)"
-    MODELS=$(curl -s "$PROXY_URL/v1/models" | python3 -m json.tool 2>/dev/null || echo "")
+    MODELS=$(curl -s "$PROXY_URL/v1/models" | "$PYTHON_BIN" -m json.tool 2>/dev/null || echo "")
     echo "      Models: $MODELS"
     VLLM_READY=1
     break
@@ -177,23 +230,29 @@ fi
 # it for BOTH the v0.2 endpoint AND the DeepSeek baseline with the SAME eval
 # set so the comparison is apples-to-apples (the promotion bar depends on it).
 echo "[5/6] Running eval (same instrument: v0.2 + DeepSeek baseline)..."
-mkdir -p data/eval_reports
+mkdir -p "$REPO_ROOT/data/eval_reports"
+
+# R-F1431: ensure the LOCAL eval-set exists (auto-export the frozen 500-Q if not).
+if [ ! -f "$LOCAL_EVAL_SET" ]; then
+  echo "      Exporting frozen 500-Q eval set → $LOCAL_EVAL_SET"
+  "$PYTHON_BIN" "$SCRIPT_DIR/export_eval_500q.py" --out "$LOCAL_EVAL_SET"
+fi
 
 echo "      → v0.2 ($MODEL_NAME) at $PROXY_URL/v1"
-python3 "$SCRIPT_DIR/eval_aria_llm.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/eval_aria_llm.py" \
   --target "$PROXY_URL/v1" \
   --model "$MODEL_NAME" \
-  --eval-set "$ARIA_EVAL_SET" \
-  --out "data/eval_reports/aria_llm_v02_eval.json" 2>&1 | tee "$LOG_DIR/eval_v02.log"
+  --eval-set "$LOCAL_EVAL_SET" \
+  --out "$REPO_ROOT/data/eval_reports/aria_llm_v02_eval.json" 2>&1 | tee "$LOG_DIR/eval_v02.log"
 
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
   echo "      → DeepSeek baseline (deepseek-chat) at https://api.deepseek.com/v1"
-  python3 "$SCRIPT_DIR/eval_aria_llm.py" \
+  "$PYTHON_BIN" "$SCRIPT_DIR/eval_aria_llm.py" \
     --target "https://api.deepseek.com/v1" \
     --model "deepseek-chat" \
     --api-key "$DEEPSEEK_API_KEY" \
-    --eval-set "$ARIA_EVAL_SET" \
-    --out "data/eval_reports/deepseek_baseline_eval.json" 2>&1 | tee "$LOG_DIR/eval_deepseek.log"
+    --eval-set "$LOCAL_EVAL_SET" \
+    --out "$REPO_ROOT/data/eval_reports/deepseek_baseline_eval.json" 2>&1 | tee "$LOG_DIR/eval_deepseek.log"
 else
   echo "      ⚠ DEEPSEEK_API_KEY not set — skipping DeepSeek baseline. Set it for the apples-to-apples comparison the promotion bar needs."
 fi

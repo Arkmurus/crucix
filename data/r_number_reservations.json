@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1431,
+  "next_available": 1432,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8743,6 +8743,16 @@
       "r_number": "R-F1430",
       "title": "Tier-0 training-prep: serve_and_eval pod-runnable + stop-trap + base-model SSOT",
       "claimed_at": "2026-06-07T22:57:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c70de997",
+      "notes": null,
+      "shipped_at": "2026-06-07T23:02:22Z"
+    },
+    {
+      "r_number": "R-F1431",
+      "title": "serve_and_eval runnable on Windows: venv python + local eval-set + auto adapter-base verify",
+      "claimed_at": "2026-06-07T23:24:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
