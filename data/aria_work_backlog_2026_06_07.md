@@ -10,6 +10,8 @@ Live build at time of writing: `9386aa6f`. Probe against live.
 
 **The principle:** ARIA must feel her own limbs. Today she failed to deliver on WhatsApp and the SERVER BRAIN DID NOT KNOW the user got nothing — so she couldn't self-heal. "Sees/hears/knows everything" is empty words until the OUTPUT path reports back. Fix the infra AND the awareness loop so she self-codes/self-heals on her own output failures.
 
+**SCOPE (CLAUDE.md §25a — operator 2026-06-07): this is ECOSYSTEM-WIDE, not WhatsApp-only.** Every limb reports its outcome — all surfaces (WA/web/TG/email/Coder-CLI/API), all engines (DD orchestrator, investigate, sanctions, briefings, exports), all autonomous loops (engine tasks, gap→coder, self_improve, research, runpod). WA below is the **first implementation + the TEMPLATE**; the same delivery-outcome→brain→gap→self-heal pattern generalizes to every limb once WA proves it. Build the outcome-wire as a REUSABLE primitive, not a WA one-off.
+
 ### T0★-1 — WA delivery-outcome wire (proprioception; the keystone)
 Right now the WA listener sends the user a real answer OR a "⚠️ timeout"/error — but the brain never learns WHICH. Close the loop:
 - WA listener assigns a `request_id` per inbound request and reports to the brain on COMPLETION: `delivered_real_answer | timeout_fallback | error | send_failed` + latency (new brain endpoint, e.g. `POST /api/aria/wa/delivery-outcome`, auth). Mirror for web/TG later.
