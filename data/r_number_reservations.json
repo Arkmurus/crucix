@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1388,
+  "next_available": 1391,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8314,9 +8314,10 @@
       "title": "aria CLI polish pt2 - complete box (base via toolbar), clean bottom margin, capped tool-output verbosity",
       "claimed_at": "2026-06-06T21:06:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e255d1a7",
+      "notes": null,
+      "shipped_at": "2026-06-06T21:20:04Z"
     },
     {
       "r_number": "R-F1386",
@@ -8331,6 +8332,35 @@
       "r_number": "R-F1387",
       "title": "Fix wrong-answer P0: reorder user prompt so context precedes current message",
       "claimed_at": "2026-06-06T21:10:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1388",
+      "title": "Fix state_store _upsert silent failure causing chat job expired",
+      "claimed_at": "2026-06-06T21:42:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0ea081ce",
+      "notes": null,
+      "shipped_at": "2026-06-06T21:50:49Z"
+    },
+    {
+      "r_number": "R-F1389",
+      "title": "Clean CLI terminal UI - aligned clear professional text layout",
+      "claimed_at": "2026-06-06T22:34:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c2ee1103",
+      "notes": null,
+      "shipped_at": "2026-06-06T22:39:00Z"
+    },
+    {
+      "r_number": "R-F1390",
+      "title": "aria CLI flicker fix - coalesce streaming + drop periodic repaint (patch_stdout per-token repaint = blink)",
+      "claimed_at": "2026-06-07T09:05:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

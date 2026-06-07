@@ -921,6 +921,7 @@ class TerminalUI(AgentUI):
         self._rich_console = RichConsole() if RICH_AVAILABLE and color.on else None
         # R-F1267: streaming buffer for live markdown rendering
         self._stream_buffer = ""
+        self._stream_line_buf = ""  # R-F1390: anchored-mode line coalescing
         self._stream_code_block = False
 
     def _tc(self, key: str, s: str) -> str:
@@ -1036,7 +1037,16 @@ class TerminalUI(AgentUI):
 
     # ── live token streaming (never silent) ──────────────────────────────────
     def stream_delta(self, text: str) -> None:
-        """Stream a chunk of LLM output. First chunk prints the prefix (R-F1260)."""
+        """Stream a chunk of LLM output. First chunk prints the prefix (R-F1260).
+
+        R-F1390 — ANCHORED FLICKER FIX. Behind the live input box, output goes
+        through prompt_toolkit's patch_stdout, which REPAINTS the whole box
+        region on every flush. Token-by-token write+flush = hundreds of repaints
+        = the "old-TV blink" the operator saw. In anchored mode we COALESCE to
+        line granularity: buffer chunks, flush only on newline (remainder at
+        stream_end). Repaints drop from per-token to per-line → text flows.
+        The non-anchored path (one-shot / no prompt_toolkit) keeps the live
+        per-token write — there's no patch_stdout app there to repaint."""
         _hb_touch()  # R-F1310: streaming = alive (throttled)
         if not self._stream_active:
             if self._spin_thread is not None:
@@ -1048,23 +1058,39 @@ class TerminalUI(AgentUI):
             self._streamed_this_turn = True
             self._needs_leading_newline = False
             self._stream_buffer = ""
+            self._stream_line_buf = ""
             self._stream_code_block = False
-        sys.stdout.write(text)
-        sys.stdout.flush()
         # Track code block state for live rendering
         self._stream_buffer += text
         if "```" in self._stream_buffer:
             count = self._stream_buffer.count("```")
             self._stream_code_block = count % 2 == 1
 
+        if self.anchored:
+            # Coalesce: only emit complete lines; hold the partial tail.
+            self._stream_line_buf += text
+            nl = self._stream_line_buf.rfind("\n")
+            if nl != -1:
+                sys.stdout.write(self._stream_line_buf[: nl + 1])
+                sys.stdout.flush()
+                self._stream_line_buf = self._stream_line_buf[nl + 1:]
+            return
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
     def stream_end(self) -> None:
         """Finalise a streaming response (R-F1260)."""
         if self._stream_active:
+            # R-F1390 — flush any buffered partial line from anchored coalescing.
+            tail = getattr(self, "_stream_line_buf", "")
+            if tail:
+                sys.stdout.write(tail)
             sys.stdout.write("\n")
             sys.stdout.flush()
             self._stream_active = False
             self._needs_leading_newline = True
             self._stream_buffer = ""
+            self._stream_line_buf = ""
 
     # ── step tracking ──────────────────────────────────────────────────────
     def set_step_context(self, current: int, total: int) -> None:
@@ -1788,10 +1814,14 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
         margin from ARIA's output above."""
         w = _box_width()
         top = "─" * w
+        # R-F1390 — NO refresh_interval. A periodic repaint forced a full box
+        # redraw every second (a second flicker source on top of streaming).
+        # The toolbar still updates whenever the worker prints a line — the only
+        # liveness signal that matters; a smoothly-advancing clock is not worth
+        # a 1Hz screen blink on the operator's terminal.
         line_ = pt_session.prompt(
             [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "❯ ")],
             vi_mode=False,
-            refresh_interval=1.0,   # keeps the working-timer toolbar live
         )
         print(color.dim("─" * w))
         return line_
