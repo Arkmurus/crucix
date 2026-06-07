@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1424,
+  "next_available": 1429,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8599,18 +8599,20 @@
       "title": "T0-3: Embargo table correctness - Iraq government exception",
       "claimed_at": "2026-06-07T20:56:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1cbb064e",
+      "notes": null,
+      "shipped_at": "2026-06-07T22:23:35Z"
     },
     {
       "r_number": "R-F1416",
       "title": "T0-4: Multi-company doc investigation per-entity routing",
       "claimed_at": "2026-06-07T20:56:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1cbb064e",
+      "notes": null,
+      "shipped_at": "2026-06-07T22:23:39Z"
     },
     {
       "r_number": "R-F1417",
@@ -8681,6 +8683,51 @@
       "commit_sha": "095ea576",
       "notes": null,
       "shipped_at": "2026-06-07T22:06:43Z"
+    },
+    {
+      "r_number": "R-F1424",
+      "title": "Iran sanctions citation fix: 2018/1100 â†’ 267/2012",
+      "claimed_at": "2026-06-07T22:36:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1425",
+      "title": "Per-country sanctions citation audit + verification test",
+      "claimed_at": "2026-06-07T22:36:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1426",
+      "title": "R-F1424: Self-checking REPL prompt with prompt_async + timeout",
+      "claimed_at": "2026-06-07T22:36:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1427",
+      "title": "Iran citation fix: 2018/1100 -> 267/2012 + misattribution test",
+      "claimed_at": "2026-06-07T22:47:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1428",
+      "title": "fix LIVE Iran EU citation - 2018-1100 blocking-statute to 267-2012 sanctions reg",
+      "claimed_at": "2026-06-07T22:47:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

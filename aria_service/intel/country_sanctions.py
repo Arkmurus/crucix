@@ -183,7 +183,7 @@ _COUNTRY_REGIMES: list[SanctionsRegime] = [
         regime_type="targeted",
         in_force=True,
         instruments=(
-            "EU Regulation 2018/1100",
+            "Council Regulation (EU) No 267/2012",
             "EU Council Decision 2010/413/CFSP",
         ),
         exceptions=(

@@ -188,6 +188,45 @@ class TestCountryLookup:
             f"Cross-contaminated instruments found: {duplicates}"
         )
 
+    # ── R-F1425: per-country instrument verification ──────────────────────────
+    # Each instrument must be an actual sanction ON that country, not adjacent
+    # law. The EU Blocking Statute (2018/1100) protects EU firms FROM US
+    # sanctions — listing it as an Iran sanction is misleading. This test
+    # maintains a known-misattribution allowlist and fails if any instrument
+    # on it appears in the regime table.
+    _KNOWN_MISATTRIBUTED_INSTRUMENTS: dict[str, str] = {
+        # Each entry: instrument → reason it is NOT a sanction on the country
+        "EU Regulation 2018/1100": (
+            "EU Blocking Statute — protects EU firms FROM US extraterritorial "
+            "sanctions (Iran, Cuba, CAATSA). It is NOT a sanction ON Iran."
+        ),
+    }
+
+    def test_no_known_misattributed_instruments(self):
+        """No known-misattributed instrument appears in the regime table.
+
+        R-F1425: duplicate-checking catches cross-contamination but NOT
+        wrong-instrument-for-country (2018/1100 was unique to Iran and passed
+        the cross-contamination check). This test maintains a curated list of
+        instruments that are known to be misattributed as sanctions and fails
+        if any appear in the regime table.
+        """
+        from aria_service.intel.country_sanctions import _COUNTRY_REGIMES
+
+        found: list[tuple[str, str, str]] = []  # (country, source, instrument)
+        for r in _COUNTRY_REGIMES:
+            for instr in r.instruments:
+                if instr in self._KNOWN_MISATTRIBUTED_INSTRUMENTS:
+                    found.append((r.country, r.source, instr))
+
+        assert len(found) == 0, (
+            f"Known-misattributed instruments found in regime table:\n"
+            + "\n".join(
+                f"  {c}/{s}: {i} — {self._KNOWN_MISATTRIBUTED_INSTRUMENTS[i]}"
+                for c, s, i in found
+            )
+        )
+
 
 class TestFormatAnswer:
     """Tests for the formatted answer structure."""
