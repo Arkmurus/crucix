@@ -1567,6 +1567,12 @@ class GapDetector:
 
         while True:
             try:
+                # R-F1395: check engine pause flag before each cycle
+                from aria_service.autonomous.safety import is_engine_paused
+                if await is_engine_paused():
+                    logger.debug("[gap_detector] engine paused — skipping cycle")
+                    await asyncio.sleep(self.SCAN_INTERVAL_S)
+                    continue
                 gaps = await self.scan()
                 await self.publish_latest(gaps)
 

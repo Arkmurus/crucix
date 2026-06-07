@@ -961,6 +961,12 @@ async def lifespan(app: FastAPI):
             # thundering herd on Anthropic tier-1 rate limits.
             await asyncio.sleep(900)
             while True:
+                # R-F1395: check engine pause flag before each cycle
+                from ..autonomous.safety import is_engine_paused as _is_paused
+                if await _is_paused():
+                    logger.debug("[Research] engine paused — skipping cycle")
+                    await asyncio.sleep(1800)
+                    continue
                 # Tag as BACKGROUND priority so the rate limiter yields
                 # to interactive chat when Anthropic quota is tight.
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
@@ -1180,6 +1186,12 @@ async def lifespan(app: FastAPI):
         async def _self_improve_loop():
             await asyncio.sleep(600)  # Wait 10 min after startup (staggered from research at 15min)
             while True:
+                # R-F1395: check engine pause flag before each cycle
+                from ..autonomous.safety import is_engine_paused as _is_paused
+                if await _is_paused():
+                    logger.debug("[Self-Improve] engine paused — skipping cycle")
+                    await asyncio.sleep(7200)
+                    continue
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
                 _p = set_priority(Priority.BACKGROUND)
                 _t = cost_tracker.set_feature("self_improve")
@@ -1252,6 +1264,12 @@ async def lifespan(app: FastAPI):
         # at 15min and self-improve at 10min to prevent rate limit storms).
         await asyncio.sleep(1200)
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Quiz] engine paused — skipping cycle")
+                await asyncio.sleep(10800)
+                continue
             from .llm.rate_limiter import set_priority, reset_priority, Priority
             _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_quiz")
@@ -1299,6 +1317,12 @@ async def lifespan(app: FastAPI):
         # sequence: self-improve 10m → research 15m → quiz 20m → reading 25m).
         await asyncio.sleep(1500)
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Reading] engine paused — skipping cycle")
+                await asyncio.sleep(21600)
+                continue
             from .llm.rate_limiter import set_priority, reset_priority, Priority
             _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_reading")
@@ -1327,6 +1351,12 @@ async def lifespan(app: FastAPI):
         # Daily housekeeping — prune stale low-quality cases
         await asyncio.sleep(3600)
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Library] engine paused — skipping cycle")
+                await asyncio.sleep(86400)
+                continue
             try:
                 await _tick_heartbeat("library_consolidation", "Archive stale reasoning cases")
                 result = await reasoning_library.consolidate()
@@ -1381,6 +1411,11 @@ async def lifespan(app: FastAPI):
         from .intel import memory_wal as _wal
         from .intel import knowledge as _kn
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                await asyncio.sleep(300)
+                continue
             try:
                 pending = await asyncio.to_thread(_wal.pending_count)  # R-F1346: off-loop
                 if pending:
@@ -1404,6 +1439,12 @@ async def lifespan(app: FastAPI):
     async def _proactive_loop():
         await asyncio.sleep(120)  # 2 min after startup
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Proactive] engine paused — skipping cycle")
+                await asyncio.sleep(3600)
+                continue
             try:
                 await _tick_heartbeat("proactive_watch", "Daily briefing trigger + mastery prep")
                 # Daily briefing check
@@ -1435,6 +1476,12 @@ async def lifespan(app: FastAPI):
     async def _weekly_report_loop():
         await asyncio.sleep(300)  # 5 min after startup
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Weekly] engine paused — skipping cycle")
+                await asyncio.sleep(3600)
+                continue
             try:
                 await _tick_heartbeat("weekly_report", "Weekly learning report generation")
                 from datetime import datetime, timezone
@@ -1479,6 +1526,12 @@ async def lifespan(app: FastAPI):
     async def _watchlist_rescreen_loop():
         await asyncio.sleep(600)  # 10 min after startup
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Watchlist] engine paused — skipping cycle")
+                await asyncio.sleep(86400)
+                continue
             try:
                 await _tick_heartbeat("watchlist_rescreen", "Re-screen DD watchlist entities against sanctions/PEP")
                 from .intel import dd_orchestrator
@@ -1539,6 +1592,12 @@ async def lifespan(app: FastAPI):
     async def _tender_monitor_loop():
         await asyncio.sleep(900)  # 15 min after startup
         while True:
+            # R-F1395: check engine pause flag before each cycle
+            from ..autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[Tender] engine paused — skipping cycle")
+                await asyncio.sleep(21600)
+                continue
             try:
                 await _tick_heartbeat("tender_monitor", "Crawl defence procurement portals")
                 from .intel import tender_monitor

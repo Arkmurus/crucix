@@ -233,6 +233,12 @@ class ARIACoder:
         logger.info("[aria_coder] starting autonomous loop")
         while True:
             try:
+                # R-F1395: check engine pause flag before each cycle
+                from aria_service.autonomous.safety import is_engine_paused
+                if await is_engine_paused():
+                    logger.debug("[aria_coder] engine paused — skipping cycle")
+                    await asyncio.sleep(SCAN_INTERVAL_S)
+                    continue
                 await self._one_cycle()
                 # R-F1282: wire success to brain so the operator can see
                 # the coder is alive and producing results.
