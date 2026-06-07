@@ -58,7 +58,14 @@ fi
 # override with RUNPOD_POD_ID if it was recreated.
 POD_ID="${RUNPOD_POD_ID:-7ei3hldcpz4j2v}"
 API_KEY="${RUNPOD_API_KEY:?RUNPOD_API_KEY not set (expected in .env or env)}"
-API_BASE="${RUNPOD_API_BASE:-https://api.runpod.io/v2}"
+# R-F1432: RunPod POD management is the REST v1 API (rest.runpod.io/v1) — NOT the
+# /v2 serverless API the old default used (every /v2 pod call 404s). Verified live
+# against this pod + matches aria_service/intel/runpod_scheduler.py:49.
+API_BASE="${RUNPOD_API_BASE:-https://rest.runpod.io/v1}"
+# R-F1432: this pod (aria-llm-serve, runpod/pytorch image) exposes ONLY 8888/http
+# and 22/tcp — port 8000 is NOT exposed, so a -8000 proxy URL never resolves.
+# Serve vLLM on the exposed http port 8888 and use its proxy URL.
+VLLM_PROXY_PORT="${VLLM_PROXY_PORT:-8888}"
 
 # R-F1430: ALWAYS stop the pod on EXIT (crash, error, OR success) so a failure
 # can never leave the A100 billing open-ended. Pre-R-F1430 the script used
@@ -80,7 +87,6 @@ MODEL_NAME="$ARIA_MODEL_NAME"
 MODEL_PATH="$ARIA_ADAPTER_PATH"
 BASE_MODEL="$ARIA_BASE_MODEL"
 MAX_MODEL_LEN="$ARIA_MAX_MODEL_LEN"
-VLLM_PORT=8000
 
 # R-F1431: step 5's eval runs LOCALLY (httpx → pod proxy URL), NOT on the pod.
 # So it needs (a) a local Python that HAS httpx — the repo venv, not the Windows
@@ -116,29 +122,46 @@ echo "Log dir:   $LOG_DIR"
 echo "Output:    $EVAL_OUTPUT"
 echo ""
 
-# ── Step 1: Resume pod ─────────────────────────────────────────────────────
-echo "[1/6] Resuming pod $POD_ID..."
-curl -s -X POST "$API_BASE/pods/$POD_ID/resume" \
-  -H "Authorization: Bearer $API_KEY" > "$LOG_DIR/resume.json" 2>&1
+# ── Step 1: Start pod ──────────────────────────────────────────────────────
+# R-F1432: REST v1 uses /pods/{id}/start (NOT /resume) and returns the pod object
+# at the TOP LEVEL (desiredStatus), NOT wrapped in {"pod": {...}}. Verified live.
+echo "[1/6] Starting pod $POD_ID..."
+curl -s -X POST "$API_BASE/pods/$POD_ID/start" \
+  -H "Authorization: Bearer $API_KEY" > "$LOG_DIR/start.json" 2>&1
 
-# Wait for pod to reach RUNNING state
+# Wait for pod to reach RUNNING state (and for runtime/IP to populate)
 echo "      Waiting for pod to start..."
+POD_DATA=""
 for i in $(seq 1 30); do
-  STATUS=$(curl -s "$API_BASE/pods/$POD_ID" \
-    -H "Authorization: Bearer $API_KEY" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('pod',{}).get('desiredStatus',''))" 2>/dev/null || echo "unknown")
-  if [ "$STATUS" = "RUNNING" ]; then
-    echo "      Pod is RUNNING (attempt $i)"
+  POD_DATA=$(curl -s "$API_BASE/pods/$POD_ID" -H "Authorization: Bearer $API_KEY")
+  STATUS=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('desiredStatus','') or '')" 2>/dev/null || echo "unknown")
+  IP_READY=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; print('1' if json.load(sys.stdin).get('publicIp') else '')" 2>/dev/null || echo "")
+  if [ "$STATUS" = "RUNNING" ] && [ -n "$IP_READY" ]; then
+    echo "      Pod is RUNNING with IP (attempt $i)"
     break
   fi
-  echo "      Status: $STATUS — waiting 10s..."
+  echo "      Status: ${STATUS:-?} ip_ready=${IP_READY:-0} — waiting 10s (attempt $i/30)..."
   sleep 10
 done
 
-# Get pod host/port for SSH
-POD_DATA=$(curl -s "$API_BASE/pods/$POD_ID" -H "Authorization: Bearer $API_KEY")
-POD_HOST=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('host',''))" 2>/dev/null || echo "")
-POD_PORT=$(echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin).get('pod',{}); print(d.get('runtime',{}).get('port',''))" 2>/dev/null || echo "22")
-echo "      Host: $POD_HOST:$POD_PORT"
+# R-F1432: SSH endpoint from REST v1 shape — publicIp + portMappings["22"]
+# (the old runtime.host/.port path does not exist in REST v1). Fail LOUD with the
+# raw pod JSON if unresolved so the shape is instantly fixable (trap stops the pod).
+read -r POD_HOST POD_PORT < <(echo "$POD_DATA" | "$PYTHON_BIN" -c "
+import sys,json
+d=json.load(sys.stdin)
+ip=d.get('publicIp') or ''
+pm=d.get('portMappings') or {}
+port=str(pm.get('22') or pm.get(22) or '') if isinstance(pm,dict) else ''
+print(ip, port)
+" 2>/dev/null || echo " ")
+echo "      SSH endpoint: ${POD_HOST:-<none>}:${POD_PORT:-<none>}"
+if [ -z "$POD_HOST" ] || [ -z "$POD_PORT" ]; then
+  echo "ERROR: could not resolve SSH host/port from the running pod. Raw pod JSON:" >&2
+  echo "$POD_DATA" | "$PYTHON_BIN" -c "import sys,json;d=json.load(sys.stdin);print(json.dumps({k:d.get(k) for k in ('desiredStatus','publicIp','portMappings','ports')}, indent=2))" >&2 2>/dev/null || echo "$POD_DATA" | head -c 800 >&2
+  echo "Aborting (trap stops the pod). Fix the host/port parse to match the shape above." >&2
+  exit 1
+fi
 
 # ── Step 2: Wait for SSH readiness ─────────────────────────────────────────
 echo "[2/6] Waiting for SSH readiness..."
@@ -168,31 +191,39 @@ if [ -n "$ADAPTER_BASE" ] && [ "$ADAPTER_BASE" != "$BASE_MODEL" ]; then
 fi
 
 # ── Step 3: Launch vLLM ────────────────────────────────────────────────────
-echo "[3/6] Launching vLLM with $MODEL_NAME..."
-ssh -p "$POD_PORT" "root@$POD_HOST" bash -s << 'REMOTE'
+# R-F1432: pass the SSOT-verified model identity as positional args (the heredoc
+# is single-quoted → no local expansion) so the launch uses the SAME base/adapter
+# the adapter-base check (step 3a) just verified — not a hardcoded copy that can
+# drift. Serve on the EXPOSED http port (8888); free Jupyter which owns it on the
+# runpod/pytorch image.
+echo "[3/6] Launching vLLM with $MODEL_NAME on port $VLLM_PROXY_PORT..."
+ssh -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" bash -s -- \
+  "$BASE_MODEL" "$MODEL_PATH" "$MODEL_NAME" "$MAX_MODEL_LEN" "$VLLM_PROXY_PORT" << 'REMOTE'
   set -euo pipefail
+  BASE_MODEL="$1"; ADAPTER_PATH="$2"; SERVED_NAME="$3"; MAXLEN="$4"; PORT="$5"
   mkdir -p /workspace/logs
 
   # Install vLLM if not present
   pip install -q vllm 2>&1 | tail -1
 
-  # Kill any existing vLLM process
+  # Free the exposed http port (RunPod pytorch image runs Jupyter on 8888) and
+  # any prior vLLM, then start vLLM with the DPO adapter on that port.
+  pkill -f jupyter 2>/dev/null || true
   pkill -f vllm.entrypoints.openai 2>/dev/null || true
   sleep 2
 
-  # Start vLLM with DPO adapter
   nohup python -m vllm.entrypoints.openai.api_server \
-    --model Qwen/Qwen2.5-14B-Instruct \
+    --model "$BASE_MODEL" \
     --enable-lora \
-    --lora-modules aria-llm-v0.2=/workspace/checkpoints/aria_llm_v0_2_dpo \
+    --lora-modules "${SERVED_NAME}=${ADAPTER_PATH}" \
     --max-loras 1 \
     --max-lora-rank 64 \
-    --max-model-len 32768 \
+    --max-model-len "$MAXLEN" \
     --gpu-memory-utilization 0.9 \
-    --host 0.0.0.0 --port 8000 \
+    --host 0.0.0.0 --port "$PORT" \
     > /workspace/logs/vllm_serve_v02.log 2>&1 &
 
-  echo "vLLM starting — PID: $!"
+  echo "vLLM starting on port $PORT — PID: $!"
 REMOTE
 
 # Wait for vLLM to load model (~45s for 14B)
@@ -202,7 +233,8 @@ REMOTE
 # endpoint, producing an all-error eval on a paid cycle. Up to ~12 min; if it
 # never comes ready, abort LOUD (the EXIT trap stops the pod).
 echo "[4/6] Probing vLLM endpoint (14B load can take 5-10 min)..."
-PROXY_URL="https://${POD_ID}-8000.proxy.runpod.net"
+# R-F1432: proxy the EXPOSED http port (8888), not 8000 (not exposed on this pod).
+PROXY_URL="https://${POD_ID}-${VLLM_PROXY_PORT}.proxy.runpod.net"
 VLLM_READY=0
 for i in $(seq 1 48); do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROXY_URL/v1/models" 2>/dev/null || echo "000")
