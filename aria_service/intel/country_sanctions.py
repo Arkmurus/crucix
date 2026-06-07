@@ -165,14 +165,16 @@ _COUNTRY_REGIMES: list[SanctionsRegime] = [
         exceptions=(
             "Conventional arms embargo LIFTED October 2020 per JCPOA "
             "schedule. Ballistic missile restrictions remain. "
-            "Nuclear-related procurement requires UN approval."
+            "Nuclear-related procurement requires UN approval. "
+            "Note: US asserts snapback of UN sanctions (disputed)."
         ),
         last_reviewed="2026-06-07",
         detail=(
             "UN sanctions on Iran were significantly rolled back under "
             "the JCPOA (UNSCR 2231). The conventional arms embargo "
             "expired October 2020. Ballistic missile-related "
-            "restrictions remain in place."
+            "restrictions remain in place. US asserts snapback "
+            "of UN sanctions (internationally disputed)."
         ),
     ),
     SanctionsRegime(
@@ -300,12 +302,14 @@ _COUNTRY_REGIMES: list[SanctionsRegime] = [
         exceptions=(
             "Sectoral sanctions (finance, energy, defence, technology). "
             "Asset freezes on designated persons/entities. "
+            "Oil price cap and diamond ban in effect. "
             "Humanitarian and food exemptions apply."
         ),
         last_reviewed="2026-06-07",
         detail=(
             "EU maintains broad sectoral sanctions on Russia — "
             "finance, energy, defence, and technology restrictions. "
+            "Oil price cap and diamond ban in effect. "
             "Asset freezes on designated persons. No comprehensive "
             "trade embargo."
         ),

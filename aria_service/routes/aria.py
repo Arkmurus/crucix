@@ -4417,6 +4417,90 @@ def _detect_tool_intent(message: str) -> dict | None:
             "context": msg,
             "_reason": "pre_meeting_briefing",
         }
+    # ── R-F1416 (2026-06-07) — doc-investigate intent: multi-company ─────
+    # When the user attached a document AND asks to investigate/research
+    # companies from it ("investigate these companies from this document",
+    # "research the entities in this file"), do NOT fall through to the
+    # LLM-pure path which would stuff the full doc into chat context and
+    # blow the budget (~51k→68k tokens > 61,536 budget → truncated →
+    # timeout). Instead, extract company names from the document and
+    # dispatch per-entity via spawn_research_task.
+    #
+    # This MUST run BEFORE the doc-aware skip below, because the same
+    # _DOC_REFERENCE_RE patterns ("this document", "the attached file")
+    # would otherwise return None and route to the LLM-pure path.
+    _DOC_INVESTIGATE_RE = re.compile(
+        r"\b(?:investigate|research|look\s+into|find\s+out\s+about|"
+        r"profile|screen|check\s+out|analyse|analyze|"
+        r"tell\s+me\s+about|what\s+(?:do\s+you\s+know|can\s+you\s+tell\s+me))\b"
+        r".*?\b(?:companies|company|entities|entity|firms?|"
+        r"suppliers?|vendors?|partners?|contractors?|"
+        r"each|all|these|every|both)\b",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if "[ATTACHED DOCUMENT" in message and _DOC_INVESTIGATE_RE.search(msg):
+        doc_text = _extract_attached_document(message)
+        if doc_text and len(doc_text) >= 200:
+            # Extract company-like names from the document text.
+            # Look for capitalized phrases with company suffixes.
+            _company_candidates: list[str] = []
+            for line in doc_text.splitlines():
+                line = line.strip()
+                if not line or len(line) > 200:
+                    continue
+                # Match lines that look like company names: start with
+                # capital letter(s), contain a company suffix
+                # Strip leading number/bullet prefix before matching
+                _cleaned_line = re.sub(r"^[\d\-\*\u2022]+[\.\)]\s*", "", line).strip()
+                _co_match = re.search(
+                    r"^([A-Z][A-Za-z0-9\s&\-\.\,]{1,80}"
+                    r"(?:Ltd|Limited|LLC|Inc|Incorporated|GmbH|SRL|SA|S\.A\.|"
+                    r"PLC|AG|BV|NV|Corp|Corporation|Company|SAS|LLP|LP|"
+                    r"Holdings|Group|International|Sarl|SPA|KG|AB|Oy|Oyj))"
+                    r"(?:\s|$|[,;])",
+                    _cleaned_line,
+                )
+                if _co_match:
+                    name = _co_match.group(1).strip().rstrip(".,;:")
+                    if 3 <= len(name) <= 120 and name not in _company_candidates:
+                        _company_candidates.append(name)
+            # Fallback: if no suffix-based names found, look for all-caps
+            # multi-word lines (common in registry extracts)
+            if not _company_candidates:
+                # Common header patterns to exclude from all-caps fallback
+                _HEADER_PATTERNS = re.compile(
+                    r"^(EXTRACT|REGISTER|LIST|REPORT|SUMMARY|DETAIL|RECORD|"
+                    r"COMPANY|CORPORATION|INCORPORATED|LIMITED|LLC|"
+                    r"PAGE\s+\d+|DATE|REFERENCE|NOTE|STATUS|ACTIVE)\b",
+                    re.IGNORECASE,
+                )
+                for line in doc_text.splitlines()[:50]:
+                    s = line.strip()
+                    if len(s.split()) >= 2 and s.isupper() and 5 <= len(s) <= 100:
+                        if _HEADER_PATTERNS.match(s):
+                            continue
+                        name = " ".join(s.split())
+                        if name not in _company_candidates:
+                            _company_candidates.append(name)
+            # Cap at a reasonable batch
+            _company_candidates = _company_candidates[:10]
+            if len(_company_candidates) >= 1:
+                _log.info(
+                    "R-F1416 doc-investigate: extracted %d companies from doc: %s",
+                    len(_company_candidates), _company_candidates[:3],
+                )
+                return {
+                    "tool": "spawn_research_task",
+                    "task_type": "research_each",
+                    "entities": _company_candidates,
+                    "context": _strip_attached_document(msg),
+                    "_reason": "doc_investigate_rf1416",
+                    "batch_label": (
+                        f"Doc-investigate: {len(_company_candidates)} entities "
+                        f"({', '.join(_company_candidates[:3])}...)"
+                    ),
+                }
+
 
     # ── R-F793 (2026-05-22) — doc-aware routing skip ──
     # When the user attached a document AND their question explicitly
