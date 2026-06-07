@@ -32,17 +32,24 @@ What it is NOT
 
 Scoring
 ═══════
-For each golden entry we ask ARIA the question through the same chat
-path the user hits, then compute cosine similarity between the actual
-answer's embedding and the expected answer's embedding. Buckets:
+R-F1396 (WS-0a, learning strategy): each entry is graded by an LLM judge
+(eval_judge.judge_answer — strict rubric, factual agreement not wording)
+and the verdict drives the bucket: correct→pass, partial→warn, wrong→fail.
+Cosine similarity is still computed and recorded per entry (continuity for
+deltas) and is the FALLBACK bucket whenever the judge is disabled
+(ARIA_EVAL_JUDGE_ENABLED=0), unavailable, or returns unscored:
   ≥ 0.75 → pass     (semantically equivalent)
   0.50–0.75 → warn  (related but drifted)
   < 0.50 → fail     (different answer or hallucination)
+Pre-R-F1396 the cosine score was the ONLY ruler and failed correct-but-
+differently-worded answers (the 21.6% v0.2 artifact class).
 
-A run produces a summary: pass_rate, mean_score, count by bucket, and
-delta vs the previous run so regressions surface immediately."""
+A run produces a summary: pass_rate, mean_score, judge_coverage, count by
+bucket, and delta vs the previous run so regressions surface immediately."""
 from __future__ import annotations
 from .engine_wiring import wire_success
+
+from . import eval_judge
 
 import logging
 import time
@@ -216,6 +223,11 @@ def _bucket(score: float) -> str:
     return "fail"
 
 
+# R-F1396: judge verdict → bucket. Kept beside _bucket so the two bucket
+# semantics live in one place.
+_JUDGE_BUCKET = {"correct": "pass", "partial": "warn", "wrong": "fail"}
+
+
 # ── Run ────────────────────────────────────────────────────────────────────
 
 async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -> dict:
@@ -273,6 +285,7 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     started = time.time()
     results: list[dict] = []
     pass_n = warn_n = fail_n = 0
+    judged_n = 0  # R-F1396: entries bucketed by the LLM judge (vs cosine fallback)
     total_score = 0.0
     # R-F197 (2026-05-11): degraded-mode detection. If the LLM is dead
     # and _aria_chat_session returns "" for every entry, the cosine
@@ -312,7 +325,18 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         # of a 50-entry eval run otherwise.
         import asyncio as _aio
         score = await _aio.to_thread(_cosine_score, actual, expected)
-        bucket = _bucket(score)
+
+        # R-F1396: LLM judge is the primary ruler; cosine is the fallback.
+        # An unscored judge result NEVER buckets an entry (no silent zeros —
+        # the R-F197 lesson applied to the judge itself).
+        judge = None
+        if eval_judge.judge_enabled() and llm is not None:
+            judge = await eval_judge.judge_answer(llm, q, expected, actual)
+        if judge and judge.get("ok"):
+            bucket = _JUDGE_BUCKET[judge["verdict"]]
+            judged_n += 1
+        else:
+            bucket = _bucket(score)
         if bucket == "pass":
             pass_n += 1
         elif bucket == "warn":
@@ -326,6 +350,11 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
             "category": entry.get("category"),
             "score": round(score, 3),
             "bucket": bucket,
+            "judge": {
+                "verdict": judge.get("verdict"),
+                "grounded": judge.get("grounded", False),
+                "reason": (judge.get("reason") or "")[:200],
+            } if judge and judge.get("ok") else None,
             "actual_preview": (actual or "")[:280],
             "expected_preview": expected[:160],
         })
@@ -342,6 +371,11 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         "fail": fail_n,
         "pass_rate": round(pass_n / n, 3) if n else 0,
         "mean_score": round(total_score / n, 3) if n else 0,
+        # R-F1396: how much of this run was judge-bucketed. A run with low
+        # coverage (judge down → cosine fallback) is a weaker signal — the
+        # Friday promotion ritual must check this before trusting pass_rate.
+        "judge_coverage": round(judged_n / n, 3) if n else 0,
+        "scorer": "llm_judge+cosine_fallback" if judged_n else "cosine",
         "duration_ms": int((time.time() - started) * 1000),
         "empty_response_count": empty_resp_count,
         "degraded": degraded,
@@ -377,9 +411,23 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     }
     await _save_run(run_record)
     logger.info(
-        "Eval run %s: %d/%d pass (%.0f%%), mean=%.2f",
-        run_record["id"], pass_n, n, summary["pass_rate"] * 100, summary["mean_score"],
+        "Eval run %s: %d/%d pass (%.0f%%), mean=%.2f, judge_coverage=%.2f",
+        run_record["id"], pass_n, n, summary["pass_rate"] * 100,
+        summary["mean_score"], summary["judge_coverage"],
     )
+    # R-F1396 (§21a): the run outcome reaches the brain on both branches —
+    # wire_success here; judge infrastructure failures fire wire_failure
+    # inside eval_judge. The wire_success import predates this call (it was
+    # imported but never invoked — a dark path this closes).
+    try:
+        wire_success(
+            "eval_runner",
+            f"eval run {run_record['id']}: {pass_n}/{n} pass "
+            f"(judge_coverage={summary['judge_coverage']}, degraded={degraded})",
+            detail=f"scorer={summary['scorer']} mean={summary['mean_score']}",
+        )
+    except Exception:
+        pass  # wiring is fire-and-forget; never fail the run for it
     return run_record
 
 

@@ -123,7 +123,7 @@ Items from the 360 that an autonomous ARIA makes WORSE if left open:
 | WS-6a | Alert delivery fixes (dedup-after-send, WA media, dark sends) | **Claude** | 360 batch-4 items live with capability tests | — |
 | WS-6b | Sanctions FN fixes (nasab + non-Latin) | **Claude** | live-run tests: bin-Laden-class + Cyrillic/Arabic screen RED | — |
 | WS-6c | Probe-recipe library as weekly autonomy task | **ARIA** | first weekly run produces graded findings | WS-1a |
-| OP-1 | ACLED creds on fly (gate #5) | **operator** | secrets set | — |
+| OP-1 | ~~ACLED creds on fly (gate #5)~~ **DEFERRED by operator 2026-06-07** — no ACLED signup until MVP launched; gate #5's ACLED item is parked, not blocking | **operator** | re-surfaces at MVP-launch planning | — |
 | OP-2 | Send design-partner drafts, log ≥4 convos (gate #7) | **operator** | real conversations logged | — |
 | OP-3 | RunPod pod green-light for baselines/cycles (~$2-3/eval, ~$5-15/train) | **operator** | standing approval or per-week nod | — |
 | OP-4 | 10/week eval spot-checks (judge calibration) | **operator** | 10 graded weekly, ~20 min | WS-0b |

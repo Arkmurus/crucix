@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1395,
+  "next_available": 1399,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8398,6 +8398,43 @@
       "r_number": "R-F1394",
       "title": "ARIA learning strategy to full autonomous reasoning+coding - canonical doc",
       "claimed_at": "2026-06-07T12:24:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e7fd7b0a",
+      "notes": null,
+      "shipped_at": "2026-06-07T12:26:21Z"
+    },
+    {
+      "r_number": "R-F1395",
+      "title": "WS-1a kill-switch: pause checks in ALL loops",
+      "claimed_at": "2026-06-07T12:28:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1396",
+      "title": "LLM-judge eval scorer - replaces cosine-only grading (WS-0a)",
+      "claimed_at": "2026-06-07T12:31:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1397",
+      "title": "state_store conn-churn fix: probe-before-reset + new-conn-first swap + no silent upsert drop",
+      "claimed_at": "2026-06-07T12:32:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1398",
+      "title": "event-loop lag monitor - name the wedge window",
+      "claimed_at": "2026-06-07T12:32:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
