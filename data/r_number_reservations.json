@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1394,
+  "next_available": 1395,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8389,6 +8389,15 @@
       "r_number": "R-F1393",
       "title": "WA listener retries 5xx on read-document POST",
       "claimed_at": "2026-06-07T12:07:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1394",
+      "title": "ARIA learning strategy to full autonomous reasoning+coding - canonical doc",
+      "claimed_at": "2026-06-07T12:24:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
