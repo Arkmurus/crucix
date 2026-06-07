@@ -170,6 +170,20 @@ def _read_from_disk() -> dict | None:
     return None
 
 
+def _fsync_dir(dir_path: str) -> None:
+    """R-F1420 — fsync a directory so a contained rename is durable.
+    Best-effort (directory fsync is unsupported on Windows); the file-level
+    fsync is the load-bearing guarantee."""
+    try:
+        dfd = os.open(dir_path, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except (OSError, AttributeError, ValueError):
+        pass
+
+
 def _write_to_disk_atomic(data: dict) -> None:
     """Atomic write via temp file + rename so a crash mid-write can't
     corrupt the canonical signals file.
@@ -195,7 +209,13 @@ def _write_to_disk_atomic(data: dict) -> None:
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, default=str)
+            # R-F1420 — flush + fsync DATA to disk before the rename so a
+            # host crash / power loss can't lose still-in-page-cache signals
+            # (atomic rename only guards against torn files).
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, target)
+        _fsync_dir(target_dir)  # R-F1420: make the rename entry durable
     except Exception:
         try:
             os.unlink(tmp_path)

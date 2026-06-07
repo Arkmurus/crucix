@@ -419,6 +419,22 @@ def _read_from_disk() -> dict | None:
     return None
 
 
+def _fsync_dir(dir_path: str) -> None:
+    """R-F1420 — fsync a directory so a contained rename is durable.
+    Best-effort: directory fsync is unsupported on some platforms
+    (notably Windows), so any failure is swallowed — the file-level
+    fsync is the load-bearing durability guarantee; this hardens the
+    rename entry on filesystems that support it (Linux/prod)."""
+    try:
+        dfd = os.open(dir_path, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except (OSError, AttributeError, ValueError):
+        pass
+
+
 def _write_to_disk_atomic(data: dict) -> None:
     """Atomic write via temp file + rename so a crash mid-write can't
     corrupt the canonical knowledge file.
@@ -445,7 +461,16 @@ def _write_to_disk_atomic(data: dict) -> None:
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, default=str)
+            # R-F1420 — flush + fsync the DATA to disk BEFORE the rename.
+            # Atomic rename protects against torn/partial files but NOT
+            # against losing still-in-page-cache data on a host crash /
+            # power loss (the audit's "no-fsync OOM-mid-flush" risk). With
+            # 87k+ facts this is the difference between "lose the last write"
+            # and "lose everything written since the last OS flush".
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, target)
+        _fsync_dir(target_dir)  # R-F1420: make the rename entry itself durable
     except Exception:
         try:
             os.unlink(tmp_path)
