@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1436,
+  "next_available": 1438,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8793,6 +8793,25 @@
       "r_number": "R-F1435",
       "title": "Blackout dump size cap + retention + self_introspect coder state + memory_leak threshold + coder prompt clamp",
       "claimed_at": "2026-06-08T08:03:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "07175808",
+      "notes": null,
+      "shipped_at": "2026-06-08T08:06:23Z"
+    },
+    {
+      "r_number": "R-F1436",
+      "title": "quiet GitHub Actions push-failure emails (docker/fallback dispatch-only; fix test-aria)",
+      "claimed_at": "2026-06-08T08:17:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1437",
+      "title": "Fix docx redline blindness + doc-review routing (no external tools)",
+      "claimed_at": "2026-06-08T08:28:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

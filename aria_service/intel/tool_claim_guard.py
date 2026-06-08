@@ -104,6 +104,31 @@ _TOOL_CLAIM_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.IGNORECASE,
     ), "false-queue-claim"),
 
+    # R-F1437: "Running the numbers" / "checking multiple sources" — fabricated
+    # research claims that slip through the existing patterns. Past incident
+    # 2026-06-08: ARIA said "Running the numbers — checking multiple sources"
+    # and "Still researching (6 min) — this is a deep dive" when no tool had
+    # fired. These are present-tense research fabrications.
+    (re.compile(
+        r"(?:"
+        r"running\s+the\s+numbers|"
+        r"checking\s+(?:multiple\s+)?sources|"
+        r"still\s+(?:researching|working\s+on\s+it|on\s+it)|"
+        r"this\s+is\s+a\s+deep\s+dive|"
+        r"pulling\s+together\s+(?:a\s+)?(?:thorough\s+)?(?:briefing|analysis|report)"
+        r")[^.!?]*[.!?]?",
+        re.IGNORECASE,
+    ), "fabricated-research-claim"),
+
+    # R-F1437: "I am currently analysing" / "I am reviewing the document" when
+    # no tool fired — the LLM fabricates active analysis. The document is
+    # already attached; the LLM should just read it, not claim to be analysing.
+    (re.compile(
+        r"I\s+am\s+(?:currently\s+)?(?:analysing|analyzing|reviewing|examining|studying|processing)\s+"
+        r"(?:the\s+)?(?:document|contract|agreement|file|attachment|pdf)[^.!]*[.!]?",
+        re.IGNORECASE,
+    ), "fabricated-doc-analysis"),
+
 ]
 
 # ── Bracket-form fabricated tool calls — ALWAYS scanned, even when a

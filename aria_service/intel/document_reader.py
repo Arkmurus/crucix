@@ -936,6 +936,10 @@ def _read_docx(filepath: str) -> ExtractionResult:
     # converting structural boundaries (paragraph, row, tab, break) to whitespace
     # and keeping the run text in place — this captures tables, text-boxes and
     # SDT content in reading order so ARIA sees the WHOLE document coherently.
+    #
+    # R-F1437: strip tracked-change DELETIONS entirely (w:del blocks) so
+    # struck-through text never appears as live contract terms. Keep w:ins
+    # insertions — those are the live/new terms the author accepted.
     import re as _re
     try:
         import zipfile
@@ -954,6 +958,12 @@ def _read_docx(filepath: str) -> ExtractionResult:
                 if n not in names:
                     continue
                 xml = zf.read(n).decode("utf-8", errors="ignore")
+                # R-F1437: strip tracked-change DELETIONS entirely.
+                # In OOXML, deleted text lives in <w:del><w:r><w:delText>...</w:delText></w:r></w:del>.
+                # Removing the entire w:del block ensures struck-through text never
+                # appears as live contract terms. Keep w:ins insertions — those are
+                # the live/new terms the author accepted (they contain normal w:r runs).
+                xml = _re.sub(r"<w:del\b[^>]*>.*?</w:del>", "", xml, flags=_re.DOTALL)
                 # Drop field instruction codes (TOC/HYPERLINK/REF) — they are not
                 # body text and would inject noise.
                 xml = _re.sub(r"<w:instrText[^>]*>.*?</w:instrText>", "", xml, flags=_re.DOTALL)
@@ -977,9 +987,39 @@ def _read_docx(filepath: str) -> ExtractionResult:
 
     # Fallback: python-docx (paragraphs + tables). Ordering is less faithful but
     # it still recovers the body if the zip/xml parse path failed.
+    # R-F1437: python-docx includes deleted tracked-change text by default.
+    # We filter it out by re-parsing the XML and stripping w:del blocks.
     try:
         from docx import Document
         doc = Document(filepath)
+        # R-F1437: filter deleted tracked-change text from python-docx output.
+        # python-docx doesn't expose tracked changes natively, so we re-read
+        # the XML to strip w:del blocks, then re-extract text from the clean XML.
+        try:
+            import zipfile as _zf
+            _clean_xml = ""
+            with _zf.ZipFile(filepath) as _z:
+                if "word/document.xml" in _z.namelist():
+                    _raw = _z.read("word/document.xml").decode("utf-8", errors="ignore")
+                    _clean_xml = _re.sub(
+                        r"<w:del\b[^>]*>.*?</w:del>", "", _raw, flags=_re.DOTALL,
+                    )
+            if _clean_xml:
+                # Re-parse with python-docx from the clean XML
+                import io as _io
+                import zipfile as _zf2
+                _buf = _io.BytesIO()
+                with _zf2.ZipFile(filepath, "r") as _src:
+                    with _zf2.ZipFile(_buf, "w") as _dst:
+                        for _item in _src.infolist():
+                            _data = _src.read(_item.filename)
+                            if _item.filename == "word/document.xml":
+                                _data = _clean_xml.encode("utf-8")
+                            _dst.writestr(_item, _data)
+                _buf.seek(0)
+                doc = Document(_buf)
+        except Exception:
+            pass  # Fall through to original doc if XML manipulation fails
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         for table in doc.tables:
             for row in table.rows:
