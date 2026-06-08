@@ -365,7 +365,55 @@ class AgentSignupVault:
 
     # ── Bulk import from portal_registry ───────────────────────────────
 
-    def import_from_portal_registry(self, portals: list, agent_id: str = "dd_orchestrator") -> int:
+    def import_open_portals(self, portals: list, agent_id: str = "system") -> int:
+        """Mark registration_type='none' portals as 'registered' in the vault.
+
+        These are free/open APIs that require no signup. They should be
+        recorded as 'registered' immediately so the vault accurately reflects
+        which data sources are accessible.
+
+        Accepts both list[PortalDef] (dataclass objects) and list[dict].
+
+        Args:
+            portals: List of portal definitions (PortalDef or dict)
+            agent_id: Agent to attribute the entries to
+
+        Returns:
+            Number of new entries created.
+        """
+        def _get(portal, key: str, default=None):
+            if isinstance(portal, dict):
+                return portal.get(key, default)
+            return getattr(portal, key, default)
+
+        count = 0
+        for portal in portals:
+            site_id = _get(portal, "id", "")
+            if not site_id:
+                continue
+            # Skip if already in vault
+            if self.get(site_id):
+                continue
+            # Only record portals with registration_type="none"
+            if _get(portal, "registration_type", "") != "none":
+                continue
+
+            try:
+                self.record(
+                    site_id=site_id,
+                    site_name=_get(portal, "name", site_id),
+                    site_url=_get(portal, "url", ""),
+                    agent_id=agent_id,
+                    site_type="portal",
+                    status="registered",
+                    notes="Free/open API — no registration required.",
+                    metadata={"portal_type": "open_api", "registration_type": "none"},
+                )
+                count += 1
+            except ValueError:
+                pass
+
+        return count
         """Import portals from portal_registry into the vault.
 
         Scans the portal definitions and records any that have signup_fields

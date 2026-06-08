@@ -206,6 +206,36 @@ else:
     ARIA_BUILD_REV = "UNKNOWN-BUILD · ARIA_BUILD_GIT_SHA not set at image build (pass --build-arg)"
 
 
+async def _delayed_auto_register(auto_reg_fn, delay_s: int = 120) -> None:
+    """R-F1444: fire-and-forget auto-registration after boot settles.
+
+    Waits `delay_s` seconds for the app to finish booting (RAG store,
+    neural memory, agent registry), then runs auto_register_all for
+    every pending portal. Failures are logged but never crash boot.
+    """
+    try:
+        await asyncio.sleep(delay_s)
+        result = await auto_reg_fn()
+        total = result.get("total", 0)
+        registered = result.get("newly_registered", 0)
+        captcha = result.get("captcha_deferred", 0)
+        failed = result.get("failed", 0)
+        skipped = result.get("skipped_open", 0)
+        if registered > 0 or captcha > 0 or failed > 0:
+            logger.info(
+                "[R-F1444] Auto-registration complete: %d total, "
+                "%d newly registered, %d captcha-deferred, %d failed, %d open/skipped",
+                total, registered, captcha, failed, skipped,
+            )
+        else:
+            logger.debug(
+                "[R-F1444] Auto-registration: %d portals already processed",
+                total,
+            )
+    except Exception as e:
+        logger.warning("[R-F1444] Auto-registration failed (non-fatal): %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
@@ -2068,11 +2098,27 @@ async def lifespan(app: FastAPI):
                 "[R-F1253] Agent signup vault auto-populated: %d portals imported",
                 count,
             )
+            # R-F1444: also mark free/open portals (registration_type="none") as registered
+            open_count = vault.import_open_portals(PORTALS, agent_id="system")
+            if open_count > 0:
+                logger.info(
+                    "[R-F1444] Marked %d open portals as registered (no signup needed)",
+                    open_count,
+                )
         else:
             logger.debug(
                 "[R-F1253] Agent signup vault already has %d entries — skipping import",
                 stats["total"],
             )
+
+        # R-F1444: fire-and-forget auto-registration for pending portals
+        try:
+            from .intel.portal_registry import auto_register_all as _auto_reg
+            import asyncio
+            asyncio.create_task(_delayed_auto_register(_auto_reg))
+        except Exception as _reg_e:
+            logger.warning("[R-F1444] Auto-registration launch failed (non-fatal): %s", _reg_e)
+
     except Exception as _vault_e:
         logger.warning("[R-F1253] Vault auto-population failed (non-fatal): %s", _vault_e)
 
