@@ -88,8 +88,21 @@ class CodebaseReader:
         return "\n\n".join(parts)
 
     def read(self, filepath: str) -> str:
-        """Read a file relative to the repo root. Returns '' on missing."""
-        path = self.repo_path / filepath
+        """Read a file relative to the repo root. Returns '' on missing.
+
+        R-F1443: handle absolute paths that resolve within the repo root
+        (the LLM sometimes returns /home/user/aria_service/routes/aria.py).
+        """
+        # R-F1443: if absolute, try to resolve within repo root
+        if os.path.isabs(filepath) or filepath.startswith("/") or filepath.startswith("\\"):
+            candidate = Path(filepath).resolve()
+            try:
+                candidate.relative_to(self.repo_path.resolve())
+                path = candidate
+            except ValueError:
+                path = self.repo_path / filepath
+        else:
+            path = self.repo_path / filepath
         try:
             if path.exists() and path.is_file():
                 return path.read_text(encoding="utf-8", errors="replace")
@@ -109,13 +122,23 @@ class CodebaseReader:
         # platform-native form (C:\... on Windows, /... on Unix); the
         # explicit leading-slash check catches Unix-style absolute paths
         # when the test or LLM-generated input runs on Windows.
-        if (
-            os.path.isabs(filepath)
-            or filepath.startswith("/")
-            or filepath.startswith("\\")
-        ):
-            raise ValueError(f"refusing absolute path in workspace: {filepath}")
-        target = (workspace / filepath).resolve()
+        # R-F1443: the LLM sometimes "helpfully" returns absolute paths like
+        # /home/user/aria_service/routes/aria.py. Instead of rejecting these,
+        # try to resolve them relative to the workspace. If the resolved path
+        # is within the workspace, accept it. This is safer than fixing the
+        # LLM prompt because the LLM will keep doing this.
+        if os.path.isabs(filepath) or filepath.startswith("/") or filepath.startswith("\\"):
+            # Try to resolve as an absolute path within the workspace
+            candidate = Path(filepath).resolve()
+            try:
+                candidate.relative_to(workspace.resolve())
+                target = candidate
+            except ValueError:
+                raise ValueError(
+                    f"refusing absolute path outside workspace: {filepath} → {candidate}"
+                )
+        else:
+            target = (workspace / filepath).resolve()
         # Guard against ../.. escapes from the workspace dir
         try:
             target.relative_to(workspace.resolve())
