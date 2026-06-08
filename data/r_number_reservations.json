@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1435,
+  "next_available": 1436,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8707,9 +8707,10 @@
       "title": "R-F1424: Self-checking REPL prompt with prompt_async + timeout",
       "claimed_at": "2026-06-07T22:36:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1d86bd26",
+      "notes": null,
+      "shipped_at": "2026-06-08T07:55:22Z"
     },
     {
       "r_number": "R-F1427",
@@ -8782,6 +8783,16 @@
       "r_number": "R-F1434",
       "title": "fix coder_entrypoint harvest coroutine never awaited (dark output-harvest path)",
       "claimed_at": "2026-06-08T07:37:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "968c5f0d",
+      "notes": null,
+      "shipped_at": "2026-06-08T07:51:09Z"
+    },
+    {
+      "r_number": "R-F1435",
+      "title": "Blackout dump size cap + retention + self_introspect coder state + memory_leak threshold + coder prompt clamp",
+      "claimed_at": "2026-06-08T08:03:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -11782,6 +11782,17 @@ async def coder_llm_ep(request: Request):
             status_code=400,
             detail="prompt required (min 10 chars)",
         )
+    # R-F1435: cap prompt at 40k chars to prevent 400 Bad Request from
+    # DeepSeek on oversized prompts (live incident: prompt_len=61133 returned
+    # 400). 40k chars is ~10k tokens — well within DeepSeek's 64k context
+    # window and enough for any single-file fix plan + code context.
+    _MAX_PROMPT_CHARS = 40_000
+    if len(prompt) > _MAX_PROMPT_CHARS:
+        logger.warning(
+            "[coder/llm] Truncating prompt from %d to %d chars",
+            len(prompt), _MAX_PROMPT_CHARS,
+        )
+        prompt = prompt[:_MAX_PROMPT_CHARS]
     task = (body.get("task") or "general").strip()
     if task not in ("plan", "code", "test", "heal", "general"):
         raise HTTPException(

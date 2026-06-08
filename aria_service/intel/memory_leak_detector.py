@@ -33,7 +33,12 @@ from typing import Any
 logger = logging.getLogger("aria.memory_leak_detector")
 
 _INTERVAL_S = int(os.getenv("ARIA_MEMORY_LEAK_INTERVAL_S", "60"))
-_THRESHOLD_MB = int(os.getenv("ARIA_MEMORY_LEAK_THRESHOLD_MB", "1024"))
+# R-F1435: raised from 1024MB to 6144MB for the 8GB Fly box. The old
+# threshold fired constantly on normal RSS (~2GB), causing the coder to
+# re-stage the same memory_leak_detector.py fix 557x (false-positive gap
+# churn). 6144MB (~75% of 8GB) is a genuine pressure signal — normal
+# operation stays well below it.
+_THRESHOLD_MB = int(os.getenv("ARIA_MEMORY_LEAK_THRESHOLD_MB", "6144"))
 _MAX_SNAPSHOTS = 100
 
 

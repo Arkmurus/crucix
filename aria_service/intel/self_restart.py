@@ -84,6 +84,14 @@ _CHECKPOINT_DIR = os.getenv(
     "/data/self_restart_checkpoints",
 )
 
+# R-F1435: blackout dump size cap + retention — prevent runaway 128MB dumps
+# from filling /data (live incident 2026-06-07: 1.4GB of dumps filled 5GB volume).
+# Each dump is truncated at _MAX_DUMP_BYTES; the wedge_stacks dir is kept under
+# _MAX_WEDGE_DIR_BYTES by pruning oldest files on each write.
+_MAX_DUMP_BYTES = int(os.getenv("ARIA_MAX_WEDGE_DUMP_BYTES", str(5 * 1024 * 1024)))  # 5MB
+_MAX_WEDGE_DIR_BYTES = int(os.getenv("ARIA_MAX_WEDGE_DIR_BYTES", str(200 * 1024 * 1024)))  # 200MB
+_MAX_WEDGE_FILES = int(os.getenv("ARIA_MAX_WEDGE_FILES", "50"))  # keep at most 50 files
+
 # Fall back to repo-local data/ dir in dev / CI
 _REPO_CHECKPOINT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "data", "self_restart_checkpoints",
@@ -342,6 +350,48 @@ def get_heartbeat_age(agent_id: str = "aria_main") -> float:
 # ── Blackout Detection ────────────────────────────────────────────────────────
 
 
+def _prune_wedge_dir(wedge_dir: str) -> None:
+    """R-F1435: enforce retention + size budget on the wedge dump directory.
+
+    Keeps at most _MAX_WEDGE_FILES files and total size under
+    _MAX_WEDGE_DIR_BYTES by deleting oldest files first. Best-effort —
+    never raises.
+    """
+    try:
+        if not os.path.isdir(wedge_dir):
+            return
+        entries: list[tuple[str, float, int]] = []
+        for name in os.listdir(wedge_dir):
+            full = os.path.join(wedge_dir, name)
+            try:
+                st = os.stat(full)
+                if st.st_size > 0:
+                    entries.append((full, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+        # Sort oldest first
+        entries.sort(key=lambda e: e[1])
+        total = sum(e[2] for e in entries)
+        # Prune by count
+        while len(entries) > _MAX_WEDGE_FILES:
+            old = entries.pop(0)
+            try:
+                os.remove(old[0])
+                total -= old[2]
+            except OSError:
+                pass
+        # Prune by size
+        while total > _MAX_WEDGE_DIR_BYTES and entries:
+            old = entries.pop(0)
+            try:
+                os.remove(old[0])
+                total -= old[2]
+            except OSError:
+                pass
+    except Exception:
+        pass  # Best-effort
+
+
 def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None) -> str | None:
     """R-F1334: write a blackout wedge dump and return its path (None on failure).
 
@@ -352,6 +402,11 @@ def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None)
       2. asyncio task stacks — every alive Task + get_stack() (R-F1333)
       3. state_store RMW-lock diagnostics incl. HOLDER task + acquire stack
          (R-F1334 via state_store.get_lock_diagnostics — verified to exist)
+
+    R-F1435: each dump is capped at _MAX_DUMP_BYTES (5MB default) and the
+    wedge directory is pruned to stay under _MAX_WEDGE_DIR_BYTES (200MB) and
+    _MAX_WEDGE_FILES (50 files). This prevents the 128MB-dump runaway that
+    filled /data on 2026-06-07.
 
     Must be called from inside the running event loop (uses all_tasks()).
     """
@@ -368,8 +423,27 @@ def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None)
             wedge_dir,
             f"blackout_{agent_id}_{os.getpid()}_{int(time.time())}.log",
         )
+        # R-F1435: write with a size cap — truncate the dump at _MAX_DUMP_BYTES
+        # so a single blackout storm can't fill the volume. 5MB is plenty for
+        # thread stacks + asyncio tasks + lock diagnostics.
         with open(wedge_path, "a", buffering=1, encoding="utf-8") as fh:
-            fh.write(
+            _remaining = _MAX_DUMP_BYTES
+
+            def _write_capped(text: str) -> None:
+                nonlocal _remaining
+                if _remaining <= 0:
+                    return
+                chunk = text.encode("utf-8")
+                if len(chunk) > _remaining:
+                    chunk = chunk[:_remaining]
+                    fh.write(chunk.decode("utf-8", errors="replace"))
+                    fh.write("\n... (dump truncated at size cap) ...\n")
+                    _remaining = 0
+                else:
+                    fh.write(text)
+                    _remaining -= len(chunk)
+
+            _write_capped(
                 f"\n=== [R-F1146] Blackout detected for {agent_id}: "
                 f"heartbeat stale {stale:.1f}s ===\n"
             )
@@ -377,7 +451,7 @@ def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None)
             # R-F1333: dump asyncio task stacks. faulthandler only
             # shows thread stacks — stuck coroutines (awaiting a lock,
             # semaphore, or queue that never resolves) are invisible.
-            fh.write("\n=== asyncio task stacks ===\n")
+            _write_capped("\n=== asyncio task stacks ===\n")
             try:
                 _loop = asyncio.get_running_loop()
                 for _t in asyncio.all_tasks(_loop):
@@ -386,45 +460,49 @@ def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None)
                     _coro_name = getattr(_coro, "__name__", str(_coro)) if _coro else "?"
                     _done = _t.done()
                     _cancelled = _t.cancelled()
-                    fh.write(
+                    _write_capped(
                         f"\n--- Task: {_name} ({_coro_name}) "
                         f"done={_done} cancelled={_cancelled} ---\n"
                     )
                     if not _done and not _cancelled:
                         try:
                             for _frame in _t.get_stack():
-                                fh.write(
+                                _write_capped(
                                     f"  {_frame.f_code.co_filename}:"
                                     f"{_frame.f_lineno} {_frame.f_code.co_name}\n"
                                 )
                         except Exception:
-                            fh.write("  (stack unavailable)\n")
+                            _write_capped("  (stack unavailable)\n")
             except RuntimeError:
-                fh.write("  (no running loop)\n")
+                _write_capped("  (no running loop)\n")
             except Exception as _te:
-                fh.write(f"  (task dump error: {_te})\n")
-            fh.write("=== end asyncio task stacks ===\n")
+                _write_capped(f"  (task dump error: {_te})\n")
+            _write_capped("=== end asyncio task stacks ===\n")
             # R-F1334: state_store lock diagnostics — names the HOLDER
             # (task + acquire stack + hold duration), which plain
             # asyncio.Lock cannot reveal (the R-F1333 probe saw waiters
             # only). get_lock_diagnostics() verified in state_store.py.
-            fh.write("\n=== state_store lock status ===\n")
+            _write_capped("\n=== state_store lock status ===\n")
             try:
                 from . import state_store as _ss
                 _diag = _ss.get_lock_diagnostics()
-                fh.write(f"  initialised={_diag.get('initialised')}\n")
-                fh.write(f"  locked={_diag.get('locked')}\n")
-                fh.write(f"  waiters={_diag.get('waiters')}\n")
+                _write_capped(f"  initialised={_diag.get('initialised')}\n")
+                _write_capped(f"  locked={_diag.get('locked')}\n")
+                _write_capped(f"  waiters={_diag.get('waiters')}\n")
                 if _diag.get("locked") and "holder_task" in _diag:
-                    fh.write(f"  holder_task={_diag.get('holder_task')}\n")
-                    fh.write(f"  held_for_s={_diag.get('held_for_s')}\n")
-                    fh.write("  holder acquire stack (innermost last):\n")
+                    _write_capped(f"  holder_task={_diag.get('holder_task')}\n")
+                    _write_capped(f"  held_for_s={_diag.get('held_for_s')}\n")
+                    _write_capped("  holder acquire stack (innermost last):\n")
                     for _line in _diag.get("holder_stack") or []:
-                        fh.write(f"    {_line}\n")
+                        _write_capped(f"    {_line}\n")
             except Exception as _le:
-                fh.write(f"  (lock probe error: {_le})\n")
-            fh.write("=== end state_store lock status ===\n")
-            fh.write("=== end blackout stack dump ===\n")
+                _write_capped(f"  (lock probe error: {_le})\n")
+            _write_capped("=== end state_store lock status ===\n")
+            _write_capped("=== end blackout stack dump ===\n")
+
+        # R-F1435: enforce retention + size budget after writing
+        _prune_wedge_dir(wedge_dir)
+
         logger.info("[self_restart] Blackout wedge saved to %s", wedge_path)
         return wedge_path
     except Exception:

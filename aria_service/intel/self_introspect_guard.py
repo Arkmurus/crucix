@@ -158,6 +158,31 @@ async def self_introspect_context_block(message: str) -> str:
     except Exception as _ae:
         logger.debug("R-F961 autonomous_status_ep failed: %s", _ae)
 
+    # R-F1435: probe coder status via heartbeat + blackout detector.
+    # The coder ticks its heartbeat every 30s (coder_entrypoint._heartbeat_ticker).
+    # If the heartbeat exists and is fresh (< 2x interval), the coder is running.
+    # This fixes the proprioception bug where self_introspect reported
+    # ARIA_CODER_ENABLED=0 (dormant) while the coder was actively fixing gaps.
+    _coder_status: dict[str, object] = {}
+    try:
+        from .self_restart import get_blackout_status as _gbs
+        _bs = _gbs()
+        _agents = _bs.get("agents", {}) or {}
+        _coder_agent = _agents.get("aria_coder") or {}
+        if _coder_agent:
+            _age = _coder_agent.get("heartbeat_age_s", float("inf"))
+            _coder_status = {
+                "running": _age < 120,  # heartbeat < 2min = actively ticking
+                "heartbeat_age_s": _age,
+                "blackout_count": _coder_agent.get("blackout_count", 0),
+                "recovery_count": _coder_agent.get("recovery_count", 0),
+            }
+        else:
+            _coder_status = {"running": False, "reason": "no heartbeat registered"}
+    except Exception as _ce:
+        logger.debug("R-F1435 coder status probe failed: %s", _ce)
+        _coder_status = {"running": False, "reason": f"probe failed: {_ce}"}
+
     lines = [
         "\n\n[TOOL: self_introspect — auto-fired by R-F595 capability detector]",
         "Live data from /api/aria/health/perf. Cite these EXACT numbers verbatim.",
@@ -220,6 +245,23 @@ async def self_introspect_context_block(message: str) -> str:
                                             "tasks_enabled", "ticks_24h",
                                             "tasks_fired_24h")):
             lines.append("  - (autonomy fields UNAVAILABLE — do not fabricate task counts)")
+
+    # R-F1435: coder status — fixes the proprioception bug where
+    # self_introspect reported ARIA_CODER_ENABLED=0 (dormant) while the
+    # coder was actively fixing gaps. Probed via heartbeat freshness.
+    lines.append("")
+    lines.append("CODER STATUS (ARIA-Coder — autonomous self-coding engine):")
+    if _coder_status.get("running"):
+        lines.append(f"  - running: True (heartbeat age {_coder_status.get('heartbeat_age_s', '?'):.0f}s)")
+        lines.append(f"  - blackout_count: {_coder_status.get('blackout_count', 0)}")
+        lines.append(f"  - recovery_count: {_coder_status.get('recovery_count', 0)}")
+        lines.append("  - NOTE: the coder IS actively running — it detects gaps, plans fixes, "
+                     "writes code, and stages improvements. Do NOT report it as dormant.")
+    else:
+        _reason = _coder_status.get("reason", "unknown")
+        lines.append(f"  - running: False ({_reason})")
+        lines.append("  - NOTE: the coder is NOT running. It starts automatically when "
+                     "ARIA_INTERNAL_TOKEN is set and the process boots.")
 
     # Retention — the explicit "no TTL" anchor so the LLM can never
     # reintroduce an 18-month TTL claim.
