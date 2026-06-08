@@ -20,6 +20,10 @@ from typing import Any, Optional
 
 import json
 
+# R-F1448: lazy import for AgentContract (used in lifespan for web_integrity proof)
+# Imported at module level so it doesn't shadow anything inside lifespan.
+from .intel.agent_contract import AgentContract
+
 
 async def _run_boot_inits(inits) -> list:
     """R-F1421 — run each (name, async init_fn) in order, ISOLATING failures.
@@ -1205,11 +1209,20 @@ async def lifespan(app: FastAPI):
     # detect stale/dead agents. Registration is best-effort (non-fatal).
     # R-F1209: each loop also ticks its heartbeat every iteration so the
     # registry knows the agent is alive and working.
-    async def _register_agent(agent_id: str, agent_type: str, task: str) -> None:
+    async def _register_agent(
+        agent_id: str, agent_type: str, task: str,
+        contract: Any = None,
+    ) -> None:
+        """Register an agent in the registry.
+
+        R-F1448: accepts an optional AgentContract. When provided, the
+        contract is registered alongside the agent and validated by
+        self_healing.
+        """
         try:
             from .intel.agent_registry import AgentRegistry
             _reg = AgentRegistry()
-            await _reg.register(agent_id, agent_type, current_task=task)
+            await _reg.register(agent_id, agent_type, current_task=task, contract=contract)
         except Exception:
             _log.warning("R-F672: agent register failed for %s", agent_id)
 
@@ -1306,9 +1319,30 @@ async def lifespan(app: FastAPI):
     # loop is needed in future, add it properly with wiring.
 
     # Register Web Integrity Agent (started below)
+    # R-F1448: proof contract — defines directives, inputs, outputs, error modes
+    _web_integrity_contract = AgentContract(
+        agent_id="web_integrity",
+        version="1.0.0",
+        directives=[
+            "Probe all configured endpoints each cycle",
+            "Report integrity results to brain via wire_success/wire_failure",
+            "Never block the event loop — all probes use async httpx with timeouts",
+        ],
+        inputs=["Endpoint list (WEB_ENDPOINTS + _WEB_ENDPOINTS_PUBLIC)"],
+        outputs=["Integrity report (passed/failed counts) to brain"],
+        error_modes=[
+            "endpoint_unreachable — log and continue, never crash the loop",
+            "401/403 on auth-gated endpoints — EXPECTED, not a failure (R-F1439)",
+            "self_probe_without_bearer_token — expected for public endpoints",
+        ],
+        dependencies=[],
+        check_interval_s=60,
+        critical=False,
+    )
     asyncio.create_task(_register_agent(
         "web_integrity", "monitoring",
         "24/7 endpoint monitoring, input/output validation, error pattern detection",
+        contract=_web_integrity_contract,
     ))
 
     # Register self-healing (already done in start_self_healing, but ensure it's registered)

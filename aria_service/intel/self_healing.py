@@ -670,7 +670,10 @@ class EcosystemSelfRepair:
         self._repair_history: list[dict] = []
 
     async def check_and_repair(self) -> dict:
-        """Check all tiers and repair any issues found."""
+        """Check all tiers and repair any issues found.
+
+        R-F1448: also validates agent contracts (cheap, in-memory, no lock).
+        """
         checks = await self._health.check_all()
         repairs = []
 
@@ -684,6 +687,26 @@ class EcosystemSelfRepair:
                     "recovery": result,
                 })
 
+        # R-F1448: validate agent contracts (cheap, in-memory, no state_store lock)
+        contract_violations = []
+        try:
+            from .agent_contract import CONTRACT_REGISTRY
+            all_violations = await CONTRACT_REGISTRY.validate_all_contracts()
+            for agent_id, violations in all_violations.items():
+                for v in violations:
+                    contract_violations.append({
+                        "agent_id": agent_id,
+                        "type": v.violation_type,
+                        "description": v.description,
+                        "severity": v.severity,
+                    })
+                    logger.warning(
+                        "[R-F1448] Contract violation: %s/%s — %s",
+                        agent_id, v.violation_type, v.description,
+                    )
+        except Exception:
+            pass  # contract validation must never crash the repair loop
+
         summary = {
             "timestamp": time.time(),
             "total_checks": len(checks),
@@ -692,6 +715,7 @@ class EcosystemSelfRepair:
             "critical": sum(1 for c in checks.values() if c.status == HealthStatus.CRITICAL),
             "repairs_attempted": len(repairs),
             "repairs": repairs,
+            "contract_violations": contract_violations,
         }
 
         self._repair_history.append(summary)
