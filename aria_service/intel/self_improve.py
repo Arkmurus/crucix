@@ -433,7 +433,7 @@ async def stage_improvement(
         # the fingerprint of a truncated rewrite. Additive/equal changes and
         # private-only churn are unaffected, so legitimate fixes pass; a human still
         # deploys genuine public-symbol removals.
-        if file_path.endswith(".py") and 0 < proposed_lines < current_lines:
+        if file_path.endswith(".py") and current_lines > 0:
             import ast as _ast
 
             def _public_syms(src: str) -> set[str]:
@@ -454,8 +454,8 @@ async def stage_improvement(
             dropped = _public_syms(cur_src) - _public_syms(new_content)
             if dropped:
                 logger.warning(
-                    "[self_improve] R-F1285 REJECTED stage of %s: drops %d public "
-                    "symbol(s) %s while shrinking %d->%d lines — likely truncation.",
+                    "[self_improve] R-F1285/R-F1450 REJECTED stage of %s: drops %d public "
+                    "symbol(s) %s (%d->%d lines) — likely destructive whole-file regen.",
                     file_path, len(dropped), sorted(dropped)[:6], current_lines, proposed_lines,
                 )
                 _SI_FAILURES += 1
@@ -465,9 +465,9 @@ async def stage_improvement(
                 return {
                     "error": (
                         f"Rejected: proposed content drops top-level public symbol(s) "
-                        f"{sorted(dropped)[:6]} present in the current file while shrinking "
-                        f"it ({current_lines}->{proposed_lines} lines) — almost certainly a "
-                        f"truncated rewrite that would delete working code. ARIA does not "
+                        f"{sorted(dropped)[:6]} present in the current file "
+                        f"({current_lines}->{proposed_lines} lines) — almost certainly a "
+                        f"destructive whole-file regen that would delete working code. ARIA does not "
                         f"stage symbol-dropping shrinkage."
                     ),
                     "staged": False,
