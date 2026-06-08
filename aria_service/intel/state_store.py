@@ -71,6 +71,7 @@ logger = logging.getLogger("aria.state_store")
 
 _DB_PATH: Path | None = None
 _conn = None  # aiosqlite.Connection — lazy init
+_read_conn = None  # R-F1449: separate read connection, never touched by _reconnect()
 # Lazy lock — bound to whatever loop first acquires it. Required because the
 # module is imported BEFORE any event loop exists, and pytest spins up a new
 # loop per `asyncio.run(...)` test. Single-SQL operations don't need this
@@ -529,6 +530,13 @@ async def connect(db_path: str | None = None) -> bool:
 
     try:
         _conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F1449: also open the dedicated read connection
+        _read_conn = await aiosqlite.connect(str(_DB_PATH))
+        await _read_conn.execute("PRAGMA journal_mode=WAL")
+        await _read_conn.execute("PRAGMA synchronous=NORMAL")
+        await _read_conn.execute("PRAGMA foreign_keys=OFF")
+        await _read_conn.execute("PRAGMA busy_timeout=5000")
+        await _read_conn.commit()
         # WAL mode → concurrent readers don't block writers. Crucial for
         # the chat path while autonomous tasks are also writing.
         await _conn.execute("PRAGMA journal_mode=WAL")
@@ -559,9 +567,15 @@ async def connect(db_path: str | None = None) -> bool:
 
 
 async def close() -> None:
-    """Close the SQLite connection. Called from lifespan shutdown."""
-    global _conn
-    if _conn is not None:
+    """Close the database connection."""
+    global _conn, _read_conn
+    if _read_conn:
+        try:
+            await _read_conn.close()
+        except Exception:
+            pass
+        _read_conn = None
+    if _conn:
         try:
             await _conn.close()
         except Exception:
@@ -593,22 +607,92 @@ async def sweep_expired() -> int:
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────
 
+
+def _get_read_conn():
+    """R-F1449: return the dedicated read connection.
+
+    The read connection is NEVER touched by _reconnect(), so a write-side
+    reset cannot kill concurrent reads. Under WAL mode, reads on this
+    connection see a consistent snapshot without blocking writers.
+
+    Falls back to _conn if _read_conn is not initialized (graceful
+    degradation during early boot before connect() completes).
+    """
+    return _read_conn if _read_conn is not None else _conn
+
+
+
+async def _ensure_read_conn() -> None:
+    """R-F1449: ensure the dedicated read connection is open.
+
+    Called by _row() retry-once path when the read connection was closed
+    by a write-side reset. Opens a new read connection without touching
+    _conn or _reconnect().
+    """
+    global _read_conn
+    if _DB_PATH is None:
+        return
+    try:
+        import aiosqlite
+        new_conn = await aiosqlite.connect(str(_DB_PATH))
+        await new_conn.execute("PRAGMA journal_mode=WAL")
+        await new_conn.execute("PRAGMA synchronous=NORMAL")
+        await new_conn.execute("PRAGMA foreign_keys=OFF")
+        await new_conn.execute("PRAGMA busy_timeout=5000")
+        await new_conn.commit()
+        _read_conn = new_conn
+    except Exception as e:
+        logger.warning("[R-F1449] _ensure_read_conn failed: %s", e)
 async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, float | None] | None:
     """Fetch (value, kind, expires_at) for a key. Returns None if missing
     or expired. If expected_kind is given and the kind mismatches, returns
-    None (treat as missing — Redis raises WRONGTYPE; we degrade gracefully)."""
-    if _conn is None:
+    None (treat as missing — Redis raises WRONGTYPE; we degrade gracefully).
+
+    R-F1449: uses _get_read_conn() (separate read connection) so a write-side
+    _reconnect() cannot kill concurrent reads. Retries ONCE on 'closed
+    database' by reopening the read connection and re-executing.
+    """
+    conn = _get_read_conn()
+    if conn is None:
         return None
     try:
-        cur = await _conn.execute(
+        cur = await conn.execute(
             "SELECT value, kind, expires_at FROM state WHERE key = ?",
             (key,),
         )
         row = await cur.fetchone()
         await cur.close()
     except Exception as e:
+        err_str = str(e)
+        # R-F1449: retry-once on closed database
+        if 'closed' in err_str or 'Cannot operate' in err_str:
+            try:
+                _ensure_read_conn()
+                conn = _get_read_conn()
+                if conn is not None:
+                    cur = await conn.execute(
+                        "SELECT value, kind, expires_at FROM state WHERE key = ?",
+                        (key,),
+                    )
+                    row = await cur.fetchone()
+                    await cur.close()
+                    if not row:
+                        return None
+                    value, kind, expires_at = row
+                    if _expired(expires_at):
+                        try:
+                            await conn.execute("DELETE FROM state WHERE key = ?", (key,))
+                            await conn.commit()
+                        except Exception:
+                            pass
+                        return None
+                    if expected_kind and kind != expected_kind:
+                        return None
+                    return value, kind, expires_at
+            except Exception:
+                pass
         logger.warning("state_store: SELECT %s failed: %s", key, e)
-        _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
+        _schedule_reconnect_if_dead(e)
         return None
     if not row:
         return None
