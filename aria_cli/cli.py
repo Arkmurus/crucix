@@ -30,6 +30,7 @@ Features:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import queue
@@ -174,35 +175,23 @@ _STDIN_PAUSED = threading.Event()
 # acts without the operator having to type anything.
 _CLAUDE_BRIDGE_EVENT = threading.Event()
 _CLAUDE_BRIDGE_BASE: Path | None = None  # set once at REPL start
-_PT_SESSION: Any = None  # R-F1407: module-level ref so the bridge poller can wake the prompt
+_PT_SESSION: Any = None  # R-F1407/R-F1426: module-level ref (no longer used for wake — prompt is self-checking via in-loop poller)
 # R-F1423: poll the bridge every 5s (was 20s) so idle resume is near-instant
 # after Claude replies, not up to 20s later.
 _BRIDGE_POLL_INTERVAL_S = float(os.getenv("ARIA_BRIDGE_POLL_INTERVAL_S", "5"))
+# R-F1426: in-loop poller interval for the concurrent prompt_async poller task.
+# The poller checks _OPERATOR_QUEUE every ~2s and calls app.exit() on the same
+# event loop when a Claude message arrives. 2s balances responsiveness vs CPU.
+_PROMPT_POLL_INTERVAL_S = 2.0
 
 
 def _wake_prompt_threadsafe() -> None:
-    """R-F1423 — return the blocking prompt() from the poller daemon thread,
-    THREAD-SAFELY. prompt_toolkit's Application is not thread-safe; calling
-    app.exit() directly from this daemon thread (R-F1407b) returned the prompt
-    once in a single-shot test but NOT reliably in the repeated submit-then-idle
-    flow. The supported way is to schedule the exit ON the app's own running
-    event loop via loop.call_soon_threadsafe; fall back to a direct call only
-    if no running loop is reachable. Never raises (daemon must survive)."""
-    pt = _PT_SESSION
-    app = getattr(pt, "app", None) if pt is not None else None
-    if app is None:
-        return
-    try:
-        loop = getattr(app, "loop", None)
-        if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(lambda: app.exit(result=""))
-        else:
-            app.exit(result="")  # fallback: no running loop reachable
-    except Exception:
-        try:
-            app.exit(result="")
-        except Exception:
-            pass
+    """R-F1426 — no-op. The prompt is now self-checking via a concurrent
+    in-loop task that polls _OPERATOR_QUEUE and calls app.exit() on the
+    SAME event loop (thread-safe by construction). No cross-thread wake
+    needed. Kept as a no-op for backward compat with the bridge poller
+    call site. Never raises (daemon must survive)."""
+    pass
 
 
 def _claude_bridge_poller() -> None:
@@ -237,21 +226,11 @@ def _claude_bridge_poller() -> None:
                     "what you should do next, adjust now.]\n" + text
                 )
             _CLAUDE_BRIDGE_EVENT.set()
-            # R-F1407b/c: wake the prompt so it returns and the next loop
-            # iteration drains _OPERATOR_QUEUE WITHOUT an operator keypress.
-            # R-F1423: call app.exit() the THREAD-SAFE way. The R-F1407b
-            # version called _pt.app.exit() DIRECTLY from this daemon thread —
-            # prompt_toolkit's Application is not thread-safe, so that worked
-            # once (single-shot test) but did NOT reliably return the blocking
-            # prompt() in the repeated submit-then-idle flow (operator: "she
-            # doesn't go back live after submitting until I prompt"). The
-            # supported pattern is to schedule exit() ON the app's own event
-            # loop via call_soon_threadsafe. Fall back to a direct call if the
-            # loop isn't available. The queue-drain at the REPL top still
-            # catches the message if the wake misses, so this is wake-latency,
-            # not correctness — but the thread-safe wake is what makes idle
-            # resume actually happen.
-            _wake_prompt_threadsafe()
+            # R-F1426: no wake needed — the prompt is self-checking via a
+            # concurrent in-loop task that polls _OPERATOR_QUEUE and calls
+            # app.exit() on the SAME event loop (thread-safe by construction).
+            # The daemon just queues the message; the in-loop poller picks it
+            # up within ~2s and exits the prompt.
         threading.Event().wait(_BRIDGE_POLL_INTERVAL_S)
 
 
@@ -1902,26 +1881,55 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     )
     _bridge_thread.start()
 
-    def _boxed_prompt() -> str:
-        """Render the anchored input box and read one line (R-F1389).
+    # R-F1426: self-checking prompt — uses prompt_async() with a concurrent
+    # in-loop task that polls _OPERATOR_QUEUE every ~2s. When a Claude message
+    # arrives, the poller calls app.exit(result=message) on the SAME event loop
+    # (thread-safe by construction). The box renders ONCE — no re-render spam.
+    # No cross-thread app.exit() needed; the bridge poller daemon just queues.
 
-        Clean, Claude-Code-style input: a thin top rule, a `❯ ` prompt,
-        and a matching base rule after submit. No redundant labels — the
-        `❯ ` is enough to signal input. A leading blank line keeps a clean
-        margin from ARIA's output above."""
-        w = _box_width()
-        top = "─" * w
-        # R-F1390 — NO refresh_interval. A periodic repaint forced a full box
-        # redraw every second (a second flicker source on top of streaming).
-        # The toolbar still updates whenever the worker prints a line — the only
-        # liveness signal that matters; a smoothly-advancing clock is not worth
-        # a 1Hz screen blink on the operator's terminal.
-        line_ = pt_session.prompt(
-            [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "❯ ")],
-            vi_mode=False,
-        )
-        print(color.dim("─" * w))
-        return line_
+    async def _async_prompt_with_poller(
+        session: Any,  # PTPromptSession
+        box_width: int,
+    ) -> str:
+        """Run prompt_async() with a concurrent queue poller on the same loop.
+
+        The box renders ONCE. A concurrent task polls _OPERATOR_QUEUE every
+        ~2s. When a message is found, it calls app.exit(result=message) on
+        the SAME event loop — thread-safe because it's the same loop, not a
+        daemon thread. Returns the submitted line or the Claude message.
+        """
+        top = "─" * box_width
+        prompt_tokens = [("", "\n"), ("class:prompt", top + "\n"), ("class:prompt", "❯ ")]
+        app = getattr(session, "app", None)
+
+        async def _queue_poller() -> None:
+            """Poll _OPERATOR_QUEUE every ~2s and exit the prompt on a message."""
+            while True:
+                await asyncio.sleep(_PROMPT_POLL_INTERVAL_S)
+                try:
+                    msg = _OPERATOR_QUEUE.get_nowait()
+                except Exception:
+                    continue
+                if app is not None:
+                    # Same event loop — thread-safe by construction
+                    app.exit(result=msg)
+                return
+
+        poller_task = asyncio.create_task(_queue_poller())
+        try:
+            line_ = await session.prompt_async(prompt_tokens, vi_mode=False)
+            print(color.dim("─" * box_width))
+            return line_
+        except EOFError:
+            raise
+        except KeyboardInterrupt:
+            raise
+        finally:
+            poller_task.cancel()
+            try:
+                await poller_task
+            except asyncio.CancelledError:
+                pass
 
     try:
         while True:
@@ -1948,8 +1956,15 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                         if pt_session is not None:
                             # R-F1383: prompt stays open even while a turn runs —
                             # patch_stdout routes worker output above the box.
+                            # R-F1426: use prompt_async with concurrent queue poller
+                            # on the same event loop. The box renders ONCE — no
+                            # re-render on timeout (the R-F1426 bug that spammed ❯).
                             with PTPatchStdout(raw=True):
-                                line = _sanitize_input_line(_boxed_prompt()).strip()
+                                line = _sanitize_input_line(
+                                    asyncio.run(
+                                        _async_prompt_with_poller(pt_session, _box_width())
+                                    )
+                                ).strip()
                         else:
                             line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
                     finally:

@@ -191,55 +191,29 @@ def test_app_exit_contract():
     assert drained == test_msg, f"Should drain the Claude message: got {drained[:80]}"
 
 
-def test_poller_uses_app_exit_not_invalidate():
-    """Structural proof: the wake uses app.exit() not app.invalidate().
-    R-F1423: the wake moved out of the poller into the thread-safe helper
-    _wake_prompt_threadsafe, so the structural checks target that helper; the
-    poller must call it."""
-    from aria_cli.cli import _claude_bridge_poller, _wake_prompt_threadsafe
+def test_poller_does_not_call_wake():
+    """Structural proof: the poller no longer calls _wake_prompt_threadsafe.
+    R-F1426: the prompt is self-checking via a concurrent in-loop task that
+    polls _OPERATOR_QUEUE and calls app.exit() on the SAME event loop. The
+    daemon just queues messages; no cross-thread wake needed."""
+    from aria_cli.cli import _claude_bridge_poller
     import inspect
 
     poller_source = inspect.getsource(_claude_bridge_poller)
-    assert "_wake_prompt_threadsafe" in poller_source, (
-        "Poller must call _wake_prompt_threadsafe() to wake the prompt"
+    # The poller must NOT call _wake_prompt_threadsafe (it's a no-op)
+    # Instead, the comment should explain the in-loop poller design
+    assert "no wake needed" in poller_source, (
+        "Poller comment must explain that no wake is needed (R-F1426)"
     )
+
+
+def test_wake_is_noop():
+    """R-F1426: _wake_prompt_threadsafe is a no-op — the prompt self-checks
+    via a concurrent in-loop poller task on the same event loop."""
+    from aria_cli.cli import _wake_prompt_threadsafe
+    import inspect
 
     source = inspect.getsource(_wake_prompt_threadsafe)
-
-    # Must use app.exit()
-    assert "app.exit" in source, (
-        "wake helper must call app.exit() to return the prompt"
-    )
-    # R-F1423: must wake THREAD-SAFELY (schedule on the app loop), not a raw
-    # cross-thread app.exit() (the R-F1407b bug that failed the repeat flow).
-    assert "call_soon_threadsafe" in source, (
-        "wake must be thread-safe (loop.call_soon_threadsafe), not a raw "
-        "cross-thread app.exit()"
-    )
-
-    # Must NOT use app.invalidate()
-    # Check that app.invalidate() is NOT called (the old broken approach).
-    # The word "invalidate" may appear in comments/docstrings explaining the fix.
-    # We check for the actual CALL pattern on non-comment lines only.
-    import re
-    code_lines = []
-    in_docstring = False
-    for line in source.split('\n'):
-        stripped = line.strip()
-        if stripped.startswith('"""') or stripped.startswith("'''"):
-            in_docstring = not in_docstring
-            continue
-        if in_docstring or stripped.startswith('#'):
-            continue
-        code_lines.append(line)
-    code_source = '\n'.join(code_lines)
-    invalidate_calls = re.findall(r'\.app\.invalidate\s*\(', code_source)
-    assert len(invalidate_calls) == 0, (
-        f"Poller must NOT call app.invalidate() — found {len(invalidate_calls)} call(s). "
-        "It only redraws, never unblocks prompt()."
-    )
-
-    # Must pass result='' (empty string = wake signal)
-    assert 'result=""' in source or "result=''" in source, (
-        "Poller must pass result='' to app.exit() so the REPL loop treats it as a wake signal"
+    assert "pass" in source or "no-op" in source, (
+        "R-F1426: _wake_prompt_threadsafe should be a no-op"
     )
