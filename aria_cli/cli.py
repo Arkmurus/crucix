@@ -184,6 +184,13 @@ _BRIDGE_POLL_INTERVAL_S = float(os.getenv("ARIA_BRIDGE_POLL_INTERVAL_S", "5"))
 # event loop when a Claude message arrives. 2s balances responsiveness vs CPU.
 _PROMPT_POLL_INTERVAL_S = 2.0
 
+# R-F1438 — crash-proofing latch for the prompt_toolkit input box. The anchored
+# box (prompt_async + a per-iteration asyncio.run) can raise (e.g. a cross-
+# event-loop error), and historically that took down the WHOLE REPL. Once the
+# box fails once, latch this True and fall back to the plain input() prompt for
+# the rest of the session — degraded, but the CLI stays alive. Relaunch to retry.
+_PT_PROMPT_BROKEN = [False]
+
 
 def _wake_prompt_threadsafe() -> None:
     """R-F1426 — no-op. The prompt is now self-checking via a concurrent
@@ -283,6 +290,33 @@ def _read_operator_input(prompt: str = "") -> str:
         return ""
     except KeyboardInterrupt:
         return ""
+
+
+def _read_line_robust(prompt_fn, fallback_fn, on_box_failure=None) -> str:
+    """Read one operator line, guaranteeing the prompt box can NEVER crash the
+    REPL (R-F1438).
+
+    Tries ``prompt_fn()`` (the prompt_toolkit anchored box). On ANY error other
+    than EOFError/KeyboardInterrupt (which are control flow and propagate), it
+    latches ``_PT_PROMPT_BROKEN`` and permanently falls back to ``fallback_fn()``
+    (the plain input() prompt) for the rest of the session. ``on_box_failure``,
+    if given, is called once with the exception so the caller can print a notice.
+
+    Pure/side-effect-light by design so it is unit-testable without a terminal.
+    """
+    if prompt_fn is not None and not _PT_PROMPT_BROKEN[0]:
+        try:
+            return prompt_fn()
+        except (EOFError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001 — the box must never kill the REPL
+            _PT_PROMPT_BROKEN[0] = True
+            if on_box_failure is not None:
+                try:
+                    on_box_failure(e)
+                except Exception:
+                    pass
+    return fallback_fn()
 
 
 # ── Session log ─────────────────────────────────────────────────────────────
@@ -1903,9 +1937,17 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
         app = getattr(session, "app", None)
 
         async def _queue_poller() -> None:
-            """Poll _OPERATOR_QUEUE every ~2s and exit the prompt on a message."""
+            """Poll _OPERATOR_QUEUE every ~2s and exit the prompt on a message.
+
+            R-F1438: when busy, do NOT drain the queue — the worker thread is the
+            only consumer. The poller's job is waking an IDLE prompt with a bridge
+            message; mid-task the operator's typed line returns via prompt_async
+            directly and is re-queued for the worker at line 2001.
+            """
             while True:
                 await asyncio.sleep(_PROMPT_POLL_INTERVAL_S)
+                if _TURN_STATE["busy"]:
+                    continue
                 try:
                     msg = _OPERATOR_QUEUE.get_nowait()
                 except Exception:
@@ -1937,12 +1979,17 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 # R-F1407: check for Claude bridge messages before blocking on prompt.
                 # If a message arrived while we were processing the last turn, drain
                 # it immediately without waiting for operator input.
+                # R-F1438: when busy, the worker thread is the ONLY consumer of
+                # _OPERATOR_QUEUE (via _drain_operator_stdin at each loop step).
+                # The main loop must NOT steal messages meant for the worker —
+                # doing so creates an infinite drain/re-queue loop at lines 1943+2001.
                 _CLAUDE_BRIDGE_EVENT.clear()
                 claude_line = None
-                try:
-                    claude_line = _OPERATOR_QUEUE.get_nowait()
-                except Exception:
-                    pass
+                if not _TURN_STATE["busy"]:
+                    try:
+                        claude_line = _OPERATOR_QUEUE.get_nowait()
+                    except Exception:
+                        pass
                 if claude_line is not None:
                     line = claude_line
                     # Skip the prompt entirely — process the Claude message as a turn
@@ -1953,24 +2000,42 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                     # the background thread from consuming keystrokes meant for input().
                     _pause_stdin_reader()
                     try:
-                        if pt_session is not None:
-                            # R-F1383: prompt stays open even while a turn runs —
-                            # patch_stdout routes worker output above the box.
-                            # R-F1426: use prompt_async with concurrent queue poller
-                            # on the same event loop. The box renders ONCE — no
-                            # re-render on timeout (the R-F1426 bug that spammed ❯).
+                        # R-F1383: prompt stays open even while a turn runs —
+                        # patch_stdout routes worker output above the box.
+                        # R-F1426: prompt_async with a concurrent queue poller on
+                        # the same event loop; the box renders ONCE.
+                        def _box_prompt() -> str:
                             with PTPatchStdout(raw=True):
-                                line = _sanitize_input_line(
+                                return _sanitize_input_line(
                                     asyncio.run(
                                         _async_prompt_with_poller(pt_session, _box_width())
                                     )
                                 ).strip()
-                        else:
-                            line = _sanitize_input_line(_read_operator_input(color.bold("  you > "))).strip()
+
+                        def _plain_prompt() -> str:
+                            return _sanitize_input_line(
+                                _read_operator_input(color.bold("  you > "))
+                            ).strip()
+
+                        def _on_box_fail(err: Exception) -> None:
+                            print(color.dim(
+                                f"  (input box unavailable: {type(err).__name__} — "
+                                "switched to a basic prompt; type + Enter still works. "
+                                "Relaunch to retry the box.)"
+                            ))
+
+                        # R-F1438: the box can never crash the REPL — on failure it
+                        # latches and degrades to the plain input() prompt.
+                        line = _read_line_robust(
+                            _box_prompt if pt_session is not None else None,
+                            _plain_prompt,
+                            on_box_failure=_on_box_fail,
+                        )
                     finally:
-                        # Fallback (no prompt_toolkit): the msvcrt reader provides
-                        # mid-task interject, so resume it only on that path.
-                        if pt_session is None:
+                        # The msvcrt reader provides mid-task interject on the
+                        # plain-prompt path — resume it whenever the box isn't
+                        # the active input (no prompt_toolkit, or box latched off).
+                        if pt_session is None or _PT_PROMPT_BROKEN[0]:
                             _resume_stdin_reader()
             except EOFError:
                 break

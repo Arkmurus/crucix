@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1443,
+  "next_available": 1444,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8804,9 +8804,10 @@
       "title": "quiet GitHub Actions push-failure emails (docker/fallback dispatch-only; fix test-aria)",
       "claimed_at": "2026-06-08T08:17:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bdff0f8c",
+      "notes": null,
+      "shipped_at": "2026-06-08T09:24:36Z"
     },
     {
       "r_number": "R-F1437",
@@ -8866,6 +8867,15 @@
       "commit_sha": "40efdbd8",
       "notes": null,
       "shipped_at": "2026-06-08T09:22:38Z"
+    },
+    {
+      "r_number": "R-F1443",
+      "title": "Fix coder rejecting LLM-generated absolute paths in workspace",
+      "claimed_at": "2026-06-08T09:27:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
