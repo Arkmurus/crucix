@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from unittest.mock import patch
 
 import pytest
@@ -343,3 +344,81 @@ class TestCapabilityStateStoreLockBurst:
             f"Expected exactly 1 ERROR, got {len(errors_logged)}: {errors_logged}"
         assert "lock-acquire timed out" in errors_logged[0], \
             f"ERROR should mention lock-acquire timeout: {errors_logged[0]}"
+
+
+class TestCapabilityReadConnRetry:
+    """R-F1449: read connection retry-on-closed-database.
+
+    When _read_conn is closed (simulating a write-side _reconnect()), a
+    subsequent _row() call should reopen the read connection and retry
+    the query, returning the correct value instead of None.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _ensure_state(self, monkeypatch, tmp_path):
+        """Ensure state_store is connected to a temp DB and has a test key."""
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        db_path = tmp.name
+        tmp.close()
+        monkeypatch.setenv("ARIA_STATE_DB_PATH", db_path)
+        from aria_service.intel import state_store as _ss
+        if _ss._conn is None:
+            await _ss.connect()
+        # Set a test key we can read back
+        await _ss.set("_test_rf1449_retry_key", "retry_value")
+        yield
+        # Cleanup
+        try:
+            await _ss.delete("_test_rf1449_retry_key")
+        except Exception:
+            pass
+        try:
+            await _ss.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(db_path)
+        except Exception:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_read_conn_isolation(self):
+        """_read_conn is separate from _conn and survives a write-side reset."""
+        from aria_service.intel import state_store as _ss
+
+        # Verify _read_conn exists and is separate
+        assert _ss._read_conn is not None, "_read_conn should be initialized"
+        assert _ss._conn is not None, "_conn should be initialized"
+        assert _ss._read_conn != _ss._conn, "_read_conn should be a different connection"
+
+        # Read via _row should work normally
+        val = await _ss.get("_test_rf1449_retry_key")
+        assert val == "retry_value", f"Expected 'retry_value', got {val!r}"
+
+    @pytest.mark.asyncio
+    async def test_read_retry_on_closed_connection(self):
+        """When _read_conn is closed, _row() reopens it and retries.
+
+        This proves the retry-once path works: close _read_conn, then
+        do a _row read — it should reopen and return the correct value.
+        """
+        from aria_service.intel import state_store as _ss
+
+        # Close _read_conn to simulate a write-side _reconnect()
+        old_read_conn = _ss._read_conn
+        await old_read_conn.close()
+
+        # _read_conn is now closed — _row should detect this, call
+        # _ensure_read_conn(), reopen, and retry the query
+        val = await _ss.get("_test_rf1449_retry_key")
+        assert val == "retry_value", (
+            f"Read should recover after closed _read_conn, "
+            f"got {val!r}"
+        )
+
+        # Verify a new _read_conn was opened
+        assert _ss._read_conn is not None, "_read_conn should be reopened"
+        assert _ss._read_conn != old_read_conn, (
+            "_read_conn should be a new connection after retry"
+        )

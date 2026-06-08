@@ -502,7 +502,7 @@ async def connect(db_path: str | None = None) -> bool:
     """Open the SQLite file and create the schema if missing. Returns True
     on success. Caller (main.py) should fall back to in-memory dict if
     False (matches redis_store.connect contract)."""
-    global _conn, _DB_PATH
+    global _conn, _DB_PATH, _read_conn
     _reset_lock()
     try:
         import aiosqlite
@@ -665,9 +665,9 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     except Exception as e:
         err_str = str(e)
         # R-F1449: retry-once on closed database
-        if 'closed' in err_str or 'Cannot operate' in err_str:
+        if 'closed' in err_str or 'Cannot operate' in err_str or 'no active connection' in err_str:
             try:
-                _ensure_read_conn()
+                await _ensure_read_conn()
                 conn = _get_read_conn()
                 if conn is not None:
                     cur = await conn.execute(
