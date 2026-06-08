@@ -1359,7 +1359,7 @@ async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
 # ── Airtable health — reads 1 row from Task Register + Pipeline ──
 # Added 2026-04-21 after ops couldn't tell why Airtable rows were
 # silently missing — pending_actions.airtable_sync failures were
-# logger.debug only. This endpoint surfaces live reachability + table
+# _log.debug only. This endpoint surfaces live reachability + table
 # resolution + auth scope so "fix the airtable" triages in 1 call.
 @router.get("/airtable/health")
 async def airtable_health_ep():
@@ -6073,7 +6073,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                 from ..intel.deep_researcher import _extract_search_anchor
                 query = _extract_search_anchor(raw_query)
                 if query != raw_query:
-                    logger.info(
+                    _log.info(
                         "R-F394: brave_answer extracted anchor %r from full query %r",
                         query[:80], raw_query[:120],
                     )
@@ -7121,7 +7121,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                         f"Blocked: {screen_r.get('blocked', False)}"
                     )
             except Exception as e:
-                logger.debug("Auto sanctions screen on profile failed: %s", e)
+                _log.debug("Auto sanctions screen on profile failed: %s", e)
 
             return base
 
@@ -10275,7 +10275,7 @@ async def purge_memory_ep(request: Request):
             from ..intel import knowledge as _kb
             out["knowledge"] = await _kb.purge_by_keywords(keywords, dry_run=dry_run)
         except Exception as e:
-            logger.warning("purge-memory: knowledge store failed: %s", e)
+            _log.warning("purge-memory: knowledge store failed: %s", e)
             out["knowledge"] = {"error": f"{type(e).__name__}: {e}"}
 
     if "reasoning_library" in stores:
@@ -10283,7 +10283,7 @@ async def purge_memory_ep(request: Request):
             from ..intel import reasoning_library as _rl
             out["reasoning_library"] = await _rl.purge_by_keywords(keywords, dry_run=dry_run)
         except Exception as e:
-            logger.warning("purge-memory: reasoning_library failed: %s", e)
+            _log.warning("purge-memory: reasoning_library failed: %s", e)
             out["reasoning_library"] = {"error": f"{type(e).__name__}: {e}"}
 
     if "rag" in stores:
@@ -10291,7 +10291,7 @@ async def purge_memory_ep(request: Request):
             from ..intel import rag_store as _rs
             out["rag"] = await _rs.purge_by_keywords(keywords, dry_run=dry_run)
         except Exception as e:
-            logger.warning("purge-memory: rag_store failed: %s", e)
+            _log.warning("purge-memory: rag_store failed: %s", e)
             out["rag"] = {"error": f"{type(e).__name__}: {e}"}
 
     return out
@@ -11788,7 +11788,7 @@ async def coder_llm_ep(request: Request):
     # window and enough for any single-file fix plan + code context.
     _MAX_PROMPT_CHARS = 40_000
     if len(prompt) > _MAX_PROMPT_CHARS:
-        logger.warning(
+        _log.warning(
             "[coder/llm] Truncating prompt from %d to %d chars",
             len(prompt), _MAX_PROMPT_CHARS,
         )
@@ -15271,7 +15271,7 @@ Prioritise Lusophone Africa (incumbent advantage), then markets where Arkmurus h
             else:
                 leads_in = []
             if not leads_in:
-                logger.warning(
+                _log.warning(
                     "[lead-hunt] R-F915 structured parse yielded 0 leads; raw head: %s",
                     (result.text or "")[:300],
                 )
@@ -17702,7 +17702,7 @@ def _get_memory_router():
         if rag_store._ensure():
             chromadb_coll = rag_store._documents_collection
     except Exception as e:
-        logger.debug("memory_router: rag_store unavailable (%s)", e)
+        _log.debug("memory_router: rag_store unavailable (%s)", e)
     return ARIAMemoryRouter(chromadb_collection=chromadb_coll)
 
 
@@ -20874,7 +20874,7 @@ async def writers_produce_ep(body: _WriterProduceBody):
         # Missing / unexpected kwargs from the caller
         raise HTTPException(status_code=400, detail=f"Bad params: {e}")
     except Exception as e:
-        logger.exception("Writer failed: %s", e)
+        _log.exception("Writer failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
     body_out = {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1438,
+  "next_available": 1441,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8797,7 +8797,7 @@
       "status": "shipped",
       "commit_sha": "07175808",
       "notes": null,
-      "shipped_at": "2026-06-08T08:06:23Z"
+      "shipped_at": "2026-06-08T08:41:05Z"
     },
     {
       "r_number": "R-F1436",
@@ -8812,6 +8812,34 @@
       "r_number": "R-F1437",
       "title": "Fix docx redline blindness + doc-review routing (no external tools)",
       "claimed_at": "2026-06-08T08:28:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "32f72a39",
+      "notes": null,
+      "shipped_at": "2026-06-08T08:45:42Z"
+    },
+    {
+      "r_number": "R-F1438",
+      "title": "Fix infinite mid-task interject loop",
+      "claimed_at": "2026-06-08T08:45:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1439",
+      "title": "Fix web_integrity_agent self-healing: wire errors to self-improve cycle + stage real code fixes instead of markdown docs",
+      "claimed_at": "2026-06-08T08:53:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1440",
+      "title": "fix coder_llm_ep NameError logger->_log (500 on >40k prompts breaking self-coder)",
+      "claimed_at": "2026-06-08T08:55:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
