@@ -1,23 +1,15 @@
 name: Build & Publish Docker Image
 
 on:
+  # R-F1436 (2026-06-08) — STOP per-push email spam. This heavy multi-arch
+  # QEMU build is NOT used by the live system: fly.io builds its own image via
+  # Depot in scripts/deploy.ps1/.sh. Publishing to GHCR on every code push only
+  # produced failure emails that flooded the operator's mailbox. Now it runs
+  # ONLY on version tags (real releases) or manual dispatch. Re-add a push
+  # trigger only if an external consumer actually needs the GHCR image per-commit.
   push:
-    branches: [main]
     tags: ['v*']
-    # R-F969 (2026-05-28) — registry/doc-only commits (the "chore: ship
-    # marker R-Fxxx" commits that touch only data/r_number_reservations.json,
-    # plus docs + markdown + leading-underscore session scratch) don't change
-    # the image, so don't burn a full multi-arch QEMU build on them. The fly
-    # deploy pipeline (test-aria.yml → deploy-fly.yml) is already path-filtered
-    # to aria_service/**, so this is the only workflow that fired on every
-    # commit. Reduces per-R-number CI churn.
-    paths-ignore:
-      - 'docs/**'
-      - 'data/r_number_reservations.json'
-      - '**/*.md'
-      - '_*.txt'
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
