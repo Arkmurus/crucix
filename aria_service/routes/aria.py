@@ -11795,12 +11795,23 @@ async def coder_llm_ep(request: Request):
     # 400). 40k chars is ~10k tokens — well within DeepSeek's 64k context
     # window and enough for any single-file fix plan + code context.
     _MAX_PROMPT_CHARS = 40_000
-    if len(prompt) > _MAX_PROMPT_CHARS:
+    _orig_len = len(prompt)
+    if _orig_len > _MAX_PROMPT_CHARS:
+        # R-F1442: truncate at the LAST newline before the limit, not at
+        # the hard character boundary. A hard cut mid-JSON, mid-code, or
+        # mid-word produces invalid content that DeepSeek rejects with 400
+        # Bad Request (live evidence: coder writing_code stage sent 57k
+        # prompts, hard-truncated to 40k, then got 400 — fix silently
+        # failed, gap re-detected, LLM budget wasted).
+        _safe_cut = prompt.rfind("\n", 0, _MAX_PROMPT_CHARS)
+        if _safe_cut > _MAX_PROMPT_CHARS // 2:  # only use if we keep >50%
+            prompt = prompt[:_safe_cut]
+        else:
+            prompt = prompt[:_MAX_PROMPT_CHARS]
         _log.warning(
-            "[coder/llm] Truncating prompt from %d to %d chars",
-            len(prompt), _MAX_PROMPT_CHARS,
+            "[coder/llm] Truncating prompt from %d to %d chars (safe-boundary cut)",
+            _orig_len, len(prompt),
         )
-        prompt = prompt[:_MAX_PROMPT_CHARS]
     task = (body.get("task") or "general").strip()
     if task not in ("plan", "code", "test", "heal", "general"):
         raise HTTPException(
