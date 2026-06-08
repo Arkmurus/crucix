@@ -245,7 +245,11 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
             )
 
         # Check 3: Expected fields in JSON response
-        if expected:
+        # R-F1439: 401/403 on auth-gated endpoints is EXPECTED when probing
+        # without a bearer token — don't flag as missing_field. The endpoint
+        # is working correctly (it rejected an unauthenticated request).
+        # Only check expected fields when the response is successful (2xx).
+        if expected and resp.is_success:
             try:
                 data = resp.json()
                 for field in expected:
@@ -328,7 +332,8 @@ async def check_endpoint_public(endpoint: dict[str, Any]) -> IntegrityCheck:
                 f"Slow response: {elapsed:.0f}ms on {method} {path} (public, threshold: 5000ms)"
             )
 
-        if expected:
+        # R-F1439: only check expected fields on successful responses
+        if expected and resp.is_success:
             try:
                 data = resp.json()
                 for field in expected:
@@ -819,7 +824,14 @@ class WebIntegrityAgent:
     # ── Internal: error recording ───────────────────────────────────────────
 
     async def _record_error(self, check: IntegrityCheck) -> None:
-        """Record an integrity error to Redis."""
+        """Record an integrity error to Redis AND the self-improvement error log.
+
+        R-F1439: also calls self_improve.record_error() so the autonomous
+        self-improvement cycle sees web_integrity errors and can generate
+        real code fixes (not just markdown docs). Previously the web_integrity
+        agent detected patterns and staged markdown docs, but the self-improve
+        cycle never saw these errors because record_error() was never called.
+        """
         if self._redis is None:
             return
         try:
@@ -837,6 +849,19 @@ class WebIntegrityAgent:
             )
         except Exception as e:
             logger.debug("[web_integrity] record_error failed: %s", e)
+
+        # R-F1439: wire to self-improve error log so the autonomous cycle sees it
+        try:
+            from . import self_improve as _si
+            for err_msg in check.errors:
+                await _si.record_error(
+                    error_type="web_integrity",
+                    message=f"{check.method} {check.endpoint}: {err_msg}",
+                    file="aria_service/intel/web_integrity_agent.py",
+                    function="_record_error",
+                )
+        except Exception as e:
+            logger.debug("[web_integrity] self_improve.record_error failed: %s", e)
 
     async def _record_validation_error(
         self, path: str, method: str, errors: list[str],
@@ -985,68 +1010,56 @@ class WebIntegrityAgent:
         """Stage a fix for a recurring error pattern.
 
         DIRECTIVE 6: Self-healing — propose fixes for recurring patterns.
+
+        R-F1439: instead of staging useless markdown docs to lib/web_integrity/,
+        wire the error to the self-improvement error log so the autonomous cycle
+        can generate real code fixes. Also record a capability gap so the coder
+        picks it up. The markdown doc staging was a dead end — it never produced
+        a real code change.
         """
         logger.warning(
-            "[web_integrity] PATTERN DETECTED: %s on %s (%d occurrences) — staging fix",
+            "[web_integrity] PATTERN DETECTED: %s on %s (%d occurrences) — recording for self-improve cycle",
             pattern.error_type, pattern.endpoint, pattern.count,
         )
 
         try:
             from . import self_improve as _si
 
-            # Build a fix description based on the error type
-            if pattern.error_type == "timeout":
-                description = f"Increase timeout for {pattern.endpoint}"
-                reasoning = (
-                    f"Endpoint {pattern.endpoint} has timed out {pattern.count} times "
-                    f"in the last hour. Consider increasing the timeout or optimizing "
-                    f"the endpoint response time."
-                )
-            elif pattern.error_type == "connection":
-                description = f"Check connectivity for {pattern.endpoint}"
-                reasoning = (
-                    f"Endpoint {pattern.endpoint} has {pattern.count} connection "
-                    f"failures in the last hour. The service may be down."
-                )
-            elif pattern.error_type == "missing_field":
-                description = f"Add missing field to {pattern.endpoint} response"
-                reasoning = (
-                    f"Endpoint {pattern.endpoint} is missing expected fields in "
-                    f"{pattern.count} responses. The response schema may have changed."
-                )
-            else:
-                description = f"Investigate errors on {pattern.endpoint}"
-                reasoning = (
-                    f"Endpoint {pattern.endpoint} has {pattern.count} errors "
-                    f"of type '{pattern.error_type}' in the last hour."
+            # R-F1439: wire to self-improve error log so the autonomous cycle
+            # can generate real code fixes (not markdown docs).
+            for example in pattern.examples:
+                await _si.record_error(
+                    error_type=f"web_integrity_{pattern.error_type}",
+                    message=f"{pattern.endpoint}: {example}",
+                    file="aria_service/intel/web_integrity_agent.py",
+                    function="_stage_fix",
                 )
 
-            result = await _si.stage_improvement(
-                file_path=f"lib/web_integrity/{pattern.endpoint.replace('/', '_')}.md",
-                new_content=(
-                    f"# Integrity Fix: {pattern.error_type} on {pattern.endpoint}\n\n"
-                    f"**Detected:** {pattern.count} occurrences\n"
-                    f"**First seen:** {pattern.first_seen}\n"
-                    f"**Examples:**\n"
-                    + "\n".join(f"- {e}" for e in pattern.examples)
-                ),
-                change_type="bug_fix",
-                description=description,
-                reasoning=reasoning,
+            # Also record a capability gap so the coder pipeline picks it up
+            try:
+                from . import capability_gaps as _cg
+                await _cg.record_gap(
+                    gap_type=f"web_integrity_{pattern.error_type}",
+                    module=f"web_integrity:{pattern.endpoint}",
+                    description=(
+                        f"Recurring {pattern.error_type} on {pattern.endpoint} "
+                        f"({pattern.count} occurrences). "
+                        f"Example: {pattern.examples[0] if pattern.examples else 'N/A'}"
+                    ),
+                    severity="MEDIUM",
+                    source="web_integrity_agent:_stage_fix",
+                )
+            except Exception as e:
+                logger.debug("[web_integrity] capability_gaps.record failed: %s", e)
+
+            self._detector.mark_fixed(pattern.pattern_id)
+            logger.info(
+                "[web_integrity] Pattern %s recorded for self-improve cycle: %s on %s",
+                pattern.pattern_id, pattern.error_type, pattern.endpoint,
             )
-
-            if result.get("staged"):
-                self._detector.mark_fixed(
-                    pattern.pattern_id,
-                    staged_id=result.get("id", ""),
-                )
-                logger.info(
-                    "[web_integrity] Fix staged for pattern %s: %s",
-                    pattern.pattern_id, description,
-                )
         except Exception as e:
             logger.error(
-                "[web_integrity] Failed to stage fix for pattern %s: %s",
+                "[web_integrity] Failed to record pattern %s: %s",
                 pattern.pattern_id, e,
             )
 
