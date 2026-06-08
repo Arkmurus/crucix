@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1446,
+  "next_available": 1448,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8892,6 +8892,24 @@
       "r_number": "R-F1445",
       "title": "land reviewed self-coded enforce_budget truncation fix (coder f61bf54c / R-F5880)",
       "claimed_at": "2026-06-08T10:03:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1446",
+      "title": "Fix agent registry heartbeat persistence under SQLite lock contention",
+      "claimed_at": "2026-06-08T10:27:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1447",
+      "title": "fix UnboundLocalError asyncio in main.py lifespan (R-F1444 broke boot -> outage)",
+      "claimed_at": "2026-06-08T10:32:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

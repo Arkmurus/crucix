@@ -2114,7 +2114,11 @@ async def lifespan(app: FastAPI):
         # R-F1444: fire-and-forget auto-registration for pending portals
         try:
             from .intel.portal_registry import auto_register_all as _auto_reg
-            import asyncio
+            # R-F1447: use the module-level asyncio (line 14). A bare local
+            # `import asyncio` here made asyncio function-local for the WHOLE
+            # lifespan(), so the earlier asyncio.create_task at line ~450
+            # raised UnboundLocalError -> lifespan startup failed -> the app
+            # never bound :8000 -> deploy failed / OUTAGE. Same class as R-F1441.
             asyncio.create_task(_delayed_auto_register(_auto_reg))
         except Exception as _reg_e:
             logger.warning("[R-F1444] Auto-registration launch failed (non-fatal): %s", _reg_e)
