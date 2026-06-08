@@ -9720,7 +9720,14 @@ async def _read_document_ep_impl(request: Request):
                 # stays responsive.
                 try:
                     from ..intel import pdf_deep_ingest
-                    import asyncio
+                    # R-F1441: use the module-level `asyncio` (line 6). A local
+                    # `import asyncio` here bound `asyncio` as a function-local
+                    # for the WHOLE function, so `await asyncio.to_thread(...)`
+                    # above (line ~9706) raised UnboundLocalError -> PDF
+                    # extraction crashed -> doc text never reached chat context
+                    # -> document review silently broke. Follow the file's
+                    # `import asyncio as _aioXXX` alias convention if a local is
+                    # ever truly needed; never bare-import a module-global name.
                     asyncio.create_task(pdf_deep_ingest.ingest_pdf_multi_page(
                         raw_bytes, filename, source_context=source,
                         ingest_images=True,
@@ -10029,7 +10036,8 @@ async def _read_document_ep_impl(request: Request):
         if not extracted or len(extracted) < 30:
             try:
                 from ..intel import capability_gaps
-                import asyncio
+                # R-F1441: module-level `asyncio` (line 6) — see note above; a
+                # second bare local import here was the other half of the shadow.
                 _t = asyncio.create_task(capability_gaps.record_gap(
                     gap_type="file_parse",
                     detail=f"Could not extract text from {fname_lower} (mime={mime_lower}, {len(raw_bytes)} bytes)",

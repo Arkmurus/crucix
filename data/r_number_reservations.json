@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1441,
+  "next_available": 1442,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8832,14 +8832,24 @@
       "title": "Fix web_integrity_agent self-healing: wire errors to self-improve cycle + stage real code fixes instead of markdown docs",
       "claimed_at": "2026-06-08T08:53:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d4507d87",
+      "notes": null,
+      "shipped_at": "2026-06-08T09:03:41Z"
     },
     {
       "r_number": "R-F1440",
       "title": "fix coder_llm_ep NameError logger->_log (500 on >40k prompts breaking self-coder)",
       "claimed_at": "2026-06-08T08:55:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1441",
+      "title": "fix UnboundLocalError asyncio in _read_document_ep_impl (PDF extraction crash breaks doc review)",
+      "claimed_at": "2026-06-08T09:03:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
