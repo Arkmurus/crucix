@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1444,
+  "next_available": 1446,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8824,9 +8824,10 @@
       "title": "Fix infinite mid-task interject loop",
       "claimed_at": "2026-06-08T08:45:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "eddc7a03",
+      "notes": null,
+      "shipped_at": "2026-06-08T09:31:43Z"
     },
     {
       "r_number": "R-F1439",
@@ -8872,6 +8873,25 @@
       "r_number": "R-F1443",
       "title": "Fix coder rejecting LLM-generated absolute paths in workspace",
       "claimed_at": "2026-06-08T09:27:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "eddc7a03",
+      "notes": null,
+      "shipped_at": "2026-06-08T09:38:53Z"
+    },
+    {
+      "r_number": "R-F1444",
+      "title": "Portal registration pipeline: vault update + registration agent + email verification + autonomous task",
+      "claimed_at": "2026-06-08T09:58:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1445",
+      "title": "land reviewed self-coded enforce_budget truncation fix (coder f61bf54c / R-F5880)",
+      "claimed_at": "2026-06-08T10:03:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

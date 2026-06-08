@@ -194,37 +194,75 @@ def enforce_budget(
     user_tokens = estimate_tokens(user_message)
     excess = total_estimated - prompt_budget
 
-    # Strategy 1: Truncate user message first
-    if user_tokens > excess + min_system_tokens:
-        # We can fit the excess entirely in the user message
-        target_user_chars = _tokens_to_chars(user_tokens - excess)
-        truncated_user = _truncate_to_chars(user_message, target_user_chars)
-        logger.info(
-            "Truncated user message from ~%d to ~%d tokens (shed %d)",
-            user_tokens, estimate_tokens(truncated_user), excess,
-        )
-        return system_prompt, truncated_user
+    # Strategy 1: Iteratively truncate user message to fit within budget
+    # Keep system prompt unchanged, reduce user message until total fits
+    target_total_tokens = prompt_budget - 8  # subtract overhead
+    target_user_tokens = target_total_tokens - system_tokens
+    if target_user_tokens < 50:
+        target_user_tokens = 50  # keep at least 50 tokens for user message
+    
+    original_user_tokens = user_tokens
+    truncated_user = user_message
+    # Iterative truncation: reduce user text in chunks until it fits
+    while estimate_tokens(truncated_user) + system_tokens + 8 > prompt_budget and len(truncated_user) > 0:
+        # Truncate by removing roughly 20% of characters each iteration
+        new_len = int(len(truncated_user) * 0.8)
+        if new_len < 1:
+            new_len = 0
+        truncated_user = truncated_user[:new_len]
+        # Try to break at a sentence boundary near the new length
+        for separator in ("\n\n", ". ", "! ", "? ", "\n"):
+            last = truncated_user.rfind(separator)
+            if last > len(truncated_user) // 2:
+                truncated_user = truncated_user[:last + len(separator)] + "..."
+                break
+        else:
+            # No good break found, just keep what we have
+            if truncated_user:
+                truncated_user = truncated_user.rstrip() + "..."
+            break
+    
+    new_user_tokens = estimate_tokens(truncated_user)
+    tokens_shed = original_user_tokens - new_user_tokens
+    logger.info(
+        "Truncated user message from ~%d to ~%d tokens (shed %d tokens)",
+        original_user_tokens, new_user_tokens, tokens_shed,
+    )
 
-    # Strategy 2: Truncate user message to minimum, then truncate system
-    min_user_tokens = max(50, user_tokens - excess)
-    target_user_chars = _tokens_to_chars(min_user_tokens)
-    truncated_user = _truncate_to_chars(user_message, target_user_chars)
-    remaining_excess = excess - (user_tokens - min_user_tokens)
-
+    # Recalculate remaining budget
+    remaining_excess = estimate_tokens(system_prompt) + estimate_tokens(truncated_user) + 8 - prompt_budget
     if remaining_excess > 0 and system_tokens > min_system_tokens:
+        # Truncate system prompt as well
         target_system_chars = _tokens_to_chars(max(min_system_tokens, system_tokens - remaining_excess))
         truncated_system = _truncate_to_chars(system_prompt, target_system_chars)
         logger.info(
-            "Truncated system from ~%d to ~%d tokens and user from ~%d to ~%d tokens",
+            "Truncated system from ~%d to ~%d tokens to fit budget",
             system_tokens, estimate_tokens(truncated_system),
-            user_tokens, estimate_tokens(truncated_user),
         )
+        new_total = estimate_tokens(truncated_system) + estimate_tokens(truncated_user) + 8
+        if new_total > prompt_budget:
+            logger.error(
+                "Even after truncation, prompt ~%d tokens exceeds budget %d for model '%s' — this should not happen",
+                new_total, prompt_budget, model,
+            )
+            # Fallback: truncate both to 50% each
+            half_budget = prompt_budget // 2
+            truncated_system = _truncate_to_chars(truncated_system, _tokens_to_chars(half_budget))
+            truncated_user = _truncate_to_chars(truncated_user, _tokens_to_chars(half_budget))
         return truncated_system, truncated_user
 
-    logger.warning(
-        "Could not fit prompt within budget even after truncation — sending truncated version",
-    )
-    return truncated_user if 'truncated_system' in dir() else system_prompt, truncated_user
+    # Final check: if still over budget, force truncate system to half budget
+    if estimate_tokens(system_prompt) + estimate_tokens(truncated_user) + 8 > prompt_budget:
+        logger.error(
+            "Prompt still exceeds budget after user truncation — forcing system truncation for model '%s'",
+            model,
+        )
+        half_budget = prompt_budget // 2
+        truncated_system = _truncate_to_chars(system_prompt, _tokens_to_chars(half_budget))
+        truncated_user = _truncate_to_chars(truncated_user, _tokens_to_chars(half_budget))
+        return truncated_system, truncated_user
+
+    return system_prompt, truncated_user
 
 
 def _tokens_to_chars(tokens: int) -> int:
