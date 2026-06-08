@@ -36,6 +36,35 @@ except Exception:
 ENABLE_VAR_MASTER = "ARIA_AUTONOMOUS_ENABLED"
 ENABLE_VAR_CODER = "ARIA_CODER_ENABLED"
 
+
+class _HarvestShim:
+    """Adapter so ARIACoder can call ``output_harvester.capture(pair)`` over
+    the module-level ``output_harvester.harvest`` coroutine.
+
+    R-F1434: ``harvest`` is ``async def`` and MUST be awaited. It was
+    previously called synchronously from a nested class, which left the
+    coroutine un-awaited (RuntimeWarning) and meant the harvest never ran —
+    the coder's output-harvest success-path was silently dark (violates
+    CLAUDE.md §21a). Lifted to module level so it is unit-testable.
+    """
+
+    async def capture(self, pair: dict) -> None:
+        try:
+            from ..learning.output_harvester import harvest as _harvest_fn
+            await _harvest_fn(
+                user_msg=pair.get("instruction", ""),
+                response=pair.get("response", ""),
+                meta={
+                    "persona": pair.get("persona", ""),
+                    "source": "autonomous_coder",
+                    "r_number": pair.get("r_number"),
+                },
+            )
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning("[coder_entrypoint] harvest shim failed: %s", e)
+
 # ── Project context analysis (from ARIA_Coder_Complete.zip project_context.py) ──
 
 _REPO_ROOT: Optional[Path] = None
@@ -326,27 +355,8 @@ async def start_aria_coder(
     try:
         from ..learning.output_harvester import harvest as _harvest_fn  # noqa: F401
         # The existing harvester exposes module-level functions, not a class.
-        # ARIACoder.capture(...) will be called via a thin shim on
-        # output_harvester.capture, so we wrap here.
-
-        class _HarvestShim:
-            async def capture(self, pair: dict) -> None:
-                # Synchronous module-level harvest call; we delegate.
-                try:
-                    _harvest_fn(
-                        user_msg=pair.get("instruction", ""),
-                        response=pair.get("response", ""),
-                        meta={
-                            "persona": pair.get("persona", ""),
-                            "source": "autonomous_coder",
-                            "r_number": pair.get("r_number"),
-                        },
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "[coder_entrypoint] harvest shim failed: %s", e,
-                    )
-
+        # ARIACoder.capture(...) is delegated to the module-level _HarvestShim
+        # (lifted out of this function in R-F1434 so it is unit-testable).
         output_harvester = _HarvestShim()
     except ImportError as e:
         logger.info(
