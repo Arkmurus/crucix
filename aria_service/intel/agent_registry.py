@@ -45,8 +45,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.agent_registry")
@@ -75,12 +77,154 @@ _GAP_CLAIM_TTL_S = int(os.getenv("ARIA_GAP_CLAIM_TTL", "3600"))  # 1 hour
 # Max messages to keep per agent
 _MAX_MESSAGES_PER_AGENT = int(os.getenv("ARIA_AGENT_MAX_MESSAGES", "100"))
 
+# R-F1446: dedicated SQLite database path for agent registry
+# Separate file = separate write lock = no contention with state_store
+_REGISTRY_DB_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent.parent.parent / "data")))
+_REGISTRY_DB = _REGISTRY_DB_DIR / "agent_registry.db"
+
+
+def _get_registry_db_path() -> Path:
+    """Get the path to the dedicated agent registry database."""
+    _REGISTRY_DB.parent.mkdir(parents=True, exist_ok=True)
+    return _REGISTRY_DB
+
 
 class AgentRegistry:
-    """Multi-agent registry with heartbeat, awareness, deconfliction, messaging."""
+    """Multi-agent registry with heartbeat, awareness, deconfliction, messaging.
+
+    R-F1446: uses a dedicated SQLite database (agent_registry.db) for
+    registration and heartbeat writes, bypassing the shared state_store
+    lock that was causing 12/13 agents to silently fail registration
+    under boot-time contention. The dedicated file has its own write
+    lock, so agent heartbeats no longer contend with chat, coder, and
+    self_healing writes on the main state_store lock.
+    """
 
     def __init__(self) -> None:
         self._redis = None  # lazy-loaded
+        self._db_conn = None  # dedicated SQLite connection (R-F1446)
+        self._db_path = _get_registry_db_path()
+
+    def _get_db(self) -> sqlite3.Connection:
+        """Get or create the dedicated SQLite connection for agent registry.
+
+        R-F1446: separate database file = separate write lock = no contention
+        with chat/coder/self_healing on the main state_store lock.
+        Follows the same pattern as agent_signup_vault.py.
+        """
+        if self._db_conn is None:
+            self._db_conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            self._db_conn.row_factory = sqlite3.Row
+            self._db_conn.execute("PRAGMA journal_mode=WAL")
+            self._db_conn.execute("PRAGMA foreign_keys=ON")
+            self._init_db()
+        return self._db_conn
+
+    def _init_db(self):
+        """Initialize the registry database schema."""
+        self._db_conn.executescript("""
+            CREATE TABLE IF NOT EXISTS agents (
+                agent_id    TEXT PRIMARY KEY,
+                agent_type  TEXT NOT NULL,
+                current_task TEXT NOT NULL DEFAULT '',
+                status      TEXT NOT NULL DEFAULT 'active',
+                registered_at REAL NOT NULL,
+                last_heartbeat REAL NOT NULL,
+                metadata    TEXT DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS agent_tasks (
+                agent_id    TEXT PRIMARY KEY,
+                task        TEXT NOT NULL DEFAULT ''
+            );
+        """)
+        self._db_conn.commit()
+
+    def _db_register(self, agent_id: str, agent_type: str, current_task: str, now: float) -> None:
+        """Write registration to the dedicated DB (no lock contention)."""
+        conn = self._get_db()
+        conn.execute(
+            """INSERT OR REPLACE INTO agents
+               (agent_id, agent_type, current_task, status, registered_at, last_heartbeat, metadata)
+               VALUES (?, ?, ?, 'active', ?, ?, '{}')""",
+            (agent_id, agent_type, current_task, now, now),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_tasks (agent_id, task) VALUES (?, ?)",
+            (agent_id, current_task),
+        )
+        conn.commit()
+
+    def _db_tick_heartbeat(self, agent_id: str, now: float, current_task: str | None = None) -> None:
+        """Write heartbeat to the dedicated DB (no lock contention)."""
+        conn = self._get_db()
+        if current_task is not None:
+            conn.execute(
+                "UPDATE agents SET last_heartbeat=?, current_task=? WHERE agent_id=?",
+                (now, current_task, agent_id),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_tasks (agent_id, task) VALUES (?, ?)",
+                (agent_id, current_task),
+            )
+        else:
+            conn.execute(
+                "UPDATE agents SET last_heartbeat=? WHERE agent_id=?",
+                (now, agent_id),
+            )
+        conn.commit()
+
+    def _db_set_heartbeat(self, agent_id: str, timestamp: float) -> None:
+        """Set an agent's heartbeat to a specific timestamp (for testing)."""
+        conn = self._get_db()
+        conn.execute("UPDATE agents SET last_heartbeat=? WHERE agent_id=?", (timestamp, agent_id))
+        conn.commit()
+
+    def _db_list_agents(self) -> list[dict]:
+        """List all agents from the dedicated DB."""
+        conn = self._get_db()
+        rows = conn.execute(
+            "SELECT agent_id, agent_type, current_task, status, registered_at, last_heartbeat FROM agents"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def _db_get_agent(self, agent_id: str) -> dict | None:
+        """Get a single agent from the dedicated DB."""
+        conn = self._get_db()
+        row = conn.execute("SELECT * FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        try:
+            result["metadata"] = json.loads(result.pop("metadata", "{}"))
+        except (json.JSONDecodeError, KeyError):
+            result["metadata"] = {}
+        return result
+
+    def _db_unregister(self, agent_id: str) -> None:
+        """Remove an agent from the dedicated DB."""
+        conn = self._get_db()
+        conn.execute("DELETE FROM agents WHERE agent_id=?", (agent_id,))
+        conn.execute("DELETE FROM agent_tasks WHERE agent_id=?", (agent_id,))
+        conn.commit()
+
+    def close(self) -> None:
+        """Close the dedicated database connection."""
+        if self._db_conn:
+            self._db_conn.close()
+            self._db_conn = None
+
+    def _db_clear(self) -> None:
+        """Clear all data from the dedicated DB (for testing)."""
+        try:
+            conn = self._get_db()
+            conn.execute("DELETE FROM agents")
+            conn.execute("DELETE FROM agent_tasks")
+            conn.commit()
+        except Exception:
+            pass
+
+    def __del__(self) -> None:
+        self.close()
 
     def _get_redis(self):
         """Get the redis store module (lazy-loaded).
@@ -129,6 +273,12 @@ class AgentRegistry:
             "last_heartbeat": now,
             "metadata": metadata or {},
         }
+        # R-F1446: write to dedicated DB first (fast, no lock contention)
+        try:
+            self._db_register(agent_id, agent_type, current_task, now)
+        except Exception as _db_e:
+            logger.debug("[R-F1446] dedicated DB register failed for %s: %s", agent_id, _db_e)
+        # Also write to Redis/state_store for backward compatibility
         try:
             rs = self._get_redis()
             await rs.hset(_AGENT_REGISTRY_KEY, {agent_id: json.dumps(entry)})
@@ -165,7 +315,15 @@ class AgentRegistry:
             return False
 
     async def unregister(self, agent_id: str) -> bool:
-        """Remove an agent from the registry (on shutdown)."""
+        """Remove an agent from the registry (on shutdown).
+
+        R-F1446: removes from the dedicated DB first, then Redis.
+        """
+        # R-F1446: remove from dedicated DB
+        try:
+            self._db_unregister(agent_id)
+        except Exception as _db_e:
+            logger.debug("[R-F1446] dedicated DB unregister failed for %s: %s", agent_id, _db_e)
         try:
             rs = self._get_redis()
             # Remove from hash by setting to empty and relying on cleanup
@@ -185,10 +343,19 @@ class AgentRegistry:
 
         Call this periodically (every 30-60s) from the agent's main loop.
         If current_task is provided, also updates the agent's current task.
+
+        R-F1446: writes to the dedicated DB first (fast, no lock contention),
+        then also updates Redis/state_store for backward compatibility.
         """
+        now = time.time()
+        # R-F1446: write to dedicated DB first (fast, no lock contention)
+        try:
+            self._db_tick_heartbeat(agent_id, now, current_task=current_task)
+        except Exception as _db_e:
+            logger.debug("[R-F1446] dedicated DB heartbeat failed for %s: %s", agent_id, _db_e)
+        # Also write to Redis/state_store for backward compatibility
         try:
             rs = self._get_redis()
-            now = time.time()
             await rs.set(f"{_AGENT_HEARTBEAT_KEY}{agent_id}", str(now))
             if current_task is not None:
                 await rs.set(f"{_AGENT_TASK_KEY}{agent_id}", current_task)
@@ -226,11 +393,34 @@ class AgentRegistry:
 
         Agents whose heartbeat is older than _AGENT_STALE_THRESHOLD_S
         are marked as status="stale" (or excluded if include_stale=False).
+
+        R-F1446: reads from the dedicated DB first (always available, no
+        lock contention), falls back to Redis/state_store if empty.
         """
         agents: list[dict] = []
+        now = time.time()
+
+        # R-F1446: read from dedicated DB first
+        try:
+            db_agents = self._db_list_agents()
+            if db_agents:
+                for entry in db_agents:
+                    last_hb = entry.get("last_heartbeat", 0)
+                    age = now - float(last_hb) if last_hb else float("inf")
+                    entry["heartbeat_age_s"] = round(age, 1)
+                    if age > _AGENT_STALE_THRESHOLD_S:
+                        entry["status"] = "stale"
+                        if not include_stale:
+                            continue
+                    agents.append(entry)
+                agents.sort(key=lambda a: a.get("last_heartbeat", 0), reverse=True)
+                return agents
+        except Exception as _db_e:
+            logger.debug("[R-F1446] dedicated DB list failed: %s", _db_e)
+
+        # Fallback: read from Redis/state_store
         try:
             rs = self._get_redis()
-            now = time.time()
             raw_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)
             if not raw_entries:
                 return agents
@@ -268,7 +458,23 @@ class AgentRegistry:
         """Get the status of a specific agent.
 
         Returns None if the agent is not registered.
+
+        R-F1446: reads from the dedicated DB first, falls back to Redis.
         """
+        # R-F1446: read from dedicated DB first
+        try:
+            db_entry = self._db_get_agent(agent_id)
+            if db_entry is not None:
+                now = time.time()
+                last_hb = db_entry.get("last_heartbeat", 0)
+                db_entry["heartbeat_age_s"] = round(now - float(last_hb), 1) if last_hb else None
+                if db_entry["heartbeat_age_s"] and db_entry["heartbeat_age_s"] > _AGENT_STALE_THRESHOLD_S:
+                    db_entry["status"] = "stale"
+                return db_entry
+        except Exception as _db_e:
+            logger.debug("[R-F1446] dedicated DB get failed for %s: %s", agent_id, _db_e)
+
+        # Fallback: read from Redis/state_store
         try:
             rs = self._get_redis()
             all_entries = await rs.hgetall(_AGENT_REGISTRY_KEY)

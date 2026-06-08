@@ -87,8 +87,12 @@ class _MockRedis:
 
 
 def _make_registry() -> AgentRegistry:
-    """Create an AgentRegistry with a mock Redis backend."""
+    """Create an AgentRegistry with a mock Redis backend.
+
+    Clears the dedicated DB so each test starts fresh.
+    """
     reg = AgentRegistry()
+    reg._db_clear()  # R-F1446: clear dedicated DB for test isolation
     mock = _MockRedis()
     reg._get_redis = lambda: mock  # not async — returns the mock directly
     reg._redis = mock  # also set _redis directly so _get_redis returns it
@@ -142,6 +146,7 @@ async def test_list_active_filters_stale():
 
     # Manually set stale agent's heartbeat to ancient time
     old_time = time.time() - 10000  # way beyond 300s threshold
+    reg._db_set_heartbeat("stale_agent", old_time)  # R-F1446: also update dedicated DB
     await mock.set("crucix:agent:heartbeat:stale_agent", str(old_time))
     entry = {
         "agent_id": "stale_agent",
@@ -311,6 +316,7 @@ async def test_cleanup_stale_agents():
 async def test_error_resilience():
     """Registry operations fail open when Redis is unavailable."""
     reg = AgentRegistry()
+    reg._db_clear()  # R-F1446: start with clean dedicated DB
 
     # Make _get_redis raise an exception (sync, since _get_redis is now sync)
     def _broken_redis():
@@ -321,8 +327,11 @@ async def test_error_resilience():
     ok = await reg.register("ghost", "ghost_type", "nowhere")
     assert ok is False, "Registration should fail gracefully"
 
+    # R-F1446: dedicated DB still has the agent (register writes to it first)
+    # so list_active_agents returns it from the dedicated DB
     agents = await reg.list_active_agents()
-    assert agents == [], "Listing should return empty list on error"
+    assert len(agents) == 1, "Dedicated DB should still have the agent"
+    assert agents[0]["agent_id"] == "ghost"
 
     claimed = await reg.claim_gap("ghost_gap", "ghost_agent")
     assert claimed, "Claim should fail open (return True)"
@@ -337,4 +346,6 @@ async def test_error_resilience():
     assert msgs == [], "Read should return empty list on error"
 
     stats = await reg.get_registry_stats()
-    assert stats["total_agents"] == 0
+    # R-F1446: dedicated DB has the agent, so stats reflect it
+    assert stats["total_agents"] == 1
+    assert stats["active_agents"] == 1
