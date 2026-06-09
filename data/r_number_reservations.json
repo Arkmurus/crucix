@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1464,
+  "next_available": 1466,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9054,14 +9054,33 @@
       "title": "Contamination check module + held-out 80/20 split for pair_builder",
       "claimed_at": "2026-06-09T12:34:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37b058b0",
+      "notes": null,
+      "shipped_at": "2026-06-09T12:42:54Z"
     },
     {
       "r_number": "R-F1463",
       "title": "judge validation pod run: push judge-enabled eval_aria_llm.py + score v0.2 vs DeepSeek with LLM judge, confirm discrimination",
       "claimed_at": "2026-06-09T12:37:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1464",
+      "title": "fix NameError: import os missing in eval_aria_llm.py judge env-fallback (R-F1456 bug, broke judge validation)",
+      "claimed_at": "2026-06-09T12:54:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1465",
+      "title": "Real-path test for eval_aria_llm.py judge env-fallback + NameError guard",
+      "claimed_at": "2026-06-09T13:00:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
