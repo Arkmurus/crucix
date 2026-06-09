@@ -139,13 +139,17 @@ class TestDataEngineStages:
 
     @pytest.mark.asyncio
     async def test_dedup_all_unique(self) -> None:
+        """Genuinely distinct questions should all survive dedup."""
         pipeline = self.make_pipeline()
         questions = [
-            GeneratedQuestion(question=f"Unique question {i}?", topic="test")
-            for i in range(10)
+            GeneratedQuestion(question="What is sanctions screening?", topic="sanctions"),
+            GeneratedQuestion(question="How does UBO tracing work?", topic="ubo"),
+            GeneratedQuestion(question="What triggers an export licence?", topic="export_control"),
+            GeneratedQuestion(question="How is diversion risk assessed?", topic="diversion"),
+            GeneratedQuestion(question="What is a procurement red flag?", topic="procurement"),
         ]
         deduped = await pipeline.dedup_questions(questions)
-        assert len(deduped) == 10
+        assert len(deduped) == 5
 
     # ── Stage 4: Contamination check ─────────────────────────────────────
 
