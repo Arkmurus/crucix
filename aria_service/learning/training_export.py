@@ -16,11 +16,18 @@ degraded. The output is the training corpus nobody else has —
 Arkmurus-specific DD + compliance + brokering examples, structured
 as OpenAI-format instruction-input-output triples.
 
+R-F1458: added an optional LLM judge gate (DeepSeek) that grades each
+example's answer against the question for factual correctness. Only
+examples where the judge verdict is "correct" are admitted as SFT chosen
+targets. This prevents garbage-in from poisoning the training corpus.
+The gate is OFF by default (ARIA_TRAINING_JUDGE_GATE=1 to enable) so the
+existing daily export cadence is unaffected until the judge is validated.
+
 Output: /data/aria_training/YYYY-MM-DD.jsonl (one file per day)
 plus a rolling manifest at /data/aria_training/manifest.json
 describing current corpus size + train/val/test splits.
 
-LLM-free. Zero external cost. Runs LEARNING-EXPORT-DAILY at 03:30 UTC.
+Runs LEARNING-EXPORT-DAILY at 03:30 UTC.
 """
 from __future__ import annotations
 
@@ -378,6 +385,131 @@ async def _collect_adversarial_passes(days: int) -> list[dict[str, Any]]:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Judge gate (R-F1458)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Feature gate: ARIA_TRAINING_JUDGE_GATE=1 enables the LLM judge.
+# Default OFF until the judge is validated against production traces.
+_JUDGE_GATE_ENABLED = (os.getenv("ARIA_TRAINING_JUDGE_GATE") or "0").strip() in ("1", "true", "yes")
+
+# Judge endpoint — uses DeepSeek (same rubric as eval_judge.py R-F1396).
+_JUDGE_URL = os.getenv("ARIA_JUDGE_URL", "https://api.deepseek.com/v1")
+_JUDGE_MODEL = os.getenv("ARIA_JUDGE_MODEL", "deepseek-chat")
+_JUDGE_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("ARIA_DEEPSEEK_API_KEY") or ""
+
+
+async def _judge_example(question: str, answer: str) -> dict:
+    """Grade an answer for factual correctness using the LLM judge.
+
+    Returns {"ok": True, "verdict": "correct|partial|wrong", "score": ...}
+    or {"ok": False, "verdict": "unscored"} on judge failure.
+    """
+    # Empty/near-empty answers are wrong by definition — no API call needed.
+    if not (answer or "").strip() or len((answer or "").strip()) < 20:
+        return {"ok": True, "verdict": "wrong", "score": 0.0,
+                "reason": "empty or near-empty answer"}
+    if not _JUDGE_API_KEY:
+        return {"ok": False, "verdict": "unscored", "reason": "no judge API key"}
+
+    import httpx
+    system = (
+        "You are a strict evaluation judge. Grade a candidate answer for factual "
+        "correctness. Grade on FACTUAL AGREEMENT with established knowledge, never "
+        "on wording, style, or length.\n"
+        "Rules:\n"
+        "- correct: factually accurate and on-topic.\n"
+        "- partial: some facts right but key facts missing or wrong.\n"
+        "- wrong: factually incorrect, contradicts established knowledge, answers "
+        "a different question, is empty or evasive.\n"
+        'Return ONLY one JSON object: {"verdict": "correct|partial|wrong", '
+        '"reason": "<one short sentence>"}'
+    )
+    user = f"QUESTION:\n{(question or '')[:2000]}\n\nANSWER:\n{(answer or '')[:6000]}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{_JUDGE_URL}/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_JUDGE_API_KEY}",
+                },
+                json={
+                    "model": _JUDGE_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "max_tokens": 100,
+                    "temperature": 0.0,
+                },
+            )
+        if resp.status_code != 200:
+            return {"ok": False, "verdict": "unscored", "reason": f"HTTP {resp.status_code}"}
+        text = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        return {"ok": False, "verdict": "unscored", "reason": str(e)[:200]}
+
+    # Parse verdict
+    import re
+    for m in re.finditer(r"\{.*?\}", text, re.DOTALL):
+        try:
+            obj = json.loads(m.group(0))
+            verdict = str(obj.get("verdict", "")).strip().lower()
+            if verdict in ("correct", "partial", "wrong"):
+                score = {"correct": 1.0, "partial": 0.5, "wrong": 0.0}[verdict]
+                return {"ok": True, "verdict": verdict, "score": score,
+                        "reason": str(obj.get("reason", ""))[:200]}
+        except Exception:
+            continue
+    m = re.search(r"verdict\W{0,4}(correct|partial|wrong)", text, re.IGNORECASE)
+    if m:
+        v = m.group(1).lower()
+        score = {"correct": 1.0, "partial": 0.5, "wrong": 0.0}[v]
+        return {"ok": True, "verdict": v, "score": score, "reason": text[:200]}
+    return {"ok": False, "verdict": "unscored", "reason": "unparseable judge reply"}
+
+
+async def _apply_judge_gate(examples: list[dict]) -> list[dict]:
+    """Filter examples through the LLM judge. Only admits 'correct' verdicts.
+
+    When the judge is disabled or unavailable, passes all examples through
+    unchanged (backward compatible).
+    """
+    if not _JUDGE_GATE_ENABLED or not _JUDGE_API_KEY:
+        return examples
+
+    admitted = []
+    judge_stats = {"total": 0, "correct": 0, "partial": 0, "wrong": 0, "unscored": 0}
+    for ex in examples:
+        question = ex.get("user", "")
+        answer = ex.get("assistant", "")
+        if not question or not answer:
+            continue
+        judge_stats["total"] += 1
+        result = await _judge_example(question, answer)
+        verdict = result.get("verdict", "unscored")
+        if verdict in judge_stats:
+            judge_stats[verdict] += 1
+        if verdict == "correct":
+            ex["meta"] = dict(ex.get("meta", {}))
+            ex["meta"]["judge_verdict"] = verdict
+            ex["meta"]["judge_reason"] = result.get("reason", "")
+            admitted.append(ex)
+
+    logger.info(
+        "[training_export] judge gate: %d/%d admitted "
+        "(correct=%d partial=%d wrong=%d unscored=%d)",
+        len(admitted), judge_stats["total"],
+        judge_stats["correct"], judge_stats["partial"],
+        judge_stats["wrong"], judge_stats["unscored"],
+    )
+    # Store stats for the manifest
+    _judge_gate_stats = judge_stats  # noqa: F841 — captured by closure below
+    return admitted
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Main export
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -434,6 +566,13 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
         seen.add(key)
         unique.append(ex)
 
+    # R-F1458: LLM judge gate — filters out factually incorrect examples.
+    # Only admits examples where the judge verdict is "correct".
+    # Gate is OFF by default (ARIA_TRAINING_JUDGE_GATE=1 to enable).
+    pre_gate = len(unique)
+    unique = await _apply_judge_gate(unique)
+    gate_rejected = pre_gate - len(unique)
+
     # Ensure export dir exists
     try:
         _EXPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -489,6 +628,14 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
     # Persist per-source diagnostics on the manifest so the dashboard
     # can surface "why did this source return 0?" without rerunning.
     manifest["last_run_diagnostics"] = _last_collection_diag.copy()
+    # R-F1458: track judge gate stats in manifest
+    if gate_rejected > 0:
+        manifest["judge_gate"] = {
+            "enabled": _JUDGE_GATE_ENABLED,
+            "pre_gate": pre_gate,
+            "admitted": len(unique),
+            "rejected": gate_rejected,
+        }
     _save_manifest(manifest)
     return {
         "written": written,
@@ -496,6 +643,12 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
         "total_examples": manifest["total_examples"],
         "file": str(out_file),
         "diagnostics": _last_collection_diag.copy(),
+        "judge_gate": {
+            "enabled": _JUDGE_GATE_ENABLED,
+            "pre_gate": pre_gate,
+            "admitted": len(unique),
+            "rejected": gate_rejected,
+        } if gate_rejected > 0 else {"enabled": _JUDGE_GATE_ENABLED, "pre_gate": pre_gate, "admitted": len(unique), "rejected": 0},
     }
 
 
