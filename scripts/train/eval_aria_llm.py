@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os  # R-F1464: judge env-fallback (line ~242 os.environ) — missing import broke the DD judge eval
 import statistics
 import sys
 import time
