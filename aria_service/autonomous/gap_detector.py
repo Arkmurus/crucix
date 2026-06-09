@@ -1517,6 +1517,123 @@ class GapDetector:
         except Exception:
             pass
 
+    # ── R-F1460: REPRODUCE-SYMPTOM GATE ─────────────────────────────────────
+    #
+    # Before the coder burns LLM tokens on a fix, confirm the gap is real by
+    # running an existing test that exercises the broken module/function.
+    # A test that PASSES means the code works → discard as false positive.
+    # A test that FAILS with the expected symptom → real gap, proceed.
+    # No existing test → spawn a "write a failing test" gap, never auto-fix.
+    #
+    # This alone would have killed both bad fixes Claude discarded:
+    #   - prompt_budget.py enforce_budget: existing test passes → false positive
+    #   - memory_leak_detector.py GC: existing test passes → false positive
+
+    TEST_DIRS = [
+        "aria_service/tests",
+    ]
+
+    @staticmethod
+    def _find_test_for_module(module: str) -> str | None:
+        """Find an existing test file that exercises `module`.
+
+        Strategy: look for test files whose name or content references the
+        module name (last path component, function name, or class name).
+        Returns the first matching test file path relative to repo root,
+        or None if no test is found.
+        """
+        module_name = module.replace("/", ".").replace("\\", ".")
+        # Extract the last meaningful component (file or function name)
+        last_part = module.rsplit("/", 1)[-1].rsplit(".", 1)[0] if "/" in module else module
+        last_part = last_part.replace("(", "").replace(")", "")
+
+        # Search test files by name pattern
+        import glob as _glob
+        for test_dir in GapDetector.TEST_DIRS:
+            # Pattern 1: test file named after the module
+            for pattern in (
+                f"test_*{last_part}*.py",
+                f"test_*{module_name.split('.')[-1]}*.py",
+                f"*{last_part}*test*.py",
+            ):
+                matches = sorted(_glob.glob(f"{test_dir}/{pattern}"))
+                if matches:
+                    return matches[0]
+
+            # Pattern 2: scan test file contents for the module name
+            # (only check first 50 lines to keep it fast)
+            test_files = sorted(_glob.glob(f"{test_dir}/test_*.py"))
+            for tf in test_files[:50]:  # cap search
+                try:
+                    with open(tf, encoding="utf-8", errors="replace") as fh:
+                        head = fh.read(8000)
+                    if last_part in head or module_name.split(".")[-1] in head:
+                        return tf
+                except OSError:
+                    continue
+        return None
+
+    async def reproduce_symptom(self, gap: Gap) -> tuple[bool, str]:
+        """R-F1460: attempt to reproduce the gap's symptom via an existing test.
+
+        Returns:
+            (True, "") — symptom reproduced (test failed as expected) → real gap
+            (False, "reason") — symptom NOT reproduced or unverifiable
+
+        The caller MUST discard the gap when this returns False — no reproduced
+        symptom, no fix. Ever. (Per Claude review 2026-06-09.)
+        """
+        module = gap.module or ""
+        if not module or module == "unknown":
+            return (False, "no module to test")
+
+        test_path = self._find_test_for_module(module)
+        if test_path is None:
+            return (False, f"no existing test found for module '{module}' — spawn write-test gap instead")
+
+        # Run the test — use pytest with a short timeout
+        import subprocess as _sp
+        import sys as _sys
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                _sys.executable, "-m", "pytest", test_path, "-x", "--tb=short",
+                "-q", "--no-header",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                timeout=30.0,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=35.0,
+            )
+        except asyncio.TimeoutError:
+            return (False, f"test {test_path} timed out — unverifiable")
+        except FileNotFoundError:
+            return (False, f"python not found — cannot run test")
+        except Exception as e:
+            return (False, f"test execution error: {e}")
+
+        output = (stdout or b"").decode("utf-8", errors="replace")
+        errors = (stderr or b"").decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            # Test FAILED — symptom reproduced. But verify it's the EXPECTED
+            # failure, not an unrelated import error or fixture issue.
+            # Look for the gap's description or module name in the failure output.
+            expected_clues = [
+                c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
+                            gap.title[:40], gap.description[:60]]
+                if c
+            ]
+            combined = (output + errors).lower()
+            if any(clue.lower() in combined for clue in expected_clues):
+                return (True, f"symptom reproduced: test {test_path} failed (exit={proc.returncode})")
+            else:
+                # Test failed but for an UNRELATED reason — not the symptom
+                return (False, f"test {test_path} failed for unrelated reason (exit={proc.returncode}) — unverifiable")
+
+        # Test PASSED — the code works, this is a false positive
+        return (False, f"test {test_path} PASSES — code works, false positive gap")
+
     async def verify_fixed(self, gap: Gap) -> bool:
         """R-F1155: post-fix verification — re-run the relevant extractor
         to confirm the gap is no longer present.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1460,
+  "next_available": 1461,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9023,6 +9023,16 @@
       "r_number": "R-F1459",
       "title": "eval_aria_llm.py: persist per-question actual_answer + judge verdict for offline re-scoring",
       "claimed_at": "2026-06-09T11:31:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7029737",
+      "notes": null,
+      "shipped_at": "2026-06-09T11:31:51Z"
+    },
+    {
+      "r_number": "R-F1460",
+      "title": "Three coder quality guards: reproduce_symptom, no-op gate, hallucinated-API guard",
+      "claimed_at": "2026-06-09T11:40:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

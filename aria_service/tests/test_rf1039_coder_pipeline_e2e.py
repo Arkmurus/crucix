@@ -93,6 +93,7 @@ def test_capability_full_pipeline_gap_to_staged_fix():
     mock_detector.scan = AsyncMock(return_value=[gap])
     mock_detector.mark_attempted = AsyncMock()
     mock_detector.mark_fixed = AsyncMock()
+    mock_detector.reproduce_symptom = AsyncMock(return_value=(True, "symptom reproduced"))
 
     # ── 3. Mock SovereignLLM to return a valid plan + code ────────────────
     mock_llm = AsyncMock()
