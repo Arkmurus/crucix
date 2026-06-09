@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1462,
+  "next_available": 1464,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9043,6 +9043,25 @@
       "r_number": "R-F1461",
       "title": "Training export judge-gate plumbing: PII scrub, brain wiring, cost logging",
       "claimed_at": "2026-06-09T12:12:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "806cf1d8",
+      "notes": null,
+      "shipped_at": "2026-06-09T12:18:41Z"
+    },
+    {
+      "r_number": "R-F1462",
+      "title": "Contamination check module + held-out 80/20 split for pair_builder",
+      "claimed_at": "2026-06-09T12:34:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1463",
+      "title": "judge validation pod run: push judge-enabled eval_aria_llm.py + score v0.2 vs DeepSeek with LLM judge, confirm discrimination",
+      "claimed_at": "2026-06-09T12:37:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
