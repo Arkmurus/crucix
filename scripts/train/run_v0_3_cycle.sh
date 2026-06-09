@@ -30,7 +30,7 @@ EVAL_LOCAL="data/eval_reports/aria_eval_500q.jsonl"
 echo "[driver] corpus $(wc -l < "$TRAIN_CORPUS") pairs; eval $(wc -l < "$EVAL_LOCAL") Q"
 
 KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"
-SSH="ssh -i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15"
+SSH="ssh -i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=10"
 jget(){ python -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
 pmget(){ python -c "import sys,json;d=json.load(sys.stdin);pm=d.get('portMappings') or {};print(pm.get('22') or '')" 2>/dev/null; }
 
@@ -73,13 +73,30 @@ done
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$TRAIN_CORPUS" root@"$HOST":/workspace/datasets/aria_sft_distill_500.jsonl || { echo "[driver] FATAL scp corpus"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$EVAL_LOCAL"   root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl       || { echo "[driver] FATAL scp eval set"; exit 1; }
 
-# 4. Run the full cycle on the pod (train -> serve -> eval v0.3 + v0.2 -> verdict)
-echo "[driver] running v0.3 cycle on the pod (train ~30-60m + eval ~30m)..."
+# 4. Launch the cycle DETACHED on the pod (setsid+nohup → survives any SSH drop
+#    over the 2-3h run), then poll for the EXIT-code sentinel the driver writes.
+echo "[driver] launching v0.3 cycle DETACHED on the pod..."
 $SSH -p "$PORT" root@"$HOST" \
-  "TRAIN_FILE=/workspace/datasets/aria_sft_distill_500.jsonl \
+  "rm -f /workspace/eval/_cycle_status; mkdir -p /workspace/logs; \
+   TRAIN_FILE=/workspace/datasets/aria_sft_distill_500.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
    DEEPSEEK_API_KEY='$DSK' EPOCHS=3 \
-   bash /workspace/v0_3_pod_run.sh"
+   setsid nohup bash /workspace/v0_3_pod_run.sh > /workspace/logs/v0_3_cycle.log 2>&1 < /dev/null & echo STARTED" \
+  || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
+
+echo "[driver] polling for completion (cap ~5h; breaks as soon as it finishes)..."
+RC=""
+for i in $(seq 1 200); do   # 200 * 90s = 5h cap; loop breaks the moment the sentinel appears
+  sleep 90
+  RC=$($SSH -p "$PORT" root@"$HOST" "cat /workspace/eval/_cycle_status 2>/dev/null" 2>/dev/null | tr -d '\r\n ')
+  LINE=$($SSH -p "$PORT" root@"$HOST" "tail -1 /workspace/logs/v0_3_cycle.log 2>/dev/null" 2>/dev/null | tr -d '\r')
+  echo "[driver] [$i/200] ${LINE:-(no log line yet)}"
+  if [ -n "$RC" ]; then
+    echo "[driver] cycle finished (exit code $RC)"
+    break
+  fi
+done
+[ -n "$RC" ] || echo "[driver] WARN: no completion signal within the 5h cap — pulling whatever exists, then stopping"
 
 # 5. Pull reports
 mkdir -p data/eval_reports

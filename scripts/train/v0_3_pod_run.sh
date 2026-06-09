@@ -39,6 +39,11 @@ export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
+# R-F1470: completion sentinel — the orchestrator runs this DETACHED and polls
+# for this file (the exit code) so an SSH drop over the 2-3h run can't lose the
+# result. Clear any stale one, then write the real exit code on ANY exit.
+rm -f "$EVAL_DIR/_cycle_status"
+trap 'rc=$?; echo "$rc" > "$EVAL_DIR/_cycle_status" 2>/dev/null || true' EXIT
 log(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 
