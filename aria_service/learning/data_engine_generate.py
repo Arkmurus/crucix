@@ -11,6 +11,7 @@ Pipeline stages:
   3. Intra-batch question dedup — collapse near-identical questions via cosine
   4. Contamination check — exclude questions near-dup with the frozen 500-Q eval set
   5. Reference answer generation — DeepSeek generates strong reference answers
+  5.5 Self-critique quality gate — drop FABRICATION+ERROR (R-F1471)
   6. Light sanity check — verify non-empty, on-topic, minimum length
   7. DPO pairing — pair chosen (DeepSeek-strong) with rejected (v0.2-actual)
   8. Volume control — cap at N/week
@@ -82,6 +83,7 @@ class GeneratedPair:
     passed_sanity: bool = True
     contamination_free: bool = True
     judge_verdict: str = ""     # "correct" | "partial" | "wrong" | "" (unjudged)
+    critic_verdict: str = ""    # "CLEAN" | "FABRICATION" | "ERROR" | "VAGUE" | "" (unchecked)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -128,6 +130,7 @@ class GenerationResult:
     total_generated: int = 0
     total_after_dedup: int = 0
     total_after_contamination: int = 0
+    total_after_critique: int = 0
     total_after_sanity: int = 0
     total_pairs: int = 0
     topics_used: list[str] = field(default_factory=list)
@@ -186,6 +189,34 @@ class V02AnswerProvider:
         raise NotImplementedError
 
 
+class AnswerCritic:
+    """Interface for self-critique quality gate (R-F1471).
+
+    A separate LLM call per answer that flags fabricated specifics or factual
+    errors. Runs after answer-gen, before DPO pairing. Answers with verdict
+    FABRICATION or ERROR are dropped; CLEAN and VAGUE survive.
+
+    NOTE: generator==critic (same model) means this is NOT a strong gate —
+    it catches egregious wrongness but may miss subtle errors. The measured
+    factual-defect rate on the 500 distillation corpus was 23.3% (FAB+ERROR),
+    so this filter is essential despite its weakness.
+    """
+
+    async def critique(self, question: str, answer: str) -> dict:
+        """Critique an answer for factual accuracy.
+
+        Args:
+            question: The question the answer responds to.
+            answer: The answer to critique.
+
+        Returns:
+            dict with keys:
+                "verdict": "CLEAN" | "FABRICATION" | "ERROR" | "VAGUE"
+                "reason": str — one-sentence explanation
+        """
+        raise NotImplementedError
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class DataEnginePipeline:
@@ -196,6 +227,7 @@ class DataEnginePipeline:
         self,
         generator: QuestionGenerator,
         answer_gen: AnswerGenerator,
+        critic: Optional[AnswerCritic] = None,
         v02_provider: Optional[V02AnswerProvider] = None,
         topics: Optional[list[str]] = None,
         dedup_threshold: float = _DEDUP_COSINE_THRESHOLD,
@@ -205,6 +237,7 @@ class DataEnginePipeline:
     ) -> None:
         self.generator = generator
         self.answer_gen = answer_gen
+        self.critic = critic
         self.v02_provider = v02_provider
         self.topics = topics or list(_DEFAULT_TOPICS)
         self.dedup_threshold = dedup_threshold
@@ -370,6 +403,81 @@ class DataEnginePipeline:
         )
         return pairs
 
+    # ── Stage 5.5: Self-critique quality gate (R-F1471) ───────────────────
+
+    async def critique_answers(
+        self, pairs: list[GeneratedPair],
+    ) -> list[GeneratedPair]:
+        """Run self-critique on each answer; drop FABRICATION and ERROR.
+
+        Uses the AnswerCritic interface (injectable — mocked in tests, wired
+        to DeepSeek in production). The quality gate thresholds on
+        FABRICATION + ERROR combined (not fabrication alone), per the
+        ROUND-14 correction: the 500-corpus self-critique found 23.3%
+        factual-defect rate (3.3% FAB + 20% ERROR), and for a DD model
+        an ERROR distills wrong knowledge just as badly as a FABRICATION.
+
+        CLEAN and VAGUE verdicts survive. UNSCORED (critic failure) also
+        survives — fail-open so a single critic timeout doesn't zero the
+        corpus.
+
+        NOTE: generator==critic (same model) means this is NOT a strong
+        gate — it catches egregious wrongness but may miss subtle errors.
+        """
+        if self.critic is None:
+            logger.info("[data_engine] stage 5.5: skipped (no critic configured)")
+            return pairs
+
+        kept: list[GeneratedPair] = []
+        dropped_fab = 0
+        dropped_err = 0
+        for p in pairs:
+            try:
+                result = await self.critic.critique(
+                    question=p.question, answer=p.chosen_answer,
+                )
+                verdict = str(result.get("verdict", "")).strip().upper()
+                p.critic_verdict = verdict
+                if verdict in ("FABRICATION", "ERROR"):
+                    logger.debug(
+                        "[data_engine] stage 5.5: dropped '%s...' — %s (%s)",
+                        p.question[:60], verdict, result.get("reason", "")[:100],
+                    )
+                    if verdict == "FABRICATION":
+                        dropped_fab += 1
+                    else:
+                        dropped_err += 1
+                    continue
+                # CLEAN, VAGUE, or unrecognised → keep
+                kept.append(p)
+            except Exception as e:
+                logger.warning(
+                    "[data_engine] stage 5.5: critique failed for '%s...': %s — keeping",
+                    p.question[:60], e,
+                )
+                p.critic_verdict = "UNSCORED"
+                kept.append(p)
+
+        logger.info(
+            "[data_engine] stage 5.5: %d -> %d "
+            "(dropped %d FABRICATION + %d ERROR = %d total)",
+            len(pairs), len(kept),
+            dropped_fab, dropped_err, dropped_fab + dropped_err,
+        )
+
+        # Emit brain signal for the critique gate stats (R-F1471)
+        try:
+            from aria_service.intel.brain_hook import _record_signal
+            await _record_signal(
+                module="data_engine.critique_gate",
+                success=True,
+                sector="training",
+            )
+        except Exception:
+            pass
+
+        return kept
+
     # ── Stage 6: Light sanity check ──────────────────────────────────────
 
     def sanity_check(self, pairs: list[GeneratedPair]) -> list[GeneratedPair]:
@@ -456,7 +564,7 @@ class DataEnginePipeline:
         max_pairs: Optional[int] = None,
         topics: Optional[list[str]] = None,
     ) -> GenerationResult:
-        """Run the full 8-stage generation pipeline.
+        """Run the full generation pipeline (8 stages + self-critique).
 
         Args:
             n_per_topic: Number of questions to generate per topic.
@@ -497,6 +605,10 @@ class DataEnginePipeline:
         pairs = await self.generate_answers(questions)
         after_answers = len(pairs)
 
+        # Stage 5.5: Self-critique quality gate (R-F1471)
+        pairs = await self.critique_answers(pairs)
+        after_critique = len(pairs)
+
         # Stage 6: Sanity check
         pairs = self.sanity_check(pairs)
         after_sanity = len(pairs)
@@ -511,9 +623,10 @@ class DataEnginePipeline:
         duration = time.time() - start
         logger.info(
             "[data_engine] pipeline complete: %d pairs in %.1fs "
-            "(gen=%d dedup=%d contam=%d sanity=%d)",
+            "(gen=%d dedup=%d contam=%d critique=%d sanity=%d)",
             len(pairs), duration,
-            total_generated, after_dedup, after_contamination, after_sanity,
+            total_generated, after_dedup, after_contamination,
+            after_critique, after_sanity,
         )
 
         return GenerationResult(
@@ -521,6 +634,7 @@ class DataEnginePipeline:
             total_generated=total_generated,
             total_after_dedup=after_dedup,
             total_after_contamination=after_contamination,
+            total_after_critique=after_critique,
             total_after_sanity=after_sanity,
             total_pairs=len(pairs),
             topics_used=active_topics,

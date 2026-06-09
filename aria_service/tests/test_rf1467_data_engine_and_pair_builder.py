@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aria_service.learning.data_engine_generate import (
+    AnswerCritic,
     DataEnginePipeline,
     GeneratedPair,
     GeneratedQuestion,
@@ -70,6 +71,25 @@ class MockV02Provider(V02AnswerProvider):
         if question in self.fail_on:
             return ""
         return f"v0.2 weak answer for '{question[:40]}...'."
+
+
+class MockAnswerCritic(AnswerCritic):
+    """Mock self-critique — returns canned verdicts per question."""
+
+    def __init__(
+        self,
+        verdicts: dict[str, str] | None = None,
+        default_verdict: str = "CLEAN",
+    ) -> None:
+        """verdicts maps question -> verdict. Unmapped questions get default_verdict."""
+        self.verdicts = verdicts or {}
+        self.default_verdict = default_verdict
+        self.call_count = 0
+
+    async def critique(self, question: str, answer: str) -> dict:
+        self.call_count += 1
+        verdict = self.verdicts.get(question, self.default_verdict)
+        return {"verdict": verdict, "reason": f"Mock: {verdict}"}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -189,6 +209,118 @@ class TestDataEngineStages:
         pairs = await pipeline.generate_answers(questions)
         assert len(pairs) == 1  # One failed, one succeeded
         assert pairs[0].topic == "ubo"
+
+    # ── Stage 5.5: Self-critique quality gate (R-F1471) ──────────────────
+
+    @pytest.mark.asyncio
+    async def test_critique_keeps_clean(self) -> None:
+        """CLEAN verdicts should survive the critique gate."""
+        critic = MockAnswerCritic(default_verdict="CLEAN")
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Good answer. " * 30),
+            GeneratedPair(question="Q2", chosen_answer="Good answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 2
+        assert all(p.critic_verdict == "CLEAN" for p in kept)
+
+    @pytest.mark.asyncio
+    async def test_critique_keeps_vague(self) -> None:
+        """VAGUE verdicts should survive (correct-but-generic is not an error)."""
+        critic = MockAnswerCritic(default_verdict="VAGUE")
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Generic answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].critic_verdict == "VAGUE"
+
+    @pytest.mark.asyncio
+    async def test_critique_drops_fabrication(self) -> None:
+        """FABRICATION verdicts should be dropped."""
+        critic = MockAnswerCritic(verdicts={"Q1": "FABRICATION"})
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Fabricated answer. " * 30),
+            GeneratedPair(question="Q2", chosen_answer="Good answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].question == "Q2"
+
+    @pytest.mark.asyncio
+    async def test_critique_drops_error(self) -> None:
+        """ERROR verdicts should be dropped (same as FABRICATION)."""
+        critic = MockAnswerCritic(verdicts={"Q1": "ERROR"})
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Wrong answer. " * 30),
+            GeneratedPair(question="Q2", chosen_answer="Good answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].question == "Q2"
+
+    @pytest.mark.asyncio
+    async def test_critique_drops_fab_and_error_combined(self) -> None:
+        """Both FABRICATION and ERROR are dropped — the ROUND-14 correction."""
+        critic = MockAnswerCritic(verdicts={
+            "Q1": "FABRICATION",
+            "Q2": "ERROR",
+            "Q3": "CLEAN",
+            "Q4": "VAGUE",
+        })
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Fab. " * 30),
+            GeneratedPair(question="Q2", chosen_answer="Err. " * 30),
+            GeneratedPair(question="Q3", chosen_answer="Clean. " * 30),
+            GeneratedPair(question="Q4", chosen_answer="Vague. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 2  # Q3 (CLEAN) + Q4 (VAGUE)
+        assert {p.question for p in kept} == {"Q3", "Q4"}
+
+    @pytest.mark.asyncio
+    async def test_critique_keeps_on_failure(self) -> None:
+        """Critique failure should keep the pair (fail-open)."""
+        class FailingCritic(AnswerCritic):
+            async def critique(self, question: str, answer: str) -> dict:
+                raise RuntimeError("Critic unavailable")
+
+        pipeline = self.make_pipeline(critic=FailingCritic())
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Good answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].critic_verdict == "UNSCORED"
+
+    @pytest.mark.asyncio
+    async def test_critique_no_critic_configured(self) -> None:
+        """When no critic is configured, all pairs pass through unchanged."""
+        pipeline = self.make_pipeline(critic=None)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Good answer. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].critic_verdict == ""  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_critique_records_verdict_on_pair(self) -> None:
+        """The critic verdict should be recorded on the GeneratedPair."""
+        critic = MockAnswerCritic(verdicts={"Q1": "CLEAN", "Q2": "FABRICATION"})
+        pipeline = self.make_pipeline(critic=critic)
+        pairs = [
+            GeneratedPair(question="Q1", chosen_answer="Good. " * 30),
+            GeneratedPair(question="Q2", chosen_answer="Bad. " * 30),
+        ]
+        kept = await pipeline.critique_answers(pairs)
+        assert len(kept) == 1
+        assert kept[0].critic_verdict == "CLEAN"
 
     # ── Stage 6: Sanity check ────────────────────────────────────────────
 
@@ -336,6 +468,27 @@ class TestDataEngineEndToEnd:
                     record = json.loads(line)
                     assert "messages" in record
                     assert len(record["messages"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_with_critic(self) -> None:
+        """Full pipeline with self-critique gate should drop FAB+ERROR."""
+        critic = MockAnswerCritic(verdicts={
+            "Mock sanctions question 0?": "CLEAN",
+            "Mock sanctions question 1?": "FABRICATION",
+            "Mock sanctions question 2?": "ERROR",
+        })
+        pipeline = DataEnginePipeline(
+            generator=MockQuestionGenerator(questions_per_topic=3),
+            answer_gen=MockAnswerGenerator(),
+            critic=critic,
+            topics=["sanctions"],
+        )
+        result = await pipeline.generate(n_per_topic=3, mode="sft")
+        # 3 questions generated, but 2 dropped by critic (FAB + ERROR)
+        assert result.total_generated == 3
+        assert result.total_after_critique == 1  # Only CLEAN survives
+        assert result.total_pairs == 1
+        assert result.pairs[0].critic_verdict == "CLEAN"
 
     @pytest.mark.asyncio
     async def test_full_pipeline_no_questions(self) -> None:
