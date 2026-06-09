@@ -8,9 +8,10 @@ existed (eval_runner.py has no __main__). This script is the real path.
 Source:  aria_service.intel.eval_golden_seed.SEED_ENTRIES (in-code, no
          server needed) — entries are {seed_id, category, question,
          expected_answer}.
-Target:  JSONL lines {"question", "expected_keywords", "topic", "seed_id"}
-         — eval_aria_llm.py passes a question when the response contains
-         >=60% of expected_keywords (case-insensitive containment).
+Target:  JSONL lines {"question", "expected_answer", "expected_keywords",
+         "topic", "seed_id"} — eval_aria_llm.py uses the LLM judge
+         (R-F1456) to grade against expected_answer on factual agreement.
+         expected_keywords is kept for backward-compatible fallback.
 
 Keyword derivation (deterministic, no LLM):
   1. acronyms / all-caps tokens (OFAC, ITAR, SIPRI, NATO...)
@@ -102,6 +103,7 @@ def export(out_path: Path) -> dict:
                 n_thin += 1
             fh.write(json.dumps({
                 "question": e["question"],
+                "expected_answer": e.get("expected_answer", ""),
                 "expected_keywords": kws,
                 "topic": e.get("category", "general"),
                 "seed_id": e.get("seed_id", ""),

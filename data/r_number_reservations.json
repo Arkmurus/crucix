@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1448,
+  "next_available": 1457,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -8910,6 +8910,89 @@
       "r_number": "R-F1447",
       "title": "fix UnboundLocalError asyncio in main.py lifespan (R-F1444 broke boot -> outage)",
       "claimed_at": "2026-06-08T10:32:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1448",
+      "title": "Isolate state_store reads from write-side connection reset",
+      "claimed_at": "2026-06-08T12:38:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b5b5a78c",
+      "notes": null,
+      "shipped_at": "2026-06-08T12:44:45Z"
+    },
+    {
+      "r_number": "R-F1449",
+      "title": "Function-preservation gate: coder refuses to stage fixes that lose top-level defs/classes",
+      "claimed_at": "2026-06-08T14:02:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1450",
+      "title": "Function-preservation gate for coder staging",
+      "claimed_at": "2026-06-08T14:02:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1cf44fff",
+      "notes": null,
+      "shipped_at": "2026-06-08T15:59:42Z"
+    },
+    {
+      "r_number": "R-F1451",
+      "title": "serve_and_eval .env loop set-e silent abort on absent var (launch-blocker)",
+      "claimed_at": "2026-06-08T21:47:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1452",
+      "title": "serve_and_eval: surface RunPod start error + fail-fast on GPU-capacity 500 (no 5-min silent poll)",
+      "claimed_at": "2026-06-08T21:57:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1453",
+      "title": "serve_and_eval: ssh -i runpod_aria (perm-safe temp) so the serve+eval SSH chain authenticates",
+      "claimed_at": "2026-06-09T07:28:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1454",
+      "title": "v0.2 is Mistral-7B-Instruct-v0.3 not Qwen14B: serve with volume HF cache (HF_HOME) + correct model_config.sh SSOT",
+      "claimed_at": "2026-06-09T07:40:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1455",
+      "title": "surgical pod-side baseline runner: proven shim serve + localhost eval (no vLLM); v0.2 vs DeepSeek",
+      "claimed_at": "2026-06-09T08:09:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1456",
+      "title": "Fix DD grader: replace keyword matching with LLM judge in eval_aria_llm.py",
+      "claimed_at": "2026-06-09T10:46:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
