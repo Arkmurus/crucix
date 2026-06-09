@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1466,
+  "next_available": 1467,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9073,14 +9073,25 @@
       "title": "fix NameError: import os missing in eval_aria_llm.py judge env-fallback (R-F1456 bug, broke judge validation)",
       "claimed_at": "2026-06-09T12:54:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5291861d",
+      "notes": null,
+      "shipped_at": "2026-06-09T13:06:30Z"
     },
     {
       "r_number": "R-F1465",
       "title": "Real-path test for eval_aria_llm.py judge env-fallback + NameError guard",
       "claimed_at": "2026-06-09T13:00:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d4465157",
+      "notes": null,
+      "shipped_at": "2026-06-09T13:01:11Z"
+    },
+    {
+      "r_number": "R-F1466",
+      "title": "Held-out 80/20 split wired into eval_runner for uncontaminated weekly eval",
+      "claimed_at": "2026-06-09T13:07:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

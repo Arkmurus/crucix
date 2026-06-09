@@ -228,6 +228,59 @@ def _bucket(score: float) -> str:
 _JUDGE_BUCKET = {"correct": "pass", "partial": "warn", "wrong": "fail"}
 
 
+# ── R-F1401/R-F1462: Held-out 80/20 split ──────────────────────────────────
+
+# When set, run_eval will only evaluate entries in the held-out (eval) split.
+# The split is deterministic (seeded SHA-256 of entry id) so the same entries
+# always land in the same split across runs. Set to "eval" to score only the
+# untouched 20%, or "train" to score only the training 80%.
+# Default: None (evaluate ALL entries — backward compatible).
+_EVAL_SPLIT = None  # "eval" | "train" | None
+
+
+def set_eval_split(split: str | None) -> None:
+    """Set the eval split mode. 'eval' = untouched 20%, 'train' = 80%, None = all."""
+    global _EVAL_SPLIT
+    if split not in ("eval", "train", None):
+        raise ValueError(f"split must be 'eval', 'train', or None, got {split!r}")
+    _EVAL_SPLIT = split
+
+
+def get_eval_split() -> str | None:
+    """Return the current eval split mode."""
+    return _EVAL_SPLIT
+
+
+def _split_held_out(items: list[dict], split: str, seed: int = 42) -> list[dict]:
+    """Filter items to only those in the requested split.
+
+    Uses the same deterministic seeded-SHA-256 approach as HeldOutSplit
+    (aria_service/learning/held_out_split.py) but operates on the golden
+    set's entry IDs rather than training example seed_ids. This keeps the
+    eval runner independent of the learning package.
+
+    Args:
+        items: Full golden set.
+        split: "eval" (20%) or "train" (80%).
+        seed: Deterministic seed (default 42, matching HeldOutSplit).
+
+    Returns:
+        Filtered list of items in the requested split.
+    """
+    import hashlib as _hl
+
+    def _in_split(entry: dict) -> bool:
+        entry_id = entry.get("id") or entry.get("seed_id") or ""
+        if not entry_id:
+            return True  # No ID = include in both splits (backward compat)
+        digest = _hl.sha256(f"{seed}:{entry_id}".encode("utf-8", errors="ignore")).digest()
+        bucket = digest[0] / 256.0
+        is_train = bucket < 0.80
+        return is_train if split == "train" else not is_train
+
+    return [it for it in items if _in_split(it)]
+
+
 # ── Run ────────────────────────────────────────────────────────────────────
 
 async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -> dict:
@@ -243,6 +296,18 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     items = await get_golden_set()
     if ids:
         items = [it for it in items if it.get("id") in set(ids)]
+    # R-F1401/R-F1462: held-out split — when _EVAL_SPLIT is set, only
+    # evaluate entries in the requested split (eval=20% or train=80%).
+    # This ensures weekly eval scores report on data the model did NOT
+    # train on (the untouched 20%), preventing contaminated metrics.
+    split_mode = _EVAL_SPLIT
+    if split_mode and not ids:
+        pre_split = len(items)
+        items = _split_held_out(items, split_mode)
+        logger.info(
+            "[eval_runner] held-out split '%s': %d/%d entries",
+            split_mode, len(items), pre_split,
+        )
     if not items:
         return {"ok": False, "reason": "no golden entries to run"}
 
@@ -403,6 +468,7 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     run_record = {
         "id": f"run_{int(started * 1000)}_{uuid.uuid4().hex[:6]}",
         "label": (label or "")[:120],
+        "eval_split": split_mode,  # R-F1401: which split was evaluated (None=all)
         "started_at": started,
         "completed_at": time.time(),
         "summary": summary,
