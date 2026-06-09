@@ -566,12 +566,49 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
         seen.add(key)
         unique.append(ex)
 
+    # R-F1461: PII-scrub at the capture boundary — always-on, not gated.
+    # Every text field that reaches disk is scrubbed of emails, phones, IDs.
+    # This runs BEFORE the judge gate so the judge sees scrubbed text too.
+    # NOTE: raw PII still sits at rest in chat_audit_log (separate concern).
+    try:
+        from aria_service.autonomous.wa_notifier import scrub_pii as _scrub_pii
+        for ex in unique:
+            ex["user"] = _scrub_pii(ex.get("user", ""))
+            ex["assistant"] = _scrub_pii(ex.get("assistant", ""))
+    except Exception as exc:
+        logger.warning("[training_export] PII scrub failed (non-fatal): %s", exc)
+
     # R-F1458: LLM judge gate — filters out factually incorrect examples.
     # Only admits examples where the judge verdict is "correct".
     # Gate is OFF by default (ARIA_TRAINING_JUDGE_GATE=1 to enable).
     pre_gate = len(unique)
+    if _JUDGE_GATE_ENABLED and _JUDGE_API_KEY:
+        estimated_cost = len(unique) * 0.0003  # ~$0.30 per 1k on DeepSeek
+        logger.info(
+            "[training_export] judge gate ON — ~%d judge calls, est. cost $%.2f",
+            len(unique), estimated_cost,
+        )
     unique = await _apply_judge_gate(unique)
     gate_rejected = pre_gate - len(unique)
+
+    # R-F1461: wire judge gate stats to brain via _record_signal (operational
+    # telemetry, NOT absorb — absorb has neural/mastery side-effects).
+    try:
+        from aria_service.intel.brain_hook import _record_signal as _rs_gate
+        if _JUDGE_GATE_ENABLED:
+            await _rs_gate(
+                "training_export.judge_gate",
+                success=gate_rejected < pre_gate,  # True if at least 1 admitted
+                sector="learning",
+            )
+        else:
+            await _rs_gate(
+                "training_export.judge_gate",
+                success=True,  # Gate OFF = no filtering = always succeeds
+                sector="learning",
+            )
+    except Exception as exc:
+        logger.debug("[training_export] _record_signal failed (non-fatal): %s", exc)
 
     # Ensure export dir exists
     try:

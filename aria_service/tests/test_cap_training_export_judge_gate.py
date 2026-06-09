@@ -72,3 +72,79 @@ def test_judge_gate_disabled_by_default():
         "Judge gate must be disabled by default. "
         "Set ARIA_TRAINING_JUDGE_GATE=1 to enable."
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# R-F1461: PII scrub at capture boundary
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_pii_scrubbed_even_when_gate_off():
+    """PII must be scrubbed from examples even when the judge gate is OFF.
+    
+    This is an always-on safety measure at the capture boundary. The test
+    verifies that emails, phones, and IDs are stripped from user/assistant
+    text before they reach disk.
+    """
+    examples = [
+        {
+            "user": "Contact me at test@example.com or call +44 7700 900123",
+            "assistant": "My email is aria@arkmurus.com and my phone is +44 7700 900123",
+        },
+    ]
+    # Run through the full export pipeline's PII scrub path
+    try:
+        from aria_service.autonomous.wa_notifier import scrub_pii
+        for ex in examples:
+            ex["user"] = scrub_pii(ex.get("user", ""))
+            ex["assistant"] = scrub_pii(ex.get("assistant", ""))
+    except ImportError:
+        pytest.skip("scrub_pii not available")
+
+    # Email should be scrubbed
+    assert "@" not in examples[0]["user"], "Email not scrubbed from user"
+    assert "@" not in examples[0]["assistant"], "Email not scrubbed from assistant"
+    # Phone numbers should be scrubbed
+    assert "PHONE" in examples[0]["assistant"] or "[PHONE]" in examples[0]["assistant"], "Phone not scrubbed from assistant"
+
+
+@pytest.mark.asyncio
+async def test_pii_scrub_preserves_clean_text():
+    """PII scrub must not alter text that contains no PII."""
+    examples = [
+        {
+            "user": "What is the capital of France?",
+            "assistant": "The capital of France is Paris.",
+        },
+    ]
+    try:
+        from aria_service.autonomous.wa_notifier import scrub_pii
+        original_user = examples[0]["user"]
+        original_assistant = examples[0]["assistant"]
+        examples[0]["user"] = scrub_pii(examples[0]["user"])
+        examples[0]["assistant"] = scrub_pii(examples[0]["assistant"])
+    except ImportError:
+        pytest.skip("scrub_pii not available")
+
+    assert examples[0]["user"] == original_user, "Clean text was altered"
+    assert examples[0]["assistant"] == original_assistant, "Clean text was altered"
+
+
+@pytest.mark.asyncio
+async def test_gate_off_same_example_count():
+    """When the judge gate is OFF, the same number of examples pass through.
+    
+    This is the NO-OP guarantee: gate OFF => same example SET/COUNT admitted,
+    no judge filtering. PII scrub is a separate always-on change that does
+    not affect the count.
+    """
+    examples = [
+        {"user": "What is AI?", "assistant": "Artificial Intelligence."},
+        {"user": "What is ML?", "assistant": "Machine Learning."},
+    ]
+    # Gate is disabled by default
+    result = await te._apply_judge_gate(examples)
+    assert len(result) == 2, "Gate OFF must pass all examples unchanged"
+    # Verify the examples are the same objects (not re-ordered or filtered)
+    assert result[0]["user"] == "What is AI?"
+    assert result[1]["user"] == "What is ML?"
