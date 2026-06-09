@@ -18,7 +18,16 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.train.sft_train import _format_chat
+from scripts.train.sft_train import _format_chat, _render_text
+
+
+class _FakeTokenizer:
+    """Minimal stand-in: records the messages it was handed and renders a marker
+    string (real apply_chat_template needs the gated Mistral model / GPU)."""
+
+    def apply_chat_template(self, messages, tokenize=False):
+        assert tokenize is False
+        return "RENDERED:" + "|".join(f"{m['role']}={m['content']}" for m in messages)
 
 
 def test_format_chat_messages_shape_distillation_corpus():
@@ -67,3 +76,35 @@ def test_format_chat_missing_both_raises_keyerror():
     """A record with neither messages nor input/output is a genuine error."""
     with pytest.raises(KeyError):
         _format_chat({"topic": "x"})
+
+
+def test_render_text_produces_text_field_from_messages():
+    """R-F1472: the render step must turn a `messages` record into a single
+    string via apply_chat_template — this is what produced the `text` column
+    SFTTrainer needs (trl 0.12.2 KeyError'd on its absence). Drives the exact
+    helper used in the dataset map, with a fake tokenizer."""
+    tok = _FakeTokenizer()
+    rec = _format_chat({
+        "messages": [
+            {"role": "user", "content": "Q?"},
+            {"role": "assistant", "content": "A."},
+        ],
+        "topic": "sanctions",
+    })
+    text = _render_text(tok, rec)
+    assert isinstance(text, str)
+    assert text == "RENDERED:user=Q?|assistant=A."
+
+
+def test_render_text_chains_with_format_chat_on_real_corpus_line():
+    """End-to-end of the dataset-map path (_format_chat -> _render_text) on a
+    real corpus line, proving a `text` string is produced (no KeyError)."""
+    import json
+
+    batch = _REPO_ROOT / "data" / "training" / "aria_sft_distill_500.jsonl"
+    if not batch.exists():
+        pytest.skip("filtered corpus not present locally")
+    with batch.open("r", encoding="utf-8") as f:
+        rec = json.loads(f.readline())
+    text = _render_text(_FakeTokenizer(), _format_chat(rec))
+    assert text.startswith("RENDERED:user=")

@@ -83,6 +83,17 @@ def _format_chat(record: dict) -> dict:
     }
 
 
+def _render_text(tokenizer, record: dict) -> str:
+    """Render a chat record's `messages` into one training string via the
+    tokenizer's chat template (R-F1472). Module-level so it's unit-testable.
+
+    trl 0.12.2's SFTTrainer does not auto-render a `messages` column; it
+    tokenizes a `text` field. We pre-render here (emits Mistral [INST]…[/INST],
+    matching how the shim serves) and point SFTConfig.dataset_text_field at it.
+    """
+    return tokenizer.apply_chat_template(record["messages"], tokenize=False)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="ARIA-LLM SFT trainer")
     ap.add_argument("--base-model", default="meta-llama/Llama-3.3-70B-Instruct")
@@ -166,6 +177,18 @@ def main() -> None:
         split="train",
     )
     ds = raw_ds.map(_format_chat, remove_columns=raw_ds.column_names)
+
+    # R-F1472: trl 0.12.2's SFTTrainer does NOT auto-render a `messages` column.
+    # With no dataset_text_field/formatting_func it tokenizes element["text"] and
+    # raises KeyError: 'text' — the v0.3 run died HERE, AFTER the paid base load
+    # (v0.1 SFT trained on an OLDER trl that auto-handled messages). Render the
+    # chat template into a "text" field ourselves (version-robust) and point
+    # SFTConfig at it. apply_chat_template emits Mistral [INST]…[/INST], matching
+    # how the shim serves the model (train/serve template consistency).
+    ds = ds.map(
+        lambda ex: {"text": _render_text(tokenizer, ex)},
+        remove_columns=["messages"],
+    )
     logger.info("Dataset size: %d records", len(ds))
 
     sft_config = SFTConfig(
@@ -181,6 +204,7 @@ def main() -> None:
         save_steps=200,
         save_total_limit=3,
         max_seq_length=args.max_seq_len,
+        dataset_text_field="text",   # R-F1472: tokenize the pre-rendered text column
         gradient_checkpointing=True,
         report_to="none",
     )
