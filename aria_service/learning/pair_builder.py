@@ -54,9 +54,11 @@ class PairBuilder:
         self,
         output_dir: Optional[Path] = None,
         require_contamination_check: bool = True,
+        require_judge_correct: bool = True,
     ) -> None:
         self.output_dir = Path(output_dir) if output_dir else _OUTPUT_DIR
         self.require_contamination_check = require_contamination_check
+        self.require_judge_correct = require_judge_correct
 
     async def build(
         self,
@@ -98,6 +100,21 @@ class PairBuilder:
                 len(failed_sanity),
             )
             pairs = [p for p in pairs if p.passed_sanity]
+
+        # R-F1468: Judge gate — only admit pairs where the judge verdict
+        # is "correct". The judge is validated (ROUND 11) and discriminates
+        # real answers correctly. "partial" and "wrong" are excluded.
+        if self.require_judge_correct:
+            pre_judge = len(pairs)
+            pairs = [p for p in pairs if p.judge_verdict == "correct"]
+            excluded = pre_judge - len(pairs)
+            if excluded:
+                msg = (
+                    f"{excluded} pair(s) excluded by judge gate "
+                    f"(verdict != 'correct')"
+                )
+                logger.warning("[pair_builder] %s", msg)
+                errors.append(msg)
 
         if not pairs:
             return BuildResult(
@@ -144,6 +161,15 @@ class PairBuilder:
             topic = p.topic or "unknown"
             by_topic[topic] = by_topic.get(topic, 0) + 1
 
+        # Judge verdict breakdown for manifest
+        judge_breakdown: dict[str, int] = {"correct": 0, "partial": 0, "wrong": 0, "unjudged": 0}
+        for p in pairs:
+            v = p.judge_verdict or "unjudged"
+            if v in judge_breakdown:
+                judge_breakdown[v] += 1
+            else:
+                judge_breakdown["unjudged"] += 1
+
         manifest = {
             "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "mode": mode,
@@ -154,6 +180,8 @@ class PairBuilder:
             "sft_hashes": sft_hashes[:10],  # First 10 for spot-check
             "sft_hash_count": len(sft_hashes),
             "contamination_verified": contamination_verified,
+            "judge_gate_enabled": self.require_judge_correct,
+            "judge_breakdown": judge_breakdown,
             "sft_file": str(sft_path),
             "dpo_file": dpo_path_str or None,
         }

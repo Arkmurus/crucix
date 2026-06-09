@@ -81,6 +81,7 @@ class GeneratedPair:
     generation_id: str = ""
     passed_sanity: bool = True
     contamination_free: bool = True
+    judge_verdict: str = ""     # "correct" | "partial" | "wrong" | "" (unjudged)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

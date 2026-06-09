@@ -367,6 +367,7 @@ class TestPairBuilder:
                 topic="sanctions" if i % 2 == 0 else "ubo",
                 contamination_free=True,
                 passed_sanity=True,
+                judge_verdict="correct",
             )
             if with_rejected:
                 p.rejected_answer = f"Weak answer {i}."
@@ -423,6 +424,51 @@ class TestPairBuilder:
             assert len(result.errors) > 0
 
     @pytest.mark.asyncio
+    async def test_build_excludes_wrong_judge_verdict(self) -> None:
+        """Pairs with judge_verdict != 'correct' should be excluded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            builder = PairBuilder(output_dir=Path(tmpdir))
+            pairs = self.make_pairs(5)
+            pairs[0].judge_verdict = "wrong"
+            pairs[1].judge_verdict = "partial"
+            pairs[2].judge_verdict = "correct"
+            pairs[3].judge_verdict = ""
+            pairs[4].judge_verdict = "correct"
+            result = await builder.build(pairs, mode="sft")
+            assert result.sft_written == 2  # Only the 2 'correct' ones
+            assert "judge" in result.errors[0].lower() if result.errors else True
+
+    @pytest.mark.asyncio
+    async def test_build_judge_gate_disabled(self) -> None:
+        """When require_judge_correct=False, all pairs pass regardless of verdict."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            builder = PairBuilder(output_dir=Path(tmpdir), require_judge_correct=False)
+            pairs = self.make_pairs(3)
+            pairs[0].judge_verdict = "wrong"
+            pairs[1].judge_verdict = "partial"
+            pairs[2].judge_verdict = "correct"
+            result = await builder.build(pairs, mode="sft")
+            assert result.sft_written == 3  # All pass when gate disabled
+
+    @pytest.mark.asyncio
+    async def test_build_manifest_judge_breakdown(self) -> None:
+        """Manifest should include judge verdict breakdown."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            builder = PairBuilder(output_dir=Path(tmpdir))
+            pairs = self.make_pairs(5)
+            pairs[0].judge_verdict = "correct"
+            pairs[1].judge_verdict = "correct"
+            pairs[2].judge_verdict = "partial"
+            pairs[3].judge_verdict = "wrong"
+            pairs[4].judge_verdict = "correct"
+            result = await builder.build(pairs, mode="sft")
+            m = result.manifest
+            assert m["judge_gate_enabled"] is True
+            assert "judge_breakdown" in m
+            # Only 'correct' pairs survive the gate
+            assert m["sft_count"] == 3
+
+    @pytest.mark.asyncio
     async def test_build_manifest_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             builder = PairBuilder(output_dir=Path(tmpdir))
@@ -435,6 +481,8 @@ class TestPairBuilder:
             assert "by_topic" in m
             assert "built_at" in m
             assert "sft_hashes" in m
+            assert "judge_gate_enabled" in m
+            assert "judge_breakdown" in m
 
     def test_verify_integrity_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

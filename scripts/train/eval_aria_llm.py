@@ -72,9 +72,15 @@ async def _call_chat(
         "temperature": temperature,
     }
     t0 = time.time()
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(f"{target_url}/chat/completions",
-                                  headers=headers, json=body)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await asyncio.wait_for(
+                client.post(f"{target_url}/chat/completions",
+                            headers=headers, json=body),
+                timeout=130.0,  # R-F1468: per-call timeout prevents hung pod runs
+            )
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"call_chat timeout after 130s for {target_url}")
     elapsed = time.time() - t0
     if resp.status_code != 200:
         raise RuntimeError(f"http_{resp.status_code}: {resp.text[:200]}")
@@ -172,9 +178,12 @@ async def _judge_answer(
     }
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(
-                f"{judge_url}/chat/completions",
-                headers=headers, json=body,
+            resp = await asyncio.wait_for(
+                client.post(
+                    f"{judge_url}/chat/completions",
+                    headers=headers, json=body,
+                ),
+                timeout=50.0,  # R-F1468: per-call timeout prevents hung pod runs
             )
         if resp.status_code != 200:
             return {"ok": False, "verdict": "unscored",
@@ -272,6 +281,16 @@ async def _run_defence_dd_eval(
                 verdict = judge_result.get("verdict", "unscored")
                 judge_reason = judge_result.get("reason", "")
             else:
+                # R-F1468: loud WARNING when expected_answer is missing —
+                # the silent keyword fallback masked the judge being dead
+                # for hours during the 2026-06-09 validation run.
+                if not expected_answer:
+                    logger.warning(
+                        "[eval_aria_llm] R-F1468: question %d has NO expected_answer — "
+                        "judge cannot fire. Add expected_answer to the eval set. "
+                        "Question: '%s...'",
+                        len(results) + 1, (prompt or "")[:80],
+                    )
                 # Fallback: keyword matching (only when no judge available)
                 expected_keywords = [k.lower() for k in q.get("expected_keywords", [])]
                 if expected_keywords:
