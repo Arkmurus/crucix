@@ -292,6 +292,13 @@ async def _run_defence_dd_eval(
                 "verdict":  verdict,
                 "judge_reason": judge_reason[:200],
                 "latency_s": round(latency, 2),
+                # R-F1459: persist full answers for offline re-scoring.
+                # The old keyword-matching reports only stored kw_hits/kw_ratio
+                # — insufficient to re-score with a different grader. Now every
+                # report carries the actual response + expected answer so any
+                # future judge can re-score without a paid re-run.
+                "actual_answer": response[:6000],
+                "expected_answer": expected_answer[:4000],
             })
             slot = by_topic.setdefault(topic, {"passed": 0, "total": 0})
             slot["total"] += 1
