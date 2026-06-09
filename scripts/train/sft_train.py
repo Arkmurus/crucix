@@ -60,8 +60,21 @@ def _import_or_die() -> None:
 
 
 def _format_chat(record: dict) -> dict:
-    """Convert the SFT JSONL shape into a chat-template-ready format.
+    """Normalise an SFT record into a chat `messages` column.
+
+    Accepts BOTH shapes the corpus appears in:
+      * messages format — {"messages": [{"role":"user",...}, {"role":"assistant",...}]}
+        (the distillation corpus, data/training/aria_sft_distill_*.jsonl)
+      * legacy input/output — {"input": "...", "output": "..."} (prepare_sft.py)
+
+    R-F1470: the distillation 500-corpus is messages-format. The old code
+    indexed record["input"]/["output"] unconditionally, which KeyErrors on a
+    messages-format file — and only AFTER the paid base-model load, wasting the
+    whole pod cycle. Normalise here so either shape feeds the trainer directly.
     The trainer's tokenizer applies the chat template at training time."""
+    msgs = record.get("messages")
+    if isinstance(msgs, list) and msgs:
+        return {"messages": msgs}
     return {
         "messages": [
             {"role": "user", "content": record["input"]},

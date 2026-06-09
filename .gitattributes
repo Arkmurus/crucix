@@ -1,0 +1,3 @@
+# Shell scripts must stay LF — they run via bash on the RunPod pod / Git Bash.
+# CRLF line endings break `#!/bin/bash` and every command with a trailing \r.
+*.sh text eol=lf
