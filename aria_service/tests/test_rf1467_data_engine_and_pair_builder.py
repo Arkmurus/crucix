@@ -425,9 +425,9 @@ class TestPairBuilder:
 
     @pytest.mark.asyncio
     async def test_build_excludes_wrong_judge_verdict(self) -> None:
-        """Pairs with judge_verdict != 'correct' should be excluded."""
+        """Pairs with judge_verdict != 'correct' should be excluded when gate is on."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            builder = PairBuilder(output_dir=Path(tmpdir))
+            builder = PairBuilder(output_dir=Path(tmpdir), require_judge_correct=True)
             pairs = self.make_pairs(5)
             pairs[0].judge_verdict = "wrong"
             pairs[1].judge_verdict = "partial"
@@ -451,10 +451,22 @@ class TestPairBuilder:
             assert result.sft_written == 3  # All pass when gate disabled
 
     @pytest.mark.asyncio
+    async def test_build_judge_gate_default_off(self) -> None:
+        """Judge gate must be OFF by default (distillation pairs are unjudged)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            builder = PairBuilder(output_dir=Path(tmpdir))
+            pairs = self.make_pairs(3)
+            # Clear judge_verdict (unjudged — as distillation pairs are)
+            for p in pairs:
+                p.judge_verdict = ""
+            result = await builder.build(pairs, mode="sft")
+            assert result.sft_written == 3  # All pass when gate is off
+
+    @pytest.mark.asyncio
     async def test_build_manifest_judge_breakdown(self) -> None:
         """Manifest should include judge verdict breakdown."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            builder = PairBuilder(output_dir=Path(tmpdir))
+            builder = PairBuilder(output_dir=Path(tmpdir), require_judge_correct=True)
             pairs = self.make_pairs(5)
             pairs[0].judge_verdict = "correct"
             pairs[1].judge_verdict = "correct"

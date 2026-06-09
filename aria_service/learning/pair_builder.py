@@ -54,7 +54,7 @@ class PairBuilder:
         self,
         output_dir: Optional[Path] = None,
         require_contamination_check: bool = True,
-        require_judge_correct: bool = True,
+        require_judge_correct: bool = False,  # R-F1468: OFF by default — distillation pairs are unjudged (sanity-checked, not self-graded). Set True for gold-referenced data.
     ) -> None:
         self.output_dir = Path(output_dir) if output_dir else _OUTPUT_DIR
         self.require_contamination_check = require_contamination_check
