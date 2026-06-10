@@ -23,8 +23,10 @@ import httpx
 logger = logging.getLogger("aria.portal_registry")
 
 _ENABLED = os.getenv("ARIA_PORTAL_REGISTRY_ENABLED", "1") == "1"
+# R-F1495: portal registration identity. Must contain 'arkmurus' to pass
+# assert_real_identity. The env var ARIA_PORTAL_NAME overrides this default.
 _ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
-_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research")
+_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Arkmurus Group)")
 _CRED_KEY = "crucix:portal_registry:credentials"
 _REGISTRY_KEY = "crucix:portal_registry:registered"
 
@@ -766,7 +768,6 @@ async def store_credential(portal_id: str, credential: dict) -> None:
 _ARIA_IDENTITY_NAME = "Arkmurus Group Ltd"
 _ARIA_IDENTITY_EMAIL = "aria@arkmurus.com"
 _ARIA_IDENTITY_DOMAIN = "arkmurus.com"
-
 
 def assert_real_identity(email: str, name: str) -> tuple[bool, str]:
     """Verify that the given identity is a real Arkmurus identity.
