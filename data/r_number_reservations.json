@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1504,
+  "next_available": 1506,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9466,6 +9466,26 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1504",
+      "title": "Structural guards: boot-time identity check, WA DNS fallback, lock contention alert",
+      "claimed_at": "2026-06-10T14:33:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6e369198",
+      "notes": null,
+      "shipped_at": "2026-06-10T14:35:00Z"
+    },
+    {
+      "r_number": "R-F1505",
+      "title": "Smart circuit breaker: per-module thresholds + coder-specific tuning",
+      "claimed_at": "2026-06-10T14:42:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b81bd220",
+      "notes": null,
+      "shipped_at": "2026-06-10T14:45:55Z"
     }
   ]
 }
