@@ -825,6 +825,14 @@ async def absorb(
                 "for module=%s; fact queued to WAL (%d shed)",
                 _MAX_PENDING_ABSORB, module, _dropped_absorb,
             )
+        # R-F1483: the expensive tiers were shed, but the fact is durably WAL-queued,
+        # so record ONE signal here (the durable outcome succeeded). The normal
+        # branch lets the bg tier record the REAL outcome (success=_core_ok) once —
+        # see brain_hook_bg.py:170. This replaces the old unconditional success=True
+        # that ran for EVERY absorb AFTER this if/else: combined with the bg tier's
+        # record it double-counted and floored every module's success_rate at 50%,
+        # measuring "absorb was called" + brain persistence, not agent reliability.
+        await _record_signal(module, success=True, sector=_sector_normalised)
     else:
         _pending_absorb += 1
         _bh_task = asyncio.create_task(
@@ -856,8 +864,11 @@ async def absorb(
         )
         _bh_task.add_done_callback(_dec_pending_absorb)  # R-F1342: track backlog
 
-    # Record signal immediately (not in background) so stats are never lost
-    await _record_signal(module, success=True, sector=_sector_normalised)
+    # R-F1483: per-module stats are recorded EXACTLY ONCE per absorb — by the bg
+    # tier (success=_core_ok, the real durable-knowledge outcome) in the normal
+    # path, or in the shed branch above (success=True, WAL-preserved). The old
+    # unconditional success=True here double-counted with the bg record and floored
+    # success_rate at 50% for every module. Do NOT re-add a record here.
     result["user_id"] = user_id or ""
     result["sector"] = _sector_normalised
     result["latency_ms"] = 0.0  # actual latency tracked in background task

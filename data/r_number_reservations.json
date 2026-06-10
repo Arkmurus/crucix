@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1482,
+  "next_available": 1488,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9223,23 +9223,80 @@
       "title": "ci_deploy: scope commit to tracked files only, never git add -A",
       "claimed_at": "2026-06-10T07:16:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "66e726f6",
+      "notes": null,
+      "shipped_at": "2026-06-10T08:18:09Z"
     },
     {
       "r_number": "R-F1480",
       "title": "brain_hook: stop mis-attributing breaker drops as module failures",
       "claimed_at": "2026-06-10T07:47:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "66e726f6",
+      "notes": null,
+      "shipped_at": "2026-06-10T08:18:13Z"
     },
     {
       "r_number": "R-F1481",
       "title": "fix test_rf1125 broken by R-F1478 _EXPECTED_SHA rename + check_app_health arg",
       "claimed_at": "2026-06-10T07:57:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "66e726f6",
+      "notes": null,
+      "shipped_at": "2026-06-10T07:59:27Z"
+    },
+    {
+      "r_number": "R-F1482",
+      "title": "Fix vault auto-populate: wrong method name in main.py and routes",
+      "claimed_at": "2026-06-10T08:22:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1483",
+      "title": "brain_hook single-record absorb stats (remove unconditional success=True double-count / 50% floor)",
+      "claimed_at": "2026-06-10T08:35:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1484",
+      "title": "Seed DD reports library with a test run + auto-populate on first use",
+      "claimed_at": "2026-06-10T08:35:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1485",
+      "title": "Integrate pipeline tools as auto-run extension layers in DD orchestrator",
+      "claimed_at": "2026-06-10T08:36:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1486",
+      "title": "Save pipeline tool results to DD reports library",
+      "claimed_at": "2026-06-10T08:36:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1487",
+      "title": "Add Full DD button to pipeline page that calls the orchestrator",
+      "claimed_at": "2026-06-10T08:36:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
