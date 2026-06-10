@@ -652,9 +652,10 @@ async def dd_reports_index_ep(
     user-filtered lists — admin / autonomous paths leave both filters
     empty to see everything.
 
-    R-F1484: when the index is empty, auto-seed with a sample DD report
-    so the UI is never a blank page. The seed is a lightweight demo run
-    that shows the report structure without requiring a live DD call.
+    R-F1489: when the index is empty this returns an empty list and the UI shows
+    an honest "No DD reports yet" empty-state. (The earlier R-F1484 auto-seed,
+    which fabricated a sample report into the real store, was removed — never
+    seed fake findings on a compliance product or ARIA learns from them.)
     """
     from ..intel import dd_orchestrator
     reports = await dd_orchestrator.list_reports(
@@ -662,59 +663,13 @@ async def dd_reports_index_ep(
         user_id=user_id or None,
         user_email_domain=user_email_domain or None,
     )
-    # R-F1484: auto-seed when empty (only for unfiltered views)
-    if not reports and not user_id and not user_email_domain:
-        try:
-            from ..intel import dd_orchestrator as _do
-            from ..intel.dd_schema import (
-                ARKDDReport, IdentitySection, NetworkSection,
-                VerificationSection, ComplianceSection, DigitalSection,
-                SynthesisSection, Finding, RiskClassification,
-            )
-            import time
-            _seed = ARKDDReport(
-                run_id=f"dd_seed_{int(time.time())}",
-                risk_classification=RiskClassification.AMBER,
-                identity=IdentitySection(
-                    entity_name="Acme Defence GmbH",
-                    entity_type="company",
-                    jurisdiction="Germany",
-                    jurisdiction_iso2="DE",
-                    findings=[
-                        Finding(severity="info", title="Sanctions screen CLEAN",
-                                detail="No matches across OFAC SDN, UK OFSI, EU Consolidated.",
-                                source="sanctions.screen_with_aliases", confidence="CONFIRMED"),
-                        Finding(severity="amber", title="Registered address is a virtual office",
-                                detail="Address matches a known virtual-office provider.",
-                                source="dd_orchestrator.virtual_office_detector", confidence="ASSESSED"),
-                    ],
-                ),
-                compliance=ComplianceSection(
-                    findings=[
-                        Finding(severity="info", title="Export control: EAR99 classification",
-                                detail="Dual-use items, no specific licence required for EU transfer.",
-                                source="eccn_lookup.lookup_by_keyword", confidence="PROBABLE"),
-                    ],
-                ),
-                synthesis=SynthesisSection(
-                    overall_risk="AMBER — enhanced DD recommended before contracting",
-                    summary=(
-                        "Acme Defence GmbH is a German-registered defence trading company. "
-                        "Sanctions screen is clean. Key concern: registered address is a virtual "
-                        "office — verify physical presence before high-value contracts. "
-                        "Export control: EAR99 items, no ITAR restrictions."
-                    ),
-                ),
-            )
-            _seed.run_id = f"dd_seed_{int(time.time())}"
-            await _do._persist_report(_seed)
-            reports = await dd_orchestrator.list_reports(
-                limit=limit,
-                user_id=user_id or None,
-                user_email_domain=user_email_domain or None,
-            )
-        except Exception as _seed_e:
-            _log.debug("[R-F1484] auto-seed failed (non-fatal): %s", _seed_e)
+    # R-F1489: REMOVED the R-F1484 auto-seed. It fabricated a full "Acme Defence
+    # GmbH" DD report — citing real tools (sanctions.screen_with_aliases,
+    # eccn_lookup) as if they had run — and PERSISTED it into the real reports
+    # store. On a compliance product that is a honesty risk, and ARIA absorbing a
+    # fabricated report contaminates her learning. The honest empty-state in
+    # public/dd-reports.html ("No DD reports yet. Click New DD…") already covers
+    # the blank-page case truthfully — never seed fake findings.
     return {
         "reports": reports,
     }
