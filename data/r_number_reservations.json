@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1506,
+  "next_available": 1507,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9486,6 +9486,16 @@
       "commit_sha": "b81bd220",
       "notes": null,
       "shipped_at": "2026-06-10T14:45:55Z"
+    },
+    {
+      "r_number": "R-F1506",
+      "title": "Fix brain command center - add missing layer-5c endpoint",
+      "claimed_at": "2026-06-10T15:21:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e62b375e",
+      "notes": null,
+      "shipped_at": "2026-06-10T15:21:31Z"
     }
   ]
 }
