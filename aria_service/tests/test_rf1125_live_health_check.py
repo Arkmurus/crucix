@@ -21,7 +21,10 @@ sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 import importlib
 import scripts.live_health_check as _lhc
 APPS = _lhc.APPS
-_EXPECTED_SHA = _lhc._EXPECTED_SHA
+# R-F1478 renamed the module global _EXPECTED_SHA -> _FILE_SHA and made the expected
+# sha an explicit arg to check_app_health(client, app, config, expected_sha) instead
+# of a module global the lambdas close over (race-proofing — see R-F1478).
+_FILE_SHA = _lhc._FILE_SHA
 check_app_health = _lhc.check_app_health
 fetch_json = _lhc.fetch_json
 
@@ -79,10 +82,9 @@ class TestCheckAppHealth:
         config = APPS["intel"]
         data = {"status": "alive", "build_rev": "sha abc12345"}
 
-        with patch("scripts.live_health_check._EXPECTED_SHA", "abc12345"):
-            with patch("scripts.live_health_check.fetch_json", return_value=data):
-                with httpx.Client() as client:
-                    result = check_app_health(client, "intel", config)
+        with patch("scripts.live_health_check.fetch_json", return_value=data):
+            with httpx.Client() as client:
+                result = check_app_health(client, "intel", config, "abc12345")
 
         assert result is True
 
@@ -91,10 +93,9 @@ class TestCheckAppHealth:
         config = APPS["intel"]
         data = {"status": "alive", "build_rev": "sha wrongsha"}
 
-        with patch("scripts.live_health_check._EXPECTED_SHA", "abc12345"):
-            with patch("scripts.live_health_check.fetch_json", return_value=data):
-                with httpx.Client() as client:
-                    result = check_app_health(client, "intel", config)
+        with patch("scripts.live_health_check.fetch_json", return_value=data):
+            with httpx.Client() as client:
+                result = check_app_health(client, "intel", config, "abc12345")
 
         assert result is False
 
@@ -102,10 +103,9 @@ class TestCheckAppHealth:
         """Intel health check fails when app is unreachable."""
         config = APPS["intel"]
 
-        with patch("scripts.live_health_check._EXPECTED_SHA", "abc12345"):
-            with patch("scripts.live_health_check.fetch_json", return_value=None):
-                with httpx.Client() as client:
-                    result = check_app_health(client, "intel", config)
+        with patch("scripts.live_health_check.fetch_json", return_value=None):
+            with httpx.Client() as client:
+                result = check_app_health(client, "intel", config, "abc12345")
 
         assert result is False
 
@@ -115,7 +115,7 @@ class TestCheckAppHealth:
 
         with patch("scripts.live_health_check.fetch_json", return_value="ok"):
             with httpx.Client() as client:
-                result = check_app_health(client, "web", config)
+                result = check_app_health(client, "web", config, "")
 
         assert result is True
 
@@ -126,6 +126,6 @@ class TestCheckAppHealth:
 
         with patch("scripts.live_health_check.fetch_json", return_value=data):
             with httpx.Client() as client:
-                result = check_app_health(client, "wa", config)
+                result = check_app_health(client, "wa", config, "")
 
         assert result is True

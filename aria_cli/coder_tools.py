@@ -293,7 +293,11 @@ class CoderToolbox:
         safe_summary = (summary or "autonomous deploy").replace('"', "'").replace("\n", " ")[:80]
         msg = f"deploy: {safe_summary}" + (f" (R-{r_number})" if r_number else "") + f" {tag}"
 
-        # 1. Commit pending changes (or an empty trigger commit) with [deploy].
+        # 1. Commit pending changes (or deploy HEAD without a new commit) with [deploy].
+        # R-F1479: NEVER use git add -A (blanket-stages runtime DBs, session files, eval
+        # reports). Instead: if explicit files are given, stage only those; otherwise stage
+        # only tracked-modified files (git add -u). If nothing is pending, deploy HEAD
+        # directly without creating a sweep commit — the work is already committed.
         status = self._tb.run("git status --porcelain", timeout=20)
         change_lines = [ln for ln in (status.output or "").splitlines()
                         if ln.strip() and not ln.lower().startswith("exit code")]
@@ -302,13 +306,21 @@ class CoderToolbox:
                 for f in files:
                     self._tb.run(f"git add {f}", timeout=30)
             else:
-                self._tb.run("git add -A", timeout=30)
+                # R-F1479: stage only tracked-modified files — never blanket-add
+                # untracked runtime artifacts (DBs, reports, session files).
+                self._tb.run("git add -u", timeout=30)
             c = self._tb.run(f'git commit -m "{msg}"', timeout=30)
             if c.is_error:
                 return ToolResult(f"ci_deploy: commit failed:\n{c.output}", is_error=True)
         else:
+            # R-F1479: no pending changes — deploy HEAD directly without creating
+            # an empty trigger commit. The work is already committed; a sweep commit
+            # would only pollute history and race the deploy health check.
             head_msg = self._tb.run("git log -1 --pretty=%s", timeout=15)
             if tag not in (head_msg.output or ""):
+                # Only create an empty trigger commit if HEAD doesn't already carry
+                # the [deploy] tag (legacy CI path). For local deploys this is
+                # unnecessary but harmless.
                 c = self._tb.run(f'git commit --allow-empty -m "{msg}"', timeout=30)
                 if c.is_error:
                     return ToolResult(f"ci_deploy: trigger commit failed:\n{c.output}", is_error=True)

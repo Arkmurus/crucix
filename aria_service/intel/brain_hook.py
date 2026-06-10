@@ -729,10 +729,13 @@ async def absorb(
 
     if _breaker_state["open"]:
         _breaker_state["drops_total"] += 1
-        try:
-            await _record_signal(module, success=False, sector=_sector_normalised)
-        except Exception:
-            pass
+        # R-F1480: do NOT record the calling module as success=False here.
+        # The drop is brain overload, not the module failing — and it's
+        # already tracked in drops_total above. Previously this called
+        # _record_signal(module, success=False) which mis-attributed every
+        # breaker drop as the module's own failure, causing modules that
+        # burst-absorb at boot (agent_registry, agent_contract) to show 0%
+        # success rate in brain stats even though they work correctly.
         return {
             "skipped": True,
             "reason": "circuit_breaker_open",

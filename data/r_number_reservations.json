@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1479,
+  "next_available": 1482,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9212,6 +9212,34 @@
       "r_number": "R-F1478",
       "title": "race-proof deploy health-check (--expected-sha) + gitignore runtime artifacts",
       "claimed_at": "2026-06-10T07:08:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "56cde9b4",
+      "notes": null,
+      "shipped_at": "2026-06-10T07:12:03Z"
+    },
+    {
+      "r_number": "R-F1479",
+      "title": "ci_deploy: scope commit to tracked files only, never git add -A",
+      "claimed_at": "2026-06-10T07:16:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1480",
+      "title": "brain_hook: stop mis-attributing breaker drops as module failures",
+      "claimed_at": "2026-06-10T07:47:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1481",
+      "title": "fix test_rf1125 broken by R-F1478 _EXPECTED_SHA rename + check_app_health arg",
+      "claimed_at": "2026-06-10T07:57:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
