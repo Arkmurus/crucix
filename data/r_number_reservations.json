@@ -9403,9 +9403,10 @@
       "title": "de-nest generic form detector from R-F1496 (no-signup_fields portals skipped it)",
       "claimed_at": "2026-06-10T11:39:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88ec54d7",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:40:25Z"
     }
   ]
 }
