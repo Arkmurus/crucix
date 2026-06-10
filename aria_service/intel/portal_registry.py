@@ -1096,11 +1096,19 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
         elif result.get("requires_email_verify"):
             # Form submitted, needs email verification
             return result
+        # R-F1496: form fill failed — store credentials anyway so the operator
+        # or retry scheduler can pick up where ARIA left off. The portal stays
+        # 'pending' but now has credentials stored.
+        try:
+            await store_credential(portal.id, registration_data)
+            logger.info(
+                "[R-F1496] Credentials stored for %s despite form fill failure — "
+                "retry scheduler will attempt registration again",
+                portal.id,
+            )
+        except Exception:
+            pass
         # Fall through to prepared notice if form fill failed
-
-    # R-F1161 — if no explicit signup_fields, try the generic form detector
-    # by loading the registration page and scanning for form fields
-    if not portal.signup_fields:
         try:
             from .scraper.playwright_engine import fetch as _pw_fetch
             pw_result = await _pw_fetch(
