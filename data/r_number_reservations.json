@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1495,
+  "next_available": 1498,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9313,9 +9313,10 @@
       "title": "eval_aria_llm concurrency + crash-safe checkpoint/resume (never lose a long eval)",
       "claimed_at": "2026-06-10T09:05:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "078bd4cf",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:22:24Z"
     },
     {
       "r_number": "R-F1489",
@@ -9376,6 +9377,35 @@
       "commit_sha": "10fc6743",
       "notes": null,
       "shipped_at": "2026-06-10T11:11:06Z"
+    },
+    {
+      "r_number": "R-F1495",
+      "title": "Fix portal registration pipeline - make auto-registration actually work",
+      "claimed_at": "2026-06-10T11:28:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "97432373",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:29:40Z"
+    },
+    {
+      "r_number": "R-F1496",
+      "title": "Make portal registration fully autonomous - email verification + robust form fill",
+      "claimed_at": "2026-06-10T11:31:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ddea3670",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:33:12Z"
+    },
+    {
+      "r_number": "R-F1497",
+      "title": "de-nest generic form detector from R-F1496 (no-signup_fields portals skipped it)",
+      "claimed_at": "2026-06-10T11:39:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

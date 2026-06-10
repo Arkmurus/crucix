@@ -1108,37 +1108,44 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
             )
         except Exception:
             pass
-        # Fall through to prepared notice if form fill failed
-        try:
-            from .scraper.playwright_engine import fetch as _pw_fetch
-            pw_result = await _pw_fetch(
-                register_url,
-                timeout=30.0,
-                wait_for="networkidle",
-            )
-            if pw_result.ok and pw_result.text:
-                detected_fields = _detect_form_fields(pw_result.text)
-                if detected_fields:
-                    logger.info(
-                        "[portal_registry] Generic detector found %d fields for %s",
-                        len(detected_fields), portal.id,
-                    )
-                    # Create a temporary portal with detected fields and retry
-                    import dataclasses
-                    temp_portal = dataclasses.replace(portal, signup_fields=detected_fields)
-                    result = await _attempt_form_fill_submit(temp_portal, register_url, registration_data)
-                    if result.get("success"):
-                        await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
-                        return result
-                    elif result.get("requires_operator"):
-                        return result
-                    elif result.get("requires_email_verify"):
-                        return result
-        except Exception as e:
-            logger.debug(
-                "[portal_registry] Generic form detection failed for %s: %s",
-                portal.id, e,
-            )
+        # Fall through to the generic detector below if the explicit form fill failed.
+
+    # R-F1497: generic form detector (R-F1161) — de-nested out of the
+    # `if portal.signup_fields:` block. R-F1496 accidentally nested it there, so
+    # portals WITHOUT explicit signup_fields (the ones that NEED the generic
+    # detector to discover the form) skipped it entirely and went straight to
+    # 'prepared'. It now runs for BOTH: no-signup_fields portals AND explicit-field
+    # portals whose fill failed (which fell through the if above).
+    try:
+        from .scraper.playwright_engine import fetch as _pw_fetch
+        pw_result = await _pw_fetch(
+            register_url,
+            timeout=30.0,
+            wait_for="networkidle",
+        )
+        if pw_result.ok and pw_result.text:
+            detected_fields = _detect_form_fields(pw_result.text)
+            if detected_fields:
+                logger.info(
+                    "[portal_registry] Generic detector found %d fields for %s",
+                    len(detected_fields), portal.id,
+                )
+                # Create a temporary portal with detected fields and retry
+                import dataclasses
+                temp_portal = dataclasses.replace(portal, signup_fields=detected_fields)
+                result = await _attempt_form_fill_submit(temp_portal, register_url, registration_data)
+                if result.get("success"):
+                    await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
+                    return result
+                elif result.get("requires_operator"):
+                    return result
+                elif result.get("requires_email_verify"):
+                    return result
+    except Exception as e:
+        logger.debug(
+            "[portal_registry] Generic form detection failed for %s: %s",
+            portal.id, e,
+        )
 
     # If no signup_fields or form fill failed, store credentials and
     # emit a PREPARED (not registered) audit notice
