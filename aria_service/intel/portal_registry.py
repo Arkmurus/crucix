@@ -2012,6 +2012,90 @@ def get_pending_source_requirements() -> list[dict]:
     return requirements
 
 
+# R-F1498: portals that require a PAID subscription — operator has declined paid
+# third-party services (§6/§18). Emailed as "your decision", never auto-pursued.
+_PAID_PORTAL_IDS = {"crunchbase", "pitchbook", "opencorporates", "duns_bradstreet", "opensanctions"}
+
+
+async def email_portal_requirements_to_operator() -> dict[str, Any]:
+    """R-F1498 — email the operator EXACTLY what each portal ARIA cannot autonomously
+    sign up to needs: free API key / free signup / CAPTCHA-manual / paid, with the
+    signup URL and the env var to set. This is the honest, actionable answer to "why
+    are 23 portals pending" — most fundamentally need the operator (anti-bot, email
+    verification, CAPTCHA, paywalls), not more auto-registration code.
+    """
+    operator = (
+        (os.getenv("ARIA_EMAIL_OPERATOR_ALLOWLIST") or "").split(",")[0].strip()
+        or os.getenv("ARIA_OPERATOR_EMAIL")
+        or os.getenv("ARIA_SMTP_USER")
+        or ""
+    )
+    if not operator:
+        return {"sent": False, "error": "no operator email configured (ARIA_OPERATOR_EMAIL)"}
+
+    free_key: list[str] = []
+    free_signup: list[str] = []
+    captcha: list[str] = []
+    paid: list[str] = []
+    for r in get_pending_source_requirements():
+        # Already satisfied (all needed env vars present) → nothing required.
+        if r["needs_env_vars"] and not r["env_vars_missing"]:
+            continue
+        pid, name, url = r["id"], r["name"], r["url"]
+        portal = next((p for p in PORTALS if p.id == pid), None)
+        signup = f"{url.rstrip('/')}{portal.register_path}" if (portal and portal.register_path) else url
+        if pid in _PAID_PORTAL_IDS:
+            paid.append(f"  - {name}: PAID subscription ({url}) — your decision; ARIA will not auto-pay.")
+        elif r["requires_captcha"]:
+            captcha.append(f"  - {name}: CAPTCHA-protected — register manually at {signup} (use email {_ARIA_EMAIL}).")
+        elif r["registration_type"] == "api_key":
+            key_var = (r["needs_env_vars"] or [f"{pid.upper()}_API_KEY"])[0]
+            free_key.append(f"  - {name}: FREE API key — create a free account at {url}, get the key, then set {key_var}.")
+        else:  # email_form / oauth — ARIA tried but the form-fill could not complete
+            free_signup.append(f"  - {name}: free signup at {signup} (ARIA's auto form-fill failed — likely email verification / anti-bot).")
+
+    parts = ["Hi — ARIA could not autonomously sign up to the portals below. "
+             "Here is exactly what each needs from you:\n"]
+    if free_key:
+        parts.append("FREE API KEY (create a free account, get the key, set the env var):\n" + "\n".join(free_key) + "\n")
+    if free_signup:
+        parts.append("FREE SIGNUP (ARIA attempted it but the form-fill could not complete):\n" + "\n".join(free_signup) + "\n")
+    if captcha:
+        parts.append("CAPTCHA — must be registered manually:\n" + "\n".join(captcha) + "\n")
+    if paid:
+        parts.append("PAID — your decision:\n" + "\n".join(paid) + "\n")
+    parts.append("The open/free APIs (sanctions lists, SEC EDGAR, Companies House, World Bank, "
+                 "UN/UK/EU sanctions, etc.) are already accessible — no action needed there.\n\n— ARIA")
+    body = "\n".join(parts)
+
+    from ..integrations.email_outbound import send_email
+    result = send_email(
+        to=operator,
+        subject="ARIA — portal access: what each site needs from you",
+        body=body,
+        internal=True,
+        sender_note="R-F1498 portal-requirements digest",
+    )
+    counts = {"free_key": len(free_key), "free_signup": len(free_signup),
+              "captcha": len(captcha), "paid": len(paid)}
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="portal_registry",
+            summary=f"Emailed operator portal requirements: {sum(counts.values())} sites need action",
+            source_id="portal_registry:R-F1498",
+        )
+    except Exception:
+        pass
+    return {
+        "sent": bool(result.get("sent")),
+        "to": operator,
+        "counts": counts,
+        "delivery_error": result.get("delivery_error"),
+        "draft": None if result.get("sent") else result,
+    }
+
+
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:

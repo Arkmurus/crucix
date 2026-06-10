@@ -13929,6 +13929,16 @@ async def portal_registry_auto_register_ep():
     return result
 
 
+@router.post("/portal-registry/email-requirements")
+async def portal_registry_email_requirements_ep():
+    """R-F1498: email the operator exactly what each portal ARIA cannot
+    autonomously sign up to needs (free API key / free signup / CAPTCHA / paid),
+    with the signup URL + env var to set. Honest, actionable alternative to
+    leaving portals perpetually 'pending'."""
+    from ..intel.portal_registry import email_portal_requirements_to_operator
+    return await email_portal_requirements_to_operator()
+
+
 @router.post("/registrations/check")
 async def registrations_check_ep(request: Request):
     """Run portal-registration checks for Arkmurus.

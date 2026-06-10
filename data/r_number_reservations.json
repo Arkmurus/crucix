@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1498,
+  "next_available": 1499,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9407,6 +9407,15 @@
       "commit_sha": "88ec54d7",
       "notes": null,
       "shipped_at": "2026-06-10T11:40:25Z"
+    },
+    {
+      "r_number": "R-F1498",
+      "title": "honest vault reclassification: pending->needs_operator/declined + free-key notes",
+      "claimed_at": "2026-06-10T11:59:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -253,6 +253,23 @@ class AutonomousScheduler:
                     "%d still pending, %d failed",
                     retried, succeeded, still_pending, failed,
                 )
+
+            # R-F1498: email the operator exactly what each still-pending portal
+            # needs (free key / signup / CAPTCHA / paid) so they can act — most
+            # fundamentally need the operator, not more auto-registration. Throttled
+            # to once per 24h so the autonomous loop never spams.
+            try:
+                from . import state_store as _ss
+                import time as _t
+                _last = await _ss.get("crucix:portal_registry:reqs_emailed_at")
+                if not _last or (_t.time() - float(_last)) > 86400:
+                    from .portal_registry import email_portal_requirements_to_operator
+                    res = await email_portal_requirements_to_operator()
+                    if res.get("sent") or res.get("counts"):
+                        await _ss.set("crucix:portal_registry:reqs_emailed_at", str(_t.time()))
+                        logger.info("[R-F1498] Emailed operator portal requirements: %s", res.get("counts"))
+            except Exception as _ee:
+                logger.debug("[R-F1498] requirements email skipped: %s", _ee)
         except Exception as e:
             logger.debug("[R-F1490] vault retry skipped: %s", e)
 
