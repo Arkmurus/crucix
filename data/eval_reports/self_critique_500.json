@@ -1,0 +1,471 @@
+{
+  "sampled": 60,
+  "scored": 60,
+  "clean": 46,
+  "fabrication": 2,
+  "error": 12,
+  "vague": 0,
+  "fabrication_rate": 0.0333,
+  "error_rate": 0.2,
+  "results": [
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer provides a general, factually accurate description of standard enhanced due diligence procedures for high-risk clients, without inventing specific regulations, thresholds, or unverifiable details.",
+      "flagged_claims": [],
+      "topic": "brokering",
+      "question": "How does a broker assess the risk of a client who lists a P.O. Box as their primary busine"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states the 'substantial' threshold as \u2265 15% of total trading volume, whereas MiFID II RTS 1 defines it as the firm's trading exceeding a specific absolute volume threshold (e.g., EUR 1 million for equities) or 15% of the total trading volume in the EU for a given asset class, not simply \u2265 15% of total trading volume.",
+      "flagged_claims": [
+        "Substantial: Either \u2265 15% of total trading volume in that class, or a firm may opt in voluntarily."
+      ],
+      "topic": "brokering",
+      "question": "How does the EU's Markets in Financial Instruments Directive (MiFID II) define a 'systemat"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states that the California Department of Real Estate (DRE) is now part of the Bureau of Real Estate; in fact, the DRE was renamed the Bureau of Real Estate (CalBRE) in 2013, but it is not 'part of' another agency\u2014it is the same entity under a new name, and the answer also misstates the bond requirement as a general broker requirement when it is actually required only for brokers who handle trust funds, and the bond amount is not a fixed range but is set by the Commissioner.",
+      "flagged_claims": [
+        "The California Department of Real Estate (DRE, now part of the Bureau of Real Estate)",
+        "Brokers must maintain a surety bond (typically $10,000\u2013$25,000) or a trust account for handling client funds"
+      ],
+      "topic": "brokering",
+      "question": "What specific licensing requirements must a broker fulfill to legally operate as a real es"
+    },
+    {
+      "verdict": "FABRICATION",
+      "reason": "MiFID II does not mandate specific order-to-trade ratio reporting thresholds or monthly reporting frequencies; ESMA has not set fixed OTR thresholds like 2:1 or 4:1, and the answer invents specific content and trigger requirements not found in the regulation.",
+      "flagged_claims": [
+        "ESMA sets minimum OTR thresholds (e.g., 2:1 for equities, 4:1 for certain derivatives)",
+        "Reports must include the ratio of orders entered to transactions executed, broken down by trading venue, instrument class, and algorithm type",
+        "Reporting is typically monthly (within 10 business days after month-end)",
+        "Firms must also notify their NCA if their OTR exceeds the threshold, potentially triggering additional scrutiny or mandatory market-making obligations"
+      ],
+      "topic": "compliance",
+      "question": "Under the EU's MiFID II, what specific reporting requirements apply to algorithmic trading"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer accurately reflect the requirements of Directive (EU) 2019/1937 regarding internal reporting channels for companies with 250 or more employees, including the forms of reporting, confidentiality obligations, and the transposition deadline.",
+      "flagged_claims": [],
+      "topic": "compliance",
+      "question": "Under the EU's Whistleblower Protection Directive, what specific reporting channels must a"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in publicly available OFAC regulations and guidance, including the SDN List, sanctions programs, reporting timelines, recordkeeping requirements, and the Framework for OFAC Compliance Commitments.",
+      "flagged_claims": [],
+      "topic": "compliance",
+      "question": "What procedures must a multinational corporation follow to comply with OFAC sanctions when"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the difference between the UK Bribery Act 2010 and the FCPA regarding facilitation payments, with no fabricated specifics, factual errors, or ungrounded claims.",
+      "flagged_claims": [],
+      "topic": "corruption",
+      "question": "How does the UK Bribery Act 2010 differ from the FCPA in its treatment of facilitation pay"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states that China is not a signatory to the OECD Anti-Bribery Convention; China is not a party, but the claim that Hong Kong is covered via the UK's ratification is outdated and misleading, as Hong Kong's application of the Convention is through China's separate arrangements, not the UK's ratification.",
+      "flagged_claims": [
+        "Not all Asian countries are parties (e.g., China is not a signatory, though Hong Kong is covered via the UK's ratification)."
+      ],
+      "topic": "corruption",
+      "question": "How does the OECD Anti-Bribery Convention's mutual legal assistance framework facilitate c"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually accurate and grounded in publicly verifiable information about US and EU whistleblower laws and their general impacts on investigations.",
+      "flagged_claims": [],
+      "topic": "corruption",
+      "question": "How do whistleblower protection laws in the EU and the US impact the effectiveness of corr"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in the EU FDI Screening Regulation (Regulation (EU) 2019/452), including the listed criteria, their non-exhaustive nature, and the case-by-case assessment framework.",
+      "flagged_claims": [],
+      "topic": "critical_technology",
+      "question": "Under the EU's Foreign Direct Investment Screening Regulation, what are the specific crite"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in the Export Administration Regulations (EAR) and standard BIS procedures.",
+      "flagged_claims": [],
+      "topic": "critical_technology",
+      "question": "What is the procedure for a U.S. company to self-classify a dual-use technology under the "
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The notification threshold for non-resident investors in core sectors under Japan's Foreign Exchange and Foreign Trade Act is 1% or more of shares in a listed company, but the answer incorrectly states that acquisition of any shares in an unlisted company in a core sector is subject to mandatory prior approval; in fact, prior notification is required for any acquisition of shares in an unlisted company in a designated core sector, but the answer's phrasing is misleading as it implies a blanket rule without clarifying that the designation applies to specific business sectors, and the answer also incorrectly claims that the threshold for non-core sectors is 10% or more, whereas the actual threshold for non-core sectors is 10% or more for listed companies and any acquisition for unlisted companies in non-core sectors is not subject to prior notification unless the target is in a designated sector.",
+      "flagged_claims": [
+        "For non-core sectors, the threshold is 10% or more of shares.",
+        "Acquisition of any shares in an unlisted company, if the target is designated as a 'core business sector' (including critical technology)."
+      ],
+      "topic": "critical_technology",
+      "question": "Under Japan's Foreign Exchange and Foreign Trade Act, which critical technology items are "
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly states that it cannot confirm the requested information due to lack of provided documents, which is a proper ground-or-abstain response.",
+      "flagged_claims": [],
+      "topic": "cyber",
+      "question": "Does the company have cyber liability insurance, and what is the coverage limit and deduct"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the key requirements of the NYDFS Cybersecurity Regulation (23 NYCRR Part 500) without fabricating specifics, making factual errors, or being overly vague; it correctly notes that actual compliance cannot be confirmed without reviewing the company's specific policies and filings.",
+      "flagged_claims": [],
+      "topic": "cyber",
+      "question": "Does the company's cybersecurity program comply with the New York Department of Financial "
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly abstains from making any specific claim about a data breach, acknowledges its lack of access to real-time or specific company data, and provides appropriate guidance on how to verify the information.",
+      "flagged_claims": [],
+      "topic": "cyber",
+      "question": "Has the target company experienced any publicly reported data breaches in the past three y"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are factually grounded in ITAR requirements and standard compliance practices, with no fabricated specifics, errors, or evasiveness.",
+      "flagged_claims": [],
+      "topic": "defence",
+      "question": "In a due-diligence review of a defence subcontractor, what specific red flags would indica"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly refuses to speculate without the required entity name, which is appropriate and factually grounded.",
+      "flagged_claims": [],
+      "topic": "defence",
+      "question": "What is the ownership structure of the entity, and does it include any state-owned defense"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly states that it cannot confirm the FSC status, explains why the information is typically non-public, and suggests appropriate verification steps without fabricating any data.",
+      "flagged_claims": [],
+      "topic": "defence",
+      "question": "Does the firm hold a valid Facility Security Clearance (FSC) from the Defense Counterintel"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer describes general patterns of documentation discrepancies in humanitarian aid logistics without fabricating specific cases, figures, or unverifiable details, and appropriately refrains from naming specific incidents.",
+      "flagged_claims": [],
+      "topic": "diversion",
+      "question": "What specific documentation discrepancies signal the diversion of food aid to armed groups"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer describes a standard compliance framework for auditing third-party distributors of controlled chemicals in Brazil, referencing real regulatory bodies (Federal Police, Brazilian Army) and common due diligence practices, without making any specific fabricated claims or factual errors.",
+      "flagged_claims": [],
+      "topic": "diversion",
+      "question": "How do multinational corporations audit their third-party distributors to prevent diversio"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly lists the UK's ECJU as an example of an EU competent authority, but the UK is no longer an EU Member State, which is a factual error.",
+      "flagged_claims": [
+        "ECJU in the UK \u2013 though UK is no longer EU"
+      ],
+      "topic": "diversion",
+      "question": "What specific licenses or permits are required in the European Union for a chemical manufa"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly cites Article 25 of the Export Trade Control Order as the primary catch-all provision; the correct legal basis is Article 48 of the Foreign Exchange Order and Article 25 of the Export Trade Control Order governs different aspects, and the description of the conventional weapons catch-all for UN arms embargoes is misleadingly applied to industrial valves for a refinery.",
+      "flagged_claims": [
+        "the 'catch-all' control mechanism ... is primarily governed by the 'End-Use' (or 'End-User') Catch-All provisions, specifically under Article 25 of the Export Trade Control Order (ETCO)",
+        "Conventional Weapons Catch-All (for non-WMD): For shipments to countries subject to UN arms embargoes (e.g., Iran, North Korea, parts of Syria), a separate catch-all applies if the valves could contribute to the development, production, or maintenance of conventional weapons"
+      ],
+      "topic": "dual_use",
+      "question": "Under Japan's Foreign Exchange and Foreign Trade Act, what is the 'catch-all' control mech"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states that India is in Country Group A:5 for most dual-use items, but India is actually in Country Group B for most dual-use items under BIS regulations, which affects eligibility for License Exception TMP.",
+      "flagged_claims": [
+        "India (a Country Group A:5 destination for most dual-use items)"
+      ],
+      "topic": "dual_use",
+      "question": "Which U.S. Bureau of Industry and Security (BIS) license exceptions are available for the "
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in publicly available knowledge about dual-use export controls, red flags for diversion, and relevant EU/German regulations.",
+      "flagged_claims": [],
+      "topic": "dual_use",
+      "question": "For a company manufacturing high-precision CNC machine tools in Germany, what red flags in"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes general compliance obligations for freight forwarders regarding dual-use shipments to military end-users in restricted countries, without fabricating specific details or making factual errors.",
+      "flagged_claims": [],
+      "topic": "export_control",
+      "question": "What compliance obligations does a freight forwarder have when they suspect that a shipmen"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually accurate and grounded in publicly available information about the Australia Group's role, control lists, no-undercut principle, and common licensing triggers.",
+      "flagged_claims": [],
+      "topic": "export_control",
+      "question": "How does the Australian Group influence export controls on chemical and biological agents,"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes Japan's catch-all control under FEFTA, including the triggers based on end-use, end-user, and destination concerns, and correctly states the knowledge or reasonable suspicion standard.",
+      "flagged_claims": [],
+      "topic": "export_control",
+      "question": "Under Japanese export control law, what triggers the requirement to apply for a license fo"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The Cayman Islands is not on the UK's list of high-risk third countries for money laundering under UK AML regulations; it was removed from the FATF grey list in 2023 and is not designated as a high-risk third country by the UK.",
+      "flagged_claims": [
+        "The Cayman Islands is on the UK\u2019s list of high-risk third countries for money laundering (per UK AML regulations). This triggers mandatory EDD."
+      ],
+      "topic": "financial_crime",
+      "question": "What due diligence steps are required for a UK-based fintech onboarding a corporate client"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in Swiss anti-money laundering regulations and FINMA guidelines.",
+      "flagged_claims": [],
+      "topic": "financial_crime",
+      "question": "What procedures must a Swiss bank follow when onboarding a politically exposed person from"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in public knowledge about cryptocurrency mixers and AML regulations.",
+      "flagged_claims": [],
+      "topic": "financial_crime",
+      "question": "How do cryptocurrency mixers like Tornado Cash violate anti-money laundering regulations?\""
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are consistent with FATF's 2018 report on human trafficking financial flows, and the answer correctly notes they are indicative and context-dependent.",
+      "flagged_claims": [],
+      "topic": "human_trafficking",
+      "question": "What specific financial transaction patterns are listed by the Financial Action Task Force"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the functional definition of vulnerability in Directive 2011/36/EU, referencing Article 2(2) and recital 11 correctly, without any fabricated specifics or factual errors.",
+      "flagged_claims": [],
+      "topic": "human_trafficking",
+      "question": "How does the European Union's Directive 2011/36/EU define the concept of 'vulnerability' i"
+    },
+    {
+      "verdict": "FABRICATION",
+      "reason": "The answer cites a specific law number and date (Law No. 2010-272 of September 30, 2010) that does not correspond to any known Ivorian law on child trafficking; the actual Ivorian law on child trafficking is Law No. 2010-272 of September 30, 2010, but it does not specify the exact penalties of 5-20 years imprisonment and 5,000,000-50,000,000 CFA francs for intermediaries recruiting children for cocoa plantation labor, as these figures are not verifiable in publicly available legal sources.",
+      "flagged_claims": [
+        "Under Ivory Coast\u2019s Law No. 2010-272 of September 30, 2010",
+        "intermediaries who recruit children for cocoa plantation labor face specific penalties: Imprisonment: 5 to 20 years. Fines: 5,000,000 to 50,000,000 CFA francs"
+      ],
+      "topic": "human_trafficking",
+      "question": "Under the Ivory Coast's child trafficking laws, what are the specific penalties for interm"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually accurate and grounded in publicly available U.S. export control regulations (EAR and ITAR), including specific ECCN categories, end-user restrictions, deemed export rules, encryption controls, and vendor due diligence expectations. No fabricated specifics, errors, or vague evasions are present.",
+      "flagged_claims": [],
+      "topic": "intelligence",
+      "question": "What red flags should be flagged in the procurement of open-source intelligence (OSINT) to"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the lack of direct parliamentary or independent civilian oversight for India's Research and Analysis Wing, correctly identifying the Cabinet Secretariat, Joint Intelligence Committee, and National Security Advisor as the relevant internal oversight and coordination bodies.",
+      "flagged_claims": [],
+      "topic": "intelligence",
+      "question": "Which oversight body reviews the activities of India's Research and Analysis Wing?"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes common red flags in personnel security and counterintelligence, such as unexplained foreign travel, financial distress, and personal vulnerabilities, which are well-established in public security clearance guidelines and counterintelligence literature.",
+      "flagged_claims": [],
+      "topic": "intelligence",
+      "question": "What red flag in a personnel background check indicates potential susceptibility to foreig"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states that the vessel must carry a minimum number of Panamanian nationals (usually the master and chief engineer) and that all crew must have Panamanian seaman's books; Panama law does not mandate Panamanian nationality for the master or chief engineer, and crew can hold foreign seaman's books with STCW endorsements.",
+      "flagged_claims": [
+        "The vessel must carry a minimum number of Panamanian nationals (usually the master and chief engineer, though waivers are common for foreign officers holding valid STCW endorsements).",
+        "All crew must have Panamanian seaman's books."
+      ],
+      "topic": "maritime",
+      "question": "What are the specific requirements for flag state registration of a commercial vessel unde"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in publicly available maritime due-diligence practices, with no fabricated specifics, errors, or evasiveness.",
+      "flagged_claims": [],
+      "topic": "maritime",
+      "question": "What are the due-diligence considerations for chartering a vessel that has recently change"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the EU and U.S. sanctions risks for vessels calling at Crimean or Sevastopol ports, citing relevant executive orders and prohibitions without fabricated specifics or factual errors.",
+      "flagged_claims": [],
+      "topic": "maritime",
+      "question": "What are the specific sanctions risks associated with vessels calling at ports in Crimea o"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly identifies over-invoicing as a red flag in trade-based money laundering, which is a well-established concept in anti-money laundering frameworks.",
+      "flagged_claims": [],
+      "topic": "money_laundering",
+      "question": "What specific red flag in trade finance involves over-invoicing for goods to move illicit "
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually accurate and grounded in publicly available knowledge about smurfing/structuring, the Bank Secrecy Act, CTR and SAR requirements, and common detection challenges.",
+      "flagged_claims": [],
+      "topic": "money_laundering",
+      "question": "What is a 'smurfing' operation in money laundering, and how does it typically avoid detect"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly states that SDD cannot be applied to PEPs and that EDD is mandatory for PEPs under the UK Money Laundering Regulations, with accurate procedural requirements.",
+      "flagged_claims": [],
+      "topic": "money_laundering",
+      "question": "What is a key procedural difference between a 'simplified due diligence' and 'enhanced due"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed due-diligence checks are standard, well-documented practices in procurement and compliance, and no fabricated specifics, factual errors, or ungrounded claims are present.",
+      "flagged_claims": [],
+      "topic": "procurement",
+      "question": "What are the standard due-diligence checks performed on new suppliers before onboarding in"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly abstains from making specific claims about an unnamed company, stating only general best practices and the need for the company's name to provide a targeted assessment.",
+      "flagged_claims": [],
+      "topic": "procurement",
+      "question": "Does the company conduct periodic audits of its procurement processes, and are the results"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are standard, well-documented indicators of bid rigging recognized by competition authorities (e.g., DOJ, FTC, European Commission) and procurement best practices; no fabricated specifics, factual errors, or ungrounded claims are present.",
+      "flagged_claims": [],
+      "topic": "procurement",
+      "question": "What red flags in supplier bids, such as identical pricing or unusual patterns, does the c"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly states that Resolution 2270 (2016), paragraph 12, prohibits bunkering services to DPRK-flagged vessels; in fact, that paragraph prohibits the provision of bunkering services to vessels that are reasonably believed to be carrying prohibited items or engaged in prohibited activities, but does not explicitly prohibit bunkering to all DPRK-flagged vessels, and the specific paragraph reference is misapplied.",
+      "flagged_claims": [
+        "Resolution 2270 (2016), paragraph 12, prohibits States from providing bunkering services to vessels owned or controlled by North Korea",
+        "Resolution 2321 (2016) and subsequent resolutions reinforce this prohibition, extending it to any vessel that has been involved in illicit ship-to-ship transfers with DPRK-flagged vessels"
+      ],
+      "topic": "sanctions",
+      "question": "Which specific UN Security Council resolutions form the legal basis for the current sancti"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are standard, factually accurate indicators used in EU sanctions compliance guidance and are presented without fabricated specifics or errors.",
+      "flagged_claims": [],
+      "topic": "sanctions",
+      "question": "If a Russian bank is subject to full blocking sanctions under the EU, but its subsidiary i"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the key differences in scope, legal basis, and enforcement style among U.S., EU, and UK sanctions on Russia, including the 50% rule, sectoral measures, and financial services prohibitions, without any fabricated specifics or factual errors.",
+      "flagged_claims": [],
+      "topic": "sanctions",
+      "question": "How do sanctions on Russia differ between the U.S., EU, and UK in terms of prohibited tran"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in publicly known compliance requirements for Middle Eastern government tenders, with no fabricated specifics, errors, or vagueness.",
+      "flagged_claims": [],
+      "topic": "tender",
+      "question": "When conducting due diligence on a tender from a Middle Eastern government entity, what un"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer accurately describes the typical minimum eligibility criteria under GFR 2017 for IT services tenders, correctly noting that specific thresholds vary by tender and that relaxations exist for MSEs and startups.",
+      "flagged_claims": [],
+      "topic": "tender",
+      "question": "In a tender for IT services in India under the General Financial Rules 2017, what are the "
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are standard, well-documented indicators of potentially falsified prior performance certificates in procurement contexts, and no fabricated specifics, factual errors, or ungrounded claims are present.",
+      "flagged_claims": [],
+      "topic": "tender",
+      "question": "What red flags in a tender evaluation would suggest a bidder has submitted falsified prior"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are standard, well-documented indicators of trade-based money laundering in invoice financing, and the answer includes appropriate caveats about context-dependence.",
+      "flagged_claims": [],
+      "topic": "trade_finance",
+      "question": "What are common red flags for trade-based money laundering in invoice financing?\","
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in publicly available ICC rules and guidance, with appropriate caveats about confidentiality.",
+      "flagged_claims": [],
+      "topic": "trade_finance",
+      "question": "How does the International Chamber of Commerce (ICC) handle disputes over electronic trade"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer correctly states the five banking day rule under UCP 600 Article 14(b), which is a well-established fact in trade finance.",
+      "flagged_claims": [],
+      "topic": "trade_finance",
+      "question": "Under the Uniform Customs and Practice for Documentary Credits (UCP 600), what is the maxi"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed red flags are standard, well-documented indicators in AML/CFT frameworks (e.g., FATF guidance, Wolfsberg Group standards) and are presented without fabricated specifics or factual errors.",
+      "flagged_claims": [],
+      "topic": "ubo",
+      "question": "What constitutes a 'red flag' when a UBO is listed as a director in multiple unrelated hig"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "MAS Notice 626 applies to banks, but MAS Notice 101 does not exist; the correct notice for non-bank financial institutions is MAS Notice 101A (for capital markets intermediaries) or other sector-specific notices, and the requirement to treat senior management as UBO if none identified is not a standard MAS requirement but rather a common practice under AML/CFT guidelines.",
+      "flagged_claims": [
+        "MAS Notice 101 (for non-bank financial institutions)",
+        "If the UBO cannot be identified, the senior management of the legal entity must be treated as the UBO, and the reasons must be documented."
+      ],
+      "topic": "ubo",
+      "question": "What specific information must be collected about a UBO when onboarding a legal entity cli"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All claims in the answer are factually correct and grounded in public knowledge about Panama's corporate and foundation laws, including the elimination of bearer shares under Law 47 of 2013 and the dual-document structure of foundations.",
+      "flagged_claims": [],
+      "topic": "ubo",
+      "question": "How does the use of a foundation in Panama affect the ability to trace beneficial ownershi"
+    },
+    {
+      "verdict": "ERROR",
+      "reason": "The answer incorrectly claims China's export control regime is the most likely jurisdiction to require a validated end-user certificate for carbon fiber pre-preg materials to a civil aerospace manufacturer, but the U.S. Export Administration Regulations (EAR) and EU Dual-Use Regulation are more commonly associated with such requirements for dual-use carbon fiber, and China's regime is not uniquely or primarily known for this specific material transfer scenario.",
+      "flagged_claims": [
+        "China's export control regime is the most likely jurisdiction to require a validated end-user certificate for the transfer of carbon fiber pre-preg materials to a civil aerospace manufacturer.",
+        "China's regime is particularly known for its strict, mandatory EUC requirement for sensitive dual-use items like carbon fiber pre-preg."
+      ],
+      "topic": "weapons_proliferation",
+      "question": "Which jurisdiction's export control regime requires a validated end-user certificate for t"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "All listed entities are publicly documented as designated under Executive Order 13382 for supporting Iran's ballistic missile program, and the answer appropriately notes the need to consult the current SDN list for updates.",
+      "flagged_claims": [],
+      "topic": "weapons_proliferation",
+      "question": "Which entities are currently sanctioned by OFAC under Executive Order 13382 for supporting"
+    },
+    {
+      "verdict": "CLEAN",
+      "reason": "The answer provides a general typology of red flags in letter of credit transactions related to missile technology diversion, without fabricating specific numbers, dates, or unverifiable claims, and correctly abstains from providing specific case details or citations beyond general references.",
+      "flagged_claims": [],
+      "topic": "weapons_proliferation",
+      "question": "What specific red flags in a letter of credit transaction, such as unusual routing through"
+    }
+  ]
+}

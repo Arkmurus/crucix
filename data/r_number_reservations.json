@@ -9183,27 +9183,30 @@
       "title": "AgentRegistry: fix register() return value when Redis is down",
       "claimed_at": "2026-06-10T06:21:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2beb5f5",
+      "notes": null,
+      "shipped_at": "2026-06-10T06:47:07Z"
     },
     {
       "r_number": "R-F1476",
       "title": "ContractRegistry: add SQLite fallback for Redis-down resilience",
       "claimed_at": "2026-06-10T06:21:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2beb5f5",
+      "notes": null,
+      "shipped_at": "2026-06-10T06:47:08Z"
     },
     {
       "r_number": "R-F1477",
       "title": "AgentSignupVault: fix test method name mismatch + test isolation",
       "claimed_at": "2026-06-10T06:21:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2beb5f5",
+      "notes": null,
+      "shipped_at": "2026-06-10T06:47:08Z"
     }
   ]
 }

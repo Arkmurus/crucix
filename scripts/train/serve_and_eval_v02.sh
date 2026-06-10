@@ -47,7 +47,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -f "$REPO_ROOT/.env" ]; then
   for _k in RUNPOD_API_KEY RUNPOD_POD_ID DEEPSEEK_API_KEY RUNPOD_API_BASE; do
     if [ -z "${!_k:-}" ]; then
-      _v=$(grep -E "^${_k}=" "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'' | tr -d '\r')
+      # R-F1451: trailing `|| true` — these vars are OPTIONAL in .env (e.g.
+      # RUNPOD_POD_ID/RUNPOD_API_BASE have code defaults below). Without it, when
+      # a var is absent grep exits 1, pipefail propagates it, and the command
+      # substitution under `set -e` aborts the WHOLE script SILENTLY (no output,
+      # exit 1) before any echo — the exact launch-blocker hit on the first run.
+      _v=$(grep -E "^${_k}=" "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'' | tr -d '\r' || true)
       [ -n "$_v" ] && export "$_k=$_v"
     fi
   done
@@ -129,6 +134,39 @@ echo "[1/6] Starting pod $POD_ID..."
 curl -s -X POST "$API_BASE/pods/$POD_ID/start" \
   -H "Authorization: Bearer $API_KEY" > "$LOG_DIR/start.json" 2>&1
 
+# R-F1452: SURFACE the start response + FAIL FAST on an error. Pre-R-F1452 the
+# start.json (which carries RunPod's real reason, e.g. "There are not enough free
+# GPUs on the host machine to start this pod") was written to disk but NEVER
+# printed — so a capacity 500 looked like 30 silent "Status: EXITED" polls (5 min
+# wasted) before the generic SSH-resolve abort. Now: echo the start error and, on
+# a non-transient capacity/error response, abort immediately with the real cause
+# (the EXIT trap stops the pod; cost ~$0 since it never ran).
+# R-F1452: read start.json via STDIN (cat | python), NOT open('$LOG_DIR/...').
+# $PYTHON_BIN is the Windows venv python.exe and $LOG_DIR is an MSYS /tmp path it
+# cannot open — open() raised, the check was skipped, and the capacity 500 fell
+# through to the silent poll. Piping via stdin matches every other python call in
+# this script and is platform-agnostic.
+START_ERR=$(cat "$LOG_DIR/start.json" | "$PYTHON_BIN" -c "import sys,json
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(d,dict) and (d.get('error') or (isinstance(d.get('status'),int) and d['status']>=400)):
+    print(d.get('error') or d.get('status'))
+" 2>/dev/null || echo "")
+if [ -n "$START_ERR" ]; then
+  echo "ERROR: RunPod refused to start pod $POD_ID:" >&2
+  echo "       $START_ERR" >&2
+  case "$START_ERR" in
+    *"free GPUs"*|*"not enough"*|*"capacity"*|*"unavailable"*)
+      echo "       → GPU CAPACITY blocker (this pod is pinned to a host with no free GPU)." >&2
+      echo "       → Not a code bug. Retry when capacity frees up, or recreate the pod on a host with availability (the adapter lives on the network volume, so a new pod attaching it works)." >&2
+      ;;
+  esac
+  echo "Aborting fast (trap stops the pod; it never ran, cost ~\$0)." >&2
+  exit 1
+fi
+
 # Wait for pod to reach RUNNING state (and for runtime/IP to populate)
 echo "      Waiting for pod to start..."
 POD_DATA=""
@@ -155,6 +193,13 @@ pm=d.get('portMappings') or {}
 port=str(pm.get('22') or pm.get(22) or '') if isinstance(pm,dict) else ''
 print(ip, port)
 " 2>/dev/null || echo " ")
+# R-F1453: the local $PYTHON_BIN is the Windows venv python.exe, which emits CRLF
+# (\r\n). `read` keeps the trailing \r on the LAST field, so POD_PORT becomes
+# "18599\r" → `ssh -p 18599\r` fails with "Bad port '18599'" (the \r is invisible)
+# and the whole serve step dies after the SSH loop silently 20x-retries. Strip CR
+# from both fields. (The $()-captured STATUS/IP_READY above tolerate it.)
+POD_HOST="${POD_HOST//$'\r'/}"
+POD_PORT="${POD_PORT//$'\r'/}"
 echo "      SSH endpoint: ${POD_HOST:-<none>}:${POD_PORT:-<none>}"
 if [ -z "$POD_HOST" ] || [ -z "$POD_PORT" ]; then
   echo "ERROR: could not resolve SSH host/port from the running pod. Raw pod JSON:" >&2
@@ -163,10 +208,26 @@ if [ -z "$POD_HOST" ] || [ -z "$POD_PORT" ]; then
   exit 1
 fi
 
+# R-F1453: resolve the SSH identity the pod accepts and copy it to a perm-safe
+# (chmod 600) temp. Two reasons the bare `ssh root@host` calls below failed before:
+# (1) no `-i` flag → ssh never tries ~/.ssh/runpod_aria (not a default key name,
+# not in agent/config), so it falls through to publickey-denied; (2) on Windows the
+# key is checked out 644 and ssh can reject it as "UNPROTECTED PRIVATE KEY FILE".
+# Copy to $LOG_DIR/sshid @ 600 and pass it explicitly via $SSH_ID to every ssh call.
+# Override the source key with ARIA_RUNPOD_SSH_KEY.
+SSH_KEY_SRC="${ARIA_RUNPOD_SSH_KEY:-$HOME/.ssh/runpod_aria}"
+SSH_ID="$LOG_DIR/sshid"
+if [ -f "$SSH_KEY_SRC" ]; then
+  cp "$SSH_KEY_SRC" "$SSH_ID" && chmod 600 "$SSH_ID"
+else
+  echo "ERROR: SSH key not found at $SSH_KEY_SRC (set ARIA_RUNPOD_SSH_KEY). Aborting (trap stops pod)." >&2
+  exit 1
+fi
+
 # ── Step 2: Wait for SSH readiness ─────────────────────────────────────────
 echo "[2/6] Waiting for SSH readiness..."
 for i in $(seq 1 20); do
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p "$POD_PORT" "root@$POD_HOST" "echo ready" 2>/dev/null; then
+  if ssh -i "$SSH_ID" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p "$POD_PORT" "root@$POD_HOST" "echo ready" 2>/dev/null; then
     echo "      SSH ready (attempt $i)"
     break
   fi
@@ -180,7 +241,7 @@ done
 # paid 14B load. Read the adapter's recorded base ON THE POD and abort LOUD if it
 # disagrees with the configured BASE_MODEL (the EXIT trap stops the pod).
 echo "[3a] Verifying adapter base matches $BASE_MODEL..."
-ADAPTER_BASE=$(ssh -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" \
+ADAPTER_BASE=$(ssh -i "$SSH_ID" -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" \
   "python3 -c \"import json;print(json.load(open('$MODEL_PATH/adapter_config.json')).get('base_model_name_or_path',''))\"" 2>/dev/null || echo "")
 echo "      adapter base: '${ADAPTER_BASE:-<unreadable>}' (expected: $BASE_MODEL)"
 if [ -n "$ADAPTER_BASE" ] && [ "$ADAPTER_BASE" != "$BASE_MODEL" ]; then
@@ -197,11 +258,21 @@ fi
 # drift. Serve on the EXPOSED http port (8888); free Jupyter which owns it on the
 # runpod/pytorch image.
 echo "[3/6] Launching vLLM with $MODEL_NAME on port $VLLM_PROXY_PORT..."
-ssh -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" bash -s -- \
+ssh -i "$SSH_ID" -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" bash -s -- \
   "$BASE_MODEL" "$MODEL_PATH" "$MODEL_NAME" "$MAX_MODEL_LEN" "$VLLM_PROXY_PORT" << 'REMOTE'
   set -euo pipefail
   BASE_MODEL="$1"; ADAPTER_PATH="$2"; SERVED_NAME="$3"; MAXLEN="$4"; PORT="$5"
   mkdir -p /workspace/logs
+
+  # R-F1454: load the base model from the PERSISTENT volume HF cache. The
+  # container default ~/.cache/huggingface is ephemeral and wiped on every pod
+  # restart, so the base (mistralai/Mistral-7B-Instruct-v0.3 — GATED on HF, and
+  # there is NO HF token on the pod) is not there and a fresh download would fail.
+  # The full weights ARE cached on the volume from the training run. Point HF_HOME
+  # at it and force offline so vLLM resolves from cache instead of hitting the hub.
+  export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
+  export HF_HUB_OFFLINE=1
+  export TRANSFORMERS_OFFLINE=1
 
   # Install vLLM if not present
   pip install -q vllm 2>&1 | tail -1

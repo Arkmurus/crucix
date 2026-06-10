@@ -8,24 +8,36 @@
 # adapter trained on one base CANNOT load on another, so a mismatch silently
 # wastes a whole paid GPU cycle.
 #
-# v0.2 (current sovereign work) = Qwen2.5-14B — per the 2026-06-06 14B work on
-# RunPod pod 7ei3hldcpz4j2v (/workspace/qwen14b, served name aria-llm-v0.2).
-# The v0.1 era used Mistral-7B-Instruct-v0.3 (kept here as a reference).
+# R-F1454 (2026-06-09) — CORRECTED: v0.2 is actually Mistral-7B-Instruct-v0.3,
+# NOT Qwen2.5-14B. The DPO adapter at /workspace/checkpoints/aria_llm_v0_2_dpo was
+# produced by train_promote_v0_2.sh:30 (BASE_MODEL=mistralai/Mistral-7B-Instruct-v0.3)
+# and its adapter_config.json base_model_name_or_path confirms Mistral-7B. The
+# Qwen2.5-14B weights WERE downloaded to the pod volume (/workspace/qwen14b) as
+# exploratory work, but NO Qwen adapter was ever trained — Qwen-14B is the
+# ASPIRATIONAL future base, not what exists. Recording Qwen here (the previous
+# value) is exactly what the adapter-base guard caught on the first paid run and
+# is why this file existed; it had the desired state, not the trained one.
+#
+# Base weights live in the PERSISTENT volume HF cache (the container ~/.cache is
+# wiped on restart): /workspace/.cache/huggingface. Mistral-7B-Instruct-v0.3 is
+# GATED on HF and there is NO HF token on the pod, so serving MUST load from this
+# cache (serve_and_eval_v02.sh sets HF_HOME + HF_HUB_OFFLINE in the vLLM launch).
 #
 # ⚠️  VERIFY BEFORE THE FIRST PAID RUN (do NOT skip — this is the #1 cycle-waster):
 #     On the pod, read the adapter's base:
 #       python -c "import json;print(json.load(open('$ARIA_ADAPTER_PATH/adapter_config.json'))['base_model_name_or_path'])"
-#     Confirm it matches ARIA_BASE_MODEL below. If the adapter is Mistral-7B,
-#     export ARIA_BASE_MODEL=mistralai/Mistral-7B-Instruct-v0.3 before serving.
+#     Confirm it matches ARIA_BASE_MODEL below.
 
 # --- canonical values (override via env to switch model versions) ---
-ARIA_BASE_MODEL="${ARIA_BASE_MODEL:-Qwen/Qwen2.5-14B-Instruct}"
+ARIA_BASE_MODEL="${ARIA_BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 ARIA_ADAPTER_PATH="${ARIA_ADAPTER_PATH:-/workspace/checkpoints/aria_llm_v0_2_dpo}"
 ARIA_MODEL_NAME="${ARIA_MODEL_NAME:-aria-llm-v0.2}"
 ARIA_MAX_MODEL_LEN="${ARIA_MAX_MODEL_LEN:-32768}"
+# Persistent volume HF cache (base weights survive pod restarts here):
+ARIA_HF_HOME="${ARIA_HF_HOME:-/workspace/.cache/huggingface}"
 # Frozen 500-Q eval set (export with scripts/train/export_eval_500q.py).
 ARIA_EVAL_SET="${ARIA_EVAL_SET:-/workspace/datasets/aria_eval_500q.jsonl}"
-# v0.1 reference (historical) — NOT the current base:
-ARIA_V01_BASE_MODEL="mistralai/Mistral-7B-Instruct-v0.3"
+# Aspirational future base — downloaded to /workspace/qwen14b but NO adapter yet:
+ARIA_FUTURE_BASE_MODEL="Qwen/Qwen2.5-14B-Instruct"
 
-export ARIA_BASE_MODEL ARIA_ADAPTER_PATH ARIA_MODEL_NAME ARIA_MAX_MODEL_LEN ARIA_EVAL_SET
+export ARIA_BASE_MODEL ARIA_ADAPTER_PATH ARIA_MODEL_NAME ARIA_MAX_MODEL_LEN ARIA_HF_HOME ARIA_EVAL_SET
