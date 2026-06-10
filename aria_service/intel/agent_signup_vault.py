@@ -40,7 +40,10 @@ _VAULT_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent
 _VAULT_DB = _VAULT_DIR / "agent_signup_vault.db"
 
 # Valid statuses
-VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled"}
+# R-F1491: added 'open_api' for portals that are free/open and need no registration.
+# Previously these were marked as 'registered' which was fabricated — no registration
+# ever happened. 'open_api' is honest: the data source is accessible without credentials.
+VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled", "open_api"}
 
 # Schema version for migration
 _SCHEMA_VERSION = 1
@@ -399,7 +402,10 @@ class AgentSignupVault:
             signup_fields = _get(portal, "signup_fields")
 
             if reg_type == "none":
-                # Free/open API — no registration required
+                # Free/open API — no registration required.
+                # R-F1491: marked as 'open_api' not 'registered' — no registration
+                # ever happened. This is honest: the data source is accessible
+                # without any signup or credentials.
                 try:
                     self.record(
                         site_id=site_id,
@@ -407,7 +413,7 @@ class AgentSignupVault:
                         site_url=_get(portal, "url", ""),
                         agent_id=agent_id,
                         site_type="portal",
-                        status="registered",
+                        status="open_api",
                         notes="Free/open API — no registration required.",
                         metadata={"portal_type": "open_api", "registration_type": "none"},
                     )

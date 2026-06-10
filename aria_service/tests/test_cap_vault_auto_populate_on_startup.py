@@ -125,7 +125,8 @@ class TestVaultImportFromPortalRegistry:
                 assert not missing, (
                     f"Entry {entry.get('site_id', '?')} missing fields: {missing}"
                 )
-                assert entry["status"] in ("pending", "registered", "verified", "failed", "expired", "cancelled"), (
+                # R-F1491: added 'open_api' for free/open portals that need no registration
+                assert entry["status"] in ("pending", "registered", "verified", "failed", "expired", "cancelled", "open_api"), (
                     f"Entry {entry['site_id']} has invalid status: {entry['status']}"
                 )
         finally:
