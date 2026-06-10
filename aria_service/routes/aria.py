@@ -863,6 +863,39 @@ async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: in
     return {"unread_count": n, "user_id": user_id, "since_hours": since_hours}
 
 
+@router.get("/dd/layer-5c/stats")
+async def dd_layer_5c_stats_ep(limit: int = 200):
+    """R-F1506: Layer 5C (digital footprint) stats for the brain command center.
+
+    Returns aggregate stats about digital-layer DD runs: how many entities
+    have been scanned, how many have web presence data, certificate transparency
+    hits, social media profiles, etc.
+    """
+    from ..intel import dd_orchestrator as _do
+    try:
+        reports = await _do.list_reports(limit=limit)
+    except Exception:
+        reports = []
+    total = len(reports)
+    with_web = 0
+    with_ct = 0
+    with_social = 0
+    for r in reports:
+        ext = r.get("extensions") or {}
+        by_mod = ext.get("by_module") if isinstance(ext, dict) else {}
+        if by_mod.get("cert_transparency"):
+            with_ct += 1
+        if r.get("digital"):
+            with_web += 1
+    return {
+        "total_entities_scanned": total,
+        "with_web_presence": with_web,
+        "with_cert_transparency": with_ct,
+        "with_social_media": with_social,
+        "recent_limit": limit,
+    }
+
+
 # ── R-F1182: VLS (Verifiable Ledger System) endpoints ──────────────────────
 
 
