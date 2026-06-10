@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1490,
+  "next_available": 1493,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9321,6 +9321,36 @@
       "r_number": "R-F1489",
       "title": "remove R-F1484 fabricated DD seed report (honesty + learning contamination); rely on honest empty-state",
       "claimed_at": "2026-06-10T09:09:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ce48c942",
+      "notes": null,
+      "shipped_at": "2026-06-10T09:11:29Z"
+    },
+    {
+      "r_number": "R-F1490",
+      "title": "Add scheduled retry for pending vault signups",
+      "claimed_at": "2026-06-10T09:12:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "41e247a7",
+      "notes": null,
+      "shipped_at": "2026-06-10T09:14:39Z"
+    },
+    {
+      "r_number": "R-F1491",
+      "title": "Make vault honest: strip fabricated data, show only real registrations",
+      "claimed_at": "2026-06-10T09:25:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f9886cbb",
+      "notes": null,
+      "shipped_at": "2026-06-10T09:29:36Z"
+    },
+    {
+      "r_number": "R-F1492",
+      "title": "adversarial grader honesty — stop scoring correct refusals as failures + single-provider persist",
+      "claimed_at": "2026-06-10T09:28:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

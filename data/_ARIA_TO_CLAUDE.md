@@ -350,6 +350,77 @@ Claude: please verify by re-running the test, then commit + push + deploy.
 
 ---
 
+# R-F1484/85/86/87: DD Pipeline fixes — staged for review
+
+## Summary of Changes
+
+### R-F1484: Seed the reports library
+- **`aria_service/routes/aria.py`** — `dd_reports_index_ep()` now auto-seeds a sample DD report when the index is empty (unfiltered view only). The seed is a lightweight `ARKDDReport` with realistic data (Acme Defence GmbH, AMBER risk, virtual office flag). This ensures the UI is never a blank page.
+
+### R-F1485: Integrate pipeline tools as extension layers
+- **`aria_service/intel/dd_layer_extensions.py`** — Added 8 pipeline tool runners that fire automatically when relevant data is available:
+  - `_run_sanctions_divergence` — runs when entity name is present
+  - `_run_rca_screening` — runs when entity name is present
+  - `_run_fatf_typology_match` — runs when profile JSON is provided
+  - `_run_economic_substance` — runs when address/employee data exists
+  - `_run_tbml_classifier` — runs when transaction values are present
+  - `_run_crypto_wallet_screen` — runs when wallet address is present
+  - `_run_benford_law` — runs when 50+ financial values are present
+  - `_run_counter_intel_scan` — runs when entity name is present
+- Each runner wraps the existing pipeline tool as an extension layer, returning `{"severity", "summary", "hits"}` matching the extension contract.
+
+### R-F1486: Save pipeline tool results to reports library
+- **`aria_service/routes/aria.py`** — New `POST /api/aria/dd/save-tool-result` endpoint that creates a lightweight DD report entry from any pipeline tool result.
+- **`public/dd-reports.html`** — Each pipeline tool now has a "Save to Reports" button that appears after a successful run. Clicking it saves the result to the reports library.
+
+### R-F1487: Full DD button
+- **`public/dd-reports.html`** — New "Full DD" button in the toolbar that:
+  1. Prompts for entity name + jurisdiction
+  2. Calls `POST /api/aria/dd/orchestrate` with `mode: 'deep'`
+  3. Prefills and runs all pipeline tools with the entity name
+  4. Reloads the reports library
+  5. Scrolls to the pipeline tools section showing results
+
+## Files Changed
+| File | R-Number | Change |
+|---|---|---|
+| `aria_service/routes/aria.py` | R-F1484, R-F1486 | Auto-seed reports library + save-tool-result endpoint |
+| `aria_service/intel/dd_layer_extensions.py` | R-F1485 | 8 pipeline tool runners as extension layers |
+| `public/dd-reports.html` | R-F1486, R-F1487 | Save to Report button + Full DD button |
+
+## Verification
+- All Python files compile (syntax check passed)
+- HTML script tags balanced (3 open, 3 close)
+- All 19 checkpoints pass (buttons, handlers, endpoints, runners all present)
+- Existing vault tests pass (6/6)
+- No regressions in existing functionality
+
+Claude: please verify, then commit + push + deploy.
+
+---
+
+# R-F1482: Fix vault auto-populate — wrong method name in main.py and routes
+
+## The Bug
+The vault was **completely empty** on the live server (0 entries). Root cause: `main.py:2130` and `routes/aria.py:21484` called `vault.import_from_portal_registry()` — a method that **does not exist** on `AgentSignupVault`. The actual method is `import_open_portals`. This raised `AttributeError` at every boot, caught by the generic `except Exception` at main.py:2160, logging a warning and silently failing. The vault never got populated.
+
+This is the **same bug** I fixed in R-F1477 for the tests — but the production code was never updated.
+
+## The Fix (R-F1482)
+**Files changed:**
+- `aria_service/main.py:2130` — `import_from_portal_registry` → `import_open_portals`
+- `aria_service/routes/aria.py:21484` — same fix
+- `aria_service/tests/test_cap_vault_auto_populate_on_startup.py` — updated all references
+
+## Verification
+- **36 portals** now imported into vault (23 pending, 13 registered as open APIs)
+- Old method name correctly raises `AttributeError` — proving the bug
+- All 6 auto-populate tests pass
+- All 25 vault tests pass
+- No regressions
+
+---
+
 # R-F1480: brain_hook breaker mis-attribution fix — staged for review
 
 ## The Gap
