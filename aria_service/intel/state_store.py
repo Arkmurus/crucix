@@ -168,6 +168,18 @@ def get_lock_diagnostics() -> dict:
             else None
         )
     out["op_timeouts"] = dict(_op_timeout_counts)  # R-F1341
+
+    # R-F1504: warn if lock contention is high (every 10 timeouts)
+    timeouts = out["op_timeouts"]
+    op_total = timeouts.get("op", 0) + timeouts.get("acquire", 0)
+    if op_total > 10 and op_total % 10 == 0:
+        logger.warning(
+            "[R-F1504] state_store lock contention: %d op timeouts, %d acquire timeouts, "
+            "%d waiters — possible wedge forming",
+            timeouts.get("op", 0), timeouts.get("acquire", 0),
+            out.get("waiters", 0),
+        )
+
     return out
 
 

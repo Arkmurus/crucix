@@ -2278,6 +2278,25 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     }
 
 
+# ── R-F1504: Boot-time identity assertion check ─────────────────────────
+# If the identity assertion fails with defaults, log CRITICAL so the
+# operator knows immediately — silent registration failures are the #1
+# recurring bug (R-F1495).
+_valid, _reason = assert_real_identity(_ARIA_EMAIL, _ARIA_NAME)
+if not _valid:
+    logger.critical(
+        "[R-F1504] PORTAL REGISTRY IDENTITY ASSERTION FAILED at import time: %s. "
+        "Set ARIA_PORTAL_NAME to include 'Arkmurus' (e.g. 'ARIA Research (Arkmurus Group)') "
+        "and ARIA_PORTAL_EMAIL to 'aria@arkmurus.com'. ALL auto-registrations will fail until fixed.",
+        _reason,
+    )
+else:
+    logger.info(
+        "[R-F1504] Portal registry identity OK: %s <%s>",
+        _ARIA_NAME, _ARIA_EMAIL,
+    )
+
+
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:
