@@ -27,7 +27,8 @@ async def test_rf1142_scheduler_registers_dd_monitor_task():
     await scheduler.start()
     try:
         assert "dd_monitor" in scheduler._tasks
-        assert len(scheduler._tasks) == 5  # dd_monitor + gap_fixer + self_diagnostic + adversarial + ecosystem_optimize
+        # R-F1490: added vault_retry task
+        assert len(scheduler._tasks) == 6  # dd_monitor + gap_fixer + self_diagnostic + adversarial + ecosystem_optimize + vault_retry
     finally:
         await scheduler.stop()
 

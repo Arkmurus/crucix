@@ -47,6 +47,9 @@ class AutonomousScheduler:
         self._tasks["ecosystem_optimize"] = asyncio.create_task(
             self._run_interval("ecosystem_optimize", 86400, self._optimize_ecosystem),  # 24 hours
         )
+        self._tasks["vault_retry"] = asyncio.create_task(
+            self._run_interval("vault_retry", 43200, self._retry_pending_vault),  # 12 hours
+        )
         
         logger.info("[scheduler] started %d tasks", len(self._tasks))
 
@@ -176,6 +179,82 @@ class AutonomousScheduler:
             )
         except Exception as e:
             logger.debug("[scheduler] redteam drill skipped: %s", e)
+
+    async def _retry_pending_vault(self) -> None:
+        """Retry pending vault signups every 12 hours.
+
+        R-F1490: the auto-registration runs once at boot (120s delay). If it
+        fails for any portal (network issue, rate limit, email verification
+        timeout), the portal stays 'pending' forever. This scheduled task
+        retries all pending entries, attempting registration again.
+
+        Only retries portals that don't require CAPTCHA (those are
+        operator-deferred by design). Logs results but never raises.
+        """
+        try:
+            from .agent_signup_vault import get_vault
+            from .portal_registry import PORTALS, register_for_portal, is_registered
+
+            vault = get_vault()
+            pending = vault.list(status="pending", limit=100)
+            if not pending:
+                return
+
+            retried = 0
+            succeeded = 0
+            still_pending = 0
+            failed = 0
+
+            for entry in pending:
+                portal_id = entry["site_id"]
+                portal = next((p for p in PORTALS if p.id == portal_id), None)
+                if not portal:
+                    continue
+
+                # Skip CAPTCHA-protected portals (operator-deferred)
+                if portal.requires_captcha:
+                    continue
+
+                # Skip if already registered (check Redis credentials)
+                try:
+                    if await is_registered(portal_id):
+                        vault.update_status(portal_id, "registered",
+                            notes="Credentials found in vault — marked registered.")
+                        succeeded += 1
+                        continue
+                except Exception:
+                    pass
+
+                retried += 1
+                try:
+                    outcome = await register_for_portal(portal_id)
+                    if outcome.get("success"):
+                        vault.update_status(portal_id, "registered",
+                            notes=f"Auto-registered on retry: {outcome.get('message', '')[:100]}")
+                        succeeded += 1
+                    elif outcome.get("requires_operator"):
+                        still_pending += 1
+                    elif outcome.get("requires_email_verify"):
+                        # Email verification needed — keep as pending
+                        still_pending += 1
+                    else:
+                        failed += 1
+                        logger.debug(
+                            "[R-F1490] retry failed for %s: %s",
+                            portal_id, outcome.get("error", "unknown"),
+                        )
+                except Exception as e:
+                    failed += 1
+                    logger.debug("[R-F1490] retry exception for %s: %s", portal_id, e)
+
+            if retried > 0 or succeeded > 0:
+                logger.info(
+                    "[R-F1490] Vault retry: %d retried, %d succeeded, "
+                    "%d still pending, %d failed",
+                    retried, succeeded, still_pending, failed,
+                )
+        except Exception as e:
+            logger.debug("[R-F1490] vault retry skipped: %s", e)
 
     async def _optimize_ecosystem(self) -> None:
         """Run full ecosystem optimization."""
