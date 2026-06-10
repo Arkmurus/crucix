@@ -2033,45 +2033,56 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     if not operator:
         return {"sent": False, "error": "no operator email configured (ARIA_OPERATOR_EMAIL)"}
 
-    free_key: list[str] = []
-    free_signup: list[str] = []
     captcha: list[str] = []
     paid: list[str] = []
+    # R-F1501: ONLY a portal whose data-fetch integration ACTUALLY exists + reads a
+    # specific env var belongs in the "set this key and it works" bucket. The 2026-06-10
+    # audit found NO data-fetcher consumes a stored portal credential, so the old email's
+    # auto-constructed "{ID}_API_KEY" instructions were busy-work — a key alone activated
+    # nothing. This map (verified against the code) is the allow-list; it is empty until
+    # a real fetch-integration is wired. Honest digest: ready (wired) vs candidate
+    # (defined, not built) vs paid.
+    _INTEGRATED_PORTALS: dict[str, dict] = {
+        # "newsapi": {"env_var": "NEWSAPI_KEY", "powers": "real-time news search"},
+    }
+    actionable: list[str] = []   # integration exists; a verified env var activates it
+    candidates: list[str] = []   # source defined, but the fetch-integration is NOT built
     for r in get_pending_source_requirements():
-        # R-F1500: only skip an api_key portal whose SPECIFIC key is already set
-        # (truly satisfied). An email_form portal having the GENERIC ARIA_PORTAL_EMAIL/
-        # NAME set does NOT mean it's registered — it still needs operator action. The
-        # old filter skipped ALL email_form portals (generic creds are always set), so
-        # CAPTCHA/paid/most free-signup sites were missing from the digest (only 4 of
-        # ~30 sent).
-        if (r["registration_type"] == "api_key"
-                and r["needs_env_vars"] and not r["env_vars_missing"]):
-            continue
         pid, name, url = r["id"], r["name"], r["url"]
         portal = next((p for p in PORTALS if p.id == pid), None)
         signup = f"{url.rstrip('/')}{portal.register_path}" if (portal and portal.register_path) else url
         if pid in _PAID_PORTAL_IDS:
-            paid.append(f"  - {name}: PAID subscription ({url}) — your decision; ARIA will not auto-pay.")
+            paid.append(f"  - {name}: PAID subscription ({url}) — your decision; ARIA will not auto-pay (and the fetch-integration isn't built either).")
+            continue
+        wired = _INTEGRATED_PORTALS.get(pid)
+        if wired:
+            var = wired["env_var"]
+            if os.getenv(var):
+                continue  # already set + wired → nothing needed
+            actionable.append(f"  - {name}: get a free key at {url} and set {var} — this source IS wired ({wired['powers']}).")
         elif r["requires_captcha"]:
-            captcha.append(f"  - {name}: CAPTCHA-protected — register manually at {signup} (use email {_ARIA_EMAIL}).")
-        elif r["registration_type"] == "api_key":
-            key_var = (r["needs_env_vars"] or [f"{pid.upper()}_API_KEY"])[0]
-            free_key.append(f"  - {name}: FREE API key — create a free account at {url}, get the key, then set {key_var}.")
-        else:  # email_form / oauth — ARIA tried but the form-fill could not complete
-            free_signup.append(f"  - {name}: free signup at {signup} (ARIA's auto form-fill failed — likely email verification / anti-bot).")
+            captcha.append(f"  - {name}: CAPTCHA — manual signup at {signup} if you want it, but the fetch-integration isn't built yet, so signup alone won't activate it.")
+        else:
+            how = "needs a free API key" if r["registration_type"] == "api_key" else f"needs a signup at {signup}"
+            candidates.append(f"  - {name} ({url}) — {how}; the fetch-integration is NOT built yet, so a key/login alone will NOT activate it.")
 
-    parts = ["Hi — ARIA could not autonomously sign up to the portals below. "
-             "Here is exactly what each needs from you:\n"]
-    if free_key:
-        parts.append("FREE API KEY (create a free account, get the key, set the env var):\n" + "\n".join(free_key) + "\n")
-    if free_signup:
-        parts.append("FREE SIGNUP (ARIA attempted it but the form-fill could not complete):\n" + "\n".join(free_signup) + "\n")
+    parts = ["Hi — here is the HONEST state of the external data sources ARIA cannot use "
+             "autonomously. (Important: providing a key only helps where the integration "
+             "is actually built — see below.)\n"]
+    if actionable:
+        parts.append("READY — just needs your key (the integration IS wired):\n" + "\n".join(actionable) + "\n")
+    if candidates:
+        parts.append("CANDIDATE SOURCES — defined, but the fetch-integration is NOT built yet. "
+                     "A key/signup alone will NOT activate these — reply with which you actually "
+                     "want and I'll build the integration (you provide the key where needed):\n"
+                     + "\n".join(candidates) + "\n")
     if captcha:
-        parts.append("CAPTCHA — must be registered manually:\n" + "\n".join(captcha) + "\n")
+        parts.append("CAPTCHA — manual signup required, and integration not built:\n" + "\n".join(captcha) + "\n")
     if paid:
         parts.append("PAID — your decision:\n" + "\n".join(paid) + "\n")
-    parts.append("The open/free APIs (sanctions lists, SEC EDGAR, Companies House, World Bank, "
-                 "UN/UK/EU sanctions, etc.) are already accessible — no action needed there.\n\n— ARIA")
+    parts.append("ALREADY WORKING (no action): the open/free APIs (OFAC/UK/EU/UN sanctions, "
+                 "SEC EDGAR, Companies House, World Bank) and news via RSS feeds — these fetch "
+                 "fine today.\n\n— ARIA")
     body = "\n".join(parts)
 
     from ..integrations.email_outbound import send_email
@@ -2082,7 +2093,7 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
         internal=True,
         sender_note="R-F1498 portal-requirements digest",
     )
-    counts = {"free_key": len(free_key), "free_signup": len(free_signup),
+    counts = {"actionable": len(actionable), "candidates": len(candidates),
               "captcha": len(captcha), "paid": len(paid)}
     try:
         from .engine_wiring import wire_success

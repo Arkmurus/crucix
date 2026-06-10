@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1501,
+  "next_available": 1502,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9432,6 +9432,16 @@
       "r_number": "R-F1500",
       "title": "fix R-F1498 email filter: email_form portals wrongly skipped (generic creds set != registered)",
       "claimed_at": "2026-06-10T12:21:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a2a9f591",
+      "notes": null,
+      "shipped_at": "2026-06-10T12:22:11Z"
+    },
+    {
+      "r_number": "R-F1501",
+      "title": "honest portal email: stored creds are unused by fetchers — reframe 'set key' to 'candidate, integration not built'",
+      "claimed_at": "2026-06-10T12:44:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

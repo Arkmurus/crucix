@@ -28,13 +28,16 @@ async def test_requirements_email_classifies_and_composes():
 
     assert res["to"], "must resolve an operator recipient"
     c = res["counts"]
-    assert c["paid"] >= 1, "paid portals (Crunchbase/PitchBook/etc.) must be flagged"
+    assert c["paid"] >= 1, "paid portals must be flagged"
     assert c["captcha"] >= 1, "CAPTCHA portals must be flagged"
-    assert (c["free_key"] + c["free_signup"]) >= 1, "free portals must be listed"
+    assert c["candidates"] >= 1, "un-integrated portals listed as candidates (not 'set a key')"
+    # R-F1501: no data-fetcher reads a portal key, so nothing is activatable by a key alone.
+    assert c["actionable"] == 0, "no portal is wired yet — actionable must be 0"
     body = captured["body"]
-    assert "what each needs from you" in body
-    assert "PAID" in body and "CAPTCHA" in body
-    assert "will not auto-pay" in body, "paid framed as operator decision, never auto-pursued"
+    assert "CANDIDATE SOURCES" in body and "NOT built" in body, "honest about un-integrated sources"
+    assert "PAID" in body and "will not auto-pay" in body
+    assert "RSS" in body, "honestly notes news already works via RSS"
+    assert "set NEWSAPI" not in body and "set GNEWS" not in body, "never instruct setting a key no code reads"
 
 
 @pytest.mark.asyncio
