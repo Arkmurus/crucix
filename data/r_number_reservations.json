@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1470,
+  "next_available": 1478,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9113,14 +9113,93 @@
       "title": "pair_builder admission path + eval warning + HTTP timeouts",
       "claimed_at": "2026-06-09T16:28:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "775d8300",
+      "notes": null,
+      "shipped_at": "2026-06-09T16:50:54Z"
     },
     {
       "r_number": "R-F1469",
       "title": "live DeepSeek clients for data engine (QuestionGenerator/AnswerGenerator) + first real SFT generation batch",
       "claimed_at": "2026-06-09T16:28:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d9aaf72f",
+      "notes": null,
+      "shipped_at": "2026-06-09T16:32:55Z"
+    },
+    {
+      "r_number": "R-F1470",
+      "title": "v0.3 pre-flight: batch2 generation + combine 500 + pod driver",
+      "claimed_at": "2026-06-09T19:12:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "889edf16",
+      "notes": null,
+      "shipped_at": "2026-06-09T19:41:11Z"
+    },
+    {
+      "r_number": "R-F1471",
+      "title": "AnswerCritic self-critique stage in data_engine_generate.py",
+      "claimed_at": "2026-06-09T19:38:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c79e3d9",
+      "notes": null,
+      "shipped_at": "2026-06-09T19:53:44Z"
+    },
+    {
+      "r_number": "R-F1472",
+      "title": "sft_train messages->text render for trl 0.12.2 (v0.3 cycle fix)",
+      "claimed_at": "2026-06-09T20:00:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "88813e40",
+      "notes": null,
+      "shipped_at": "2026-06-09T20:06:44Z"
+    },
+    {
+      "r_number": "R-F1473",
+      "title": "fix run_v0_3_cycle.sh fork-leak + standalone pull/verdict recovery",
+      "claimed_at": "2026-06-10T05:36:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0203e9c4",
+      "notes": null,
+      "shipped_at": "2026-06-10T05:39:19Z"
+    },
+    {
+      "r_number": "R-F1474",
+      "title": "v0.2 500-Q comparison eval — close v0.3-vs-v0.2 head-to-head",
+      "claimed_at": "2026-06-10T05:52:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "355d148b",
+      "notes": null,
+      "shipped_at": "2026-06-10T05:54:40Z"
+    },
+    {
+      "r_number": "R-F1475",
+      "title": "AgentRegistry: fix register() return value when Redis is down",
+      "claimed_at": "2026-06-10T06:21:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1476",
+      "title": "ContractRegistry: add SQLite fallback for Redis-down resilience",
+      "claimed_at": "2026-06-10T06:21:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1477",
+      "title": "AgentSignupVault: fix test method name mismatch + test isolation",
+      "claimed_at": "2026-06-10T06:21:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

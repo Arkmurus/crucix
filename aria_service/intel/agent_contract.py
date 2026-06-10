@@ -50,9 +50,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.agent_contract")
@@ -64,6 +67,12 @@ _CONTRACT_VERSION_KEY = "crucix:agent:contract_version"  # hash: agent_id → ve
 
 # Max violations to keep per agent
 _MAX_VIOLATIONS = 100
+
+# R-F1476: dedicated SQLite database path for contract registry (same pattern
+# as AgentRegistry R-F1446). Separate file = separate write lock = no contention
+# with state_store or agent_registry.
+_CONTRACT_DB_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent.parent.parent / "data")))
+_CONTRACT_DB = _CONTRACT_DB_DIR / "agent_contract.db"
 
 
 @dataclass
@@ -120,6 +129,106 @@ class ContractRegistry:
 
     def __init__(self) -> None:
         self._redis = None  # lazy-loaded
+        self._db_conn: sqlite3.Connection | None = None  # R-F1476: dedicated SQLite connection
+        self._db_path = _CONTRACT_DB
+
+    # ── R-F1476: Dedicated SQLite database (same pattern as AgentRegistry R-F1446) ──
+
+    def _get_db(self) -> sqlite3.Connection:
+        """Get or create the dedicated SQLite connection for contract registry.
+
+        R-F1476: separate database file = separate write lock = no contention
+        with state_store or agent_registry. Follows the same pattern as
+        AgentRegistry._get_db() (R-F1446).
+        """
+        if self._db_conn is None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._db_conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            self._db_conn.row_factory = sqlite3.Row
+            self._db_conn.execute("PRAGMA journal_mode=WAL")
+            self._db_conn.execute("PRAGMA foreign_keys=ON")
+            self._init_db()
+        return self._db_conn
+
+    def _init_db(self):
+        """Initialize the contract database schema."""
+        self._db_conn.executescript("""
+            CREATE TABLE IF NOT EXISTS contracts (
+                agent_id    TEXT PRIMARY KEY,
+                version     TEXT NOT NULL DEFAULT '1.0.0',
+                directives  TEXT NOT NULL DEFAULT '[]',
+                inputs      TEXT NOT NULL DEFAULT '[]',
+                outputs     TEXT NOT NULL DEFAULT '[]',
+                error_modes TEXT NOT NULL DEFAULT '[]',
+                dependencies TEXT NOT NULL DEFAULT '[]',
+                check_interval_s INTEGER NOT NULL DEFAULT 3600,
+                critical    INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL DEFAULT '',
+                metadata    TEXT DEFAULT '{}'
+            );
+        """)
+        self._db_conn.commit()
+
+    def _db_register(self, contract: AgentContract) -> None:
+        """Write contract to the dedicated DB (no lock contention)."""
+        conn = self._get_db()
+        conn.execute(
+            """INSERT OR REPLACE INTO contracts
+               (agent_id, version, directives, inputs, outputs, error_modes,
+                dependencies, check_interval_s, critical, created_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')""",
+            (
+                contract.agent_id,
+                contract.version,
+                json.dumps(contract.directives),
+                json.dumps(contract.inputs),
+                json.dumps(contract.outputs),
+                json.dumps(contract.error_modes),
+                json.dumps(contract.dependencies),
+                contract.check_interval_s,
+                1 if contract.critical else 0,
+                contract.created_at,
+            ),
+        )
+        conn.commit()
+
+    def _db_get(self, agent_id: str) -> dict | None:
+        """Get a contract from the dedicated DB."""
+        conn = self._get_db()
+        row = conn.execute("SELECT * FROM contracts WHERE agent_id=?", (agent_id,)).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def _db_list(self) -> list[dict]:
+        """List all contracts from the dedicated DB."""
+        conn = self._get_db()
+        rows = conn.execute("SELECT agent_id, version, directives, inputs, outputs, error_modes, dependencies, check_interval_s, critical, created_at FROM contracts").fetchall()
+        return [dict(r) for r in rows]
+
+    def _db_delete(self, agent_id: str) -> None:
+        """Remove a contract from the dedicated DB."""
+        conn = self._get_db()
+        conn.execute("DELETE FROM contracts WHERE agent_id=?", (agent_id,))
+        conn.commit()
+
+    def _db_clear(self) -> None:
+        """Clear all contracts from the dedicated DB (for testing)."""
+        try:
+            conn = self._get_db()
+            conn.execute("DELETE FROM contracts")
+            conn.commit()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        """Close the dedicated database connection."""
+        if self._db_conn:
+            self._db_conn.close()
+            self._db_conn = None
+
+    def __del__(self) -> None:
+        self.close()
 
     def _get_redis(self):
         if self._redis is not None:
@@ -131,10 +240,27 @@ class ContractRegistry:
     # ── Contract CRUD ────────────────────────────────────────────────────
 
     async def register_contract(self, contract: AgentContract) -> bool:
-        """Register or update an agent's contract in Redis.
+        """Register or update an agent's contract.
 
-        Returns True if registration succeeded.
+        R-F1476: writes to the dedicated SQLite DB first (fast, no lock contention),
+        then also writes to Redis/state_store for backward compatibility.
+        Returns True if the DB write succeeded.
+
+        Args:
+            contract: The AgentContract to register.
+
+        Returns:
+            True if the contract was persisted to the dedicated DB.
         """
+        # R-F1476: write to dedicated DB first (fast, no lock contention)
+        db_ok = False
+        try:
+            self._db_register(contract)
+            db_ok = True
+        except Exception as _db_e:
+            logger.debug("[R-F1476] dedicated DB register failed for %s: %s", contract.agent_id, _db_e)
+
+        # Also write to Redis/state_store for backward compatibility
         try:
             rs = self._get_redis()
             key = f"{_CONTRACT_KEY}{contract.agent_id}"
@@ -144,7 +270,11 @@ class ContractRegistry:
                 "[R-F1212] contract registered: %s v%s — %d directives",
                 contract.agent_id, contract.version, len(contract.directives),
             )
-            # Wire success to brain
+        except Exception as e:
+            logger.warning("[R-F1212] contract Redis write failed for %s: %s", contract.agent_id, e)
+
+        # R-F1476: return True if the dedicated DB write succeeded
+        if db_ok:
             try:
                 from .engine_wiring import wire_success
                 wire_success(
@@ -156,25 +286,48 @@ class ContractRegistry:
             except Exception:
                 pass
             return True
-        except Exception as e:
-            logger.warning("[R-F1212] contract registration failed for %s: %s", contract.agent_id, e)
-            try:
-                from .engine_wiring import wire_failure
-                wire_failure(
-                    module="agent_contract",
-                    detail=f"register_contract failed for {contract.agent_id}: {e}",
-                    gap_type="contract_registration_failure",
-                    source="agent_contract:register",
-                )
-            except Exception:
-                pass
-            return False
+
+        logger.warning("[R-F1476] contract registration failed for %s (DB+Redis both down)", contract.agent_id)
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="agent_contract",
+                detail=f"register_contract failed for {contract.agent_id}: DB+Redis both down",
+                gap_type="contract_registration_failure",
+                source="agent_contract:register",
+            )
+        except Exception:
+            pass
+        return False
 
     async def get_contract(self, agent_id: str) -> Optional[AgentContract]:
-        """Get an agent's contract from Redis.
+        """Get an agent's contract.
+
+        R-F1476: reads from the dedicated DB first (always available, no
+        lock contention), falls back to Redis/state_store if empty.
 
         Returns None if no contract is registered.
         """
+        # R-F1476: read from dedicated DB first
+        try:
+            db_entry = self._db_get(agent_id)
+            if db_entry is not None:
+                return AgentContract(
+                    agent_id=db_entry["agent_id"],
+                    version=db_entry["version"],
+                    directives=json.loads(db_entry.get("directives", "[]")),
+                    inputs=json.loads(db_entry.get("inputs", "[]")),
+                    outputs=json.loads(db_entry.get("outputs", "[]")),
+                    error_modes=json.loads(db_entry.get("error_modes", "[]")),
+                    dependencies=json.loads(db_entry.get("dependencies", "[]")),
+                    check_interval_s=db_entry.get("check_interval_s", 3600),
+                    critical=bool(db_entry.get("critical", 0)),
+                    created_at=db_entry.get("created_at", ""),
+                )
+        except Exception as _db_e:
+            logger.debug("[R-F1476] dedicated DB get failed for %s: %s", agent_id, _db_e)
+
+        # Fallback: read from Redis/state_store
         try:
             rs = self._get_redis()
             key = f"{_CONTRACT_KEY}{agent_id}"
@@ -190,12 +343,41 @@ class ContractRegistry:
     async def list_contracts(self) -> dict[str, AgentContract]:
         """List all registered contracts.
 
+        R-F1476: reads from the dedicated DB first (always available, no
+        lock contention), falls back to Redis/state_store if empty.
+
         Returns dict of agent_id → AgentContract.
         """
         contracts: dict[str, AgentContract] = {}
+
+        # R-F1476: read from dedicated DB first
+        try:
+            db_contracts = self._db_list()
+            if db_contracts:
+                for entry in db_contracts:
+                    try:
+                        contract = AgentContract(
+                            agent_id=entry["agent_id"],
+                            version=entry["version"],
+                            directives=json.loads(entry.get("directives", "[]")),
+                            inputs=json.loads(entry.get("inputs", "[]")),
+                            outputs=json.loads(entry.get("outputs", "[]")),
+                            error_modes=json.loads(entry.get("error_modes", "[]")),
+                            dependencies=json.loads(entry.get("dependencies", "[]")),
+                            check_interval_s=entry.get("check_interval_s", 3600),
+                            critical=bool(entry.get("critical", 0)),
+                            created_at=entry.get("created_at", ""),
+                        )
+                        contracts[contract.agent_id] = contract
+                    except Exception:
+                        continue
+                return contracts
+        except Exception as _db_e:
+            logger.debug("[R-F1476] dedicated DB list failed: %s", _db_e)
+
+        # Fallback: read from Redis/state_store
         try:
             rs = self._get_redis()
-            # Scan for contract keys (R-F1301: rs.keys -> rs.scan_keys)
             all_keys = await rs.scan_keys(f"{_CONTRACT_KEY}*")
             if not all_keys:
                 return contracts
@@ -206,7 +388,6 @@ class ContractRegistry:
                     contracts[agent_id] = contract
         except Exception as e:
             logger.warning("[R-F1301] list_contracts failed: %s", e)
-            # Wire failure to brain so a future break is visible (§21a)
             try:
                 from .engine_wiring import wire_failure
                 wire_failure(
@@ -220,7 +401,15 @@ class ContractRegistry:
         return contracts
 
     async def delete_contract(self, agent_id: str) -> bool:
-        """Remove an agent's contract (on agent unregistration)."""
+        """Remove an agent's contract (on agent unregistration).
+
+        R-F1476: removes from the dedicated DB first, then Redis.
+        """
+        # R-F1476: remove from dedicated DB
+        try:
+            self._db_delete(agent_id)
+        except Exception as _db_e:
+            logger.debug("[R-F1476] dedicated DB delete failed for %s: %s", agent_id, _db_e)
         try:
             rs = self._get_redis()
             key = f"{_CONTRACT_KEY}{agent_id}"

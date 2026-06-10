@@ -274,16 +274,20 @@ class AgentRegistry:
             "metadata": metadata or {},
         }
         # R-F1446: write to dedicated DB first (fast, no lock contention)
+        db_ok = False
         try:
             self._db_register(agent_id, agent_type, current_task, now)
+            db_ok = True
         except Exception as _db_e:
             logger.debug("[R-F1446] dedicated DB register failed for %s: %s", agent_id, _db_e)
         # Also write to Redis/state_store for backward compatibility
+        redis_ok = False
         try:
             rs = self._get_redis()
             await rs.hset(_AGENT_REGISTRY_KEY, {agent_id: json.dumps(entry)})
             await rs.set(f"{_AGENT_HEARTBEAT_KEY}{agent_id}", str(now))
             await rs.set(f"{_AGENT_TASK_KEY}{agent_id}", current_task)
+            redis_ok = True
             logger.info(
                 "[R-F1160] agent registered: %s (%s) — %s",
                 agent_id, agent_type, current_task,
@@ -295,24 +299,37 @@ class AgentRegistry:
                     await _CR.register_contract(contract)
                 except Exception:
                     logger.debug("[R-F1160] contract registration failed for %s", agent_id)
-            # R-F1166 — wire success to brain
-            wire_success(
-                module="agent_registry",
-                summary=f"Agent registered: {agent_id} ({agent_type})",
-                entity_name=agent_id,
-                source_id="agent_registry:register",
-            )
-            return True
         except Exception as e:
-            logger.warning("[R-F1160] agent registration failed for %s: %s", agent_id, e)
-            # R-F1166 — wire failure to brain
+            logger.warning("[R-F1160] agent registration Redis write failed for %s: %s", agent_id, e)
+
+        # R-F1475: return True if the dedicated DB write succeeded (the source of
+        # truth), even if Redis is down. Previously returned False on any Redis
+        # failure, which made register() unreliable when state_store reconnects.
+        if db_ok:
+            # R-F1166 — wire success to brain (best-effort, non-blocking)
+            try:
+                wire_success(
+                    module="agent_registry",
+                    summary=f"Agent registered: {agent_id} ({agent_type})",
+                    entity_name=agent_id,
+                    source_id="agent_registry:register",
+                )
+            except Exception:
+                pass
+            return True
+
+        # Both DB and Redis failed — genuine failure
+        logger.warning("[R-F1160] agent registration failed for %s (DB+Redis both down)", agent_id)
+        try:
             wire_failure(
                 module="agent_registry",
-                detail=f"register failed for {agent_id}: {e}",
+                detail=f"register failed for {agent_id}: DB+Redis both down",
                 gap_type="agent_registration_failure",
                 source="agent_registry:register",
             )
-            return False
+        except Exception:
+            pass
+        return False
 
     async def unregister(self, agent_id: str) -> bool:
         """Remove an agent from the registry (on shutdown).

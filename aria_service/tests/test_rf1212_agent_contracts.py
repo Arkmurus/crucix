@@ -112,6 +112,7 @@ def mock_redis():
 def registry(mock_redis):
     reg = ContractRegistry()
     reg._redis = mock_redis
+    reg._db_clear()  # R-F1476: clear dedicated DB for test isolation
     return reg
 
 

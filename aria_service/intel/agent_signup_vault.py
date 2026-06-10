@@ -366,11 +366,11 @@ class AgentSignupVault:
     # ── Bulk import from portal_registry ───────────────────────────────
 
     def import_open_portals(self, portals: list, agent_id: str = "system") -> int:
-        """Mark registration_type='none' portals as 'registered' in the vault.
+        """Import portals from portal_registry into the vault.
 
-        These are free/open APIs that require no signup. They should be
-        recorded as 'registered' immediately so the vault accurately reflects
-        which data sources are accessible.
+        Handles two types:
+        1. registration_type='none' → marked as 'registered' (free/open APIs)
+        2. Portals with signup_fields → marked as 'pending' (registrable)
 
         Accepts both list[PortalDef] (dataclass objects) and list[dict].
 
@@ -394,73 +394,42 @@ class AgentSignupVault:
             # Skip if already in vault
             if self.get(site_id):
                 continue
-            # Only record portals with registration_type="none"
-            if _get(portal, "registration_type", "") != "none":
-                continue
 
-            try:
-                self.record(
-                    site_id=site_id,
-                    site_name=_get(portal, "name", site_id),
-                    site_url=_get(portal, "url", ""),
-                    agent_id=agent_id,
-                    site_type="portal",
-                    status="registered",
-                    notes="Free/open API — no registration required.",
-                    metadata={"portal_type": "open_api", "registration_type": "none"},
-                )
-                count += 1
-            except ValueError:
-                pass
+            reg_type = _get(portal, "registration_type", "")
+            signup_fields = _get(portal, "signup_fields")
 
-        return count
-        """Import portals from portal_registry into the vault.
-
-        Scans the portal definitions and records any that have signup_fields
-        defined (meaning they're registrable). Skips already-recorded sites.
-
-        Accepts both list[PortalDef] (dataclass objects) and list[dict].
-
-        Args:
-            portals: List of portal definitions (PortalDef or dict)
-            agent_id: Agent to attribute the signups to
-
-        Returns:
-            Number of new entries created.
-        """
-        def _get(portal, key: str, default=None):
-            """Get attribute from either a dataclass or dict."""
-            if isinstance(portal, dict):
-                return portal.get(key, default)
-            return getattr(portal, key, default)
-
-        count = 0
-        for portal in portals:
-            site_id = _get(portal, "id", "")
-            if not site_id:
-                continue
-            # Skip if already in vault
-            if self.get(site_id):
-                continue
-            # Only record portals that have signup_fields (registrable)
-            if not _get(portal, "signup_fields"):
-                continue
-
-            try:
-                self.record(
-                    site_id=site_id,
-                    site_name=_get(portal, "name", site_id),
-                    site_url=_get(portal, "url", ""),
-                    agent_id=agent_id,
-                    site_type="portal",
-                    status="pending",
-                    notes=f"Auto-imported from portal_registry. Has {len(_get(portal, 'signup_fields', []))} signup fields defined.",
-                    metadata={"portal_type": _get(portal, "registration_type", "email_form")},
-                )
-                count += 1
-            except ValueError:
-                # Already exists — skip
-                pass
+            if reg_type == "none":
+                # Free/open API — no registration required
+                try:
+                    self.record(
+                        site_id=site_id,
+                        site_name=_get(portal, "name", site_id),
+                        site_url=_get(portal, "url", ""),
+                        agent_id=agent_id,
+                        site_type="portal",
+                        status="registered",
+                        notes="Free/open API — no registration required.",
+                        metadata={"portal_type": "open_api", "registration_type": "none"},
+                    )
+                    count += 1
+                except ValueError:
+                    pass
+            elif signup_fields:
+                # Registrable portal with defined signup fields
+                try:
+                    self.record(
+                        site_id=site_id,
+                        site_name=_get(portal, "name", site_id),
+                        site_url=_get(portal, "url", ""),
+                        agent_id=agent_id,
+                        site_type="portal",
+                        status="pending",
+                        notes=f"Auto-imported from portal_registry. Has {len(signup_fields)} signup fields defined.",
+                        metadata={"portal_type": reg_type or "email_form"},
+                    )
+                    count += 1
+                except ValueError:
+                    pass
 
         return count
 

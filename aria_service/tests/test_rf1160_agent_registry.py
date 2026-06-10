@@ -325,12 +325,13 @@ async def test_error_resilience():
     reg._get_redis = _broken_redis
 
     ok = await reg.register("ghost", "ghost_type", "nowhere")
-    assert ok is False, "Registration should fail gracefully"
+    # R-F1475: register() returns True when the dedicated DB write succeeds,
+    # even if Redis is down. The DB is the source of truth.
+    assert ok is True, "Registration should succeed when DB write works (Redis is optional)"
 
-    # R-F1446: dedicated DB still has the agent (register writes to it first)
-    # so list_active_agents returns it from the dedicated DB
+    # R-F1446: dedicated DB has the agent (register writes to it first)
     agents = await reg.list_active_agents()
-    assert len(agents) == 1, "Dedicated DB should still have the agent"
+    assert len(agents) == 1, "Dedicated DB should have the agent"
     assert agents[0]["agent_id"] == "ghost"
 
     claimed = await reg.claim_gap("ghost_gap", "ghost_agent")
