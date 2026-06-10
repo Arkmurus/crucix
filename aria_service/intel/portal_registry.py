@@ -2038,8 +2038,14 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     captcha: list[str] = []
     paid: list[str] = []
     for r in get_pending_source_requirements():
-        # Already satisfied (all needed env vars present) → nothing required.
-        if r["needs_env_vars"] and not r["env_vars_missing"]:
+        # R-F1500: only skip an api_key portal whose SPECIFIC key is already set
+        # (truly satisfied). An email_form portal having the GENERIC ARIA_PORTAL_EMAIL/
+        # NAME set does NOT mean it's registered — it still needs operator action. The
+        # old filter skipped ALL email_form portals (generic creds are always set), so
+        # CAPTCHA/paid/most free-signup sites were missing from the digest (only 4 of
+        # ~30 sent).
+        if (r["registration_type"] == "api_key"
+                and r["needs_env_vars"] and not r["env_vars_missing"]):
             continue
         pid, name, url = r["id"], r["name"], r["url"]
         portal = next((p for p in PORTALS if p.id == pid), None)
