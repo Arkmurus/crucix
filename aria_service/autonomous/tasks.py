@@ -342,12 +342,21 @@ async def get_recent_runs(limit: int = 20) -> list[dict[str, Any]]:
 
 # ── Audit-readiness gate ──────────────────────────────────────────────────
 
-def _audit_readiness_gate(tool_kind: str, *, min_active: int = 2) -> dict:
+def _audit_readiness_gate(tool_kind: str, *, min_active: int = 1) -> dict:
     """Pre-fire health check for the trust-measurement audits (adversarial,
     constitution). These produce constitutional signal — running them on a
     degraded LLM stack poisons the historical baseline AND the amendments
     queue (see 04-19 incident: 06:00 UTC adversarial fired against two
     billing-cooled providers, scored 0/11, queued 11 garbage amendments).
+
+    R-F1492: default min_active is 1, not 2. ARIA runs SINGLE-provider
+    (DeepSeek-only) by design now (Anthropic/Brave/etc. declined — §18), so
+    requiring 2 active providers blocked every trust-audit permanently — the
+    adversarial/security/constitution data points froze ~05-27 (a stale safety
+    signal, NOT a real score). With min_active=1 the gate still skips when the
+    ONE provider is cooling (preserving the anti-poison intent), and the
+    all-empty/degraded guards in run_weekly still protect the baseline if the
+    single provider returns empties. Re-raise to 2 only if a 2nd provider is added.
 
     Gate: require at least `min_active` providers in the global fallback
     chain that are NOT currently in cool-down. If the gate fails, return
@@ -940,7 +949,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # 4 categories. Failures stage clause-amendment candidates.
         # Returns readable_report for WhatsApp delivery (not raw JSON).
         from ..intel import adversarial_challenge as _ac
-        gate = _audit_readiness_gate("adversarial_weekly", min_active=2)
+        gate = _audit_readiness_gate("adversarial_weekly", min_active=1)  # R-F1492: 1, not 2 — ARIA is single-provider (DeepSeek-only) by design
         if not gate["ok"]:
             return gate["readable"]
         report = await _ac.run_weekly()
@@ -954,7 +963,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # Same readiness gate + summary shape as adversarial_weekly so
         # the dashboard + reporters consume both identically.
         from ..intel import security_challenge as _sc
-        gate = _audit_readiness_gate("security_weekly", min_active=2)
+        gate = _audit_readiness_gate("security_weekly", min_active=1)  # R-F1492: 1, not 2 — ARIA is single-provider (DeepSeek-only) by design
         if not gate["ok"]:
             return gate["readable"]
         summary = await _sc.run_security_weekly()
@@ -976,7 +985,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # Failures feed mistake_ledger + brain_hook via structured report.
         import os as _os
         from ..tests.test_constitution import ARIAConstitutionTestRunner
-        gate = _audit_readiness_gate("constitution_test", min_active=2)
+        gate = _audit_readiness_gate("constitution_test", min_active=1)  # R-F1492: 1, not 2 — ARIA is single-provider (DeepSeek-only) by design
         if not gate["ok"]:
             return gate["readable"]
         api_key = _os.getenv("ANTHROPIC_API_KEY", "")
