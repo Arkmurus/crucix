@@ -217,7 +217,10 @@ if ($failures -eq 0) {
     # ---- Live health regression suite ----
     Write-Host ""
     Write-Host "=== Running live health regression suite ==="
-    python "$REPO_ROOT/scripts/live_health_check.py" --app all
+    # R-F1478: pass the sha THIS deploy actually shipped, so the check verifies the
+    # real deployed commit and is immune to a concurrent ci_deploy overwriting
+    # .last_deploy_sha mid-deploy (which false-failed every manual deploy).
+    python "$REPO_ROOT/scripts/live_health_check.py" --app all --expected-sha $GIT_SHORT
     if ($LASTEXITCODE -ne 0) {
         Write-Host "=== [FAIL] Live health regression suite FAILED - deploy succeeded but health checks failed. ==="
         Write-Host "    Check flyctl logs -a (app) for details."

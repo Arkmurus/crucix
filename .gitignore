@@ -105,6 +105,14 @@ data/learned_attack_signatures.json
 # R-F988 — pip editable-install artifact for the aria CLI (not source)
 *.egg-info/
 
+# R-F1478: runtime state + session scratch — never source. These were getting
+# swept into git by ci_deploy's catch-all `git add -A` (agent DBs can hold PII;
+# the _*.md files are Claude<->ARIA session comms). Ignore so no deploy commits them.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/_*.md
+
 # R-F990 — Claude<->ARIA mailbox (runtime messages, not source)
 .agent_bridge/
 
