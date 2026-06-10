@@ -43,7 +43,10 @@ _VAULT_DB = _VAULT_DIR / "agent_signup_vault.db"
 # R-F1491: added 'open_api' for portals that are free/open and need no registration.
 # Previously these were marked as 'registered' which was fabricated — no registration
 # ever happened. 'open_api' is honest: the data source is accessible without credentials.
-VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled", "open_api"}
+# R-F1502: added 'needs_operator' for portals ARIA cannot auto-register
+# (CAPTCHA, paid, email_verify, attempt_failed, manual_signup).
+# Replaces the perpetual 'pending' status that never resolved.
+VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled", "open_api", "needs_operator"}
 
 # Schema version for migration
 _SCHEMA_VERSION = 1

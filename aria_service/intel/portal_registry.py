@@ -2012,17 +2012,172 @@ def get_pending_source_requirements() -> list[dict]:
     return requirements
 
 
+# R-F1502: portals the operator has declined (§18) — suppressed from recurring digest
+_DECLINED_PORTAL_IDS = {"crunchbase", "pitchbook", "opencorporates", "duns_bradstreet", "opensanctions"}
+# R-F1502: portals deferred (e.g. ACLED pending env vars) — suppressed from recurring digest
+_DEFERRED_PORTAL_IDS = {"acled"}
+
+
+async def determine_and_drive(portal_id: str) -> dict[str, Any]:
+    """R-F1502: For ONE portal, determine its honest status and drive the outcome.
+
+    Returns one of three:
+      {"status": "open_api"}           — free/open, no registration needed
+      {"status": "registered", ...}    — ARIA successfully registered
+      {"status": "needs_operator", "blocker": "...", "declined": bool, "deferred": bool}
+
+    The determination is driven by the REAL attempt outcome, NEVER a guess.
+    """
+    portal = next((p for p in PORTALS if p.id == portal_id), None)
+    if not portal:
+        return {"status": "error", "error": f"Unknown portal: {portal_id}"}
+
+    # 1. Open API — no registration needed
+    if portal.registration_type == "none":
+        return {"status": "open_api"}
+
+    # 2. Check if already registered (credentials exist in Redis)
+    try:
+        if await is_registered(portal_id):
+            return {"status": "registered", "message": "Credentials found in vault"}
+    except Exception:
+        pass
+
+    # 3. CAPTCHA — ARIA cannot bypass
+    if portal.requires_captcha:
+        return {
+            "status": "needs_operator",
+            "blocker": "captcha",
+            "declined": portal_id in _DECLINED_PORTAL_IDS,
+            "deferred": portal_id in _DEFERRED_PORTAL_IDS,
+            "message": f"{portal.name} requires CAPTCHA — operator must register manually",
+        }
+
+    # 4. Paid/declined portals
+    if portal_id in _DECLINED_PORTAL_IDS:
+        return {
+            "status": "needs_operator",
+            "blocker": "paid",
+            "declined": True,
+            "deferred": False,
+            "message": f"{portal.name} requires paid subscription — operator declined (§18)",
+        }
+
+    # 5. Deferred portals (e.g. ACLED waiting for env vars)
+    if portal_id in _DEFERRED_PORTAL_IDS:
+        return {
+            "status": "needs_operator",
+            "blocker": "manual_signup",
+            "declined": False,
+            "deferred": True,
+            "message": f"{portal.name} deferred — waiting for env vars (ACLED_EMAIL, ACLED_PASSWORD)",
+        }
+
+    # 6. Attempt auto-registration
+    try:
+        outcome = await register_for_portal(portal_id)
+        if outcome.get("success"):
+            # Real registration succeeded
+            try:
+                from .agent_signup_vault import get_vault
+                vault = get_vault()
+                vault.update_status(portal_id, "registered",
+                    notes=f"Auto-registered: {outcome.get('message', '')[:200]}")
+            except Exception:
+                pass
+            return {"status": "registered", "message": outcome.get("message", "")}
+
+        if outcome.get("requires_email_verify"):
+            return {
+                "status": "needs_operator",
+                "blocker": "email_verify",
+                "declined": False,
+                "deferred": False,
+                "message": f"{portal.name} requires email verification — IMAP not configured",
+            }
+
+        # Attempt failed
+        error = outcome.get("error") or outcome.get("message", "unknown failure")
+        return {
+            "status": "needs_operator",
+            "blocker": "attempt_failed",
+            "declined": False,
+            "deferred": False,
+            "message": f"{portal.name}: auto-registration failed — {error[:200]}",
+        }
+    except Exception as e:
+        return {
+            "status": "needs_operator",
+            "blocker": "attempt_failed",
+            "declined": False,
+            "deferred": False,
+            "message": f"{portal.name}: auto-registration exception — {e}",
+        }
+
+
+async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[dict]:
+    """R-F1502: Run determine_and_drive for multiple portals.
+
+    Args:
+        portal_ids: List of portal IDs to process. If None, processes all
+                    portals that are currently 'pending'.
+
+    Returns list of result dicts.
+    """
+    if portal_ids is None:
+        try:
+            from .agent_signup_vault import get_vault
+            vault = get_vault()
+            pending = vault.list(status="pending", limit=100)
+            portal_ids = [e["site_id"] for e in pending]
+        except Exception:
+            portal_ids = [p.id for p in PORTALS if p.registration_type != "none"]
+
+    results = []
+    for pid in portal_ids:
+        try:
+            result = await determine_and_drive(pid)
+            # Update vault status
+            try:
+                from .agent_signup_vault import get_vault
+                vault = get_vault()
+                status = result.get("status", "needs_operator")
+                if status == "open_api":
+                    vault.update_status(pid, "open_api",
+                        notes="Free/open API — no registration required.")
+                elif status == "registered":
+                    vault.update_status(pid, "registered",
+                        notes=result.get("message", "Registered successfully.")[:200])
+                elif status == "needs_operator":
+                    blocker = result.get("blocker", "unknown")
+                    declined = result.get("declined", False)
+                    deferred = result.get("deferred", False)
+                    notes = result.get("message", "Operator action needed.")[:200]
+                    if declined:
+                        notes += " [DECLINED — suppressed from digest]"
+                    if deferred:
+                        notes += " [DEFERRED — suppressed from digest]"
+                    vault.update_status(pid, "needs_operator", notes=notes)
+            except Exception:
+                pass
+            results.append(result)
+        except Exception as e:
+            results.append({"status": "error", "error": str(e)})
+
+    return results
+
+
 # R-F1498: portals that require a PAID subscription — operator has declined paid
 # third-party services (§6/§18). Emailed as "your decision", never auto-pursued.
 _PAID_PORTAL_IDS = {"crunchbase", "pitchbook", "opencorporates", "duns_bradstreet", "opensanctions"}
 
 
 async def email_portal_requirements_to_operator() -> dict[str, Any]:
-    """R-F1498 — email the operator EXACTLY what each portal ARIA cannot autonomously
-    sign up to needs: free API key / free signup / CAPTCHA-manual / paid, with the
-    signup URL and the env var to set. This is the honest, actionable answer to "why
-    are 23 portals pending" — most fundamentally need the operator (anti-bot, email
-    verification, CAPTCHA, paywalls), not more auto-registration code.
+    """R-F1498/R-F1502 — email the operator the HONEST state of each portal.
+
+    Uses determine_and_drive results. Suppresses declined/deferred portals
+    from the recurring digest (don't nag about a "no"). Throttled: only sends
+    if at least one actionable portal exists.
     """
     operator = (
         (os.getenv("ARIA_EMAIL_OPERATOR_ALLOWLIST") or "").split(",")[0].strip()
@@ -2033,74 +2188,84 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     if not operator:
         return {"sent": False, "error": "no operator email configured (ARIA_OPERATOR_EMAIL)"}
 
+    # R-F1502: run determine_and_drive for all pending portals
+    results = await determine_and_drive_all()
+
+    # Categorize results
+    actionable: list[str] = []
     captcha: list[str] = []
     paid: list[str] = []
-    # R-F1501: ONLY a portal whose data-fetch integration ACTUALLY exists + reads a
-    # specific env var belongs in the "set this key and it works" bucket. The 2026-06-10
-    # audit found NO data-fetcher consumes a stored portal credential, so the old email's
-    # auto-constructed "{ID}_API_KEY" instructions were busy-work — a key alone activated
-    # nothing. This map (verified against the code) is the allow-list; it is empty until
-    # a real fetch-integration is wired. Honest digest: ready (wired) vs candidate
-    # (defined, not built) vs paid.
-    _INTEGRATED_PORTALS: dict[str, dict] = {
-        # "newsapi": {"env_var": "NEWSAPI_KEY", "powers": "real-time news search"},
-    }
-    actionable: list[str] = []   # integration exists; a verified env var activates it
-    candidates: list[str] = []   # source defined, but the fetch-integration is NOT built
-    for r in get_pending_source_requirements():
-        pid, name, url = r["id"], r["name"], r["url"]
-        portal = next((p for p in PORTALS if p.id == pid), None)
-        signup = f"{url.rstrip('/')}{portal.register_path}" if (portal and portal.register_path) else url
-        if pid in _PAID_PORTAL_IDS:
-            paid.append(f"  - {name}: PAID subscription ({url}) — your decision; ARIA will not auto-pay (and the fetch-integration isn't built either).")
-            continue
-        wired = _INTEGRATED_PORTALS.get(pid)
-        if wired:
-            var = wired["env_var"]
-            if os.getenv(var):
-                continue  # already set + wired → nothing needed
-            actionable.append(f"  - {name}: get a free key at {url} and set {var} — this source IS wired ({wired['powers']}).")
-        elif r["requires_captcha"]:
-            captcha.append(f"  - {name}: CAPTCHA — manual signup at {signup} if you want it, but the fetch-integration isn't built yet, so signup alone won't activate it.")
-        else:
-            how = "needs a free API key" if r["registration_type"] == "api_key" else f"needs a signup at {signup}"
-            candidates.append(f"  - {name} ({url}) — {how}; the fetch-integration is NOT built yet, so a key/login alone will NOT activate it.")
+    deferred: list[str] = []
+    already_working: list[str] = []
 
-    parts = ["Hi — here is the HONEST state of the external data sources ARIA cannot use "
-             "autonomously. (Important: providing a key only helps where the integration "
-             "is actually built — see below.)\n"]
+    for r in results:
+        status = r.get("status", "")
+        blocker = r.get("blocker", "")
+        declined = r.get("declined", False)
+        is_deferred = r.get("deferred", False)
+        msg = r.get("message", "")
+
+        if status == "open_api":
+            already_working.append(f"  - {msg}")
+        elif status == "registered":
+            already_working.append(f"  - {msg}")
+        elif status == "needs_operator":
+            if declined:
+                paid.append(f"  - {msg}")
+            elif is_deferred:
+                deferred.append(f"  - {msg}")
+            elif blocker == "captcha":
+                captcha.append(f"  - {msg}")
+            else:
+                actionable.append(f"  - {msg}")
+
+    # Only send if there's something actionable
+    if not actionable and not captcha:
+        return {"sent": False, "reason": "nothing actionable", "counts": {
+            "actionable": len(actionable), "captcha": len(captcha),
+            "paid": len(paid), "deferred": len(deferred),
+            "already_working": len(already_working),
+        }}
+
+    parts = [
+        "Hi — here is the HONEST state of the external data sources ARIA cannot use "
+        "autonomously.\n"
+    ]
     if actionable:
-        parts.append("READY — just needs your key (the integration IS wired):\n" + "\n".join(actionable) + "\n")
-    if candidates:
-        parts.append("CANDIDATE SOURCES — defined, but the fetch-integration is NOT built yet. "
-                     "A key/signup alone will NOT activate these — reply with which you actually "
-                     "want and I'll build the integration (you provide the key where needed):\n"
-                     + "\n".join(candidates) + "\n")
+        parts.append("ACTION REQUIRED — ARIA attempted but could not complete:\n"
+                     + "\n".join(actionable) + "\n")
     if captcha:
-        parts.append("CAPTCHA — manual signup required, and integration not built:\n" + "\n".join(captcha) + "\n")
+        parts.append("CAPTCHA — manual signup required:\n" + "\n".join(captcha) + "\n")
     if paid:
-        parts.append("PAID — your decision:\n" + "\n".join(paid) + "\n")
-    parts.append("ALREADY WORKING (no action): the open/free APIs (OFAC/UK/EU/UN sanctions, "
-                 "SEC EDGAR, Companies House, World Bank) and news via RSS feeds — these fetch "
-                 "fine today.\n\n— ARIA")
+        parts.append("PAID/DECLINED — your previous decisions (not actionable):\n"
+                     + "\n".join(paid) + "\n")
+    if deferred:
+        parts.append("DEFERRED — waiting on env vars or other prerequisites:\n"
+                     + "\n".join(deferred) + "\n")
+    if already_working:
+        parts.append("ALREADY WORKING (no action needed):\n"
+                     + "\n".join(already_working) + "\n")
+
+    parts.append("— ARIA")
     body = "\n".join(parts)
 
     from ..integrations.email_outbound import send_email
     result = send_email(
         to=operator,
-        subject="ARIA — portal access: what each site needs from you",
+        subject="ARIA — portal access digest",
         body=body,
         internal=True,
-        sender_note="R-F1498 portal-requirements digest",
+        sender_note="R-F1502 portal-requirements digest",
     )
-    counts = {"actionable": len(actionable), "candidates": len(candidates),
-              "captcha": len(captcha), "paid": len(paid)}
+    counts = {"actionable": len(actionable), "captcha": len(captcha),
+              "paid": len(paid), "deferred": len(deferred),
+              "already_working": len(already_working)}
     try:
         from .engine_wiring import wire_success
         wire_success(
             module="portal_registry",
-            summary=f"Emailed operator portal requirements: {sum(counts.values())} sites need action",
-            source_id="portal_registry:R-F1498",
+            summary=f"Portal digest: {counts['actionable']} actionable, {counts['captcha']} captcha",
+            source_id="portal_registry:R-F1502",
         )
     except Exception:
         pass

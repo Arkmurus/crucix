@@ -181,97 +181,44 @@ class AutonomousScheduler:
             logger.debug("[scheduler] redteam drill skipped: %s", e)
 
     async def _retry_pending_vault(self) -> None:
-        """Retry pending vault signups every 12 hours.
+        """Re-drive pending vault signups every 12 hours.
 
-        R-F1490: the auto-registration runs once at boot (120s delay). If it
-        fails for any portal (network issue, rate limit, email verification
-        timeout), the portal stays 'pending' forever. This scheduled task
-        retries all pending entries, attempting registration again.
-
-        Only retries portals that don't require CAPTCHA (those are
-        operator-deferred by design). Logs results but never raises.
+        R-F1490/R-F1502: runs determine_and_drive_all for all pending portals.
+        Each portal gets an honest determination: open_api, registered, or
+        needs_operator (with blocker reason). Declined/deferred portals are
+        suppressed from the operator email digest. Email throttled to once/24h.
         """
         try:
-            from .agent_signup_vault import get_vault
-            from .portal_registry import PORTALS, register_for_portal, is_registered
+            from .portal_registry import determine_and_drive_all, email_portal_requirements_to_operator
 
-            vault = get_vault()
-            pending = vault.list(status="pending", limit=100)
-            if not pending:
-                return
+            results = await determine_and_drive_all()
+            counts: dict[str, int] = {}
+            for r in results:
+                s = r.get("status", "error")
+                counts[s] = counts.get(s, 0) + 1
 
-            retried = 0
-            succeeded = 0
-            still_pending = 0
-            failed = 0
-
-            for entry in pending:
-                portal_id = entry["site_id"]
-                portal = next((p for p in PORTALS if p.id == portal_id), None)
-                if not portal:
-                    continue
-
-                # Skip CAPTCHA-protected portals (operator-deferred)
-                if portal.requires_captcha:
-                    continue
-
-                # Skip if already registered (check Redis credentials)
-                try:
-                    if await is_registered(portal_id):
-                        vault.update_status(portal_id, "registered",
-                            notes="Credentials found in vault — marked registered.")
-                        succeeded += 1
-                        continue
-                except Exception:
-                    pass
-
-                retried += 1
-                try:
-                    outcome = await register_for_portal(portal_id)
-                    if outcome.get("success"):
-                        vault.update_status(portal_id, "registered",
-                            notes=f"Auto-registered on retry: {outcome.get('message', '')[:100]}")
-                        succeeded += 1
-                    elif outcome.get("requires_operator"):
-                        still_pending += 1
-                    elif outcome.get("requires_email_verify"):
-                        # Email verification needed — keep as pending
-                        still_pending += 1
-                    else:
-                        failed += 1
-                        logger.debug(
-                            "[R-F1490] retry failed for %s: %s",
-                            portal_id, outcome.get("error", "unknown"),
-                        )
-                except Exception as e:
-                    failed += 1
-                    logger.debug("[R-F1490] retry exception for %s: %s", portal_id, e)
-
-            if retried > 0 or succeeded > 0:
+            if results:
                 logger.info(
-                    "[R-F1490] Vault retry: %d retried, %d succeeded, "
-                    "%d still pending, %d failed",
-                    retried, succeeded, still_pending, failed,
+                    "[R-F1502] Vault re-drive: %s",
+                    ", ".join(f"{k}={v}" for k, v in sorted(counts.items())),
                 )
 
-            # R-F1498: email the operator exactly what each still-pending portal
-            # needs (free key / signup / CAPTCHA / paid) so they can act — most
-            # fundamentally need the operator, not more auto-registration. Throttled
-            # to once per 24h so the autonomous loop never spams.
-            try:
+            # Email operator if there are actionable portals (throttled 24h)
+            actionable = [r for r in results
+                          if r.get("status") == "needs_operator"
+                          and not r.get("declined")
+                          and not r.get("deferred")]
+            if actionable:
                 from . import state_store as _ss
                 import time as _t
                 _last = await _ss.get("crucix:portal_registry:reqs_emailed_at")
                 if not _last or (_t.time() - float(_last)) > 86400:
-                    from .portal_registry import email_portal_requirements_to_operator
                     res = await email_portal_requirements_to_operator()
                     if res.get("sent") or res.get("counts"):
                         await _ss.set("crucix:portal_registry:reqs_emailed_at", str(_t.time()))
-                        logger.info("[R-F1498] Emailed operator portal requirements: %s", res.get("counts"))
-            except Exception as _ee:
-                logger.debug("[R-F1498] requirements email skipped: %s", _ee)
+                        logger.info("[R-F1502] Emailed operator portal digest: %s", res.get("counts"))
         except Exception as e:
-            logger.debug("[R-F1490] vault retry skipped: %s", e)
+            logger.debug("[R-F1502] vault re-drive skipped: %s", e)
 
     async def _optimize_ecosystem(self) -> None:
         """Run full ecosystem optimization."""
