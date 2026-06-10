@@ -101,8 +101,49 @@ import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
 const AUTH_DIR      = process.env.WA_LISTENER_AUTH_DIR  || './wa-listener-auth';
 const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
-const BRAIN_URL     = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
+// R-F1508: hostname-first with IP-fallback for DNS resilience.
+// The primary BRAIN_URL is set via env var. If DNS resolution fails,
+// we fall back to the private Fly IPv6 address (set via ARIA_BRAIN_FALLBACK_IP).
+// This prevents Fly.io internal DNS flakiness from breaking WA health checks.
+const BRAIN_URL       = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
+const BRAIN_FALLBACK  = process.env.ARIA_BRAIN_FALLBACK_IP
+  ? `http://[${process.env.ARIA_BRAIN_FALLBACK_IP}]:8000`
+  : null;
+let _brainFallbackActive = false;  // tracks whether we're currently using the fallback
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
+
+// R-F1508: DNS-resilient fetch — tries primary URL first, falls back to IP on DNS failure.
+// Logs every fallback use so a stale IP is visible in the logs.
+async function brainFetch(path, options = {}) {
+  const url = _brainFallbackActive && BRAIN_FALLBACK
+    ? `${BRAIN_FALLBACK}${path}`
+    : `${BRAIN_URL}${path}`;
+  try {
+    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
+    // If we were on fallback and this succeeded, try switching back to primary
+    if (_brainFallbackActive && BRAIN_URL) {
+      try {
+        const test = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(5000) });
+        if (test.ok) {
+          _brainFallbackActive = false;
+          console.log('[R-F1508] DNS recovered — switched back to primary BRAIN_URL');
+        }
+      } catch {}
+    }
+    return r;
+  } catch (err) {
+    // DNS failure — try fallback if available
+    if (!_brainFallbackActive && BRAIN_FALLBACK) {
+      console.warn(`[R-F1508] DNS resolution failed for ${BRAIN_URL} — falling back to IP: ${err.message}`);
+      _brainFallbackActive = true;
+      const fallbackUrl = `${BRAIN_FALLBACK}${path}`;
+      const r = await fetch(fallbackUrl, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
+      console.log(`[R-F1508] Fallback ${_brainFallbackActive ? 'ACTIVE' : 'INACTIVE'} — using IP: ${BRAIN_FALLBACK}`);
+      return r;
+    }
+    throw err;
+  }
+}
 // R-F1413 — async-complete-and-push callback URL. The brain POSTs completed
 // job results here so deep queries deliver even after the poll loop times out.
 // Defaults to the WA listener's own /send endpoint (internal Fly DNS).
@@ -399,7 +440,7 @@ async function _handleOcrResult(extracted, ocrResult, filename, caption, groupNa
 // learns that her WA feed is broken (was dark: the error was silently swallowed).
 async function feedToARIA(groupName, senderName, text) {
   try {
-    await fetch(`${BRAIN_URL}/api/aria/brain/signal`, {   // R-F887 — was /api/brain/signal (404, no such router)
+    await brainFetch(`/api/aria/brain/signal`, {   // R-F887 — was /api/brain/signal (404, no such router)
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -422,7 +463,7 @@ async function feedToARIA(groupName, senderName, text) {
     console.warn('[ARIA Listener] feedToARIA failed (brain unreachable):', e.message);
     // R-F1151 — emit failure signal so ARIA's brain learns the feed is broken
     try {
-      fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+      brainFetch(`/api/aria/brain/signal`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
         body: JSON.stringify({
@@ -558,7 +599,7 @@ async function brainPost(path, body) {
   const timeout = path.includes('/transcribe') ? 300000
                 : path.includes('/aria/')       ? 90000
                 :                                 15000;
-  const r = await fetch(`${BRAIN_URL}${path}`, {
+  const r = await brainFetch(path, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
     body:    JSON.stringify(body),
@@ -576,7 +617,7 @@ async function brainPost(path, body) {
 }
 
 async function brainGet(path) {
-  const r = await fetch(`${BRAIN_URL}${path}`, {
+  const r = await brainFetch(path, {
     headers: { 'Authorization': `Bearer ${INT_TOKEN}` },
     signal:  AbortSignal.timeout(10000),
   });
@@ -643,7 +684,7 @@ async function readDocumentAsync(payload, chatId, filename) {
     if (Date.now() - lastHealthCheck > 30000) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
+        const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
         docHealthFails = 0;  // reset on success
       } catch {
@@ -789,7 +830,7 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
     if (Date.now() - lastHealthCheck > BRAIN_HEALTH_CHECK_INTERVAL_MS) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
+        const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
         chatHealthFails = 0;  // reset on success
       } catch {
@@ -953,7 +994,7 @@ function formatForWhatsApp(text) {
 // uses the same /api/aria/outcome endpoint.
 async function reportOutcome(surface, requestId, intendedResult, actualOutcome, latencyMs, detail) {
   try {
-    await fetch(`${BRAIN_URL}/api/aria/outcome`, {
+    await brainFetch(`/api/aria/outcome`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
       body: JSON.stringify({
@@ -991,7 +1032,7 @@ async function sendReply(chatId, text, requestId) {
       reportOutcome('wa', requestId, 'send_reply', 'send_failed', Date.now() - t0, e.message);
     }
     try {
-      fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+      brainFetch(`/api/aria/brain/signal`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
         body: JSON.stringify({
@@ -1502,7 +1543,7 @@ async function startListener() {
             if (Date.now() - lastHealthCheck > 30000) {
               lastHealthCheck = Date.now();
               try {
-                const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(8000) });
+                const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
                 if (!hc.ok) throw new Error(`health returned ${hc.status}`);
                 ocrHealthFails = 0;  // reset on success
               } catch {
@@ -1857,7 +1898,7 @@ app.use(express.json());
 app.get('/health', async (_req, res) => {
   let brainOk = false;
   try {
-    const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+    const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(3000) });
     brainOk = hc.ok;
   } catch { /* brain unreachable */ }
   res.json({
@@ -1872,7 +1913,7 @@ app.get('/health', async (_req, res) => {
 app.get('/status', requireAuth, async (_req, res) => {
   let brainOk = false;
   try {
-    const hc = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(3000) });
+    const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(3000) });
     brainOk = hc.ok;
   } catch { /* brain unreachable */ }
   res.json({
@@ -1942,7 +1983,7 @@ app.post('/reset-auth', requireAuth, (_req, res) => {
 // outbound success AND failure are forwarded to the brain.
 function _waBrainSignal(signalType, content, metadata) {
   try {
-    fetch(`${BRAIN_URL}/api/aria/brain/signal`, {
+    brainFetch(`/api/aria/brain/signal`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
       body:    JSON.stringify({ content, source: 'aria-wa', signal_type: signalType, metadata }),
