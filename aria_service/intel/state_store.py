@@ -953,19 +953,59 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
 # ── Counters ─────────────────────────────────────────────────────────────
 
 async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
-    """Atomic integer increment (atomic due to the lock + UPSERT)."""
-    async def _op():
-        row = await _row(key, expected_kind="string")
-        try:
-            current = int(row[0]) if row else 0
-        except Exception:
-            current = 0
-        new_val = current + amount
-        expires_at = row[2] if row else None
-        await _upsert(key, str(new_val), kind="string",
-                      expires_at=expires_at, keepttl=True)
-        return new_val
-    return await _run_locked("incr", _op, default=0, critical=critical)  # R-F1341/1351
+    """Atomic integer increment.
+
+    R-F1493: uses a single SQL UPSERT (atomic at the SQLite level) instead
+    of holding the Python-level lock for a read-modify-write cycle. Previously
+    this held _get_lock() for the entire _row + _upsert sequence, which could
+    block for 15+ seconds under write contention, causing the state_store lock
+    storm that wedged the app and caused WA timeouts.
+
+    Falls back to the locked path only when the atomic UPSERT fails.
+    """
+    if _conn is None:
+        import sqlite3
+        e = sqlite3.OperationalError(
+            f"state_store: no connection (reconnect in progress) writing {key}")
+        _schedule_reconnect_if_dead(e)
+        if critical:
+            raise StateWriteError(f"incr: no connection") from e
+        return 0
+
+    try:
+        # Atomic UPSERT: INSERT if missing (value=1), else increment.
+        # SQLite serialises writes through its single worker thread — no
+        # Python-level lock needed. This avoids the _run_locked contention
+        # that caused the 2026-06-10 state_store wedge.
+        await _conn.execute(
+            "INSERT INTO state(key, value, kind, expires_at) "
+            "VALUES(?, '1', 'string', NULL) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "  value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
+            (key, amount),
+        )
+        await _conn.commit()
+        # Read back the new value
+        cur = await _conn.execute(
+            "SELECT value FROM state WHERE key = ?", (key,)
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return int(row[0]) if row else amount
+    except Exception as e:
+        logger.debug("[R-F1493] atomic incr failed for %s: %s — falling back to locked path", key, e)
+        async def _op():
+            row = await _row(key, expected_kind="string")
+            try:
+                current = int(row[0]) if row else 0
+            except Exception:
+                current = 0
+            new_val = current + amount
+            expires_at = row[2] if row else None
+            await _upsert(key, str(new_val), kind="string",
+                          expires_at=expires_at, keepttl=True)
+            return new_val
+        return await _run_locked("incr", _op, default=0, critical=critical)
 
 
 async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> float:
