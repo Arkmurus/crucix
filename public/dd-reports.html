@@ -202,6 +202,7 @@
     <div class="dd-toolbar">
       <input class="dd-search" id="dd-search" placeholder="Search by entity name…" type="search">
       <button class="dd-new-btn" id="dd-new-btn"><i class="bi bi-plus-lg"></i> New DD</button>
+      <button class="dd-new-btn" id="dd-full-btn" style="background:linear-gradient(135deg,#2563eb,#7c3aed);box-shadow:0 2px 12px rgba(37,99,235,0.35)"><i class="bi bi-grid-3x3-gap-fill"></i> Full DD</button>
       <button class="dd-act-btn" id="dd-vls-key-btn" title="Export VLS public key for third-party verification (R-F1182)" style="padding:10px 14px;font-size:13px">
         <i class="bi bi-key"></i> VLS Key
       </button>
@@ -648,6 +649,62 @@ document.getElementById('dd-new-btn').addEventListener('click', () => {
   });
 });
 
+// R-F1487: Full DD button — runs orchestrator + all pipeline tools
+document.getElementById('dd-full-btn').addEventListener('click', () => {
+  const entity = prompt('Entity name for full due diligence:');
+  if (!entity || !entity.trim()) return;
+  const jurisdiction = prompt('Jurisdiction (optional, e.g. "Germany"):') || '';
+  const btn = document.getElementById('dd-full-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running full DD...';
+
+  // Step 1: Run the orchestrator
+  authed('/api/aria/dd/orchestrate', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: entity.trim(),
+      jurisdiction: jurisdiction.trim() || undefined,
+      mode: 'deep',
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      btn.disabled = false; btn.innerHTML = orig;
+      alert('Full DD failed (HTTP ' + r.status + ')');
+      return;
+    }
+
+    // Step 2: Prefill and run all pipeline tools that have entity name fields
+    TOOLS.forEach(tool => {
+      const firstField = tool.fields.find(f => !f.textarea && f.type !== 'number');
+      if (!firstField) return;
+      const input = document.getElementById('tool-' + tool.id + '-' + firstField.key);
+      if (!input) return;
+      input.value = entity.trim();
+      // Trigger the tool run
+      const runBtn = document.querySelector('[data-tool="' + tool.id + '"]');
+      if (runBtn) runBtn.click();
+    });
+
+    // Step 3: Reload reports to show the new orchestrator result
+    await loadReports();
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> Done';
+    setTimeout(() => { btn.innerHTML = orig; }, 3000);
+
+    // Scroll to the pipeline tools section
+    const pipeline = document.getElementById('dd-pipeline-grid');
+    if (pipeline) {
+      pipeline.classList.remove('collapsed');
+      pipeline.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }).catch(err => {
+    btn.disabled = false; btn.innerHTML = orig;
+    alert('Full DD error: ' + err.message);
+  });
+});
+
 // R-F1186: VLS Public Key export button
 document.getElementById('dd-vls-key-btn').addEventListener('click', async () => {
   const btn = document.getElementById('dd-vls-key-btn');
@@ -971,6 +1028,56 @@ loadReports();
     outEl.textContent = text;
     if (isError) outEl.classList.add('error');
     else outEl.classList.remove('error');
+
+    // R-F1486: add "Save to Report" button for non-error results
+    if (!isError && text && text.length > 10) {
+      // Remove any existing save button
+      const existing = outEl.parentElement.querySelector('.dd-save-btn');
+      if (existing) existing.remove();
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'dd-save-btn';
+      saveBtn.innerHTML = '<i class="bi bi-save"></i> Save to Reports';
+      saveBtn.style.cssText =
+        'margin-top:8px;padding:5px 12px;border-radius:6px;border:1px solid rgba(124,58,237,0.3);' +
+        'background:rgba(124,58,237,0.1);color:#c4b5fd;font-size:11px;cursor:pointer;transition:all .12s;';
+      saveBtn.onmouseover = () => { saveBtn.style.background = 'rgba(124,58,237,0.2)'; };
+      saveBtn.onmouseout = () => { saveBtn.style.background = 'rgba(124,58,237,0.1)'; };
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+        try {
+          // Extract entity name from the first field value
+          const firstField = tool.fields && tool.fields[0];
+          const entityName = firstField
+            ? (document.getElementById('tool-' + tool.id + '-' + firstField.key) || {}).value || tool.name
+            : tool.name;
+          const resp = await authed('/api/aria/dd/save-tool-result', {
+            method: 'POST',
+            body: JSON.stringify({
+              tool_name: tool.name,
+              entity_name: entityName,
+              result_summary: text.slice(0, 200),
+              result_detail: { raw: text.slice(0, 5000) },
+              severity: isError ? 'LOW' : 'ELEVATED',
+            }),
+          });
+          if (resp.ok) {
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Saved!';
+            saveBtn.style.borderColor = 'rgba(34,197,94,0.4)';
+            saveBtn.style.color = '#4ade80';
+          } else {
+            saveBtn.innerHTML = '<i class="bi bi-exclamation-circle"></i> Save failed';
+            saveBtn.style.borderColor = 'rgba(239,68,68,0.4)';
+            saveBtn.style.color = '#fca5a5';
+          }
+        } catch (err) {
+          saveBtn.innerHTML = '<i class="bi bi-exclamation-circle"></i> Error';
+        }
+        setTimeout(() => { saveBtn.remove(); }, 3000);
+      };
+      outEl.parentElement.appendChild(saveBtn);
+    }
   }
 
   // Render the grid

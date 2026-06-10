@@ -651,14 +651,72 @@ async def dd_reports_index_ep(
     Pre-R-F607 entries (user_id=None on the index row) are hidden from
     user-filtered lists — admin / autonomous paths leave both filters
     empty to see everything.
+
+    R-F1484: when the index is empty, auto-seed with a sample DD report
+    so the UI is never a blank page. The seed is a lightweight demo run
+    that shows the report structure without requiring a live DD call.
     """
     from ..intel import dd_orchestrator
+    reports = await dd_orchestrator.list_reports(
+        limit=limit,
+        user_id=user_id or None,
+        user_email_domain=user_email_domain or None,
+    )
+    # R-F1484: auto-seed when empty (only for unfiltered views)
+    if not reports and not user_id and not user_email_domain:
+        try:
+            from ..intel import dd_orchestrator as _do
+            from ..intel.dd_schema import (
+                ARKDDReport, IdentitySection, NetworkSection,
+                VerificationSection, ComplianceSection, DigitalSection,
+                SynthesisSection, Finding, RiskClassification,
+            )
+            import time
+            _seed = ARKDDReport(
+                run_id=f"dd_seed_{int(time.time())}",
+                risk_classification=RiskClassification.AMBER,
+                identity=IdentitySection(
+                    entity_name="Acme Defence GmbH",
+                    entity_type="company",
+                    jurisdiction="Germany",
+                    jurisdiction_iso2="DE",
+                    findings=[
+                        Finding(severity="info", title="Sanctions screen CLEAN",
+                                detail="No matches across OFAC SDN, UK OFSI, EU Consolidated.",
+                                source="sanctions.screen_with_aliases", confidence="CONFIRMED"),
+                        Finding(severity="amber", title="Registered address is a virtual office",
+                                detail="Address matches a known virtual-office provider.",
+                                source="dd_orchestrator.virtual_office_detector", confidence="ASSESSED"),
+                    ],
+                ),
+                compliance=ComplianceSection(
+                    findings=[
+                        Finding(severity="info", title="Export control: EAR99 classification",
+                                detail="Dual-use items, no specific licence required for EU transfer.",
+                                source="eccn_lookup.lookup_by_keyword", confidence="PROBABLE"),
+                    ],
+                ),
+                synthesis=SynthesisSection(
+                    overall_risk="AMBER — enhanced DD recommended before contracting",
+                    summary=(
+                        "Acme Defence GmbH is a German-registered defence trading company. "
+                        "Sanctions screen is clean. Key concern: registered address is a virtual "
+                        "office — verify physical presence before high-value contracts. "
+                        "Export control: EAR99 items, no ITAR restrictions."
+                    ),
+                ),
+            )
+            _seed.run_id = f"dd_seed_{int(time.time())}"
+            await _do._persist_report(_seed)
+            reports = await dd_orchestrator.list_reports(
+                limit=limit,
+                user_id=user_id or None,
+                user_email_domain=user_email_domain or None,
+            )
+        except Exception as _seed_e:
+            _log.debug("[R-F1484] auto-seed failed (non-fatal): %s", _seed_e)
     return {
-        "reports": await dd_orchestrator.list_reports(
-            limit=limit,
-            user_id=user_id or None,
-            user_email_domain=user_email_domain or None,
-        )
+        "reports": reports,
     }
 
 
@@ -2771,6 +2829,83 @@ async def citations_verify_ep(request: Request):
         return await _ca.verify_response(response_text, max_urls=max_urls)
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ── R-F1486: Save pipeline tool result to DD reports library ─────────────
+
+
+@router.post("/dd/save-tool-result")
+async def dd_save_tool_result_ep(request: Request):
+    """Save a pipeline tool result as a lightweight DD report entry.
+
+    Request body:
+      {
+        "tool_name": "Sanctions Divergence",
+        "entity_name": "Wagner Group",
+        "result_summary": "2 matches found across US/UK/EU lists",
+        "result_detail": { ... full result ... },
+        "severity": "ELEVATED" | "LOW" | "NONE",
+      }
+
+    Creates a minimal DD report entry in the reports library so the
+    user can find it later via the DD Reports page.
+    """
+    from ..intel import dd_orchestrator as _do
+    from ..intel.dd_schema import (
+        ARKDDReport, IdentitySection, ComplianceSection,
+        SynthesisSection, Finding, RiskClassification,
+    )
+    import time
+
+    body = await request.json()
+    tool_name = (body.get("tool_name") or "").strip()
+    entity_name = (body.get("entity_name") or "").strip()
+    result_summary = (body.get("result_summary") or "").strip()
+    result_detail = body.get("result_detail") or {}
+    severity_str = (body.get("severity") or "NONE").upper()
+
+    if not tool_name or not entity_name:
+        raise HTTPException(status_code=400, detail="tool_name and entity_name required")
+
+    # Map severity string to RiskClassification
+    sev_map = {
+        "CRITICAL": RiskClassification.HARD_STOP,
+        "HIGH": RiskClassification.RED,
+        "ELEVATED": RiskClassification.AMBER,
+        "LOW": RiskClassification.GREEN,
+        "NONE": RiskClassification.GREEN,
+    }
+    risk = sev_map.get(severity_str, RiskClassification.GREEN)
+
+    # Build a minimal report
+    report = ARKDDReport(
+        run_id=f"dd_tool_{tool_name.lower().replace(' ', '_')}_{int(time.time())}",
+        risk_classification=risk,
+        identity=IdentitySection(
+            entity_name=entity_name,
+            entity_type="company",
+            findings=[
+                Finding(
+                    severity="info",
+                    title=f"Pipeline tool: {tool_name}",
+                    detail=result_summary,
+                    source=f"pipeline_tool:{tool_name}",
+                    confidence="CONFIRMED",
+                ),
+            ],
+        ),
+        synthesis=SynthesisSection(
+            overall_risk=str(risk.value),
+            summary=result_summary,
+        ),
+    )
+    report.extensions = {"pipeline_tool": {tool_name: result_detail}}
+
+    try:
+        await _do._persist_report(report)
+        return {"success": True, "run_id": report.run_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
 
 
 @router.get("/sanctions/divergence")
@@ -21481,7 +21616,8 @@ async def vault_import_ep(request: Request) -> dict:
     agent_id = body.get("agent_id", "dd_orchestrator")
 
     vault = get_vault()
-    count = vault.import_from_portal_registry(PORTALS, agent_id=agent_id)
+    # R-F1482: method is import_open_portals, not import_from_portal_registry
+    count = vault.import_open_portals(PORTALS, agent_id=agent_id)
     stats = vault.stats()
     return {"success": True, "imported": count, "stats": stats}
 

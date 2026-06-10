@@ -367,14 +367,55 @@ async def run_all_extensions(
     }
     severity_rank = {"NONE": 0, "LOW": 1, "ELEVATED": 2, "HIGH": 3, "CRITICAL": 4}
 
-    # Run all four concurrently — bounded by the per-module timeout
+    # Run all extensions concurrently — bounded by the per-module timeout
     # plus the wrapper's overall budget.
-    coros = {
+    # R-F1485: added pipeline tools as optional extension layers. Each runs
+    # only when the target has relevant data (e.g. crypto screen only when
+    # wallet address present, Benford only when financial figures present).
+    coros: dict[str, Any] = {
         "court_records":     run_court_records_check(target, report, timeout=timeout_per_module),
         "cert_transparency": run_cert_transparency_check(target, report, timeout=timeout_per_module),
         "eccn_lookup":       run_eccn_indicator_check(target, report),
         "ais_gap_detector":  run_ais_gap_check(target, report),
     }
+
+    # R-F1485: pipeline tools — run when relevant data is available
+    _entity_name = target.get("name") or target.get("entity") or ""
+    _wallet = target.get("wallet") or target.get("crypto_address") or ""
+    _financials = target.get("financial_values") or target.get("transaction_values") or []
+    _profile_json = target.get("profile_json") or target.get("fatf_profile") or ""
+
+    # Sanctions Divergence (R-F68): always run when entity name is present
+    if _entity_name:
+        coros["sanctions_divergence"] = _run_sanctions_divergence(_entity_name)
+
+    # RCA / Relatives (R-F76): run when entity name is present
+    if _entity_name:
+        coros["rca_relatives"] = _run_rca_screening(_entity_name)
+
+    # FATF Typology Match (R-F72): run when profile JSON is provided
+    if _profile_json:
+        coros["fatf_typology"] = _run_fatf_typology_match(_profile_json)
+
+    # Economic Substance (R-F77): run when entity has address/employee data
+    if _entity_name and (target.get("registered_address") or target.get("employees")):
+        coros["economic_substance"] = _run_economic_substance(target)
+
+    # TBML Classifier (R-F73): run when transaction values are present
+    if _financials:
+        coros["tbml_classifier"] = _run_tbml_classifier(target)
+
+    # Crypto Wallet Screen (R-F74): run when wallet address is present
+    if _wallet:
+        coros["crypto_wallet"] = _run_crypto_wallet_screen(_wallet)
+
+    # Benford's Law (R-F70): run when 50+ financial values are present
+    if len(_financials) >= 50:
+        coros["benford_law"] = _run_benford_law(_financials)
+
+    # Counter-Intelligence Scan (R-F84): run when entity name is present
+    if _entity_name:
+        coros["counter_intel"] = _run_counter_intel_scan(_entity_name)
     try:
         results = await asyncio.gather(*coros.values(), return_exceptions=True)
     except Exception as e:
@@ -408,3 +449,140 @@ async def run_all_extensions(
             source_id="dd_layer_extensions:run_all_extensions",
         )
     return out
+
+
+# ── R-F1485: Pipeline tool runners ──────────────────────────────────────
+# Each runner wraps a pipeline tool as an extension layer. Returns a dict
+# matching the extension contract: {"severity", "summary", "hits", ...}.
+# Failures return None (skipped) rather than raising.
+
+
+async def _run_sanctions_divergence(name: str) -> dict | None:
+    """R-F68: Cross-list sanctions lookup."""
+    try:
+        from . import sanctions as _sanc
+        result = await _sanc.screen_with_aliases(name)
+        matches = result.get("matches") or []
+        return {
+            "severity": "ELEVATED" if matches else "NONE",
+            "summary": f"Sanctions divergence: {len(matches)} match(es) for {name}",
+            "hits": matches[:10],
+            "total_matches": len(matches),
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] sanctions_divergence failed: %s", e)
+        return None
+
+
+async def _run_rca_screening(name: str) -> dict | None:
+    """R-F76: RCA / PEP relatives screening."""
+    try:
+        from . import rca_screening as _rca
+        result = await _rca.screen_with_relatives(name, depth=1, threshold=0.78)
+        relatives = result.get("relatives") or []
+        return {
+            "severity": "ELEVATED" if relatives else "NONE",
+            "summary": f"RCA screening: {len(relatives)} relative(s) found for {name}",
+            "hits": relatives[:10],
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] rca_screening failed: %s", e)
+        return None
+
+
+async def _run_fatf_typology_match(profile_json: str) -> dict | None:
+    """R-F72: FATF typology match."""
+    try:
+        import json as _json
+        from . import fatf_typologies as _ft
+        profile = _json.loads(profile_json) if isinstance(profile_json, str) else profile_json
+        result = _ft.match_typologies(profile)
+        matches = result.get("matches") or []
+        return {
+            "severity": "ELEVATED" if matches else "NONE",
+            "summary": f"FATF typology: {len(matches)} typology match(es)",
+            "hits": matches[:10],
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] fatf_typology failed: %s", e)
+        return None
+
+
+async def _run_economic_substance(target: dict) -> dict | None:
+    """R-F77: Economic substance test."""
+    try:
+        from . import economic_substance as _es
+        result = _es.score_substance(target)
+        score = result.get("score", 0) if isinstance(result, dict) else 0
+        return {
+            "severity": "ELEVATED" if score < 50 else "LOW",
+            "summary": f"Economic substance score: {score}/100",
+            "detail": _es.substance_narrative(result) if hasattr(_es, 'substance_narrative') else "",
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] economic_substance failed: %s", e)
+        return None
+
+
+async def _run_tbml_classifier(target: dict) -> dict | None:
+    """R-F73: TBML classifier."""
+    try:
+        from . import tbml_detection as _tb
+        result = _tb.classify_anomaly(target)
+        anomaly = result.get("anomaly", False) if isinstance(result, dict) else False
+        return {
+            "severity": "ELEVATED" if anomaly else "NONE",
+            "summary": result.get("narrative", "TBML classification complete") if isinstance(result, dict) else "TBML classification complete",
+            "score": result.get("score", 0) if isinstance(result, dict) else 0,
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] tbml_classifier failed: %s", e)
+        return None
+
+
+async def _run_crypto_wallet_screen(wallet: str) -> dict | None:
+    """R-F74: Crypto wallet sanctions screen."""
+    try:
+        from . import crypto_sanctions as _cs
+        result = await _cs.screen_wallet(wallet)
+        matches = result.get("matches") or []
+        return {
+            "severity": "ELEVATED" if matches else "NONE",
+            "summary": f"Crypto wallet screen: {len(matches)} match(es)",
+            "hits": matches[:10],
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] crypto_wallet failed: %s", e)
+        return None
+
+
+async def _run_benford_law(values: list) -> dict | None:
+    """R-F70: Benford's Law forensic check."""
+    try:
+        from . import forensic_benford as _fb
+        result = _fb.benford_test(values)
+        chi2 = result.get("chi2", 0)
+        return {
+            "severity": "ELEVATED" if chi2 > 15 else "NONE",
+            "summary": f"Benford's Law: chi2={chi2:.2f}",
+            "detail": result.get("narrative", ""),
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] benford_law failed: %s", e)
+        return None
+
+
+async def _run_counter_intel_scan(name: str) -> dict | None:
+    """R-F84: Counter-intelligence scan."""
+    try:
+        from . import counter_intelligence as _ci
+        result = await _ci.scan_entity(name)
+        anomalies = result.get("anomalies") or [] if isinstance(result, dict) else []
+        return {
+            "severity": "ELEVATED" if anomalies else "NONE",
+            "summary": f"Counter-intel scan: {len(anomalies)} anomaly(ies)",
+            "hits": anomalies[:10],
+        }
+    except Exception as e:
+        logger.debug("[R-F1485] counter_intel failed: %s", e)
+        return None

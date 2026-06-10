@@ -26,8 +26,9 @@ class TestVaultAutoPopulateInLifespan:
         assert "R-F1253" in source, (
             "R-F1253 vault auto-population block must exist in main.py"
         )
-        assert "import_from_portal_registry" in source, (
-            "main.py must call import_from_portal_registry for vault auto-population"
+        # R-F1482: method was renamed from import_from_portal_registry to import_open_portals
+        assert "import_open_portals" in source, (
+            "main.py must call import_open_portals for vault auto-population"
         )
         assert "agent_signup_vault" in source, (
             "main.py must import agent_signup_vault for auto-population"
@@ -52,7 +53,7 @@ class TestVaultImportFromPortalRegistry:
     """Prove the vault import actually populates data."""
 
     def test_import_populates_vault(self):
-        """Calling import_from_portal_registry must populate the vault."""
+        """Calling import_open_portals must populate the vault."""
         from aria_service.intel.agent_signup_vault import AgentSignupVault, get_vault
         from aria_service.intel.portal_registry import PORTALS
 
@@ -63,15 +64,17 @@ class TestVaultImportFromPortalRegistry:
             stats_before = vault.stats()
             assert stats_before["total"] == 0, "Fresh vault must be empty"
 
-            count = vault.import_from_portal_registry(PORTALS, agent_id="test_agent")
+            # R-F1482: method is import_open_portals, not import_from_portal_registry
+            count = vault.import_open_portals(PORTALS, agent_id="test_agent")
             assert count > 0, f"Must import portals, got {count}"
 
             stats_after = vault.stats()
             assert stats_after["total"] == count, (
                 f"Stats total ({stats_after['total']}) must match imported count ({count})"
             )
-            assert stats_after["by_status"]["pending"] == count, (
-                f"All {count} imported entries should be pending"
+            # Some are 'registered' (open APIs), some are 'pending' (registrable)
+            assert stats_after["by_status"].get("pending", 0) > 0 or stats_after["by_status"].get("registered", 0) > 0, (
+                f"Imported entries should be pending or registered, got {stats_after['by_status']}"
             )
 
             # Verify entries are queryable
@@ -79,7 +82,6 @@ class TestVaultImportFromPortalRegistry:
             assert len(entries) > 0, "Must have entries after import"
             assert entries[0]["site_id"] is not None, "Entry must have site_id"
             assert entries[0]["site_name"] is not None, "Entry must have site_name"
-            assert entries[0]["status"] == "pending", "Entry must be pending"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -91,8 +93,9 @@ class TestVaultImportFromPortalRegistry:
         tmpdir = tempfile.mkdtemp()
         try:
             vault = AgentSignupVault(db_path=os.path.join(tmpdir, "vault.db"))
-            count1 = vault.import_from_portal_registry(PORTALS, agent_id="test_agent")
-            count2 = vault.import_from_portal_registry(PORTALS, agent_id="test_agent")
+            # R-F1482: method is import_open_portals, not import_from_portal_registry
+            count1 = vault.import_open_portals(PORTALS, agent_id="test_agent")
+            count2 = vault.import_open_portals(PORTALS, agent_id="test_agent")
             assert count2 == 0, (
                 f"Second import must return 0 (already imported), got {count2}"
             )
@@ -111,7 +114,8 @@ class TestVaultImportFromPortalRegistry:
         tmpdir = tempfile.mkdtemp()
         try:
             vault = AgentSignupVault(db_path=os.path.join(tmpdir, "vault.db"))
-            vault.import_from_portal_registry(PORTALS, agent_id="test_agent")
+            # R-F1482: method is import_open_portals, not import_from_portal_registry
+            vault.import_open_portals(PORTALS, agent_id="test_agent")
             entries = vault.list(limit=100)
             assert len(entries) > 0, "Must have entries"
 

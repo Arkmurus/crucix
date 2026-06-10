@@ -2127,7 +2127,8 @@ async def lifespan(app: FastAPI):
         vault = get_vault()
         stats = vault.stats()
         if stats.get("total", 0) == 0:
-            count = vault.import_from_portal_registry(PORTALS, agent_id="system")
+            # R-F1482: method is import_open_portals, not import_from_portal_registry
+            count = vault.import_open_portals(PORTALS, agent_id="system")
             logger.info(
                 "[R-F1253] Agent signup vault auto-populated: %d portals imported",
                 count,
