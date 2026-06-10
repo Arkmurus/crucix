@@ -221,6 +221,8 @@ async def _run_defence_dd_eval(
     judge_url: str = "https://api.deepseek.com/v1",
     judge_model: str = "deepseek-chat",
     judge_api_key: str | None = None,
+    concurrency: int = 6,
+    out_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run a defence-DD eval set. Each record:
         { "question": str, "expected_answer": str, "topic": str }
@@ -251,81 +253,123 @@ async def _run_defence_dd_eval(
     if not judge_api_key:
         judge_api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ARIA_DEEPSEEK_API_KEY")
 
-    results = []
-    latencies = []
-    judge_latencies = []
-    by_topic: dict[str, dict[str, int]] = {}
-    for q in questions:
+    # ── R-F1488: concurrent + crash-safe eval ──────────────────────────────
+    # The old loop ran one question at a time. On the serving shim that made a
+    # 500-Q run take ~5.5h; the driver's poll cap then KILLED a healthy 76%-done
+    # run and, with no checkpoint, lost everything (2026-06-10). Now: questions
+    # run CONCURRENTLY (bounded by `concurrency` — overlaps the DeepSeek judge
+    # with the next model call), and every completed question is appended to a
+    # checkpoint so a crash OR a re-run RESUMES instead of restarting.
+    ckpt_path = Path(str(out_path) + ".partial.jsonl") if out_path else None
+    done: dict[int, dict] = {}
+    if ckpt_path and ckpt_path.exists():
+        with ckpt_path.open("r", encoding="utf-8") as cf:
+            for ln in cf:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                    done[int(rec["idx"])] = rec["result"]
+                except Exception:
+                    continue
+        if done:
+            logger.info("[eval_aria_llm] R-F1488: resuming — %d/%d already in checkpoint %s",
+                        len(done), len(questions), ckpt_path.name)
+
+    sem = asyncio.Semaphore(max(1, concurrency))
+    ckpt_lock = asyncio.Lock()
+
+    async def _eval_one(idx: int, q: dict) -> None:
         prompt = q.get("question", "")
         expected_answer = q.get("expected_answer", "") or ""
         topic = q.get("topic", "general")
         if not prompt:
-            continue
-        try:
-            response, latency = await _call_chat(
-                target_url=target_url, model=model, api_key=api_key,
-                prompt=prompt,
-            )
-            latencies.append(latency)
-
-            # Grade with LLM judge (R-F1456)
-            if expected_answer and judge_api_key:
-                t0 = time.time()
-                judge_result = await _judge_answer(
-                    judge_url=judge_url, judge_model=judge_model,
-                    judge_api_key=judge_api_key,
-                    question=prompt, expected=expected_answer, actual=response,
+            return
+        async with sem:
+            try:
+                response, latency = await _call_chat(
+                    target_url=target_url, model=model, api_key=api_key, prompt=prompt,
                 )
-                judge_latencies.append(time.time() - t0)
-                passed = judge_result.get("verdict") == "correct"
-                verdict = judge_result.get("verdict", "unscored")
-                judge_reason = judge_result.get("reason", "")
-            else:
-                # R-F1468: loud WARNING when expected_answer is missing —
-                # the silent keyword fallback masked the judge being dead
-                # for hours during the 2026-06-09 validation run.
-                if not expected_answer:
-                    logger.warning(
-                        "[eval_aria_llm] R-F1468: question %d has NO expected_answer — "
-                        "judge cannot fire. Add expected_answer to the eval set. "
-                        "Question: '%s...'",
-                        len(results) + 1, (prompt or "")[:80],
+                if expected_answer and judge_api_key:
+                    t0 = time.time()
+                    judge_result = await _judge_answer(
+                        judge_url=judge_url, judge_model=judge_model,
+                        judge_api_key=judge_api_key,
+                        question=prompt, expected=expected_answer, actual=response,
                     )
-                # Fallback: keyword matching (only when no judge available)
-                expected_keywords = [k.lower() for k in q.get("expected_keywords", [])]
-                if expected_keywords:
-                    response_lower = response.lower()
-                    hits = sum(1 for kw in expected_keywords if kw in response_lower)
-                    ratio = hits / len(expected_keywords)
-                    passed = ratio >= 0.60
-                    verdict = "pass" if passed else "fail"
-                    judge_reason = f"keyword_match: {hits}/{len(expected_keywords)}"
+                    j_lat = time.time() - t0
+                    passed = judge_result.get("verdict") == "correct"
+                    verdict = judge_result.get("verdict", "unscored")
+                    judge_reason = judge_result.get("reason", "")
                 else:
-                    passed = False
-                    verdict = "unscored"
-                    judge_reason = "no expected_answer or expected_keywords"
+                    j_lat = None
+                    if not expected_answer:
+                        logger.warning(
+                            "[eval_aria_llm] R-F1468: question %d has NO expected_answer — "
+                            "judge cannot fire. Add expected_answer to the eval set. "
+                            "Question: '%s...'",
+                            idx + 1, (prompt or "")[:80],
+                        )
+                    # Fallback: keyword matching (only when no judge available)
+                    expected_keywords = [k.lower() for k in q.get("expected_keywords", [])]
+                    if expected_keywords:
+                        response_lower = response.lower()
+                        hits = sum(1 for kw in expected_keywords if kw in response_lower)
+                        ratio = hits / len(expected_keywords)
+                        passed = ratio >= 0.60
+                        verdict = "pass" if passed else "fail"
+                        judge_reason = f"keyword_match: {hits}/{len(expected_keywords)}"
+                    else:
+                        passed = False
+                        verdict = "unscored"
+                        judge_reason = "no expected_answer or expected_keywords"
+                res = {
+                    "question": prompt[:200],
+                    "topic":    topic,
+                    "passed":   passed,
+                    "verdict":  verdict,
+                    "judge_reason": judge_reason[:200],
+                    "latency_s": round(latency, 2),
+                    # R-F1459: persist full answers for offline re-scoring.
+                    "actual_answer": response[:6000],
+                    "expected_answer": expected_answer[:4000],
+                    "_latency": latency,
+                    "_judge_latency": j_lat,
+                }
+            except Exception as e:
+                res = {"question": prompt[:80], "topic": topic, "error": str(e)}
+            done[idx] = res
+            if ckpt_path:
+                async with ckpt_lock:
+                    with ckpt_path.open("a", encoding="utf-8") as cf:
+                        cf.write(json.dumps({"idx": idx, "result": res}, ensure_ascii=False) + "\n")
 
-            results.append({
-                "question": prompt[:200],
-                "topic":    topic,
-                "passed":   passed,
-                "verdict":  verdict,
-                "judge_reason": judge_reason[:200],
-                "latency_s": round(latency, 2),
-                # R-F1459: persist full answers for offline re-scoring.
-                # The old keyword-matching reports only stored kw_hits/kw_ratio
-                # — insufficient to re-score with a different grader. Now every
-                # report carries the actual response + expected answer so any
-                # future judge can re-score without a paid re-run.
-                "actual_answer": response[:6000],
-                "expected_answer": expected_answer[:4000],
-            })
-            slot = by_topic.setdefault(topic, {"passed": 0, "total": 0})
+    todo = [(i, q) for i, q in enumerate(questions) if i not in done]
+    if todo:
+        await asyncio.gather(*[_eval_one(i, q) for i, q in todo])
+
+    # Aggregate in question order, preserving the exact report format.
+    results = []
+    latencies = []
+    judge_latencies = []
+    by_topic: dict[str, dict[str, int]] = {}
+    for i in range(len(questions)):
+        r = done.get(i)
+        if not r:
+            continue
+        lat = r.pop("_latency", None)
+        jlat = r.pop("_judge_latency", None)
+        if isinstance(lat, (int, float)):
+            latencies.append(lat)
+        if isinstance(jlat, (int, float)):
+            judge_latencies.append(jlat)
+        results.append(r)
+        if "error" not in r:
+            slot = by_topic.setdefault(r.get("topic", "general"), {"passed": 0, "total": 0})
             slot["total"] += 1
-            if passed:
+            if r.get("passed"):
                 slot["passed"] += 1
-        except Exception as e:
-            results.append({"question": prompt[:80], "topic": topic, "error": str(e)})
 
     total = len(results)
     passed_total = sum(1 for r in results if r.get("passed"))
@@ -351,6 +395,10 @@ async def _main() -> None:
     ap.add_argument("--eval-set", type=Path,
                     help="JSONL with {question, expected_keywords, topic}")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--concurrency", type=int, default=6,
+                    help="R-F1488: questions evaluated concurrently (default 6). "
+                         "Overlaps the judge call with the next model call; a checkpoint "
+                         "({out}.partial.jsonl) makes a crash/cap resumable.")
     ap.add_argument("--skip-prompt-injection", action="store_true")
     ap.add_argument("--skip-defence-dd", action="store_true")
     args = ap.parse_args()
@@ -374,6 +422,7 @@ async def _main() -> None:
         logger.info("Running defence-DD eval set")
         report["defence_dd"] = await _run_defence_dd_eval(
             args.target, args.model, args.api_key, args.eval_set,
+            concurrency=args.concurrency, out_path=args.out,
         )
         if report["defence_dd"].get("accuracy") is not None:
             logger.info("  accuracy: %s", report["defence_dd"]["accuracy"])

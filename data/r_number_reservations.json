@@ -9372,9 +9372,10 @@
       "title": "fix R-F1493 incr: fresh-key INSERT must use amount not hardcoded 1",
       "claimed_at": "2026-06-10T11:04:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "10fc6743",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:11:06Z"
     }
   ]
 }

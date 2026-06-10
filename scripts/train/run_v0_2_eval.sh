@@ -73,9 +73,14 @@ $SSH -p "$PORT" root@"$HOST" \
    setsid nohup bash /workspace/v0_2_eval_pod_run.sh > /workspace/logs/v0_2_eval.log 2>&1 < /dev/null & echo STARTED" \
   || { echo "[v0.2] FATAL: could not launch eval on pod"; exit 1; }
 
-echo "[v0.2] polling for completion (cap ~4h; breaks as soon as it finishes)…"
+echo "[v0.2] polling for completion (cap ~8h; breaks as soon as it finishes)…"
+# R-F1488: cap raised 4h -> 8h. The 4h cap KILLED a healthy 76%-done 500-Q eval
+# on 2026-06-10 (the slow single-GPU shim needs ~5h). A real HANG is caught by the
+# burn-guard (>15min idle), so the driver can afford a generous cap and never kill a
+# slow-but-progressing run. The eval also checkpoints now (R-F1488), so even a kill
+# resumes on re-run instead of losing work.
 RC=""
-for i in $(seq 1 120); do   # 120 * 120s = 4h cap
+for i in $(seq 1 240); do   # 240 * 120s = 8h cap
   sleep 120
   OUT=$($SSH -p "$PORT" root@"$HOST" \
     'printf "RC=%s\n" "$(cat /workspace/eval/_v0_2_status 2>/dev/null)"; tail -1 /workspace/logs/v0_2_eval.log 2>/dev/null' \
