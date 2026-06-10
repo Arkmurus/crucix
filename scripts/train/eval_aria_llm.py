@@ -221,7 +221,7 @@ async def _run_defence_dd_eval(
     judge_url: str = "https://api.deepseek.com/v1",
     judge_model: str = "deepseek-chat",
     judge_api_key: str | None = None,
-    concurrency: int = 6,
+    concurrency: int = 1,
     out_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run a defence-DD eval set. Each record:
@@ -395,10 +395,13 @@ async def _main() -> None:
     ap.add_argument("--eval-set", type=Path,
                     help="JSONL with {question, expected_keywords, topic}")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--concurrency", type=int, default=6,
-                    help="R-F1488: questions evaluated concurrently (default 6). "
-                         "Overlaps the judge call with the next model call; a checkpoint "
-                         "({out}.partial.jsonl) makes a crash/cap resumable.")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="R-F1488/R-F1499: questions evaluated concurrently. DEFAULT 1 — "
+                         "serve_eval_shim.py is NOT concurrency-safe (the 2026-06-10 re-run "
+                         "hung after 12 questions at concurrency=6). The checkpoint "
+                         "({out}.partial.jsonl) + the driver's 8h cap are what make it "
+                         "robust now, not parallelism. Only raise this with a concurrency-"
+                         "safe server (e.g. vLLM).")
     ap.add_argument("--skip-prompt-injection", action="store_true")
     ap.add_argument("--skip-defence-dd", action="store_true")
     args = ap.parse_args()
