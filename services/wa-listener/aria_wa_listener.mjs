@@ -112,33 +112,37 @@ const BRAIN_FALLBACK  = process.env.ARIA_BRAIN_FALLBACK_IP
 let _brainFallbackActive = false;  // tracks whether we're currently using the fallback
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 
-// R-F1508: DNS-resilient fetch — tries primary URL first, falls back to IP on DNS failure.
+// R-F1508/1509: DNS-resilient fetch — tries primary URL first, falls back to IP on failure.
 // Logs every fallback use so a stale IP is visible in the logs.
+// The switch-back probe uses RAW fetch (not brainFetch) to avoid infinite recursion.
+let _lastProbeTime = 0;  // throttle switch-back probe to once per 30s
 async function brainFetch(path, options = {}) {
   const url = _brainFallbackActive && BRAIN_FALLBACK
     ? `${BRAIN_FALLBACK}${path}`
     : `${BRAIN_URL}${path}`;
   try {
     const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
-    // If we were on fallback and this succeeded, try switching back to primary
-    if (_brainFallbackActive && BRAIN_URL) {
+    // R-F1509: switch-back probe uses RAW fetch (not brainFetch) to avoid recursion.
+    // Throttled to once per 30s so we don't add a 5s probe to every fallback call.
+    if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 30000) {
+      _lastProbeTime = Date.now();
       try {
-        const test = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(5000) });
+        const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(5000) });
         if (test.ok) {
           _brainFallbackActive = false;
-          console.log('[R-F1508] DNS recovered — switched back to primary BRAIN_URL');
+          console.log('[R-F1509] DNS recovered — switched back to primary BRAIN_URL');
         }
-      } catch {}
+      } catch { /* primary still down — stay on fallback */ }
     }
     return r;
   } catch (err) {
-    // DNS failure — try fallback if available
+    // Primary failed — try fallback if available
     if (!_brainFallbackActive && BRAIN_FALLBACK) {
-      console.warn(`[R-F1508] DNS resolution failed for ${BRAIN_URL} — falling back to IP: ${err.message}`);
+      console.warn(`[R-F1509] Primary brain fetch failed for ${BRAIN_URL} — falling back to IP: ${err.message}`);
       _brainFallbackActive = true;
       const fallbackUrl = `${BRAIN_FALLBACK}${path}`;
       const r = await fetch(fallbackUrl, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
-      console.log(`[R-F1508] Fallback ${_brainFallbackActive ? 'ACTIVE' : 'INACTIVE'} — using IP: ${BRAIN_FALLBACK}`);
+      console.log(`[R-F1509] Fallback ACTIVE — using IP: ${BRAIN_FALLBACK}`);
       return r;
     }
     throw err;
