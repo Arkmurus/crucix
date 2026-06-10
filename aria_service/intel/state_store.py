@@ -978,11 +978,16 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
         # Python-level lock needed. This avoids the _run_locked contention
         # that caused the 2026-06-10 state_store wedge.
         await _conn.execute(
+            # R-F1494: on a FRESH key the inserted value must be `amount`, not a
+            # hardcoded '1'. R-F1493 hardcoded '1', so incr(key, amount=N) on a
+            # missing key stored 1 instead of N (e.g. stream_guard_observer.py:180
+            # calls incr(key, amount=count) → silent undercount). CAST(? AS TEXT)
+            # keeps the value column TEXT-typed like every other state write.
             "INSERT INTO state(key, value, kind, expires_at) "
-            "VALUES(?, '1', 'string', NULL) "
+            "VALUES(?, CAST(? AS TEXT), 'string', NULL) "
             "ON CONFLICT(key) DO UPDATE SET "
             "  value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
-            (key, amount),
+            (key, amount, amount),
         )
         await _conn.commit()
         # Read back the new value

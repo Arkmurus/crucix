@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1493,
+  "next_available": 1495,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9351,6 +9351,26 @@
       "r_number": "R-F1492",
       "title": "adversarial grader honesty — stop scoring correct refusals as failures + single-provider persist",
       "claimed_at": "2026-06-10T09:28:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "646dc3a9",
+      "notes": null,
+      "shipped_at": "2026-06-10T09:33:25Z"
+    },
+    {
+      "r_number": "R-F1493",
+      "title": "Fix state_store incr lock contention - use atomic SQL UPDATE",
+      "claimed_at": "2026-06-10T10:57:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6ac76fa8",
+      "notes": null,
+      "shipped_at": "2026-06-10T11:00:28Z"
+    },
+    {
+      "r_number": "R-F1494",
+      "title": "fix R-F1493 incr: fresh-key INSERT must use amount not hardcoded 1",
+      "claimed_at": "2026-06-10T11:04:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
