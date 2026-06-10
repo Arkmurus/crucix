@@ -171,7 +171,8 @@ async def absorb_tiers_bg(
 
     _elapsed_ms = (time.time() * 1000) - _start_ms
     _record_latency(_elapsed_ms)
-    _maybe_trip_breaker(reason=f"absorb({module})")
+    # R-F1505: pass module name for per-module trip threshold
+    _maybe_trip_breaker(reason=f"absorb({module})", module=module)
     result["latency_ms"] = round(_elapsed_ms, 1)
 
 

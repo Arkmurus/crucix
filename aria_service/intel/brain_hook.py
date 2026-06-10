@@ -1037,6 +1037,19 @@ _LATENCY_TRIP_MS = max(
     int(_TIER_TIMEOUT_S * 1000) + 2000,  # always clear the tier ceiling + margin
 )
 
+# R-F1505: per-module latency thresholds. Some modules (aria_coder, deep_researcher)
+# do heavy LLM work that naturally takes 30-60s. The global 6s threshold would trip
+# on every coder cycle, causing false breaker opens. These overrides let slow-but-
+# correct modules have a higher threshold. Keyed by module name prefix.
+_MODULE_LATENCY_OVERRIDES: dict[str, int] = {
+    "aria_coder": 120000,        # 120s — LLM code generation is slow
+    "autonomous.coder_entrypoint": 120000,
+    "deep_researcher": 120000,
+    "self_coder": 120000,
+    "autonomous_engine": 60000,  # 60s — task execution
+    "self_improve": 60000,
+}
+
 # R-F799 (2026-05-22) — concurrency cap on absorb's expensive tiers.
 # R-F795 bounded each absorb's per-tier wall-time. This R-number adds
 # a per-process concurrency limiter so a flood of concurrent absorbs
@@ -1165,9 +1178,26 @@ def _p95_latency_ms() -> float:
     return sorted_l[idx]
 
 
-def _maybe_trip_breaker(reason: str) -> None:
+def _module_trip_threshold(module: str = "") -> int:
+    """R-F1505: return the effective trip threshold for a module.
+
+    Checks _MODULE_LATENCY_OVERRIDES for a matching prefix. Falls back
+    to the global _LATENCY_TRIP_MS if no override matches.
+    """
+    if module:
+        for prefix, threshold in _MODULE_LATENCY_OVERRIDES.items():
+            if module.startswith(prefix):
+                return threshold
+    return _LATENCY_TRIP_MS
+
+
+def _maybe_trip_breaker(reason: str, module: str = "") -> None:
     """Open the circuit if p95 has been over threshold _TRIP_CONSECUTIVE
-    times in a row. Idempotent — safe to call on every absorb."""
+    times in a row. Idempotent — safe to call on every absorb.
+
+    R-F1505: uses per-module threshold when module is provided, so slow-
+    but-correct modules (aria_coder, deep_researcher) don't false-trip.
+    """
     global _warmup_complete
     if _breaker_state["open"]:
         return
@@ -1181,14 +1211,15 @@ def _maybe_trip_breaker(reason: str) -> None:
             return
         _warmup_complete = True
     p95 = _p95_latency_ms()
-    if p95 > _LATENCY_TRIP_MS:
+    threshold = _module_trip_threshold(module)
+    if p95 > threshold:
         _breaker_state["consecutive_high"] += 1
         if _breaker_state["consecutive_high"] >= _TRIP_CONSECUTIVE:
             _breaker_state["open"] = True
             _breaker_state["tripped_at"] = time.time()
             _breaker_state["trips_total"] += 1
             _breaker_state["last_trip_reason"] = (
-                f"{reason} — p95={p95:.0f}ms over {_LATENCY_TRIP_MS}ms threshold"
+                f"{reason} — p95={p95:.0f}ms over {threshold}ms threshold"
             )
             logger.warning(
                 "[brain_hook] CIRCUIT TRIPPED — p95=%.0fms reason=%s. "
