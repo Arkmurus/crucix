@@ -85,18 +85,26 @@ $SSH -p "$PORT" root@"$HOST" \
   || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
 
 echo "[driver] polling for completion (cap ~5h; breaks as soon as it finishes)..."
+# R-F1473: ONE SSH per tick (was two — sentinel + log-tail). On Windows git-bash
+# every ssh invocation forks through MSYS's fragile fork() emulation; two per tick
+# x 200 ticks over 8h exhausted process handles -> errno 11 "Resource temporarily
+# unavailable" killed the loop BEFORE it pulled the report (2026-06-09 v0.3 run).
+# Fetch BOTH the sentinel and the last log line in a single SSH, parsed by a marker.
 RC=""
-for i in $(seq 1 200); do   # 200 * 90s = 5h cap; loop breaks the moment the sentinel appears
-  sleep 90
-  RC=$($SSH -p "$PORT" root@"$HOST" "cat /workspace/eval/_cycle_status 2>/dev/null" 2>/dev/null | tr -d '\r\n ')
-  LINE=$($SSH -p "$PORT" root@"$HOST" "tail -1 /workspace/logs/v0_3_cycle.log 2>/dev/null" 2>/dev/null | tr -d '\r')
+for i in $(seq 1 200); do   # 200 * 120s ~ 6.6h cap; loop breaks the moment the sentinel appears
+  sleep 120
+  OUT=$($SSH -p "$PORT" root@"$HOST" \
+    'printf "RC=%s\n" "$(cat /workspace/eval/_cycle_status 2>/dev/null)"; tail -1 /workspace/logs/v0_3_cycle.log 2>/dev/null' \
+    2>/dev/null | tr -d '\r')
+  RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tr -d ' ')
+  LINE=$(printf '%s\n' "$OUT" | grep -v '^RC=' | tail -1)
   echo "[driver] [$i/200] ${LINE:-(no log line yet)}"
   if [ -n "$RC" ]; then
     echo "[driver] cycle finished (exit code $RC)"
     break
   fi
 done
-[ -n "$RC" ] || echo "[driver] WARN: no completion signal within the 5h cap — pulling whatever exists, then stopping"
+[ -n "$RC" ] || echo "[driver] WARN: no completion signal within the cap — pulling whatever exists, then stopping"
 
 # 5. Pull reports
 mkdir -p data/eval_reports
