@@ -413,6 +413,8 @@ async def init() -> None:
         _loaded = True
         logger.info("Neural memory loaded: %d neurons, %d edge groups (R-F442 edges_dirty=%s)",
                      len(_neurons), len(_edges), _edges_dirty)
+        # R-F1512: boot-time cold-edges sweep for existing oversized neurons
+        _offload_sweep_all()
     except Exception as e:
         logger.warning("Neural memory init failed: %s", e)
         _loaded = True
@@ -926,6 +928,28 @@ def extract_concepts(text: str) -> list[tuple[str, str]]:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+# R-F1512: boot-time cold-edges sweep — offload existing oversized neurons
+_offload_sweep_done = False
+
+
+def _offload_sweep_all() -> int:
+    global _offload_sweep_done
+    if _offload_sweep_done:
+        return 0
+    _offload_sweep_done = True
+    total = 0
+    for neuron_id in list(_edges.keys()):
+        if len(_edges[neuron_id]) > _MAX_HOT_EDGES_PER_NEURON:
+            total += _offload_cold_edges(neuron_id)
+    if total:
+        logger.info(
+            "[neural] R-F1512 boot sweep: offloaded %d cold edges across %d neurons",
+            total,
+            sum(1 for n in _edges.values() if len(n) > _MAX_HOT_EDGES_PER_NEURON),
+        )
+    return total
+
 
 async def learn_from_text(text: str, source: str = "conversation",
                           confidence: str = "ASSESSED",
