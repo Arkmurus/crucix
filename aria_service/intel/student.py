@@ -406,15 +406,21 @@ async def seed_baseline_mastery() -> None:
     seeded = 0
     for topic in mastery:
         m = mastery[topic]
-        # Only seed topics that are still at the scaffold baseline
-        # (no real samples yet) AND below their hard floor.
+        # Skip topics that already have real training samples
         if m.get("samples", 0) > 0:
             continue
+        # R-F1512: seed ANY topic with zero samples, not just those below
+        # the hard floor. Topics at exactly INITIAL_MASTERY (0.5) are
+        # indistinguishable from scaffold — give them a small boost so
+        # they're clearly above baseline. The boost is gentle (weight=0.3)
+        # so real interactions dominate over time.
         floor = HARD_FLOORS.get(topic, 0.5)
-        if m["score"] >= floor:
+        target = max(floor + 0.05, 0.6)  # aim for floor+5pp or 60%, whichever is higher
+        if m["score"] >= target:
             continue
-        # Give 3 gentle "correct" signals to lift above the floor
-        for _ in range(3):
+        # Give gentle signals to reach target
+        signals_needed = 3 if m["score"] < floor else 2
+        for _ in range(signals_needed):
             m["samples"] = m.get("samples", 0) + 1
             m["correct"] = m.get("correct", 0) + 1
             m["last_practiced"] = now
@@ -428,8 +434,10 @@ async def seed_baseline_mastery() -> None:
         await _save_mastery()
         logger.info(
             "[R-F1512] Seeded baseline mastery for %d topics "
-            "(gentle weight=0.3, 3 signals each)",
+            "(gentle weight=0.3, %s signals each, target >= %.0f%%)",
             seeded,
+            "2-3",
+            max(HARD_FLOORS.get(list(mastery.keys())[0], 0.5) + 0.05, 0.6) * 100 if mastery else 60,
         )
 
 
