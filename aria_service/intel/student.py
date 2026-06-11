@@ -418,8 +418,14 @@ async def seed_baseline_mastery() -> None:
         target = max(floor + 0.05, 0.6)  # aim for floor+5pp or 60%, whichever is higher
         if m["score"] >= target:
             continue
-        # Give gentle signals to reach target
-        signals_needed = 3 if m["score"] < floor else 2
+        # Give gentle signals to reach target. High-floor topics (>=70%)
+        # need more signals to climb from 0.5 scaffold.
+        if floor >= 0.7:
+            signals_needed = 5
+        elif m["score"] < floor:
+            signals_needed = 3
+        else:
+            signals_needed = 2
         for _ in range(signals_needed):
             m["samples"] = m.get("samples", 0) + 1
             m["correct"] = m.get("correct", 0) + 1
