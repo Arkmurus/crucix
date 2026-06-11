@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1514,
+  "next_available": 1515,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9551,9 +9551,10 @@
       "title": "Surgical improvements: WA DNS via internal hostname, memory leak cap, neural edge cold-storage, mastery data injection, stale probe cleanup",
       "claimed_at": "2026-06-11T10:43:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3434aa64",
+      "notes": null,
+      "shipped_at": "2026-06-11T10:57:20Z"
     },
     {
       "r_number": "R-F1513",
@@ -9564,6 +9565,16 @@
       "commit_sha": "62798df7",
       "notes": null,
       "shipped_at": "2026-06-11T10:47:24Z"
+    },
+    {
+      "r_number": "R-F1514",
+      "title": "v0.4 train launcher — create GPU pod w/ key + immediate train, retry on capacity/vanish",
+      "claimed_at": "2026-06-11T11:06:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f0eaaa3",
+      "notes": null,
+      "shipped_at": "2026-06-11T11:07:37Z"
     }
   ]
 }
