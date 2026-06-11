@@ -1015,7 +1015,7 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # to disable the timeout (legacy unbounded behaviour) if a slow but
 # necessary batch needs to complete.
 _TIER_TIMEOUT_S = (
-    float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "8000")) / 1000.0  # R-F1252: raised from 5000 for SQLite headroom
+    float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "15000")) / 1000.0  # R-F1512: raised from 8000 to 15000. The boot-time cold-edges sweep (R-F1512) needs time to offload existing oversized neurons on first load. Once swept, subsequent absorbs are fast.
 )
 
 # R-F968 (2026-05-28) — raised 3500→6000. The trip threshold MUST sit
@@ -1062,9 +1062,9 @@ _MODULE_LATENCY_OVERRIDES: dict[str, int] = {
 # section is skipped (signal counter + _record_signal still fire so
 # observability is preserved). Set ARIA_BRAIN_ABSORB_CONCURRENCY=0
 # to disable the cap entirely (legacy unbounded behaviour).
-_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "4"))  # R-F1332: lowered from 16 to 4. 16 concurrent absorbs saturated the 8-worker ThreadPoolExecutor (4-vCPU Fly machine), causing GIL starvation and event-loop stalls. 4 concurrent absorbs keeps the thread pool responsive while still allowing parallel tier processing.
+_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "8"))  # R-F1512: raised from 4 to 8. The neural cold-storage offload (R-F1512) reduced per-absorb neural tier time, so 8 concurrent absorbs no longer saturates the thread pool. The 4-vCPU Fly machine handles 8 parallel tier processes without GIL starvation.
 _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
-    float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
+    float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "2000")) / 1000.0  # R-F1512: raised from 500ms to 2000ms. With 8 concurrent slots, a 2s acquire window lets brief bursts drain without shedding to WAL.
 )
 _absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
 

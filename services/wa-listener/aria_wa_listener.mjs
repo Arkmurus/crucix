@@ -119,41 +119,50 @@ let _brainFallbackActive = false;  // tracks whether we're currently using the f
 let _lastProbeTime = 0;
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 
-// R-F1512: simplified fetch — .internal resolves instantly on Fly, so the
-// primary path almost never fails. The public URL fallback is only for
-// non-Fly deployments. No switch-back probe needed — .internal either works
-// or it doesn't, and the next health check cycle will retry.
+// R-F1512: resilient fetch with dual-path fallback + retry.
+// Tries .internal first (instant on Fly private network), falls back to
+// public URL. If BOTH fail, retries up to 2 more times with 1s backoff.
+// This handles brief brain unavailability during deploys without throwing
+// to callers. The switch-back probe runs every 60s when on fallback.
+const _BRAIN_MAX_RETRIES = 2;
+const _BRAIN_RETRY_DELAY_MS = 1000;
 async function brainFetch(path, options = {}) {
-  const url = _brainFallbackActive && BRAIN_FALLBACK
-    ? `${BRAIN_FALLBACK}${path}`
-    : `${BRAIN_URL}${path}`;
-  try {
-    // R-F1512: .internal resolves in <100ms on Fly. 3s timeout is generous.
-    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(3000) });
-    // R-F1512: if we were on fallback, probe .internal to switch back.
-    // Throttled to once per 60s — no rush, .internal will be fast when it's back.
-    if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 60000) {
-      _lastProbeTime = Date.now();
-      try {
-        const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(2000) });
-        if (test.ok) {
-          _brainFallbackActive = false;
-          console.log('[R-F1512] .internal recovered — switched back from public fallback');
-        }
-      } catch { /* .internal still down — stay on fallback */ }
-    }
-    return r;
-  } catch (err) {
-    // .internal failed — try public URL as fallback
-    if (!_brainFallbackActive && BRAIN_FALLBACK) {
-      console.warn(`[R-F1512] .internal fetch failed for ${BRAIN_URL} — falling back to public URL: ${err.message}`);
-      _brainFallbackActive = true;
-      const fallbackUrl = `${BRAIN_FALLBACK}${path}`;
-      const r = await fetch(fallbackUrl, { ...options, signal: options.signal || AbortSignal.timeout(10000) });
-      console.log(`[R-F1512] Fallback ACTIVE — using public URL: ${BRAIN_FALLBACK}`);
+  const lastErr = null;
+  for (let attempt = 0; attempt <= _BRAIN_MAX_RETRIES; attempt++) {
+    const useFallback = _brainFallbackActive && BRAIN_FALLBACK;
+    const url = useFallback ? `${BRAIN_FALLBACK}${path}` : `${BRAIN_URL}${path}`;
+    const timeout = useFallback ? 10000 : 3000;
+    try {
+      const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(timeout) });
+      // Switch-back probe when on fallback — throttled to once per 60s
+      if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 60000) {
+        _lastProbeTime = Date.now();
+        try {
+          const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(2000) });
+          if (test.ok) {
+            _brainFallbackActive = false;
+            console.log('[R-F1512] .internal recovered — switched back from public fallback');
+          }
+        } catch { /* .internal still down — stay on fallback */ }
+      }
       return r;
+    } catch (err) {
+      // First failure on .internal: try public URL as fallback
+      if (!_brainFallbackActive && BRAIN_FALLBACK) {
+        console.warn(`[R-F1512] .internal fetch failed — falling back to public URL (attempt ${attempt + 1}): ${err.message}`);
+        _brainFallbackActive = true;
+        continue;  // retry immediately with fallback URL
+      }
+      // Both paths failed — retry with backoff
+      if (attempt < _BRAIN_MAX_RETRIES) {
+        console.warn(`[R-F1512] brain fetch failed (attempt ${attempt + 1}/${_BRAIN_MAX_RETRIES + 1}) — retrying in ${_BRAIN_RETRY_DELAY_MS}ms: ${err.message}`);
+        await new Promise(r => setTimeout(r, _BRAIN_RETRY_DELAY_MS));
+        continue;
+      }
+      // All retries exhausted — log and throw
+      console.error(`[R-F1512] brain fetch FAILED after ${_BRAIN_MAX_RETRIES + 1} attempts: ${err.message}`);
+      throw err;
     }
-    throw err;
   }
 }
 // R-F1413 — async-complete-and-push callback URL. The brain POSTs completed
