@@ -387,7 +387,7 @@ async def _save_mastery() -> None:
     _mastery_dirty = False
 
 
-async def seed_baseline_mastery() -> None:
+async def seed_baseline_mastery() -> int:
     """R-F1512: inject baseline mastery for topics that are stuck at
     INITIAL_MASTERY (0.5) due to insufficient training signals.
 
@@ -440,11 +440,11 @@ async def seed_baseline_mastery() -> None:
         await _save_mastery()
         logger.info(
             "[R-F1512] Seeded baseline mastery for %d topics "
-            "(gentle weight=0.3, %s signals each, target >= %.0f%%)",
+            "(gentle weight=0.3, target >= %.0f%%)",
             seeded,
-            "2-3",
             max(HARD_FLOORS.get(list(mastery.keys())[0], 0.5) + 0.05, 0.6) * 100 if mastery else 60,
         )
+    return seeded
 
 
 async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) -> None:

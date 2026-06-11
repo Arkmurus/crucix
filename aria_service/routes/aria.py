@@ -440,6 +440,16 @@ async def knowledge_reseed_ep(request: Request, force: bool = True):
     return {"ok": True, "forced": force, "result": result}
 
 
+@router.post("/mastery/seed")
+async def mastery_seed_ep():
+    """R-F1512: seed baseline mastery for topics stuck at scaffold.
+    Gives zero-sample topics gentle correct signals to lift them above
+    their hard floor. Safe to call repeatedly."""
+    from ..intel.student import seed_baseline_mastery
+    result = await seed_baseline_mastery()
+    return {"ok": True, "seeded": result}
+
+
 # R-F141 (2026-05-10) — knowledge pack seed for the heatmap weak cells.
 # Lifts LatAm-non-Lusophone (51%) + Asia-Pacific (52% on compliance/finance)
 # from the heatmap floor by injecting curated, source-cited facts.
