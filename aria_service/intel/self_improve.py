@@ -1459,23 +1459,74 @@ async def get_code_knowledge() -> dict:
 ERROR_LOG_KEY = "crucix:aria:error_log"
 MAX_ERRORS = 200
 
+# R-F1510: circuit breaker for record_error. When the state_store is under
+# lock contention (SQLite "database is locked"), every WARNING log from the
+# store triggers error_log_handler → record_error → set_json → _upsert,
+# which fails again with the same error → infinite feedback loop. The
+# breaker tracks consecutive failures; after _RECORD_ERROR_CB_THRESHOLD
+# consecutive failures it stops trying for _RECORD_ERROR_CB_COOLDOWN_S.
+# This breaks the loop at its source without losing the error — the
+# autonomous cycle reads the error ledger on its own schedule and will
+# pick up new errors once the store recovers.
+_RECORD_ERROR_CB_THRESHOLD = 5
+_RECORD_ERROR_CB_COOLDOWN_S = 30.0
+_record_error_failures = 0
+_record_error_cb_until: float = 0.0
+
+
 async def record_error(error_type: str, message: str, file: str = "",
                        function: str = "", traceback: str = "") -> None:
-    """Record an error for autonomous analysis."""
-    global _SI_ERRORS_RECORDED
-    errors = await rs.get_json(ERROR_LOG_KEY) or []
-    errors.append({
-        "type": error_type,
-        "message": message[:500],
-        "file": file,
-        "function": function,
-        "traceback": traceback[:1000],
-        "timestamp": time.time(),
-    })
-    if len(errors) > MAX_ERRORS:
-        errors = errors[-MAX_ERRORS:]
-    await rs.set_json(ERROR_LOG_KEY, errors, ex=7 * 86400)
-    _SI_ERRORS_RECORDED += 1
+    """Record an error for autonomous analysis.
+
+    R-F1510: includes a circuit breaker that stops trying after
+    _RECORD_ERROR_CB_THRESHOLD consecutive failures, with a cooldown
+    of _RECORD_ERROR_CB_COOLDOWN_S. This prevents the feedback loop
+    where a state_store lock contention causes record_error to fail,
+    which logs a WARNING, which triggers another record_error call.
+    """
+    global _SI_ERRORS_RECORDED, _record_error_failures, _record_error_cb_until
+
+    # R-F1510: circuit breaker — if we've failed too many times recently,
+    # skip the write entirely. The error is still visible in fly logs.
+    if time.monotonic() < _record_error_cb_until:
+        logger.debug(
+            "record_error: circuit breaker open (%.0fs remaining) — "
+            "dropping error: %s: %s",
+            _record_error_cb_until - time.monotonic(),
+            error_type, message[:100],
+        )
+        return
+
+    try:
+        errors = await rs.get_json(ERROR_LOG_KEY) or []
+        errors.append({
+            "type": error_type,
+            "message": message[:500],
+            "file": file,
+            "function": function,
+            "traceback": traceback[:1000],
+            "timestamp": time.time(),
+        })
+        if len(errors) > MAX_ERRORS:
+            errors = errors[-MAX_ERRORS:]
+        await rs.set_json(ERROR_LOG_KEY, errors, ex=7 * 86400)
+        _SI_ERRORS_RECORDED += 1
+        # Success — reset the failure counter
+        _record_error_failures = 0
+    except Exception as e:
+        _record_error_failures += 1
+        if _record_error_failures >= _RECORD_ERROR_CB_THRESHOLD:
+            _record_error_cb_until = time.monotonic() + _RECORD_ERROR_CB_COOLDOWN_S
+            logger.warning(
+                "record_error: circuit breaker opened after %d consecutive "
+                "failures (cooldown %.0fs) — last error: %s",
+                _record_error_failures, _RECORD_ERROR_CB_COOLDOWN_S, e,
+            )
+        else:
+            logger.debug(
+                "record_error: write failed (%d/%d) — %s",
+                _record_error_failures, _RECORD_ERROR_CB_THRESHOLD, e,
+            )
 
 
 async def get_recent_errors(hours: int = 24) -> list[dict]:

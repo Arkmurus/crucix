@@ -108,12 +108,15 @@ async def test_acquire_timeout_when_lock_held(monkeypatch, tmp_path):
     lock = ss._get_lock()
     await lock.acquire()  # simulate a stuck holder
     try:
-        # A compound op can't get the lock → must give up + return default.
+        # R-F1510: incr now uses an atomic SQL UPSERT (no Python lock needed)
+        # as its primary path. When the Python lock is held by another task,
+        # the atomic SQL path still succeeds because it doesn't need the lock.
+        # The locked fallback is only reached when the SQL atomic path itself
+        # fails (e.g. database is locked at the SQLite level).
         out = await asyncio.wait_for(ss.incr("c"), timeout=3)
-        assert out == 0  # incr default
-        # R-F1376: incr is NON-critical -> 1 retry + 1 final = 2 attempts.
-        # Critical ops get 3 retries + 1 final = 4 attempts.
-        assert ss._op_timeout_counts["acquire"] == 2
+        assert out == 1  # atomic SQL path succeeded without the Python lock
+        # The atomic path succeeded, so no acquire timeout was recorded.
+        assert ss._op_timeout_counts["acquire"] == 0
     finally:
         lock.release()
 

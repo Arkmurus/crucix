@@ -726,8 +726,27 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     return value, kind, expires_at
 
 
+# R-F1510: timeout for _upsert SQL operations. When the aiosqlite worker
+# thread is busy with a long-running locked op (incr/hset), concurrent
+# _upsert calls from the unlocked path (set/set_json) would block
+# indefinitely on the SQLite connection mutex and eventually hit
+# "database is locked". A short timeout lets them fail fast instead of
+# piling up behind the lock holder.
+_UPSERT_TIMEOUT_S = float(os.getenv("ARIA_STATE_UPSERT_TIMEOUT_S", "5.0"))
+
+# R-F1510: rate-limited log for _upsert failures to prevent the
+# error_log_handler → record_error → set_json → _upsert feedback loop
+# from amplifying a single lock storm into thousands of log lines.
+_upsert_last_log: float = 0.0
+_UPSERT_LOG_INTERVAL_S = 10.0
+
+
 async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
                   keepttl: bool = False) -> None:
+    # R-F1510: rate-limited logging needs the global at function scope
+    # (before any use in the try/except blocks below).
+    global _upsert_last_log
+
     # No python-level lock: this is a single SQL statement and aiosqlite
     # serialises through one worker thread. Compound RMW ops (lpush etc.)
     # hold _get_lock() themselves to keep their read+write atomic.
@@ -748,25 +767,56 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
         _schedule_reconnect_if_dead(e)
         raise e
     try:
+        # R-F1510: bounded execution so a contended SQLite worker thread
+        # doesn't block _upsert callers indefinitely. The timeout is short
+        # (5s default) — if the worker is busy with a locked op, fail fast
+        # rather than pile up behind it.
         if keepttl and expires_at is None:
-            # Preserve existing expires_at; only update value
-            await _conn.execute(
-                "INSERT INTO state(key, value, kind, expires_at) "
-                "VALUES(?, ?, ?, NULL) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
-                (key, value, kind),
+            await asyncio.wait_for(
+                _conn.execute(
+                    "INSERT INTO state(key, value, kind, expires_at) "
+                    "VALUES(?, ?, ?, NULL) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
+                    (key, value, kind),
+                ),
+                timeout=_UPSERT_TIMEOUT_S,
             )
         else:
-            await _conn.execute(
-                "INSERT INTO state(key, value, kind, expires_at) "
-                "VALUES(?, ?, ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                "kind = excluded.kind, expires_at = excluded.expires_at",
-                (key, value, kind, expires_at),
+            await asyncio.wait_for(
+                _conn.execute(
+                    "INSERT INTO state(key, value, kind, expires_at) "
+                    "VALUES(?, ?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                    "kind = excluded.kind, expires_at = excluded.expires_at",
+                    (key, value, kind, expires_at),
+                ),
+                timeout=_UPSERT_TIMEOUT_S,
             )
-        await _conn.commit()
+        await asyncio.wait_for(_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        # R-F1510: timeout on the SQLite worker thread — the connection is
+        # busy with a locked op. Log rate-limited (not per-call) to avoid
+        # the error_log_handler → record_error → set_json feedback loop.
+        now = time.monotonic()
+        if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
+            _upsert_last_log = now
+            logger.warning(
+                "state_store: UPSERT %s timed out after %.1fs — "
+                "SQLite worker busy (locked op in progress); write dropped",
+                key, _UPSERT_TIMEOUT_S,
+            )
+        _schedule_reconnect_if_dead(
+            __import__("sqlite3").OperationalError("database is locked"))
+        raise  # propagate so _run_locked callers know the write failed
     except Exception as e:
-        logger.warning("state_store: UPSERT %s failed: %s", key, e)
+        # R-F1510: rate-limited to prevent feedback-loop amplification.
+        # The error_log_handler mirrors every WARNING+ into record_error,
+        # which calls set_json → _upsert — so a single lock storm must not
+        # produce one WARNING per failed write.
+        now = time.monotonic()
+        if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
+            _upsert_last_log = now
+            logger.warning("state_store: UPSERT %s failed: %s", key, e)
         _schedule_reconnect_if_dead(e)  # R-F1388: trigger self-heal on dead conn
         raise  # R-F1388: propagate so callers (e.g. _chat_job_set) know the write failed
 
@@ -1010,6 +1060,31 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
         await cur.close()
         return int(row[0]) if row else amount
     except Exception as e:
+        err_str = str(e).lower()
+        # R-F1510: if the atomic path failed because the SQLite worker is
+        # busy (database is locked), retry ONCE with a short delay before
+        # falling back to the locked path. This avoids entering _run_locked
+        # for transient contention — which would acquire the Python lock
+        # and potentially amplify the storm.
+        if "database is locked" in err_str or "busy" in err_str:
+            try:
+                await asyncio.sleep(0.5)
+                await _conn.execute(
+                    "INSERT INTO state(key, value, kind, expires_at) "
+                    "VALUES(?, CAST(? AS TEXT), 'string', NULL) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "  value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
+                    (key, amount, amount),
+                )
+                await _conn.commit()
+                cur = await _conn.execute(
+                    "SELECT value FROM state WHERE key = ?", (key,)
+                )
+                row = await cur.fetchone()
+                await cur.close()
+                return int(row[0]) if row else amount
+            except Exception:
+                pass  # fall through to locked path below
         logger.debug("[R-F1493] atomic incr failed for %s: %s — falling back to locked path", key, e)
         async def _op():
             row = await _row(key, expected_kind="string")

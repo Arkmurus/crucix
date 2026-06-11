@@ -121,7 +121,11 @@ async function brainFetch(path, options = {}) {
     ? `${BRAIN_FALLBACK}${path}`
     : `${BRAIN_URL}${path}`;
   try {
-    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
+    // R-F1510: reduced primary timeout from 15s to 5s. Fly.io internal DNS
+    // either resolves quickly or times out — waiting 15s per fetch adds
+    // unnecessary latency when the fallback IP is available in ~1s.
+    const primaryTimeout = options.signal ? undefined : 5000;
+    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(primaryTimeout) });
     // R-F1509: switch-back probe uses RAW fetch (not brainFetch) to avoid recursion.
     // Throttled to once per 30s so we don't add a 5s probe to every fallback call.
     if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 30000) {
