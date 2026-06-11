@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1507,
+  "next_available": 1514,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9496,6 +9496,74 @@
       "commit_sha": "e62b375e",
       "notes": null,
       "shipped_at": "2026-06-10T15:21:31Z"
+    },
+    {
+      "r_number": "R-F1507",
+      "title": "Auto-generated endpoint manifest to keep frontend/backend in sync",
+      "claimed_at": "2026-06-10T15:36:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1508",
+      "title": "WA DNS resilience: hostname-first with IP-fallback to private Fly IPv6",
+      "claimed_at": "2026-06-10T16:09:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2d34c4de",
+      "notes": null,
+      "shipped_at": "2026-06-10T16:13:34Z"
+    },
+    {
+      "r_number": "R-F1509",
+      "title": "Fix WA DNS fallback switch-back probe - prevent infinite recursion",
+      "claimed_at": "2026-06-10T16:19:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a765a612",
+      "notes": null,
+      "shipped_at": "2026-06-10T16:19:49Z"
+    },
+    {
+      "r_number": "R-F1510",
+      "title": "Fix SQLite lock storm cascade + WA DNS timeout reduction",
+      "claimed_at": "2026-06-11T08:58:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9c39c4eb",
+      "notes": null,
+      "shipped_at": "2026-06-11T09:38:56Z"
+    },
+    {
+      "r_number": "R-F1511",
+      "title": "v0.4 failure-mode distillation corpus generator (refusal/multilingual/sanctions-divergence)",
+      "claimed_at": "2026-06-11T09:54:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3e4d897c",
+      "notes": null,
+      "shipped_at": "2026-06-11T10:17:00Z"
+    },
+    {
+      "r_number": "R-F1512",
+      "title": "Surgical improvements: WA DNS via internal hostname, memory leak cap, neural edge cold-storage, mastery data injection, stale probe cleanup",
+      "claimed_at": "2026-06-11T10:43:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1513",
+      "title": "v0.4 SFT cycle scripts + corpus assembly + runbook",
+      "claimed_at": "2026-06-11T10:43:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "62798df7",
+      "notes": null,
+      "shipped_at": "2026-06-11T10:47:24Z"
     }
   ]
 }
