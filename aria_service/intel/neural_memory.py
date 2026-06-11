@@ -92,6 +92,15 @@ def _env_int(name: str, default: int) -> int:
 
 WARN_NEURONS = _env_int("ARIA_NEURAL_WARN_NEURONS", 200000)
 WARN_EDGES_PER_NEURON = _env_int("ARIA_NEURAL_WARN_EDGES_PER_NEURON", 2000)
+# R-F1512: soft cap on edges per neuron. When a neuron exceeds this, its
+# weakest edges are offloaded to cold storage (a separate JSON key) instead
+# of being kept in the hot edges dict. This prevents unbounded graph growth
+# from degrading neural tier performance (the >3.5s timeout seen in prod).
+# The cold edges are still queryable — they're just not loaded into memory
+# on every absorb cycle. They're reloaded when the neuron is specifically
+# activated.
+_MAX_HOT_EDGES_PER_NEURON = _env_int("ARIA_NEURAL_MAX_HOT_EDGES", 5000)
+_COLD_EDGES_KEY_PREFIX = "crucix:aria:neural_cold_edges:"
 MIN_EDGE_WEIGHT = 0.001            # floor — edges decay TO this, not below
 _neural_warn_throttle = 0
 DECAY_RATE = 0.997          # per-day decay (0.3% per day — memories last longer)
@@ -591,6 +600,46 @@ def _find_or_create(concept: str, category: str = "general",
     return neuron
 
 
+def _offload_cold_edges(from_id: str) -> int:
+    """R-F1512: move weakest edges of an oversized neuron to cold storage.
+
+    When a neuron exceeds _MAX_HOT_EDGES_PER_NEURON, the weakest edges
+    (lowest weight) are moved to a separate Redis key so they don't
+    degrade neural tier performance. Cold edges are still queryable —
+    they're reloaded when the neuron is specifically activated.
+
+    Returns the number of edges offloaded.
+    """
+    global _edges_dirty
+    edges = _edges.get(from_id, {})
+    if len(edges) <= _MAX_HOT_EDGES_PER_NEURON:
+        return 0
+
+    # Sort by weight ascending, keep the strongest _MAX_HOT_EDGES_PER_NEURON
+    sorted_edges = sorted(edges.items(), key=lambda x: x[1])
+    keep = dict(sorted_edges[-_MAX_HOT_EDGES_PER_NEURON:])
+    cold = dict(sorted_edges[:-_MAX_HOT_EDGES_PER_NEURON])
+
+    _edges[from_id] = keep
+    _edges_dirty = True
+
+    # Persist cold edges to Redis (fire-and-forget, never blocks)
+    try:
+        import asyncio as _aio
+        from . import redis_store as _rs
+        cold_key = f"{_COLD_EDGES_KEY_PREFIX}{from_id}"
+        _aio.create_task(_rs.set_json(cold_key, cold, ex=30 * 86400))
+    except Exception:
+        pass
+
+    logger.info(
+        "[neural] R-F1512 — offloaded %d cold edges from neuron %s "
+        "(kept %d hot edges)",
+        len(cold), from_id[:12], len(keep),
+    )
+    return len(cold)
+
+
 def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOST) -> None:
     """Strengthen connection between two neurons."""
     global _edges_dirty
@@ -604,19 +653,15 @@ def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOS
     # R-F442: this is the hot mutator that recall() does NOT touch.
     _edges_dirty = True
 
-    # R-F240 (2026-05-11) — warn-only at WARN_EDGES_PER_NEURON; no pruning.
-    # Pre-R-F240 _prune_edges deleted the weakest edges when count > 200.
-    # That violates the infinite-memory rule. Now edges accumulate forever
-    # under MAX_EDGES_PER_NEURON (100K — effectively unbounded).
-    if len(_edges[from_id]) > WARN_EDGES_PER_NEURON:
-        global _neural_warn_throttle
-        _neural_warn_throttle += 1
-        if _neural_warn_throttle % 1000 == 1:
-            logger.warning(
-                "[neural] R-F240 — neuron %s has %d edges > warn threshold %d. "
-                "NOT pruning (infinite-memory rule).",
-                from_id[:12], len(_edges[from_id]), WARN_EDGES_PER_NEURON,
-            )
+    # R-F1512: soft cap — offload weakest edges when a neuron exceeds
+    # _MAX_HOT_EDGES_PER_NEURON. This replaces the old warn-only approach
+    # that let neurons grow to 7113+ edges and caused neural tier timeouts.
+    # Cold edges are preserved (infinite-memory rule) but not loaded into
+    # the hot edges dict on every absorb cycle.
+    if len(_edges[from_id]) > _MAX_HOT_EDGES_PER_NEURON:
+        _offload_cold_edges(from_id)
+    if len(_edges[to_id]) > _MAX_HOT_EDGES_PER_NEURON:
+        _offload_cold_edges(to_id)
 
 
 # R-F240 (2026-05-11) — _prune_edges + _prune_weakest were DELETED.

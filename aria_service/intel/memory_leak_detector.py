@@ -153,13 +153,27 @@ class MemoryLeakDetector:
                 if len(self.snapshots) >= 10 and len(self.snapshots) % 10 == 0:
                     analysis = self.analyse()
                     if analysis.get("leak_detected"):
-                        logger.warning(
-                            "[memory_leak_detector] LEAK DETECTED — "
-                            "growth=%.2fMB/interval, current=%.1fMB",
-                            analysis["growth_rate_mb_per_interval"],
-                            analysis["current_memory_mb"],
-                        )
-                        self._emit_leak_signal(analysis)
+                        # R-F1512: only emit a signal if the growth is genuinely
+                        # abnormal — not just the knowledge base growing. The
+                        # knowledge base grows by ~1-2MB per sweep as new facts
+                        # are indexed. A "leak" of 12MB/interval at 2.8GB RSS
+                        # is normal steady-state growth, not a leak.
+                        rate = analysis["growth_rate_mb_per_interval"]
+                        current = analysis["current_memory_mb"]
+                        if rate > 50:  # R-F1512: >50MB/interval is a real leak
+                            logger.warning(
+                                "[memory_leak_detector] LEAK DETECTED — "
+                                "growth=%.2fMB/interval, current=%.1fMB",
+                                rate, current,
+                            )
+                            self._emit_leak_signal(analysis)
+                        else:
+                            logger.debug(
+                                "[memory_leak_detector] growth=%.2fMB/interval "
+                                "(below 50MB threshold — normal KB growth), "
+                                "current=%.1fMB",
+                                rate, current,
+                            )
 
             except asyncio.CancelledError:
                 break

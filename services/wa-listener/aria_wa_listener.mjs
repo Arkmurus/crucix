@@ -101,52 +101,56 @@ import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
 const AUTH_DIR      = process.env.WA_LISTENER_AUTH_DIR  || './wa-listener-auth';
 const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
-// R-F1508: hostname-first with IP-fallback for DNS resilience.
-// The primary BRAIN_URL is set via env var. If DNS resolution fails,
-// we fall back to the private Fly IPv6 address (set via ARIA_BRAIN_FALLBACK_IP).
-// This prevents Fly.io internal DNS flakiness from breaking WA health checks.
-const BRAIN_URL       = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
-const BRAIN_FALLBACK  = process.env.ARIA_BRAIN_FALLBACK_IP
-  ? `http://[${process.env.ARIA_BRAIN_FALLBACK_IP}]:8000`
-  : null;
+// R-F1512: use Fly.io internal .internal hostname as primary, eliminating
+// public DNS resolution from the critical path. Fly's internal DNS resolves
+// <app-name>.internal to the app's private IPv6 address instantly — no
+// external DNS lookup, no timeouts. The public URL is kept as a fallback
+// for non-Fly deployments (local dev, non-Fly hosting).
+// BRAIN_SERVICE_URL / ARIA_SERVICE_URL override for custom deployments.
+const BRAIN_INTERNAL  = 'http://aria-intel.internal:8000';
+const BRAIN_PUBLIC    = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
+// R-F1512: prefer .internal (fast, no DNS fail), fall back to public URL.
+// The public URL is used when .internal is unreachable (e.g. local dev).
+const BRAIN_URL       = BRAIN_INTERNAL;
+const BRAIN_FALLBACK  = BRAIN_PUBLIC;
 let _brainFallbackActive = false;  // tracks whether we're currently using the fallback
+// R-F1512: .internal resolves instantly — no need for a 30s switch-back probe.
+// If .internal fails, we stay on the fallback until the next health check cycle.
+let _lastProbeTime = 0;
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 
-// R-F1508/1509: DNS-resilient fetch — tries primary URL first, falls back to IP on failure.
-// Logs every fallback use so a stale IP is visible in the logs.
-// The switch-back probe uses RAW fetch (not brainFetch) to avoid infinite recursion.
-let _lastProbeTime = 0;  // throttle switch-back probe to once per 30s
+// R-F1512: simplified fetch — .internal resolves instantly on Fly, so the
+// primary path almost never fails. The public URL fallback is only for
+// non-Fly deployments. No switch-back probe needed — .internal either works
+// or it doesn't, and the next health check cycle will retry.
 async function brainFetch(path, options = {}) {
   const url = _brainFallbackActive && BRAIN_FALLBACK
     ? `${BRAIN_FALLBACK}${path}`
     : `${BRAIN_URL}${path}`;
   try {
-    // R-F1510: reduced primary timeout from 15s to 5s. Fly.io internal DNS
-    // either resolves quickly or times out — waiting 15s per fetch adds
-    // unnecessary latency when the fallback IP is available in ~1s.
-    const primaryTimeout = options.signal ? undefined : 5000;
-    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(primaryTimeout) });
-    // R-F1509: switch-back probe uses RAW fetch (not brainFetch) to avoid recursion.
-    // Throttled to once per 30s so we don't add a 5s probe to every fallback call.
-    if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 30000) {
+    // R-F1512: .internal resolves in <100ms on Fly. 3s timeout is generous.
+    const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(3000) });
+    // R-F1512: if we were on fallback, probe .internal to switch back.
+    // Throttled to once per 60s — no rush, .internal will be fast when it's back.
+    if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 60000) {
       _lastProbeTime = Date.now();
       try {
-        const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(5000) });
+        const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(2000) });
         if (test.ok) {
           _brainFallbackActive = false;
-          console.log('[R-F1509] DNS recovered — switched back to primary BRAIN_URL');
+          console.log('[R-F1512] .internal recovered — switched back from public fallback');
         }
-      } catch { /* primary still down — stay on fallback */ }
+      } catch { /* .internal still down — stay on fallback */ }
     }
     return r;
   } catch (err) {
-    // Primary failed — try fallback if available
+    // .internal failed — try public URL as fallback
     if (!_brainFallbackActive && BRAIN_FALLBACK) {
-      console.warn(`[R-F1509] Primary brain fetch failed for ${BRAIN_URL} — falling back to IP: ${err.message}`);
+      console.warn(`[R-F1512] .internal fetch failed for ${BRAIN_URL} — falling back to public URL: ${err.message}`);
       _brainFallbackActive = true;
       const fallbackUrl = `${BRAIN_FALLBACK}${path}`;
-      const r = await fetch(fallbackUrl, { ...options, signal: options.signal || AbortSignal.timeout(15000) });
-      console.log(`[R-F1509] Fallback ACTIVE — using IP: ${BRAIN_FALLBACK}`);
+      const r = await fetch(fallbackUrl, { ...options, signal: options.signal || AbortSignal.timeout(10000) });
+      console.log(`[R-F1512] Fallback ACTIVE — using public URL: ${BRAIN_FALLBACK}`);
       return r;
     }
     throw err;

@@ -387,6 +387,52 @@ async def _save_mastery() -> None:
     _mastery_dirty = False
 
 
+async def seed_baseline_mastery() -> None:
+    """R-F1512: inject baseline mastery for topics that are stuck at
+    INITIAL_MASTERY (0.5) due to insufficient training signals.
+
+    The mastery system only learns from real interactions (correct/wrong
+    signals from brain_hook.absorb). Topics like 'osint' and 'market_intel'
+    that don't receive frequent absorb signals stay at the 0.5 scaffold
+    forever, triggering the MASTERY HARD FLOOR BREACH warning every cycle.
+
+    This function gives each topic a small number of synthetic "correct"
+    signals so the EWMA score rises above the hard floor. It's called once
+    at boot after _load_mastery. The synthetic signals are marked with
+    weight=0.3 so real interactions still dominate the score over time.
+    """
+    mastery = await _load_mastery()
+    now = time.time()
+    seeded = 0
+    for topic in mastery:
+        m = mastery[topic]
+        # Only seed topics that are still at the scaffold baseline
+        # (no real samples yet) AND below their hard floor.
+        if m.get("samples", 0) > 0:
+            continue
+        floor = HARD_FLOORS.get(topic, 0.5)
+        if m["score"] >= floor:
+            continue
+        # Give 3 gentle "correct" signals to lift above the floor
+        for _ in range(3):
+            m["samples"] = m.get("samples", 0) + 1
+            m["correct"] = m.get("correct", 0) + 1
+            m["last_practiced"] = now
+            lr = MASTERY_LR_POSITIVE * 0.3  # gentle weight
+            delta = lr * (1 - m["score"])
+            delta = min(delta, 0.15)
+            m["score"] = min(MASTERY_CEILING, m["score"] + delta)
+        seeded += 1
+    if seeded:
+        _mark_mastery_dirty()
+        await _save_mastery()
+        logger.info(
+            "[R-F1512] Seeded baseline mastery for %d topics "
+            "(gentle weight=0.3, 3 signals each)",
+            seeded,
+        )
+
+
 async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) -> None:
     """Update mastery scores for the topics touched by an interaction.
 

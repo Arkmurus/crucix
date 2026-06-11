@@ -183,10 +183,12 @@ INPUT_SCHEMAS: list[dict[str, Any]] = [
 
 # R-F1209: monitor the live public web tier in addition to localhost.
 # These are the user-facing endpoints that real users interact with.
+# R-F1512: cleaned up stale probe targets. /api/auth/status returns 404
+# (endpoint removed from web app). /api/aria/status returns 401 (needs auth
+# token). Both were reported as "passed" because the agent checks reachability,
+# not status code — but the 404/401 noise in logs was misleading.
 _WEB_ENDPOINTS_PUBLIC: list[dict[str, Any]] = [
     {"path": "/healthz", "method": "GET", "expected": {"status"}, "critical": True},
-    {"path": "/api/auth/status", "method": "GET", "expected": {}, "critical": False},
-    {"path": "/api/aria/status", "method": "GET", "expected": {"status"}, "critical": False},
 ]
 
 

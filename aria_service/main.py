@@ -453,6 +453,15 @@ async def lifespan(app: FastAPI):
             )
     asyncio.create_task(_embedder_prewarm_bg())
 
+    # ── R-F1512 — seed baseline mastery for topics stuck at scaffold ───
+    async def _seed_mastery_bg():
+        try:
+            from .intel.student import seed_baseline_mastery
+            await seed_baseline_mastery()
+        except Exception as exc:
+            logger.debug("[R-F1512] seed_baseline_mastery skipped: %s", exc)
+    asyncio.create_task(_seed_mastery_bg())
+
     # ── R-F703 (2026-05-18) — event-loop stall detector ────────────────
     # The fly /health/live timeout pattern is consistent: the event loop
     # gets blocked by sync CPU work (most commonly sentence_transformers
