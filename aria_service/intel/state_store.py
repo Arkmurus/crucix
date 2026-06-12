@@ -570,14 +570,14 @@ async def connect(db_path: str | None = None) -> bool:
         # concurrent writes (agent_registry, agent_contract, brain_hook stats).
         # A 5s timeout caused every _upsert to fail during this window.
         # 30s gives the worker thread enough time to drain its queue.
-        await _read_conn.execute("PRAGMA busy_timeout=60000")
+        await _read_conn.execute("PRAGMA busy_timeout=120000")
         await _read_conn.commit()
         # WAL mode → concurrent readers don't block writers. Crucial for
         # the chat path while autonomous tasks are also writing.
         await _conn.execute("PRAGMA journal_mode=WAL")
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
-        await _conn.execute("PRAGMA busy_timeout=60000")
+        await _conn.execute("PRAGMA busy_timeout=120000")
         # R-F1520: dedicated write connection for _upsert operations.
         # Uses its own aiosqlite worker thread so _upsert doesn't block
         # compound ops (hset, lpush) and vice versa.
@@ -585,7 +585,7 @@ async def connect(db_path: str | None = None) -> bool:
         await _write_conn.execute("PRAGMA journal_mode=WAL")
         await _write_conn.execute("PRAGMA synchronous=NORMAL")
         await _write_conn.execute("PRAGMA foreign_keys=OFF")
-        await _write_conn.execute("PRAGMA busy_timeout=60000")
+        await _write_conn.execute("PRAGMA busy_timeout=120000")
         await _write_conn.commit()
         await _conn.execute(
             """
@@ -744,7 +744,7 @@ async def _ensure_read_conn() -> None:
         await new_conn.execute("PRAGMA journal_mode=WAL")
         await new_conn.execute("PRAGMA synchronous=NORMAL")
         await new_conn.execute("PRAGMA foreign_keys=OFF")
-        await new_conn.execute("PRAGMA busy_timeout=60000")
+        await new_conn.execute("PRAGMA busy_timeout=120000")
         await new_conn.commit()
         _read_conn = new_conn
     except Exception as e:

@@ -81,7 +81,11 @@ async def _load() -> dict:
 
 async def _save() -> None:
     if _cache:
-        await rs.set_json(KEY, _cache, ex=90 * 86400)
+        # R-F1520: fire-and-forget to avoid blocking the scan pipeline.
+        # The write is scheduled on the event loop and will complete in
+        # the background. If it fails, the cache is stale until the next
+        # scan cycle — acceptable for competitor tracking.
+        asyncio.ensure_future(rs.set_json(KEY, _cache, ex=90 * 86400))
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
