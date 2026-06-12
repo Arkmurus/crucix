@@ -131,7 +131,12 @@ async function brainFetch(path, options = {}) {
   for (let attempt = 0; attempt <= _BRAIN_MAX_RETRIES; attempt++) {
     const useFallback = _brainFallbackActive && BRAIN_FALLBACK;
     const url = useFallback ? `${BRAIN_FALLBACK}${path}` : `${BRAIN_URL}${path}`;
-    const timeout = useFallback ? 10000 : 3000;
+    // R-F1515: raised .internal timeout from 3s to 15s. The brain's SQLite
+    // state_store can hold its lock for up to 15s under contention (large
+    // knowledge/ledger blob writes). A 3s timeout caused every brain fetch to
+    // abort during these windows, making WA appear broken when only the brain
+    // was briefly slow. 15s matches the state_store _OP_TIMEOUT_S ceiling.
+    const timeout = useFallback ? 10000 : 15000;
     try {
       const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(timeout) });
       // Switch-back probe when on fallback — throttled to once per 60s
@@ -617,8 +622,13 @@ async function brainPost(path, body) {
   // base/greedy config, and the very first note after a redeploy also pays the
   // bigger model's cold-load from /data. 300s keeps long, accented notes from
   // aborting mid-decode. (Checked before '/aria/' — /api/aria/transcribe matches both.)
+  // R-F1515: raised /aria/ timeout from 90s to 120s. The brain's SQLite
+  // state_store lock contention can delay chat/doc operations well past 90s
+  // (the lock-acquire alone can take 20s + 3 retries with backoff). 120s
+  // gives the brain enough runway to complete under contention without the
+  // WA listener aborting the request prematurely.
   const timeout = path.includes('/transcribe') ? 300000
-                : path.includes('/aria/')       ? 90000
+                : path.includes('/aria/')       ? 120000
                 :                                 15000;
   const r = await brainFetch(path, {
     method:  'POST',
