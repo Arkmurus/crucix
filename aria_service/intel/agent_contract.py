@@ -71,7 +71,9 @@ _MAX_VIOLATIONS = 100
 # R-F1476: dedicated SQLite database path for contract registry (same pattern
 # as AgentRegistry R-F1446). Separate file = separate write lock = no contention
 # with state_store or agent_registry.
-_CONTRACT_DB_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent.parent.parent / "data")))
+# R-F1529: fallback to /data if ARIA_DATA_DIR is not set (production default).
+_CONTRACT_DATA_DIR = os.getenv("ARIA_DATA_DIR") or "/data"
+_CONTRACT_DB_DIR = Path(_CONTRACT_DATA_DIR)
 _CONTRACT_DB = _CONTRACT_DB_DIR / "agent_contract.db"
 
 

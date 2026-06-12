@@ -1370,12 +1370,18 @@ async def _record_gate_skip(reason: str, module: str) -> None:
         pass  # gate-skip stats must never block absorb
 
 
-async def _record_signal(module: str, success: bool, sector: str = "") -> None:
+async def _record_signal(module: str, success: bool, sector: str = "", skipped: bool = False) -> None:
     """Record a signal in Redis for per-module tracking.
 
     R-F56: when `sector` is non-empty, also bumps a parallel
     per-sector counter so the dashboard / get_stats surface can
     answer "how many compliance-officer absorbs this week vs broker".
+
+    R-F1529: added `skipped` parameter. When True, the signal is recorded
+    as a skip (not success, not failure). This prevents modules like
+    agent_registry from appearing as 32% success when they were actually
+    100% successful — the "failures" were just brain signal delivery being
+    rate-limited by the concurrency cap.
     """
     try:
         from . import redis_store as rs
@@ -1384,12 +1390,14 @@ async def _record_signal(module: str, success: bool, sector: str = "") -> None:
 
         if module not in stats:
             stats[module] = {
-                "total": 0, "success": 0, "fail": 0,
+                "total": 0, "success": 0, "fail": 0, "skip": 0,
                 "last_signal_at": 0, "first_signal_at": now,
             }
         m = stats[module]
         m["total"] += 1
-        if success:
+        if skipped:
+            m["skip"] = m.get("skip", 0) + 1
+        elif success:
             m["success"] += 1
         else:
             m["fail"] += 1
@@ -1501,7 +1509,9 @@ async def get_stats() -> dict:
             "total": val.get("total", 0),
             "success": val.get("success", 0),
             "fail": val.get("fail", 0),
-            "success_rate": round(val["success"] / val["total"], 2) if val.get("total") else 0,
+            "skip": val.get("skip", 0),
+            "success_rate": round(val["success"] / (val["total"] - val.get("skip", 0)), 2)
+                if (val.get("total", 0) - val.get("skip", 0)) > 0 else 0,
             "last_signal_ago_h": round(hours_ago, 1) if hours_ago is not None else None,
             "status": status,
         }

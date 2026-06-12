@@ -167,7 +167,18 @@ async def absorb_tiers_bg(
     # R-F1342: .get() so durable_only mode (mastery/neural never set) can't
     # KeyError. The durable knowledge tier is what defines a successful absorb.
     _core_ok = bool(result.get("mastery_ok") or result.get("knowledge_ok"))
-    await _record_signal(module, success=_core_ok, sector=sector)
+    # R-F1529: if the only error was a concurrency cap skip, record as skipped
+    # (not success, not failure). This prevents modules like agent_registry from
+    # appearing as 32% success when they were actually 100% successful — the
+    # "failures" were just brain signal delivery being rate-limited.
+    _all_concurrency_skips = bool(
+        result.get("errors")
+        and all("concurrency cap" in str(e) for e in result["errors"])
+    )
+    if _all_concurrency_skips:
+        await _record_signal(module, success=False, sector=sector, skipped=True)
+    else:
+        await _record_signal(module, success=_core_ok, sector=sector)
 
     _elapsed_ms = (time.time() * 1000) - _start_ms
     _record_latency(_elapsed_ms)

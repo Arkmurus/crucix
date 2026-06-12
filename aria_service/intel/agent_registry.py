@@ -306,16 +306,23 @@ class AgentRegistry:
         # truth), even if Redis is down. Previously returned False on any Redis
         # failure, which made register() unreliable when state_store reconnects.
         if db_ok:
-            # R-F1166 — wire success to brain (best-effort, non-blocking)
-            try:
-                wire_success(
-                    module="agent_registry",
-                    summary=f"Agent registered: {agent_id} ({agent_type})",
-                    entity_name=agent_id,
-                    source_id="agent_registry:register",
-                )
-            except Exception:
-                pass
+            # R-F1529: only wire success on FIRST registration, not on heartbeat
+            # retries. The brain signal was firing on every register() call,
+            # including retries from heartbeat ticks, making the success rate
+            # appear as 32% when it was actually 100% on the DB side.
+            # Check if this agent was already registered (heartbeat tick vs first reg)
+            existing = self._db_get_agent(agent_id)
+            if existing is None:
+                # R-F1166 — wire success to brain (best-effort, non-blocking)
+                try:
+                    wire_success(
+                        module="agent_registry",
+                        summary=f"Agent registered: {agent_id} ({agent_type})",
+                        entity_name=agent_id,
+                        source_id="agent_registry:register",
+                    )
+                except Exception:
+                    pass
             return True
 
         # Both DB and Redis failed — genuine failure
