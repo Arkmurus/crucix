@@ -120,6 +120,37 @@ RESEARCH_FEEDS = [
     # {"name": "Infodefensa", "url": "https://www.infodefensa.com/feed", "category": "latam_defence"},
     {"name": "Defensa.com", "url": "https://www.defensa.com/rss", "category": "latam_defence"},
     {"name": "Zona Militar", "url": "https://www.zona-militar.com/feed/", "category": "latam_defence"},
+
+    # ── Legal & Regulatory Sources (R-F1523) ─────────────────────────────
+    # These feeds feed ARIA's legal mastery across sanctions, export control,
+    # contract law, and international trade law. Add URLs here to have ARIA
+    # autonomously research and learn from legal sources every 30 minutes.
+    #
+    # To add a source, add a dict with:
+    #   name:     Human-readable label
+    #   url:      RSS/Atom feed URL
+    #   category: One of: sanctions_law, export_control, trade_law,
+    #             contract_law, swiss_law, uae_law, eu_law, international_law
+    #
+    # Example:
+    #   {"name": "EU Sanctions", "url": "https://eur-lex.europa.eu/...", "category": "sanctions_law"},
+    #
+    # R-F1523: placeholder — populate with actual legal RSS feeds.
+    # Recommended sources to add:
+    #   - EUR-Lex (EU law, sanctions, export control)
+    #   - Swiss Federal Office of Justice (Swiss law)
+    #   - UAE Ministry of Justice (UAE law)
+    #   - UK ECJU notices (export control)
+    #   - OFAC announcements (US sanctions)
+    #   - BIS EAR updates (US export control)
+    #   - WTO disputes (international trade law)
+    #   - ICC arbitration (contract law)
+    LEGAL_FEEDS: list[dict] = [
+        # Populate with legal RSS feeds to enable autonomous legal research.
+        # See comment above for format and recommended sources.
+    ],
+
+    # ── Regional: Latin America (Spanish) ────────────────────────────────
     {"name": "Dialogo Americas", "url": "https://dialogo-americas.com/feed/", "category": "latam_security"},
     # BN Americas RSS removed — /rss/infrastructure → 404, paywall site
     # {"name": "BN Americas Defence", "url": "https://www.bnamericas.com/en/rss/infrastructure", "category": "latam_procurement"},
@@ -359,6 +390,19 @@ WEB_SEARCH_QUERIES = [
     "India defence acquisition tender 2026",
     "DSCA FMS notification major arms sale 2026",
     "UK ECJU export licence defence 2026",
+    # R-F1523: legal & regulatory search queries for autonomous legal research
+    "sanctions export control regulation update 2026",
+    "OFAC sanctions enforcement action 2026",
+    "EU sanctions regime Russia Iran 2026",
+    "UK ECJU open general export licence update 2026",
+    "Swiss law international sanctions implementation 2026",
+    "UAE trade sanctions compliance framework 2026",
+    "WTO dispute settlement ruling 2026",
+    "ICC arbitration award enforcement 2026",
+    "international trade law export controls 2026",
+    "arms trade treaty implementation 2026",
+    "defence contract law dispute resolution 2026",
+    "BIS EAR export control reform 2026",
 ]
 
 # ── Hypothesis Tracker ───────────────────────────────────────────────────────
@@ -3642,7 +3686,16 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
             a["category"] = feed["category"]
         all_articles.extend(articles)
 
-    logger.info(f"RSS feeds: {len(all_articles)} articles from {len(RESEARCH_FEEDS)} feeds")
+    # R-F1523: also fetch from legal feeds if configured
+    if LEGAL_FEEDS:
+        for feed in LEGAL_FEEDS:
+            articles = await _fetch_rss(feed["url"])
+            for a in articles:
+                a["source"] = feed["name"]
+                a["category"] = feed["category"]
+            all_articles.extend(articles)
+
+    logger.info(f"RSS feeds: {len(all_articles)} articles from {len(RESEARCH_FEEDS) + len(LEGAL_FEEDS)} feeds")
 
     # ── Step 2: Web search on rotating topics ─────────────────────────────
     # Pick 3 search queries based on current hour (rotates through all 20)
