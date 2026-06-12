@@ -74,13 +74,16 @@ async def test_stalled_op_times_out_and_releases(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_loop_keeps_breathing_while_holder_is_stalled(monkeypatch, tmp_path):
-    """The blackout test: while one op holds the lock on a hung DB call, a
-    heartbeat coroutine must keep ticking (the loop is NOT starved)."""
+    """R-F1515: lpush is now lock-free (row-per-entry INSERT), so this test
+    is obsolete. The old lock-based lpush held the Python lock for the entire
+    read-modify-write cycle; the new lpush is a single atomic INSERT with no
+    lock acquisition. The hset path still uses the lock, so we test that
+    hset contention doesn't blackout the loop."""
     await ss.connect(str(tmp_path / "s.db"))
 
     async def _hang(*a, **k):
         await asyncio.sleep(30)
-    monkeypatch.setattr(ss, "_read_list", _hang)
+    monkeypatch.setattr(ss, "_read_hash", _hang)
 
     ticks = 0
     async def _heartbeat():
@@ -89,9 +92,9 @@ async def test_loop_keeps_breathing_while_holder_is_stalled(monkeypatch, tmp_pat
             ticks += 1
             await asyncio.sleep(0.05)
 
-    # Start a stalled holder + a waiter behind it + the heartbeat together.
-    holder = asyncio.create_task(ss.lpush("L", "a"))
-    waiter = asyncio.create_task(ss.lpush("L", "b"))
+    # Start a stalled hset holder + a waiter behind it + the heartbeat together.
+    holder = asyncio.create_task(ss.hset("h", {"a": "1"}))
+    waiter = asyncio.create_task(ss.hset("h", {"b": "2"}))
     hb = asyncio.create_task(_heartbeat())
     await asyncio.gather(holder, waiter, hb)
 

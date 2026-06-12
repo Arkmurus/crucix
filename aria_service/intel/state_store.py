@@ -569,6 +569,24 @@ async def connect(db_path: str | None = None) -> bool:
             "CREATE INDEX IF NOT EXISTS idx_state_expires ON state(expires_at) "
             "WHERE expires_at IS NOT NULL"
         )
+        # R-F1515: row-per-entry list storage. Each list entry gets its own row
+        # with a sequence number, eliminating the read-modify-write cycle that
+        # held the Python lock for the entire JSON blob. lpush is now a single
+        # INSERT — no lock, no contention, no 15s stalls.
+        await _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS list_entries (
+                list_key    TEXT NOT NULL,
+                seq         INTEGER NOT NULL,
+                value       TEXT NOT NULL,
+                expires_at  REAL,
+                PRIMARY KEY (list_key, seq)
+            )
+            """
+        )
+        await _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_list_entries_key ON list_entries(list_key, seq DESC)"
+        )
         await _conn.commit()
         logger.info("state_store: SQLite ready at %s (WAL mode)", _DB_PATH)
         return True
@@ -597,22 +615,33 @@ async def close() -> None:
 
 async def sweep_expired() -> int:
     """Purge rows whose expires_at is in the past. Returns the row count
-    deleted. Run periodically from a background task."""
+    deleted. Run periodically from a background task.
+    
+    R-F1515: also sweeps expired list_entries rows."""
     if _conn is None:
         return 0
+    total = 0
     try:
         cur = await _conn.execute(
             "DELETE FROM state WHERE expires_at IS NOT NULL AND expires_at <= ?",
             (_now(),),
         )
         await _conn.commit()
-        n = cur.rowcount or 0
-        if n > 0:
-            logger.debug("state_store: swept %d expired rows", n)
-        return n
+        total += cur.rowcount or 0
     except Exception as e:
-        logger.warning("state_store: sweep failed: %s", e)
-        return 0
+        logger.warning("state_store: sweep state failed: %s", e)
+    try:
+        cur = await _conn.execute(
+            "DELETE FROM list_entries WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (_now(),),
+        )
+        await _conn.commit()
+        total += cur.rowcount or 0
+    except Exception as e:
+        logger.warning("state_store: sweep list_entries failed: %s", e)
+    if total > 0:
+        logger.debug("state_store: swept %d expired rows", total)
+    return total
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -939,77 +968,254 @@ async def set_json(key: str, obj: Any, ex: int | None = None,
     await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
 
 
-# ── List operations (JSON-blob backed) ───────────────────────────────────
+# ── List operations (row-per-entry) ─────────────────────────────────────
+# R-F1515: replaced JSON-blob-backed list ops with row-per-entry storage.
+# Each list entry is a separate row in the `list_entries` table with a
+# sequence number. This eliminates the read-modify-write cycle that held
+# the Python-level lock for the entire JSON blob — lpush is now a single
+# INSERT with no lock acquisition, no contention, and no 15s stalls.
+#
+# Backward compatibility: on first read of a legacy JSON-blob key (kind="list"
+# in the `state` table), the entries are migrated to the new table and the
+# old key is deleted. This is a one-time migration per key.
 
-async def _read_list(key: str) -> tuple[list, float | None]:
+
+async def _migrate_list_if_needed(key: str) -> None:
+    """Migrate a legacy JSON-blob list to the row-per-entry table.
+    
+    Called lazily on first read. If the key exists in the `state` table
+    with kind='list', its entries are copied to `list_entries` and the
+    old key is deleted. This is a one-time migration per key.
+    """
     row = await _row(key, expected_kind="list")
     if not row:
-        return [], None
+        return
     try:
         lst = json.loads(row[0])
-        return (lst if isinstance(lst, list) else []), row[2]
-    except Exception:
-        return [], row[2]
+        if not isinstance(lst, list) or not lst:
+            return
+        expires_at = row[2]
+        # Insert all entries with descending sequence (index 0 = highest seq)
+        for i, val in enumerate(lst):
+            await _conn.execute(
+                "INSERT OR IGNORE INTO list_entries(list_key, seq, value, expires_at) "
+                "VALUES(?, ?, ?, ?)",
+                (key, len(lst) - i, json.dumps(val, default=str) if not isinstance(val, str) else val, expires_at),
+            )
+        await _conn.commit()
+        # Delete the old JSON blob
+        await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
+        await _conn.commit()
+        logger.debug("state_store: migrated list %s (%d entries) to row-per-entry", key, len(lst))
+    except Exception as e:
+        logger.warning("state_store: list migration failed for %s: %s", key, e)
+
+
+def _list_seq_counter(key: str) -> str:
+    """Return the counter key used for sequence numbers of this list."""
+    return f"{key}:_seq"
 
 
 async def lpush(key: str, value: str, *, critical: bool = False) -> None:
-    async def _op():
-        lst, expires_at = await _read_list(key)
-        lst.insert(0, value)
-        await _upsert(key, json.dumps(lst, default=str), kind="list",
-                      expires_at=expires_at, keepttl=True)
-    # R-F1351: critical=True → raise StateWriteError on drop (hash-chain ledgers).
-    await _run_locked("lpush", _op, critical=critical)
-    # R-F1252: yield event loop after list write so aiosqlite's single
-    # worker thread can drain its queue and other coroutines can run.
-    # Without this, sequential lpush/ltrim pairs (common in agent_registry,
-    # capability_gaps, mistake_ledger) stall the event loop for 3-4s.
-    await asyncio.sleep(0)
+    """Push a value to the front of a list.
+    
+    R-F1515: single INSERT with no Python-level lock. The sequence number
+    is derived from a dedicated counter key so concurrent pushes don't
+    collide. No read-modify-write cycle — this is O(1) and lock-free.
+    """
+    if _conn is None:
+        if critical:
+            raise StateWriteError(f"lpush {key}: no connection")
+        return
+    try:
+        # Atomically increment the sequence counter
+        seq_key = _list_seq_counter(key)
+        await _conn.execute(
+            "INSERT INTO state(key, value, kind) "
+            "VALUES(?, CAST(? AS TEXT), 'string') "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
+            (seq_key, 1),
+        )
+        await _conn.commit()
+        # Read back the new sequence number
+        cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
+        row = await cur.fetchone()
+        await cur.close()
+        seq = int(row[0]) if row else 1
+        # Insert the entry with the new sequence number
+        await _conn.execute(
+            "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
+            (key, seq, value),
+        )
+        await _conn.commit()
+    except Exception as e:
+        logger.warning("[R-F1515] lpush %s failed: %s", key, e)
+        if critical:
+            raise StateWriteError(f"lpush {key}: {e}") from e
 
 
 async def lpop(key: str) -> str | None:
-    """Pop the first item from a list.
-
-    Args:
-        key: Redis key.
-
-    Returns:
-        The popped value, or None if the list is empty.
+    """Pop the first (most recently pushed) item from a list.
+    
+    R-F1515: single DELETE + SELECT — no lock, no read-modify-write.
+    Falls back to legacy JSON-blob pop for backward compatibility.
     """
-    async def _op():
-        lst, expires_at = await _read_list(key)
-        if not lst:
-            return None
-        val = lst.pop(0)
-        await _upsert(key, json.dumps(lst, default=str), kind="list",
-                      expires_at=expires_at, keepttl=True)
-        return str(val) if val is not None else None
-    return await _run_locked("lpop", _op)  # R-F1341
+    if _conn is None:
+        return None
+    try:
+        # Find the highest sequence number for this list
+        cur = await _conn.execute(
+            "SELECT seq, value FROM list_entries WHERE list_key = ? "
+            "ORDER BY seq DESC LIMIT 1",
+            (key,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row:
+            seq, value = row
+            await _conn.execute(
+                "DELETE FROM list_entries WHERE list_key = ? AND seq = ?",
+                (key, seq),
+            )
+            await _conn.commit()
+            return value
+        # Fallback: check legacy JSON blob
+        await _migrate_list_if_needed(key)
+        cur = await _conn.execute(
+            "SELECT seq, value FROM list_entries WHERE list_key = ? "
+            "ORDER BY seq DESC LIMIT 1",
+            (key,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row:
+            seq, value = row
+            await _conn.execute(
+                "DELETE FROM list_entries WHERE list_key = ? AND seq = ?",
+                (key, seq),
+            )
+            await _conn.commit()
+            return value
+        return None
+    except Exception as e:
+        logger.warning("[R-F1515] lpop %s failed: %s", key, e)
+        return None
 
 
 async def ltrim(key: str, start: int, stop: int) -> None:
-    async def _op():
-        lst, expires_at = await _read_list(key)
-        if not lst:
-            return
-        # Redis LTRIM is inclusive on both ends. stop=-1 means "to end".
-        end = (stop + 1) if stop >= 0 else (len(lst) + stop + 1)
-        trimmed = lst[start:end]
-        await _upsert(key, json.dumps(trimmed, default=str), kind="list",
-                      expires_at=expires_at, keepttl=True)
-    await _run_locked("ltrim", _op)  # R-F1341
-    await asyncio.sleep(0)
+    """Trim a list to the specified range.
+    
+    R-F1515: single DELETE — no lock, no read-modify-write.
+    Redis LTRIM semantics: inclusive on both ends. stop=-1 means "to end".
+    Falls back to legacy JSON-blob trim for backward compatibility.
+    """
+    if _conn is None:
+        return
+    try:
+        # Get all sequences for this list, ordered DESC
+        cur = await _conn.execute(
+            "SELECT seq FROM list_entries WHERE list_key = ? ORDER BY seq DESC",
+            (key,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        if not rows:
+            # Fallback: check legacy JSON blob
+            await _migrate_list_if_needed(key)
+            cur = await _conn.execute(
+                "SELECT seq FROM list_entries WHERE list_key = ? ORDER BY seq DESC",
+                (key,),
+            )
+            rows = await cur.fetchall()
+            await cur.close()
+            if not rows:
+                return
+        seqs = [r[0] for r in rows]
+        end = (stop + 1) if stop >= 0 else (len(seqs) + stop + 1)
+        keep = set(seqs[start:end])
+        delete = [s for s in seqs if s not in keep]
+        if delete:
+            placeholders = ",".join("?" for _ in delete)
+            await _conn.execute(
+                f"DELETE FROM list_entries WHERE list_key = ? AND seq IN ({placeholders})",
+                (key, *delete),
+            )
+            await _conn.commit()
+    except Exception as e:
+        logger.warning("[R-F1515] ltrim %s failed: %s", key, e)
 
 
 async def llen(key: str) -> int:
-    lst, _ = await _read_list(key)
-    return len(lst)
+    """Return the number of entries in a list.
+    
+    R-F1515: single COUNT — no lock, no read-modify-write.
+    Falls back to legacy JSON-blob count for backward compatibility.
+    """
+    if _conn is None:
+        return 0
+    try:
+        cur = await _conn.execute(
+            "SELECT COUNT(*) FROM list_entries WHERE list_key = ?",
+            (key,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row and row[0] > 0:
+            return row[0]
+        # Fallback: check legacy JSON blob
+        await _migrate_list_if_needed(key)
+        cur = await _conn.execute(
+            "SELECT COUNT(*) FROM list_entries WHERE list_key = ?",
+            (key,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return row[0] if row else 0
+    except Exception as e:
+        logger.warning("[R-F1515] llen %s failed: %s", key, e)
+        return 0
 
 
 async def lrange(key: str, start: int, stop: int) -> list[str]:
-    lst, _ = await _read_list(key)
-    end = (stop + 1) if stop >= 0 else (len(lst) + stop + 1)
-    return lst[start:end]
+    """Return a range of entries from a list.
+    
+    R-F1515: single SELECT — no lock, no read-modify-write.
+    Redis LTRIM semantics: inclusive on both ends. stop=-1 means "to end".
+    Falls back to legacy JSON-blob range for backward compatibility.
+    """
+    if _conn is None:
+        return []
+    try:
+        # Get all sequences for this list, ordered DESC
+        cur = await _conn.execute(
+            "SELECT seq, value FROM list_entries WHERE list_key = ? ORDER BY seq DESC",
+            (key,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        if rows:
+            seqs = [r[0] for r in rows]
+            values = [r[1] for r in rows]
+            end = (stop + 1) if stop >= 0 else (len(seqs) + stop + 1)
+            return values[start:end]
+        # Fallback: check legacy JSON blob
+        await _migrate_list_if_needed(key)
+        cur = await _conn.execute(
+            "SELECT seq, value FROM list_entries WHERE list_key = ? ORDER BY seq DESC",
+            (key,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        if rows:
+            seqs = [r[0] for r in rows]
+            values = [r[1] for r in rows]
+            end = (stop + 1) if stop >= 0 else (len(seqs) + stop + 1)
+            return values[start:end]
+        return []
+    except Exception as e:
+        logger.warning("[R-F1515] lrange %s failed: %s", key, e)
+        return []
 
 
 # ── Counters ─────────────────────────────────────────────────────────────

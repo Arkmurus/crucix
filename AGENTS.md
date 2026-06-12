@@ -8,7 +8,7 @@ overrides this file where they overlap.
 
 ## The standard of work (non-negotiable)
 - **Correctness over speed.** A change that isn't verified isn't done.
-- **Root cause, not symptom.** Trace the real failure; don't paper over it.
+- **Root cause, not symptom — BINDING.** Trace the real failure; don't paper over it. Never apply a band-aid (timeout increase, retry count bump, cooldown extension) without first doing a deep-dive investigation to identify and fix the root cause. Every issue must produce a structural fix that eliminates the failure class, not a patch that hides it. If you catch yourself raising a timeout or adding a retry, stop and ask: "What is actually slow/breaking, and why?" Fix that instead.
 - **Match the codebase.** Read neighbouring code first and write code that looks
   like it — same naming, structure, error handling, async style, comment density.
 - **Small, focused diffs.** Change only what the task needs. No drive-by rewrites,
