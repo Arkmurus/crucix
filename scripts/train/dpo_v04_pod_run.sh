@@ -33,6 +33,12 @@ SCRIPTS="/workspace/crucix/scripts/train"
 PORT=8888
 SFT_EPOCHS="${SFT_EPOCHS:-3}"
 DPO_EPOCHS="${DPO_EPOCHS:-1}"
+# R-F1528: the first DPO run (beta 0.1 / lr 5e-6) OVER-OPTIMIZED — loss→0.002,
+# margins→13, train-acc→1.0 → drifted off-distribution → DD acc 0.288→0.236 with
+# leak unchanged (KEEP-SFT verdict). Gentler defaults anchor harder to the SFT
+# reference (higher beta = stronger KL penalty) with smaller steps (lower lr).
+DPO_BETA="${DPO_BETA:-0.3}"     # was 0.1 — higher = stays closer to the SFT reference
+DPO_LR="${DPO_LR:-2e-6}"        # was 5e-6 — gentler updates
 DPO_REPORT="${EVAL_DIR}/aria_llm_v0_4_dpo_eval.json"
 export HF_HOME=/workspace/.cache/huggingface
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
@@ -137,11 +143,12 @@ python "$SCRIPTS/sft_train.py" \
 log "SFT complete — adapter saved to $SFT_OUT"
 
 # 2. DPO (continue-train the SFT LoRA on the preference pairs)
-log "DPO training → $DPO_OUT (epochs=$DPO_EPOCHS, base=SFT adapter, 4-bit) …"
+log "DPO training → $DPO_OUT (epochs=$DPO_EPOCHS, beta=$DPO_BETA, lr=$DPO_LR, 4-bit) …"
 python "$SCRIPTS/dpo_train.py" \
   --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_OUT" \
   --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
-  --epochs "$DPO_EPOCHS" --max-seq-len 4096 --load-in-4bit 2>&1 | tee "$LOGS/dpo_train_v0_4.log"
+  --epochs "$DPO_EPOCHS" --beta "$DPO_BETA" --lr "$DPO_LR" \
+  --max-seq-len 4096 --load-in-4bit 2>&1 | tee "$LOGS/dpo_train_v0_4.log"
 [ -f "$DPO_OUT/adapter_config.json" ] || fail "DPO produced no LoRA at $DPO_OUT — see $LOGS/dpo_train_v0_4.log"
 log "DPO complete — adapter saved to $DPO_OUT"
 
