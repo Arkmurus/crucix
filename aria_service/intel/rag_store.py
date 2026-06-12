@@ -157,6 +157,19 @@ class _SharedSentenceTransformerEmbeddingFn:
         # serialises against the semantic_search path's encode calls.
         return _safe_encode(model, list(input), convert_to_numpy=True).tolist()
 
+    def embed_query(self, input: str | list[str]) -> list[list[float]]:
+        """chromadb 1.5+ query protocol — delegates to __call__.
+
+        R-F1532: chromadb 1.5+ requires ``embed_query`` on the embedding
+        function for query operations. Without this, every ``search()``
+        call raises AttributeError and returns 0 results — which is why
+        the open-book eval (build_openbook_eval.py) got 0 grounded
+        contexts despite 202K chunks in the store.
+        """
+        if isinstance(input, str):
+            input = [input]
+        return self.__call__(input)
+
     def name(self) -> str:
         # MUST match chromadb's built-in SentenceTransformerEmbedding-
         # Function.name() ("sentence_transformer") — chromadb 0.5+
