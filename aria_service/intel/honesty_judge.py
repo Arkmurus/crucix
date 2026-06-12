@@ -542,14 +542,14 @@ def _wire_judge_result(result: dict) -> None:
             )
         elif status == "ok" and score is not None and score < 1.0:
             from . import capability_gaps as _cg
-            _cg.record_gap(
+            asyncio.ensure_future(_cg.record_gap(
                 gap_type="honesty_judge_unsupported_claims",
                 detail=(
                     f"Honesty judge found {n_claims - result.get('supported_count', 0)}/"
                     f"{n_claims} unsupported [CONFIRMED] claims (score={score})"
                 ),
                 source="honesty_judge.judge_response",
-            )
+            ))
         elif status == "ok" and score is not None and score >= 1.0:
             from . import brain_hook as _bh
             _bh.absorb_silent(

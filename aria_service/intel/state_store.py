@@ -1067,14 +1067,18 @@ def _list_seq_counter(key: str) -> str:
 # R-F1518: per-list locks for lpush serialization. Each list gets its own
 # asyncio.Lock so pushes to different lists don't block each other. The
 # lock is held only for the counter increment + INSERT (microseconds).
+# R-F1520: use a dedicated lock for the dict itself to prevent race
+# conditions when two concurrent calls create a lock for the same key.
 _lpush_locks: dict[str, asyncio.Lock] = {}
+_lpush_locks_lock = asyncio.Lock()
 
 
-def _get_lpush_lock(key: str) -> asyncio.Lock:
+async def _get_lpush_lock(key: str) -> asyncio.Lock:
     """Get or create a per-list lock for lpush serialization."""
-    if key not in _lpush_locks:
-        _lpush_locks[key] = asyncio.Lock()
-    return _lpush_locks[key]
+    async with _lpush_locks_lock:
+        if key not in _lpush_locks:
+            _lpush_locks[key] = asyncio.Lock()
+        return _lpush_locks[key]
 
 
 async def lpush(key: str, value: str, *, critical: bool = False) -> None:
@@ -1101,7 +1105,7 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     # R-F1520: all writes go through _conn (single connection, single worker
     # thread). Multiple connections to the same SQLite file contend for the
     # WAL lock and make `database is locked` errors MORE likely, not less.
-    lock = _get_lpush_lock(key)
+    lock = await _get_lpush_lock(key)
     async with lock:
         try:
             # Atomically increment the sequence counter

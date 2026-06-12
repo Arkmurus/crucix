@@ -7477,7 +7477,9 @@ async def chat_ep(req: ChatRequest, request: Request):
 
             # R-F1413 — async-complete-and-push: fire callback URL if provided
             if _callback_url:
-                _fire_and_forget_callback(_callback_url, _cjob_id, _result_data, _error_msg, session_id)
+                asyncio.ensure_future(
+                    _fire_and_forget_callback(_callback_url, _cjob_id, _result_data, _error_msg, session_id)
+                )
 
         # R-F1377 — strong ref: a GC'd chat job = WA review reply that never
         # arrives (poll runs to the listener's ceiling, user sees a timeout).
