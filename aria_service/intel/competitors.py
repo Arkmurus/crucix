@@ -80,12 +80,11 @@ async def _load() -> dict:
 
 
 async def _save() -> None:
-    if _cache:
-        # R-F1520: fire-and-forget to avoid blocking the scan pipeline.
-        # The write is scheduled on the event loop and will complete in
-        # the background. If it fails, the cache is stale until the next
-        # scan cycle — acceptable for competitor tracking.
-        asyncio.ensure_future(rs.set_json(KEY, _cache, ex=90 * 86400))
+    # R-F1520: competitors cache is rebuilt every 30min from sweep data.
+    # No need to persist to SQLite — it's ephemeral and causes database
+    # lock contention when the blob is large. The cache lives in memory
+    # and is rebuilt on next scan if the machine restarts.
+    pass
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

@@ -845,19 +845,19 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
     # (before any use in the try/except blocks below).
     global _upsert_last_log
 
-    # R-F1520: uses _write_conn (dedicated write connection) instead of _conn
-    # so that _upsert operations don't block compound ops (hset, lpush) and
-    # vice versa. Each connection has its own aiosqlite worker thread.
-    if _write_conn is None:
+    # R-F1520: all writes go through _conn (single connection, single worker
+    # thread). Multiple connections to the same SQLite file contend for the
+    # WAL lock and make `database is locked` errors MORE likely, not less.
+    if _conn is None:
         import sqlite3
         e = sqlite3.OperationalError(
-            f"state_store: no write connection (reconnect in progress) writing {key}")
+            f"state_store: no connection (reconnect in progress) writing {key}")
         _schedule_reconnect_if_dead(e)
         raise e
     try:
         if keepttl and expires_at is None:
             await asyncio.wait_for(
-                _write_conn.execute(
+                _conn.execute(
                     "INSERT INTO state(key, value, kind, expires_at) "
                     "VALUES(?, ?, ?, NULL) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
@@ -867,7 +867,7 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
             )
         else:
             await asyncio.wait_for(
-                _write_conn.execute(
+                _conn.execute(
                     "INSERT INTO state(key, value, kind, expires_at) "
                     "VALUES(?, ?, ?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
@@ -876,7 +876,7 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
                 ),
                 timeout=_UPSERT_TIMEOUT_S,
             )
-        await asyncio.wait_for(_write_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
+        await asyncio.wait_for(_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
     except asyncio.TimeoutError:
         now = time.monotonic()
         if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
@@ -1098,31 +1098,32 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     # R-F1518: per-list lock to serialize counter increment + INSERT.
     # This is a fast operation (microseconds) — the lock is never held
     # across I/O boundaries, so it cannot cause contention.
-    # R-F1520: uses _write_conn (dedicated write connection) so lpush
-    # doesn't block on _conn's compound ops (hset) and vice versa.
+    # R-F1520: all writes go through _conn (single connection, single worker
+    # thread). Multiple connections to the same SQLite file contend for the
+    # WAL lock and make `database is locked` errors MORE likely, not less.
     lock = _get_lpush_lock(key)
     async with lock:
         try:
             # Atomically increment the sequence counter
-            await _write_conn.execute(
+            await _conn.execute(
                 "INSERT INTO state(key, value, kind) "
                 "VALUES(?, CAST(? AS TEXT), 'string') "
                 "ON CONFLICT(key) DO UPDATE SET "
                 "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
                 (seq_key, 1),
             )
-            await _write_conn.commit()
+            await _conn.commit()
             # Read back the new sequence number
-            cur = await _write_conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
+            cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
             row = await cur.fetchone()
             await cur.close()
             seq = int(row[0]) if row else 1
             # Insert the entry with the new sequence number
-            await _write_conn.execute(
+            await _conn.execute(
                 "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
                 (key, seq, value),
             )
-            await _write_conn.commit()
+            await _conn.commit()
         except Exception as e:
             logger.warning("[R-F1518] lpush %s failed: %s", key, e)
             if critical:
@@ -1305,12 +1306,13 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
 
     Falls back to the locked path only when the atomic UPSERT fails.
     """
-    # R-F1520: uses _write_conn (dedicated write connection) so incr doesn't
-    # block compound ops (hset, lpush) and vice versa.
-    if _write_conn is None:
+    # R-F1520: all writes go through _conn (single connection, single worker
+    # thread). Multiple connections to the same SQLite file contend for the
+    # WAL lock and make `database is locked` errors MORE likely, not less.
+    if _conn is None:
         import sqlite3
         e = sqlite3.OperationalError(
-            f"state_store: no write connection (reconnect in progress) writing {key}")
+            f"state_store: no connection (reconnect in progress) writing {key}")
         _schedule_reconnect_if_dead(e)
         if critical:
             raise StateWriteError(f"incr: no connection") from e
@@ -1321,7 +1323,7 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
         # SQLite serialises writes through its single worker thread — no
         # Python-level lock needed. This avoids the _run_locked contention
         # that caused the 2026-06-10 state_store wedge.
-        await _write_conn.execute(
+        await _conn.execute(
             # R-F1494: on a FRESH key the inserted value must be `amount`, not a
             # hardcoded '1'. R-F1493 hardcoded '1', so incr(key, amount=N) on a
             # missing key stored 1 instead of N (e.g. stream_guard_observer.py:180
@@ -1333,9 +1335,9 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
             "  value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
             (key, amount, amount),
         )
-        await _write_conn.commit()
+        await _conn.commit()
         # Read back the new value
-        cur = await _write_conn.execute(
+        cur = await _conn.execute(
             "SELECT value FROM state WHERE key = ?", (key,)
         )
         row = await cur.fetchone()
@@ -1399,15 +1401,14 @@ async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> flo
 
 
 async def expire(key: str, seconds: int) -> bool:
-    # R-F1520: uses _write_conn so EXPIRE doesn't block on _conn's compound ops
-    if _write_conn is None:
+    if _conn is None:
         return False
     try:
-        cur = await _write_conn.execute(
+        cur = await _conn.execute(
             "UPDATE state SET expires_at = ? WHERE key = ?",
             (_ttl_to_expires(seconds), key),
         )
-        await _write_conn.commit()
+        await _conn.commit()
         return (cur.rowcount or 0) > 0
     except Exception as e:
         logger.warning("state_store: EXPIRE %s failed: %s", key, e)
