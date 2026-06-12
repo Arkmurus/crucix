@@ -421,7 +421,7 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, str]] = [
      "role_manipulation", "critical"),
     (re.compile(r"you\s+(?:do\s+)?not?\s+have\s+(?:any\s+)?(?:restrictions|rules|guidelines)", re.I),
      "role_manipulation", "high"),
-    (re.compile(r"(?:DAN|jailbreak|bypass\s+filters?)", re.I),
+    (re.compile(r"(?:\bDAN\b|jailbreak|bypass\s+filters?)", re.I),
      "jailbreak_attempt", "critical"),
 
     # Data exfiltration
