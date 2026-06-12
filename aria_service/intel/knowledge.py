@@ -815,28 +815,38 @@ async def store_fact(topic: str, content: str, source: str = "user",
     # Reject facts where content is just a URL or too short to be meaningful.
     # This catches the pattern where /teach <url> fails to extract page content
     # and the LLM stores the URL string itself as a "fact".
+    # R-F1529: brain_hook signals are legitimately short status updates
+    # (e.g. "cost_tracker: R-F996" at 19 chars). Only reject content that
+    # looks like a failed URL extraction — bare URLs or very short content
+    # WITHOUT a brain_hook source.
     _content_stripped = (content or "").strip()
     if not _content_stripped:
         logger.warning("[R-F1526] store_fact rejected: empty content (topic=%s, source=%s)", topic, source)
         return {"action": "rejected_no_content", "reason": "empty_content"}
-    if len(_content_stripped) < 50 and not topic.startswith("http"):
-        # Very short content is suspicious — likely a failed extraction.
-        # Exception: topic is not a URL (legitimate short facts like "CEO: John Doe" are OK
-        # if they come through the verified pipeline with source_url).
-        if not source_url:
+
+    # Only apply the content-length guard to non-brain_hook sources.
+    # brain_hook signals are intentionally short status updates.
+    _is_brain_hook = source.startswith("brain_hook:")
+    if not _is_brain_hook:
+        if len(_content_stripped) < 50 and not topic.startswith("http"):
+            # Very short content is suspicious — likely a failed extraction.
+            # Exception: topic is not a URL (legitimate short facts like
+            # "CEO: John Doe" are OK if they come through the verified pipeline).
+            if not source_url:
+                logger.warning(
+                    "[R-F1526] store_fact rejected: content too short (%d chars, topic=%s, source=%s)",
+                    len(_content_stripped), topic, source,
+                )
+                return {"action": "rejected_no_content", "reason": f"content_too_short:{len(_content_stripped)}"}
+
+        # Check if content is just a URL (the LLM stored the URL instead of extracted text)
+        import re as _re
+        if _re.match(r"^https?://", _content_stripped) and len(_content_stripped) < 200:
             logger.warning(
-                "[R-F1526] store_fact rejected: content too short (%d chars, topic=%s, source=%s)",
-                len(_content_stripped), topic, source,
+                "[R-F1526] store_fact rejected: content is a bare URL (topic=%s, source=%s, url=%s)",
+                topic, source, _content_stripped[:100],
             )
-            return {"action": "rejected_no_content", "reason": f"content_too_short:{len(_content_stripped)}"}
-    # Check if content is just a URL (the LLM stored the URL instead of extracted text)
-    import re as _re
-    if _re.match(r"^https?://", _content_stripped) and len(_content_stripped) < 200:
-        logger.warning(
-            "[R-F1526] store_fact rejected: content is a bare URL (topic=%s, source=%s, url=%s)",
-            topic, source, _content_stripped[:100],
-        )
-        return {"action": "rejected_no_content", "reason": "bare_url_content"}
+            return {"action": "rejected_no_content", "reason": "bare_url_content"}
     db = await _load()
     now = datetime.now(timezone.utc).isoformat()
 
