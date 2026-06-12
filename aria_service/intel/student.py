@@ -577,6 +577,19 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         except Exception:
             pass
 
+        # R-F1539: queue a reading session for each breached topic immediately,
+        # rather than waiting for the next 6-hourly mastery-prep cycle. This
+        # turns a passive warning into an active learning trigger.
+        try:
+            from .proactive import queue_reading_session as _qrs
+            for topic in remediation_needed:
+                _rt = asyncio.create_task(_qrs(
+                    topic, reason="mastery_floor_breach_R-F1539", severity="HIGH",
+                ))
+                _rt.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+        except Exception:
+            pass
+
 
 async def reset_mastery_scores() -> dict:
     """Reset all mastery scores to a fair baseline. Use after fixing a

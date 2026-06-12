@@ -26,16 +26,69 @@ stalls: `reserve_r_number.py` (a sync CLI) called `wire_success`, which ran a
 full neural-memory brain absorb synchronously on every R-number reservation,
 freezing ARIA's loop on every task. Wiring is best-effort (CLAUDE.md §21a):
 if a sync caller exits before the daemon thread finishes, the signal is
-dropped — never blocked."""
+dropped — never blocked.
+
+R-F1539 — BOOT SIGNAL STAGGERING. At boot, ~124 modules fire wire_success()
+simultaneously via module-level import-time wiring. This spike tripped the
+brain_hook circuit breaker (p95=30,951ms). The fix is a rate-limited dispatch
+that queues signals during the first 30s of uptime and releases them at a
+controlled pace (20/s). After the boot window, signals pass through
+unrestricted. The rate limiter is a simple token-bucket: it never blocks the
+caller, it just re-schedules the signal with a short delay."""
 from __future__ import annotations
 
 import asyncio
 import functools
 import logging
 import threading
+import time
 from typing import Any, Callable, Coroutine, Optional
 
 logger = logging.getLogger("aria.engine_wiring")
+
+# R-F1539: boot signal staggering — token-bucket rate limiter.
+# During the first BOOT_WINDOW_S seconds of uptime, signals are dispatched
+# at BOOT_RATE signals/second to avoid swamping brain_hook on startup.
+# After the boot window, the limiter is disabled (unlimited throughput).
+_BOOT_START = time.monotonic()
+_BOOT_WINDOW_S = 30
+_BOOT_RATE = 20  # signals per second during boot
+_BOOT_TOKENS = _BOOT_RATE  # initial token bucket
+_BOOT_LAST_REFILL = _BOOT_START
+_BOOT_LOCK = threading.Lock()
+
+
+def _in_boot_window() -> bool:
+    """True if we're still in the boot signal-staggering window."""
+    return time.monotonic() - _BOOT_START < _BOOT_WINDOW_S
+
+
+def _acquire_boot_token() -> float:
+    """Try to acquire a token from the boot rate limiter.
+
+    Returns the delay in seconds before the signal should be dispatched.
+    0.0 means dispatch immediately (token available or boot window over).
+    """
+    if not _in_boot_window():
+        return 0.0
+
+    with _BOOT_LOCK:
+        global _BOOT_TOKENS, _BOOT_LAST_REFILL
+        now = time.monotonic()
+        elapsed = now - _BOOT_LAST_REFILL
+        _BOOT_TOKENS = min(_BOOT_RATE, _BOOT_TOKENS + elapsed * _BOOT_RATE)
+        _BOOT_LAST_REFILL = now
+
+        if _BOOT_TOKENS >= 1.0:
+            _BOOT_TOKENS -= 1.0
+            return 0.0  # dispatch immediately
+
+        # No tokens available — calculate delay until next token
+        deficit = 1.0 - _BOOT_TOKENS
+        delay = deficit / _BOOT_RATE
+        # Reserve the token for when the delay elapses
+        _BOOT_TOKENS = 0.0
+        return delay
 
 
 def _dispatch_fire_and_forget(coro_factory) -> None:
@@ -44,7 +97,14 @@ def _dispatch_fire_and_forget(coro_factory) -> None:
     - Running loop  -> schedule a task (server/async context).
     - No loop (sync/CLI) -> run in a daemon thread so the caller returns
       immediately. Never raises.
+
+    R-F1539: during the boot window, signals are rate-limited to BOOT_RATE/s
+    to prevent the 124-module signal spike from tripping brain_hook's circuit
+    breaker. The delay is applied via loop.call_later so the caller is never
+    blocked.
     """
+    delay = _acquire_boot_token()
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -52,13 +112,18 @@ def _dispatch_fire_and_forget(coro_factory) -> None:
 
     if loop is not None:
         try:
-            task = loop.create_task(coro_factory())
-            task.add_done_callback(_noop_callback)
+            if delay > 0:
+                loop.call_later(delay, lambda: loop.create_task(coro_factory()).add_done_callback(_noop_callback))
+            else:
+                task = loop.create_task(coro_factory())
+                task.add_done_callback(_noop_callback)
         except Exception:
             logger.debug("[engine_wiring] task dispatch failed", exc_info=True)
         return
 
     def _worker() -> None:
+        if delay > 0:
+            time.sleep(delay)
         try:
             asyncio.run(coro_factory())
         except Exception:

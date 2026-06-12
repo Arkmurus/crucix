@@ -125,6 +125,16 @@ logger = logging.getLogger("aria.main")
 _BUILD_GIT_SHA = _os.environ.get("ARIA_BUILD_GIT_SHA", "").strip()
 _BUILD_R_TAG = _os.environ.get("ARIA_BUILD_R_TAG", "").strip()
 
+# R-F1539: boot-time secret self-audit registry. Maps env-var names to
+# a human-readable hint about expected format. The audit runs 3s after
+# boot and warns if any value looks malformed (CLI flags leaked in, etc).
+_SECRET_AUDIT: dict[str, str] = {
+    "ARIA_RAG_BACKFILL_DISABLED": "expected true/false/1/0",
+    "ARIA_INTERNAL_TOKEN": "expected a hex token (32+ chars)",
+    "ARIA_AUDIT_SIGNING_KEY": "expected a hex key (32+ chars)",
+    "REPORT_SIGNING_KEY": "expected a hex key (32+ chars)",
+}
+
 
 def _resolve_git_head_from_image(git_dir: str = "/app/.git") -> str:
     """R-F589 (2026-05-16) — runtime build_rev fallback.
@@ -1005,6 +1015,30 @@ async def lifespan(app: FastAPI):
         except Exception as _diff_err:
             logger.debug("R-F251 boot-diff failed: %s", _diff_err)
     asyncio.create_task(_log_boot_state())
+
+    # R-F1539: boot-time secret self-audit. Validates that expected
+    # environment variables have sane values — catches CLI-flag-leak
+    # mistakes (e.g. ARIA_RAG_BACKFILL_DISABLED="true -a aria-intel")
+    # before they cause confusing debugging sessions.
+    async def _audit_secrets_bg():
+        await asyncio.sleep(3)
+        _suspect: list[str] = []
+        for _key, _hint in _SECRET_AUDIT.items():
+            _val = os.environ.get(_key, "")
+            if not _val:
+                continue
+            # Check for CLI flags leaked into the value
+            if _val.startswith("-") or " -" in _val:
+                _suspect.append(f"{_key}={_val!r} (value contains CLI flags — may have been set via `flyctl secrets set {_key}={_val} -a app`)")
+            # Check for known malformed patterns
+            if _key == "ARIA_RAG_BACKFILL_DISABLED" and _val not in ("true", "false", "1", "0", ""):
+                _suspect.append(f"{_key}={_val!r} (expected true/false/1/0 — current value is inert but misleading)")
+        if _suspect:
+            logger.warning(
+                "[R-F1539] SECRET AUDIT — %d suspect value(s) found:\n%s",
+                len(_suspect), "\n".join(f"  • {s}" for s in _suspect),
+            )
+    asyncio.create_task(_audit_secrets_bg())
 
     # ── OCR pre-warm ────────────────────────────────────────────────────
     # Load OCR backends in a background task so the first user image
