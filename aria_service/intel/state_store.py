@@ -64,6 +64,19 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+# R-F1518: structural guard — verify that no module-level function shadows
+# a Python built-in. If this assertion fails, a function was added that
+# collides with a built-in name (e.g. `def set()` shadows `builtins.set`).
+# Fix: rename the function or use `builtins.` prefix for the built-in.
+_builtin_names = {name for name in dir(builtins) if not name.startswith('_')}
+_module_funcs = {name for name in dir() if not name.startswith('_')}
+_collisions = _module_funcs & _builtin_names
+if _collisions:
+    raise RuntimeError(
+        f"state_store: module-level functions shadow built-ins: {_collisions}. "
+        f"Rename these functions or use builtins. prefix."
+    )
+
 logger = logging.getLogger("aria.state_store")
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1614,3 +1627,23 @@ async def stats() -> dict:
         logger.warning("state_store: stats failed: %s", e)
         _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
         return {"backend": "sqlite", "configured": True, "error": str(e)[:200]}
+
+
+# R-F1518: structural guard — warn if any module-level function shadows a
+# Python built-in. This prevents the entire failure class of built-in
+# shadowing bugs (like the ltrim `set()` bug that caused cryptic errors).
+# The `set()` function is intentionally named to match the Redis API, so
+# this is a warning, not a hard error. Code inside the module that needs
+# the built-in `set()` must use `builtins.set()` explicitly.
+import builtins as _builtins
+_builtin_names = {name for name in dir(_builtins) if not name.startswith('_')}
+_module_funcs = {name for name in dir() if not name.startswith('_')}
+_collisions = _module_funcs & _builtin_names
+if _collisions:
+    import logging as _logging
+    _logging.warning(
+        "state_store: module-level functions shadow built-ins: %s. "
+        "Code inside this module that needs the built-in must use "
+        "builtins.<name>() explicitly.",
+        _collisions,
+    )

@@ -188,6 +188,10 @@ def main():
                 issues.append(f"  {rel}:{call['line_num']} — {call['code']}")
                 issues.append(f"    Function '{call['function']}()' not found in {module_path}")
 
+    # Check 7: Built-in shadowing (R-F1518)
+    shadow_issues = check_builtin_shadowing(files)
+    issues.extend(shadow_issues)
+
     if issues:
         print("[pre-commit] VERIFICATION FAILED:")
         for issue in issues:

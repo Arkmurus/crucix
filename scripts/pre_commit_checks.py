@@ -129,8 +129,75 @@ def function_exists(module_path: str, func_name: str) -> bool:
     return True  # Can't find module — pass through
 
 
+def check_builtin_shadowing(files: list[Path]) -> list[str]:
+    """R-F1518 — Check that no module-level function shadows a Python built-in.
+    
+    A function named `set()` shadows `builtins.set()`, causing confusing bugs
+    when code inside the module calls `set(...)` expecting the built-in but
+    getting the module function instead. This check scans every changed .py
+    file for functions whose names collide with built-in names.
+    
+    Returns a list of issue strings (empty if all pass).
+    """
+    import builtins
+    builtin_names = {name for name in dir(builtins) if not name.startswith('_')}
+    issues = []
+    
+    for file_path in files:
+        if file_path.suffix != ".py":
+            continue
+        try:
+            source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name in builtin_names:
+                        issues.append(
+                            f"{file_path}:{node.lineno}: function '{node.name}()' "
+                            f"shadows builtins.{node.name}(). Rename the function "
+                            f"or use 'builtins.{node.name}' explicitly."
+                        )
+        except SyntaxError:
+            pass
+    
+    return issues
+
+
+def check_builtin_shadowing(files: list[Path]) -> list[str]:
+    """R-F1518 — Check that no module-level function shadows a Python built-in.
+    
+    A function named `set()` shadows `builtins.set()`, causing confusing bugs
+    when code inside the module calls `set(...)` expecting the built-in but
+    getting the module function instead. This check scans every changed .py
+    file for functions whose names collide with built-in names.
+    
+    Returns a list of issue strings (empty if all pass).
+    """
+    import builtins
+    builtin_names = {name for name in dir(builtins) if not name.startswith('_')}
+    issues = []
+    
+    for file_path in files:
+        if file_path.suffix != ".py":
+            continue
+        try:
+            source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name in builtin_names:
+                        issues.append(
+                            f"{file_path}:{node.lineno}: function '{node.name}()' "
+                            f"shadows builtins.{node.name}(). Rename the function "
+                            f"or use 'builtins.{node.name}' explicitly."
+                        )
+        except SyntaxError:
+            pass
+    
+    return issues
+
+
 def check_wiring_present(files: list[Path]) -> list[str]:
-    """R-F1268 — For every changed file in aria_service/intel/, verify it has
     at least one wire_success or wire_failure call (brain wiring).
 
     Modules that are purely data/configuration or are themselves wiring
