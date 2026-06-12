@@ -176,7 +176,9 @@ async def _save_activities(items: list[dict]) -> None:
     items = [a for a in items if a.get("ts", "") >= cutoff]
     if len(items) > MAX_ACTIVITIES:
         items = items[-MAX_ACTIVITIES:]
-    await rs.set_json(ACTIVITIES_KEY, {"items": items, "version": 1})
+    # R-F1520: fire-and-forget to avoid blocking the caller with a large blob write.
+    # The activity log is rebuilt on next access if the write fails.
+    asyncio.ensure_future(rs.set_json(ACTIVITIES_KEY, {"items": items, "version": 1}))
 
 
 # ── Public API ────────────────────────────────────────────────────────────
