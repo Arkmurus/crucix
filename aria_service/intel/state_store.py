@@ -561,14 +561,19 @@ async def connect(db_path: str | None = None) -> bool:
         await _read_conn.execute("PRAGMA journal_mode=WAL")
         await _read_conn.execute("PRAGMA synchronous=NORMAL")
         await _read_conn.execute("PRAGMA foreign_keys=OFF")
-        await _read_conn.execute("PRAGMA busy_timeout=5000")
+        # R-F1519: increased busy_timeout from 5000 to 30000. During boot,
+        # the aiosqlite single worker thread is backlogged with hundreds of
+        # concurrent writes (agent_registry, agent_contract, brain_hook stats).
+        # A 5s timeout caused every _upsert to fail during this window.
+        # 30s gives the worker thread enough time to drain its queue.
+        await _read_conn.execute("PRAGMA busy_timeout=30000")
         await _read_conn.commit()
         # WAL mode → concurrent readers don't block writers. Crucial for
         # the chat path while autonomous tasks are also writing.
         await _conn.execute("PRAGMA journal_mode=WAL")
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
-        await _conn.execute("PRAGMA busy_timeout=5000")
+        await _conn.execute("PRAGMA busy_timeout=30000")
         await _conn.execute(
             """
             CREATE TABLE IF NOT EXISTS state (
@@ -720,7 +725,7 @@ async def _ensure_read_conn() -> None:
         await new_conn.execute("PRAGMA journal_mode=WAL")
         await new_conn.execute("PRAGMA synchronous=NORMAL")
         await new_conn.execute("PRAGMA foreign_keys=OFF")
-        await new_conn.execute("PRAGMA busy_timeout=5000")
+        await new_conn.execute("PRAGMA busy_timeout=30000")
         await new_conn.commit()
         _read_conn = new_conn
     except Exception as e:
@@ -802,7 +807,11 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
 # indefinitely on the SQLite connection mutex and eventually hit
 # "database is locked". A short timeout lets them fail fast instead of
 # piling up behind the lock holder.
-_UPSERT_TIMEOUT_S = float(os.getenv("ARIA_STATE_UPSERT_TIMEOUT_S", "5.0"))
+# R-F1519: raised from 5.0 to 30.0. During boot, the single aiosqlite
+# worker thread is backlogged with hundreds of concurrent writes. 5s was
+# too short — every _upsert failed during the boot window. 30s matches
+# the busy_timeout and gives the worker thread enough time to drain.
+_UPSERT_TIMEOUT_S = float(os.getenv("ARIA_STATE_UPSERT_TIMEOUT_S", "30.0"))
 
 # R-F1510: rate-limited log for _upsert failures to prevent the
 # error_log_handler → record_error → set_json → _upsert feedback loop
