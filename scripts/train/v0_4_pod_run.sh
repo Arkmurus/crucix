@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# v0_4_pod_run — on-pod ARIA-LLM v0.4 SFT-distillation cycle (R-F1513).
+# v0_4_pod_run — on-pod ARIA-LLM v0.4 SFT-distillation cycle (R-F1513/R-F1516).
 #
-# Mirrors v0_3_pod_run.sh (the PROVEN cycle that produced v0.3=0.22) with two
-# changes: (1) trains v0.4 on the FAILURE-MODE-WEIGHTED corpus (v0.3-clean +
-# R-F1511 failure-modes), (2) the champion to beat is now v0.3 (it beat v0.2
-# 0.22>0.154), so the comparison leg serves the v0.3 SFT adapter. DeepSeek
-# (teacher, 0.34) is the reference ceiling.
+# Mirrors v0_3_pod_run.sh (the PROVEN cycle that produced v0.3=0.22), trains v0.4
+# on the FAILURE-MODE-WEIGHTED corpus (v0.3-clean + R-F1511 failure-modes).
+#
+# R-F1516 — VOLUME-FREE. The old build loaded the base from the US-KS-2 volume HF
+# cache (offline) and served the v0.3 adapter from that volume. The volume was the
+# trap (region-locked the pod to a DC that deleted pods mid-train), so we dropped
+# it. Consequences handled here:
+#   (1) Base downloads FRESH from an ungated mirror (default unsloth/mistral-7b-
+#       instruct-v0.3, a bit-identical re-upload of the gated official repo) — no
+#       HF token needed. A preflight asserts the architecture matches Mistral-7B
+#       before we trust a single training step. Override with BASE_MODEL=... .
+#   (2) No on-volume v0.3 adapter to re-serve → v0.4 is compared to the KNOWN
+#       v0.3=0.22 (same eval harness, R-F1469) and the teacher ceiling 0.34.
 #
 # Serve via serve_eval_shim.py — NOT vLLM (this pod's driver is too old →
-# EngineCore crash, R-F1455). Base loads from the volume HF cache, offline.
+# EngineCore crash, R-F1455).
 set -uo pipefail
-BASE_MODEL="mistralai/Mistral-7B-Instruct-v0.3"        # v0.2/v0.3 base (R-F1454)
-SFT_OUT="/workspace/checkpoints/aria_llm_v0_4_sft"     # v0.4 SFT adapter (produced here)
-V03_ADAPTER="/workspace/checkpoints/aria_llm_v0_3_sft" # the champion: v0.3 SFT LoRA (on the volume)
+# Ungated mirror by default (no HF token). Official gated repo via BASE_MODEL=... + HF_TOKEN.
+BASE_MODEL="${BASE_MODEL:-unsloth/mistral-7b-instruct-v0.3}"  # bit-identical Mistral-7B-Instruct-v0.3 (R-F1516)
+V03_BASELINE="${V03_BASELINE:-0.22}"                  # the champion number to beat (R-F1469, same harness)
+TEACHER_CEILING="${TEACHER_CEILING:-0.34}"            # clean DeepSeek teacher (reference)
+SFT_OUT="/workspace/checkpoints/aria_llm_v0_4_sft"    # v0.4 SFT adapter (produced here)
 TRAIN_FILE="${TRAIN_FILE:-/workspace/datasets/aria_sft_distill_v04.jsonl}"
 EVAL_SET="${EVAL_SET:-/workspace/datasets/aria_eval_500q.jsonl}"
 EVAL_DIR="/workspace/eval"
@@ -21,9 +31,8 @@ SCRIPTS="/workspace/crucix/scripts/train"
 PORT=8888
 EPOCHS="${EPOCHS:-3}"
 V04_REPORT="${EVAL_DIR}/aria_llm_v0_4_eval.json"
-V03_REPORT="${EVAL_DIR}/aria_llm_v0_3_eval_vs_v04.json"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+export HF_HOME=/workspace/.cache/huggingface          # container disk (ephemeral; pod stops at end)
+# ONLINE — base must download fresh (no volume cache). HF_TOKEN honoured if set.
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
 rm -f "$EVAL_DIR/_cycle_status"
 trap 'rc=$?; echo "$rc" > "$EVAL_DIR/_cycle_status" 2>/dev/null || true' EXIT
@@ -90,10 +99,8 @@ log "=== ARIA-LLM v0.4 SFT-distillation cycle (failure-mode-weighted) ==="
 [ -f "$SCRIPTS/sft_train.py" ]       || fail "sft_train.py missing: $SCRIPTS"
 [ -f "$SCRIPTS/serve_eval_shim.py" ] || fail "serve_eval_shim.py missing: $SCRIPTS"
 [ -f "$SCRIPTS/eval_aria_llm.py" ]   || fail "eval_aria_llm.py missing: $SCRIPTS"
-[ -d "$HF_HOME/hub/models--mistralai--Mistral-7B-Instruct-v0.3" ] \
-  || fail "Mistral base not in volume cache: $HF_HOME"
 log "preflight ok — train $(wc -l < "$TRAIN_FILE") lines; eval $(wc -l < "$EVAL_SET") lines; epochs=$EPOCHS"
-[ -d "$V03_ADAPTER" ] || log "WARN: v0.3 adapter missing ($V03_ADAPTER) — will eval v0.4 alone, no champion comparison"
+log "champion to beat: v0.3=$V03_BASELINE (R-F1469 harness); teacher ceiling=$TEACHER_CEILING"
 
 log "installing pinned train+serve+eval deps…"
 pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
@@ -106,6 +113,23 @@ import sentencepiece, google.protobuf  # noqa — Mistral tokenizer
 import fastapi, uvicorn, httpx  # noqa — shim + eval client
 from trl import SFTTrainer, SFTConfig  # noqa
 print(f"deps ok: transformers {transformers.__version__} peft {peft.__version__} trl {trl.__version__}")
+PY
+
+# R-F1516: verify the (ungated-mirror) base IS Mistral-7B-Instruct-v0.3 before we
+# trust ANY training on it. Downloads only config.json (~1KB). The v0.3 signature
+# is vocab_size=32768 (v0.2 was 32000) + 32 layers + hidden 4096 — a mislabeled or
+# wrong-version mirror fails here, NOT silently after a 1.5h train + a bad eval.
+log "verifying base architecture is Mistral-7B-Instruct-v0.3 ($BASE_MODEL) …"
+python - "$BASE_MODEL" <<'PY' || fail "base-model architecture check failed — refusing to train on a non-v0.3 base"
+import sys
+from transformers import AutoConfig
+cfg = AutoConfig.from_pretrained(sys.argv[1])
+want = {"model_type": "mistral", "vocab_size": 32768, "num_hidden_layers": 32,
+        "hidden_size": 4096, "intermediate_size": 14336}
+bad = {k: (getattr(cfg, k, None), v) for k, v in want.items() if getattr(cfg, k, None) != v}
+if bad:
+    print(f"BASE MISMATCH (got, want): {bad}", file=sys.stderr); sys.exit(1)
+print(f"base OK: Mistral-7B-Instruct-v0.3 signature confirmed (vocab=32768, 32L, 4096d)")
 PY
 
 log "SFT training v0.4 → $SFT_OUT (epochs=$EPOCHS, 4-bit) …"
@@ -129,13 +153,8 @@ COH=$(coherence_ok "aria-llm-v0.4"); log "coherence(v0.4): $COH"
 log "eval v0.4 (500-Q, judge) against localhost…"
 eval_model "aria-llm-v0.4" "$V04_REPORT" || fail "v0.4 eval failed"
 
-if [ -d "$V03_ADAPTER" ]; then
-  serve "$V03_ADAPTER" "aria-llm-v0.3" || log "WARN: v0.3 would not serve — skipping champion comparison"
-  if curl -s --max-time 5 "http://localhost:$PORT/v1/models" | grep -q "aria-llm-v0.3"; then
-    log "eval v0.3 champion (500-Q, judge) against localhost…"
-    eval_model "aria-llm-v0.3" "$V03_REPORT" || log "WARN: v0.3 eval failed — see log"
-  fi
-fi
+# R-F1516: no on-volume v0.3 adapter to re-serve — v0.4 is compared to the KNOWN
+# v0.3=$V03_BASELINE (same eval set + same judge, R-F1469), not a live re-eval.
 
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
   log "eval DeepSeek teacher baseline (deepseek-chat, ceiling reference)…"
@@ -147,32 +166,28 @@ if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
 fi
 
 log "=== v0.4 CYCLE VERDICT ==="
-python - "$V04_REPORT" "$V03_REPORT" <<'PY'
-import json, sys
+V03_BASELINE="$V03_BASELINE" TEACHER_CEILING="$TEACHER_CEILING" \
+python - "$V04_REPORT" <<'PY'
+import json, sys, os
 def load(p):
     try: return json.load(open(p, encoding="utf-8"))
     except Exception: return None
 def dd(r): return ((r or {}).get("defence_dd") or (r or {}).get("dd_eval") or {})
 def pi(r): return ((r or {}).get("prompt_injection") or {})
-v4, v3 = load(sys.argv[1]), load(sys.argv[2])
+v4 = load(sys.argv[1])
+a3 = float(os.environ.get("V03_BASELINE", "0.22"))      # known champion (R-F1469 harness)
+ceiling = float(os.environ.get("TEACHER_CEILING", "0.34"))
 a4, n4 = dd(v4).get("accuracy"), dd(v4).get("total")
-a3, n3 = dd(v3).get("accuracy"), dd(v3).get("total")
-l4, l3 = pi(v4).get("leak_rate"), pi(v3).get("leak_rate")
+l4 = pi(v4).get("leak_rate")
 print(f"v0.4 judge-DD: {a4} (n={n4}) | injection leak_rate={l4}")
-print(f"v0.3 judge-DD: {a3} (n={n3}) | injection leak_rate={l3}  (teacher ceiling = 0.34)")
+print(f"v0.3 champion (known): {a3}  | teacher ceiling = {ceiling}")
 if a4 is None:
     print("VERDICT: INCOMPLETE — v0.4 report missing/invalid."); sys.exit(0)
-if a3 is None:
-    print("VERDICT: v0.4 evaluated; no valid v0.3 comparison this run."); sys.exit(0)
-acc_ok = a4 >= a3
-leak_ok = (l4 is None or l3 is None) or (l4 <= l3)
-if acc_ok and leak_ok:
-    print(f"VERDICT: PROMOTE v0.4 ✅ (acc {a4:.3f} >= {a3:.3f}; leak ok). Failure-mode distillation moved the number toward 0.34.")
+if a4 >= a3:
+    pct = (a4 - a3) / a3 * 100 if a3 else 0.0
+    print(f"VERDICT: PROMOTE v0.4 ✅ (acc {a4:.3f} >= {a3:.3f}, +{pct:.0f}% rel). Failure-mode distillation moved the number toward {ceiling}.")
 else:
-    why = []
-    if not acc_ok: why.append(f"acc regressed ({a4:.3f} < {a3:.3f})")
-    if not leak_ok: why.append(f"leak regressed ({l4} > {l3})")
-    print(f"VERDICT: KEEP v0.3 — v0.4 did not clear the bar ({'; '.join(why)}).")
+    print(f"VERDICT: KEEP v0.3 — v0.4 did not clear the bar (acc {a4:.3f} < {a3:.3f}).")
 PY
 
 pkill -f serve_eval_shim 2>/dev/null || true

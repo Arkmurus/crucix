@@ -106,15 +106,14 @@ for i in $(seq 1 200); do   # 200 * 120s ~ 6.6h cap; loop breaks the moment the 
 done
 [ -n "$RC" ] || echo "[driver] WARN: no completion signal within the cap — pulling whatever exists, then stopping"
 
-# 5. Pull reports
+# 5. Pull reports (R-F1516: volume-free — no on-pod v0.3 re-eval; compare to known 0.22)
 mkdir -p data/eval_reports
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_llm_v0_4_eval.json data/eval_reports/aria_llm_v0_4_eval.json 2>/dev/null || echo "[driver] (v0.4 report not pulled)"
-scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_llm_v0_3_eval_vs_v04.json data/eval_reports/aria_llm_v0_3_eval_vs_v04.json 2>/dev/null || echo "[driver] (v0.3 champion report not pulled)"
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/deepseek_baseline_eval.json data/eval_reports/deepseek_baseline_eval_500q.json 2>/dev/null || echo "[driver] (deepseek report not pulled)"
 
-# 6. Local verdict echo — v0.4 vs the v0.3 champion (DeepSeek teacher 0.34 = ceiling)
+# 6. Local verdict echo — v0.4 vs the KNOWN v0.3=0.22 champion (teacher 0.34 = ceiling)
 echo "[driver] === v0.4 CYCLE RESULT (local) ==="
-python - <<'PY'
+V03_BASELINE="${V03_BASELINE:-0.22}" python - <<'PY'
 import json, os
 def line(tag, f):
     if not os.path.exists(f): print(f"{tag}: MISSING ({f})"); return None
@@ -122,9 +121,10 @@ def line(tag, f):
     print(f"{tag}: judge-DD={dd.get('accuracy')} (n={dd.get('total')}) | leak_rate={pi.get('leak_rate')}")
     return dd.get("accuracy")
 a4=line("v0.4", "data/eval_reports/aria_llm_v0_4_eval.json")
-a3=line("v0.3", "data/eval_reports/aria_llm_v0_3_eval_vs_v04.json")
+a3=float(os.environ.get("V03_BASELINE","0.22"))
+print(f"v0.3 champion (known): {a3}")
 line("DeepSeek (teacher ceiling ~0.34)", "data/eval_reports/deepseek_baseline_eval_500q.json")
-if a4 is not None and a3 is not None:
+if a4 is not None:
     print(f"PROMOTE v0.4" if a4 >= a3 else "KEEP v0.3", f"(v0.4 {a4} vs v0.3 {a3})")
 PY
 stop_pod

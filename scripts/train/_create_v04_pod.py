@@ -1,6 +1,15 @@
-"""Create a GPU pod for the v0.4 cycle on the eval volume, with the SSH public
-key injected (PUBLIC_KEY env) so the orchestrator can SSH in. Prints the pod id
-on success, nothing on capacity failure. Exit 0 always (launcher reads stdout).
+"""Create a GPU pod for the v0.4 cycle, with the SSH public key injected
+(PUBLIC_KEY env) so the orchestrator can SSH in. Prints the pod id on success,
+nothing on capacity failure. Exit 0 always (launcher reads stdout).
+
+R-F1516 — VOLUME-FREE. The earlier build pinned networkVolumeId "4vdw2zmqov",
+which region-locks every pod to US-KS-2 — the datacenter that was DELETING pods
+within minutes (3 lost 2026-06-11, one mid-train). A network volume is
+region-locked, so the volume WAS the trap. Dropping it lets the scheduler place
+the pod in ANY datacenter with capacity. The cost: no pre-cached HF base and no
+on-volume v0.3 adapter — handled in v0_4_pod_run.sh (base downloads fresh from an
+ungated mirror; v0.4 compares to the KNOWN v0.3=0.22, no re-serve). Container
+disk is bumped to fit the ~15GB base download + LoRA checkpoints (was on volume).
 
 Why a helper: API-created pods (unlike console ones) don't get the account SSH
 key automatically, and the create body needs JSON-safe quoting for the key.
@@ -8,7 +17,6 @@ Only VALID gpuTypeIds (the enum the REST API accepts) — one bad string rejects
 the whole request (R-F1514 learned this the hard way)."""
 import json, urllib.request, urllib.error, pathlib
 
-VOL = "4vdw2zmqov"
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
 GPUS = ["NVIDIA A40", "NVIDIA L40S", "NVIDIA RTX A6000", "NVIDIA L40",
         "NVIDIA RTX 6000 Ada Generation", "NVIDIA A100 80GB PCIe",
@@ -24,8 +32,9 @@ body = {
     "name": "aria-v04-train",
     "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
     "gpuTypeIds": GPUS, "gpuCount": 1, "cloudType": "SECURE",
-    "networkVolumeId": VOL, "volumeMountPath": "/workspace",
-    "containerDiskInGb": 80, "ports": ["8888/http", "22/tcp"],
+    # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
+    # Container disk holds the fresh base download (~15GB) + checkpoints.
+    "containerDiskInGb": 120, "ports": ["8888/http", "22/tcp"],
     "env": {"PUBLIC_KEY": pub},
 }
 req = urllib.request.Request(
