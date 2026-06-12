@@ -287,11 +287,26 @@ async def _run_defence_dd_eval(
     ckpt_lock = asyncio.Lock()
 
     async def _eval_one(idx: int, q: dict) -> None:
-        prompt = q.get("question", "")
+        question = q.get("question", "")
         expected_answer = q.get("expected_answer", "") or ""
         topic = q.get("topic", "general")
-        if not prompt:
+        if not question:
             return
+        # R-F1533: OPEN-BOOK mode. If the record carries a `context` field (retrieved
+        # evidence), prepend it as the production grounding block so the model answers
+        # FROM the evidence and cites it; no `context` => the bare question (closed-book,
+        # unchanged). Same [CONTEXT]/[QUESTION] shape as the grounded SFT rows so
+        # train/eval/serve stay format-consistent. The JUDGE always sees the bare
+        # question (it grades the answer, not the evidence block).
+        context = (q.get("context") or "").strip()
+        if context:
+            prompt = (
+                "[CONTEXT — answer ONLY from this evidence; cite inline as "
+                "[from <source>]; if it does not contain the answer, say so]\n"
+                f"{context}\n\n[QUESTION]\n{question}"
+            )
+        else:
+            prompt = question
         async with sem:
             try:
                 response, latency = await _call_chat(
@@ -302,7 +317,7 @@ async def _run_defence_dd_eval(
                     judge_result = await _judge_answer(
                         judge_url=judge_url, judge_model=judge_model,
                         judge_api_key=judge_api_key,
-                        question=prompt, expected=expected_answer, actual=response,
+                        question=question, expected=expected_answer, actual=response,
                     )
                     j_lat = time.time() - t0
                     passed = judge_result.get("verdict") == "correct"
@@ -315,7 +330,7 @@ async def _run_defence_dd_eval(
                             "[eval_aria_llm] R-F1468: question %d has NO expected_answer — "
                             "judge cannot fire. Add expected_answer to the eval set. "
                             "Question: '%s...'",
-                            idx + 1, (prompt or "")[:80],
+                            idx + 1, (question or "")[:80],
                         )
                     # Fallback: keyword matching (only when no judge available)
                     expected_keywords = [k.lower() for k in q.get("expected_keywords", [])]
@@ -331,7 +346,7 @@ async def _run_defence_dd_eval(
                         verdict = "unscored"
                         judge_reason = "no expected_answer or expected_keywords"
                 res = {
-                    "question": prompt[:200],
+                    "question": question[:200],
                     "topic":    topic,
                     "passed":   passed,
                     "verdict":  verdict,
@@ -344,7 +359,7 @@ async def _run_defence_dd_eval(
                     "_judge_latency": j_lat,
                 }
             except Exception as e:
-                res = {"question": prompt[:80], "topic": topic, "error": str(e)}
+                res = {"question": question[:80], "topic": topic, "error": str(e)}
             done[idx] = res
             if ckpt_path:
                 async with ckpt_lock:
