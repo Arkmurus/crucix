@@ -11,14 +11,16 @@ cd "$(dirname "$0")/../.."
 LOG=data/_v04_train_launcher.log
 RETRY=${RETRY:-150}        # capacity-wait between create attempts
 MAX=${MAX:-120}           # ~5h of retrying
+# R-F1522: which on-pod cycle to drive (SFT by default; DPO via CYCLE_DRIVER override).
+CYCLE_DRIVER="${CYCLE_DRIVER:-scripts/train/run_v0_4_cycle.sh}"
 log(){ echo "[$(date -u +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
-log "=== R-F1514 v0.4 train launcher (intermittent-capacity GPU grab) ==="
+log "=== R-F1514 v0.4 train launcher (intermittent-capacity GPU grab) — driver=$CYCLE_DRIVER ==="
 for i in $(seq 1 "$MAX"); do
   POD=$(python scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
   if [ -n "$POD" ]; then
-    log "CREATED GPU pod $POD (attempt $i/$MAX) — handing to run_v0_4_cycle.sh NOW"
-    RUNPOD_POD_ID="$POD" bash scripts/train/run_v0_4_cycle.sh 2>&1 | tee -a "$LOG"
+    log "CREATED GPU pod $POD (attempt $i/$MAX) — handing to $CYCLE_DRIVER NOW"
+    RUNPOD_POD_ID="$POD" bash "$CYCLE_DRIVER" 2>&1 | tee -a "$LOG"
     RC=${PIPESTATUS[0]}
     if [ "$RC" = "0" ]; then
       log "=== v0.4 cycle completed (rc=0) — pod stopped by the orchestrator ==="
