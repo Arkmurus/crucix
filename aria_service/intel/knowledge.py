@@ -783,6 +783,86 @@ def _detect_contradictions(topic: str, content: str, existing_facts: list[dict])
     return contradictions
 
 
+# ── R-F1530: auto-verification queue ────────────────────────────────────────
+# Every fact stored via store_fact is automatically queued for verification,
+# regardless of whether the caller supplied source_url/fact_type/entity_name.
+# Previously only facts with all three fields went through verified_intel;
+# everything else was stamped LEGACY_UNVERIFIED and never verified.
+# This is the structural fix for verified_intel being stale for 59h.
+
+
+def _auto_verify_fact(
+    fact_record: dict,
+    topic: str,
+    content: str,
+    source: str,
+) -> None:
+    """Fire-and-forget: queue a fact for background verification.
+
+    Runs as a sync function (fire-and-forget via asyncio.create_task)
+    so it never blocks the store_fact caller. If verification is not
+    configured (no verified_intel module), this is a no-op.
+    """
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no running loop — can't schedule background task
+
+    try:
+        from . import verified_intel as _vi
+        from . import redis_store as rs
+
+        async def _verify():
+            try:
+                # Check if verification engine is available
+                engine = _vi.ARIAVerificationEngine()
+                # Use the fact's content as the claim to verify
+                claim_text = (content or "")[:500]
+                if len(claim_text) < 20:
+                    return  # too short to verify
+
+                # Extract entity name from topic or source
+                entity = (topic or "")[:100]
+                if not entity:
+                    entity = (source or "").split(":")[0][:100]
+
+                # Run verification in background
+                vfact = await engine.averify_and_store(
+                    claim_text=claim_text,
+                    claim_value=content[:200],
+                    entity_name=entity,
+                    entity_type="unknown",
+                    fact_type=_vi.FactType.GENERAL_CLAIM,
+                    source_url=fact_record.get("source_url", ""),
+                    source_excerpt=content[:300],
+                )
+
+                # Update the fact record with verification results
+                if vfact:
+                    fact_record["verification_status"] = vfact.verification_status.value
+                    fact_record["verification_score"] = vfact.verification_score
+                    fact_record["verified_fact_id"] = vfact.fact_id
+                    fact_record["citation"] = vfact.citation
+                    fact_record["expires_at"] = vfact.expires_at
+                    fact_record["source_urls"] = [s.url for s in vfact.sources]
+
+                    # Persist the updated verification status
+                    await rs.set_json(
+                        f"crucix:verified_intel:fact:{vfact.fact_id}",
+                        vfact.to_dict(),
+                    )
+
+            except Exception:
+                # Verification is best-effort — never break fact storage
+                pass
+
+        task = loop.create_task(_verify())
+        task.add_done_callback(lambda t: None)  # prevent GC collection
+    except Exception:
+        pass  # verification not available — no-op
+
+
 async def store_fact(topic: str, content: str, source: str = "user",
                      confidence: str = "CONFIRMED",
                      *,
@@ -1026,6 +1106,16 @@ async def store_fact(topic: str, content: str, source: str = "user",
     if verified_meta:
         new_record.update(verified_meta)
     db["facts"].insert(0, new_record)
+
+    # R-F1530: auto-queue every fact for verification, regardless of whether
+    # the caller supplied source_url/fact_type/entity_name. Previously only
+    # facts with all three fields went through verified_intel; everything else
+    # was stamped LEGACY_UNVERIFIED and never verified. Now every fact gets
+    # queued for background verification.
+    try:
+        _auto_verify_fact(new_record, topic, content, source)
+    except Exception:
+        pass  # never let verification break fact storage
     # R-F239 (2026-05-11) — warn-only at WARN_FACTS, no truncation at MAX_FACTS.
     # Pre-R-F239 the truncation `db["facts"] = db["facts"][:MAX_FACTS]` dropped
     # the OLDEST facts (insert(0,...) puts newest at index 0, slice keeps
