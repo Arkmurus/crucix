@@ -787,6 +787,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
     # Fire-and-forget via asyncio.to_thread (chromadb upsert is blocking).
     try:
         from .coding_rag_indexer import FixRecord, index_fix as _cri_index_fix
+        from datetime import datetime, timezone  # R-F1534: was MISSING → NameError swallowed → this success branch never ran
         _fix_record = FixRecord(
             r_number=target.get("r_number", improvement_id[:12]),
             title=target.get("description", "Unknown fix")[:200],

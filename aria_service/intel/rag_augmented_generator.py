@@ -47,6 +47,7 @@ def build_augmented_context(
     top_k_failures: int = 2,
     top_k_structure: int = 5,
     top_k_constraints: int = 3,
+    min_similarity: float = 0.35,  # R-F1534: was unset (0.0) → every plan got irrelevant context injected
 ) -> dict:
     """Build an augmented context dict for LLM fix generation.
 
@@ -81,13 +82,16 @@ def build_augmented_context(
         query_parts.append(title)
     query = " ".join(query_parts)
 
-    # Retrieve from all four collections
-    similar_fixes = cri.query_relevant_fixes(query, top_k=top_k_fixes)
-    known_failures = cri.query_known_failures(gap_type, error_type, top_k=top_k_failures)
-    structural_context = cri.query_codebase_context(module, top_k=top_k_structure)
+    # Retrieve from all four collections (R-F1534: apply the relevance floor on the
+    # PRODUCTION path — chromadb always returns top_k, so without this every plan got
+    # up to 13 chunks regardless of relevance, the opposite of the intended quality gain).
+    similar_fixes = cri.query_relevant_fixes(query, top_k=top_k_fixes, min_similarity=min_similarity)
+    known_failures = cri.query_known_failures(gap_type, error_type, top_k=top_k_failures, min_similarity=min_similarity)
+    structural_context = cri.query_codebase_context(module, top_k=top_k_structure, min_similarity=min_similarity)
     constraints = cri.query_constitutional_constraints(
         f"modifying {module} {gap_type}",
         top_k=top_k_constraints,
+        min_similarity=min_similarity,
     )
 
     # Build formatted text
