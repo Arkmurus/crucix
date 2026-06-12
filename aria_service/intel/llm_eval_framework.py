@@ -248,8 +248,9 @@ class LLMEvalFramework:
         try:
             embedder = await self._get_embedder()
             if embedder:
-                emb_answer = embedder.encode(answer, normalize_embeddings=True)
-                emb_expected = embedder.encode(expected, normalize_embeddings=True)
+                import asyncio as _aio  # R-F1536: encode() is sync CPU — offload off the loop
+                emb_answer = await _aio.to_thread(embedder.encode, answer, normalize_embeddings=True)
+                emb_expected = await _aio.to_thread(embedder.encode, expected, normalize_embeddings=True)
                 similarity = float(emb_answer @ emb_expected)
                 return max(0.0, min(1.0, similarity))
         except Exception as exc:
