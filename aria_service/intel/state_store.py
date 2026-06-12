@@ -587,6 +587,23 @@ async def connect(db_path: str | None = None) -> bool:
         await _conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_list_entries_key ON list_entries(list_key, seq DESC)"
         )
+        # R-F1518: row-per-entry hash storage. Each hash field gets its own row,
+        # eliminating the read-modify-write cycle that held the Python lock for
+        # the entire JSON blob. hset is now a single UPSERT — no lock, no contention.
+        await _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hash_entries (
+                hash_key    TEXT NOT NULL,
+                field       TEXT NOT NULL,
+                value       TEXT NOT NULL,
+                expires_at  REAL,
+                PRIMARY KEY (hash_key, field)
+            )
+            """
+        )
+        await _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hash_entries_key ON hash_entries(hash_key)"
+        )
         await _conn.commit()
         logger.info("state_store: SQLite ready at %s (WAL mode)", _DB_PATH)
         return True
@@ -617,7 +634,8 @@ async def sweep_expired() -> int:
     """Purge rows whose expires_at is in the past. Returns the row count
     deleted. Run periodically from a background task.
     
-    R-F1515: also sweeps expired list_entries rows."""
+    R-F1515: also sweeps expired list_entries rows.
+    R-F1518: also sweeps expired hash_entries rows."""
     if _conn is None:
         return 0
     total = 0
@@ -639,6 +657,15 @@ async def sweep_expired() -> int:
         total += cur.rowcount or 0
     except Exception as e:
         logger.warning("state_store: sweep list_entries failed: %s", e)
+    try:
+        cur = await _conn.execute(
+            "DELETE FROM hash_entries WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (_now(),),
+        )
+        await _conn.commit()
+        total += cur.rowcount or 0
+    except Exception as e:
+        logger.warning("state_store: sweep hash_entries failed: %s", e)
     if total > 0:
         logger.debug("state_store: swept %d expired rows", total)
     return total
@@ -1022,37 +1049,55 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     R-F1515: single INSERT with no Python-level lock. The sequence number
     is derived from a dedicated counter key so concurrent pushes don't
     collide. No read-modify-write cycle — this is O(1) and lock-free.
+    
+    R-F1518: fixed race condition where two concurrent lpush calls could
+    read the same counter value and collide on the UNIQUE constraint.
+    Now uses INSERT OR IGNORE with a retry loop — if the INSERT fails
+    (race lost), the counter is re-read and the INSERT retried.
     """
     if _conn is None:
         if critical:
             raise StateWriteError(f"lpush {key}: no connection")
         return
-    try:
-        # Atomically increment the sequence counter
-        seq_key = _list_seq_counter(key)
-        await _conn.execute(
-            "INSERT INTO state(key, value, kind) "
-            "VALUES(?, CAST(? AS TEXT), 'string') "
-            "ON CONFLICT(key) DO UPDATE SET "
-            "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
-            (seq_key, 1),
-        )
-        await _conn.commit()
-        # Read back the new sequence number
-        cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
-        row = await cur.fetchone()
-        await cur.close()
-        seq = int(row[0]) if row else 1
-        # Insert the entry with the new sequence number
-        await _conn.execute(
-            "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
-            (key, seq, value),
-        )
-        await _conn.commit()
-    except Exception as e:
-        logger.warning("[R-F1515] lpush %s failed: %s", key, e)
-        if critical:
-            raise StateWriteError(f"lpush {key}: {e}") from e
+    seq_key = _list_seq_counter(key)
+    for attempt in range(5):  # max 5 retries on race
+        try:
+            # Atomically increment the sequence counter
+            await _conn.execute(
+                "INSERT INTO state(key, value, kind) "
+                "VALUES(?, CAST(? AS TEXT), 'string') "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
+                (seq_key, 1),
+            )
+            await _conn.commit()
+            # Read back the new sequence number
+            cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
+            row = await cur.fetchone()
+            await cur.close()
+            seq = int(row[0]) if row else 1
+            # Insert the entry with the new sequence number
+            # Use INSERT OR IGNORE to handle race: if another lpush got the
+            # same seq, this silently fails and we retry with a new seq.
+            cur = await _conn.execute(
+                "INSERT OR IGNORE INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
+                (key, seq, value),
+            )
+            await _conn.commit()
+            if cur.rowcount and cur.rowcount > 0:
+                return  # success
+            # Race lost — another lpush got this seq. Retry.
+            if attempt < 4:
+                continue
+            logger.warning("[R-F1518] lpush %s failed after 5 attempts (persistent race)", key)
+            if critical:
+                raise StateWriteError(f"lpush {key}: persistent race")
+            return
+        except Exception as e:
+            logger.warning("[R-F1518] lpush %s failed (attempt %d/5): %s", key, attempt + 1, e)
+            if critical:
+                raise StateWriteError(f"lpush {key}: {e}") from e
+            return
 
 
 async def lpop(key: str) -> str | None:
@@ -1386,32 +1431,123 @@ async def zcard(key: str) -> int:
     return len(entries)
 
 
-# ── Hashes ──────────────────────────────────────────────────────────────
+# ── Hashes (row-per-entry) ────────────────────────────────────────────
+# R-F1518: replaced JSON-blob-backed hash ops with row-per-entry storage.
+# Each hash field is a separate row in the `hash_entries` table. hset is
+# now a single UPSERT per field — no Python lock, no read-modify-write.
+#
+# Backward compatibility: on first read of a legacy JSON-blob hash key
+# (kind="hash" in the `state` table), the fields are migrated to the new
+# table and the old key is deleted.
 
-async def _read_hash(key: str) -> tuple[dict, float | None]:
+
+async def _migrate_hash_if_needed(key: str) -> None:
+    """Migrate a legacy JSON-blob hash to the row-per-entry table.
+    
+    Called lazily on first read. If the key exists in the `state` table
+    with kind='hash', its entries are copied to `hash_entries` and the
+    old key is deleted.
+    """
     row = await _row(key, expected_kind="hash")
     if not row:
-        return {}, None
+        return
     try:
         h = json.loads(row[0])
-        return (h if isinstance(h, dict) else {}), row[2]
-    except Exception:
-        return {}, row[2]
+        if not isinstance(h, dict) or not h:
+            return
+        expires_at = row[2]
+        for field, value in h.items():
+            await _conn.execute(
+                "INSERT OR IGNORE INTO hash_entries(hash_key, field, value, expires_at) "
+                "VALUES(?, ?, ?, ?)",
+                (key, field, json.dumps(value, default=str) if not isinstance(value, str) else str(value), expires_at),
+            )
+        await _conn.commit()
+        # Delete the old JSON blob
+        await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
+        await _conn.commit()
+        logger.debug("state_store: migrated hash %s (%d fields) to row-per-entry", key, len(h))
+    except Exception as e:
+        logger.warning("state_store: hash migration failed for %s: %s", key, e)
 
 
 async def hset(key: str, mapping: dict, *, critical: bool = False) -> None:
-    async def _op():
-        existing, expires_at = await _read_hash(key)
-        existing.update(mapping)
-        await _upsert(key, json.dumps(existing, default=str), kind="hash",
-                      expires_at=expires_at, keepttl=True)
-    # R-F1341: was the 1311s-hold blackout culprit. R-F1351: critical passthrough.
-    await _run_locked("hset", _op, critical=critical)
+    """Set one or more fields in a hash.
+    
+    R-F1518: single UPSERT per field — no Python lock, no read-modify-write.
+    Each field is a separate row in the `hash_entries` table.
+    """
+    if _conn is None:
+        if critical:
+            raise StateWriteError(f"hset {key}: no connection")
+        return
+    try:
+        for field, value in mapping.items():
+            # Store as string — hgetall returns strings to match Redis semantics
+            str_value = str(value) if not isinstance(value, str) else value
+            await _conn.execute(
+                "INSERT INTO hash_entries(hash_key, field, value) "
+                "VALUES(?, ?, ?) "
+                "ON CONFLICT(hash_key, field) DO UPDATE SET value = excluded.value",
+                (key, field, str_value),
+            )
+        await _conn.commit()
+    except Exception as e:
+        logger.warning("[R-F1518] hset %s failed: %s", key, e)
+        if critical:
+            raise StateWriteError(f"hset {key}: {e}") from e
 
 
 async def hgetall(key: str) -> dict:
-    h, _ = await _read_hash(key)
-    return h
+    """Get all fields in a hash.
+    
+    R-F1518: single SELECT — no lock, no read-modify-write.
+    Falls back to legacy JSON-blob hash for backward compatibility.
+    """
+    if _conn is None:
+        return {}
+    try:
+        cur = await _conn.execute(
+            "SELECT field, value FROM hash_entries WHERE hash_key = ?",
+            (key,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        if rows:
+            return {field: value for field, value in rows}
+        # Fallback: check legacy JSON blob
+        await _migrate_hash_if_needed(key)
+        cur = await _conn.execute(
+            "SELECT field, value FROM hash_entries WHERE hash_key = ?",
+            (key,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        if rows:
+            return {field: value for field, value in rows}
+        return {}
+    except Exception as e:
+        logger.warning("[R-F1518] hgetall %s failed: %s", key, e)
+        return {}
+
+
+async def hdel(key: str, field: str) -> bool:
+    """Delete a field from a hash.
+    
+    R-F1518: single DELETE — no lock, no read-modify-write.
+    """
+    if _conn is None:
+        return False
+    try:
+        cur = await _conn.execute(
+            "DELETE FROM hash_entries WHERE hash_key = ? AND field = ?",
+            (key, field),
+        )
+        await _conn.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        logger.warning("[R-F1518] hdel %s failed: %s", key, e)
+        return False
 
 
 # ── Glob scan ───────────────────────────────────────────────────────────

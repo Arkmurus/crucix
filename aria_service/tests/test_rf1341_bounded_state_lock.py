@@ -56,16 +56,20 @@ async def test_normal_ops_work(tmp_path):
 
 @pytest.mark.asyncio
 async def test_stalled_op_times_out_and_releases(monkeypatch, tmp_path):
+    """R-F1518: hset is now lock-free (row-per-entry UPSERT), so this test
+    is obsolete. The old hset held the Python lock for the entire read-modify-
+    write cycle; the new hset is a single UPSERT per field with no lock.
+    The zadd path still uses the lock, so we test that instead."""
     await ss.connect(str(tmp_path / "s.db"))
 
     # Make the in-lock DB read hang far longer than _OP_TIMEOUT_S.
     async def _hang(*a, **k):
         await asyncio.sleep(30)
 
-    monkeypatch.setattr(ss, "_read_hash", _hang)
+    monkeypatch.setattr(ss, "_read_zset", _hang)
 
     # The op must return (its default) within ~_OP_TIMEOUT_S, NOT hang 30s.
-    result = await asyncio.wait_for(ss.hset("h", {"x": "1"}), timeout=3)
+    result = await asyncio.wait_for(ss.zadd("z", 1.0, "m1"), timeout=3)
     assert result is None
     assert ss._op_timeout_counts["op"] == 1
     # Lock must be released after the timeout — a fresh op can proceed.
@@ -74,16 +78,14 @@ async def test_stalled_op_times_out_and_releases(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_loop_keeps_breathing_while_holder_is_stalled(monkeypatch, tmp_path):
-    """R-F1515: lpush is now lock-free (row-per-entry INSERT), so this test
-    is obsolete. The old lock-based lpush held the Python lock for the entire
-    read-modify-write cycle; the new lpush is a single atomic INSERT with no
-    lock acquisition. The hset path still uses the lock, so we test that
-    hset contention doesn't blackout the loop."""
+    """R-F1518: hset is now lock-free (row-per-entry UPSERT), so this test
+    uses zadd (which still uses the lock) to verify that lock contention
+    doesn't blackout the loop."""
     await ss.connect(str(tmp_path / "s.db"))
 
     async def _hang(*a, **k):
         await asyncio.sleep(30)
-    monkeypatch.setattr(ss, "_read_hash", _hang)
+    monkeypatch.setattr(ss, "_read_zset", _hang)
 
     ticks = 0
     async def _heartbeat():
@@ -92,9 +94,9 @@ async def test_loop_keeps_breathing_while_holder_is_stalled(monkeypatch, tmp_pat
             ticks += 1
             await asyncio.sleep(0.05)
 
-    # Start a stalled hset holder + a waiter behind it + the heartbeat together.
-    holder = asyncio.create_task(ss.hset("h", {"a": "1"}))
-    waiter = asyncio.create_task(ss.hset("h", {"b": "2"}))
+    # Start a stalled zadd holder + a waiter behind it + the heartbeat together.
+    holder = asyncio.create_task(ss.zadd("z", 1.0, "m1"))
+    waiter = asyncio.create_task(ss.zadd("z", 2.0, "m2"))
     hb = asyncio.create_task(_heartbeat())
     await asyncio.gather(holder, waiter, hb)
 
@@ -131,15 +133,17 @@ async def test_op_timeout_triggers_reconnect(monkeypatch, tmp_path):
     not churned. Pre-R-F1397 this test asserted a churn here; churning a
     healthy conn failed every in-flight op with 'Cannot operate on a closed
     database' (live 2026-06-07). The genuinely-dead-conn churn path is
-    covered by test_rf1397_state_conn_churn.py."""
+    covered by test_rf1397_state_conn_churn.py.
+    
+    R-F1518: hset is now lock-free, so uses zadd instead."""
     await ss.connect(str(tmp_path / "s.db"))
     async def _hang(*a, **k):
         await asyncio.sleep(30)
-    monkeypatch.setattr(ss, "_read_hash", _hang)
+    monkeypatch.setattr(ss, "_read_zset", _hang)
 
     op_before = ss._op_timeout_counts["op"]
     rc_before = ss._op_timeout_counts["reconnect"]
-    await asyncio.wait_for(ss.hset("h", {"x": "1"}), timeout=3)
+    await asyncio.wait_for(ss.zadd("z", 1.0, "m1"), timeout=3)
     await asyncio.sleep(0.5)  # let the probe/heal task run
     assert ss._op_timeout_counts["op"] >= op_before + 1   # timeout still counted
     # conn was healthy → probe OK → NO churn (R-F1397)
