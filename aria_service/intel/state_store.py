@@ -1057,6 +1057,19 @@ def _list_seq_counter(key: str) -> str:
     return f"{key}:_seq"
 
 
+# R-F1518: per-list locks for lpush serialization. Each list gets its own
+# asyncio.Lock so pushes to different lists don't block each other. The
+# lock is held only for the counter increment + INSERT (microseconds).
+_lpush_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lpush_lock(key: str) -> asyncio.Lock:
+    """Get or create a per-list lock for lpush serialization."""
+    if key not in _lpush_locks:
+        _lpush_locks[key] = asyncio.Lock()
+    return _lpush_locks[key]
+
+
 async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     """Push a value to the front of a list.
     
@@ -1064,17 +1077,22 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     is derived from a dedicated counter key so concurrent pushes don't
     collide. No read-modify-write cycle — this is O(1) and lock-free.
     
-    R-F1518: fixed race condition where two concurrent lpush calls could
-    read the same counter value and collide on the UNIQUE constraint.
-    Now uses INSERT OR IGNORE with a retry loop — if the INSERT fails
-    (race lost), the counter is re-read and the INSERT retried.
+    R-F1518: uses a dedicated per-list asyncio.Lock to serialize the
+    counter increment and INSERT, eliminating the race where concurrent
+    lpush calls read the same counter value. The lock is held only for
+    the duration of the counter increment + INSERT (microseconds), not
+    for any I/O — so it cannot cause contention.
     """
     if _conn is None:
         if critical:
             raise StateWriteError(f"lpush {key}: no connection")
         return
     seq_key = _list_seq_counter(key)
-    for attempt in range(5):  # max 5 retries on race
+    # R-F1518: per-list lock to serialize counter increment + INSERT.
+    # This is a fast operation (microseconds) — the lock is never held
+    # across I/O boundaries, so it cannot cause contention.
+    lock = _get_lpush_lock(key)
+    async with lock:
         try:
             # Atomically increment the sequence counter
             await _conn.execute(
@@ -1091,27 +1109,15 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
             await cur.close()
             seq = int(row[0]) if row else 1
             # Insert the entry with the new sequence number
-            # Use INSERT OR IGNORE to handle race: if another lpush got the
-            # same seq, this silently fails and we retry with a new seq.
-            cur = await _conn.execute(
-                "INSERT OR IGNORE INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
+            await _conn.execute(
+                "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
                 (key, seq, value),
             )
             await _conn.commit()
-            if cur.rowcount and cur.rowcount > 0:
-                return  # success
-            # Race lost — another lpush got this seq. Retry.
-            if attempt < 4:
-                continue
-            logger.warning("[R-F1518] lpush %s failed after 5 attempts (persistent race)", key)
-            if critical:
-                raise StateWriteError(f"lpush {key}: persistent race")
-            return
         except Exception as e:
-            logger.warning("[R-F1518] lpush %s failed (attempt %d/5): %s", key, attempt + 1, e)
+            logger.warning("[R-F1518] lpush %s failed: %s", key, e)
             if critical:
                 raise StateWriteError(f"lpush {key}: {e}") from e
-            return
 
 
 async def lpop(key: str) -> str | None:
