@@ -783,6 +783,29 @@ async def deploy_improvement(improvement_id: str) -> dict:
     except Exception as e:
         logger.debug("Coding lesson record failed (non-fatal): %s", e)
 
+    # R-F1531: index the fix in CodingRAG for future retrieval.
+    # Fire-and-forget via asyncio.to_thread (chromadb upsert is blocking).
+    try:
+        from .coding_rag_indexer import FixRecord, index_fix as _cri_index_fix
+        _fix_record = FixRecord(
+            r_number=target.get("r_number", improvement_id[:12]),
+            title=target.get("description", "Unknown fix")[:200],
+            gap_type=target.get("change_type", "enhancement"),
+            module=file_path,
+            problem_description=target.get("description", ""),
+            approach="Deployed via self_improve.deploy_improvement",
+            files_changed=[file_path],
+            tests_passed=0,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            outcome="success",
+        )
+        import asyncio as _aio1531
+        _aio1531.create_task(
+            _aio1531.to_thread(_cri_index_fix, _fix_record)
+        )
+    except Exception as e:
+        logger.debug("[CodingRAG] Fix index failed (non-fatal): %s", e)
+
     return {
         "deployed": True,
         "id": improvement_id,

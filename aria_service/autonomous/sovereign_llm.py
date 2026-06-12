@@ -115,9 +115,29 @@ class SovereignLLM:
     async def generate_fix_plan(
         self, gap: Gap, codebase_context: str,
     ) -> dict[str, Any]:
-        """Plan a fix. Returns JSON-decoded dict from the model."""
+        """Plan a fix. Returns JSON-decoded dict from the model.
+
+        R-F1531: augments the prompt with relevant past fixes, known
+        failures, and codebase structure from the CodingRAG indexer.
+        Retrieval runs in a thread to avoid blocking the event loop.
+        """
+        # R-F1531: retrieve RAG-augmented context for this gap
+        rag_context = ""
+        try:
+            import asyncio as _aio1531
+            from ..intel.rag_augmented_generator import build_fix_prompt_section
+            rag_context = await _aio1531.to_thread(
+                build_fix_prompt_section,
+                gap_type=gap.gap_type,
+                module=gap.module,
+                title=gap.title,
+                error_type=getattr(gap, "error_trace", None),
+            )
+        except Exception as e:
+            logger.debug("[R-F1531] RAG context retrieval failed (non-fatal): %s", e)
+
         return await self._call(
-            prompt=self._build_plan_prompt(gap, codebase_context),
+            prompt=self._build_plan_prompt(gap, codebase_context, rag_context),
             task="plan",
             prefer_model=PREFER_MODEL,
         )
@@ -220,7 +240,15 @@ class SovereignLLM:
 
     # ── PROMPTS ──────────────────────────────────────────────────────────────
 
-    def _build_plan_prompt(self, gap: Gap, context: str) -> str:
+    def _build_plan_prompt(self, gap: Gap, context: str, rag_context: str = "") -> str:
+        rag_section = ""
+        if rag_context:
+            rag_section = f"""
+RAG-AUGMENTED CONTEXT (R-F1531) — Past fixes, failures, and structure
+relevant to this gap. Use these as templates and avoid repeating past
+mistakes.
+{rag_context}
+"""
         return f"""You are ARIA's autonomous self-coding engine. Plan a fix for the gap below.
 
 GAP REPORT
@@ -233,7 +261,7 @@ GAP REPORT
 
 CODEBASE CONTEXT
 {context}
-
+{rag_section}
 REASONING DISCIPLINE
 Before answering, think through these questions privately (do NOT include
 the thinking in your JSON output — only the conclusions):

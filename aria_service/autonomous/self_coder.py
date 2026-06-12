@@ -647,6 +647,25 @@ class ARIACoder:
             )
             test_result = await self._test_with_healing(plan, workspace)
             if not test_result.all_green:
+                # R-F1531: index the test failure in CodingRAG
+                try:
+                    import asyncio as _aio1531
+                    from ..intel.coding_rag_indexer import FailureRecord, index_failure as _cri_index_failure
+                    _fail_record = FailureRecord(
+                        r_number=f"R-F{r_number}" if r_number else gap.gap_id[:20],
+                        attempt_number=test_result.attempts or 1,
+                        error_type="test_failure",
+                        error_message=(test_result.failure_summary or "")[:300],
+                        why_failed=f"Tests failed after healing attempts for {gap.module}",
+                        next_approach="Review test output and fix root cause",
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
+                    _aio1531.create_task(
+                        _aio1531.to_thread(_cri_index_failure, _fail_record)
+                    )
+                except Exception as _fe:
+                    logger.debug("[R-F1531] Test failure index failed (non-fatal): %s", _fe)
+
                 return FixResult(
                     success=False, fix_id=fix_id, gap_id=gap.gap_id,
                     r_number=r_number,
@@ -844,6 +863,25 @@ class ARIACoder:
                 "[aria_coder] fix_gap %s failed: %s",
                 gap.gap_id, e, exc_info=True,
             )
+            # R-F1531: index the failure in CodingRAG for future avoidance.
+            try:
+                import asyncio as _aio1531
+                from ..intel.coding_rag_indexer import FailureRecord, index_failure as _cri_index_failure
+                _fail_record = FailureRecord(
+                    r_number=getattr(gap, "gap_id", "unknown")[:20],
+                    attempt_number=1,
+                    error_type=type(e).__name__,
+                    error_message=str(e)[:300],
+                    why_failed="Pipeline exception in fix_gap",
+                    next_approach="Review logs and retry with more context",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+                _aio1531.create_task(
+                    _aio1531.to_thread(_cri_index_failure, _fail_record)
+                )
+            except Exception as _fe:
+                logger.debug("[R-F1531] Failure index failed (non-fatal): %s", _fe)
+
             await self._publish_progress(
                 fix_id, "failed",
                 f"Pipeline crashed: {str(e)[:200]}",
