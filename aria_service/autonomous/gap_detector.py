@@ -1214,6 +1214,109 @@ class StaticAnalysisExtractor:
                 # Only report the first repeated block per file to avoid noise
                 break
 
+        # 6. Security pattern scanning (R-F1537)
+        # AST-level detection for dangerous builtins — same pattern list as
+        # claude_reviewer._DANGEROUS_ADD and constitutional_validator, but
+        # running continuously (every 15min scan) rather than only at deploy
+        # time or during Claude review. Catches code that was deployed before
+        # those gates existed, or that passes the deploy gate but still has
+        # security concerns.
+        _DANGEROUS_BUILTINS = frozenset({"eval", "exec", "compile"})
+        _DANGEROUS_ATTRS = frozenset({
+            "os.system", "os.popen", "subprocess.run", "subprocess.call",
+            "subprocess.check_output", "subprocess.Popen",
+            "pickle.loads", "marshal.loads",
+        })
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func_name = ""
+                is_attr = False
+                attr_full = ""
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    func_name = node.func.attr
+                    is_attr = True
+                    if isinstance(node.func.value, ast.Name):
+                        attr_full = f"{node.func.value.id}.{func_name}"
+
+                # Dangerous builtins: eval(), exec(), compile()
+                if not is_attr and func_name in _DANGEROUS_BUILTINS:
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.SOURCE_FAILURE,
+                        severity=GapSeverity.HIGH,
+                        title=f"Dangerous builtin {func_name}() in {rel_path}",
+                        description=(
+                            f"{rel_path}:{node.lineno} — `{func_name}()` executes "
+                            f"arbitrary code. Use ast.literal_eval() or a safe "
+                            f"alternative."
+                        ),
+                        module=rel_path,
+                        evidence={
+                            "line": node.lineno,
+                            "function": func_name,
+                            "issue": "dangerous_builtin",
+                        },
+                    ))
+
+                # Dangerous attribute calls: os.system(), pickle.loads(), etc.
+                if attr_full in _DANGEROUS_ATTRS:
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.SOURCE_FAILURE,
+                        severity=GapSeverity.HIGH,
+                        title=f"Dangerous call {attr_full}() in {rel_path}",
+                        description=(
+                            f"{rel_path}:{node.lineno} — `{attr_full}()` is a "
+                            f"security risk. Use safer alternatives."
+                        ),
+                        module=rel_path,
+                        evidence={
+                            "line": node.lineno,
+                            "function": attr_full,
+                            "issue": "dangerous_call",
+                        },
+                    ))
+
+        # 7. Hardcoded secrets detection (R-F1537)
+        # Regex-based scan for common hardcoded credential patterns.
+        # Only flags assignments (var = "value") where the value looks like
+        # a secret — not imports, not function calls, not empty strings.
+        _SECRET_PATTERNS: list[tuple[str, int, str]] = [
+            (r'''password\s*=\s*["'][^"'\s]{4,}["']''', 3,
+             "Hardcoded password — use environment variables or a secrets manager"),
+            (r'''passwd\s*=\s*["'][^"'\s]{4,}["']''', 3,
+             "Hardcoded password — use environment variables or a secrets manager"),
+            (r'''api_key\s*=\s*["'][^"'\s]{4,}["']''', 4,
+             "Hardcoded API key — use environment variables"),
+            (r'''apikey\s*=\s*["'][^"'\s]{4,}["']''', 4,
+             "Hardcoded API key — use environment variables"),
+            (r'''secret\s*=\s*["'][^"'\s]{4,}["']''', 4,
+             "Hardcoded secret — use environment variables"),
+            (r'''token\s*=\s*["'][A-Za-z0-9_\-]{16,}["']''', 3,
+             "Hardcoded token — use environment variables"),
+        ]
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip comments and empty lines
+            if not stripped or stripped.startswith("#"):
+                continue
+            for pattern, severity, desc in _SECRET_PATTERNS:
+                if re.search(pattern, stripped, re.IGNORECASE):
+                    gaps.append(self._make_gap(
+                        gap_type=GapType.SOURCE_FAILURE,
+                        severity=GapSeverity(severity),
+                        title=f"Hardcoded secret in {rel_path}",
+                        description=f"{rel_path}:{i} — {desc}",
+                        module=rel_path,
+                        evidence={
+                            "line": i,
+                            "issue": "hardcoded_secret",
+                            "pattern": pattern,
+                        },
+                    ))
+                    # Only report the first secret per line
+                    break
+
         return gaps
 
     def _make_gap(
