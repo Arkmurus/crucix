@@ -121,35 +121,6 @@ RESEARCH_FEEDS = [
     {"name": "Defensa.com", "url": "https://www.defensa.com/rss", "category": "latam_defence"},
     {"name": "Zona Militar", "url": "https://www.zona-militar.com/feed/", "category": "latam_defence"},
 
-    # ── Legal & Regulatory Sources (R-F1523) ─────────────────────────────
-    # These feeds feed ARIA's legal mastery across sanctions, export control,
-    # contract law, and international trade law. Add URLs here to have ARIA
-    # autonomously research and learn from legal sources every 30 minutes.
-    #
-    # To add a source, add a dict with:
-    #   name:     Human-readable label
-    #   url:      RSS/Atom feed URL
-    #   category: One of: sanctions_law, export_control, trade_law,
-    #             contract_law, swiss_law, uae_law, eu_law, international_law
-    #
-    # Example:
-    #   {"name": "EU Sanctions", "url": "https://eur-lex.europa.eu/...", "category": "sanctions_law"},
-    #
-    # R-F1523: placeholder — populate with actual legal RSS feeds.
-    # Recommended sources to add:
-    #   - EUR-Lex (EU law, sanctions, export control)
-    #   - Swiss Federal Office of Justice (Swiss law)
-    #   - UAE Ministry of Justice (UAE law)
-    #   - UK ECJU notices (export control)
-    #   - OFAC announcements (US sanctions)
-    #   - BIS EAR updates (US export control)
-    #   - WTO disputes (international trade law)
-    #   - ICC arbitration (contract law)
-    LEGAL_FEEDS: list[dict] = [
-        # Populate with legal RSS feeds to enable autonomous legal research.
-        # See comment above for format and recommended sources.
-    ],
-
     # ── Regional: Latin America (Spanish) ────────────────────────────────
     {"name": "Dialogo Americas", "url": "https://dialogo-americas.com/feed/", "category": "latam_security"},
     # BN Americas RSS removed — /rss/infrastructure → 404, paywall site
@@ -172,6 +143,35 @@ RESEARCH_FEEDS = [
     # F76 prune 2026-04-28: huanqiu.com /rss/mil.xml → 404.
     # {"name": "Global Times Military (ZH)", "url": "https://www.huanqiu.com/rss/mil.xml", "category": "china_defence"},
     {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
+]
+
+# ── Legal & Regulatory Sources (R-F1523) ─────────────────────────────
+# These feeds feed ARIA's legal mastery across sanctions, export control,
+# contract law, and international trade law. Add URLs here to have ARIA
+# autonomously research and learn from legal sources every 30 minutes.
+#
+# To add a source, add a dict with:
+#   name:     Human-readable label
+#   url:      RSS/Atom feed URL
+#   category: One of: sanctions_law, export_control, trade_law,
+#             contract_law, swiss_law, uae_law, eu_law, international_law
+#
+# Example:
+#   {"name": "EU Sanctions", "url": "https://eur-lex.europa.eu/...", "category": "sanctions_law"},
+#
+# R-F1523: placeholder — populate with actual legal RSS feeds.
+# Recommended sources to add:
+#   - EUR-Lex (EU law, sanctions, export control)
+#   - Swiss Federal Office of Justice (Swiss law)
+#   - UAE Ministry of Justice (UAE law)
+#   - UK ECJU notices (export control)
+#   - OFAC announcements (US sanctions)
+#   - BIS EAR updates (US export control)
+#   - WTO disputes (international trade law)
+#   - ICC arbitration (contract law)
+LEGAL_FEEDS: list[dict] = [
+    # Populate with legal RSS feeds to enable autonomous legal research.
+    # See comment above for format and recommended sources.
 ]
 
 # Defence anchor terms — at least one must match in title+description before
