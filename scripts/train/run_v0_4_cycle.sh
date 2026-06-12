@@ -24,7 +24,7 @@ DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | t
 [ -n "$DSK" ] || echo "[driver] WARN: DEEPSEEK_API_KEY not in .env — judge + DeepSeek baseline will be skipped"
 
 TRAIN_CORPUS="data/training/aria_sft_distill_v04.jsonl"
-EVAL_LOCAL="data/eval_reports/aria_eval_500q.jsonl"
+EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q.jsonl}"  # R-F1538: override to the open-book set for Stage 0
 [ -s "$TRAIN_CORPUS" ] || { echo "[driver] FATAL: corpus missing/empty: $TRAIN_CORPUS (combine batch1+batch2 first)"; exit 1; }
 [ -s "$EVAL_LOCAL" ]   || { echo "[driver] FATAL: eval set missing: $EVAL_LOCAL"; exit 1; }
 echo "[driver] corpus $(wc -l < "$TRAIN_CORPUS") pairs; eval $(wc -l < "$EVAL_LOCAL") Q"
