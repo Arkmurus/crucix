@@ -73,6 +73,16 @@ done
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$TRAIN_CORPUS" root@"$HOST":/workspace/datasets/aria_sft_distill_v04.jsonl || { echo "[driver] FATAL scp corpus"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$EVAL_LOCAL"   root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl       || { echo "[driver] FATAL scp eval set"; exit 1; }
 
+# R-F1517: eval_aria_llm.py imports aria_service.intel.prompt_injection_suite (adds repo root
+# to sys.path). The OLD volume pod had the full repo on the volume; a volume-free pod does NOT,
+# so the import threw and crashed the 500-Q eval before any report was written (the 2026-06-12
+# "v0.4 eval failed" fast-fail). Push the MINIMAL subtree it needs: both package __init__s are
+# empty, and engine_wiring's brain imports are lazy (inside functions), so this pulls NO brain.
+$SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/crucix/aria_service/intel"
+for f in aria_service/__init__.py aria_service/intel/__init__.py aria_service/intel/engine_wiring.py aria_service/intel/prompt_injection_suite.py; do
+  scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$f" root@"$HOST":/workspace/crucix/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
+done
+
 # 4. Launch the cycle DETACHED on the pod (setsid+nohup → survives any SSH drop
 #    over the 2-3h run), then poll for the EXIT-code sentinel the driver writes.
 echo "[driver] launching v0.4 cycle DETACHED on the pod..."

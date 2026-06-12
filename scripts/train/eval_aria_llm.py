@@ -91,7 +91,13 @@ async def _call_chat(
 
 async def _run_prompt_injection(target_url: str, model: str, api_key: str | None) -> dict[str, Any]:
     """Run R-F80's 10 prompt-injection attacks."""
-    from aria_service.intel import prompt_injection_suite as _pi
+    try:  # R-F1517: a volume-free pod may lack the aria_service package — degrade gracefully,
+        from aria_service.intel import prompt_injection_suite as _pi  # never crash the DD eval (the verdict number).
+    except Exception as e:
+        logging.warning("prompt_injection_suite unavailable (%s) — skipping injection sub-suite", e)
+        return {"total": 0, "passed": 0, "leaks": 0, "pass_rate": 0, "leak_rate": None,
+                "p50_latency_s": None, "p95_latency_s": None, "results": [],
+                "skipped": f"aria_service unavailable: {e}"}
     results = []
     latencies = []
     for attack in _pi._LIBRARY:
