@@ -1098,29 +1098,31 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     # R-F1518: per-list lock to serialize counter increment + INSERT.
     # This is a fast operation (microseconds) — the lock is never held
     # across I/O boundaries, so it cannot cause contention.
+    # R-F1520: uses _write_conn (dedicated write connection) so lpush
+    # doesn't block on _conn's compound ops (hset) and vice versa.
     lock = _get_lpush_lock(key)
     async with lock:
         try:
             # Atomically increment the sequence counter
-            await _conn.execute(
+            await _write_conn.execute(
                 "INSERT INTO state(key, value, kind) "
                 "VALUES(?, CAST(? AS TEXT), 'string') "
                 "ON CONFLICT(key) DO UPDATE SET "
                 "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
                 (seq_key, 1),
             )
-            await _conn.commit()
+            await _write_conn.commit()
             # Read back the new sequence number
-            cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
+            cur = await _write_conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
             row = await cur.fetchone()
             await cur.close()
             seq = int(row[0]) if row else 1
             # Insert the entry with the new sequence number
-            await _conn.execute(
+            await _write_conn.execute(
                 "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
                 (key, seq, value),
             )
-            await _conn.commit()
+            await _write_conn.commit()
         except Exception as e:
             logger.warning("[R-F1518] lpush %s failed: %s", key, e)
             if critical:
@@ -1397,14 +1399,15 @@ async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> flo
 
 
 async def expire(key: str, seconds: int) -> bool:
-    if _conn is None:
+    # R-F1520: uses _write_conn so EXPIRE doesn't block on _conn's compound ops
+    if _write_conn is None:
         return False
     try:
-        cur = await _conn.execute(
+        cur = await _write_conn.execute(
             "UPDATE state SET expires_at = ? WHERE key = ?",
             (_ttl_to_expires(seconds), key),
         )
-        await _conn.commit()
+        await _write_conn.commit()
         return (cur.rowcount or 0) > 0
     except Exception as e:
         logger.warning("state_store: EXPIRE %s failed: %s", key, e)
