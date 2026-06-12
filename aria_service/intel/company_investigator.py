@@ -88,9 +88,34 @@ def _looks_like_document_text(text: str) -> bool:
     R-F1326: defensive guard against mis-routing when _detect_tool_intent
     fails to catch a doc-review question and passes the document body as
     company_name to investigate_company.
+
+    R-F1515: added question-pattern exemption. A legitimate query about a
+    company ("what is your legal understanding of the repercussions for a
+    CEO...") can easily exceed 200 chars. If the text looks like a question
+    (starts with a question word), it's treated as a query, not a document
+    body — the LLM will handle it appropriately.
     """
     if not text:
         return False
+    low = text.lower()
+    
+    # R-F1515: if the text starts with a question word or instruction verb,
+    # it's a query, not a document body. Don't reject it based on length.
+    _query_starters = [
+        "what ", "who ", "where ", "when ", "why ", "how ",
+        "is ", "are ", "can ", "could ", "would ", "should ", "did ", "does ",
+        "tell ", "find ", "research ", "investigate ", "look ",
+        "check ", "analyse ", "analyze ", "review ", "explain ",
+        "aria ",  # "Aria, what is..." or "Aria, can you..."
+    ]
+    stripped = low.lstrip(" .,:;!?\"'")
+    for starter in _query_starters:
+        if stripped.startswith(starter):
+            # It's a question/instruction — allow up to 2000 chars
+            if len(text) > 2000:
+                return True
+            return False
+    
     # Too long — real company names are under ~100 chars
     if len(text) > 200:
         return True
@@ -108,7 +133,6 @@ def _looks_like_document_text(text: str) -> bool:
         "non-disclosure", "non disclosure", "intellectual property",
         "representations and warranties",
     ]
-    low = text.lower()
     if any(p in low for p in _legal_boilerplate):
         return True
     # Contains common document-structure markers
@@ -154,12 +178,19 @@ async def investigate_company(
     # company names (document text, legal boilerplate, overly long strings).
     # Prevents mis-routing when _detect_tool_intent fails to catch a doc-
     # review question and passes the document body as company_name.
+    # R-F1515: improved error message to guide the user instead of a dead-end.
     if _looks_like_document_text(company_name):
         report.error = (
             "Input appears to be a document or legal text, not a company name. "
             "Routing to document review instead."
         )
-        report.summary = f"Input rejected as non-company: {company_name[:80]}..."
+        report.summary = (
+            f"That doesn't look like a company name — it reads as a question or "
+            f"document text. If you're asking about a specific company, please "
+            f"send just the company name (e.g. 'TAC DMCC' or 'Turkhan Mahmudov'). "
+            f"If you need legal analysis, I can help with that too — just ask "
+            f"directly without wrapping it in a company investigation request."
+        )
         report.duration_ms = (time.monotonic() - start) * 1000
         return report
 

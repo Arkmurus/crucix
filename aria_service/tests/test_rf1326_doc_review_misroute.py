@@ -132,10 +132,19 @@ def test_rf1326_no_doc_still_routes_investigate():
 # ── Test 2: _looks_like_document_text ────────────────────────────────────
 
 def test_rf1326_looks_like_document_text_rejects_long_text():
-    """Text >200 chars is rejected as non-company."""
+    """Text >200 chars with no question pattern is rejected as non-company."""
     from aria_service.intel.company_investigator import _looks_like_document_text
     long_text = "X" * 250
-    assert _looks_like_document_text(long_text), "Long text should be rejected"
+    assert _looks_like_document_text(long_text), "Long text without question pattern should be rejected"
+
+
+def test_rf1326_looks_like_document_text_accepts_long_question():
+    """Text >200 chars that starts with a question word is accepted (R-F1515)."""
+    from aria_service.intel.company_investigator import _looks_like_document_text
+    question = "what is your legal understanding of the repercussions for a CEO " + "X" * 100
+    assert not _looks_like_document_text(question), (
+        "Long text with question pattern should be accepted"
+    )
 
 
 def test_rf1326_looks_like_document_text_rejects_newlines():
