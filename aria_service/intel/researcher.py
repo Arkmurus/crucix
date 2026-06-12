@@ -145,39 +145,44 @@ RESEARCH_FEEDS = [
     {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
 ]
 
-# ── Legal & Regulatory Sources (R-F1523) ─────────────────────────────
+# ── Legal & Regulatory Sources (R-F1523, R-F1525) ─────────────────
 # These feeds feed ARIA's legal mastery across sanctions, export control,
-# contract law, and international trade law. Add URLs here to have ARIA
-# autonomously research and learn from legal sources every 30 minutes.
+# contract law, and international trade law. ARIA fetches these alongside
+# defence feeds every research cycle and scores them on legal-specific terms.
+#
+# R-F1525: populated with verified-working feeds. Each was tested live from
+# fly.io egress (2026-06-12). If a feed starts 404ing, replace it.
 #
 # To add a source, add a dict with:
 #   name:     Human-readable label
 #   url:      RSS/Atom feed URL
 #   category: One of: sanctions_law, export_control, trade_law,
 #             contract_law, swiss_law, uae_law, eu_law, international_law
-#
-# Example:
-#   {"name": "EU Sanctions", "url": "https://eur-lex.europa.eu/...", "category": "sanctions_law"},
-#
-# R-F1523: placeholder — populate with actual legal RSS feeds.
-# Recommended sources to add:
-#   - EUR-Lex (EU law, sanctions, export control)
-#   - Swiss Federal Office of Justice (Swiss law)
-#   - UAE Ministry of Justice (UAE law)
-#   - UK ECJU notices (export control)
-#   - OFAC announcements (US sanctions)
-#   - BIS EAR updates (US export control)
-#   - WTO disputes (international trade law)
-#   - ICC arbitration (contract law)
 LEGAL_FEEDS: list[dict] = [
-    # Populate with legal RSS feeds to enable autonomous legal research.
-    # See comment above for format and recommended sources.
+    # ── US Export Controls & Sanctions ────────────────────────────────
+    {"name": "BIS Federal Register", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_control"},
+    {"name": "BIS News", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/1-news?format=feed", "category": "export_control"},
+    {"name": "State Dept Arms Control", "url": "https://www.state.gov/feed/?f=topics%3A170", "category": "sanctions_law"},
+    {"name": "State Dept Treaty Actions", "url": "https://www.state.gov/feed/?f=topics%3A76", "category": "international_law"},
+
+    # ── UK Sanctions & Export Control ─────────────────────────────────
+    {"name": "UK Sanctions Notices", "url": "https://www.gov.uk/government/publications?keywords=sanctions&format=atom", "category": "sanctions_law"},
+    {"name": "UK Export Control", "url": "https://www.gov.uk/government/publications?keywords=export+control&format=atom", "category": "export_control"},
+    {"name": "UK Trade Remedies", "url": "https://www.gov.uk/government/publications?keywords=trade+remedy&format=atom", "category": "trade_law"},
+
+    # ── International Trade & Arbitration ─────────────────────────────
+    {"name": "WTO News", "url": "https://www.wto.org/english/news_e/news_e.rss", "category": "trade_law"},
+    {"name": "ICC Arbitration", "url": "https://iccwbo.org/feed/", "category": "contract_law"},
 ]
 
-# Defence anchor terms — at least one must match in title+description before
-# procurement/regional boosts apply during article scoring. Without this gate,
-# a hotel paper with "billion-dollar deal in Angola" picks up +13 score with
-# zero defence content (live incident 2026-04-27).
+# Relevance anchor terms — at least one must match in title+description before
+# procurement/regional/legal boosts apply during article scoring. Without this
+# gate, a hotel paper with "billion-dollar deal in Angola" picks up +13 score
+# with zero defence or legal content (live incident 2026-04-27).
+#
+# R-F1525: expanded from defence-only to include legal/regulatory anchors so
+# sanctions, export control, trade law, and arbitration articles pass the gate.
+# Legal articles are scored on their own terms in the scoring step below.
 #
 # 2026-04-27 v2 — F9 fix: original list used substring matching, so short
 # abbreviations false-positived (`isr` matched 'disruption'/'disregard',
@@ -186,6 +191,7 @@ LEGAL_FEEDS: list[dict] = [
 # Now: short anchors are word-bounded via regex, longer multi-char terms
 # stay as substring matches (lower false-positive risk).
 _DEFENCE_ANCHOR_SUBSTRINGS = (
+    # ── Defence & Security ────────────────────────────────────────────
     "defence", "defense", "military", "weapon", "weapons",
     "nato", "naval", "air force", "airforce",
     "fighter", "missile", "drone",
@@ -196,15 +202,44 @@ _DEFENCE_ANCHOR_SUBSTRINGS = (
     "ministry of defence", "ministry of defense", "general staff",
     "battalion",
     "intelligence service", "sigint", "humint", "osint",
-    "export control", "sanctions", "embargo", "dual-use",
     "stanag", "interoperability", "c4isr",
+    # ── Export Controls & Sanctions ───────────────────────────────────
+    "export control", "sanctions", "embargo", "dual-use",
+    "export licence", "export license", "trade control",
+    "ofac", "bis ear", "ear", "itar",
+    "sanctions regime", "sanctions evasion", "sanctions compliance",
+    "restricted party", "denied party", "specially designated",
+    "sdn list", "consolidated list",
+    # ── Trade Law & Remedies ──────────────────────────────────────────
+    "trade law", "trade remedy", "anti-dumping", "countervailing",
+    "safeguard measure", "trade barrier", "market access",
+    "wto dispute", "wto ruling", "dispute settlement",
+    "trade agreement", "free trade agreement", "fta",
+    # ── International Law & Arbitration ───────────────────────────────
+    "arbitration", "international court", "icc ruling",
+    "investment treaty", "bilateral investment", "bit",
+    "contract law", "force majeure", "choice of law",
+    "jurisdiction clause", "dispute resolution",
+    # ── Regulatory & Compliance ───────────────────────────────────────
+    "compliance", "regulation", "regulatory",
+    "anti-money laundering", "aml", "know your customer", "kyc",
+    "bribery", "anti-corruption", "fcca", "uk bribery act",
+    "data protection", "gdpr", "privacy regulation",
+    "competition law", "antitrust", "merger control",
+    # ── Legal Sources & Instruments ───────────────────────────────────
+    "eur-lex", "federal register", "official journal",
+    "executive order", "statutory instrument",
+    "notice of proposed rulemaking", "nprm",
+    "public consultation", "comment period",
 )
 # Word-bounded — short tokens that would false-positive as substrings.
 # `arms` matches in 'farmstand', `army` in 'armyworm', `mod` in 'modern'/
 # 'module', `isr` in 'disruption', `tank` in 'thank', etc.
 _DEFENCE_ANCHOR_WORDS = re.compile(
     r"\b(?:arms|army|navy|tank|uav|ucav|rfp|rfi|fms|mod|isr"
-    r"|combat|tactical|deployment|strategic command)\b",
+    r"|combat|tactical|deployment|strategic command"
+    r"|wto|icc|ofac|bis|ear|itar|aml|kyc|gdpr|fcca"
+    r"|sanction|embargo|arbitration|compliance|antitrust)\b",
     re.IGNORECASE,
 )
 
@@ -288,8 +323,10 @@ def _extract_query_keywords(text: str, max_words: int = 8) -> str:
 
 
 def _has_defence_anchor(text: str) -> bool:
-    """True iff text contains at least one defence anchor (substring or
-    word-bounded). Centralised so test guards and scoring agree."""
+    """True iff text contains at least one relevance anchor (defence, legal,
+    regulatory, or trade — substring or word-bounded). R-F1525 expanded from
+    defence-only to include legal/regulatory terms so sanctions, export control,
+    trade law, and arbitration articles pass the scoring gate."""
     lower = text.lower()
     if any(s in lower for s in _DEFENCE_ANCHOR_SUBSTRINGS):
         return True
@@ -3719,17 +3756,23 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     all_articles = [a for a in all_articles if a.get("link") not in read_urls]
 
     # ── Step 4: Score relevance ───────────────────────────────────────────
-    # Defence anchor gate: nothing scores anything without at least one
-    # explicit defence term in title+description. Generic words like
-    # "contract", "billion", "deal", "angola" appear in many off-topic
+    # Relevance anchor gate: nothing scores anything without at least one
+    # explicit defence or legal/regulatory term in title+description. Generic
+    # words like "contract", "billion", "deal", "angola" appear in many off-topic
     # contexts (hospitality, tourism, entertainment) and were lifting hotel
     # papers into the top reading queue (live incident 2026-04-27).
+    #
+    # R-F1525: added legal scoring path alongside defence scoring. Legal
+    # articles (sanctions, export control, trade law, arbitration) are scored
+    # on their own terms so they compete fairly with defence articles for the
+    # top-N reading slots.
     scored: list[tuple[float, dict]] = []
     for article in all_articles:
         text = f"{article['title']} {article.get('description', '')}".lower()
         if not _has_defence_anchor(text):
             continue
         score = 0
+        # ── Defence scoring ────────────────────────────────────────────
         for interest in RESEARCH_INTERESTS:
             words = interest.lower().split()
             matches = sum(1 for w in words if w in text)
@@ -3740,6 +3783,24 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
         if any(c in text for c in ["angola", "mozambique", "guinea-bissau", "cape verde", "lusophone"]):
             score += 8
         if any(c in text for c in ["nigeria", "kenya", "saudi", "uae", "indonesia", "philippines", "poland"]):
+            score += 3
+        # ── Legal & Regulatory scoring (R-F1525) ───────────────────────
+        if any(k in text for k in [
+            "sanctions", "embargo", "export control", "export licence",
+            "ofac", "bis", "ear", "itar", "dual-use",
+            "trade law", "trade remedy", "anti-dumping", "countervailing",
+            "wto", "dispute settlement", "arbitration", "icc",
+            "compliance", "regulation", "regulatory",
+            "anti-money laundering", "aml", "anti-corruption",
+            "data protection", "gdpr", "privacy",
+            "competition law", "antitrust", "merger control",
+            "investment treaty", "bilateral investment",
+            "force majeure", "choice of law", "jurisdiction",
+        ]):
+            score += 5
+        if any(c in text for c in ["eu sanctions", "un sanctions", "uk sanctions", "us sanctions"]):
+            score += 3
+        if any(c in text for c in ["eur-lex", "federal register", "official journal", "executive order"]):
             score += 3
         if score > 0:
             scored.append((score, article))
