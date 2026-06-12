@@ -54,6 +54,7 @@ schema in a follow-up.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import fnmatch
 import json
 import logging
@@ -1178,7 +1179,7 @@ async def ltrim(key: str, start: int, stop: int) -> None:
                 return
         seqs = [r[0] for r in rows]
         end = (stop + 1) if stop >= 0 else (len(seqs) + stop + 1)
-        keep = set(seqs[start:end])
+        keep = builtins.set(seqs[start:end])
         delete = [s for s in seqs if s not in keep]
         if delete:
             placeholders = ",".join("?" for _ in delete)
