@@ -3565,6 +3565,55 @@ async def _aria_chat_impl(
             "intent": degraded.get("intent"),
         }
 
+    # R-F1527 — pre-output hallucination guard. Runs AFTER the LLM generates
+    # a response but BEFORE it's sent to the user. Scans for [CONFIRMED] claims
+    # without inline citations, fabricated entity identifiers, and unsourced
+    # numerical claims. If HIGH-severity issues are found, the response is
+    # BLOCKED and replaced with a transparent refusal rather than shipping
+    # fabricated facts to the user.
+    #
+    # This is the structural guard against the Vision International / Modirum
+    # class of fabrication — where the LLM invents specific verifiable facts
+    # (registration numbers, contract values, CEO names) and presents them
+    # with [CONFIRMED] tags.
+    try:
+        from .intel.hallucination_guard import check_response as _hg_check
+        _hg_result = _hg_check(response_text, tool_context=context or "")
+        if _hg_result.get("suggested_action") == "block":
+            _hg_red = _hg_result.get("red_flags", [])
+            logger.error(
+                "[R-F1527] HALLUCINATION GUARD BLOCKED response — %d high-severity red flags. "
+                "Response REPLACED with refusal. First flag: %s — %s",
+                len([f for f in _hg_red if f.get("severity") == "HIGH"]),
+                _hg_red[0].get("reason", "unknown") if _hg_red else "unknown",
+                _hg_red[0].get("text", "")[:100] if _hg_red else "",
+            )
+            response_text = (
+                "I need to be transparent with you: I started drafting a response "
+                "that included specific claims I cannot verify from my available sources. "
+                "Rather than risk giving you incorrect information, I've stopped that draft.\n\n"
+                "Specifically, I was about to state:\n"
+            )
+            for rf in _hg_red[:3]:
+                response_text += f"- {rf.get('text', '')[:120]}\n"
+            response_text += (
+                "\nThese claims were not backed by inline citations or source references "
+                "in my context. If you have the source documents for these facts, please "
+                "share them and I'll incorporate them properly."
+            )
+        elif _hg_result.get("suggested_action") == "flag":
+            _hg_red = _hg_result.get("red_flags", [])
+            logger.warning(
+                "[R-F1527] hallucination guard FLAGGED response — %d medium-severity red flags. "
+                "Response shipped with warning.",
+                len(_hg_red),
+            )
+    except Exception as _hg_err:
+        logger.error(
+            "R-F1527 hallucination_guard failed (response shipped UNGUARDED, fix asap): %s",
+            _hg_err, exc_info=True,
+        )
+
     # R-F733 (2026-05-20) — wire propaganda_guard + tool_claim_guard as
     # post-response rewriters on the chat path. Pre-R-F733 these guards
     # existed in `aria_service/intel/` but only fired in autonomous
@@ -4294,6 +4343,40 @@ async def _aria_chat_stream_impl(
     # CLAUDE.md §13. The stream chunks already left the wire; the
     # guarded text is what gets persisted to session history so
     # future turns don't replay un-guarded content. Fail-open.
+
+    # R-F1527 — pre-output hallucination guard (stream path).
+    # Stream chunks have already left the wire, so this guard protects
+    # the PERSISTED session history from fabricated content.
+    try:
+        from .intel.hallucination_guard import check_response as _hg_check
+        _hg_result = _hg_check(response_text, tool_context=context or "")
+        if _hg_result.get("suggested_action") == "block":
+            _hg_red = _hg_result.get("red_flags", [])
+            logger.error(
+                "[R-F1527 stream] HALLUCINATION GUARD BLOCKED response — %d high-severity red flags. "
+                "Response REPLACED in persisted history. First flag: %s — %s",
+                len([f for f in _hg_red if f.get("severity") == "HIGH"]),
+                _hg_red[0].get("reason", "unknown") if _hg_red else "unknown",
+                _hg_red[0].get("text", "")[:100] if _hg_red else "",
+            )
+            response_text = (
+                "[This response was blocked by the hallucination guard — "
+                "it contained specific claims that could not be verified from "
+                "available sources. The streamed version may have shown partial content.]"
+            )
+        elif _hg_result.get("suggested_action") == "flag":
+            _hg_red = _hg_result.get("red_flags", [])
+            logger.warning(
+                "[R-F1527 stream] hallucination guard FLAGGED response — %d medium-severity red flags. "
+                "Response shipped with warning.",
+                len(_hg_red),
+            )
+    except Exception as _hg_err:
+        logger.error(
+            "R-F1527 stream hallucination_guard failed (persisted history UNGUARDED, fix asap): %s",
+            _hg_err, exc_info=True,
+        )
+
     try:
         from .intel import propaganda_guard as _pg
         _pg_result = await _aio.to_thread(_pg.guard, response_text)
