@@ -84,8 +84,12 @@ logger = logging.getLogger("aria.state_store")
 # ─────────────────────────────────────────────────────────────────────────
 
 _DB_PATH: Path | None = None
-_conn = None  # aiosqlite.Connection — lazy init
+_conn = None  # aiosqlite.Connection — lazy init (compound ops: hset, lpush, etc.)
 _read_conn = None  # R-F1449: separate read connection, never touched by _reconnect()
+# R-F1520: dedicated write connection for _upsert operations (set, set_json).
+# Separated from _conn so that a slow _upsert (e.g. writing a large knowledge
+# shard) does not block compound ops (hset, lpush) and vice versa.
+_write_conn = None
 # Lazy lock — bound to whatever loop first acquires it. Required because the
 # module is imported BEFORE any event loop exists, and pytest spins up a new
 # loop per `asyncio.run(...)` test. Single-SQL operations don't need this
@@ -528,7 +532,7 @@ async def connect(db_path: str | None = None) -> bool:
     """Open the SQLite file and create the schema if missing. Returns True
     on success. Caller (main.py) should fall back to in-memory dict if
     False (matches redis_store.connect contract)."""
-    global _conn, _DB_PATH, _read_conn
+    global _conn, _DB_PATH, _read_conn, _write_conn
     _reset_lock()
     try:
         import aiosqlite
@@ -574,6 +578,15 @@ async def connect(db_path: str | None = None) -> bool:
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
         await _conn.execute("PRAGMA busy_timeout=30000")
+        # R-F1520: dedicated write connection for _upsert operations.
+        # Uses its own aiosqlite worker thread so _upsert doesn't block
+        # compound ops (hset, lpush) and vice versa.
+        _write_conn = await aiosqlite.connect(str(_DB_PATH))
+        await _write_conn.execute("PRAGMA journal_mode=WAL")
+        await _write_conn.execute("PRAGMA synchronous=NORMAL")
+        await _write_conn.execute("PRAGMA foreign_keys=OFF")
+        await _write_conn.execute("PRAGMA busy_timeout=30000")
+        await _write_conn.commit()
         await _conn.execute(
             """
             CREATE TABLE IF NOT EXISTS state (
@@ -634,13 +647,19 @@ async def connect(db_path: str | None = None) -> bool:
 
 async def close() -> None:
     """Close the database connection."""
-    global _conn, _read_conn
+    global _conn, _read_conn, _write_conn
     if _read_conn:
         try:
             await _read_conn.close()
         except Exception:
             pass
         _read_conn = None
+    if _write_conn:
+        try:
+            await _write_conn.close()
+        except Exception:
+            pass
+        _write_conn = None
     if _conn:
         try:
             await _conn.close()
@@ -826,33 +845,19 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
     # (before any use in the try/except blocks below).
     global _upsert_last_log
 
-    # No python-level lock: this is a single SQL statement and aiosqlite
-    # serialises through one worker thread. Compound RMW ops (lpush etc.)
-    # hold _get_lock() themselves to keep their read+write atomic.
-    if _conn is None:
-        # R-F1397: raising matches the R-F1388 contract (callers already
-        # handle a raised write failure). The old silent `return` made a
-        # job-store set_json "succeed" during a reconnect window — the 202
-        # said processing but the job was never stored, so the poller got
-        # not_found forever ("extraction job expired").
-        # NOT StateWriteError: _run_locked re-raises that type even for
-        # non-critical compound ops (lpush/hset would crash their callers
-        # instead of returning the graceful default). OperationalError is
-        # caught by _run_locked's generic branch AND matches _is_conn_dead
-        # ("connection") so the read-path self-heal fires too.
+    # R-F1520: uses _write_conn (dedicated write connection) instead of _conn
+    # so that _upsert operations don't block compound ops (hset, lpush) and
+    # vice versa. Each connection has its own aiosqlite worker thread.
+    if _write_conn is None:
         import sqlite3
         e = sqlite3.OperationalError(
-            f"state_store: no connection (reconnect in progress) writing {key}")
+            f"state_store: no write connection (reconnect in progress) writing {key}")
         _schedule_reconnect_if_dead(e)
         raise e
     try:
-        # R-F1510: bounded execution so a contended SQLite worker thread
-        # doesn't block _upsert callers indefinitely. The timeout is short
-        # (5s default) — if the worker is busy with a locked op, fail fast
-        # rather than pile up behind it.
         if keepttl and expires_at is None:
             await asyncio.wait_for(
-                _conn.execute(
+                _write_conn.execute(
                     "INSERT INTO state(key, value, kind, expires_at) "
                     "VALUES(?, ?, ?, NULL) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
@@ -862,7 +867,7 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
             )
         else:
             await asyncio.wait_for(
-                _conn.execute(
+                _write_conn.execute(
                     "INSERT INTO state(key, value, kind, expires_at) "
                     "VALUES(?, ?, ?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
@@ -871,33 +876,26 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
                 ),
                 timeout=_UPSERT_TIMEOUT_S,
             )
-        await asyncio.wait_for(_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
+        await asyncio.wait_for(_write_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
     except asyncio.TimeoutError:
-        # R-F1510: timeout on the SQLite worker thread — the connection is
-        # busy with a locked op. Log rate-limited (not per-call) to avoid
-        # the error_log_handler → record_error → set_json feedback loop.
         now = time.monotonic()
         if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
             _upsert_last_log = now
             logger.warning(
                 "state_store: UPSERT %s timed out after %.1fs — "
-                "SQLite worker busy (locked op in progress); write dropped",
+                "write connection busy; write dropped",
                 key, _UPSERT_TIMEOUT_S,
             )
         _schedule_reconnect_if_dead(
             __import__("sqlite3").OperationalError("database is locked"))
-        raise  # propagate so _run_locked callers know the write failed
+        raise
     except Exception as e:
-        # R-F1510: rate-limited to prevent feedback-loop amplification.
-        # The error_log_handler mirrors every WARNING+ into record_error,
-        # which calls set_json → _upsert — so a single lock storm must not
-        # produce one WARNING per failed write.
         now = time.monotonic()
         if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
             _upsert_last_log = now
             logger.warning("state_store: UPSERT %s failed: %s", key, e)
-        _schedule_reconnect_if_dead(e)  # R-F1388: trigger self-heal on dead conn
-        raise  # R-F1388: propagate so callers (e.g. _chat_job_set) know the write failed
+        _schedule_reconnect_if_dead(e)
+        raise
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1305,10 +1303,12 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
 
     Falls back to the locked path only when the atomic UPSERT fails.
     """
-    if _conn is None:
+    # R-F1520: uses _write_conn (dedicated write connection) so incr doesn't
+    # block compound ops (hset, lpush) and vice versa.
+    if _write_conn is None:
         import sqlite3
         e = sqlite3.OperationalError(
-            f"state_store: no connection (reconnect in progress) writing {key}")
+            f"state_store: no write connection (reconnect in progress) writing {key}")
         _schedule_reconnect_if_dead(e)
         if critical:
             raise StateWriteError(f"incr: no connection") from e
@@ -1319,7 +1319,7 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
         # SQLite serialises writes through its single worker thread — no
         # Python-level lock needed. This avoids the _run_locked contention
         # that caused the 2026-06-10 state_store wedge.
-        await _conn.execute(
+        await _write_conn.execute(
             # R-F1494: on a FRESH key the inserted value must be `amount`, not a
             # hardcoded '1'. R-F1493 hardcoded '1', so incr(key, amount=N) on a
             # missing key stored 1 instead of N (e.g. stream_guard_observer.py:180
@@ -1331,9 +1331,9 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
             "  value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
             (key, amount, amount),
         )
-        await _conn.commit()
+        await _write_conn.commit()
         # Read back the new value
-        cur = await _conn.execute(
+        cur = await _write_conn.execute(
             "SELECT value FROM state WHERE key = ?", (key,)
         )
         row = await cur.fetchone()
