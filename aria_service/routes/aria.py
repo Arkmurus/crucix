@@ -1078,6 +1078,89 @@ async def store_fact_ep(req: FactRequest):
     return {"ok": True, "message": "Fact stored", "action": result.get("action", "unknown")}
 
 
+# 5a. POST /api/aria/knowledge/teach — URL ingestion with content verification
+class TeachRequest(BaseModel):
+    url: str
+    topic: str | None = None  # optional override; auto-derived from page if absent
+
+
+@router.post("/knowledge/teach")
+async def teach_url_ep(req: TeachRequest):
+    """Fetch a URL, extract content, verify extraction succeeded, then store facts.
+
+    R-F1526: unlike raw store_fact, this endpoint:
+    1. Fetches the URL via extract_url_deep (multi-page extraction)
+    2. Verifies that actual content was extracted (>200 chars of text)
+    3. Only stores facts when real content was obtained
+    4. Returns a clear error if extraction failed
+
+    This prevents the "✅ Learned!" problem where the LLM stores a URL string
+    as a fact when page extraction failed silently.
+    """
+    from ..intel.researcher import extract_url_deep
+
+    # Step 1: Fetch and extract
+    result = await extract_url_deep(req.url, max_pages=3, timeout=20.0)
+
+    # Step 2: Verify content was actually extracted
+    text = (result.get("text") or "").strip()
+    pages = result.get("pages_fetched") or []
+
+    if not result.get("extraction_ok") or not text or len(text) < 200:
+        logger.warning(
+            "[R-F1526] teach_url: extraction failed for %s "
+            "(extraction_ok=%s, text_len=%d, pages=%d, error=%s)",
+            req.url, result.get("extraction_ok"), len(text), len(pages),
+            result.get("error", "unknown"),
+        )
+        return {
+            "ok": False,
+            "message": "Could not extract content from this URL. "
+                       "The page may require JavaScript, have bot protection, "
+                       "or be unreachable. Try sharing the content as text instead.",
+            "url": req.url,
+            "extraction_ok": False,
+            "text_length": len(text),
+            "pages_fetched": len(pages),
+            "error": result.get("error"),
+        }
+
+    # Step 3: Store the extracted content as a fact
+    topic = req.topic or result.get("title") or req.url
+    content_preview = text[:2000]
+
+    fact_result = await knowledge.store_fact(
+        topic=topic[:200],
+        content=content_preview,
+        source=f"teach:{req.url}",
+        confidence="CONFIRMED",
+        source_url=req.url,
+        fact_type="GENERAL_CLAIM",
+        entity_name=topic[:100],
+    )
+
+    action = fact_result.get("action", "unknown")
+    if action == "rejected_no_content":
+        return {
+            "ok": False,
+            "message": "Content was extracted but rejected by quality guard. "
+                       "The page may not contain substantive text.",
+            "url": req.url,
+            "reason": fact_result.get("reason"),
+        }
+
+    return {
+        "ok": True,
+        "message": f"Learned from {len(pages)} page(s). "
+                   f"Topic: {topic[:100]}",
+        "url": req.url,
+        "topic": topic[:200],
+        "pages_fetched": len(pages),
+        "text_length": len(text),
+        "action": action,
+    }
+
+
 # 5b. POST /api/aria/knowledge/inject-regional — bulk inject regional navigation
 @router.post("/knowledge/inject-regional")
 async def inject_regional_ep(force: bool = False):

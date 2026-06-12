@@ -794,6 +794,12 @@ async def store_fact(topic: str, content: str, source: str = "user",
                      skip_semantic_index: bool = False) -> dict:
     """Store a fact, detecting contradictions and merging duplicates.
 
+    R-F1526 content-verification guard: if `content` looks like a bare URL
+    (starts with http:// or https://) or is shorter than 50 chars of actual
+    extracted text, the fact is REJECTED with action="rejected_no_content".
+    This prevents the LLM from storing URL strings as "facts" when page
+    extraction failed silently.
+
     Clause 17 wiring: when `source_url` + `fact_type` + `entity_name` are
     supplied, the fact is routed through `verified_intel.averify_and_store`
     so it carries full provenance (tier, verification score, expiry).
@@ -805,6 +811,32 @@ async def store_fact(topic: str, content: str, source: str = "user",
     Returns a dict with action taken: ``{action: "created"|"updated"|"superseded",
     fact_id, contradictions: [...]}``
     """
+    # ── R-F1526 content-verification guard ─────────────────────────────
+    # Reject facts where content is just a URL or too short to be meaningful.
+    # This catches the pattern where /teach <url> fails to extract page content
+    # and the LLM stores the URL string itself as a "fact".
+    _content_stripped = (content or "").strip()
+    if not _content_stripped:
+        logger.warning("[R-F1526] store_fact rejected: empty content (topic=%s, source=%s)", topic, source)
+        return {"action": "rejected_no_content", "reason": "empty_content"}
+    if len(_content_stripped) < 50 and not topic.startswith("http"):
+        # Very short content is suspicious — likely a failed extraction.
+        # Exception: topic is not a URL (legitimate short facts like "CEO: John Doe" are OK
+        # if they come through the verified pipeline with source_url).
+        if not source_url:
+            logger.warning(
+                "[R-F1526] store_fact rejected: content too short (%d chars, topic=%s, source=%s)",
+                len(_content_stripped), topic, source,
+            )
+            return {"action": "rejected_no_content", "reason": f"content_too_short:{len(_content_stripped)}"}
+    # Check if content is just a URL (the LLM stored the URL instead of extracted text)
+    import re as _re
+    if _re.match(r"^https?://", _content_stripped) and len(_content_stripped) < 200:
+        logger.warning(
+            "[R-F1526] store_fact rejected: content is a bare URL (topic=%s, source=%s, url=%s)",
+            topic, source, _content_stripped[:100],
+        )
+        return {"action": "rejected_no_content", "reason": "bare_url_content"}
     db = await _load()
     now = datetime.now(timezone.utc).isoformat()
 
