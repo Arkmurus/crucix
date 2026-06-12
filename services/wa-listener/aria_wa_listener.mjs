@@ -109,62 +109,65 @@ const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
 // BRAIN_SERVICE_URL / ARIA_SERVICE_URL override for custom deployments.
 const BRAIN_INTERNAL  = 'http://aria-intel.internal:8000';
 const BRAIN_PUBLIC    = process.env.BRAIN_SERVICE_URL || process.env.ARIA_SERVICE_URL || 'http://localhost:8000';
-// R-F1512: prefer .internal (fast, no DNS fail), fall back to public URL.
-// The public URL is used when .internal is unreachable (e.g. local dev).
-const BRAIN_URL       = BRAIN_INTERNAL;
-const BRAIN_FALLBACK  = BRAIN_PUBLIC;
+// R-F1515: use public URL as primary, .internal as fast-path optimization.
+// Fly's internal DNS for <app-name>.internal is intermittently flaky
+// (observed: ~2min failure windows every ~7min). The public URL goes
+// through Fly's highly-available proxy and is more reliable. .internal
+// is tried first with a 2s timeout as a speed optimization — if it
+// doesn't respond in 2s, the public URL is used immediately.
+// This gives us the best of both: speed when .internal works, reliability
+// when it doesn't.
+const BRAIN_URL       = BRAIN_PUBLIC;
+const BRAIN_FAST_PATH = BRAIN_INTERNAL;
 let _brainFallbackActive = false;  // tracks whether we're currently using the fallback
-// R-F1512: .internal resolves instantly — no need for a 30s switch-back probe.
-// If .internal fails, we stay on the fallback until the next health check cycle.
 let _lastProbeTime = 0;
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 
-// R-F1512: resilient fetch with dual-path fallback + retry.
-// Tries .internal first (instant on Fly private network), falls back to
-// public URL. If BOTH fail, retries up to 2 more times with 1s backoff.
-// This handles brief brain unavailability during deploys without throwing
-// to callers. The switch-back probe runs every 60s when on fallback.
+// R-F1515: resilient fetch with dual-path strategy.
+// Primary: public URL (reliable, through Fly proxy).
+// Fast-path optimization: .internal (fast when DNS works, tried with 2s timeout).
+// If .internal fails or times out, the public URL is used immediately.
+// Retries only on the public URL path (the .internal fast-path is best-effort).
 const _BRAIN_MAX_RETRIES = 2;
 const _BRAIN_RETRY_DELAY_MS = 1000;
 async function brainFetch(path, options = {}) {
   const lastErr = null;
-  for (let attempt = 0; attempt <= _BRAIN_MAX_RETRIES; attempt++) {
-    const useFallback = _brainFallbackActive && BRAIN_FALLBACK;
-    const url = useFallback ? `${BRAIN_FALLBACK}${path}` : `${BRAIN_URL}${path}`;
-    // R-F1515: when on the public fallback path, use a longer timeout (30s)
-    // because the public URL goes through Fly's proxy which adds latency.
-    // The caller's signal timeout (e.g. 5s for feedToARIA) is too tight
-    // for the public path. Only use the caller's signal on the .internal path.
-    const timeout = useFallback ? 30000 : 3000;
+  // R-F1515: try .internal as a fast-path optimization with a short timeout.
+  // If it succeeds, great — we got the speed benefit. If it fails (DNS flapping
+  // or timeout), fall through to the reliable public URL path.
+  if (BRAIN_FAST_PATH && !_brainFallbackActive) {
     try {
-      const r = await fetch(url, { ...options, signal: useFallback ? AbortSignal.timeout(timeout) : (options.signal || AbortSignal.timeout(timeout)) });
-      // Switch-back probe when on fallback — throttled to once per 60s
-      if (_brainFallbackActive && BRAIN_URL && Date.now() - _lastProbeTime > 60000) {
+      const fastTimeout = options.signal || AbortSignal.timeout(2000);
+      const r = await fetch(`${BRAIN_FAST_PATH}${path}`, { ...options, signal: fastTimeout });
+      if (r.ok) return r;
+      // Non-OK response from .internal — fall through to public URL
+    } catch { /* .internal failed — fall through to public URL */ }
+  }
+  // Primary path: public URL with retries
+  for (let attempt = 0; attempt <= _BRAIN_MAX_RETRIES; attempt++) {
+    const url = `${BRAIN_URL}${path}`;
+    const timeout = 30000;  // 30s for public URL path (through Fly proxy)
+    try {
+      const r = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(timeout) });
+      // Switch-back probe: periodically check if .internal has recovered
+      if (_brainFallbackActive && BRAIN_FAST_PATH && Date.now() - _lastProbeTime > 60000) {
         _lastProbeTime = Date.now();
         try {
-          const test = await fetch(`${BRAIN_URL}/health/live`, { signal: AbortSignal.timeout(2000) });
+          const test = await fetch(`${BRAIN_FAST_PATH}/health/live`, { signal: AbortSignal.timeout(2000) });
           if (test.ok) {
             _brainFallbackActive = false;
-            console.log('[R-F1512] .internal recovered — switched back from public fallback');
+            console.log('[R-F1515] .internal recovered — switched back to fast path');
           }
-        } catch { /* .internal still down — stay on fallback */ }
+        } catch { /* .internal still down — stay on public URL */ }
       }
       return r;
     } catch (err) {
-      // First failure on .internal: try public URL as fallback
-      if (!_brainFallbackActive && BRAIN_FALLBACK) {
-        console.warn(`[R-F1512] .internal fetch failed — falling back to public URL (attempt ${attempt + 1}): ${err.message}`);
-        _brainFallbackActive = true;
-        continue;  // retry immediately with fallback URL
-      }
-      // Both paths failed — retry with backoff
       if (attempt < _BRAIN_MAX_RETRIES) {
-        console.warn(`[R-F1512] brain fetch failed (attempt ${attempt + 1}/${_BRAIN_MAX_RETRIES + 1}) — retrying in ${_BRAIN_RETRY_DELAY_MS}ms: ${err.message}`);
+        console.warn(`[R-F1515] brain fetch failed (attempt ${attempt + 1}/${_BRAIN_MAX_RETRIES + 1}) — retrying in ${_BRAIN_RETRY_DELAY_MS}ms: ${err.message}`);
         await new Promise(r => setTimeout(r, _BRAIN_RETRY_DELAY_MS));
         continue;
       }
-      // All retries exhausted — log and throw
-      console.error(`[R-F1512] brain fetch FAILED after ${_BRAIN_MAX_RETRIES + 1} attempts: ${err.message}`);
+      console.error(`[R-F1515] brain fetch FAILED after ${_BRAIN_MAX_RETRIES + 1} attempts: ${err.message}`);
       throw err;
     }
   }
