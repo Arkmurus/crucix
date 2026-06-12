@@ -48,3 +48,11 @@ os.environ.setdefault("ARIA_RAG_BACKFILL_ENABLED", "false")
 # no /data file, which is exactly what a hermetic CI run needs. setdefault so a
 # developer can still run an integration suite against sqlite by exporting it.
 os.environ.setdefault("ARIA_STATE_BACKEND", "memory")
+
+# R-F1534: use a temp dir for RAG in tests so we don't pollute the prod
+# chromadb store. _resolve_rag_path() reads ARIA_RAG_PATH at module import
+# time, so this MUST be set before any test imports rag_store or
+# coding_rag_indexer.
+import tempfile as _tf
+_rag_tmp = _tf.mkdtemp(prefix="aria_rag_test_")
+os.environ.setdefault("ARIA_RAG_PATH", _rag_tmp)

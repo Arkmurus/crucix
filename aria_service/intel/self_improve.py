@@ -45,6 +45,9 @@ _SI_ERRORS_RECORDED = 0
 _SI_DIAGNOSES = 0
 _SI_MODULES_PROPOSED = 0
 
+# R-F1534: anchor background tasks so they aren't GC-dropped mid-flight.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 STAGED_KEY = "crucix:aria:staged_improvements"
@@ -801,9 +804,11 @@ async def deploy_improvement(improvement_id: str) -> dict:
             outcome="success",
         )
         import asyncio as _aio1531
-        _aio1531.create_task(
+        _t = _aio1531.create_task(
             _aio1531.to_thread(_cri_index_fix, _fix_record)
         )
+        _BACKGROUND_TASKS.add(_t)
+        _t.add_done_callback(_BACKGROUND_TASKS.discard)
     except Exception as e:
         logger.debug("[CodingRAG] Fix index failed (non-fatal): %s", e)
 
