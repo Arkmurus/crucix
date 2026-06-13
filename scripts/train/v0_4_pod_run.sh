@@ -156,7 +156,7 @@ eval_model "aria-llm-v0.4" "$V04_REPORT" || fail "v0.4 eval failed"
 # R-F1516: no on-volume v0.3 adapter to re-serve — v0.4 is compared to the KNOWN
 # v0.3=$V03_BASELINE (same eval set + same judge, R-F1469), not a live re-eval.
 
-if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+if [ -n "${DEEPSEEK_API_KEY:-}" ] && [ -z "${SKIP_TEACHER_EVAL:-}" ]; then  # R-F1540: SKIP_TEACHER_EVAL=1 halves the run
   log "eval DeepSeek teacher baseline (deepseek-chat, ceiling reference)…"
   python "$SCRIPTS/eval_aria_llm.py" \
     --target "https://api.deepseek.com/v1" --model "deepseek-chat" \

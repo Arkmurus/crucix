@@ -90,7 +90,7 @@ $SSH -p "$PORT" root@"$HOST" \
   "rm -f /workspace/eval/_cycle_status; mkdir -p /workspace/logs; \
    TRAIN_FILE=/workspace/datasets/aria_sft_distill_v04.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
-   DEEPSEEK_API_KEY='$DSK' EPOCHS=3 \
+   DEEPSEEK_API_KEY='$DSK' EPOCHS=3 SKIP_TEACHER_EVAL='${SKIP_TEACHER_EVAL:-}' \
    setsid nohup bash /workspace/v0_4_pod_run.sh > /workspace/logs/v0_4_cycle.log 2>&1 < /dev/null & echo STARTED" \
   || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
 
