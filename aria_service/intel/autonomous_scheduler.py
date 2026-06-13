@@ -47,6 +47,12 @@ class AutonomousScheduler:
         self._tasks["ecosystem_optimize"] = asyncio.create_task(
             self._run_interval("ecosystem_optimize", 86400, self._optimize_ecosystem),  # 24 hours
         )
+        # R-F1548: drain the Claude<->ARIA collaboration bridge every 2 minutes.
+        # Runs independently of the autonomous engine so Claude's notes are
+        # never stuck even when the engine is paused or in SUPERVISED mode.
+        self._tasks["collab_drain"] = asyncio.create_task(
+            self._run_interval("collab_drain", 120, self._drain_collab_bridge),  # 2 min
+        )
         self._tasks["vault_retry"] = asyncio.create_task(
             self._run_interval("vault_retry", 43200, self._retry_pending_vault),  # 12 hours
         )
@@ -179,6 +185,22 @@ class AutonomousScheduler:
             )
         except Exception as e:
             logger.debug("[scheduler] redteam drill skipped: %s", e)
+
+    async def _drain_collab_bridge(self) -> None:
+        """Drain the Claude<->ARIA collaboration bridge (R-F1548).
+        
+        Runs every 2 minutes independently of the autonomous engine so
+        Claude's notes are never stuck even when the engine is paused
+        or in SUPERVISED mode.
+        """
+        try:
+            from ..intel import collab_bridge
+            result = await collab_bridge.drain_for_aria()
+            drained = result.get("drained", 0)
+            if drained > 0:
+                logger.info("[R-F1548] collab bridge drained %d note(s)", drained)
+        except Exception as e:
+            logger.debug("[scheduler] collab bridge drain skipped: %s", e)
 
     async def _retry_pending_vault(self) -> None:
         """Re-drive pending vault signups every 12 hours.

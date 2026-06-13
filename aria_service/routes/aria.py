@@ -19707,7 +19707,7 @@ async def health_check_ep():
         "build_source": _build_source,
         "degraded_reasons": degraded_reasons,
         "operating_mode": mode,
-        "infra": {"redis": redis_ok, "rag": rag_ok},
+        "infra": {"redis": redis_ok, "rag": rag_ok, "rag_stats": rag_stats if rag_ok else {}},
         "quality": {
             "mastery_overall": mastery.get("overall"),
             "mastery_weighted": mastery.get("weighted"),
