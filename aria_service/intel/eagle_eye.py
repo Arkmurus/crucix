@@ -29,7 +29,7 @@ logger = logging.getLogger("aria.eagle_eye")
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-_SCAN_INTERVAL_S = int(os.getenv("ARIA_EAGLE_EYE_INTERVAL", "300"))  # 5 min
+_SCAN_INTERVAL_S = int(os.getenv("ARIA_EAGLE_EYE_INTERVAL", "1800"))  # 30 min
 _GUARDIAN_DIR = Path(os.getenv("ARIA_EAGLE_EYE_DIR", ".aria/eagle_eye"))
 _MAX_CHANGE_HISTORY = 50
 
@@ -118,13 +118,33 @@ class EagleEyeGuardian:
         self._running = False
 
     async def scan_once(self) -> dict:
-        """Run a single scan cycle. Returns summary dict."""
+        """Run a single scan cycle. Returns summary dict.
+        
+        CPU-intensive work (AST parsing, regex, hashing) runs in a thread
+        via asyncio.to_thread so the event loop stays free for health
+        checks and user requests.
+        """
+        # Gather file list on the event loop (fast)
         python_files = list(self.project_root.rglob("*.py"))
         python_files = [
             f for f in python_files
             if ".venv" not in str(f) and ".aria" not in str(f) and "__pycache__" not in str(f)
         ]
 
+        # Run the CPU-intensive scan in a thread
+        await asyncio.to_thread(self._scan_files_sync, python_files)
+
+        self.metrics["files_watched"] = len(python_files)
+        self.metrics["scans_completed"] += 1
+        self.metrics["last_scan"] = datetime.now().isoformat()
+
+        self._detect_code_smells()
+        self._save_metrics()
+
+        return self.get_report()
+
+    def _scan_files_sync(self, python_files: list[Path]) -> None:
+        """Synchronous scan of all files. Runs in a thread."""
         for file_path in python_files:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
