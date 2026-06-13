@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1515,
+  "next_available": 1542,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9552,9 +9552,9 @@
       "claimed_at": "2026-06-11T10:43:41Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "cf59be78",
+      "commit_sha": "ebdcf2e2",
       "notes": null,
-      "shipped_at": "2026-06-11T12:47:58Z"
+      "shipped_at": "2026-06-11T13:17:30Z"
     },
     {
       "r_number": "R-F1513",
@@ -9575,6 +9575,274 @@
       "commit_sha": "8f0eaaa3",
       "notes": null,
       "shipped_at": "2026-06-11T11:07:37Z"
+    },
+    {
+      "r_number": "R-F1515",
+      "title": "Fix WA listener brain fetch timeouts",
+      "claimed_at": "2026-06-12T06:57:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c1b9426e",
+      "notes": null,
+      "shipped_at": "2026-06-12T07:56:08Z"
+    },
+    {
+      "r_number": "R-F1516",
+      "title": "v0.4 cycle volume-free + DC-agnostic (escape US-KS-2 pod-delete)",
+      "claimed_at": "2026-06-12T07:01:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4f0c88d1",
+      "notes": null,
+      "shipped_at": "2026-06-12T07:04:30Z"
+    },
+    {
+      "r_number": "R-F1517",
+      "title": "v0.4 eval: vendor aria_service deps to volume-free pod + resilient PI import",
+      "claimed_at": "2026-06-12T07:28:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ee25719d",
+      "notes": null,
+      "shipped_at": "2026-06-12T07:30:22Z"
+    },
+    {
+      "r_number": "R-F1518",
+      "title": "Row-per-entry hash storage + atomic lpush",
+      "claimed_at": "2026-06-12T08:05:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9acfead4",
+      "notes": null,
+      "shipped_at": "2026-06-12T08:44:35Z"
+    },
+    {
+      "r_number": "R-F1519",
+      "title": "Structural fix: increase SQLite timeouts to handle boot bursts",
+      "claimed_at": "2026-06-12T09:07:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5d187aa3",
+      "notes": null,
+      "shipped_at": "2026-06-12T09:12:16Z"
+    },
+    {
+      "r_number": "R-F1520",
+      "title": "Dedicated write connection for _upsert",
+      "claimed_at": "2026-06-12T10:18:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a1b50b05",
+      "notes": null,
+      "shipped_at": "2026-06-12T11:27:46Z"
+    },
+    {
+      "r_number": "R-F1521",
+      "title": "build v0.4 DPO preference data offline from eval report",
+      "claimed_at": "2026-06-12T13:34:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "25fd63e2",
+      "notes": null,
+      "shipped_at": "2026-06-12T13:35:52Z"
+    },
+    {
+      "r_number": "R-F1522",
+      "title": "v0.4 DPO combined SFT->DPO->eval cycle + eval speedup",
+      "claimed_at": "2026-06-12T13:45:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fae426fb",
+      "notes": null,
+      "shipped_at": "2026-06-12T13:49:53Z"
+    },
+    {
+      "r_number": "R-F1523",
+      "title": "Add legal research sources infrastructure for autonomous legal knowledge acquisition",
+      "claimed_at": "2026-06-12T14:08:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1524",
+      "title": "Fix LEGAL_FEEDS syntax error inside RESEARCH_FEEDS list",
+      "claimed_at": "2026-06-12T14:21:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4b62b96f",
+      "notes": null,
+      "shipped_at": "2026-06-12T14:38:20Z"
+    },
+    {
+      "r_number": "R-F1525",
+      "title": "Legal research pipeline: bypass defence anchor for legal feeds, add legal scoring, populate legal RSS feeds",
+      "claimed_at": "2026-06-12T14:52:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b0f61d0a",
+      "notes": null,
+      "shipped_at": "2026-06-12T15:01:14Z"
+    },
+    {
+      "r_number": "R-F1526",
+      "title": "Structural fix: verify content was actually extracted before storing facts from URL teach",
+      "claimed_at": "2026-06-12T15:46:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a674990e",
+      "notes": null,
+      "shipped_at": "2026-06-12T15:55:33Z"
+    },
+    {
+      "r_number": "R-F1527",
+      "title": "Pre-output hallucination guard: verify LLM claims against knowledge base before sending response",
+      "claimed_at": "2026-06-12T16:05:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d2d9bc6",
+      "notes": null,
+      "shipped_at": "2026-06-12T16:15:33Z"
+    },
+    {
+      "r_number": "R-F1528",
+      "title": "gentler DPO retry (beta/lr configurable) — fix v0.4 DPO over-optimization",
+      "claimed_at": "2026-06-12T16:05:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4f565e59",
+      "notes": null,
+      "shipped_at": "2026-06-12T16:06:29Z"
+    },
+    {
+      "r_number": "R-F1529",
+      "title": "Structural fixes: agent_registry signal dedup, agent_contract DB fallback, verified_intel auto-queue, stale module auto-remediation",
+      "claimed_at": "2026-06-12T16:28:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b6904d26",
+      "notes": null,
+      "shipped_at": "2026-06-12T16:46:08Z"
+    },
+    {
+      "r_number": "R-F1530",
+      "title": "Structural overhaul: dead module cleanup, cross-turn premise tracking, auto-verify facts",
+      "claimed_at": "2026-06-12T16:47:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8840ed55",
+      "notes": null,
+      "shipped_at": "2026-06-12T16:57:32Z"
+    },
+    {
+      "r_number": "R-F1531",
+      "title": "Coding RAG Indexer + RAG-Augmented Code Generator",
+      "claimed_at": "2026-06-12T19:42:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2c94d655",
+      "notes": null,
+      "shipped_at": "2026-06-12T19:57:32Z"
+    },
+    {
+      "r_number": "R-F1532",
+      "title": "Strategic Evolution Agent",
+      "claimed_at": "2026-06-12T19:59:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "16c27761",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:44:39Z"
+    },
+    {
+      "r_number": "R-F1533",
+      "title": "open-book eval — context field support (Stage 0 grounded measurement)",
+      "claimed_at": "2026-06-12T20:01:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a20e24cf",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:04:47Z"
+    },
+    {
+      "r_number": "R-F1534",
+      "title": "fix R-F1531 RAG coder: dead datetime import, test isolation, min_similarity floor, create_task GC",
+      "claimed_at": "2026-06-12T20:12:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2535929c",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:17:47Z"
+    },
+    {
+      "r_number": "R-F1535",
+      "title": "Stage 1 grounded-corpus generator (DeepSeek-with-context, quality-gated)",
+      "claimed_at": "2026-06-12T20:23:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "16c27761",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:25:12Z"
+    },
+    {
+      "r_number": "R-F1536",
+      "title": "fix event-loop wedges: backfill secret robustness + offload json.dump/encode off loop",
+      "claimed_at": "2026-06-12T20:39:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8846f758",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:53:23Z"
+    },
+    {
+      "r_number": "R-F1537",
+      "title": "Security pattern scanning in StaticAnalysisExtractor",
+      "claimed_at": "2026-06-12T20:47:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "243afed1",
+      "notes": null,
+      "shipped_at": "2026-06-12T20:54:41Z"
+    },
+    {
+      "r_number": "R-F1538",
+      "title": "Stage 0 run: open-book eval of v0.4-SFT vs closed-book 0.288",
+      "claimed_at": "2026-06-12T21:04:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5507bf40",
+      "notes": null,
+      "shipped_at": "2026-06-12T21:06:51Z"
+    },
+    {
+      "r_number": "R-F1539",
+      "title": "Boot resilience, proactive mastery loop, secret self-audit",
+      "claimed_at": "2026-06-12T21:23:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "165da66a",
+      "notes": null,
+      "shipped_at": "2026-06-12T21:30:13Z"
+    },
+    {
+      "r_number": "R-F1540",
+      "title": "Stage 0 reliable re-run: SKIP_TEACHER flag for faster open-book measurement",
+      "claimed_at": "2026-06-13T07:20:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bf520f80",
+      "notes": null,
+      "shipped_at": "2026-06-13T07:21:49Z"
+    },
+    {
+      "r_number": "R-F1541",
+      "title": "state_store: bounded write queue replaces timeout-and-drop model",
+      "claimed_at": "2026-06-13T07:34:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
