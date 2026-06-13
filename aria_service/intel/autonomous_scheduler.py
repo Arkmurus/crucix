@@ -164,12 +164,15 @@ class AutonomousScheduler:
             logger.debug("[scheduler] diagnostics skipped: %s", e)
 
     async def _run_adversarial(self) -> None:
-        """Run adversarial tests."""
+        """Run adversarial tests using the full 23-attack suite."""
         try:
-            from ..intel.ecosystem_dashboard import run_adversarial_suite
-            result = await run_adversarial_suite()
-            logger.info("[scheduler] adversarial: %d/%d passed", 
-                       result.get("passed", 0), result.get("total", 0))
+            from ..intel import adversarial_challenge as _ac
+            result = await _ac.run_weekly()
+            logger.info(
+                "[scheduler] adversarial: %d/%d passed (score=%.3f)",
+                result.get("passed", 0), result.get("total_attacks", 0),
+                result.get("overall_score", 0),
+            )
         except Exception as e:
             logger.debug("[scheduler] adversarial skipped: %s", e)
 
