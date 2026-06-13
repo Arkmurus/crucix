@@ -131,6 +131,12 @@ _SKIP_SUBSTRINGS = (
     "connection reset (self-heal)",
     "cannot operate on a closed database",
     "lock held",
+    # R-F1541: state_store write queue full — this is backpressure, not a
+    # coder-actionable defect. The caller got StateWriteError immediately
+    # (no timeout, no silent data loss) and should retry or accept the loss.
+    # Feeding this back into record_error would just fill the error log with
+    # "queue was full" entries that the coder can't act on.
+    "write queue full",
 )
 
 

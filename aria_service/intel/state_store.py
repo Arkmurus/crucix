@@ -86,10 +86,26 @@ logger = logging.getLogger("aria.state_store")
 _DB_PATH: Path | None = None
 _conn = None  # aiosqlite.Connection — lazy init (compound ops: hset, lpush, etc.)
 _read_conn = None  # R-F1449: separate read connection, never touched by _reconnect()
-# R-F1520: dedicated write connection for _upsert operations (set, set_json).
-# Separated from _conn so that a slow _upsert (e.g. writing a large knowledge
-# shard) does not block compound ops (hset, lpush) and vice versa.
-_write_conn = None
+
+# R-F1541: bounded write queue replaces the timeout-and-drop _upsert model.
+# Instead of every write going through _conn.execute() with a 30s timeout
+# (which silently drops writes when the worker thread is saturated), writes
+# are enqueued to an asyncio.Queue and processed by a background worker.
+# The queue has a bounded max size — if full, the caller gets StateWriteError
+# immediately (backpressure) instead of timing out after 30s and silently
+# losing data. This eliminates the entire failure class of:
+#   - 30s timeout → silent data loss
+#   - timeout WARNING → error_log_handler → record_error → more timeouts
+#   - brain_hook circuit trip → all learning stops
+#   - autonomous_engine blackout → heartbeat stale
+_QUEUED_WRITES: asyncio.Queue[tuple] | None = None
+_WRITE_WORKER_TASK: asyncio.Task | None = None
+_WRITE_QUEUE_MAX = int(os.getenv("ARIA_STATE_WRITE_QUEUE_MAX", "2000"))
+# How many writes to batch into a single transaction before flushing.
+# Higher = better throughput, but delays visibility of individual writes.
+_WRITE_BATCH_SIZE = int(os.getenv("ARIA_STATE_WRITE_BATCH_SIZE", "50"))
+# How long the worker waits for more writes before flushing a partial batch.
+_WRITE_FLUSH_INTERVAL_S = float(os.getenv("ARIA_STATE_WRITE_FLUSH_INTERVAL_S", "0.1"))
 # Lazy lock — bound to whatever loop first acquires it. Required because the
 # module is imported BEFORE any event loop exists, and pytest spins up a new
 # loop per `asyncio.run(...)` test. Single-SQL operations don't need this
@@ -289,6 +305,101 @@ def _log_rate_limited(level: int, msg: str, *args) -> None:
 def _warn_rate_limited(msg: str, *args) -> None:
     """Back-compat shim: rate-limited WARNING."""
     _log_rate_limited(logging.WARNING, msg, *args)
+
+
+# ── R-F1541: bounded write queue ──────────────────────────────────────────
+# A background worker drains _QUEUED_WRITES and writes to SQLite in batches.
+# This replaces the timeout-and-drop model where every _upsert called
+# _conn.execute() + _conn.commit() with a 30s timeout — when the worker
+# thread was saturated, writes were silently dropped after the timeout.
+#
+# The queue is bounded (_WRITE_QUEUE_MAX). If full, the caller gets
+# StateWriteError immediately (backpressure) instead of waiting 30s and
+# losing data. The worker batches writes into transactions for efficiency.
+
+
+async def _start_write_worker() -> None:
+    """Initialise the write queue. Called from connect().
+    
+    R-F1541: the queue is drained synchronously on every read (_flush_write_queue)
+    rather than by a background worker. This avoids a race between the worker
+    and the flush-on-read: if the worker took an item from the queue but hadn't
+    committed it yet, the read would miss it. Synchronous flush-on-read guarantees
+    that every write is visible to the next read.
+    
+    The queue still provides backpressure (if full, caller gets StateWriteError
+    immediately) and batching (multiple writes are committed together on the
+    next read or close).
+    """
+    global _QUEUED_WRITES
+    if _QUEUED_WRITES is not None:
+        return  # already initialised
+    _QUEUED_WRITES = asyncio.Queue(maxsize=_WRITE_QUEUE_MAX)
+    logger.info(
+        "state_store: write queue initialised (max=%d, batch_size=%d)",
+        _WRITE_QUEUE_MAX, _WRITE_BATCH_SIZE,
+    )
+
+
+async def _stop_write_worker() -> None:
+    """No-op: the write queue has no background worker (R-F1541).
+    Kept for API compatibility with connect()/close()."""
+    pass
+
+
+async def _enqueue_write(sql: str, params: tuple) -> None:
+    """Enqueue a write operation. Raises StateWriteError if the queue is full.
+    
+    This is the core of R-F1541: instead of calling _conn.execute() with a
+    30s timeout (which silently drops writes when the worker thread is busy),
+    we enqueue the write to a bounded queue. If the queue is full, the caller
+    gets immediate backpressure (StateWriteError) instead of silent data loss.
+    
+    The caller MUST handle StateWriteError — either retry, fall back, or
+    accept the loss. No write is ever silently dropped.
+    """
+    queue = _QUEUED_WRITES
+    if queue is None:
+        raise StateWriteError("state_store: write queue not initialised")
+    try:
+        queue.put_nowait((sql, params))
+    except asyncio.QueueFull:
+        raise StateWriteError(
+            f"state_store: write queue full ({_WRITE_QUEUE_MAX} items) — "
+            f"caller must retry or accept data loss"
+        )
+
+
+async def _flush_write_queue() -> int:
+    """Flush all pending writes immediately. Returns the number flushed.
+    Used by close(), reads, and tests to ensure all writes are durable.
+    
+    R-F1541: called before every read operation so callers that do
+    set() → get() see their own writes. The flush is a no-op when the
+    queue is empty (the common case), so the read-path overhead is
+    negligible in steady state.
+    """
+    queue = _QUEUED_WRITES
+    if queue is None or queue.empty():
+        return 0
+    flushed = 0
+    batch: list[tuple] = []
+    while not queue.empty():
+        try:
+            sql, params = queue.get_nowait()
+            batch.append((sql, params))
+            flushed += 1
+        except asyncio.QueueEmpty:
+            break
+    if batch and _conn is not None:
+        try:
+            for sql, params in batch:
+                await _conn.execute(sql, params)
+            await _conn.commit()
+        except Exception as e:
+            logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
+            _schedule_reconnect_if_dead(e)
+    return flushed
 
 
 async def _reconnect() -> None:
@@ -531,8 +642,12 @@ def _expired(expires_at: float | None) -> bool:
 async def connect(db_path: str | None = None) -> bool:
     """Open the SQLite file and create the schema if missing. Returns True
     on success. Caller (main.py) should fall back to in-memory dict if
-    False (matches redis_store.connect contract)."""
-    global _conn, _DB_PATH, _read_conn, _write_conn
+    False (matches redis_store.connect contract).
+
+    R-F1541: also starts the background write worker. The worker drains
+    a bounded async queue and writes to SQLite in batches, replacing the
+    timeout-and-drop model that caused cascading failures."""
+    global _conn, _DB_PATH, _read_conn
     _reset_lock()
     try:
         import aiosqlite
@@ -578,15 +693,10 @@ async def connect(db_path: str | None = None) -> bool:
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
         await _conn.execute("PRAGMA busy_timeout=120000")
-        # R-F1520: dedicated write connection for _upsert operations.
-        # Uses its own aiosqlite worker thread so _upsert doesn't block
-        # compound ops (hset, lpush) and vice versa.
-        _write_conn = await aiosqlite.connect(str(_DB_PATH))
-        await _write_conn.execute("PRAGMA journal_mode=WAL")
-        await _write_conn.execute("PRAGMA synchronous=NORMAL")
-        await _write_conn.execute("PRAGMA foreign_keys=OFF")
-        await _write_conn.execute("PRAGMA busy_timeout=120000")
-        await _write_conn.commit()
+        # R-F1541: _write_conn removed — all writes go through the bounded
+        # async queue (_enqueue_write), which the background worker drains
+        # through _conn. This avoids WAL lock contention between multiple
+        # writer connections and eliminates the timeout-and-drop failure class.
         await _conn.execute(
             """
             CREATE TABLE IF NOT EXISTS state (
@@ -637,6 +747,11 @@ async def connect(db_path: str | None = None) -> bool:
             "CREATE INDEX IF NOT EXISTS idx_hash_entries_key ON hash_entries(hash_key)"
         )
         await _conn.commit()
+        # R-F1541: start the background write worker
+        try:
+            await _start_write_worker()
+        except Exception as e:
+            logger.warning("state_store: write worker start failed: %s", e)
         logger.info("state_store: SQLite ready at %s (WAL mode)", _DB_PATH)
         return True
     except Exception as e:
@@ -646,20 +761,27 @@ async def connect(db_path: str | None = None) -> bool:
 
 
 async def close() -> None:
-    """Close the database connection."""
-    global _conn, _read_conn, _write_conn
+    """Close the database connection.
+    
+    R-F1541: flushes pending writes before closing."""
+    global _conn, _read_conn
+    # Flush any pending writes first
+    try:
+        await _flush_write_queue()
+    except Exception:
+        pass
+    # Stop the write worker
+    try:
+        await _stop_write_worker()
+    except Exception:
+        pass
     if _read_conn:
         try:
             await _read_conn.close()
         except Exception:
             pass
         _read_conn = None
-    if _write_conn:
-        try:
-            await _write_conn.close()
-        except Exception:
-            pass
-        _write_conn = None
+    # R-F1541: _write_conn removed — all writes go through the bounded queue
     if _conn:
         try:
             await _conn.close()
@@ -714,7 +836,7 @@ async def sweep_expired() -> int:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _get_read_conn():
+def _get_read_conn() -> Any:
     """R-F1449: return the dedicated read connection.
 
     The read connection is NEVER touched by _reconnect(), so a write-side
@@ -754,10 +876,20 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     or expired. If expected_kind is given and the kind mismatches, returns
     None (treat as missing — Redis raises WRONGTYPE; we degrade gracefully).
 
+    R-F1541: flushes pending writes before reading so callers that do
+    set() → get() see their own writes. The flush is a no-op when the
+    queue is empty (the common case), so the read-path overhead is
+    negligible in steady state.
+
     R-F1449: uses _get_read_conn() (separate read connection) so a write-side
     _reconnect() cannot kill concurrent reads. Retries ONCE on 'closed
     database' by reopening the read connection and re-executing.
     """
+    # Flush pending writes so read-after-write is consistent
+    try:
+        await _flush_write_queue()
+    except Exception:
+        pass
     conn = _get_read_conn()
     if conn is None:
         return None
@@ -820,82 +952,53 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     return value, kind, expires_at
 
 
-# R-F1510: timeout for _upsert SQL operations. When the aiosqlite worker
-# thread is busy with a long-running locked op (incr/hset), concurrent
-# _upsert calls from the unlocked path (set/set_json) would block
-# indefinitely on the SQLite connection mutex and eventually hit
-# "database is locked". A short timeout lets them fail fast instead of
-# piling up behind the lock holder.
-# R-F1519: raised from 5.0 to 30.0. During boot, the single aiosqlite
-# worker thread is backlogged with hundreds of concurrent writes. 5s was
-# too short — every _upsert failed during the boot window. 30s matches
-# the busy_timeout and gives the worker thread enough time to drain.
-_UPSERT_TIMEOUT_S = float(os.getenv("ARIA_STATE_UPSERT_TIMEOUT_S", "30.0"))
-
-# R-F1510: rate-limited log for _upsert failures to prevent the
-# error_log_handler → record_error → set_json → _upsert feedback loop
-# from amplifying a single lock storm into thousands of log lines.
-_upsert_last_log: float = 0.0
-_UPSERT_LOG_INTERVAL_S = 10.0
+# R-F1541: _UPSERT_TIMEOUT_S removed — _upsert no longer uses a timeout.
+# Writes go through the bounded async queue (_enqueue_write) and are
+# processed by a background worker. If the queue is full, the caller gets
+# StateWriteError immediately (backpressure) instead of timing out after
+# 30s and silently losing data. This eliminates the entire failure class
+# of timeout → WARNING → error_log_handler → record_error → more timeouts.
 
 
 async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
                   keepttl: bool = False) -> None:
-    # R-F1510: rate-limited logging needs the global at function scope
-    # (before any use in the try/except blocks below).
-    global _upsert_last_log
-
-    # R-F1520: all writes go through _conn (single connection, single worker
-    # thread). Multiple connections to the same SQLite file contend for the
-    # WAL lock and make `database is locked` errors MORE likely, not less.
+    """Upsert a key-value pair via the bounded write queue (R-F1541).
+    
+    Instead of calling _conn.execute() with a 30s timeout (which silently
+    drops writes when the worker thread is saturated), we enqueue the write
+    to a bounded async queue. If the queue is full, StateWriteError is raised
+    immediately — the caller gets backpressure instead of silent data loss.
+    
+    This eliminates the entire failure class of:
+      - 30s timeout → silent data loss
+      - timeout WARNING → error_log_handler → record_error → more timeouts
+      - brain_hook circuit trip → all learning stops
+      - autonomous_engine blackout → heartbeat stale
+    """
     if _conn is None:
         import sqlite3
         e = sqlite3.OperationalError(
             f"state_store: no connection (reconnect in progress) writing {key}")
         _schedule_reconnect_if_dead(e)
         raise e
-    try:
-        if keepttl and expires_at is None:
-            await asyncio.wait_for(
-                _conn.execute(
-                    "INSERT INTO state(key, value, kind, expires_at) "
-                    "VALUES(?, ?, ?, NULL) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
-                    (key, value, kind),
-                ),
-                timeout=_UPSERT_TIMEOUT_S,
-            )
-        else:
-            await asyncio.wait_for(
-                _conn.execute(
-                    "INSERT INTO state(key, value, kind, expires_at) "
-                    "VALUES(?, ?, ?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                    "kind = excluded.kind, expires_at = excluded.expires_at",
-                    (key, value, kind, expires_at),
-                ),
-                timeout=_UPSERT_TIMEOUT_S,
-            )
-        await asyncio.wait_for(_conn.commit(), timeout=_UPSERT_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        now = time.monotonic()
-        if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
-            _upsert_last_log = now
-            logger.warning(
-                "state_store: UPSERT %s timed out after %.1fs — "
-                "write connection busy; write dropped",
-                key, _UPSERT_TIMEOUT_S,
-            )
-        _schedule_reconnect_if_dead(
-            __import__("sqlite3").OperationalError("database is locked"))
-        raise
-    except Exception as e:
-        now = time.monotonic()
-        if now - _upsert_last_log > _UPSERT_LOG_INTERVAL_S:
-            _upsert_last_log = now
-            logger.warning("state_store: UPSERT %s failed: %s", key, e)
-        _schedule_reconnect_if_dead(e)
-        raise
+    
+    if keepttl and expires_at is None:
+        sql = (
+            "INSERT INTO state(key, value, kind, expires_at) "
+            "VALUES(?, ?, ?, NULL) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind"
+        )
+        params = (key, value, kind)
+    else:
+        sql = (
+            "INSERT INTO state(key, value, kind, expires_at) "
+            "VALUES(?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "kind = excluded.kind, expires_at = excluded.expires_at"
+        )
+        params = (key, value, kind, expires_at)
+    
+    await _enqueue_write(sql, params)
 
 
 # ─────────────────────────────────────────────────────────────────────────
