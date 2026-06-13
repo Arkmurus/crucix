@@ -2862,7 +2862,21 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
             "8. Flag corrupted / truncated / garbled fields in the document "
             "(OCR artifacts like 'Resistencia a la tens' or 'ro externo') as "
             "'FIELD CORRUPTED — value not readable' rather than skipping them "
-            "silently. These may hide critical specification values."
+            "silently. These may hide critical specification values.\n"
+            "9. R-F1544 — STRUCTURED EXTRACTION SUMMARY. Before writing your "
+            "analysis, produce a bullet-point list of EVERY key figure, date, "
+            "name, quantity, price, and obligation you see in the document. "
+            "This is your ECHO-BACK step. Format it as:\n"
+            "    [EXTRACTED FIGURES — echo back before analysis]\n"
+            "    • Parties: [list all named parties]\n"
+            "    • Dates: [list all dates]\n"
+            "    • Quantities & prices: [list every number with its unit]\n"
+            "    • Obligations: [list each obligation/condition]\n"
+            "    • Missing: [list what the document does NOT state]\n"
+            "Then write your analysis BELOW this block. If any figure in your "
+            "analysis contradicts your extracted list, you MUST flag it. This "
+            "prevents misreading errors (e.g. '100 units at $50k each' vs "
+            "'100 units total value $50k')."
         )
 
     # ── R-F534 (2026-05-15) — premise verifier ─────────────────────────

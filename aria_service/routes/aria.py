@@ -4572,6 +4572,45 @@ def _detect_tool_intent(message: str) -> dict | None:
                 "_reason": "screen_slash_command",
             }
 
+
+    # R-F1545 -- auto-fire registry lookup when a company name + jurisdiction
+    # is mentioned. Detects patterns like "Turkish company X", "Estonian firm
+    # Y", "MERSIS lookup for Z". Uses the existing registry_adapters module
+    # which supports TR (MERSIS), EE (Estonian e-Business Register), and 20+
+    # other jurisdictions. Auto-fires without asking permission because
+    # registry lookups are cheap (single httpx call, 15s timeout) and the
+    # result is always authoritative.
+    _REGISTRY_JURISDICTIONS = {
+        "turkish": "TR", "turkey": "TR", "mersis": "TR",
+        "estonian": "EE", "estonia": "EE", "eesti": "EE",
+        "polish": "PL", "poland": "PL", "krs": "PL",
+        "romanian": "RO", "romania": "RO", "onrc": "RO",
+        "brazilian": "BR", "brazil": "BR", "cnpj": "BR",
+        "bulgarian": "BG", "bulgaria": "BG",
+        "ghanaian": "GH", "ghana": "GH",
+        "kenyan": "KE", "kenya": "KE",
+        "saudi": "SA", "saudi arabia": "SA", "moci": "SA",
+        "panamanian": "PA", "panama": "PA",
+        "gibraltar": "GI",
+        "angolan": "AO", "angola": "AO",
+    }
+    _REGISTRY_KEYWORDS_RE = __import__("re").compile(
+        r"\b(?:" + "|".join(__import__("re").escape(k) for k in _REGISTRY_JURISDICTIONS) + r")\b",
+        __import__("re").IGNORECASE,
+    )
+    _registry_match = _REGISTRY_KEYWORDS_RE.search(msg)
+    if _registry_match:
+        jurisdiction_key = _registry_match.group(0).lower()
+        iso2 = _REGISTRY_JURISDICTIONS.get(jurisdiction_key)
+        if iso2:
+            return {
+                "tool": "registry_lookup",
+                "entity": msg[:200],
+                "jurisdiction": iso2,
+                "context": msg,
+                "_reason": f"registry_auto_fire_{iso2}",
+            }
+
     # ── R-F729 (2026-05-20) — slash command for full DD orchestrator ──
     # Pre-R-F729 the dd_orchestrator path required prose phrasing
     # ("DD on X" / "due diligence on X" / "ark-dd on X") with the

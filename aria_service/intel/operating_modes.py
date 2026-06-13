@@ -114,13 +114,20 @@ async def evaluate_auto_transition() -> dict | None:
     # than triggering a downgrade -- defaulting to 1.0 was the old behaviour
     # and caused no transition either way; keeping that unless we have a
     # real number.
+    # R-F1543: skip degraded runs (>=50% empty responses due to LLM
+    # timeout/rate-limit). A degraded run's score is NOT a real measure
+    # of ARIA's manipulation resistance.
     try:
         from .adversarial_challenge import stats as adv_stats
         adv = await adv_stats()
         last_run = adv.get("last_run") or {}
-        adversarial_score = last_run.get("overall_score")
-        if adversarial_score is None:
+        if last_run.get("degraded"):
+            # Degraded run — score is unreliable; treat as "no signal"
             adversarial_score = 1.0
+        else:
+            adversarial_score = last_run.get("overall_score")
+            if adversarial_score is None:
+                adversarial_score = 1.0
     except Exception:
         adversarial_score = 1.0
 
