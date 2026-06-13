@@ -43,6 +43,70 @@ OPENSANCTIONS_SEARCH = "https://api.opensanctions.org/search/default"
 # R-F1162 — also checks the portal_registry vault for stored credentials.
 OPENSANCTIONS_API_KEY = os.getenv("OPENSANCTIONS_API_KEY", "").strip()
 
+# R-F1542: dataset slug → (jurisdiction_code, human_label) mapping.
+# Used by _normalise_match() to tag every match with its jurisdiction,
+# so consumers (citation_block, DD report, chat) can say "matched on
+# US OFAC SDN" vs "matched on UK OFSI" — preventing the Hikvision
+# failure where a US OFAC hit was misrepresented as UK-sanctioned.
+# Keys are lowercase substrings matched against dataset slugs.
+_DATASET_JURISDICTIONS: dict[str, tuple[str, str]] = {
+    # US
+    "us_ofac":          ("US", "OFAC (US Treasury)"),
+    "ofac_sdn":         ("US", "OFAC SDN (US Treasury)"),
+    "us_sdn":           ("US", "OFAC SDN (US Treasury)"),
+    "ns_cmic":          ("US", "NS-CMIC (US Treasury)"),
+    "us_ssi":           ("US", "OFAC SSI (US Treasury)"),
+    "us_bis":           ("US", "BIS Entity List (US Commerce)"),
+    "us_unverified":    ("US", "BIS Unverified List (US Commerce)"),
+    "us_mil_end_user":  ("US", "BIS Military End User (US Commerce)"),
+    "us_dod":           ("US", "DoD Restricted List (US)"),
+    "1260h":            ("US", "NDAA Sec 1260H (US DoD)"),
+    "chinese_military": ("US", "Chinese Military Companies (US DoD)"),
+    "1233":             ("US", "Sec 1233 Russian Defence (US DoD)"),
+    "cmic":             ("US", "NS-CMIC (US Treasury)"),
+    # UK
+    "gb_hmt":           ("UK", "OFSI / HMT (UK Treasury)"),
+    "gb_fcdo":          ("UK", "FCDO Sanctions (UK Foreign Office)"),
+    "ofsi":             ("UK", "OFSI (UK Treasury)"),
+    "uk_hmt":           ("UK", "OFSI / HMT (UK Treasury)"),
+    # EU
+    "eu_fsf":           ("EU", "EU Financial Sanctions File"),
+    "eu_council":       ("EU", "EU Council Restrictive Measures"),
+    "eu_consolidated":  ("EU", "EU Consolidated Sanctions"),
+    # UN
+    "un_sc":            ("UN", "UN Security Council Sanctions"),
+    "un_consolidated":  ("UN", "UN Consolidated Sanctions"),
+    # World Bank
+    "world_bank":       ("WB", "World Bank Debarment List"),
+    "wb_debar":         ("WB", "World Bank Debarment List"),
+}
+
+
+def _resolve_jurisdictions(datasets: list[str]) -> list[dict]:
+    """Map OpenSanctions dataset slugs to jurisdiction labels.
+    
+    Given a list of dataset slugs like ["us_ofac_sdn", "eu_consolidated"],
+    returns a deduplicated list of {"code": "US", "label": "OFAC SDN (US Treasury)"}.
+    
+    R-F1542: used by _normalise_match() to tag every match with its
+    jurisdiction, preventing the Hikvision failure where a US OFAC hit
+    was misrepresented as UK-sanctioned.
+    """
+    seen: set[str] = set()
+    result: list[dict] = []
+    for ds in datasets:
+        dsl = ds.lower()
+        for key, (code, label) in _DATASET_JURISDICTIONS.items():
+            if key in dsl:
+                if code not in seen:
+                    seen.add(code)
+                    result.append({"code": code, "label": label})
+                break
+    if not result:
+        # Unknown dataset — tag as generic
+        result.append({"code": "??", "label": f"Unknown list ({datasets[0] if datasets else '?'})"})
+    return result
+
 
 async def _resolve_opensanctions_key() -> str:
     """Resolve the OpenSanctions API key from env or portal_registry vault.
@@ -433,6 +497,11 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
         "last_change": raw.get("last_change"),
         "url": f"https://www.opensanctions.org/entities/{raw.get('id', '')}/" if raw.get("id") else None,
         "reason": "; ".join(datasets[:3]) if datasets else "OpenSanctions match",
+        # R-F1542: jurisdiction tags — maps dataset slugs to human-readable
+        # jurisdiction labels so consumers can say "matched on US OFAC SDN"
+        # vs "matched on UK OFSI". Prevents the Hikvision failure where a
+        # US OFAC hit was misrepresented as UK-sanctioned.
+        "jurisdictions": _resolve_jurisdictions(datasets),
         # R-F335 match-path transparency fields
         "sdn_entry_id": sdn_entry_id,
         "match_field": match_field,

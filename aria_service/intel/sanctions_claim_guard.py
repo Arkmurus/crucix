@@ -49,7 +49,9 @@ logger = logging.getLogger("aria.intel.sanctions_claim_guard")
 # a list-name token).
 
 _SANCTIONS_VERBS = (
-    r"sanctioned|on\s+(?:a|any|the)?\s*sanctions?(?:\s+list)?|"
+    # R-F1542: allow compound prefixes like "UK-sanctioned", "EU-sanctioned"
+    # The [\w-]* allows hyphens and word chars before the base verb.
+    r"[\w-]*sanctioned|on\s+(?:a|any|the)?\s*sanctions?(?:\s+list)?|"
     r"on\s+(?:OFAC|SDN|OFSI|EU\s+consolidated|UN|UK\s+OFSI|US\s+OFAC)|"
     r"designated|blocked|debarred|embargoed|"
     r"on\s+(?:a|any|the)?\s*(?:blocked|embargo|debarment)\s+list"
@@ -190,16 +192,41 @@ async def live_primary_check(entity: str) -> dict[str, Any]:
         top = result["top_match"] or {}
         name_hit = (top.get("name") if isinstance(top, dict) else "") or "?"
         score = (top.get("score") if isinstance(top, dict) else "") or "?"
+        # R-F1542: extract jurisdictions from all matches so the
+        # citation block lists the SPECIFIC lists that matched.
+        # Prevents the Hikvision failure where a US OFAC hit was
+        # misrepresented as UK-sanctioned.
+        all_jurisdictions: list[dict] = []
+        seen_jur: set[str] = set()
+        for m in (result.get("matches") or []):
+            for j in (m.get("jurisdictions") if isinstance(m, dict) else []):
+                code = j.get("code") if isinstance(j, dict) else ""
+                if code and code not in seen_jur:
+                    seen_jur.add(code)
+                    all_jurisdictions.append(j)
+        jur_summary = "; ".join(
+            f"{j.get('code', '?')} — {j.get('label', '?')}"
+            for j in all_jurisdictions
+        ) if all_jurisdictions else "Unknown list"
         result["citation_block"] = (
             f"[SANCTIONS LIVE CHECK — AUTHORITATIVE]\n"
             f"Entity: {entity}\n"
             f"Tool: sanctions.fuzzy_screen (live, this turn)\n"
             f"Verdict: MATCH(es) found — top hit {name_hit!r} (score {score}).\n"
+            f"Matching jurisdictions: {jur_summary}\n"
             f"Total matches: {len(result['matches'])}.\n"
-            f"Answer policy: answer YES only if the top match genuinely "
-            f"refers to the same entity (not a substring coincidence). "
-            f"Cite the primary list (OFAC SDN / EU / OFSI / etc.) by "
-            f"following the match's source URL."
+            f"Answer policy — BINDING RULES:\n"
+            f"1. Answer YES only if the top match genuinely refers to the "
+            f"same entity (not a substring coincidence).\n"
+            f"2. You MUST cite the SPECIFIC matching jurisdiction(s) listed "
+            f"above. Do NOT say 'sanctioned' without naming the list.\n"
+            f"3. CRITICAL — Never assert UK/OFSI-sanctioned unless a UK "
+            f"jurisdiction is listed above. A US OFAC hit is NOT a UK "
+            f"sanction. An EU hit is NOT a UK sanction.\n"
+            f"4. If the user asks about a specific jurisdiction (e.g. 'is X "
+            f"UK-sanctioned?') and that jurisdiction is NOT in the matching "
+            f"list, answer: 'No match found on [requested jurisdiction] lists. "
+            f"Matches exist on: [list actual jurisdictions].'"
         )
 
     # Brain signal — every live primary check is a high-value compliance
