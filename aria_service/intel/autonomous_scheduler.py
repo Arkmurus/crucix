@@ -42,7 +42,7 @@ class AutonomousScheduler:
             self._run_interval("self_diagnostic", 3600, self._run_diagnostics),  # 1 hour
         )
         self._tasks["adversarial"] = asyncio.create_task(
-            self._run_interval("adversarial", 21600, self._run_adversarial),  # 6 hours
+            self._run_interval("adversarial", 259200, self._run_adversarial),  # 3 days
         )
         self._tasks["ecosystem_optimize"] = asyncio.create_task(
             self._run_interval("ecosystem_optimize", 86400, self._optimize_ecosystem),  # 24 hours
