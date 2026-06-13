@@ -2238,6 +2238,13 @@ async def lifespan(app: FastAPI):
     except Exception as _ps_e:
         logger.debug("[R-F1225] PowerShell Master init failed (non-fatal): %s", _ps_e)
 
+    # R-F1550: start Eagle Eye codebase guardian
+    try:
+        from .intel import eagle_eye
+        await eagle_eye.start()
+    except Exception as _ee_err:
+        logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
+
     yield
 
 
@@ -2272,6 +2279,13 @@ async def lifespan(app: FastAPI):
             logger.info("[R-F1368] LLM health checker stopped")
         except Exception as _hc_e:
             logger.warning("[R-F1368] LLM health checker stop failed: %s", _hc_e)
+
+    # R-F1550: stop Eagle Eye codebase guardian
+    try:
+        from .intel import eagle_eye
+        await eagle_eye.stop()
+    except Exception as _ee_err:
+        logger.warning("[EagleEye] Shutdown failed (non-fatal): %s", _ee_err)
 
     try:
         from .autonomous import engine as _autonomous_engine
