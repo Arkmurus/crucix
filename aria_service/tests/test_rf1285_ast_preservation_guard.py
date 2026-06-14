@@ -58,8 +58,10 @@ def test_rf1285_rejects_dropping_a_class(tmp_path, monkeypatch):
 
 
 def test_rf1285_allows_symbol_preserving_shrink(tmp_path, monkeypatch):
-    """A genuine shrink that keeps every public symbol (e.g. removes blank lines /
-    a private helper) must NOT be blocked by the truncation guard."""
+    """A genuine shrink that keeps every symbol (public, private, and methods —
+    e.g. removes blank lines / collapses a body) must NOT be blocked by the
+    truncation guard. NOTE (R-F1567): private functions are now protected too, so
+    this case keeps _helper rather than dropping it."""
     monkeypatch.setattr(si, "_root", tmp_path)
     rel = "rf1285_mod_ok.py"
     monkeypatch.setattr(si, "MODIFIABLE_FILES", set(si.MODIFIABLE_FILES) | {rel})
@@ -69,7 +71,7 @@ def test_rf1285_allows_symbol_preserving_shrink(tmp_path, monkeypatch):
         "def beta():\n    return _helper() + 2\n"
     )
     (tmp_path / rel).write_text(current, encoding="utf-8")
-    # remove the private helper + blank lines; both public symbols (alpha, beta) kept
-    proposed = "def alpha():\n    return 1\n\ndef beta():\n    return 2\n"
-    res = asyncio.run(si.stage_improvement(rel, proposed, "bug_fix", "inline helper"))
+    # collapse blank lines but KEEP every symbol (_helper, alpha, beta).
+    proposed = "def _helper():\n    return 0\ndef alpha():\n    return 1\ndef beta():\n    return 0\n"
+    res = asyncio.run(si.stage_improvement(rel, proposed, "bug_fix", "tidy"))
     assert res.get("truncation_guard") is not True, res

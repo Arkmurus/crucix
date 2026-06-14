@@ -441,6 +441,9 @@ async def _scan_loop() -> None:
             await _record_critical_gaps(report)
         # R-F1553: wire scan result to brain
         _wire_scan_to_brain(report)
+        # R-F1559: tick heartbeat after the initial scan so the stall detector
+        # sees us alive immediately, not only after the first 30-min interval.
+        await _tick_heartbeat()
     except Exception as e:
         logger.debug("[EagleEye] Initial scan failed: %s", e)
         _wire_failure_to_brain(f"Initial scan failed: {e}")
@@ -523,25 +526,58 @@ def _wire_failure_to_brain(detail: str) -> None:
 
 async def _record_critical_gaps(report: dict) -> None:
     """Record capability gaps for critical findings.
-    
+
     High-severity issues (eval, exec, SQL injection) become actionable
-    gaps that the autonomous coder can pick up.
+    gaps that the autonomous coder can pick up, AND surface to the operator
+    via the existing pending-actions path.
+
+    R-F1559: the prior implementation passed ``module=``/``description=``/
+    ``severity=`` kwargs that ``capability_gaps.record_gap`` does NOT accept
+    (its signature is ``record_gap(gap_type, detail, message_context, source,
+    user_id, sector)``), so every call raised ``TypeError`` and was swallowed
+    by the bare ``except`` — critical findings NEVER reached the brain. This
+    now calls record_gap with its real signature (verified per CLAUDE.md §3b).
     """
     try:
         from . import capability_gaps as _cg
         top_issues = report.get("top_issues", [])
         for issue in top_issues:
-            if issue.get("severity", 0) >= 8:
+            # Only sev>=9 (eval/exec/os.system/SQL-injection class) — keep the
+            # critical-only floor; do not lower/raise the scanner thresholds.
+            if issue.get("severity", 0) >= 9:
+                detail = (
+                    f"Eagle Eye CRITICAL ({issue.get('type', 'security')}): "
+                    f"{issue.get('description', 'issue')} "
+                    f"at {issue.get('file', '?')}:{issue.get('line', '?')}"
+                )
+                # "security_threat" is a registered VALID_GAP_TYPE; the coder
+                # picks these up on its scan cycle.
                 await _cg.record_gap(
-                    gap_type=f"eagle_eye_{issue.get('type', 'security')}",
-                    module=f"eagle_eye:{issue.get('file', 'unknown')}",
-                    description=(
-                        f"Eagle Eye found {issue.get('description', 'issue')} "
-                        f"at {issue.get('file', '?')}:{issue.get('line', '?')}"
-                    ),
-                    severity="HIGH",
+                    gap_type="security_threat",
+                    detail=detail,
                     source="eagle_eye:_scan_loop",
                 )
+                # Surface to the operator via the existing pending-actions path.
+                await _notify_operator_critical(detail)
+    except Exception:
+        pass
+
+
+async def _notify_operator_critical(detail: str) -> None:
+    """Surface a critical finding to the operator via the existing
+    pending_actions.record path (verified signature per §3b:
+    ``record(promise, reason, *, severity, source, operator_prompt, ...)``).
+    Best-effort; never raises — the §21a floor is the capability gap recorded
+    above, this is the operator-visible add-on."""
+    try:
+        from . import pending_actions as _pa
+        await _pa.record(
+            promise=f"Eagle Eye: review critical codebase finding — {detail}",
+            reason="Eagle Eye scan flagged a sev>=9 codebase issue",
+            severity="HIGH",
+            source="eagle_eye",
+            operator_prompt=f"Review Eagle Eye critical finding: {detail}",
+        )
     except Exception:
         pass
 

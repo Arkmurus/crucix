@@ -29,11 +29,27 @@ from .provider import LLMProvider, LLMResult
 
 logger = logging.getLogger("aria.llm.metered")
 
+# R-F1568 — how long a paused-flag read is cached in-process. Keeps the kill
+# switch from costing a Redis read per autonomous call/token while still
+# reacting within a couple of seconds of the operator hitting pause.
+_PAUSE_CACHE_TTL = 2.0
+
+
+class EnginePausedError(RuntimeError):
+    """R-F1568 — raised when an AUTONOMOUS LLM call is issued while the engine
+    is paused (the emergency kill switch). A RuntimeError subclass so callers
+    that already handle the monthly-cap RuntimeError surface it the same way.
+    Interactive operator/user chat is never raised against this."""
+
 
 class MeteredProvider(LLMProvider):
     """Decorator that delegates to an inner provider and records cost
     after each call. The inner provider's identity (name, is_configured)
     is exposed transparently so callers can't tell the difference."""
+
+    # R-F1568 — process-wide cache of the last paused read: (paused, read_at).
+    # Class-level so all wrapped providers share one short-TTL view.
+    _paused_cache: tuple[bool, float] | None = None
 
     def __init__(self, inner: LLMProvider):
         self._inner = inner
@@ -130,6 +146,70 @@ class MeteredProvider(LLMProvider):
         # subclass so chat/streaming endpoints can surface a useful message.
         await cost_tracker.assert_monthly_cap()
 
+    async def _enforce_kill_switch(self, autonomous: bool) -> None:
+        """R-F1568 — hard money brake on the emergency pause / kill switch.
+
+        Before R-F1568 the engine pause (POST /api/aria/autonomous/pause →
+        autonomous.safety.pause_engine sets crucix:autonomous:paused) was only
+        honoured BETWEEN cycles by the loops. The LLM provider layer enforced
+        the $300 monthly cap on every call but had NO pause check — so when the
+        operator hit the kill switch, in-flight and newly-issued autonomous LLM
+        calls still completed and billed. This adds the missing brake.
+
+        Scope is deliberately narrow:
+          • Only AUTONOMOUS-origin calls are gated. Interactive operator/user
+            chat (autonomous=False, the default) is NEVER blocked — the kill
+            switch stops ARIA's own spend, not the human's.
+          • Callers opt IN by passing autonomous=True (see complete/stream).
+            The safe default means a caller that doesn't know about origin is
+            treated as interactive and never refused.
+
+        Cheap by design: the paused read is cached for a short TTL so a paused
+        flag is not a Redis hit per token / per call under load.
+        """
+        # R-F1568 enablement: auto-detect autonomous origin via the LLM priority
+        # contextvar. Autonomous loops set Priority.BACKGROUND (rate_limiter
+        # .set_priority / .priority()); interactive user/operator chat stays at
+        # the default INTERACTIVE. So a BACKGROUND-priority call IS autonomous
+        # even when the caller didn't pass autonomous=True — this ENABLES the
+        # kill switch for every existing autonomous loop with zero per-caller
+        # changes, while interactive chat is never gated.
+        if not autonomous:
+            try:
+                from .rate_limiter import get_priority, Priority
+                if get_priority() >= Priority.BACKGROUND:
+                    autonomous = True
+            except Exception:
+                pass
+        if not autonomous:
+            return  # interactive path — never gated
+        if not await self._is_paused_cached():
+            return
+        raise EnginePausedError(
+            "Autonomous LLM call refused: engine is paused (kill switch active)."
+        )
+
+    async def _is_paused_cached(self) -> bool:
+        """Read the global engine pause flag with a brief in-process cache.
+
+        Pause reader verified (§3b): aria_service/autonomous/safety.py
+        `async def is_engine_paused() -> bool` reads crucix:autonomous:paused
+        and returns True when set to "1" (fail-open on Redis error).
+        """
+        now = time.time()
+        cached = MeteredProvider._paused_cache
+        if cached is not None and (now - cached[1]) < _PAUSE_CACHE_TTL:
+            return cached[0]
+        try:
+            from ..autonomous import safety
+            paused = await safety.is_engine_paused()
+        except Exception:
+            # Fail OPEN for the gate: if we cannot read the pause state we do
+            # NOT block the call (mirrors is_engine_paused's own fail-open).
+            paused = False
+        MeteredProvider._paused_cache = (paused, now)
+        return paused
+
     async def complete(
         self,
         system_prompt: str,
@@ -138,7 +218,12 @@ class MeteredProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
         prefer_provider: str = "",
+        autonomous: bool = False,
     ) -> LLMResult:
+        # R-F1568 — kill switch first: refuse autonomous spend BEFORE the
+        # provider is invoked. autonomous defaults False so interactive
+        # operator/user chat is never gated (callers opt in).
+        await self._enforce_kill_switch(autonomous)
         await self._enforce_monthly_cap()
         started = time.time()
         success = True
@@ -172,8 +257,12 @@ class MeteredProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done=None,
+        autonomous: bool = False,
     ):
         """Metered streaming — yields chunks, records cost after stream ends."""
+        # R-F1568 — kill switch first (see complete()). Default False keeps
+        # interactive streaming chat unaffected; only autonomous callers gate.
+        await self._enforce_kill_switch(autonomous)
         await self._enforce_monthly_cap()
         started = time.time()
         final_result = None

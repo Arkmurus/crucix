@@ -436,39 +436,66 @@ async def stage_improvement(
         # the fingerprint of a truncated rewrite. Additive/equal changes and
         # private-only churn are unaffected, so legitimate fixes pass; a human still
         # deploys genuine public-symbol removals.
+        #
+        # R-F1567 — widen the protected symbol set. The R-F1285/R-F1450 collector
+        # only walked top-level PUBLIC defs, so a self-coded "fix" that gutted a
+        # PRIVATE module-level helper (_prefixed) or a CLASS METHOD body — without
+        # dropping a public top-level def line — sailed through; only the 50%-line
+        # guard might have caught it. _preserved_syms now also collects (a) methods
+        # defined directly inside top-level classes (qualified ClassName.method) and
+        # (b) module-level private functions. A proposal that DROPS any previously-
+        # present symbol from this widened set is rejected with the same semantics as
+        # the existing public-symbol drop check. This closes the residual coder-safety
+        # hole the operator flagged before any AUTO_DEPLOY.
         if file_path.endswith(".py") and current_lines > 0:
             import ast as _ast
 
-            def _public_syms(src: str) -> set[str]:
+            def _preserved_syms(src: str) -> set[str]:
                 try:
                     tree = _ast.parse(src)
                 except Exception:
                     return set()
-                return {
-                    n.name for n in tree.body
-                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef))
-                    and not n.name.startswith("_")
-                }
+                syms: set[str] = set()
+                for n in tree.body:
+                    # (existing) top-level public functions + classes
+                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                        if not n.name.startswith("_"):
+                            syms.add(n.name)
+                    # (R-F1567 b) module-level PRIVATE functions
+                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and n.name.startswith("_"):
+                        syms.add(n.name)
+                    # (R-F1567 a) methods one level inside top-level classes —
+                    # qualified ClassName.method so a method can't silently vanish.
+                    if isinstance(n, _ast.ClassDef):
+                        for m in n.body:
+                            if isinstance(m, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                                syms.add(f"{n.name}.{m.name}")
+                return syms
+
+            # Back-compat alias: callers/tests that referenced the old collector name
+            # still work, and the public-symbol semantics are a strict subset.
+            _public_syms = _preserved_syms
 
             try:
                 cur_src = full_path.read_text(encoding="utf-8")
             except Exception:
                 cur_src = ""
-            dropped = _public_syms(cur_src) - _public_syms(new_content)
+            dropped = _preserved_syms(cur_src) - _preserved_syms(new_content)
             if dropped:
                 logger.warning(
-                    "[self_improve] R-F1285/R-F1450 REJECTED stage of %s: drops %d public "
+                    "[self_improve] R-F1285/R-F1450/R-F1567 REJECTED stage of %s: drops %d "
                     "symbol(s) %s (%d->%d lines) — likely destructive whole-file regen.",
                     file_path, len(dropped), sorted(dropped)[:6], current_lines, proposed_lines,
                 )
                 _SI_FAILURES += 1
                 wire_failure(module="self_improve",
-                             detail=f"R-F1285 blocked stage of {file_path}: drops {sorted(dropped)[:6]}",
+                             detail=f"R-F1285/R-F1567 blocked stage of {file_path}: drops {sorted(dropped)[:6]}",
                              gap_type="truncation_guard", source="self_improve:stage_improvement")
                 return {
                     "error": (
-                        f"Rejected: proposed content drops top-level public symbol(s) "
-                        f"{sorted(dropped)[:6]} present in the current file "
+                        f"Rejected: proposed content drops symbol(s) "
+                        f"{sorted(dropped)[:6]} (public def, private helper, or class method) "
+                        f"present in the current file "
                         f"({current_lines}->{proposed_lines} lines) — almost certainly a "
                         f"destructive whole-file regen that would delete working code. ARIA does not "
                         f"stage symbol-dropping shrinkage."

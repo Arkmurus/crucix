@@ -315,11 +315,27 @@ def require_aria_token(request: Request) -> None:
         return
     accepted = _accepted_tokens()
     if not accepted:
+        # R-F1566: fail CLOSED in production. The soft-rollout no-op (serve
+        # open when no token is set) is only safe for local dev. On fly both
+        # secrets ARE set, so an empty `accepted` in production means the
+        # secrets were cleared/lost — serving open then would silently expose
+        # every endpoint. Detect production via FLY_APP_NAME (set on every fly
+        # machine; absent locally) and refuse rather than serve unauthenticated.
+        import os as _os
+        if _os.getenv("FLY_APP_NAME") or _os.getenv("FLY_MACHINE_ID"):
+            _log.error(
+                "[auth] PRODUCTION with NO ARIA_API_TOKEN/ARIA_INTERNAL_TOKEN set "
+                "— refusing all requests (fail-closed, R-F1566). Set the secret."
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Service auth not configured — refusing (fail-closed).",
+            )
         if not _AUTH_WARNING_LOGGED:
             _log.warning(
                 "[auth] Neither ARIA_API_TOKEN nor ARIA_INTERNAL_TOKEN set — "
-                "fly.io endpoints are OPEN to the public internet. "
-                "Set at least one secret to enable enforcement."
+                "local dev soft-rollout (no enforcement). In production this "
+                "fails closed (R-F1566)."
             )
             _AUTH_WARNING_LOGGED = True
         return

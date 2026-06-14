@@ -52,6 +52,11 @@ _CONFIDENCE_RE = re.compile(r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATI
 _URL_RE = re.compile(r"https?://[^\s\)\]\"'>]+")
 
 
+def _truthy(val: str | None) -> bool:
+    """Env-flag parse: 1/true/yes (case-insensitive) → True."""
+    return (val or "").strip().lower() in ("1", "true", "yes")
+
+
 def _extract_confidence_tags(text: str) -> list[str]:
     """Extract all confidence tags from response text."""
     return list(set(m.group(1).upper() for m in _CONFIDENCE_RE.finditer(text)))
@@ -144,14 +149,37 @@ async def record_chat(
 
     # Optional raw-text capture for training-corpus collectors.
     # Default OFF — audit remains hash-only for privacy.
-    # When ARIA_CHAT_TRAIN_CAPTURE_TEXT=1, append raw user_message and
-    # response to the entry AFTER signing so the HMAC body is unchanged
+    # When ARIA_CHAT_TRAIN_CAPTURE_TEXT=1, append the captured user_message
+    # and response to the entry AFTER signing so the HMAC body is unchanged
     # and `verify_chain` (which checks prev_hash→chain_hash linking only)
     # still passes. Collectors in `learning/training_export.py` read these
     # fields; they are absent when capture is disabled.
-    if (os.getenv("ARIA_CHAT_TRAIN_CAPTURE_TEXT") or "").strip().lower() in ("1", "true", "yes"):
-        entry["user_message"] = (user_message or "")[:4000]
-        entry["response"] = (response_text or "")[:20000]
+    #
+    # R-F1563 (2026-06-14): capture-WITHOUT-redaction must no longer be the
+    # default. The captured text held live PII (emails, phones, deal data,
+    # secrets) at rest for ~100yr (_TTL_DAYS). Run it through a deterministic
+    # LLM-free PII redaction pass BEFORE truncation/persistence so the stored
+    # raw fields carry typed placeholders ([EMAIL]/[PHONE]/[CARD]/...), not
+    # clear PII. Redaction defaults ON whenever capture is on; it can be
+    # tuned OFF via ARIA_CHAT_TRAIN_CAPTURE_REDACT=0 for a trusted offline
+    # corpus run, but the safe default leaks nothing.
+    #
+    # The chain hash is computed over the hash-only body (above), so adding
+    # / redacting these fields does not affect chain integrity. The
+    # user_message_hash / response_hash anchors still hash the ORIGINAL
+    # exchange (lines ~123-124) for tamper detection of what was actually
+    # said — only the at-rest *plaintext copy* is redacted.
+    if _truthy(os.getenv("ARIA_CHAT_TRAIN_CAPTURE_TEXT")):
+        raw_user = (user_message or "")[:4000]
+        raw_resp = (response_text or "")[:20000]
+        if os.getenv("ARIA_CHAT_TRAIN_CAPTURE_REDACT") is None or _truthy(
+            os.getenv("ARIA_CHAT_TRAIN_CAPTURE_REDACT")
+        ):
+            from .pii_redaction import redact_pii
+            raw_user = redact_pii(raw_user)
+            raw_resp = redact_pii(raw_resp)
+        entry["user_message"] = raw_user
+        entry["response"] = raw_resp
 
     # Persist
     await rs.lpush(_K_LOG, json.dumps(entry, default=str))

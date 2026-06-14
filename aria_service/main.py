@@ -1024,7 +1024,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(3)
         _suspect: list[str] = []
         for _key, _hint in _SECRET_AUDIT.items():
-            _val = os.environ.get(_key, "")
+            _val = _os.environ.get(_key, "")  # R-F1571: was bare `os` → NameError crashed the audit task on boot
             if not _val:
                 continue
             # Check for CLI flags leaked into the value
@@ -1541,6 +1541,29 @@ async def lifespan(app: FastAPI):
         check_interval_s=3600,
         critical=True,
     )
+
+    # R-F1561: ACTUALLY register the contracts defined above. R-F1554 created
+    # the AgentContract objects but never registered them — they were dead local
+    # variables (only web_integrity's contract was wired via the _register_agent
+    # contract= path). Register them all on CONTRACT_REGISTRY so every background
+    # agent has a binding, queryable contract (R-F1212), not just web_integrity.
+    async def _register_all_contracts() -> None:
+        from .intel.agent_contract import CONTRACT_REGISTRY as _CR
+        for _c in (
+            _research_contract, _self_improve_contract, _student_quiz_contract,
+            _student_reading_contract, _library_consolidation_contract,
+            _proactive_watch_contract, _weekly_report_contract,
+            _watchlist_rescreen_contract, _tender_monitor_contract,
+            _self_healing_contract,
+        ):
+            try:
+                await _CR.register_contract(_c)
+            except Exception:
+                _log.warning(
+                    "R-F1561: contract registration failed for %s",
+                    getattr(_c, "agent_id", "?"),
+                )
+    asyncio.create_task(_register_all_contracts())
 
     # Register self-healing (already done in start_self_healing, but ensure it's registered)
     asyncio.create_task(_register_agent(

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1559,
+  "next_available": 1572,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9986,23 +9986,143 @@
       "title": "Commit WA listener deploy Dockerfile+fly.toml (R-F1551 deploy half)",
       "claimed_at": "2026-06-14T22:04:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e1c8a0df",
+      "notes": null,
+      "shipped_at": "2026-06-14T22:17:01Z"
     },
     {
       "r_number": "R-F1557",
       "title": "Fix /phase/gates aggregator: gates #1/#2 call non-existent composite_score/heatmap",
       "claimed_at": "2026-06-14T22:04:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a353d5cf",
+      "notes": null,
+      "shipped_at": "2026-06-14T22:24:22Z"
     },
     {
       "r_number": "R-F1558",
       "title": "Stage-1 grounded corpus: held-out/contamination guard before paid SFT",
       "claimed_at": "2026-06-14T22:04:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a353d5cf",
+      "notes": null,
+      "shipped_at": "2026-06-14T22:17:01Z"
+    },
+    {
+      "r_number": "R-F1559",
+      "title": "eagle_eye brain wiring + self-register agent + heartbeat",
+      "claimed_at": "2026-06-14T22:30:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1560",
+      "title": "agent_registry claim_gap/send_message/read_messages/release_gap dedicated-DB path",
+      "claimed_at": "2026-06-14T22:30:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1561",
+      "title": "agent contracts for all background loops",
+      "claimed_at": "2026-06-14T22:30:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1562",
+      "title": "sanctions FN: nasab + non-Latin/Arabic normalization in screen variants",
+      "claimed_at": "2026-06-14T22:30:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1563",
+      "title": "chat_audit_log PII redaction before capture",
+      "claimed_at": "2026-06-14T22:30:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1564",
+      "title": "WA listener thread requestId through all sendReply sites (proprioception)",
+      "claimed_at": "2026-06-14T22:30:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1565",
+      "title": "server.mjs sweep-ingest wire to brain + web delivery-outcome",
+      "claimed_at": "2026-06-14T22:30:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1566",
+      "title": "auth require_aria_token fail-closed in production",
+      "claimed_at": "2026-06-14T22:30:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1567",
+      "title": "preservation gate extend to private+method symbols",
+      "claimed_at": "2026-06-14T22:30:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1568",
+      "title": "kill-switch halts in-flight autonomous LLM spend",
+      "claimed_at": "2026-06-14T22:30:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1569",
+      "title": "stored-XSS web-tier render audit + escape fixes",
+      "claimed_at": "2026-06-14T22:30:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1570",
+      "title": "Web-tier dark-ops + delivery-outcome wiring (R-F1565)",
+      "claimed_at": "2026-06-14T22:41:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1571",
+      "title": "Stored-XSS audit + fix in web render paths (R-F1569)",
+      "claimed_at": "2026-06-14T22:41:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

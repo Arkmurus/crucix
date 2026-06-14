@@ -219,15 +219,184 @@ _ACRONYMS = {
     "GRU": "Main Intelligence Directorate",
 }
 
+# R-F1562 (2026-06-14): Arabic-script → Latin transliteration table.
+# Sanctions false-negative class: a sanctioned person spelled in Arabic
+# script (e.g. "محمد بن سلمان") generated NO Latin variant, so it never
+# matched OpenSanctions' Latin-script primary names — a legal-liability
+# miss. This is a compact, deterministic map of the common consonants +
+# long vowels used on OFAC/UN/EU sanctions entries. It is NOT a full
+# Arabic romanisation engine (no dependency pulled in); it is tuned to
+# produce a Latin string close enough for the fuzzy/phonetic matcher.
+_ARABIC_TO_LATIN = {
+    # Hamza / alef family → 'a' (alef variants collapse to a)
+    "ء": "", "آ": "a", "أ": "a", "إ": "i", "ا": "a", "ٱ": "a", "ى": "a",
+    # Consonants
+    "ب": "b", "ت": "t", "ث": "th", "ج": "j", "ح": "h", "خ": "kh",
+    "د": "d", "ذ": "dh", "ر": "r", "ز": "z", "س": "s", "ش": "sh",
+    "ص": "s", "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "gh",
+    "ف": "f", "ق": "q", "ك": "k", "ل": "l", "م": "m", "ن": "n",
+    "ه": "h", "ة": "a", "و": "w", "ي": "y", "ئ": "y", "ؤ": "w",
+    # Persian/Urdu letters occasionally on sanctions entries
+    "پ": "p", "چ": "ch", "ژ": "zh", "گ": "g", "ک": "k", "ی": "y",
+    "ٔ": "",
+}
+# Arabic diacritics (harakat / tatweel) stripped before transliteration.
+_ARABIC_DIACRITICS = "".join([
+    "ً", "ٌ", "ٍ", "َ", "ُ", "ِ",
+    "ّ", "ْ", "ٓ", "ٔ", "ٕ", "ٰ",
+    "ـ",  # tatweel (kashida)
+])
+# Detects any Arabic-script codepoint (Arabic + Arabic Supplement +
+# Arabic Presentation Forms).
+_ARABIC_SCRIPT_RE = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")
+
+# R-F1562: maximum variants returned, to cap explosion / API hammering.
+_MAX_VARIANTS = 24
+
+
+def _transliterate_arabic(text: str) -> str:
+    """R-F1562: lightweight Arabic-script → Latin transliteration.
+
+    Strips diacritics/tatweel, maps each Arabic letter to its common
+    Latin form, leaves Latin/space/punctuation untouched, and collapses
+    whitespace. Returns "" if nothing transliterable was produced.
+    """
+    if not text:
+        return ""
+    # Drop harakat / tatweel
+    cleaned = "".join(ch for ch in text if ch not in _ARABIC_DIACRITICS)
+    out: list[str] = []
+    for ch in cleaned:
+        if ch in _ARABIC_TO_LATIN:
+            out.append(_ARABIC_TO_LATIN[ch])
+        else:
+            out.append(ch)
+    result = re.sub(r"\s+", " ", "".join(out)).strip()
+    return result
+
+
+def _nasab_variants(name: str) -> list[str]:
+    """R-F1562: nasab-/particle-aware reordered name variants.
+
+    Routes the name through person_resolver.parse_components (verified
+    sync def at person_resolver.py:100, signature `parse_components(name)
+    -> NameComponents`) and produces forms that catch reordered Arabic
+    nasab names (given + bin/ibn/bint/abu/al + family). Imported lazily
+    to avoid an import cycle (person_resolver does not import sanctions,
+    but keep it lazy as a guard). Returns [] on any failure.
+    """
+    if not name or not name.strip():
+        return []
+    # Pre-normalise hyphens to spaces so a glued family particle like
+    # "Al-Saud" is seen by the component parser as the particle "al" +
+    # surname "Saud" (otherwise "al-saud" is one token, never a particle).
+    pre = re.sub(r"[-]", " ", name)
+    try:
+        from . import person_resolver as _pr  # lazy import (avoid cycle)
+        comp = _pr.parse_components(pre)
+    except Exception:
+        return []
+
+    out: list[str] = []
+    given = [g for g in (comp.given or []) if g]
+    surname = (comp.surname or "").strip()
+    particles = [p for p in (comp.particles or []) if p]
+
+    if not given and not surname:
+        return []
+
+    norm_particles = [p.lower().strip("-") for p in particles]
+    has_al = ("al" in norm_particles) or ("el" in norm_particles)
+
+    # 1. Particle-normalised full form: given + (kept particles) + surname.
+    #    "Ahmed bin Mohammed Al-Saud" → "Ahmed bin Mohammed al Saud"
+    if surname:
+        full_kept = " ".join(given + norm_particles + [surname]).strip()
+        if full_kept:
+            out.append(full_kept)
+
+    # 2. Particles DROPPED entirely (most sanctions DBs store bare
+    #    given+family): "Ahmed bin Mohammed Al-Saud" → "Ahmed Mohammed Saud"
+    if surname:
+        dropped = " ".join(given + [surname]).strip()
+        if dropped:
+            out.append(dropped)
+
+    # 3. given[0] + surname short forms (patronymics dropped):
+    #    "Ahmed ... Al-Saud" → "Ahmed Saud" / "Ahmed Al Saud" / "Ahmed Al-Saud"
+    if given and surname:
+        out.append(f"{given[0]} {surname}")
+        if has_al:
+            out.append(f"{given[0]} Al {surname}")
+            out.append(f"{given[0]} Al-{surname}")
+
+    # 4. Full given block + family with the al/el particle kept inline:
+    #    "Ahmed Mohammed Al Saud" — the common Latin sanctions spelling.
+    if surname and has_al:
+        out.append(" ".join(given + ["Al", surname]).strip())
+
+    # 5. Reorder: surname first (some lists store family-name-first):
+    #    "Saud Ahmed Mohammed"
+    if surname and given:
+        out.append(" ".join([surname] + given).strip())
+
+    # Dedupe, drop the exact input echo (already covered by caller).
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for v in out:
+        v = re.sub(r"\s+", " ", v).strip()
+        key = v.lower()
+        if v and key not in seen:
+            seen.add(key)
+            deduped.append(v)
+    return deduped
+
+
 def _generate_variants(name: str) -> list[str]:
     """Generate plausible name variants for fuzzy matching against sanctions lists."""
-    variants = {name.strip()}
     n = name.strip()
     if not n:
         return []
 
+    # R-F1562: ordered list so high-salience variants (nasab reorderings,
+    # Arabic→Latin) land in the first slots — fuzzy_screen only queries
+    # variants[:6], so a nasab/Arabic miss had no chance of reaching the
+    # API. `ordered` preserves priority; `seen` dedupes case-insensitively.
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _add(v: str) -> None:
+        if not v:
+            return
+        v = v.strip()
+        if not v or len(v) < 2:
+            return
+        key = v.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        ordered.append(v)
+
+    _add(n)
+
+    # R-F1562: Arabic-script → Latin (FIRST, so it reaches the API). If the
+    # input is in Arabic script it otherwise produces zero Latin matches.
+    if _ARABIC_SCRIPT_RE.search(n):
+        latin = _transliterate_arabic(n)
+        if latin and latin.lower() != n.lower():
+            _add(latin)
+            # Also feed the Latin form through the nasab reorderer so
+            # "محمد بن سلمان" → "muhammad bin salman" → "muhammad salman".
+            for nv in _nasab_variants(latin):
+                _add(nv)
+
+    # R-F1562: nasab-/particle-aware reorderings on the original (Latin)
+    # input — catches "Ahmed bin Mohammed Al-Saud" ⇄ "Ahmed Mohammed Saud".
+    for nv in _nasab_variants(n):
+        _add(nv)
+
     # Whole-string transformations
-    variants.add(n.translate(_CYRILLIC_TO_LATIN))   # Cyrillic→Latin
+    _add(n.translate(_CYRILLIC_TO_LATIN))   # Cyrillic→Latin
     # R-F62 (2026-05-09): dropped the n.lower() variant. OpenSanctions
     # match is case-insensitive at the API level, so the lowercase form
     # adds zero discriminating value — but for multi-word inputs like
@@ -236,28 +405,28 @@ def _generate_variants(name: str) -> list[str]:
     # "rejecting non-entity input" every cycle. Live evidence 2026-05-09
     # 11:18:34 (fly logs). Kept .upper() and .title() because some
     # legitimate-looking corporate variants still differ usefully.
-    variants.add(n.upper())
-    variants.add(n.title())
+    _add(n.upper())
+    _add(n.title())
 
     # Punctuation strip
-    variants.add(re.sub(r"[^\w\s]", "", n))
+    _add(re.sub(r"[^\w\s]", "", n))
 
     # Acronym expansion
     upper = n.upper().strip()
     if upper in _ACRONYMS:
-        variants.add(_ACRONYMS[upper])
+        _add(_ACRONYMS[upper])
 
     # If full name contains a known acronym as first word, also try expanded
     parts = n.split()
     if parts and parts[0].upper() in _ACRONYMS:
         expanded = _ACRONYMS[parts[0].upper()] + " " + " ".join(parts[1:])
-        variants.add(expanded.strip())
+        _add(expanded.strip())
 
     # Acronym extraction (strip vowels from each word for orgs)
     if len(parts) >= 2 and all(p[:1].isupper() for p in parts):
         acro = "".join(p[0] for p in parts if p)
         if 2 <= len(acro) <= 6:
-            variants.add(acro)
+            _add(acro)
 
     # Drop common corporate suffixes
     cleaned = re.sub(
@@ -266,9 +435,11 @@ def _generate_variants(name: str) -> list[str]:
         "", n, flags=re.IGNORECASE,
     ).strip()
     if cleaned and cleaned != n:
-        variants.add(cleaned)
+        _add(cleaned)
 
-    return [v for v in variants if v and len(v) >= 2]
+    # R-F1562: cap variant explosion (already deduped by _add). Priority
+    # order is preserved — input, Arabic→Latin, nasab reorderings first.
+    return ordered[:_MAX_VARIANTS]
 
 
 # ── OpenSanctions API ───────────────────────────────────────────────────────
