@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1543,
+  "next_available": 1552,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9849,6 +9849,96 @@
       "r_number": "R-F1542",
       "title": "sanctions jurisdiction guard: force specific-list citation in live check",
       "claimed_at": "2026-06-13T08:10:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b6af96db",
+      "notes": null,
+      "shipped_at": "2026-06-13T08:18:44Z"
+    },
+    {
+      "r_number": "R-F1543",
+      "title": "adversarial grader: update refusal detection for current ARIA phrasing",
+      "claimed_at": "2026-06-13T08:29:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e48f5694",
+      "notes": null,
+      "shipped_at": "2026-06-13T08:41:28Z"
+    },
+    {
+      "r_number": "R-F1544",
+      "title": "document read-back: structured extraction summary before LLM analysis",
+      "claimed_at": "2026-06-13T08:29:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e48f5694",
+      "notes": null,
+      "shipped_at": "2026-06-13T08:41:32Z"
+    },
+    {
+      "r_number": "R-F1545",
+      "title": "auto-fire registry tools: MERSIS/Estonian without asking permission",
+      "claimed_at": "2026-06-13T08:29:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e48f5694",
+      "notes": null,
+      "shipped_at": "2026-06-13T08:41:36Z"
+    },
+    {
+      "r_number": "R-F1546",
+      "title": "regression tests: ZU-23-2, Hikvision, context loss conversation failures",
+      "claimed_at": "2026-06-13T08:29:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e48f5694",
+      "notes": null,
+      "shipped_at": "2026-06-13T08:41:39Z"
+    },
+    {
+      "r_number": "R-F1547",
+      "title": "re-run adversarial suite and expose RAG stats in health endpoint",
+      "claimed_at": "2026-06-13T09:30:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a59d4371",
+      "notes": null,
+      "shipped_at": "2026-06-13T09:34:39Z"
+    },
+    {
+      "r_number": "R-F1548",
+      "title": "verify and fix agent bridge draining in SUPERVISED mode",
+      "claimed_at": "2026-06-13T09:30:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a59d4371",
+      "notes": null,
+      "shipped_at": "2026-06-13T09:34:44Z"
+    },
+    {
+      "r_number": "R-F1549",
+      "title": "add RAG stats to health endpoint",
+      "claimed_at": "2026-06-13T09:30:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a59d4371",
+      "notes": null,
+      "shipped_at": "2026-06-13T09:34:48Z"
+    },
+    {
+      "r_number": "R-F1550",
+      "title": "Eagle Eye codebase guardian - wire into lifespan",
+      "claimed_at": "2026-06-13T09:42:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cd110f46",
+      "notes": null,
+      "shipped_at": "2026-06-13T09:46:43Z"
+    },
+    {
+      "r_number": "R-F1551",
+      "title": "WA listener resilience: auto-recover from logout, connection watchdog, process-exit on repeated auth failure",
+      "claimed_at": "2026-06-14T17:28:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
