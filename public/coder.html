@@ -356,8 +356,13 @@ function loadFile(filename) {
     const icon = filename.endsWith('.py') ? 'bi-filetype-py' :
                  filename.endsWith('.html') ? 'bi-filetype-html' :
                  filename.endsWith('.js') ? 'bi-filetype-js' : 'bi-file-text';
-    tab.innerHTML = '<i class="' + icon + '"></i> ' + filename +
-      '<span class="close" onclick="closeFile(\'' + filename + '\')">&times;</span>';
+    // R-F1569 — filename came straight from the server file list and was
+    // interpolated raw into BOTH the tab text AND a single-quoted onclick JS
+    // string (double-decode context). Escape the displayed name and move the
+    // close action to a data-attr + delegated handler so no filename reaches a
+    // JS string literal in markup.
+    tab.innerHTML = '<i class="' + icon + '"></i> ' + escapeHtml(filename) +
+      '<span class="close coder-tab-close" data-file="' + escapeHtml(filename) + '">&times;</span>';
     tabs.insertBefore(tab, tabs.lastElementChild);
   } else {
     tab.classList.add('active');
@@ -378,6 +383,14 @@ function closeFile(filename) {
 
 // ── Tab switching ────────────────────────────────────────────────────────
 tabs.addEventListener('click', (e) => {
+  // R-F1569 — close button is now a delegated data-attr handler (was inline
+  // onclick with a raw, unescaped filename in a JS string).
+  const closeBtn = e.target.closest('.coder-tab-close');
+  if (closeBtn) {
+    e.stopPropagation();
+    closeFile(closeBtn.getAttribute('data-file') || '');
+    return;
+  }
   const tab = e.target.closest('.coder-tab');
   if (!tab || tab.classList.contains('active')) return;
   loadFile(tab.dataset.file);
@@ -540,7 +553,7 @@ document.getElementById('btn-files').addEventListener('click', async () => {
           const icon = f.endsWith('.py') ? 'bi-filetype-py' :
                        f.endsWith('.html') ? 'bi-filetype-html' :
                        f.endsWith('.js') ? 'bi-filetype-js' : 'bi-file-text';
-          tab.innerHTML = '<i class="' + icon + '"></i> ' + f.split('/').pop();
+          tab.innerHTML = '<i class="' + icon + '"></i> ' + escapeHtml(f.split('/').pop());
           tabs.insertBefore(tab, tabs.lastElementChild);
         }
       }

@@ -221,8 +221,15 @@ function renderTable(entries) {
       '<td>' + status + '</td>' +
       '<td style="color:rgba(255,255,255,0.5);font-size:12px">' + lastChecked + '</td>' +
       '<td>' +
-        '<button class="wl-btn sec" style="padding:4px 10px;font-size:11px" onclick="runDD(\'' + escAttr(e.name) + '\')" title="Run DD on this entity"><i class="bi bi-search"></i></button> ' +
-        '<button class="wl-btn sec" style="padding:4px 10px;font-size:11px;color:#fca5a5" onclick="removeEntry(\'' + escAttr(e.name) + '\')" title="Remove from watchlist"><i class="bi bi-trash"></i></button>' +
+        // R-F1569 — these buttons formerly used inline onclick handlers that
+        // interpolated the user-stored entity name into a single-quoted JS
+        // string. A JS string inside an HTML attribute is a double-decode
+        // context (HTML entities decode BEFORE the JS parses), so HTML-entity
+        // escaping alone could NOT make the name safe there. Now: data-* +
+        // event delegation (CSP-safe, single HTML-attribute context) so no
+        // name reaches a JS string literal in markup.
+        '<button class="wl-btn sec wl-act-dd" data-name="' + escAttr(e.name) + '" style="padding:4px 10px;font-size:11px" title="Run DD on this entity"><i class="bi bi-search"></i></button> ' +
+        '<button class="wl-btn sec wl-act-remove" data-name="' + escAttr(e.name) + '" style="padding:4px 10px;font-size:11px;color:#fca5a5" title="Remove from watchlist"><i class="bi bi-trash"></i></button>' +
       '</td>' +
     '</tr>';
   }
@@ -295,7 +302,28 @@ async function removeEntry(name) {
 function escText(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+// R-F1569 — escAttr now feeds ONLY an HTML attribute (data-name="..."), no
+// longer a nested JS-string-in-attribute, so full HTML-attribute escaping is
+// correct and sufficient. (Previously it escaped only the double-quote, which
+// was unsafe for the old onclick JS-string context — see render refactor above.)
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// R-F1569 — event delegation for the per-row action buttons (replaces inline
+// onclick handlers that interpolated user-stored entity names into JS strings).
+content.addEventListener('click', function(ev) {
+  const btn = ev.target.closest('button[data-name]');
+  if (!btn) return;
+  const name = btn.getAttribute('data-name') || '';
+  if (btn.classList.contains('wl-act-dd')) runDD(name);
+  else if (btn.classList.contains('wl-act-remove')) removeEntry(name);
+});
 
 // Load on init
 loadWatchlist();

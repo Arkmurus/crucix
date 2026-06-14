@@ -2047,6 +2047,32 @@ function _ariaHeaders(extra = {}) {
   return headers;
 }
 
+// ── §25a web delivery-outcome (R-F1565) ──────────────────────────────────────
+// Mirrors the WA listener's reportOutcome (services/wa-listener/
+// aria_wa_listener.mjs ~L1023): every output surface reports whether the user
+// actually got a real answer so ARIA's brain can FEEL the web limb (CLAUDE.md
+// §25/§25a). Same /api/aria/outcome endpoint + payload shape the WA path uses.
+// Best-effort: never throws, short timeout — outcome reporting must never break
+// the reply path.
+function reportOutcome(surface, requestId, intendedResult, actualOutcome, latencyMs, detail) {
+  try {
+    if (!ARIA_SERVICE_URL || !requestId) return;
+    fetch(`${ARIA_SERVICE_URL}/api/aria/outcome`, {
+      method: 'POST',
+      headers: _ariaHeaders(),
+      body: JSON.stringify({
+        surface,
+        request_id: requestId,
+        intended_result: intendedResult,
+        actual_outcome: actualOutcome,
+        latency_ms: latencyMs || 0,
+        detail: detail || '',
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+  } catch { /* outcome reporting must never break the reply path */ }
+}
+
 async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs } = {}) {
   let lastStatus = 0;
   let lastErr = '';
@@ -2105,6 +2131,14 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
     } catch (e) {
       lastErr = e && e.message ? e.message : String(e);
       console.warn(`[ARIA proxy] ${path} threw: ${lastErr}`);
+      // R-F1565 — wire this previously-dark ops failure to the brain. record()
+      // is best-effort and only escalates significant severities (CRITICAL/
+      // AUTH/STRUCTURAL) to /api/aria/brain/signal — a routine fly.io timeout
+      // classifies TRANSIENT and is NOT escalated, so this won't flood the
+      // gap pipeline; auth/structural proxy breakage now becomes coder-visible.
+      try {
+        errorTracker.record('aria_intel_proxy', 'proxy_threw', e, null, { path });
+      } catch { /* telemetry must never break the proxy path */ }
     }
   } else {
     console.warn(`[ARIA proxy] ${path} skipped — ARIA_SERVICE_URL not set`);
@@ -2161,6 +2195,14 @@ async function pushSweepToARIA(data) {
       + `· code=${code} · host=${host} · payload=${sizeKB}KB `
       + `· elapsed=${elapsedMs}ms`,
     );
+    // R-F1565 — this ops failure was dark (console-only): wire it to the brain
+    // via errorTracker.record so the failure reaches /api/aria/brain/signal
+    // (R-F900 _reportToBrain) and becomes coder-visible. Best-effort; record()
+    // never throws and only escalates significant severities to the brain.
+    try {
+      errorTracker.record('aria_sweep_ingest', 'ingest_failed', e, null,
+        { host, payloadKB: sizeKB, elapsedMs, code });
+    } catch { /* telemetry must never break the sweep path */ }
   }
 }
 
@@ -2888,6 +2930,10 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id, skip_aria_service } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+  // §25a (R-F1565) — delivery-outcome instrumentation for the MAIN web answer
+  // path so the brain knows whether a web user actually received a real answer.
+  const _outT0 = Date.now();
+  const _outReqId = (req.headers['x-request-id'] || `web_${sid}`).toString();
   // R-F48b: resolve persona from authenticated user record so the
   // Python brain picks the right overlay. Empty string = let Python
   // default to broker (current behaviour for legacy users w/o sector).
@@ -2973,6 +3019,8 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         data.engine = 'aria-8layer';
         // Persist to Redis
         try { await redisAdapter.hset?.(sessionKey, 'lastMessage', message, 'lastResponse', data.response?.slice(0, 500) || '', 'updatedAt', new Date().toISOString()); } catch {}
+        // §25a (R-F1565) — real guarded answer delivered to the web user.
+        reportOutcome('web', _outReqId, 'chat_answer', 'delivered_real_answer', Date.now() - _outT0);
         return res.json(data);
       }
       // 2026-04-08: log the actual non-OK response so we can see WHY Python
@@ -2980,6 +3028,9 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
       console.warn(`[ARIA] Python returned ${r.status} — falling through to local. body: ${(await r.text().catch(() => '')).slice(0, 300)}`);
     } catch (e) {
       console.warn('[ARIA] Python service unreachable, trying brain/local:', e.message);
+      // §25a (R-F1565) — primary guarded path errored; record so the brain
+      // knows the web user did NOT get a guarded answer (fell to fallback).
+      reportOutcome('web', _outReqId, 'chat_answer', 'error', Date.now() - _outT0, e?.message);
     }
   } else if (skip_aria_service) {
     console.warn('[ARIA] skip_aria_service=true — bypassing fly.io, going straight to local Node fallback');
@@ -3080,6 +3131,10 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
       result[_f] = _banner + result[_f];
     }
   }
+  // §25a (R-F1565) — the user got only the UNGUARDED local fallback, not a real
+  // guarded ARIA answer. Report as a non-success outcome so the brain treats it
+  // as a delivery degradation it can self-heal from (fly.io was unreachable).
+  reportOutcome('web', _outReqId, 'chat_answer', 'error', Date.now() - _outT0, 'unguarded_local_fallback');
   res.json(result);
 });
 
