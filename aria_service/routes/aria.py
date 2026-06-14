@@ -21454,40 +21454,55 @@ async def phase_gates_ep() -> dict:
     from ..intel import adversarial_challenge as _ac
     from ..intel import operating_modes as _om
     from ..intel import autonomy_scorer as _ascorer
+    from ..intel import student as _student
     from ..intel.engine_wiring import wire_success
     import datetime
 
     gates: list[dict] = []
 
     # Gate 1: Composite ≥71%
+    # R-F1557: was `_ascorer.composite_score()` — that function does NOT exist
+    # (only `compute_composite()`), so this raised AttributeError → swallowed →
+    # gate silently reported "unknown" and the operator dashboard was blind.
+    # Repointed to the real fn; the key is "composite_score" (not "composite").
     try:
-        composite = await _ascorer.composite_score()
-        g1_status = "closed" if (composite or {}).get("composite", 0) >= 0.71 else "open"
+        composite = await _ascorer.compute_composite()
+        c_val = (composite or {}).get("composite_score", 0) or 0
+        g1_status = "closed" if c_val >= 0.71 else "open"
     except Exception:
         composite = None
+        c_val = None
         g1_status = "unknown"
     gates.append({
         "id": 1,
         "title": "Composite score ≥71%",
         "status": g1_status,
-        "value": round((composite or {}).get("composite", 0), 3) if composite else None,
-        "evidence": "autonomy_scorer.composite_score()",
+        "value": round(c_val, 3) if c_val is not None else None,
+        "evidence": "autonomy_scorer.compute_composite()['composite_score']",
     })
 
     # Gate 2: Heatmap floor ≥70%
+    # R-F1557: was `_ascorer.heatmap()` — also a non-existent function (same
+    # AttributeError→"unknown" failure). The real floor = the minimum mastery
+    # cell from student.get_regional_heatmap(); breaching cells are surfaced.
     try:
-        heatmap = await _ascorer.heatmap()
-        floor = min((h or {}).get("score", 1.0) for h in (heatmap or [])) if heatmap else None
-        g2_status = "closed" if floor is not None and floor >= 0.70 else "open"
+        hm_data = await _student.get_regional_heatmap()
+        hm = (hm_data or {}).get("heatmap", {}) or {}
+        all_scores = [s for regions in hm.values() for s in regions.values()]
+        floor = min(all_scores) if all_scores else None
+        breach = (hm_data or {}).get("floor_breach_cells", []) or []
+        g2_status = "unknown" if floor is None else ("closed" if floor >= 0.70 else "open")
     except Exception:
         floor = None
+        breach = []
         g2_status = "unknown"
     gates.append({
         "id": 2,
         "title": "Heatmap floor ≥70%",
         "status": g2_status,
-        "value": floor,
-        "evidence": "autonomy_scorer.heatmap()",
+        "value": round(floor, 3) if floor is not None else None,
+        "evidence": "student.get_regional_heatmap() — min mastery cell",
+        "floor_breach_cells": breach,
     })
 
     # Gate 3: 0 fly ERRORs in 7 days
@@ -21521,20 +21536,36 @@ async def phase_gates_ep() -> dict:
     })
 
     # Gate 5: Env vars set
-    env_checks = {
-        "HARVEST_ENABLED": "1",
-        "AUTONOMOUS_ENABLED": "1",
-        "AUTONOMY_LEVEL": "3",
-    }
+    # R-F1557: the live fly secrets are ARIA_-prefixed (ARIA_AUTONOMOUS_ENABLED,
+    # ARIA_OUTPUT_HARVEST_ENABLED, ARIA_AUTONOMY_LEVEL per CLAUDE.md §17), but the
+    # prior check looked for bare names (HARVEST_ENABLED/AUTONOMOUS_ENABLED/
+    # AUTONOMY_LEVEL) that are NOT set → gate falsely reported "open". Accept the
+    # prefixed name first, fall back to the bare name for back-compat.
     import os as _os
-    env_missing = [k for k, v in env_checks.items() if _os.environ.get(k) != v]
+
+    def _first_env(*names):
+        for _n in names:
+            _v = _os.environ.get(_n)
+            if _v is not None:
+                return _v
+        return None
+
+    _auto = _first_env("ARIA_AUTONOMOUS_ENABLED", "AUTONOMOUS_ENABLED")
+    _harvest = _first_env("ARIA_OUTPUT_HARVEST_ENABLED", "HARVEST_ENABLED")
+    _level = _first_env("ARIA_AUTONOMY_LEVEL", "AUTONOMY_LEVEL")
+    env_status = {
+        "ARIA_AUTONOMOUS_ENABLED": _auto == "1",
+        "ARIA_OUTPUT_HARVEST_ENABLED": _harvest == "1",
+        "ARIA_AUTONOMY_LEVEL": bool(_level and _level.isdigit() and int(_level) >= 1),
+    }
+    env_missing = [k for k, ok in env_status.items() if not ok]
     g5_status = "closed" if not env_missing else "open"
     gates.append({
         "id": 5,
         "title": "Required env vars set",
         "status": g5_status,
-        "value": {"missing": env_missing, "total": len(env_checks)},
-        "evidence": "os.environ check",
+        "value": {"missing": env_missing, "total": len(env_status)},
+        "evidence": "os.environ (ARIA_-prefixed; R-F1557)",
     })
 
     # Gate 6: 500-Q eval frozen
@@ -21554,19 +21585,30 @@ async def phase_gates_ep() -> dict:
     })
 
     # Gate 7: ≥4 design-partner conversations
+    # R-F1557: was `get_stats().total_entries`, which is the count of chat
+    # audit-log ROWS (every message) — so the gate auto-"closed" after any 4
+    # messages, even all from one session. Count DISTINCT session_ids over the
+    # recent window as a real conversation proxy. NOTE: this is still a proxy —
+    # a distinct session ≠ a verified design-partner; treat as a floor, not a
+    # qualified count.
     try:
-        cal_stats = await _cal.get_stats()
-        total = (cal_stats or {}).get("total_entries", 0)
-        g7_status = "closed" if total >= 4 else "open"
+        recent = await _cal.get_recent(limit=500)
+        sessions = {
+            e.get("session_id")
+            for e in (recent or [])
+            if e.get("session_id") and e.get("session_id") != "unknown"
+        }
+        convo_count = len(sessions)
+        g7_status = "closed" if convo_count >= 4 else "open"
     except Exception:
-        total = None
+        convo_count = None
         g7_status = "unknown"
     gates.append({
         "id": 7,
         "title": "≥4 design-partner conversations",
         "status": g7_status,
-        "value": total,
-        "evidence": "chat_audit_log.get_stats()",
+        "value": convo_count,
+        "evidence": "chat_audit_log distinct session_ids over recent 500 (R-F1557 proxy)",
     })
 
     # Wire success to brain

@@ -9940,9 +9940,10 @@
       "title": "WA listener resilience: auto-recover from logout, connection watchdog, process-exit on repeated auth failure",
       "claimed_at": "2026-06-14T17:28:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c7a7027b",
+      "notes": null,
+      "shipped_at": "2026-06-14T22:14:06Z"
     },
     {
       "r_number": "R-F1552",
