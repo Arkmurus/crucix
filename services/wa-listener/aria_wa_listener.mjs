@@ -381,7 +381,11 @@ function _recentDocsForFollowup(chatId, question) {
 // ── Handle OCR result — shared by sync + async image paths ────────────────────
 // R-F1311: extracted from the inline image-processing block so both the sync
 // fallback and the async job+poll path use the same analysis pipeline.
-async function _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId) {
+// R-F1564: threads requestId from the caller so the OCR-result deliveries report
+// a delivery outcome (§25 proprioception). Pre-R-F1564 the image/OCR sends went
+// out WITHOUT a requestId, so reportOutcome was skipped — WA delivery-health was
+// blind on exactly this high-pain flow.
+async function _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId, requestId) {
   const method = ocrResult.method || 'vision';
   const charCount = extracted.length;
   const autoInst = ocrResult?.auto_installing;
@@ -419,7 +423,8 @@ async function _handleOcrResult(extracted, ocrResult, filename, caption, groupNa
     : '';
 
   // Send the OCR extraction first so the user sees what ARIA read
-  await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${factsLine}${installNote}`).catch(() => {});
+  // R-F1564 — this IS a real deliverable (the read text), so report its outcome.
+  await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${factsLine}${installNote}`, requestId).catch(() => {});
 
   // ALWAYS analyse + explain + research after extraction
   const captionTrimmed = (caption || '').trim();
@@ -450,16 +455,23 @@ async function _handleOcrResult(extracted, ocrResult, filename, caption, groupNa
     `Be specific. Cite numbers and names from the extracted text. Mark every claim with confidence: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN].`,
   ].filter(Boolean).join('\n');
 
+  // R-F1564 — interim/progress ack ("Analysing…"), NOT a final answer:
+  // intentionally sent WITHOUT requestId so it is not counted in delivery
+  // health. Reporting it would double-count the request and dilute the
+  // delivered_real_answer signal for the actual analysis below.
   await sendReply(chatId, `🔎 _Analysing the image content${captionTrimmed ? ` and answering: "${captionTrimmed.slice(0, 100)}"` : ''}…_`).catch(() => {});
 
   try {
-    const analysis = await askARIA(analysisPrompt, senderJid);
+    const analysis = await askARIA(analysisPrompt, senderJid, chatId, requestId);
     if (analysis) {
-      await sendReply(chatId, `🧠 *Analysis:*\n\n${analysis}`).catch(() => {});
+      // R-F1564 — the analysis IS the final answer for the image flow → report it.
+      await sendReply(chatId, `🧠 *Analysis:*\n\n${analysis}`, requestId).catch(() => {});
     }
   } catch (e) {
     console.warn('[ARIA Listener] Image-analysis chat failed:', e.message);
-    await sendReply(chatId, `⚠️ I extracted the image but my reasoning step failed: ${e.message}`).catch(() => {});
+    // R-F1564 — analysis failed but extraction was delivered; report the
+    // failure of the final-answer send so delivery health reflects it.
+    await sendReply(chatId, `⚠️ I extracted the image but my reasoning step failed: ${e.message}`, requestId).catch(() => {});
   }
 }
 
@@ -1550,7 +1562,8 @@ async function startListener() {
           })());
 
           if (!buffer || buffer.length === 0) {
-            await sendReply(chatId, `⚠️ The image appears to be empty.`).catch(() => {});
+            // R-F1564 — terminal outcome for the image request → report it.
+            await sendReply(chatId, `⚠️ The image appears to be empty.`, requestId).catch(() => {});
             continue;
           }
 
@@ -1577,7 +1590,8 @@ async function startListener() {
           } catch (e) {
             console.warn('[ARIA Listener] OCR dispatch failed:', e.message);
             // R-F1311: clean customer-facing error — no internal diagnostics leaked
-            await sendReply(chatId, `⚠️ I hit a snag processing that image — my OCR service didn't respond in time. Please try again in a moment, and I'll retry automatically.`).catch(() => {});
+            // R-F1564 — terminal failure for the image request → report it.
+            await sendReply(chatId, `⚠️ I hit a snag processing that image — my OCR service didn't respond in time. Please try again in a moment, and I'll retry automatically.`, requestId).catch(() => {});
             // Report the failure to the brain so it becomes coder-visible
             brainPost('/api/aria/brain/signal', {
               content: `WA image OCR dispatch failed: ${e.message}`,
@@ -1593,14 +1607,17 @@ async function startListener() {
             // Older brain build without async OCR support — use sync result
             const extracted = ((ocrJob && ocrJob.text) || '').trim();
             if (!extracted) {
-              await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
+              // R-F1564 — terminal outcome for the image request → report it.
+              await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`, requestId).catch(() => {});
               continue;
             }
-            await _handleOcrResult(extracted, ocrJob, filename, caption, groupName, senderName, senderJid, chatId);
+            await _handleOcrResult(extracted, ocrJob, filename, caption, groupName, senderName, senderJid, chatId, requestId);
             continue;
           }
 
-          // Immediate ack — user knows ARIA is working on it
+          // Immediate ack — user knows ARIA is working on it.
+          // R-F1564 — interim/progress ack, NOT a final answer: intentionally
+          // sent WITHOUT requestId so delivery health counts only the real result.
           await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
 
           // Poll for result (mirrors readDocumentAsync pattern)
@@ -1622,7 +1639,8 @@ async function startListener() {
                 ocrHealthFails = (ocrHealthFails || 0) + 1;
                 if (ocrHealthFails >= 3) {
                   console.warn(`[ARIA Listener] Brain unreachable for ${ocrHealthFails} consecutive checks — aborting OCR poll`);
-                  await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`).catch(() => {});
+                  // R-F1564 — terminal failure for the image request → report it.
+                  await sendReply(chatId, `⚠️ My OCR service became unavailable while processing your image. Please try again in a moment.`, requestId).catch(() => {});
                   ocrResult = null; break;
                 }
                 console.warn(`[ARIA Listener] Brain health-check failed (${ocrHealthFails}/3) — continuing OCR poll`);
@@ -1638,7 +1656,8 @@ async function startListener() {
             }
             if (st.status === 'failed') {
               console.warn('[ARIA Listener] OCR job failed:', st.error);
-              await sendReply(chatId, `⚠️ I couldn't read that image — the OCR engine returned an error. Please try again or send the text directly.`).catch(() => {});
+              // R-F1564 — terminal failure for the image request → report it.
+              await sendReply(chatId, `⚠️ I couldn't read that image — the OCR engine returned an error. Please try again or send the text directly.`, requestId).catch(() => {});
               ocrResult = null; break;
             }
             if (st.status === 'not_found') {
@@ -1648,21 +1667,24 @@ async function startListener() {
           }
 
           if (!ocrResult) {
-            await sendReply(chatId, `⚠️ Reading that image is taking longer than expected. I'll keep working on it — please ask again in a minute.`).catch(() => {});
+            // R-F1564 — terminal (timeout) outcome for the image request → report.
+            await sendReply(chatId, `⚠️ Reading that image is taking longer than expected. I'll keep working on it — please ask again in a minute.`, requestId).catch(() => {});
             continue;
           }
 
           const extracted = (ocrResult.text || '').trim();
           if (!extracted) {
-            await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`).catch(() => {});
+            // R-F1564 — terminal outcome for the image request → report it.
+            await sendReply(chatId, `🖼 I couldn't read any text from that image. It may be blank, very low-res, or in an unsupported format.`, requestId).catch(() => {});
             continue;
           }
 
-          await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId);
+          await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId, requestId);
         } catch (e) {
           console.warn('[ARIA Listener] Image processing failed:', e.message);
           // R-F1311: clean customer-facing error — no internal diagnostics leaked
-          await sendReply(chatId, `⚠️ I hit a snag processing that image. Please try again in a moment.`).catch(() => {});
+          // R-F1564 — terminal failure for the image request → report it.
+          await sendReply(chatId, `⚠️ I hit a snag processing that image. Please try again in a moment.`, requestId).catch(() => {});
           // Report to brain so it becomes coder-visible
           brainPost('/api/aria/brain/signal', {
             content: `WA image processing failed: ${e.message}`,
@@ -1738,27 +1760,40 @@ async function startListener() {
                 // failed live (Korvera Maintenance Services Agreement, 2026-05-28:
                 // doc read OK but the review said "no document text reached my
                 // context"). Inline attach removes that race entirely.
+                // R-F1564 — thread requestId through every document-overview
+                // delivery so reportOutcome fires for the doc-review flow (§25).
+                // The doc message that opened this block reuses the per-message
+                // requestId (line ~1508) — the same id scheme as the two main
+                // answer paths.
                 if (text.trim() && _cacheText.length >= 200) {
                   const _reviewMsg = `${text.trim()}\n\n[ATTACHED DOCUMENT: ${filename}]\n${_cacheText}\n[END ATTACHED DOCUMENT]`;
                   _docAnsweredCaption = true;   // skip the redundant text-routing below
                   try {
-                    const _ans = await askARIA(_reviewMsg, senderJid, chatId);
-                    for (const part of splitMessage(_ans)) await sendReply(chatId, part);
+                    const _ans = await askARIA(_reviewMsg, senderJid, chatId, requestId);
+                    // R-F1564 — multi-part final answer: report the outcome on the
+                    // LAST chunk only (one outcome per request, not per chunk).
+                    const _parts = splitMessage(_ans);
+                    for (let _pi = 0; _pi < _parts.length; _pi++) {
+                      await sendReply(chatId, _parts[_pi], _pi === _parts.length - 1 ? requestId : undefined);
+                    }
                   } catch (e) {
                     console.warn('[ARIA Listener] R-F955 inline doc+caption review failed:', e.message);
-                    await sendReply(chatId, `📄 I've read *${filename}* but my analysis step failed (${e.message}). Please ask me again in a moment.`).catch(() => {});
+                    await sendReply(chatId, `📄 I've read *${filename}* but my analysis step failed (${e.message}). Please ask me again in a moment.`, requestId).catch(() => {});
                   }
                 } else if (overview && overview.length > 40) {
-                  await sendReply(chatId, `🧠 *ARIA — document overview*\n\n${overview}`.slice(0, 3800));
+                  await sendReply(chatId, `🧠 *ARIA — document overview*\n\n${overview}`.slice(0, 3800), requestId);
                 } else if (_cacheText.length >= 200) {
-                  await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
+                  await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`, requestId);
                 } else {
                   // R-F955 — extraction returned no usable text; be honest instead
                   // of inviting questions that will fail with "no document".
-                  await sendReply(chatId, `⚠️ I received *${filename}* but couldn't extract readable text from it (it may be scanned/image-only or an unsupported layout). Please paste the key clauses as text, or send a text-based copy, and I'll review it.`);
+                  await sendReply(chatId, `⚠️ I received *${filename}* but couldn't extract readable text from it (it may be scanned/image-only or an unsupported layout). Please paste the key clauses as text, or send a text-based copy, and I'll review it.`, requestId);
                 }
                 // R-F862 — tell the user the read was partial so they don't trust
                 // a 360 review built on a clipped document.
+                // R-F1564 — supplementary advisory that FOLLOWS an already-
+                // reported final answer above; intentionally left WITHOUT
+                // requestId to avoid double-counting one request's outcome.
                 if (bytesTruncated) {
                   await sendReply(chatId, `⚠️ *${filename}* is large (>8MB) — I read the first 8MB only. Later pages (annexes, payment schedules, signature) may be missing, so treat any "not in the contract" finding with caution. For a full 360 review, split the file or send the key sections.`).catch(() => {});
                 }
@@ -1783,18 +1818,20 @@ async function startListener() {
                   signal_type: 'wa_read_document_failed',
                   metadata: { filename, error: String(_docErr || 'unknown'), channel: 'whatsapp_listener' },
                 }).catch(() => {});
+                // R-F1564 — this IS the final answer for a failed read; report it.
                 await sendReply(chatId,
                   `⚠️ I received *${filename}* but couldn't read it just now — my document service didn't respond `
                   + `(it may be busy or restarting). Please resend in a minute, or paste the key clauses as text and `
                   + `I'll analyse those right away.`
-                ).catch(() => {});
+                , requestId).catch(() => {});
               }
             }
           } catch (e) {
             console.warn('[ARIA Listener] Document processing failed:', e.message);
+            // R-F1564 — final-answer error for the doc flow → report the send.
             await sendReply(chatId,
               `⚠️ I couldn't process *${filename}* (${e.message}). Try resending, or paste the text.`
-            ).catch(() => {});
+            , requestId).catch(() => {});
           }
         }
       }
