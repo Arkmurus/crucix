@@ -114,6 +114,16 @@ async def main() -> int:
     ap.add_argument("--out", dest="out", type=Path, required=True)
     ap.add_argument("--concurrency", type=int, default=4)   # DeepSeek API is concurrency-safe (unlike the shim)
     ap.add_argument("--limit", type=int, default=0, help="cap rows (0 = all) — handy for a smoke test")
+    # R-F1558 — contamination guard. The Stage-1 corpus must NOT be built from the
+    # questions the model will later be evaluated on, or judge-DD is inflated.
+    ap.add_argument("--eval-set", dest="eval_set", type=Path, default=None,
+                    help="eval JSONL whose questions must be EXCLUDED from training (exact key match)")
+    ap.add_argument("--held-out-split", dest="held_out_split", action="store_true",
+                    help="deterministically carve input 80/20; build corpus from the TRAIN 80%% only "
+                         "and write the held-out 20%% eval questions to <out>.heldout_eval.jsonl")
+    ap.add_argument("--allow-eval-overlap", dest="allow_overlap", action="store_true",
+                    help="DANGER: override the contamination guard. NEVER use for a run whose model "
+                         "will be evaluated on this same eval set.")
     args = ap.parse_args()
 
     api_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -127,6 +137,72 @@ async def main() -> int:
     rows = [json.loads(ln) for ln in args.inp.read_text(encoding="utf-8").splitlines() if ln.strip()]
     if args.limit:
         rows = rows[: args.limit]
+
+    # ── R-F1558: contamination guard ──────────────────────────────────────────
+    # Training a model on the eval set's own questions, then evaluating it on that
+    # same set, produces an inflated/contaminated score (exactly what R-F1462's
+    # data-engine guards exist to prevent). build_grounded_corpus was documented as
+    # consuming aria_eval_500q_openbook.jsonl — the eval set — so it MUST disjoin
+    # train from eval. We reuse held_out_split's stable key so the exclusion matches
+    # the project's canonical split semantics.
+    try:
+        # script is run from repo root; make the package importable
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from aria_service.learning.held_out_split import HeldOutSplit, split_examples
+    except Exception as e:  # pragma: no cover - import guard
+        print(f"FATAL: cannot import held_out_split for the contamination guard: {e}", file=sys.stderr)
+        return 1
+
+    def _key(rec: dict) -> str:
+        return HeldOutSplit._split_key(rec)
+
+    exclude_keys: set[str] = set()
+    if args.eval_set and args.eval_set.exists():
+        for ln in args.eval_set.read_text(encoding="utf-8").splitlines():
+            if ln.strip():
+                try:
+                    exclude_keys.add(_key(json.loads(ln)))
+                except Exception:
+                    pass
+        print(f"[R-F1558] loaded {len(exclude_keys)} eval keys to exclude from --eval-set")
+
+    if args.held_out_split:
+        train_rows, eval_rows = split_examples(rows)
+        if not HeldOutSplit.verify_no_overlap(train_rows, eval_rows):
+            print("FATAL: held-out split produced overlapping train/eval — aborting", file=sys.stderr)
+            return 1
+        # belt-and-braces: also exclude the held-out eval keys from training
+        exclude_keys |= {_key(r) for r in eval_rows}
+        sidecar = Path(str(args.out) + ".heldout_eval.jsonl")
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in eval_rows) + "\n",
+            encoding="utf-8")
+        print(f"[R-F1558] held-out split: {len(train_rows)} train / {len(eval_rows)} eval "
+              f"-> eval written to {sidecar} (EVAL ONLY ON THIS HELD-OUT SET)")
+        rows = train_rows
+
+    if exclude_keys:
+        before = len(rows)
+        rows = [r for r in rows if _key(r) not in exclude_keys]
+        dropped = before - len(rows)
+        print(f"[R-F1558] contamination guard: dropped {dropped} training rows overlapping the eval set "
+              f"({len(rows)} remain)")
+
+    # Fail-closed: if the input IS the eval set (or fully overlaps it) and the operator
+    # did not carve a held-out split, refuse rather than silently producing a
+    # contaminated corpus. §24 — training must be REAL.
+    if not rows and not args.allow_overlap:
+        print("FATAL [R-F1558]: 0 training rows remain after the contamination guard — the input "
+              "appears to BE (or fully overlap) the eval set. Do ONE of:\n"
+              "  • pass a DISJOINT question pool as --in, or\n"
+              "  • add --held-out-split to carve a train portion (eval only on the sidecar), or\n"
+              "  • add --eval-set <eval.jsonl> so overlapping questions are excluded, or\n"
+              "  • (emergency only) --allow-eval-overlap — NEVER if the model is evaluated on this set.",
+              file=sys.stderr)
+        return 2
+    if not rows:
+        print("WARNING [R-F1558]: 0 rows but --allow-eval-overlap set — proceeding CONTAMINATED.", file=sys.stderr)
 
     ckpt = Path(str(args.out) + ".partial.jsonl")
     done: dict[int, dict] = {}
