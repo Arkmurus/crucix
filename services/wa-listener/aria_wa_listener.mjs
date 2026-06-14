@@ -1325,6 +1325,13 @@ let _msgRateTimestamps = [];   // sliding window of message receipt timestamps
 let _msgRatePerMin = 0;
 let startedAt      = null;
 let reconnectDelay = 5000;  // exponential backoff: 5s → 10s → 20s → max 60s
+// R-F1551 — connection watchdog state
+let _watchdogTimer = null;
+let _lastConnectedTime = 0;     // timestamp of last successful connection
+let _logoutCount = 0;           // consecutive logout count (resets on successful connect)
+let _disconnectStreak = 0;      // consecutive non-logout disconnects
+const _MAX_LOGOUT_RESTARTS = 3; // max times to auto-restart after logout before giving up
+const _STALE_DISCONNECT_MS = 5 * 60 * 1000;  // 5 min without connection → force restart
 
 // ── Start the WhatsApp connection ─────────────────────────────────────────────
 async function startListener() {
@@ -1374,6 +1381,9 @@ async function startListener() {
       isConnected = true;
       startedAt   = new Date().toISOString();
       reconnectDelay = 5000;  // reset backoff on successful connect
+      _lastConnectedTime = Date.now();
+      _logoutCount = 0;
+      _disconnectStreak = 0;
       console.log('[ARIA Listener] ✓ Connected to WhatsApp — ARIA is listening');
       console.log('[ARIA Listener] Call GET /groups to find your group IDs');
     }
@@ -1385,26 +1395,60 @@ async function startListener() {
       const logout = code === DisconnectReason.loggedOut;
 
       if (logout) {
-        // Auth was invalidated — need to re-scan QR
-        console.log('[ARIA Listener] ⚠ Logged out — delete auth folder and restart to re-scan QR');
-        console.log(`[ARIA Listener]   rm -rf ${AUTH_DIR} && restart service`);
+        _logoutCount++;
+        console.log(`[ARIA Listener] ⚠ Logged out (attempt ${_logoutCount}/${_MAX_LOGOUT_RESTARTS}) — clearing auth and restarting for new QR code`);
         // R-F1093 — wire auth-loss to brain so the operator knows WA is down
         brainPost('/api/aria/brain/signal', {
-          content: `WA listener logged out — needs QR re-scan. Auth dir: ${AUTH_DIR}`,
+          content: `WA listener logged out (attempt ${_logoutCount}/${_MAX_LOGOUT_RESTARTS}) — clearing auth dir for fresh QR`,
           source: 'aria-wa',
           signal_type: 'wa_auth_lost',
-          metadata: { code: String(code || ''), authDir: AUTH_DIR },
+          metadata: { code: String(code || ''), authDir: AUTH_DIR, attempt: _logoutCount },
         }).catch(() => {});
+        // R-F1551 — auto-recover from logout: delete stale auth and restart.
+        // If we've hit the max restart limit, exit the process so Fly.io
+        // restarts us fresh (the auth dir will be empty → new QR code).
+        if (_logoutCount >= _MAX_LOGOUT_RESTARTS) {
+          console.error(`[ARIA Listener] ⚠ Logged out ${_MAX_LOGOUT_RESTARTS} times — exiting for Fly.io restart`);
+          brainPost('/api/aria/brain/signal', {
+            content: `WA listener gave up after ${_MAX_LOGOUT_RESTARTS} logout restarts — exiting for Fly restart`,
+            source: 'aria-wa',
+            signal_type: 'wa_auth_lost_fatal',
+            metadata: { authDir: AUTH_DIR, attempts: _logoutCount },
+          }).catch(() => {});
+          process.exit(1);
+        }
+        // Delete stale auth so Baileys generates a fresh QR code
+        try {
+          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+          console.log(`[ARIA Listener] Cleared auth dir: ${AUTH_DIR}`);
+        } catch (e) {
+          console.warn(`[ARIA Listener] Could not clear auth dir: ${e.message}`);
+        }
+        // Restart immediately — startListener will create a fresh auth dir
+        // and Baileys will emit a new QR code for scanning
+        setTimeout(startListener, 1000);
       } else {
         // Network issue — reconnect with exponential backoff
-        console.log(`[ARIA Listener] Disconnected (code ${code}) — reconnecting in ${reconnectDelay/1000}s...`);
+        _disconnectStreak++;
+        console.log(`[ARIA Listener] Disconnected (code ${code}, streak ${_disconnectStreak}) — reconnecting in ${reconnectDelay/1000}s...`);
         // R-F1093 — wire disconnect to brain so the operator sees WA reconnection
         brainPost('/api/aria/brain/signal', {
-          content: `WA listener disconnected (code ${code}) — reconnecting in ${reconnectDelay/1000}s`,
+          content: `WA listener disconnected (code ${code}, streak ${_disconnectStreak}) — reconnecting in ${reconnectDelay/1000}s`,
           source: 'aria-wa',
           signal_type: 'wa_disconnected',
-          metadata: { code: String(code || ''), reconnectDelayMs: reconnectDelay },
+          metadata: { code: String(code || ''), reconnectDelayMs: reconnectDelay, streak: _disconnectStreak },
         }).catch(() => {});
+        // R-F1551 — if disconnect streak is too high, exit so Fly restarts fresh
+        if (_disconnectStreak >= 10) {
+          console.error(`[ARIA Listener] ⚠ ${_disconnectStreak} consecutive disconnects — exiting for Fly.io restart`);
+          brainPost('/api/aria/brain/signal', {
+            content: `WA listener exiting after ${_disconnectStreak} consecutive disconnects`,
+            source: 'aria-wa',
+            signal_type: 'wa_disconnect_storm',
+            metadata: { streak: _disconnectStreak },
+          }).catch(() => {});
+          process.exit(1);
+        }
         setTimeout(startListener, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 60000);
       }
@@ -2123,12 +2167,73 @@ app.listen(PORT, () => {
   console.log(`[ARIA Listener] POST /api/wa-listener/callback — async job callback (R-F1413)`);
 });
 
+// ── R-F1551 — connection watchdog ─────────────────────────────────────────────
+// Periodically checks that the WhatsApp connection is alive. If the listener
+// has been disconnected for too long without reconnecting, forces a restart.
+// This catches the case where Baileys silently drops the WebSocket without
+// firing a 'close' event (observed: the health endpoint returns disconnected
+// but no reconnect is scheduled).
+function _startWatchdog() {
+  if (_watchdogTimer) clearInterval(_watchdogTimer);
+  _watchdogTimer = setInterval(() => {
+    if (isConnected) return;  // all good
+    if (!_lastConnectedTime) return;  // never connected yet — still starting up
+    const elapsed = Date.now() - _lastConnectedTime;
+    if (elapsed > _STALE_DISCONNECT_MS) {
+      console.error(`[ARIA Listener] ⚠ Stale disconnect detected — ${Math.round(elapsed/1000)}s without connection. Restarting...`);
+      brainPost('/api/aria/brain/signal', {
+        content: `WA listener stale disconnect — ${Math.round(elapsed/1000)}s without connection. Restarting.`,
+        source: 'aria-wa',
+        signal_type: 'wa_stale_disconnect',
+        metadata: { elapsedMs: elapsed, thresholdMs: _STALE_DISCONNECT_MS },
+      }).catch(() => {});
+      // Force restart: clear the watchdog, then restart the listener
+      clearInterval(_watchdogTimer);
+      _watchdogTimer = null;
+      isConnected = false;
+      startListener().catch(e => {
+        console.error('[ARIA Listener] Watchdog restart failed:', e);
+        process.exit(1);
+      });
+    }
+  }, 30000);  // check every 30s
+}
+
+// ── R-F1551 — process-level error handlers ────────────────────────────────────
+// Uncaught exceptions and unhandled rejections are logged and cause a clean
+// process exit. Fly.io will auto-restart the machine, which gives Baileys a
+// fresh WebSocket connection and a clean auth state.
+process.on('uncaughtException', (err) => {
+  console.error('[ARIA Listener] UNCAUGHT EXCEPTION:', err);
+  brainPost('/api/aria/brain/signal', {
+    content: `WA listener uncaught exception: ${err.message}`,
+    source: 'aria-wa',
+    signal_type: 'wa_crash',
+    metadata: { error: String(err.message || '').slice(0, 200), stack: (err.stack || '').slice(0, 500) },
+  }).catch(() => {}).finally(() => {
+    process.exit(1);
+  });
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[ARIA Listener] UNHANDLED REJECTION:', reason);
+  brainPost('/api/aria/brain/signal', {
+    content: `WA listener unhandled rejection: ${String(reason || '').slice(0, 200)}`,
+    source: 'aria-wa',
+    signal_type: 'wa_crash',
+    metadata: { error: String(reason || '').slice(0, 200) },
+  }).catch(() => {}).finally(() => {
+    process.exit(1);
+  });
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 _loadRecentDocs();   // R-F964 — restore the doc cache from disk so a restart doesn't forget shared documents
 startListener().catch(e => {
   console.error('[ARIA Listener] Fatal error:', e);
   process.exit(1);
 });
+_startWatchdog();    // R-F1551 — start the connection watchdog
 
 
 /*
