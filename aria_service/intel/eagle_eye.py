@@ -370,6 +370,10 @@ async def start(project_root: Path | None = None) -> None:
     
     Called from lifespan. Runs periodic scans. Controlled by
     ARIA_EAGLE_EYE_ENABLED env var (default: 1).
+    
+    R-F1553: registers in the agent registry and wires scan results
+    to the brain so findings are visible to the autonomous self-improvement
+    cycle and the operator dashboard.
     """
     global _guardian, _scan_task
 
@@ -383,6 +387,18 @@ async def start(project_root: Path | None = None) -> None:
 
     _guardian = EagleEyeGuardian(project_root)
     _scan_task = asyncio.create_task(_scan_loop())
+
+    # R-F1553: register in agent registry so the stall detector can see us
+    try:
+        from .agent_registry import AgentRegistry
+        _reg = AgentRegistry()
+        await _reg.register(
+            "eagle_eye", "codebase_guardian",
+            current_task="Scanning codebase for bugs, security issues, and code smells",
+        )
+    except Exception:
+        logger.debug("[EagleEye] Agent registration failed (non-fatal)")
+
     logger.info(
         "[EagleEye] Activated — scanning every %ds (set ARIA_EAGLE_EYE_INTERVAL to change)",
         _SCAN_INTERVAL_S,
@@ -403,7 +419,12 @@ async def stop() -> None:
 
 
 async def _scan_loop() -> None:
-    """Background scan loop."""
+    """Background scan loop.
+    
+    R-F1553: ticks agent heartbeat and wires scan results to the brain
+    so critical findings (eval, exec, SQL injection) reach the operator
+    dashboard and the autonomous self-improvement cycle.
+    """
     global _guardian
     if _guardian is None:
         return
@@ -416,15 +437,30 @@ async def _scan_loop() -> None:
                 "[EagleEye] Initial scan found %d high-severity issues",
                 report["high_severity_issues"],
             )
+            # R-F1553: record capability gaps for critical findings
+            await _record_critical_gaps(report)
+        # R-F1553: wire scan result to brain
+        _wire_scan_to_brain(report)
     except Exception as e:
         logger.debug("[EagleEye] Initial scan failed: %s", e)
+        _wire_failure_to_brain(f"Initial scan failed: {e}")
 
     while True:
         await asyncio.sleep(_SCAN_INTERVAL_S)
         try:
-            await _guardian.scan_once()
+            # R-F1553: tick heartbeat so the agent registry knows we're alive
+            await _tick_heartbeat()
+            report = await _guardian.scan_once()
+            if report["high_severity_issues"] > 0:
+                logger.warning(
+                    "[EagleEye] Scan found %d high-severity issues",
+                    report["high_severity_issues"],
+                )
+                await _record_critical_gaps(report)
+            _wire_scan_to_brain(report)
         except Exception as e:
             logger.debug("[EagleEye] Scan failed: %s", e)
+            _wire_failure_to_brain(f"Scan failed: {e}")
 
 
 def get_report() -> dict:
@@ -432,3 +468,89 @@ def get_report() -> dict:
     if _guardian is None:
         return {"active": False, "metrics": {}}
     return _guardian.get_report()
+
+
+# ── R-F1553: Brain wiring helpers ──────────────────────────────────────────
+
+
+def _wire_scan_to_brain(report: dict) -> None:
+    """Wire scan results to the brain via wire_success/wire_failure.
+    
+    High-severity issues trigger wire_failure so the autonomous
+    self-improvement cycle can act on them. Clean scans trigger
+    wire_success so the operator dashboard sees eagle_eye is healthy.
+    """
+    try:
+        from .engine_wiring import wire_success, wire_failure
+
+        high = report.get("high_severity_issues", 0)
+        total = report.get("active_trouble_spots", 0)
+        smells = report.get("code_smells", 0)
+
+        if high > 0:
+            wire_failure(
+                module="eagle_eye",
+                detail=(
+                    f"Scan found {high} high-severity issue(s), "
+                    f"{total} active trouble spots, {smells} code smells"
+                ),
+                gap_type="codebase_health",
+                source="eagle_eye:_scan_loop",
+            )
+        else:
+            wire_success(
+                module="eagle_eye",
+                summary=f"Scan clean: {total} spots, {smells} smells",
+                source_id="eagle_eye:_scan_loop",
+            )
+    except Exception:
+        pass  # brain wiring must never crash the scan loop
+
+
+def _wire_failure_to_brain(detail: str) -> None:
+    """Wire a scan failure to the brain."""
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="eagle_eye",
+            detail=detail[:600],
+            gap_type="source_failure",
+            source="eagle_eye:_scan_loop",
+        )
+    except Exception:
+        pass
+
+
+async def _record_critical_gaps(report: dict) -> None:
+    """Record capability gaps for critical findings.
+    
+    High-severity issues (eval, exec, SQL injection) become actionable
+    gaps that the autonomous coder can pick up.
+    """
+    try:
+        from . import capability_gaps as _cg
+        top_issues = report.get("top_issues", [])
+        for issue in top_issues:
+            if issue.get("severity", 0) >= 8:
+                await _cg.record_gap(
+                    gap_type=f"eagle_eye_{issue.get('type', 'security')}",
+                    module=f"eagle_eye:{issue.get('file', 'unknown')}",
+                    description=(
+                        f"Eagle Eye found {issue.get('description', 'issue')} "
+                        f"at {issue.get('file', '?')}:{issue.get('line', '?')}"
+                    ),
+                    severity="HIGH",
+                    source="eagle_eye:_scan_loop",
+                )
+    except Exception:
+        pass
+
+
+async def _tick_heartbeat() -> None:
+    """Tick the eagle_eye heartbeat in the agent registry."""
+    try:
+        from .agent_registry import AgentRegistry
+        _reg = AgentRegistry()
+        await _reg.tick_heartbeat("eagle_eye", "Scanning codebase for issues")
+    except Exception:
+        pass

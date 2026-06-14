@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1552,
+  "next_available": 1559,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -9939,6 +9939,69 @@
       "r_number": "R-F1551",
       "title": "WA listener resilience: auto-recover from logout, connection watchdog, process-exit on repeated auth failure",
       "claimed_at": "2026-06-14T17:28:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1552",
+      "title": "Wire wiring_monitor into lifespan + remove dead duplicate in web_integrity_agent",
+      "claimed_at": "2026-06-14T21:54:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1553",
+      "title": "Add brain wiring + agent registration to eagle_eye",
+      "claimed_at": "2026-06-14T22:01:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1554",
+      "title": "Register contracts for all background agents in lifespan",
+      "claimed_at": "2026-06-14T22:01:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1555",
+      "title": "Add dedicated-DB fallback for agent messaging and gap claiming",
+      "claimed_at": "2026-06-14T22:03:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1556",
+      "title": "Commit WA listener deploy Dockerfile+fly.toml (R-F1551 deploy half)",
+      "claimed_at": "2026-06-14T22:04:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1557",
+      "title": "Fix /phase/gates aggregator: gates #1/#2 call non-existent composite_score/heatmap",
+      "claimed_at": "2026-06-14T22:04:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1558",
+      "title": "Stage-1 grounded corpus: held-out/contamination guard before paid SFT",
+      "claimed_at": "2026-06-14T22:04:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

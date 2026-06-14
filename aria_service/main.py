@@ -1388,6 +1388,160 @@ async def lifespan(app: FastAPI):
         contract=_web_integrity_contract,
     ))
 
+    # R-F1554: register contracts for all background agents
+    _research_contract = AgentContract(
+        agent_id="research_engine",
+        version="1.0.0",
+        directives=[
+            "Extract facts from RSS feeds every 30min",
+            "Validate hypotheses against existing knowledge",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["RSS feed URLs", "LLM provider"],
+        outputs=["New facts", "Validated hypotheses"],
+        error_modes=["feed_unreachable", "llm_unavailable", "parse_failure"],
+        dependencies=[],
+        check_interval_s=1800,
+        critical=False,
+    )
+    _self_improve_contract = AgentContract(
+        agent_id="self_improve",
+        version="1.0.0",
+        directives=[
+            "Analyse error ledger for recurring bugs",
+            "Generate and stage code fixes for auto-fixable errors",
+            "Auto-deploy fixes when confidence is high",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Error ledger", "LLM provider", "MODIFIABLE_FILES list"],
+        outputs=["Staged improvements", "Auto-deployed fixes"],
+        error_modes=["llm_unavailable", "no_fixable_errors", "deploy_failure"],
+        dependencies=[],
+        check_interval_s=7200,
+        critical=False,
+    )
+    _student_quiz_contract = AgentContract(
+        agent_id="student_quiz",
+        version="1.0.0",
+        directives=[
+            "Self-quiz on weak topics every 3h",
+            "Track mastery scores over time",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Reasoning library", "Mastery tracker"],
+        outputs=["Quiz scores", "Mastery deltas"],
+        error_modes=["empty_library", "llm_unavailable", "no_weak_topics"],
+        dependencies=[],
+        check_interval_s=10800,
+        critical=False,
+    )
+    _student_reading_contract = AgentContract(
+        agent_id="student_reading",
+        version="1.0.0",
+        directives=[
+            "Study articles on weak topics every 6h",
+            "Extract new facts from reading material",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["LLM provider", "Weak topic list", "Article sources"],
+        outputs=["New facts", "Mastery improvements"],
+        error_modes=["llm_unavailable", "no_articles_found", "parse_failure"],
+        dependencies=[],
+        check_interval_s=21600,
+        critical=False,
+    )
+    _library_consolidation_contract = AgentContract(
+        agent_id="library_consolidation",
+        version="1.0.0",
+        directives=[
+            "Archive stale reasoning cases daily",
+            "Preserve cases instead of deleting",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Reasoning library index"],
+        outputs=["Archived cases", "Remaining active cases"],
+        error_modes=["redis_unreachable", "empty_index"],
+        dependencies=[],
+        check_interval_s=86400,
+        critical=False,
+    )
+    _proactive_watch_contract = AgentContract(
+        agent_id="proactive_watch",
+        version="1.0.0",
+        directives=[
+            "Check daily briefing trigger every hour",
+            "Flag weak topics for mastery prep",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Current data", "Mastery tracker"],
+        outputs=["Briefing trigger", "Weak topic flags"],
+        error_modes=["data_unavailable", "mastery_unreachable"],
+        dependencies=[],
+        check_interval_s=3600,
+        critical=False,
+    )
+    _weekly_report_contract = AgentContract(
+        agent_id="weekly_report",
+        version="1.0.0",
+        directives=[
+            "Generate weekly learning report on Monday 06-08 UTC",
+            "Aggregate new facts, mastery changes, capability gaps",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["LLM provider", "Knowledge store", "Mastery tracker", "Capability gaps"],
+        outputs=["Weekly report"],
+        error_modes=["llm_unavailable", "no_data_to_report"],
+        dependencies=[],
+        check_interval_s=3600,
+        critical=False,
+    )
+    _watchlist_rescreen_contract = AgentContract(
+        agent_id="watchlist_rescreen",
+        version="1.0.0",
+        directives=[
+            "Re-screen DD watchlist entities against sanctions/PEP daily",
+            "Detect status changes and push alerts",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["DD watchlist", "Sanctions lists", "PEP lists"],
+        outputs=["Status changes", "Alerts"],
+        error_modes=["watchlist_unreachable", "sanctions_unreachable", "no_changes"],
+        dependencies=[],
+        check_interval_s=86400,
+        critical=False,
+    )
+    _tender_monitor_contract = AgentContract(
+        agent_id="tender_monitor",
+        version="1.0.0",
+        directives=[
+            "Crawl defence procurement portals every 6h",
+            "Score tenders by relevance keywords and CPV codes",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Procurement portal URLs", "Keyword/CPV scoring rules"],
+        outputs=["New tenders", "Tender scores"],
+        error_modes=["portal_unreachable", "parse_failure", "no_new_tenders"],
+        dependencies=[],
+        check_interval_s=21600,
+        critical=False,
+    )
+    _self_healing_contract = AgentContract(
+        agent_id="self_healing",
+        version="1.0.0",
+        directives=[
+            "Run health checks on all subsystems",
+            "Detect and repair circuit breaker trips",
+            "Auto-recover from known failure modes",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Circuit breaker registry", "Agent registry", "Contract registry"],
+        outputs=["Health reports", "Auto-recovery actions"],
+        error_modes=["registry_unreachable", "no_failures_to_repair"],
+        dependencies=[],
+        check_interval_s=3600,
+        critical=True,
+    )
+
     # Register self-healing (already done in start_self_healing, but ensure it's registered)
     asyncio.create_task(_register_agent(
         "self_healing", "infrastructure",
@@ -2244,6 +2398,14 @@ async def lifespan(app: FastAPI):
         await eagle_eye.start()
     except Exception as _ee_err:
         logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
+
+    # R-F1552: start Wiring Monitor (M1-M5 background checks every hour)
+    _wiring_monitor_task = None
+    try:
+        from .intel import wiring_monitor as _wm
+        _wiring_monitor_task = _wm.start_monitor()
+    except Exception as _wm_err:
+        logger.warning("[R-F1552] Wiring Monitor start failed (non-fatal): %s", _wm_err)
 
     yield
 

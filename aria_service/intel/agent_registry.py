@@ -121,7 +121,11 @@ class AgentRegistry:
         return self._db_conn
 
     def _init_db(self):
-        """Initialize the registry database schema."""
+        """Initialize the registry database schema.
+        
+        R-F1555: added gap_claims and agent_messages tables so gap claiming
+        and agent-to-agent messaging work even when Redis is unreachable.
+        """
         self._db_conn.executescript("""
             CREATE TABLE IF NOT EXISTS agents (
                 agent_id    TEXT PRIMARY KEY,
@@ -136,6 +140,22 @@ class AgentRegistry:
                 agent_id    TEXT PRIMARY KEY,
                 task        TEXT NOT NULL DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS gap_claims (
+                gap_id      TEXT PRIMARY KEY,
+                agent_id    TEXT NOT NULL,
+                claimed_at  REAL NOT NULL,
+                expires_at  REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                to_agent    TEXT NOT NULL,
+                from_agent  TEXT NOT NULL,
+                payload     TEXT NOT NULL,
+                created_at  REAL NOT NULL,
+                read_at     REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON agent_messages(to_agent);
+            CREATE INDEX IF NOT EXISTS idx_messages_unread ON agent_messages(to_agent, read_at);
         """)
         self._db_conn.commit()
 
@@ -214,11 +234,16 @@ class AgentRegistry:
             self._db_conn = None
 
     def _db_clear(self) -> None:
-        """Clear all data from the dedicated DB (for testing)."""
+        """Clear all data from the dedicated DB (for testing).
+        
+        R-F1555: also clears gap_claims and agent_messages tables.
+        """
         try:
             conn = self._get_db()
             conn.execute("DELETE FROM agents")
             conn.execute("DELETE FROM agent_tasks")
+            conn.execute("DELETE FROM gap_claims")
+            conn.execute("DELETE FROM agent_messages")
             conn.commit()
         except Exception:
             pass
@@ -518,26 +543,176 @@ class AgentRegistry:
 
     # ── GAP DECONFLICTION ─────────────────────────────────────────────────────
 
+    # ── R-F1555: Dedicated DB gap claim methods ─────────────────────────────
+
+    def _db_claim_gap(self, gap_id: str, agent_id: str, now: float) -> bool:
+        """Claim a gap via the dedicated DB. Returns True if claim succeeded."""
+        conn = self._get_db()
+        expires_at = now + _GAP_CLAIM_TTL_S
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO gap_claims (gap_id, agent_id, claimed_at, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (gap_id, agent_id, now, expires_at),
+            )
+            conn.commit()
+            # Check if our insert took effect
+            row = conn.execute(
+                "SELECT agent_id FROM gap_claims WHERE gap_id=?", (gap_id,)
+            ).fetchone()
+            if row and row["agent_id"] == agent_id:
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _db_release_gap(self, gap_id: str) -> None:
+        """Release a gap claim via the dedicated DB."""
+        try:
+            conn = self._get_db()
+            conn.execute("DELETE FROM gap_claims WHERE gap_id=?", (gap_id,))
+            conn.commit()
+        except Exception:
+            pass
+
+    def _db_is_gap_claimed(self, gap_id: str) -> str | None:
+        """Check if a gap is claimed via the dedicated DB."""
+        try:
+            conn = self._get_db()
+            # Prune expired claims first
+            conn.execute("DELETE FROM gap_claims WHERE expires_at < ?", (time.time(),))
+            conn.commit()
+            row = conn.execute(
+                "SELECT agent_id FROM gap_claims WHERE gap_id=?", (gap_id,)
+            ).fetchone()
+            return row["agent_id"] if row else None
+        except Exception:
+            return None
+
+    # ── R-F1555: Dedicated DB message methods ──────────────────────────────
+
+    def _db_send_message(self, from_agent: str, to_agent: str, payload_json: str, now: float) -> bool:
+        """Send a message via the dedicated DB."""
+        try:
+            conn = self._get_db()
+            conn.execute(
+                "INSERT INTO agent_messages (to_agent, from_agent, payload, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (to_agent, from_agent, payload_json, now),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def _db_read_messages(self, agent_id: str, mark_read: bool, limit: int) -> list[dict] | None:
+        """Read messages for an agent via the dedicated DB.
+        
+        Returns messages in the same format as the Redis path for backward
+        compatibility: each message has 'from', 'to', 'payload', 'timestamp',
+        and 'timestamp_iso' keys.
+        
+        Handles broadcast messages (to_agent="*") — when agent_id is "*",
+        returns all broadcast messages. When agent_id is a specific agent,
+        returns messages addressed to that agent OR broadcast messages.
+        
+        Returns:
+            list[dict] — messages (possibly empty) on success
+            None — if the DB is unreachable (caller should fall back to Redis)
+        """
+        try:
+            conn = self._get_db()
+            # Build the WHERE clause: messages addressed to this agent OR broadcasts
+            if agent_id == "*":
+                where_clause = "to_agent='*'"
+                params: list = []
+            else:
+                where_clause = "(to_agent=? OR to_agent='*')"
+                params = [agent_id]
+            
+            if mark_read:
+                rows = conn.execute(
+                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "
+                    f"WHERE {where_clause} AND read_at IS NULL ORDER BY created_at DESC LIMIT ?",
+                    params + [limit],
+                ).fetchall()
+                # Mark as read
+                ids = [r["id"] for r in rows]
+                if ids:
+                    placeholders = ','.join('?' * len(ids))
+                    conn.execute(
+                        f"UPDATE agent_messages SET read_at=? WHERE id IN ({placeholders})",
+                        [time.time()] + ids,
+                    )
+                    conn.commit()
+            else:
+                rows = conn.execute(
+                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "
+                    f"WHERE {where_clause} AND read_at IS NULL ORDER BY created_at DESC LIMIT ?",
+                    params + [limit],
+                ).fetchall()
+            messages = []
+            for r in rows:
+                try:
+                    full_payload = json.loads(r["payload"])
+                except (json.JSONDecodeError, TypeError):
+                    full_payload = {"raw": r["payload"]}
+                # The stored payload is the full message dict (from, to, payload, timestamp, timestamp_iso)
+                # Extract the inner payload for backward compatibility
+                inner_payload = full_payload.get("payload", full_payload)
+                messages.append({
+                    "from": full_payload.get("from", r["from_agent"]),
+                    "to": full_payload.get("to", agent_id),
+                    "payload": inner_payload,
+                    "timestamp": full_payload.get("timestamp", r["created_at"]),
+                    "timestamp_iso": full_payload.get("timestamp_iso", ""),
+                })
+            return messages
+        except Exception:
+            return None
+
+    # ── Public gap claim API (Redis + DB fallback) ─────────────────────────
+
     async def claim_gap(self, gap_id: str, agent_id: str) -> bool:
         """Claim a gap for fixing.
 
-        Uses a hash-based approach for atomicity:
-        1. Read the current claim from the hash
-        2. If already claimed by another agent, reject
-        3. If unclaimed or claimed by us, write our claim with TTL
-
-        Note: this is NOT fully atomic (check-then-set race exists), but
-        the TTL-based expiry means stale claims auto-clear. In practice,
-        the race window is tiny and the worst case is two agents fixing
-        the same gap — wasteful but not dangerous.
+        R-F1555: writes to the dedicated DB first (always available, no lock
+        contention), then also writes to Redis for backward compatibility.
+        Uses INSERT OR IGNORE for atomicity — if another agent already claimed
+        this gap, the insert is a no-op and we detect it.
 
         Returns True if the claim succeeded (gap was not already claimed).
         Returns False if another agent already claimed this gap.
         """
+        now = time.time()
+
+        # R-F1555: try dedicated DB first
+        db_ok = self._db_claim_gap(gap_id, agent_id, now)
+        if db_ok:
+            logger.info("[R-F1555] gap %s claimed by %s (DB)", gap_id, agent_id)
+            # Also write to Redis for backward compatibility
+            try:
+                rs = self._get_redis()
+                key = f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}"
+                await rs.set(key, agent_id)
+                await rs.expire(key, _GAP_CLAIM_TTL_S)
+            except Exception:
+                pass
+            return True
+
+        # DB claim failed — check if another agent already claimed it
+        existing = self._db_is_gap_claimed(gap_id)
+        if existing and existing != agent_id:
+            logger.info(
+                "[R-F1160] gap %s already claimed by %s — %s cannot claim",
+                gap_id, existing, agent_id,
+            )
+            return False
+
+        # Fallback: try Redis
         try:
             rs = self._get_redis()
             key = f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}"
-            # Check if already claimed
             existing = await rs.get(key)
             if existing:
                 claiming_agent = existing.decode("utf-8") if isinstance(existing, bytes) else str(existing)
@@ -547,21 +722,22 @@ class AgentRegistry:
                         gap_id, claiming_agent, agent_id,
                     )
                     return False
-                # Same agent re-claiming — refresh TTL
                 await rs.expire(key, _GAP_CLAIM_TTL_S)
                 return True
-
-            # Not claimed — write our claim
             await rs.set(key, agent_id)
             await rs.expire(key, _GAP_CLAIM_TTL_S)
-            logger.info("[R-F1160] gap %s claimed by %s", gap_id, agent_id)
+            logger.info("[R-F1160] gap %s claimed by %s (Redis)", gap_id, agent_id)
             return True
         except Exception as e:
             logger.debug("[R-F1160] claim_gap failed: %s", e)
-            return True  # fail open — don't block work on registry errors
+            return True  # fail open
 
     async def release_gap(self, gap_id: str, agent_id: str) -> None:
-        """Release a gap claim (after fixing or abandoning)."""
+        """Release a gap claim (after fixing or abandoning).
+
+        R-F1555: removes from the dedicated DB first, then Redis.
+        """
+        self._db_release_gap(gap_id)
         try:
             rs = self._get_redis()
             await rs.delete(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
@@ -572,8 +748,16 @@ class AgentRegistry:
     async def is_gap_claimed(self, gap_id: str) -> Optional[str]:
         """Check if a gap is already claimed.
 
+        R-F1555: reads from the dedicated DB first, falls back to Redis.
+
         Returns the agent_id that claimed it, or None if unclaimed.
         """
+        # R-F1555: read from dedicated DB first
+        db_result = self._db_is_gap_claimed(gap_id)
+        if db_result is not None:
+            return db_result
+
+        # Fallback: Redis
         try:
             rs = self._get_redis()
             raw = await rs.get(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
@@ -595,6 +779,9 @@ class AgentRegistry:
 
         The target agent can read its messages via read_messages().
 
+        R-F1555: writes to the dedicated DB first (always available, no lock
+        contention), then also writes to Redis for backward compatibility.
+
         Args:
             from_agent: The sender's agent_id
             to_agent: The recipient's agent_id (use "*" for broadcast to all)
@@ -603,36 +790,60 @@ class AgentRegistry:
 
         Returns True if the message was queued.
         """
-        try:
-            rs = self._get_redis()
-            message = {
-                "from": from_agent,
-                "to": to_agent,
-                "payload": payload,
-                "timestamp": time.time(),
-                "timestamp_iso": datetime.now(timezone.utc).isoformat(),
-            }
-            key = f"{_AGENT_MESSAGE_PREFIX}{to_agent}"
-            await rs.lpush(key, json.dumps(message))
-            await rs.ltrim(key, 0, _MAX_MESSAGES_PER_AGENT - 1)
+        now = time.time()
+        payload_json = json.dumps({
+            "from": from_agent,
+            "to": to_agent,
+            "payload": payload,
+            "timestamp": now,
+            "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # R-F1555: write to dedicated DB first
+        db_ok = self._db_send_message(from_agent, to_agent, payload_json, now)
+        if db_ok:
             logger.info(
-                "[R-F1160] message sent: %s → %s (type=%s)",
+                "[R-F1555] message sent: %s → %s (type=%s) [DB]",
                 from_agent, to_agent, payload.get("type", "unknown"),
             )
+
+        # Also write to Redis for backward compatibility
+        try:
+            rs = self._get_redis()
+            key = f"{_AGENT_MESSAGE_PREFIX}{to_agent}"
+            await rs.lpush(key, payload_json)
+            await rs.ltrim(key, 0, _MAX_MESSAGES_PER_AGENT - 1)
+            if not db_ok:
+                logger.info(
+                    "[R-F1160] message sent: %s → %s (type=%s) [Redis]",
+                    from_agent, to_agent, payload.get("type", "unknown"),
+                )
             return True
         except Exception as e:
+            if db_ok:
+                return True  # DB write succeeded, Redis failure is non-fatal
             logger.debug("[R-F1160] send_message failed: %s", e)
             return False
 
     async def read_messages(self, agent_id: str, mark_read: bool = True) -> list[dict]:
         """Read all pending messages for this agent.
 
+        R-F1555: reads from the dedicated DB first (always available, no lock
+        contention), falls back to Redis if empty.
+
         Args:
             agent_id: The recipient's agent_id
-            mark_read: If True, removes messages from the queue after reading
+            mark_read: If True, marks messages as read after reading
 
         Returns a list of message dicts, newest first.
         """
+        # R-F1555: read from dedicated DB first. Returns None on DB error
+        # (fall back to Redis), or a list (possibly empty) on success.
+        db_messages = self._db_read_messages(agent_id, mark_read, _MAX_MESSAGES_PER_AGENT)
+        if db_messages is not None:
+            return db_messages
+
+        # Fallback: Redis
         try:
             rs = self._get_redis()
             key = f"{_AGENT_MESSAGE_PREFIX}{agent_id}"

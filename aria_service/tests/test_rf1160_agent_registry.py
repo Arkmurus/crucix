@@ -335,16 +335,21 @@ async def test_error_resilience():
     assert agents[0]["agent_id"] == "ghost"
 
     claimed = await reg.claim_gap("ghost_gap", "ghost_agent")
-    assert claimed, "Claim should fail open (return True)"
+    assert claimed, "Claim should succeed (DB-backed)"
 
     who = await reg.is_gap_claimed("ghost_gap")
-    assert who is None, "is_gap_claimed should return None on error"
+    # R-F1555: is_gap_claimed reads from the dedicated DB first, so it
+    # returns the claiming agent even when Redis is down
+    assert who == "ghost_agent", f"is_gap_claimed should return 'ghost_agent' from DB, got {who!r}"
 
     sent = await reg.send_message("ghost", "*", {"type": "test"})
-    assert sent is False, "Send should fail gracefully"
+    # R-F1555: send_message writes to the dedicated DB first, so it succeeds
+    # even when Redis is down
+    assert sent is True, "Send should succeed (DB-backed)"
 
     msgs = await reg.read_messages("ghost")
-    assert msgs == [], "Read should return empty list on error"
+    # R-F1555: read_messages reads from the dedicated DB first
+    assert len(msgs) == 1, f"Read should return 1 message from DB, got {len(msgs)}"
 
     stats = await reg.get_registry_stats()
     # R-F1446: dedicated DB has the agent, so stats reflect it
