@@ -880,9 +880,25 @@ class SelfCodingOS:
         except Exception as e:
             return {"passed": 0, "failed": 0, "errors": 0, "output": str(e), "success": False}
 
-    async def commit_and_push(self, r_number, message):
-        """Git commit + push via asyncio subprocess. Returns result dict."""
-        import asyncio.subprocess as a_subprocess
+    async def commit_and_push(self, r_number, message,
+                              verify_deploy: bool = True, poll_timeout: int = 720):
+        """Git commit + push, then VERIFY the deploy actually landed live.
+
+        R-F1588 — root-causes the recurring "push without deploy" gap (the
+        operator caught it 3× on 2026-06-15): this is ARIA's autonomous commit
+        path, and it (a) committed WITHOUT the ``[deploy]`` tag so the GitHub
+        Actions CI deploy (deploy-fly.yml, gated on ``[deploy]`` in the message)
+        never fired, and (b) returned ``success: True`` regardless — so a push
+        that never reached the server read as done, and only the operator
+        noticed origin had moved ahead of the live build_rev.
+
+        Fix: tag ``[deploy]`` so CI deploys on push, then poll
+        ``aria-intel/health/live`` until the live build_rev contains the pushed
+        sha. If it does not land within ``poll_timeout`` (and the commit touched
+        a deployable path), return ``success: False`` with ``deploy_lag: True``
+        — a push that doesn't reach the server must NEVER report success
+        (CLAUDE.md §19e). Code is still on origin/main; nothing is lost.
+        """
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git", "add", "-A",
@@ -895,8 +911,10 @@ class SelfCodingOS:
                 err = (stderr or b"").decode("utf-8", errors="replace")
                 return {"success": False, "error": f"git add failed: {err}"}
 
+            # R-F1588: ensure the [deploy] tag so the CI deploy fires on push.
+            deploy_msg = message if "[deploy]" in message else f"{message} [deploy]"
             proc = await asyncio.create_subprocess_exec(
-                "git", "commit", "-m", message,
+                "git", "commit", "-m", deploy_msg,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.root),
@@ -925,9 +943,83 @@ class SelfCodingOS:
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
             sha = (stdout or b"").decode("utf-8", errors="replace").strip()[:7] if proc.returncode == 0 else ""
-            return {"success": True, "sha": sha, "message": message}
+
+            # R-F1588: verify the deploy actually landed. A push alone does not
+            # deploy — without this, "success" lied whenever CI didn't run.
+            if not verify_deploy or not sha:
+                return {"success": True, "sha": sha, "message": deploy_msg,
+                        "deployed": None, "deploy_verified": False}
+
+            if not await self._commit_touches_deployable(sha):
+                # docs / tooling-only change — nothing to deploy.
+                return {"success": True, "sha": sha, "message": deploy_msg,
+                        "deployed": True, "note": "no deployable paths changed"}
+
+            landed = await self._verify_live_build_rev(sha, poll_timeout)
+            if landed:
+                return {"success": True, "sha": sha, "message": deploy_msg,
+                        "deployed": True}
+            # NOT live — loud, never silent (§19e). Code is on origin/main.
+            return {
+                "success": False,
+                "deployed": False,
+                "deploy_lag": True,
+                "sha": sha,
+                "message": deploy_msg,
+                "error": (
+                    f"DEPLOY LAG ⚠️ — pushed {sha} to origin/main with [deploy], but "
+                    f"aria-intel /health/live did not reach it within {poll_timeout}s. "
+                    f"CI may have failed (stale FLY_API_TOKEN?) or the torch build is "
+                    f"still running. Code is on origin/main but NOT live — do not "
+                    f"ship-mark {r_number or 'this R-number'}. Escalate to the operator."
+                ),
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def _commit_touches_deployable(self, sha: str) -> bool:
+        """R-F1588: True if commit `sha` touches a Fly-deployable path
+        (aria_service/, services/, server.mjs). docs/tooling-only commits
+        need no deploy, so we don't false-alarm on them."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "diff", "--name-only", f"{sha}~1", sha,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.root),
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+            files = (stdout or b"").decode("utf-8", errors="replace")
+            return any(
+                p in files for p in ("aria_service/", "services/", "server.mjs")
+            )
+        except Exception:
+            # If we can't tell, assume deployable so we verify rather than skip.
+            return True
+
+    async def _verify_live_build_rev(self, sha: str, poll_timeout: int) -> bool:
+        """R-F1588: poll aria-intel /health/live until build_rev contains the
+        pushed sha (7-char prefix). Returns True if it lands within the window.
+        Async sleeps so the autonomous loop's other tasks keep running."""
+        try:
+            import httpx
+        except Exception:
+            return False
+        deadline = asyncio.get_event_loop().time() + max(120, int(poll_timeout or 720))
+        prefix = (sha or "")[:7]
+        if not prefix:
+            return False
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    resp = await client.get("https://aria-intel.fly.dev/health/live")
+                    live = (resp.json() or {}).get("build_rev", "")
+                    if live and prefix in live:
+                        return True
+                except Exception:
+                    pass
+                await asyncio.sleep(15)
+        return False
 
     # ── R-F1156: Static analysis pre-filter ──────────────────────────────────
     # Before calling any LLM for a bug fix, check if the error matches a known
