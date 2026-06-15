@@ -109,6 +109,11 @@ class EagleEyeGuardian:
         self.file_hashes: dict[str, str] = {}
         self.change_history: dict[str, list[dict]] = defaultdict(list)
 
+        # R-F1577: cross-scan dedup — tracks (file, line, type) fingerprints
+        # that have already been reported. Cleared when a file changes (hash
+        # mismatch) so legitimate re-detection after a fix still works.
+        self._seen_issues: set[str] = set()
+
         self.metrics: dict[str, Any] = {
             "files_watched": 0,
             "trouble_spotted": 0,
@@ -177,6 +182,8 @@ class EagleEyeGuardian:
         })
         if len(self.change_history[str(file_path)]) > _MAX_CHANGE_HISTORY:
             self.change_history[str(file_path)] = self.change_history[str(file_path)][-_MAX_CHANGE_HISTORY:]
+        # R-F1577: clear seen issues for this file so re-detection works
+        self._seen_issues = {s for s in self._seen_issues if not s.startswith(f"{file_path}:")}
 
     def _scan_for_issues(self, file_path: Path, content: str) -> None:
         """Scan a file for ALL types of issues."""
@@ -302,7 +309,20 @@ class EagleEyeGuardian:
         self.code_smells = smells
 
     def _spot_trouble(self, trouble: TroubleSpot) -> None:
-        """Record a trouble spot."""
+        """Record a trouble spot.
+
+        R-F1577: cross-scan dedup — skips issues already reported in a
+        previous scan for unchanged files. The seen set is cleared for
+        any file whose content hash changed, so legitimate re-detection
+        after a fix still works.
+        """
+        # Cross-scan dedup: skip if this (file, line, type) was already reported
+        _fp = f"{trouble.file_path}:{trouble.line_number}:{trouble.type}"
+        if _fp in self._seen_issues:
+            return
+        self._seen_issues.add(_fp)
+
+        # Within-scan dedup: skip if same (file, line, type) already in current list
         for existing in self.trouble_spots:
             if existing.file_path == trouble.file_path and existing.line_number == trouble.line_number:
                 if existing.type == trouble.type:
