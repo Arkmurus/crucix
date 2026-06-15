@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """R-F1127 — Pre-commit check logic, extracted for testability.
 
 Contains the testable functions used by scripts/pre-commit:
@@ -198,7 +199,7 @@ def check_builtin_shadowing(files: list[Path]) -> list[str]:
 
 
 def check_wiring_present(files: list[Path]) -> list[str]:
-    at least one wire_success or wire_failure call (brain wiring).
+    """Check that every changed intel module has at least one wire_success or wire_failure call (brain wiring).
 
     Modules that are purely data/configuration or are themselves wiring
     infrastructure are exempt (see WIRING_EXEMPT_MODULES).
