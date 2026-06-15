@@ -42,6 +42,11 @@ _DANGEROUS_PATTERNS: list[tuple[str, str, int, str]] = [
     (r"pickle\.loads\(", "Unsafe deserialization", 9, "Use JSON or safer serialization"),
     (r"sql.*\+", "SQL injection risk (string concat)", 10, "Use parameterized queries"),
     (r"\.execute\(.*%", "SQL injection risk (% formatting)", 10, "Use parameterized queries"),
+    # R-F1586: hardcoded secret/credential patterns
+    (r"(?i)(api_key|apikey|api\.key)\s*=\s*['\"][a-zA-Z0-9_\-]{16,}", "Hardcoded API key", 9, "Use env var or secrets manager"),
+    (r"(?i)(secret|token|password|passwd)\s*=\s*['\"][a-zA-Z0-9_\-!@#$%^&*()]{8,}", "Hardcoded secret/token/password", 9, "Use env var or secrets manager"),
+    (r"(?i)aws_access_key_id\s*=\s*['\"][A-Z0-9]{16,}", "Hardcoded AWS access key", 10, "Use IAM roles or env vars"),
+    (r"(?i)sk-[a-zA-Z0-9]{20,}", "Hardcoded OpenAI/Anthropic-style API key", 10, "Use env var or secrets manager"),
 ]
 
 # ── Data classes ───────────────────────────────────────────────────────────

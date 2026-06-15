@@ -366,68 +366,92 @@ class CoderToolbox:
 
         # 3. Poll /health/live until the live build_rev matches HEAD (CI builds
         #    remotely; torch images are slow, so allow generous time).
+        # R-F1582: after timeout, retry ONCE with a longer wait (torch builds
+        # can take 10+ min). If still not aligned, BLOCK with an explicit alert
+        # — a push that doesn't reach the server must NEVER report success.
         try:
             import httpx
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"ci_deploy: pushed {sha} ([deploy] triggered CI) but httpx "
                               f"unavailable to verify: {exc}. Check build_rev manually.", is_error=True)
-        deadline = _t.monotonic() + max(120, int(poll_timeout or 900))
-        last = ""
-        while _t.monotonic() < deadline:
+
+        def _check_build_rev() -> tuple[bool, str]:
+            """Poll /health/live once. Returns (aligned, live_build_rev)."""
             try:
                 resp = httpx.get("https://aria-intel.fly.dev/health/live",
                                  timeout=20.0, follow_redirects=True)
-                last = (resp.json() or {}).get("build_rev", "")
-                if last and sha[:8] in last:
-                    # R-F1314: aria-intel is aligned — but if this change ALSO
-                    # touches aria-wa / aria-web, the CI [deploy] path did NOT
-                    # deploy them (deploy-fly.yml only builds aria-intel). Make
-                    # the chain truly multi-app: deploy the touched apps via the
-                    # trusted deploy script (canary + health-verify + rollback),
-                    # and NEVER report a clean full deploy unless every touched
-                    # app verified. Disable with deploy_all=False.
-                    other = self._apps_touched(self._pending_deploy_paths(sha))
-                    if other and deploy_all:
-                        apps = ", ".join(sorted(other))
-                        dep = self._deploy_apps(other)
-                        if dep.is_error:
-                            return ToolResult(
-                                f"PARTIAL DEPLOY ⚠️ — aria-intel is aligned (pushed {sha}, "
-                                f"live build_rev={last!r}), but the follow-on deploy of "
-                                f"{apps} FAILED, so those apps are still running OLD code. "
-                                f"Do NOT ship-mark {r_number or 'this R-number'} until each "
-                                f"is verified live. Deploy output:\n{dep.output}",
-                                is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
-                        return ToolResult(
-                            f"DEPLOYED & ALIGNED ✅ (multi-app) — pushed {sha}; aria-intel "
-                            f"build_rev={last!r} matches HEAD via CI, and {apps} deployed + "
-                            f"verified via the deploy script (canary+rollback). Hands-free "
-                            f"commit→push→CI→fly chain verified across every touched app.",
-                            mutation=f"ci_deploy {sha} (aria-intel + {apps})")
-                    if other:  # deploy_all disabled — surface the gap, never fake success
-                        apps = ", ".join(sorted(other))
-                        flags = " ".join("-Wa" if a == "aria-wa" else "-Web"
-                                         for a in sorted(other))
-                        return ToolResult(
-                            f"PARTIAL DEPLOY ⚠️ — aria-intel aligned (pushed {sha}, "
-                            f"build_rev={last!r}), but this change also touches {apps} which "
-                            f"CI does NOT deploy. Run: scripts/deploy.ps1 {flags}. Do NOT "
-                            f"ship-mark {r_number or 'this R-number'} until each verifies live.",
-                            is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
-                    return ToolResult(
-                        f"DEPLOYED & ALIGNED ✅ — pushed {sha} → CI built & canary-deployed; "
-                        f"live build_rev={last!r} now matches HEAD. Hands-free "
-                        f"commit→push→CI→fly chain verified end-to-end.",
-                        mutation=f"ci_deploy {sha}")
-            except Exception:  # noqa: BLE001 — health blips during a deploy are normal
-                pass
+                live = (resp.json() or {}).get("build_rev", "")
+                return (bool(live and sha[:8] in live), live)
+            except Exception:
+                return (False, "")
+
+        deadline = _t.monotonic() + max(120, int(poll_timeout or 900))
+        last = ""
+        aligned = False
+        while _t.monotonic() < deadline:
+            aligned, last = _check_build_rev()
+            if aligned:
+                break
             _t.sleep(15)
+
+        if not aligned:
+            # R-F1582: first timeout — retry ONCE with double the wait.
+            # The remote torch build may still be running; a second poll
+            # window catches the case where CI started late.
+            _t.sleep(30)  # brief pause before retry
+            retry_deadline = _t.monotonic() + max(120, int(poll_timeout or 900))
+            while _t.monotonic() < retry_deadline:
+                aligned, last = _check_build_rev()
+                if aligned:
+                    break
+                _t.sleep(15)
+
+        if not aligned:
+            return ToolResult(
+                f"DEPLOY LAG ⚠️ — pushed {sha} to origin/main, but live build_rev "
+                f"({last!r}) did not reach {sha[:8]} after 2 poll cycles "
+                f"({poll_timeout}s each). The remote CI build may still be running "
+                f"(torch is slow) or may have failed. "
+                f"ACTION REQUIRED: check GitHub Actions / `flyctl apps releases "
+                f"-a aria-intel`. Do NOT ship-mark {r_number or 'this R-number'} "
+                f"until build_rev is verified live. A push that doesn't reach the "
+                f"server must NEVER report success.",
+                is_error=True)
+
+        # build_rev aligned — proceed with multi-app verification
+        other = self._apps_touched(self._pending_deploy_paths(sha))
+        if other and deploy_all:
+            apps = ", ".join(sorted(other))
+            dep = self._deploy_apps(other)
+            if dep.is_error:
+                return ToolResult(
+                    f"PARTIAL DEPLOY ⚠️ — aria-intel is aligned (pushed {sha}, "
+                    f"live build_rev={last!r}), but the follow-on deploy of "
+                    f"{apps} FAILED, so those apps are still running OLD code. "
+                    f"Do NOT ship-mark {r_number or 'this R-number'} until each "
+                    f"is verified live. Deploy output:\n{dep.output}",
+                    is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
+            return ToolResult(
+                f"DEPLOYED & ALIGNED ✅ (multi-app) — pushed {sha}; aria-intel "
+                f"build_rev={last!r} matches HEAD via CI, and {apps} deployed + "
+                f"verified via the deploy script (canary+rollback). Hands-free "
+                f"commit→push→CI→fly chain verified across every touched app.",
+                mutation=f"ci_deploy {sha} (aria-intel + {apps})")
+        if other:  # deploy_all disabled — surface the gap, never fake success
+            apps = ", ".join(sorted(other))
+            flags = " ".join("-Wa" if a == "aria-wa" else "-Web"
+                             for a in sorted(other))
+            return ToolResult(
+                f"PARTIAL DEPLOY ⚠️ — aria-intel aligned (pushed {sha}, "
+                f"build_rev={last!r}), but this change also touches {apps} which "
+                f"CI does NOT deploy. Run: scripts/deploy.ps1 {flags}. Do NOT "
+                f"ship-mark {r_number or 'this R-number'} until each verifies live.",
+                is_error=True, mutation=f"ci_deploy {sha} (aria-intel only)")
         return ToolResult(
-            f"ci_deploy: pushed {sha} and [deploy] triggered CI, but live build_rev "
-            f"({last!r}) did not reach {sha[:8]} within {poll_timeout}s. The remote build is "
-            f"likely still running (torch is slow) — check GitHub Actions / `flyctl apps releases "
-            f"-a aria-intel`, then re-verify build_rev. Do NOT redeploy blindly.",
-            is_error=True)
+            f"DEPLOYED & ALIGNED ✅ — pushed {sha} → CI built & canary-deployed; "
+            f"live build_rev={last!r} now matches HEAD. Hands-free "
+            f"commit→push→CI→fly chain verified end-to-end.",
+            mutation=f"ci_deploy {sha}")
 
     # ── test runner ────────────────────────────────────────────────────────
 

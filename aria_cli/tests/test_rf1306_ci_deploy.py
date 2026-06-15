@@ -139,4 +139,5 @@ def test_ci_deploy_timeout_reports_unverified_not_success(monkeypatch) -> None:
 
     assert r.is_error
     assert "did not reach" in r.output
-    assert "Do NOT redeploy blindly" in r.output
+    assert "DEPLOY LAG" in r.output
+    assert "ACTION REQUIRED" in r.output

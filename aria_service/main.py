@@ -1382,6 +1382,53 @@ async def lifespan(app: FastAPI):
         check_interval_s=60,
         critical=False,
     )
+
+    # R-F1583: contract for autonomous scheduler
+    _autonomous_scheduler_contract = AgentContract(
+        agent_id="autonomous_scheduler",
+        version="1.0.0",
+        directives=[
+            "Run DD trigger monitor every 5 min",
+            "Scan for capability gaps every 15 min and feed to ARIACoder",
+            "Run self-diagnostics every hour",
+            "Run adversarial suite every 3 days",
+            "Drain Claude<->ARIA collaboration bridge every 2 min",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Redis state store", "GapDetector", "ARIACoder", "collab_bridge"],
+        outputs=["DD triggers fired", "Gaps fixed", "Diagnostics report", "Adversarial score"],
+        error_modes=[
+            "gap_detector_unavailable - skip cycle, log warning",
+            "collab_bridge_unreachable - skip drain, log debug",
+            "adversarial_suite_failure - log and continue",
+        ],
+        dependencies=["self_healing"],
+        check_interval_s=120,
+        critical=False,
+    )
+
+    # R-F1583: contract for wiring monitor
+    _wiring_monitor_contract = AgentContract(
+        agent_id="wiring_monitor",
+        version="1.0.0",
+        directives=[
+            "Audit wire_success/wire_failure balance across all intel modules every hour",
+            "Probe compliance screeners with malformed input to verify crash visibility",
+            "Check WA connection health via capability_gaps signals",
+            "Test brain signal path integrity end-to-end",
+            "Check self-coding loop health - staged queue drain rate",
+            "Wire both success and failure to the brain",
+        ],
+        inputs=["Intel module source files", "Redis state store", "capability_gaps"],
+        outputs=["Wire balance report", "Compliance probe results", "Composite health status"],
+        error_modes=[
+            "redis_unreachable - skip persistence, still run checks",
+            "module_import_failure - skip module, continue with rest",
+        ],
+        dependencies=[],
+        check_interval_s=3600,
+        critical=False,
+    )
     asyncio.create_task(_register_agent(
         "web_integrity", "monitoring",
         "24/7 endpoint monitoring, input/output validation, error pattern detection",
@@ -1555,6 +1602,9 @@ async def lifespan(app: FastAPI):
             _proactive_watch_contract, _weekly_report_contract,
             _watchlist_rescreen_contract, _tender_monitor_contract,
             _self_healing_contract,
+            _web_integrity_contract,
+            _autonomous_scheduler_contract,
+            _wiring_monitor_contract,
         ):
             try:
                 await _CR.register_contract(_c)
@@ -2304,12 +2354,11 @@ async def lifespan(app: FastAPI):
     knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
 
     # ── R-F803 (2026-05-22): autonomous self-coder boot ───────────────────
-    # ARIACoder + GapDetector. Dormant unless ALL of these hold:
-    #   ARIA_AUTONOMOUS_ENABLED=1  (existing master switch)
-    #   ARIA_CODER_ENABLED=1       (this engine specifically)
-    #   ARIA_INTERNAL_TOKEN set    (auth for /api/aria/coder/llm)
-    #   app.state.redis available
-    # See aria_service/autonomous/coder_entrypoint.py for the gates.
+    # ARIACoder + GapDetector. R-F996: coder is ALWAYS enabled when ARIA_INTERNAL_TOKEN is set.
+    # No ARIA_CODER_ENABLED env var gate — the coder loop must stay
+    # draining per CLAUDE.md §21c. The auto-deploy brake is
+    # ARIA_SELF_IMPROVE_AUTO_DEPLOY (must stay 0 until R-F1450 proven).
+    # See aria_service/autonomous/coder_entrypoint.py for the actual gates.
     # Returns a list[Task] (or None if any gate refused).
     aria_coder_tasks: list[asyncio.Task] = []
     try:
