@@ -1571,6 +1571,18 @@ async def lifespan(app: FastAPI):
         "Health checks, circuit breakers, auto-recovery, ecosystem repair",
     ))
 
+    # R-F1574: register autonomous scheduler agent
+    asyncio.create_task(_register_agent(
+        "autonomous_scheduler", "scheduler",
+        "DD trigger monitor, gap fixing, self-diagnostics, adversarial tests (scheduled)",
+    ))
+
+    # R-F1574: register wiring monitor agent
+    asyncio.create_task(_register_agent(
+        "wiring_monitor", "monitoring",
+        "Wire balance audit, compliance screener probe, brain signal path integrity (hourly)",
+    ))
+
     # Start autonomous self-improvement loop (every 2 hours)
     self_improve_task = None
     if llm and llm.is_configured:
