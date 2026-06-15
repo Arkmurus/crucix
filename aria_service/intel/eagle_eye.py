@@ -162,11 +162,16 @@ class EagleEyeGuardian:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 file_hash = hashlib.md5(content.encode()).hexdigest()
+                prev_hash = self.file_hashes.get(str(file_path))
+                is_changed = prev_hash != file_hash
 
-                if self.file_hashes.get(str(file_path)) != file_hash:
+                if is_changed:
                     self._on_file_change(file_path, content)
 
-                self._scan_for_issues(file_path, content)
+                # R-F1591: pass is_changed to _scan_for_issues so it can skip
+                # expensive operations (like ChromaDB re-indexing) for files
+                # whose content hasn't changed since the last scan.
+                self._scan_for_issues(file_path, content, is_changed=is_changed)
                 self.file_hashes[str(file_path)] = file_hash
 
             except Exception as e:
@@ -193,8 +198,16 @@ class EagleEyeGuardian:
         # R-F1577: clear seen issues for this file so re-detection works
         self._seen_issues = {s for s in self._seen_issues if not s.startswith(f"{file_path}:")}
 
-    def _scan_for_issues(self, file_path: Path, content: str) -> None:
-        """Scan a file for ALL types of issues."""
+    def _scan_for_issues(self, file_path: Path, content: str, is_changed: bool = True) -> None:
+        """Scan a file for ALL types of issues.
+
+        Args:
+            file_path: Path to the file being scanned.
+            content: File content as string.
+            is_changed: True if the file content changed since last scan.
+                        When False, expensive operations like ChromaDB
+                        re-indexing are skipped (R-F1591).
+        """
         # Parse AST for deep analysis
         try:
             tree = ast.parse(content, filename=str(file_path))
@@ -213,7 +226,12 @@ class EagleEyeGuardian:
 
         self._scan_security_issues(file_path, content)
         self._scan_performance_issues(file_path, tree)
-        self._index_codebase(file_path)
+        # R-F1591: skip ChromaDB re-indexing for unchanged files.
+        # The sentence embedder (PyTorch) blocks the GIL during encode,
+        # which stalls the event loop. Re-indexing hundreds of unchanged
+        # files every 30 minutes was the root cause of the 5-6s stalls.
+        if is_changed:
+            self._index_codebase(file_path)
 
     def _scan_security_issues(self, file_path: Path, content: str) -> None:
         """Scan for security vulnerabilities."""
