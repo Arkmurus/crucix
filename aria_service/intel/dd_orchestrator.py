@@ -6056,6 +6056,7 @@ async def orchestrate_dd(
     user_id: str | None = None,
     user_email: str | None = None,
     share_to_company: bool = True,
+    total_budget_s: float | None = None,
 ) -> ARKDDReport:
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -6176,6 +6177,38 @@ async def orchestrate_dd(
     cost_cap = cost_cap_usd if cost_cap_usd is not None else DEFAULT_COST_CAP_USD
     t_run_start = time.time()
 
+    # ── R-F1572: overall wall-clock budget (root-cause of WA DD overrun) ──────
+    # Per-layer asyncio.wait_for caps DON'T bound the total: a single deep run
+    # can chain identity(90)+network(90)+compliance(90)+digital(180)+extensions
+    # (45)+… and R-F409 (routes/aria.py) re-runs the WHOLE DD on insufficient
+    # evidence — so a sparse target (e.g. an NGO website with no registry
+    # footprint) blew past the WhatsApp async-push poll window (15 min). The
+    # user then got a dead-end "try again", re-sent, and spawned a duplicate
+    # 15-min job. This budget guarantees the run finishes WELL inside the push
+    # window, so the poll/callback always delivers a (possibly time-boxed)
+    # report. Default 11 min leaves headroom for BLUF assembly + the callback
+    # round-trip inside the 15-min budget. Callers that chain runs (R-F409
+    # escalation) pass the REMAINING budget so the total still fits.
+    _total_budget_s = (
+        float(total_budget_s) if total_budget_s is not None
+        else float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
+    )
+    _overall_deadline = t_run_start + _total_budget_s
+
+    def _clamp(t: float) -> float:
+        """Clamp a layer timeout to the remaining overall budget.
+
+        When the budget is exhausted, returns a tiny value so the layer fails
+        fast (TimeoutError → marked ERROR, never raises) and the walk cascades
+        to verification + synthesis, which build the report from whatever the
+        completed layers collected. Never returns 0 (asyncio.wait_for(timeout=0)
+        can hang on already-scheduled work) — 0.05s is effectively immediate.
+        """
+        rem = _overall_deadline - time.time()
+        if rem <= 0:
+            return 0.05
+        return min(t, rem)
+
     report = ARKDDReport(
         target=target,
         orchestrator_mode=mode,
@@ -6264,7 +6297,7 @@ async def orchestrate_dd(
                 layer_name = "network"
                 report.layers_run.append(layer_name)
                 try:
-                    await asyncio.wait_for(_run_network(target, report), timeout=DEFAULT_LAYER_TIMEOUT_S)
+                    await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
                 except asyncio.TimeoutError:
                     report.network.meta.status = LayerStatus.ERROR.value
                     report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
@@ -6277,7 +6310,7 @@ async def orchestrate_dd(
         layer_name = "compliance"
         report.layers_run.append(layer_name)
         try:
-            await asyncio.wait_for(_run_compliance(target, report), timeout=DEFAULT_LAYER_TIMEOUT_S)
+            await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
         except asyncio.TimeoutError:
             report.compliance.meta.status = LayerStatus.ERROR.value
             report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
@@ -6289,7 +6322,7 @@ async def orchestrate_dd(
             try:
                 await asyncio.wait_for(
                     _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
-                    timeout=DEFAULT_LAYER_TIMEOUT_S * 2,
+                    timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S * 2),
                 )
             except asyncio.TimeoutError:
                 report.digital.meta.status = LayerStatus.ERROR.value
@@ -6678,7 +6711,7 @@ async def orchestrate_dd(
             from . import dd_layer_extensions as _dlx
             _dlx_result = await asyncio.wait_for(
                 _dlx.run_all_extensions(target, report, timeout_per_module=15.0),
-                timeout=45.0,
+                timeout=_clamp(45.0),
             )
             # Attach onto report.extensions if attribute exists; else log.
             try:
@@ -6777,6 +6810,24 @@ async def orchestrate_dd(
         except asyncio.TimeoutError:
             report.synthesis.meta.status = LayerStatus.ERROR.value
             report.synthesis.meta.error = "timeout after 10s"
+
+        # ── R-F1572: flag a time-boxed run so the BLUF/footer is honest ──
+        # If the overall budget was hit, the heavy layers were cut short by
+        # _clamp() — the report is real but partial. Mark it so downstream
+        # delivery can say so rather than implying full coverage.
+        if time.time() >= _overall_deadline:
+            try:
+                report.time_boxed = True  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            logger.warning(
+                "[dd_orchestrator] R-F1572 time-boxed run for %s — overall "
+                "budget %.0fs exhausted; delivering partial report from %d "
+                "completed layer(s)",
+                report.identity.entity_name or target.get("name", "?"),
+                _total_budget_s,
+                len(report.layers_run),
+            )
 
     finally:
         if cost_tracker_token is not None:
@@ -6966,11 +7017,31 @@ async def orchestrate_dd(
                 )
         except Exception:
             pass
-        _should_run_am = (
+        _am_triggered = (
             _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
             or _risk_for_am.startswith("AMBER")
             or _coverage_pct < 60.0
         )
+        # R-F1572: this 30-template × 5-result × 10-year deep search runs AFTER
+        # the layers + BLUF and is OUTSIDE the layer clamp — it was the dominant
+        # overrun for sparse targets, because AMBER / <60%-coverage (exactly an
+        # NGO/website with no registry footprint) trigger it. Bound it to the
+        # overall budget: skip if the budget is spent, else cap the call.
+        _am_budget = _overall_deadline - time.time()
+        if _am_triggered and _am_budget < 20.0:
+            logger.warning(
+                "[R-F1572] adverse-media deep search SKIPPED for %s — overall "
+                "budget exhausted (%.0fs left); report is time-boxed",
+                report.identity.entity_name or "?", _am_budget,
+            )
+            try:
+                report.adverse_media = {
+                    "skipped": "overall_budget_exhausted",
+                    "framework_version": "R-F1572 time-box",
+                }
+            except Exception:
+                pass
+        _should_run_am = _am_triggered and _am_budget >= 20.0
         if _should_run_am:
             from . import researcher as _res
             # Pull director/UBO names from the network layer if present
@@ -7000,14 +7071,17 @@ async def orchestrate_dd(
                 pass
             if not _sectors:
                 _sectors = ["defence"]  # ARIA's default vertical
-            _am_result = await _res.run_adverse_media_deep_search(
-                entity_name=report.identity.entity_name,
-                director_names=_director_names[:3],  # cap to 3 to bound search cost
-                ubo_names=_ubo_names[:2],            # cap to 2
-                sectors=_sectors,
-                years_back=10,
-                max_templates=30,
-                max_results_per_template=5,
+            _am_result = await asyncio.wait_for(
+                _res.run_adverse_media_deep_search(
+                    entity_name=report.identity.entity_name,
+                    director_names=_director_names[:3],  # cap to 3 to bound search cost
+                    ubo_names=_ubo_names[:2],            # cap to 2
+                    sectors=_sectors,
+                    years_back=10,
+                    max_templates=30,
+                    max_results_per_template=5,
+                ),
+                timeout=min(_am_budget, 240.0),  # R-F1572: never exceed the budget
             )
             report.adverse_media = _am_result
             # R-F300 follow-up: log now reflects R-F300 expanded triggers

@@ -801,8 +801,18 @@ async function askARIA(message, senderJid, chatId = null, requestId = null) {
     const elapsed = Date.now() - t0;
     const outcome = e.message.includes('timed out') || e.message.includes('timeout') ? 'timeout_fallback' : 'error';
     reportOutcome('wa', rid, 'chat_response', outcome, elapsed, e.message);
+    // R-F1572 — on a poll timeout the brain job keeps running and the
+    // async-complete-and-push callback (R-F1413) still delivers when it
+    // finishes — and R-F1572's DD budget makes it finish inside the window.
+    // So DON'T tell the user to "try again": a resend spawns a duplicate
+    // 15-min job (the recurring WA pain). Reassure + let the callback land it.
+    // Genuine errors (job expired/failed/brain unreachable) keep the
+    // actionable retry guidance.
+    if (outcome === 'timeout_fallback') {
+      return '🔎 This one\'s taking longer than usual — I\'m still finishing it in the background and I\'ll post the full briefing here automatically as soon as it\'s ready. No need to resend.';
+    }
     // R-F1170 — helpful error with alternatives
-    return '⚠️ I hit a timeout on that one — the research is taking longer than expected. Please try again, or if you have a specific URL or document, share it and I can work from that directly.';
+    return '⚠️ I hit a snag pulling that together. Please try again, or if you have a specific URL or document, share it and I can work from that directly.';
   }
 }
 

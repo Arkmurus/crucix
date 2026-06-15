@@ -5785,16 +5785,31 @@ async def _execute_tool(intent: dict, llm) -> str:
             # infinite loops). If deep also gate-triggers, take the
             # deep result (more layers fired) and emit it with a note.
             try:
+                # R-F1572: bound the whole DD (initial run + any R-F409 deep
+                # re-run) to a budget that fits inside the WhatsApp async-push
+                # poll window (15 min), so the result always lands via poll/
+                # callback instead of timing out into a dead-end "try again".
+                _dd_chat_budget_s = float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "720")))
+                _dd_chat_t0 = time.time()
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,
                     llm=llm,
                     mode=mode,
+                    total_budget_s=_dd_chat_budget_s,
                 )
                 # R-F409 auto-escalation
+                # R-F1572: only escalate if enough budget remains for a deep run
+                # to add value; pass the REMAINING budget so the total still
+                # fits the push window. A gate-triggering sparse target (e.g. an
+                # NGO/website with no registry footprint) used to double-run and
+                # blow past 15 min.
+                _dd_remaining_s = _dd_chat_budget_s - (time.time() - _dd_chat_t0)
+                _rf409_min_deep_s = float(int(os.getenv("ARIA_DD_RF409_MIN_DEEP_S", "180")))
                 if (
                     mode != "deep"
                     and getattr(report, "confidence_gate_triggered", False)
                     and not target.get("_rf409_already_escalated")
+                    and _dd_remaining_s >= _rf409_min_deep_s
                 ):
                     _log.info(
                         "R-F409 auto-escalating dd_orchestrate to mode=deep "
@@ -5811,6 +5826,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                             target=_deep_target,
                             llm=llm,
                             mode="deep",
+                            total_budget_s=_dd_remaining_s,
                         )
                         # Prefer the deep report if it produced more
                         # evidence (any layer firing). If deep also

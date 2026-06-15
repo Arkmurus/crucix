@@ -55,7 +55,7 @@ def test_rf409_handler_checks_confidence_gate_after_initial():
     assert idx > 0, (
         "R-F409 regression: anchor comment missing — retry logic not in place."
     )
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert "confidence_gate_triggered" in block
     assert "rf409_already_escalated" in block.lower(), (
         "R-F409: infinite-recursion guard flag missing."
@@ -67,7 +67,7 @@ def test_rf409_handler_skips_when_initial_mode_is_deep():
     NOT retry — no value in re-running the same mode."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert 'mode != "deep"' in block, (
         "R-F409: mode!='deep' guard missing — deep mode would retry "
         "itself uselessly."
@@ -80,7 +80,7 @@ def test_rf409_handler_passes_escalated_flag_to_retry():
     handler) doesn't double-retry."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert "_rf409_already_escalated" in block
     assert '"_rf409_already_escalated": True' in block or "_rf409_already_escalated': True" in block
 
@@ -90,7 +90,7 @@ def test_rf409_handler_calls_orchestrate_dd_with_mode_deep():
     mode value. Otherwise the retry runs in the same shallow mode."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert 'mode="deep"' in block, (
         "R-F409: retry doesn't explicitly pass mode='deep'."
     )
@@ -102,7 +102,7 @@ def test_rf409_handler_replaces_report_with_deep_result():
     DEEPER attempt."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert "report = deep_report" in block, (
         "R-F409: deep result not propagated as the canonical report. "
         "Downstream consumers will still see the shallow report."
@@ -114,7 +114,7 @@ def test_rf409_handler_annotates_report():
     BLUF can surface the escalation status."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert 'setattr(report, "rf409_auto_escalated", True)' in block
     assert 'rf409_initial_mode' in block, (
         "R-F409: initial mode not preserved on the annotated report."
@@ -126,7 +126,7 @@ def test_rf409_handler_catches_escalation_exception():
     shallow report — operator gets SOMETHING, not nothing."""
     src = _src_routes()
     idx = src.find("R-F409")
-    block = src[idx:idx + 3500]
+    block = src[idx:idx + 4700]
     assert "except Exception as _esc_err" in block, (
         "R-F409: no exception handler around the deep retry — a "
         "crash there would propagate and lose the shallow result."
