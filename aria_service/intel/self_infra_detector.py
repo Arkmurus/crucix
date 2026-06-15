@@ -246,6 +246,69 @@ def is_self_state_query(message: str | None) -> bool:
     return bool(SELF_STATE_AVAILABILITY_RE.search(message))
 
 
+# ── R-F1587 (2026-06-15) — self gap-analysis / system-audit request ──────────
+#
+# Live WhatsApp miss 2026-06-15: the operator asked for a "system gap analysis"
+# of ARIA's ecosystem. It matched NEITHER SELF_CAPABILITY_INTROSPECTION_RE (no
+# "your X" / "how many" construction) NOR SELF_STATE_AVAILABILITY_RE, so it fell
+# through: phrasings containing "DD"/"deep" routed to company dd_orchestrate
+# (the "checking multiple sources" interim), and plain phrasings hit the
+# from-memory LLM → it answered a DIFFERENT question four turns running (UAE /
+# Swiss law, email drafts, a DeltaGuard DD bleeding in) and fabricated Swiss
+# legal citations. A request to ANALYSE ARIA's OWN system/ecosystem for gaps
+# must hit self_introspect (/health/perf), not research / DD / from-memory.
+#
+# Anchored to a self-reference so an external "gap analysis on Acme Corp"
+# (no system/ecosystem/your/self/aria token) does NOT match and stays external.
+_SELF_ANALYSIS_STRONG_RE: re.Pattern[str] = re.compile(
+    r"\b(?:"
+        # "system gap analysis" / "ecosystem audit" / "system diagnostics" —
+        # the analysis word sits right next to system/ecosystem → unambiguous.
+        r"(?:system|ecosystem)\s+(?:gap[\s-]?)?(?:analysis|audit|review|diagnostics?)"
+        r"|"
+        # self-* shapes
+        r"self[\s-]?(?:assessment|audit|review|analysis|diagnos\w*|introspection|check)"
+        r"|"
+        r"status\s+report"
+        r"|"
+        # "(DD|review|deep dive|audit) of/on your system/ecosystem" — a self
+        # deep-dive, NOT a company DD.
+        r"(?:dd|due[\s-]?diligence|deep[\s-]?dive|deep[\s-]?dd|review|investigation|"
+        r"audit|analysis)\s+(?:of|on|across|into)\s+"
+        r"(?:your(?:self|\s+own)?\s+)?(?:the\s+)?(?:system|ecosystem|architecture|platform|stack)"
+    r")\b",
+    re.IGNORECASE,
+)
+# Weak terms ("gap analysis" / "gaps") only fire when paired with a self-ref.
+_SELF_ANALYSIS_WEAK_TERM_RE: re.Pattern[str] = re.compile(
+    r"\b(?:gap[\s-]?analysis|gaps?)\b", re.IGNORECASE,
+)
+_SELF_ANALYSIS_CONTEXT_RE: re.Pattern[str] = re.compile(
+    r"\b(?:your(?:self)?|"
+    r"your\s+(?:own|system|ecosystem|architecture|platform|stack|setup|"
+    r"infrastructure|build|engine|brain|capabilities|capability)|"
+    r"aria|ecosystem|the\s+system)\b",
+    re.IGNORECASE,
+)
+
+
+def is_self_analysis_request(message: str | None) -> bool:
+    """R-F1587: True when the message asks ARIA to analyse / audit / DD her
+    OWN system or ecosystem ("system gap analysis", "gap analysis of your
+    ecosystem", "DD of your ecosystem", "self-assessment"). Routes to
+    self_introspect (/health/perf) instead of research / company-DD / from-
+    memory. Self-reference anchored so external analysis requests don't match.
+    """
+    if not message:
+        return False
+    if _SELF_ANALYSIS_STRONG_RE.search(message):
+        return True
+    return bool(
+        _SELF_ANALYSIS_WEAK_TERM_RE.search(message)
+        and _SELF_ANALYSIS_CONTEXT_RE.search(message)
+    )
+
+
 def is_capability_introspection_query(message: str | None) -> bool:
     """R-F399: True when the message asks about ARIA's own state /
     inventory / retention / learning capacity. Routes to /health/perf
@@ -260,6 +323,7 @@ def is_capability_introspection_query(message: str | None) -> bool:
     return bool(
         SELF_CAPABILITY_INTROSPECTION_RE.search(message)
         or SELF_STATE_AVAILABILITY_RE.search(message)
+        or is_self_analysis_request(message)  # R-F1587
     )
 
 
