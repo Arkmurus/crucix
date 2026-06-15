@@ -112,7 +112,10 @@ class EagleEyeGuardian:
         # R-F1577: cross-scan dedup — tracks (file, line, type) fingerprints
         # that have already been reported. Cleared when a file changes (hash
         # mismatch) so legitimate re-detection after a fix still works.
+        # In-memory only: lost on restart, causing at most one duplicate
+        # report per issue per restart cycle.
         self._seen_issues: set[str] = set()
+        logger.debug("[EagleEye] Cross-scan dedup set initialized (empty on restart)")
 
         self.metrics: dict[str, Any] = {
             "files_watched": 0,

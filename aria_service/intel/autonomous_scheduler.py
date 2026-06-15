@@ -59,6 +59,15 @@ class AutonomousScheduler:
         
         logger.info("[scheduler] started %d tasks", len(self._tasks))
 
+    async def _tick_heartbeat(self) -> None:
+        """Tick the autonomous_scheduler heartbeat in the agent registry."""
+        try:
+            from ..intel.agent_registry import AgentRegistry
+            _reg = AgentRegistry()
+            await _reg.tick_heartbeat("autonomous_scheduler", "DD trigger monitor, gap fixing, self-diagnostics, adversarial tests")
+        except Exception:
+            pass
+
     async def stop(self) -> None:
         """Stop all scheduled tasks."""
         self._running = False
@@ -75,6 +84,8 @@ class AutonomousScheduler:
         """Run a function on an interval."""
         while self._running:
             try:
+                # R-F1574: tick heartbeat so the agent registry sees us alive
+                await self._tick_heartbeat()
                 await func()
                 # R-F1059 — wire scheduler tick to brain
                 try:

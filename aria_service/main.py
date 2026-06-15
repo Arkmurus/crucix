@@ -2442,6 +2442,15 @@ async def lifespan(app: FastAPI):
     except Exception as _wm_err:
         logger.warning("[R-F1552] Wiring Monitor start failed (non-fatal): %s", _wm_err)
 
+    # R-F1574: start Autonomous Scheduler (DD monitor, gap fixing, diagnostics)
+    _scheduler_task = None
+    try:
+        from .intel.autonomous_scheduler import AutonomousScheduler
+        _scheduler = AutonomousScheduler()
+        _scheduler_task = asyncio.create_task(_scheduler.start(), name="autonomous_scheduler")
+    except Exception as _sched_err:
+        logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
+
     yield
 
 
@@ -2483,6 +2492,15 @@ async def lifespan(app: FastAPI):
         await eagle_eye.stop()
     except Exception as _ee_err:
         logger.warning("[EagleEye] Shutdown failed (non-fatal): %s", _ee_err)
+
+    # R-F1574: stop Autonomous Scheduler
+    if _scheduler_task is not None:
+        try:
+            _scheduler_task.cancel()
+            await asyncio.wait_for(_scheduler_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        logger.info("[R-F1574] Autonomous Scheduler stopped")
 
     try:
         from .autonomous import engine as _autonomous_engine

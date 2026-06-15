@@ -159,10 +159,11 @@ async def drain_for_aria() -> dict:
         new = []
 
     # R-F1575: also drain the file-based .agent_bridge/ mailbox.
-    # Only runs in production (FLY_APP_NAME set) to avoid picking up
-    # stale test artifacts. Uses a separate cursor key so old file-bridge
-    # messages are not re-drained every cycle.
-    if os.environ.get("FLY_APP_NAME"):
+    # Only runs in production (FLY_APP_NAME == "aria-intel") to avoid
+    # picking up stale test artifacts when FLY_APP_NAME is set locally
+    # for testing. Uses a separate cursor key so old file-bridge messages
+    # are not re-drained every cycle.
+    if os.environ.get("FLY_APP_NAME") == "aria-intel":
         try:
             from pathlib import Path
             _fb_cursor_key = _CURSOR_KEY.format(reader="aria_file_bridge")

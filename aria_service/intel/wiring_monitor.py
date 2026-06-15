@@ -683,16 +683,29 @@ async def monitor_loop() -> None:
         "[wiring_monitor] Background loop started (interval=%ds)",
         CHECK_INTERVAL_S,
     )
+    # Tick heartbeat so the agent registry sees us alive
+    await _tick_wiring_heartbeat()
     # Run first check immediately
     await run_all_checks()
     while True:
         await asyncio.sleep(CHECK_INTERVAL_S)
         try:
+            await _tick_wiring_heartbeat()
             await run_all_checks()
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error("[wiring_monitor] Loop error: %s", e, exc_info=True)
+
+
+async def _tick_wiring_heartbeat() -> None:
+    """Tick the wiring_monitor heartbeat in the agent registry."""
+    try:
+        from .agent_registry import AgentRegistry
+        _reg = AgentRegistry()
+        await _reg.tick_heartbeat("wiring_monitor", "Wire balance audit, compliance screener probe, brain signal path integrity")
+    except Exception:
+        pass
 
 
 def start_monitor() -> asyncio.Task:
