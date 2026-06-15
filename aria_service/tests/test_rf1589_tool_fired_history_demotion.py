@@ -42,22 +42,22 @@ _DD_MESSAGE_WITH_TOOL = (
 )
 
 
-def test_rf1589_tool_fired_demotes_history_to_summary():
+def test_rf1589_tool_fired_drops_history_entirely():
+    """R-F1590 (escalated R-F1589): when a tool fired, history is DROPPED
+    entirely — not summarised — so there is zero prior-answer material in
+    context to bleed from (deterministic, not reliant on the model heeding a
+    directive it already overrode once)."""
     prompt = _format_history_user_prompt(_HISTORY, "", _DD_MESSAGE_WITH_TOOL, "")
-    # The full prior gap-analysis must NOT survive verbatim — history is
-    # truncated to a ~150-char snippet, so content past that (and the long
-    # repeated tail) is dropped; the model can't lift the full answer.
-    assert "latency metrics" not in prompt, (
-        "R-F1589: the prior gap-analysis answer was NOT truncated — its full "
-        "body leaked into the prompt and the model can lift it wholesale."
+    # NONE of the prior gap-analysis may survive — not even a snippet.
+    assert "knowledge base" not in prompt, (
+        "R-F1590: prior answer content leaked — history not fully dropped."
     )
-    assert prompt.count("knowledge base") <= 1, (
-        "R-F1589: the repeated full prior answer survived — not demoted."
-    )
-    # History is present but as brief one-line context, explicitly do-not-answer.
-    assert "brief context only" in prompt
-    assert "do NOT answer or repeat these" in prompt
-    # The current tool-grounded message + its output are present and authoritative.
+    assert "ledger signals" not in prompt
+    assert "latency metrics" not in prompt
+    # The binding answer-scope directive is present.
+    assert "[ANSWER SCOPE" in prompt
+    assert "NO conversation history" in prompt
+    # The current tool-grounded message + its output are authoritative.
     assert "[Current message]" in prompt
     assert "dd_orchestrate" in prompt
     assert "deltaguard.org" in prompt
@@ -77,5 +77,3 @@ def test_rf1589_tool_fired_with_no_history_is_unaffected():
     prompt = _format_history_user_prompt([], "", _DD_MESSAGE_WITH_TOOL, "")
     assert "[Current message]" in prompt
     assert "dd_orchestrate" in prompt
-    # No history → no summary block.
-    assert "brief context only" not in prompt
