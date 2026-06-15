@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -143,11 +144,60 @@ async def drain_for_aria() -> dict:
     make the ONE ARIA aware of each (brain absorb) and record an actionable gap
     so the coder loop picks up tasks, then advance the cursor.
 
+    R-F1575: also drains the file-based .agent_bridge/ mailbox so messages
+    Claude sends via scripts/agent_bridge.py (the CLI tool) are not lost.
+    The file bridge is the legacy channel; the Redis bridge is canonical.
+    This dual-drain ensures no message is missed regardless of which bridge
+    Claude used.
+
     Returns a summary {drained, last_seq}. Safe to call every loop cycle;
     cursor-guarded so each note is acted on once.
     """
     cursor = await get_cursor("aria")
     new = await poll("aria", after_seq=cursor)
+    if not new:
+        new = []
+
+    # R-F1575: also drain the file-based .agent_bridge/ mailbox.
+    # Only runs in production (FLY_APP_NAME set) to avoid picking up
+    # stale test artifacts. Uses a separate cursor key so old file-bridge
+    # messages are not re-drained every cycle.
+    if os.environ.get("FLY_APP_NAME"):
+        try:
+            from pathlib import Path
+            _fb_cursor_key = _CURSOR_KEY.format(reader="aria_file_bridge")
+            _fb_cursor = int(await rs.get(_fb_cursor_key) or "0")
+            _bridge_dir = Path(__file__).resolve().parent.parent.parent / ".agent_bridge"
+            _msgs_file = _bridge_dir / "messages.jsonl"
+            if _msgs_file.exists():
+                _raw = _msgs_file.read_text(encoding="utf-8", errors="replace")
+                _lines = _raw.splitlines()
+                _fb_last = _fb_cursor
+                for _i, _line in enumerate(_lines):
+                    if _i < _fb_cursor:
+                        continue
+                    _line = _line.strip()
+                    if not _line:
+                        continue
+                    try:
+                        _fm = json.loads(_line)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if _fm.get("to") == "aria" and _fm.get("frm") == "claude":
+                        _seq = cursor + _i + 1  # synthetic seq after Redis messages
+                        new.append({
+                            "seq": _seq,
+                            "id": _fm.get("id", f"fb_{_i}"),
+                            "text": _fm.get("text", ""),
+                            "frm": "claude",
+                            "to": "aria",
+                        })
+                    _fb_last = _i + 1
+                if _fb_last > _fb_cursor:
+                    await rs.set(_fb_cursor_key, str(_fb_last))
+        except Exception as _fb_e:
+            logger.debug("[R-F1575] file-bridge drain failed: %s", _fb_e)
+
     if not new:
         return {"drained": 0, "last_seq": cursor}
 
