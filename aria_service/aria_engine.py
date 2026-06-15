@@ -2276,6 +2276,29 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
     if not history:
         return f"{lang_hint}{context}{_comprehension_prefix}\n\n[Current message]\nUser: {message}"
     recent_cutoff = 10 * 2  # last 10 exchanges in full (after compaction)
+
+    # R-F1589: when a TOOL already ran for THIS message (its output is embedded
+    # in `message` as a [TOOL: ...] block), the answer MUST be grounded in the
+    # current message + that tool output — not a salient prior answer from
+    # history. Live WA failure 2026-06-15: "do a full DD on deltaguard.org"
+    # returned the PRIOR turn's self gap-analysis almost verbatim because a long
+    # gap-analysis history out-weighed the current tool-grounded request — the
+    # R-F1384 comprehension directive alone didn't hold against a full prior
+    # answer sitting in-context. Fix: when a tool fired, demote ALL history to
+    # one-line summaries (continuity only) so no prior full answer can be lifted
+    # wholesale. Shared builder → applies to chat AND stream (§13).
+    _tool_fired = ("[TOOL:" in message) or ("I have already run the appropriate tool" in message)
+    if _tool_fired:
+        _summ = "\n".join(
+            f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {_compact_history_content(m['content'], 150)}"
+            for m in history[-recent_cutoff:]
+        )
+        return (
+            f"{lang_hint}"
+            f"[Earlier conversation — brief context only; do NOT answer or repeat these]\n{_summ}\n\n"
+            f"{context}{_comprehension_prefix}\n\n"
+            f"[Current message]\nUser: {message}"
+        )
     if len(history) > recent_cutoff:
         older = history[:-recent_cutoff]
         recent = history[-recent_cutoff:]
