@@ -1613,6 +1613,36 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
     except Exception as e:
         logger.warning("ARIA search engine failed, falling back to Google News RSS: %s", e)
 
+    # ── R-F1597: DDG fallback BEFORE the legacy Google-News-only path ──
+    # The multi-backend engine above (web_search.py) leans on backends that
+    # are dead/gated in this deployment: _search_brave returns [] (no key —
+    # Brave declined, §18), _search_searxng returns [] (no instances). So a
+    # DD on a foreign company (e.g. deltaguard.org) got ZERO external results
+    # even though the WORKING, breaker-free DDG search in web_search() returns
+    # hits (verified live: 5 results). Route the DD search through it before
+    # giving up. Operator 2026-06-15: "you could fetch adverse media many ways
+    # but you are not bringing any results." Additive — only fires when the
+    # primary path returned nothing.
+    try:
+        _ddg = await web_search(query, max_results=20, timeout=timeout)
+        _items = (_ddg or {}).get("results") or []
+        _conv = [
+            {
+                "title": it.get("title", ""),
+                "link": it.get("url") or it.get("link") or "",
+                "snippet": it.get("snippet") or it.get("body") or "",
+                "source": it.get("source") or (_ddg or {}).get("provider") or "duckduckgo",
+            }
+            for it in _items
+            if (it.get("url") or it.get("link"))
+        ]
+        if _conv:
+            logger.info("R-F1597: DDG fallback returned %d results for %r",
+                        len(_conv), query[:60])
+            return _conv
+    except Exception as _ddg_err:
+        logger.debug("R-F1597 DDG fallback failed (non-fatal): %s", _ddg_err)
+
     # ── Legacy fallback: Google News RSS only ─────────────────────────
     encoded = quote_plus(query)
     base_url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
