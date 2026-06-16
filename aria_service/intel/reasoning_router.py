@@ -347,9 +347,17 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
     # run the full OSINT pipeline: web search, crawl, registry, sanctions,
     # news, social media, tech stack, SSL/DNS, procurement.
     try:
+        # R-F1613 — §22a query-misroute fix. Removed the INTERROGATIVES
+        # (who.?is / what.?is / tell.?me.?about) from this keyword set: they
+        # matched ordinary questions like "who is the CEO of BAE Systems? use
+        # web search" -> has_investigate + has_company ('systems') -> Stage 4
+        # fired investigate_company -> "No findings", silently dropping the
+        # explicit web-search instruction. Only imperatives remain — an
+        # interrogative or an explicit web-search request must NOT trigger the
+        # OSINT pipeline (see _force_web below).
         _investigate_keywords = (
             r"\b(?:investigate|research|background.?check|due.?diligence|"
-            r"deep.?search|tell.?me.?about|who.?is|what.?is|"
+            r"deep.?search|"
             r"analyse?|analyze|screen|vet|check.?out|look.?up|"
             r"find.?info(?:rmation)?.?on|search.?for)\b"
         )
@@ -375,13 +383,35 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         # the company investigator — so skip Stage 4 whenever the doc marker is present.
         _has_attached_doc = "[attached document" in _q_lower
 
-        if not _has_attached_doc and has_investigate and (has_company or has_url):
+        # R-F1613 — web-search / interrogative override. When the user asks a
+        # plain question (interrogative) OR explicitly requests a web search,
+        # the company OSINT pipeline must NOT fire — the request belongs to the
+        # web-search / LLM path, not investigate_company. Without this, "who is
+        # the CEO of BAE Systems? use web search" matched has_company
+        # ('systems') and got routed to investigate_company -> "No findings",
+        # silently discarding the web-search instruction.
+        _q_stripped = _q_lower.lstrip().lstrip("\"'(").lstrip()
+        _interrogative = bool(_re.match(
+            r"(?:who|what|when|where|why|how|which|is|are|does|do)\b",
+            _q_stripped,
+        ))
+        _explicit_web = (
+            "use web search" in _q_lower
+            or "search the web" in _q_lower
+            or "web search" in _q_lower
+        )
+        _force_web = _interrogative or _explicit_web
+
+        if not _has_attached_doc and not _force_web and has_investigate and (has_company or has_url):
             from .company_investigator import investigate_company as _ic
             # Extract company name from question (everything after the
             # investigation keyword, up to punctuation or end)
             _company_name = question
+            # R-F1613 — dropped "tell me about "/"who is "/"what is " prefix-
+            # strippers; their keywords were removed from _investigate_keywords
+            # so they can no longer reach this branch (interrogatives now route
+            # to the web-search/LLM path).
             for _prefix in ["investigate ", "research ", "deep search on ",
-                            "tell me about ", "who is ", "what is ",
                             "analyse ", "analyze ", "screen ", "vet ",
                             "check out ", "look up ", "search for "]:
                 if _prefix in _q_lower:

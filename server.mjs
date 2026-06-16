@@ -2073,6 +2073,86 @@ function reportOutcome(surface, requestId, intendedResult, actualOutcome, latenc
   } catch { /* outcome reporting must never break the reply path */ }
 }
 
+// ── R-F1615 — web async-complete-and-push (server-side poll) ─────────────────
+// The /api/aria/chat handler used to hold ONE synchronous fetch open for up to
+// 600s while the brain crawled+synthesised. A deploy/restart of the brain (or
+// any mid-flight stall) tore that single connection down → the browser got a
+// 502. The brain already supports async-complete-and-push (routes/aria.py:7579
+// async_mode + /chat/result/{job_id}), proven on the WA listener
+// (services/wa-listener/aria_wa_listener.mjs askARIAAsync). This mirrors it
+// server-side: POST async_mode:true → job_id (<1s) → POLL the result endpoint.
+//
+// Why POLL and not callback: the brain's _is_callback_allowed SSRF allowlist
+// (routes/aria.py:9590) only permits the WA listener origin. Adding the web app
+// to that allowlist is a brain-side change outside this fix's blast radius, so
+// we deliberately use the server-side poll (no callback) — same total budget,
+// but each poll is a SHORT request, so a mid-deploy brain blip only kills one
+// poll tick (which we retry) instead of the whole 10-min answer (R-F1392
+// pattern: tolerate transient not_found/errors instead of giving up).
+//
+// Returns the brain's final chat-result dict (same shape sync /chat returned),
+// or null if the brain doesn't support async mode (caller falls back to sync).
+async function _ariaChatAsyncPoll(message, sid, personaUserId, persona) {
+  // Total budget — same env var the old sync path used (default 600s).
+  const BUDGET_MS = parseInt(process.env.ARIA_CHAT_PROXY_TIMEOUT_MS || '600000', 10);
+  const t0 = Date.now();
+
+  // 1. Dispatch — get a job_id fast. No callback_url (server-side poll only).
+  let job;
+  const dispatch = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
+    method: 'POST',
+    headers: _ariaHeaders(),
+    body: JSON.stringify({
+      message, session_id: sid, user_id: personaUserId, persona,
+      async_mode: true,
+    }),
+    signal: AbortSignal.timeout(30000),   // dispatch returns in <1s normally
+  });
+  if (!dispatch.ok) {
+    // Surface non-OK so the caller logs WHY and falls through (sync/local).
+    const body = await dispatch.text().catch(() => '');
+    const err = new Error(`async dispatch HTTP ${dispatch.status}: ${body.slice(0, 200)}`);
+    err._httpStatus = dispatch.status;
+    throw err;
+  }
+  job = await dispatch.json();
+  const jobId = job && job.job_id;
+  if (!jobId) {
+    // Older brain build without async chat support — it returned the sync
+    // result directly. Honour it (zero-regression for un-upgraded brains).
+    return (job && (job.response || job.answer)) ? job : null;
+  }
+
+  // 2. Poll — fast at first, then back off. Each poll is a short request, so a
+  //    mid-deploy brain blip costs one tick, not the whole answer.
+  const FAST_MS = 1000, SLOW_MS = 5000, FAST_PHASE_MS = 30000;
+  let notFoundStreak = 0;   // R-F1392 — transient store blips read as not_found
+  while (Date.now() - t0 < BUDGET_MS) {
+    const elapsed = Date.now() - t0;
+    await new Promise(r => setTimeout(r, elapsed < FAST_PHASE_MS ? FAST_MS : SLOW_MS));
+    let st;
+    try {
+      const pr = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat/result/${jobId}`, {
+        method: 'GET', headers: _ariaHeaders(),
+        signal: AbortSignal.timeout(15000),
+      });
+      // 503 = store temporarily unavailable (keep polling); any non-OK = retry.
+      if (!pr.ok) continue;
+      st = await pr.json();
+    } catch { continue; }   // transient poll error (deploy/blip) — keep waiting
+    if (!st) continue;
+    if (st.status === 'not_found') {
+      if (++notFoundStreak >= 3) throw new Error('chat job expired');
+      continue;
+    }
+    notFoundStreak = 0;
+    if (st.status === 'done')   return st.result || {};
+    if (st.status === 'failed') throw new Error(st.error || 'chat job failed');
+    // status === 'processing' → keep polling
+  }
+  throw new Error('chat job timed out');
+}
+
 async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs } = {}) {
   let lastStatus = 0;
   let lastErr = '';
@@ -2992,40 +3072,30 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   // the hint and go straight to the local Node fallback.
   if (ARIA_SERVICE_URL && !skip_aria_service) {
     try {
-      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
-        method: 'POST',
-        headers: _ariaHeaders(),
-        body: JSON.stringify({ message, session_id: sid, user_id: _personaUserId, persona: _persona }),
-        // R-F525 (2026-05-14): bumped 240s → 600s (env-tunable). Live WA
-        // failure 14:07-14:30 BST: "do a full DD on https://adsm-sa.com/"
-        // aborted at exactly 240s → triggered R-F160 unguarded-fallback-
-        // refused → user got "fly.io ARIA is currently unreachable" even
-        // though fly was actively processing the DD. Full DD on URL takes
-        // 5-10 min with DeepSeek synthesis (longer while Anthropic is on
-        // billing cooldown). 600s gives enough headroom. WA listener long
-        // budget also bumped to 600s (see waListener.mjs) so the outer
-        // listener abort doesn't fire before this completes.
-        //
-        // Historical context (preserved for diagnostic value):
-        // Pre-R-F525, 240s was chosen "to leave ~120s headroom for
-        // ariaLocalChat to complete inside the listener's 360s budget".
-        // R-F525 raises both ceilings together so DD requests have a
-        // chance to actually finish.
-        signal: AbortSignal.timeout(parseInt(process.env.ARIA_CHAT_PROXY_TIMEOUT_MS || '600000', 10)),
-      });
-      if (r.ok) {
-        const data = await r.json();
+      // R-F1615: async-complete-and-push (server-side poll) instead of ONE
+      // synchronous 600s fetch. The old single connection was torn down by any
+      // brain deploy/restart mid-answer → browser 502. Now we dispatch an async
+      // job (job_id in <1s) and poll the brain's /chat/result endpoint with the
+      // SAME total budget — but each poll is a short request, so a mid-deploy
+      // blip only costs one retried tick, not the whole answer.
+      //
+      // R-F525 (2026-05-14): total budget is 600s (env ARIA_CHAT_PROXY_TIMEOUT_MS).
+      // Full DD on a URL takes 5-10 min with DeepSeek synthesis; the WA listener
+      // long budget matches (services/wa-listener/aria_wa_listener.mjs) so the
+      // outer listener abort doesn't fire before this completes.
+      const data = await _ariaChatAsyncPoll(message, sid, _personaUserId, _persona);
+      if (data && (data.response || data.answer)) {
         data.service = 'python';
         data.engine = 'aria-8layer';
         // Persist to Redis
-        try { await redisAdapter.hset?.(sessionKey, 'lastMessage', message, 'lastResponse', data.response?.slice(0, 500) || '', 'updatedAt', new Date().toISOString()); } catch {}
+        try { await redisAdapter.hset?.(sessionKey, 'lastMessage', message, 'lastResponse', (data.response || data.answer)?.slice(0, 500) || '', 'updatedAt', new Date().toISOString()); } catch {}
         // §25a (R-F1565) — real guarded answer delivered to the web user.
         reportOutcome('web', _outReqId, 'chat_answer', 'delivered_real_answer', Date.now() - _outT0);
         return res.json(data);
       }
-      // 2026-04-08: log the actual non-OK response so we can see WHY Python
-      // refused to handle the request rather than silently falling through.
-      console.warn(`[ARIA] Python returned ${r.status} — falling through to local. body: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+      // No usable answer (e.g. brain w/o async support returned nothing) —
+      // fall through to the legacy paths below.
+      console.warn('[ARIA] Python async chat returned no answer — falling through to local.');
     } catch (e) {
       console.warn('[ARIA] Python service unreachable, trying brain/local:', e.message);
       // §25a (R-F1565) — primary guarded path errored; record so the brain

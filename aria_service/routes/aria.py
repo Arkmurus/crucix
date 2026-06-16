@@ -8294,7 +8294,20 @@ async def chat_ep(req: ChatRequest, request: Request):
                     elif sr.get("self_reviewed"):
                         result["contract_self_review"] = {"has_corrections": False}
         except Exception as _csr_err:
-            _log.debug("contract self-review (chat path) failed (non-fatal): %s", _csr_err)
+            # R-F1614 make-loud: a swallowed self-review failure means the
+            # user receives an UNREVIEWED contract draft with no signal that
+            # the corrective pass never ran — wire it to the brain.
+            _log.warning("contract self-review (chat path) failed — user gets unreviewed draft: %s", _csr_err)
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf_csr
+                _wf_csr(
+                    module="routes.aria.contract_self_review",
+                    detail=f"contract self-review swallowed; unreviewed draft returned to user: {_csr_err}",
+                    gap_type="contract_review_failure",
+                    source="routes.aria",
+                )
+            except Exception:
+                pass
 
         # ── Cited-source verification (deterministic hallucination check) ──
         try:

@@ -332,8 +332,24 @@ class FlyDeployer:
             await self._client.delete(
                 f"{FLY_API_BASE}/apps/{app}/machines/{machine_id}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            # R-F1614 make-loud: a swallowed canary cleanup failure leaves an
+            # orphaned Fly machine RUNNING (burning $) while the deploy reports
+            # success — wire it so the brain/coder can reconcile orphans.
+            logger.error(
+                "[fly_deployer] _destroy_machine failed — ORPHANED machine %s on %s may keep burning $: %s",
+                machine_id, app, e,
+            )
+            try:
+                from aria_service.intel.engine_wiring import wire_failure as _wf_dm
+                _wf_dm(
+                    module="fly_deployer._destroy_machine",
+                    detail=f"orphaned Fly machine {machine_id} on {app} not destroyed (deploy reported success): {e}",
+                    gap_type="orphaned_machine",
+                    source="fly_deployer",
+                )
+            except Exception:
+                pass
 
     # ── PR vs DIRECT ─────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ Usage:
 
 from __future__ import annotations
 
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import hashlib
@@ -357,7 +357,16 @@ async def _search_academic(
     try:
         raw = await _ac.search_all(query, max_results_per_api=max_results)
     except Exception as exc:
-        logger.debug("_search_academic fan-out failed: %s", exc)
+        # R-F1614 make-loud: a backend error here returns [] which is
+        # indistinguishable from "no results" — a provider failure must
+        # not masquerade as confidently-ungrounded "nothing found".
+        logger.warning("_search_academic fan-out failed: %s", exc)
+        wire_failure(
+            module="web_search._search_academic",
+            detail=f"academic backend fan-out failed (returned [] as if no results): {exc}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
         return []
     out: list[SearchResult] = []
     for r in raw:
@@ -418,7 +427,14 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
             logger.debug("Google News: %d results for %r", len(results), query[:60])
             return results
     except Exception as e:
-        logger.debug("Google News search failed: %s", e)
+        # R-F1614 make-loud: backend error → [] looks like "no results".
+        logger.warning("Google News search failed: %s", e)
+        wire_failure(
+            module="web_search._search_google_news",
+            detail=f"google_news backend failed (returned [] as if no results): {e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
         return []
 
 
@@ -497,7 +513,16 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
             return results
     except Exception as e:
         cb.record_failure()
-        logger.debug("DuckDuckGo search failed: %s", e)
+        # R-F1614 make-loud: breaker records it internally but the brain
+        # never sees the backend error — wire it so a provider failure
+        # isn't silently read as "no results".
+        logger.warning("DuckDuckGo search failed: %s", e)
+        wire_failure(
+            module="web_search._search_duckduckgo",
+            detail=f"duckduckgo backend failed (returned [] as if no results): {e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
         return []
 
 
@@ -531,7 +556,17 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
                         credibility_tier=_score_credibility(link),
                     ))
             return results
-    except Exception:
+    except Exception as e:
+        # R-F1614 make-loud: this was a fully-silent swallow — a Bing
+        # backend error returned [] with no log at all, indistinguishable
+        # from "no results" (confidently ungrounded).
+        logger.warning("Bing News search failed: %s", e)
+        wire_failure(
+            module="web_search._search_bing_news",
+            detail=f"bing_news backend failed (returned [] as if no results): {e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
         return []
 
 
