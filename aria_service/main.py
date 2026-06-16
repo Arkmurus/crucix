@@ -113,6 +113,33 @@ async def _bg_supervisor_tick() -> list[str]:
     return respawned
 
 
+async def _record_deploy_event() -> dict:
+    """R-F1612 — record this boot/build event to the brain so ARIA has a
+    persistent, RAG-queryable record of what she shipped (not just the live
+    value). Returns the entry (for tests). Fire-and-forget safe — never raises;
+    each sink (deploy-history key, brain absorb) is independently guarded."""
+    import json as _j
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    entry = {"build_rev": ARIA_BUILD_REV, "booted_at": iso}
+    try:
+        from .intel import redis_store as _rs
+        await _rs.lpush("crucix:aria:deploy:history", _j.dumps(entry))
+        await _rs.ltrim("crucix:aria:deploy:history", 0, 49)  # keep last 50
+    except Exception as _e:
+        logger.debug("[R-F1612] deploy-history write skipped: %s", _e)
+    try:
+        from .intel import brain_hook as _bh
+        await _bh.absorb(
+            module="deploy",
+            summary=f"ARIA booted on build_rev {ARIA_BUILD_REV} at {iso}",
+            detail="deploy proprioception (R-F1612)",
+            success=True, confidence="CONFIRMED",
+        )
+    except Exception as _e:
+        logger.debug("[R-F1612] deploy-event brain absorb skipped: %s", _e)
+    return entry
+
+
 async def _run_boot_inits(inits) -> list:
     """R-F1421 — run each (name, async init_fn) in order, ISOLATING failures.
 
@@ -2598,6 +2625,14 @@ async def lifespan(app: FastAPI):
                     len(_BG_RESPAWN), sorted(_BG_RESPAWN))
     except Exception as _sup_err:
         logger.warning("[R-F1610] bg_supervisor start failed (non-fatal): %s", _sup_err)
+
+    # R-F1612 — deploy proprioception: record this boot/build event to the brain
+    # so ARIA KNOWS what she shipped over time (persistent history queryable from
+    # her RAG), not just the live value. Fire-and-forget — never blocks boot.
+    try:
+        _bg_task(asyncio.create_task(_record_deploy_event(), name="deploy_record"))
+    except Exception:
+        pass
 
     yield
 
