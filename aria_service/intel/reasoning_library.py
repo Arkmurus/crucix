@@ -460,7 +460,8 @@ _CORRECTION_ACK_RE = re.compile(
 )
 
 _INVESTIGATION_REQUEST_RE = re.compile(
-    r"\b(?:investigate|research|deep[\s-]?dive|profile|due\s+diligence|"
+    r"\b(?:investigate|research|deep[\s-]?dive|deep[\s-]?dd|d\.d\.|dd|"
+    r"profile|due\s+diligence|"
     r"background\s+check|look\s+into|dig\s+into|find\s+out\s+about|"
     r"analyse|analyze|rank|shortlist|compare|assess|evaluate|review|"
     r"screen|vet|audit)\b",
@@ -508,7 +509,19 @@ def _looks_like_fresh_input_request(q: str) -> bool:
 # 2026-05-26: "what can you tell us about https://defence.csg.com/en" matched a
 # prior cached *fallback* answer (0 sources, NO_CITATIONS, truncated) and
 # replayed it as "confidence CONFIRMED" instead of crawling the site.
-_URL_IN_QUESTION_RE = re.compile(r"https?://", re.IGNORECASE)
+# R-F1604 — also catch BARE domains (no scheme): the operator wrote
+# "do a deep dd on www.gozensecurity.com" (no https://), so the old
+# https?:// -only regex missed it and the reasoning library served a STALE,
+# unrelated cached answer (a UAE/Aerospace DD, "used 6x") for a brand-new
+# entity. A URL/domain in the question must ALWAYS force a fresh crawl. Over-
+# matching here is the SAFE direction (fresh, never stale).
+_URL_IN_QUESTION_RE = re.compile(
+    r"https?://"
+    r"|\bwww\.[a-z0-9-]+\.[a-z]{2,}"
+    r"|\b[a-z0-9][a-z0-9-]{1,}\.(?:com|org|net|io|co|gov|edu|info|biz|ai|app|"
+    r"eu|uk|us|ro|bg|ae|ru|de|fr|ch|nl|pl|es|it|pt)\b",
+    re.IGNORECASE,
+)
 
 
 def _question_has_url(q: str) -> bool:
