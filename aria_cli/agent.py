@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """R-F988 — the agent loop for the ARIA Coder CLI.
 
 Drives the LLM ↔ tool conversation: ask the model, execute any tool calls it
@@ -277,6 +278,9 @@ class Agent:
         """Drive a task to completion: run the turn, and if it ends incomplete for
         a resumable reason, automatically continue (bounded) instead of stopping at
         a dead prompt. This is ARIA's self-start trigger."""
+        # R-F1618: drain Claude bridge before starting, so any guidance that
+        # arrived between turns is picked up immediately.
+        self._drain_claude_bridge()
         result = self.run_turn(user_text)
         resumes = 0
         while result.aborted and result.resumable and resumes < AUTO_RESUME_MAX:
@@ -383,8 +387,13 @@ class Agent:
 
     def run_turn(self, user_text: str, timeout: float | None = None) -> TurnResult:
         """Run one turn to completion.
+        
+        R-F1618: drains Claude bridge at the start so messages that arrived
+        between turns are injected before the LLM call.
+        """
+        self._drain_claude_bridge()
 
-        R-F1299: the turn runs SYNCHRONOUSLY — there is no whole-turn watchdog
+        """R-F1299: the turn runs SYNCHRONOUSLY — there is no whole-turn watchdog
         thread. The previous design wrapped the entire turn (including tool
         execution) in a daemon thread joined with a 60s timeout; when a tool ran
         longer than that (a deploy is 600s), the watchdog abandoned the
