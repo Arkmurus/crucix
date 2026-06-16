@@ -29,6 +29,7 @@ from .intel.agent_contract import AgentContract
 # before the task completes — the task is cancelled silently. All long-cycle
 # agent loops (tender_monitor, watchlist_rescreen, weekly_report, etc.) must
 # be added here with a done_callback that logs any unhandled exception.
+_BOOT_TIME: float = time.time()  # R-F1611 — process boot time for proprioception
 _BG_TASKS: set[asyncio.Task] = set()
 # R-F1610 — self-healing actuator state. _BG_RESPAWN maps a loop's task-name to
 # its factory (a no-arg callable returning the loop coroutine) so the supervisor

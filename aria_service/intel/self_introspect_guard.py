@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time  # R-F1611 — uptime for build/deploy proprioception
 
 logger = logging.getLogger("aria.intel.self_introspect_guard")
 
@@ -93,6 +94,50 @@ def detect_self_capability_question(message: str) -> bool:
     except Exception:
         pass
     return False
+
+
+def _build_deploy_lines() -> list[str]:
+    """R-F1611 — BUILD/DEPLOY proprioception lines for the self_introspect block.
+
+    Before this, the introspect block omitted WHAT CODE IS LIVE and WHICH LOOPS
+    RUN, so the LLM confabulated to fill the void (the fabricated "LLM 75-81%"
+    on 2026-06-16). Surfaces the real live build_rev + uptime + autonomous-loop
+    health so ARIA answers "what version am I / what did I deploy / are my loops
+    alive" from truth, not invention. Lazy import of main (fully loaded by the
+    time this runs → no circular dependency)."""
+    try:
+        from aria_service import main as _m
+        uptime_s = int(time.time() - getattr(_m, "_BOOT_TIME", time.time()))
+        br = getattr(_m, "ARIA_BUILD_REV", "UNKNOWN")
+        hh, rem = divmod(uptime_s, 3600)
+        out = [
+            "",
+            "BUILD / DEPLOY (what code is LIVE now — cite for 'what version / what did you deploy'):",
+            f"  - live build_rev: {br}",
+            f"  - uptime: {hh}h {rem // 60}m (booted {uptime_s}s ago)",
+        ]
+        resp = getattr(_m, "_BG_RESPAWN", {}) or {}
+        tasks = getattr(_m, "_BG_TASKS", set()) or set()
+        if resp:
+            live = {t.get_name() for t in tasks if not t.done()}
+            dead = sorted(set(resp) - live)
+            live_n = len(set(resp) & live)
+            out.append(
+                f"  - autonomous loops: {live_n}/{len(resp)} live"
+                + (f"; DEAD: {dead}" if dead else " (all healthy)")
+            )
+            if dead:
+                out.append(
+                    "  - NOTE: the DEAD loops above are a REAL problem — say so honestly; "
+                    "the self-heal supervisor (R-F1610) attempts to re-spawn them."
+                )
+        return out
+    except Exception as e:  # noqa: BLE001
+        return [
+            "",
+            f"BUILD / DEPLOY: UNAVAILABLE (probe failed: {str(e)[:80]}) — "
+            "say so honestly; do NOT invent a version or loop count.",
+        ]
 
 
 async def self_introspect_context_block(message: str) -> str:
@@ -203,6 +248,10 @@ async def self_introspect_context_block(message: str) -> str:
         elif _dr:
             lines.append(f"  - NOTE: the failing subsystem(s) are NAMED here ({_dr}) — cite them; "
                          "do not say the degraded cause is unidentifiable.")
+
+    # R-F1611 — BUILD / DEPLOY proprioception (see _build_deploy_lines).
+    lines += _build_deploy_lines()
+
     lines += ["", "INVENTORY:"]
 
     for key in ("knowledge_facts", "ledger_signals", "rag_chunks",
