@@ -38,8 +38,11 @@ def _bluf_block() -> str:
     src = _src()
     idx = src.find("elif risk == RiskClassification.AMBER_LIGHT.value:")
     assert idx > 0
-    end = src.find("    else:", idx + 1)
-    return src[idx:end if end > 0 else idx + 6000]
+    # R-F1592: the AMBER_LIGHT gate handler now contains a nested if/else
+    # (OSINT-briefing vs INSUFFICIENT EVIDENCE), so bounding on the first
+    # "    else:" cut the block before the INSUFFICIENT branch. Use a generous
+    # fixed window that covers the whole AMBER_LIGHT handler.
+    return src[idx:idx + 6500]
 
 
 def test_rf398_block_contains_fallback_search_wiring():

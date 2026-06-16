@@ -5161,12 +5161,41 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                     f"still insufficient. Operator action needed: supply "
                     f"jurisdiction_iso2 / website URL / known person name."
                 )
-            report.bottom_line = (
-                f"🟡 INSUFFICIENT EVIDENCE — {name}: the DD did not gather "
-                f"enough data to issue a verdict. AMBER is a placeholder, "
-                f"not a substantive amber risk finding. "
-                f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}{_rf409_suffix}"
-            )
+            # R-F1592: when registry/identity is absent but OSINT WAS gathered
+            # (press, digital findings, adverse media, fallback web hits), do
+            # NOT bury it under a bare "INSUFFICIENT EVIDENCE" — lead with the
+            # open-source briefing so the operator sees what WAS found, while
+            # still honestly stating the registry gap. Operator 2026-06-15:
+            # "she is not bringing any results" — the DD had 12 press items but
+            # reported only "insufficient". The verdict/gate logic is unchanged;
+            # only how the bottom line is framed when real OSINT exists.
+            _press_n = len(getattr(report.digital, "press_coverage", []) or [])
+            _dig_n = len(getattr(report.digital, "findings", []) or [])
+            _am = getattr(report, "adverse_media", None) or {}
+            _am_n = 0
+            if isinstance(_am, dict):
+                _am_n = int(_am.get("findings_count", 0) or 0) or len(_am.get("findings", []) or [])
+            _osint_n = _press_n + _dig_n + _am_n + len(_fallback_hits)
+            if _osint_n > 0:
+                report.bottom_line = (
+                    f"🟡 LIMITED REGISTRY DATA — {name}: corporate-registry identity "
+                    f"could not be confirmed ({_reasons_str}), so this is an "
+                    f"OPEN-SOURCE briefing, not a registry-verified DD — but OSINT "
+                    f"WAS gathered: {_press_n} press item(s), {_dig_n} digital "
+                    f"finding(s)"
+                    + (f", {_am_n} adverse-media finding(s)" if _am_n else "")
+                    + (f", {len(_fallback_hits)} public web hit(s)" if _fallback_hits else "")
+                    + f". See the Digital/Press sections for the sources. Treat as "
+                    f"'do-not-transact until registry-verified', NOT as 'nothing "
+                    f"found'.{_fallback_suffix}{_rf409_suffix}"
+                )
+            else:
+                report.bottom_line = (
+                    f"🟡 INSUFFICIENT EVIDENCE — {name}: the DD did not gather "
+                    f"enough data to issue a verdict. AMBER is a placeholder, "
+                    f"not a substantive amber risk finding. "
+                    f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}{_rf409_suffix}"
+                )
             report.recommendation = (
                 "Re-run the DD in DEEP mode (or supply jurisdiction / "
                 "registration number / website hints) before treating "

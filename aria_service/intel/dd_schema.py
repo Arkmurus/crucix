@@ -628,6 +628,20 @@ class ARKDDReport:
             lines.append(_sec_header("🌐", "Digital", self.digital.meta))
             if self.digital.press_coverage:
                 lines.append(f"Press coverage: {len(self.digital.press_coverage)} item(s)")
+                # R-F1592: surface the actual source URLs so the downstream
+                # source_verifier counts them as grounded citations. Without
+                # this, render_markdown said only "12 item(s)" with no URLs, so
+                # the verifier found 0 cited → the footer read "0 grounded /
+                # NO_TOOL / from memory" on a DD that genuinely gathered press
+                # (operator complaint 2026-06-15: "not bringing any results").
+                for _p in self.digital.press_coverage[:5 if concise else 15]:
+                    _u = getattr(_p, "url", None)
+                    if not _u:
+                        continue
+                    _src = (getattr(_p, "source", "") or "").strip()
+                    _tier = (getattr(_p, "source_tier", "") or "").strip()
+                    _prefix = " ".join(x for x in (_src, f"[{_tier}]" if _tier else "") if x)
+                    lines.append(f"  • {_prefix + ' ' if _prefix else ''}{_u}")
             if self.digital.source_tier_breakdown:
                 parts = [f"{k}:{v}" for k, v in self.digital.source_tier_breakdown.items()]
                 lines.append(f"Source tiers: {', '.join(parts)}")

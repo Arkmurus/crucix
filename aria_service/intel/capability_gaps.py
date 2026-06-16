@@ -197,6 +197,9 @@ VALID_GAP_TYPES = frozenset({
     "self_runtime",                      # tasks
     "blackout",                          # self_restart — heartbeat stale
     "delivery_failure",                  # outcome_wire — delivery to surface failed
+    "codebase_health",                   # R-F1592: eagle_eye emits this (code
+                                         # smells / stale modules) but it was
+                                         # unregistered → gaps silently rejected
 })
 
 
