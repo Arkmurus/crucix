@@ -1,0 +1,31 @@
+# R-F1603 — SearXNG config for ARIA's self-hosted search backend.
+# Inherits SearXNG defaults; overrides only what ARIA needs:
+#   - search.formats: enables the JSON API (search_searxng adapter requires it;
+#     SearXNG ships with JSON OFF by default).
+#   - server.secret_key: placeholder "ultrasecretkey" is replaced at boot by the
+#     official image entrypoint with $SEARXNG_SECRET (set as a fly secret), so no
+#     real secret is committed.
+#   - limiter/public_instance off: this instance is INTERNAL-ONLY (reached via
+#     aria-searxng.internal on fly's private network), not a public instance.
+use_default_settings: true
+
+general:
+  instance_name: "aria-searxng"
+  debug: false
+
+server:
+  secret_key: "ultrasecretkey"   # replaced by $SEARXNG_SECRET at boot
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true

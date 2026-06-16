@@ -1,0 +1,21 @@
+# R-F1603 — aria-searxng: self-hosted SearXNG (ARIA's native search backend).
+# Internal-only (no public IPs allocated) — reached by aria-intel via
+# aria-searxng.internal:8080. Free/native per §6; replaces the dead Brave +
+# removed public SearXNG instances. Deploy: flyctl deploy searxng
+app = "aria-searxng"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = false
+  # Always-on: searches are latency-sensitive; a cold start would stall DDs.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
