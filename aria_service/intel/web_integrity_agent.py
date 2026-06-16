@@ -117,7 +117,10 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     {"path": "/api/aria/status", "method": "GET", "expected": {"status"}, "critical": False},
 
     # Intelligence outputs
-    {"path": "/self/assess/briefing", "method": "GET", "expected": {"briefing"}, "critical": False},
+    # R-F1601: /self/assess/briefing exists but requires auth — the agent
+    # probes without a token, getting 401. Marked non-critical so no alert
+    # fires, but the 401 is log noise. Removed from probe list since the
+    # agent can't authenticate for this endpoint.
     {"path": "/api/aria/report", "method": "POST", "expected": {"sections", "sources"}, "critical": False},
 
     # Due diligence
@@ -991,20 +994,24 @@ class WebIntegrityAgent:
         """Wire an event to the brain.
 
         DIRECTIVE 4: Cross-agent communication — every event reaches the brain.
+
+        R-F1598: uses brain_hook.record_signal (lightweight) instead of
+        brain_hook.absorb (full with expensive tiers). web_integrity_agent
+        is a high-frequency telemetry module that probes endpoints every
+        60s — its signals are metrics, not genuine knowledge. Using full
+        absorb was causing 20-30s background tier processing that tripped
+        the circuit breaker.
         """
         if self._brain_hook is None:
             return
         try:
-            await self._brain_hook.absorb(
+            await self._brain_hook.record_signal(
                 module=module,
-                summary=summary[:300],
-                detail=detail[:2000] if detail else "",
                 success=success,
-                confidence=confidence,
-                source_id=source_id,
+                summary=summary[:300],
             )
         except Exception as e:
-            logger.debug("[web_integrity] brain_hook.absorb failed: %s", e)
+            logger.debug("[web_integrity] brain_hook.record_signal failed: %s", e)
 
     async def _save_last_check(self) -> None:
         """Save the timestamp of the last integrity check."""

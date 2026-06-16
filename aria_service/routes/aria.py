@@ -16968,7 +16968,15 @@ async def self_peers_history_ep(limit: int = 10):
 # R-F1172 -- Multi-agent registry endpoints
 @router.get("/agents")
 async def agents_list_ep(include_stale: bool = False):
-    """List all registered agents and their current state."""
+    """List all registered agents and their current state.
+
+    R-F1600: the default (include_stale=False) filters out agents whose
+    heartbeat is >300s old — this is what the stall-detector and
+    self_restart use to detect genuinely dead agents. Dashboard callers
+    should pass include_stale=True to see all registered agents including
+    those that registered at boot but haven't ticked yet (long-cycle
+    agents like eagle_eye at 30min or tender_monitor at 6h).
+    """
     from ..intel.agent_registry import AgentRegistry
     registry = AgentRegistry()
     agents = await registry.list_active_agents(include_stale=include_stale)

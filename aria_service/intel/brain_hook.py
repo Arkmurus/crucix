@@ -900,6 +900,31 @@ async def absorb_silent(**kwargs) -> None:
         logger.debug("brain_hook.absorb_silent failed entirely: %s", e)
 
 
+async def record_signal(
+    module: str,
+    *,
+    success: bool = True,
+    summary: str = "",
+) -> dict:
+    """Lightweight signal recording — skips expensive tiers (mastery,
+    knowledge, neural). Use this for HIGH-FREQUENCY telemetry modules
+    (web_integrity_agent, cost_tracker, _snapshot_throttle, etc.) that
+    call absorb on every tick but don't produce genuine knowledge.
+
+    R-F1598: these modules were calling full absorb() which triggered
+    expensive background tiers (mastery + knowledge + neural) that took
+    20-30s under load, tripping the circuit breaker. This path records
+    the signal counter only — no tier processing, no circuit breaker
+    check, no WAL. The signal still appears in brain stats.
+
+    Returns a simple dict with the signal key.
+    """
+    if not BRAIN_HOOK_ENABLED:
+        return {"skipped": True, "reason": "disabled"}
+    _record_signal(module, success=success)
+    return {"recorded": True, "module": module, "success": success}
+
+
 async def observe_self_event(
     event: str,
     detail: Any = "",
@@ -1048,6 +1073,17 @@ _MODULE_LATENCY_OVERRIDES: dict[str, int] = {
     "self_coder": 120000,
     "autonomous_engine": 60000,  # 60s — task execution
     "self_improve": 60000,
+    # R-F1598: high-frequency hot-path callers. These modules call absorb
+    # on every tick/cycle and share the state_store backend. Under load,
+    # their p95 naturally exceeds the 6s default threshold. The circuit
+    # breaker was tripping every 2 minutes on these, skipping expensive
+    # brain tiers for ALL modules — not just the hot-path ones.
+    "web_integrity_agent": 30000,   # 30s — probes endpoints every 60s
+    "cost_tracker": 30000,          # 30s — records cost on every LLM call
+    "_snapshot_throttle": 30000,    # 30s — snapshot on every absorb
+    "signal_generator": 30000,      # 30s — generates signals periodically
+    "llm_response_cache": 30000,    # 30s — caches LLM responses
+    "llm_request_queue": 30000,     # 30s — queues LLM requests
 }
 
 # R-F799 (2026-05-22) — concurrency cap on absorb's expensive tiers.
@@ -1476,8 +1512,26 @@ def get_chat_context() -> tuple[str, str]:
         return ("", "")
 
 
+# R-F1599: in-memory cache for get_stats() to avoid recomputing the full
+# module map from Redis on every call. Under load (deploy cycles, concurrent
+# requests), the Redis read + 217-module iteration takes 20-30s. The cache
+# serves stale data for up to 30s, which is fine for a stats endpoint.
+_stats_cache: dict = {}
+_stats_cache_at: float = 0
+_stats_cache_ttl: float = 30.0
+
+
 async def get_stats() -> dict:
-    """Return brain hook stats — per-module signal counts + health."""
+    """Return brain hook stats — per-module signal counts + health.
+
+    R-F1599: cached for 30s to avoid recomputing the full module map from
+    Redis on every call. Under load the uncached call takes 20-30s.
+    """
+    global _stats_cache, _stats_cache_at
+    now = time.time()
+    if _stats_cache and (now - _stats_cache_at) < _stats_cache_ttl:
+        return _stats_cache
+
     try:
         from . import redis_store as rs
         stats = await rs.get_json(_STATS_KEY) or {}
@@ -1567,7 +1621,7 @@ async def get_stats() -> dict:
     except Exception:
         accumulator_stats = {"pending": 0, "upgraded": 0, "last_reconcile": {}}
 
-    return {
+    result = {
         "total_signals": g.get("total", 0),
         "tracking_since": g.get("started_at"),
         "modules": modules,
@@ -1581,6 +1635,10 @@ async def get_stats() -> dict:
         "circuit_breaker": breaker,
         "health": composite,
     }
+    # R-F1599: update cache
+    _stats_cache = result
+    _stats_cache_at = now
+    return result
 
 
 # R-F668 (2026-05-17): load-bearing modules whose silence is a real

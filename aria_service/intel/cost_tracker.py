@@ -166,14 +166,11 @@ _current_feature: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def get_current_feature() -> str:
-    # R-F996 — wire to brain
-    from .engine_wiring import wire_success
-    wire_success(
-        module="cost_tracker",
-        summary="Get Current Feature",
-        source_id="cost_tracker:R-F996",
-    )
-
+    # R-F1598: removed wire_success call — this is a high-frequency getter
+    # called on every LLM call via record_call(). Each call triggered full
+    # brain_hook.absorb with expensive background tiers, contributing to
+    # the circuit breaker trips. The feature name is a context var lookup,
+    # not a meaningful brain event.
     return _current_feature.get()
 
 
