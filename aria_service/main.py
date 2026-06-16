@@ -24,6 +24,30 @@ import json
 # Imported at module level so it doesn't shadow anything inside lifespan.
 from .intel.agent_contract import AgentContract
 
+# R-F1608: strong references for lifespan background tasks. Without this set,
+# asyncio.create_task() assigned to a local variable can be garbage-collected
+# before the task completes — the task is cancelled silently. All long-cycle
+# agent loops (tender_monitor, watchlist_rescreen, weekly_report, etc.) must
+# be added here with a done_callback that logs any unhandled exception.
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _bg_task(task: asyncio.Task, name: str = "") -> asyncio.Task:
+    """Register a background task so it survives GC, and log if it dies.
+
+    R-F1608: mirrors the R-F1534 pattern from self_improve.py. Stores a
+    strong reference in _BG_TASKS and attaches a done_callback that:
+      1. Removes the task from _BG_TASKS when done (so the set doesn't leak)
+      2. Logs any unhandled exception at ERROR level with the task name
+         (so a silent crash is visible in the logs, not invisible)
+    """
+    _BG_TASKS.add(task)
+    task.add_done_callback(lambda t: (_BG_TASKS.discard(t),
+                                       t.exception() and logger.error(
+                                           "[R-F1608] bg task %s died: %s",
+                                           name or t.get_name(), t.exception())))
+    return task
+
 
 async def _run_boot_inits(inits) -> list:
     """R-F1421 — run each (name, async init_fn) in order, ISOLATING failures.
@@ -461,7 +485,7 @@ async def lifespan(app: FastAPI):
                 "[R-F459] sentence-transformer prewarm failed "
                 "(non-fatal, lazy load will retry): %s", exc,
             )
-    asyncio.create_task(_embedder_prewarm_bg())
+    _bg_task(asyncio.create_task(_embedder_prewarm_bg(), name="embedder_prewarm"))
 
     # ── R-F1512 — seed baseline mastery for topics stuck at scaffold ───
     async def _seed_mastery_bg():
@@ -470,7 +494,7 @@ async def lifespan(app: FastAPI):
             await seed_baseline_mastery()
         except Exception as exc:
             logger.debug("[R-F1512] seed_baseline_mastery skipped: %s", exc)
-    asyncio.create_task(_seed_mastery_bg())
+    _bg_task(asyncio.create_task(_seed_mastery_bg(), name="seed_mastery"))
 
     # ── R-F703 (2026-05-18) — event-loop stall detector ────────────────
     # The fly /health/live timeout pattern is consistent: the event loop
@@ -713,7 +737,7 @@ async def lifespan(app: FastAPI):
                     "live-stack capture from the wedge watchdog.",
                     elapsed, _STALL_WARN_THRESHOLD_S, _wedge_log_path,
                 )
-    asyncio.create_task(_event_loop_stall_detector())
+    _bg_task(asyncio.create_task(_event_loop_stall_detector(), name="stall_detector"))
 
     async def _rag_init_bg():
         # Wait for the server to bind and answer initial health checks
@@ -746,7 +770,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[RAG] backfill failed (non-fatal): %s", e)
 
-    rag_backfill_task = asyncio.create_task(_rag_init_bg())
+    rag_backfill_task = _bg_task(asyncio.create_task(_rag_init_bg(), name="rag_init"))
 
     # Create LLM provider with automatic fallback chain.
     # Auto-detect the right API key based on the provider name so that
@@ -1014,7 +1038,7 @@ async def lifespan(app: FastAPI):
                             )
         except Exception as _diff_err:
             logger.debug("R-F251 boot-diff failed: %s", _diff_err)
-    asyncio.create_task(_log_boot_state())
+    _bg_task(asyncio.create_task(_log_boot_state(), name="log_boot_state"))
 
     # R-F1539: boot-time secret self-audit. Validates that expected
     # environment variables have sane values — catches CLI-flag-leak
@@ -1038,7 +1062,7 @@ async def lifespan(app: FastAPI):
                 "[R-F1539] SECRET AUDIT — %d suspect value(s) found:\n%s",
                 len(_suspect), "\n".join(f"  • {s}" for s in _suspect),
             )
-    asyncio.create_task(_audit_secrets_bg())
+    _bg_task(asyncio.create_task(_audit_secrets_bg(), name="audit_secrets"))
 
     # ── OCR pre-warm ────────────────────────────────────────────────────
     # Load OCR backends in a background task so the first user image
@@ -1056,7 +1080,7 @@ async def lifespan(app: FastAPI):
             logger.info("[OCR Pre-warm] %s", status)
         except Exception as e:
             logger.warning("[OCR Pre-warm] failed: %s", e)
-    ocr_prewarm_task = asyncio.create_task(_prewarm_ocr_bg())
+    ocr_prewarm_task = _bg_task(asyncio.create_task(_prewarm_ocr_bg(), name="ocr_prewarm"))
 
     # ── One-shot reasoning_library cleanup ───────────────────────────────
     # Removes cached cases whose normalised question has < MIN_SALIENT_TOKENS
@@ -1124,7 +1148,7 @@ async def lifespan(app: FastAPI):
             logger.info("[Reasoning Library] startup purge (polluted): %s", polluted)
         except Exception as e:
             logger.warning("[Reasoning Library] startup purge (polluted) failed: %s", e)
-    reasoning_purge_task = asyncio.create_task(_purge_reasoning_library_bg())
+    reasoning_purge_task = _bg_task(asyncio.create_task(_purge_reasoning_library_bg(), name="reasoning_purge"))
 
     # Start autonomous research scheduler (every 30 minutes).
     # Can be disabled entirely with ARIA_AUTONOMOUS_RESEARCH_ENABLED=0 — useful
@@ -1243,7 +1267,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(30 * 60)  # Every 30 minutes
 
-        research_task = asyncio.create_task(_research_loop())
+        research_task = _bg_task(asyncio.create_task(_research_loop(), name="research_loop"))
         logger.info("Research scheduler started (every 30min)")
 
     # ── R-F1207/R-F1209: Register all background loops in the agent registry ─────
@@ -1697,7 +1721,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(2 * 3600)  # Every 2 hours
 
-        self_improve_task = asyncio.create_task(_self_improve_loop())
+        self_improve_task = _bg_task(asyncio.create_task(_self_improve_loop(), name="self_improve_loop"))
         logger.info("Self-improvement scheduler started (every 2h)")
 
     # ── ARIA STUDENT LOOPS ──────────────────────────────────────────────
@@ -1835,9 +1859,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Library consolidate failed: %s", e)
             await asyncio.sleep(24 * 3600)  # Daily
 
-    quiz_task = asyncio.create_task(_quiz_loop())
-    reading_task = asyncio.create_task(_reading_loop())
-    library_consolidate_task = asyncio.create_task(_library_consolidate_loop())
+    quiz_task = _bg_task(asyncio.create_task(_quiz_loop(), name="quiz_loop"))
+    reading_task = _bg_task(asyncio.create_task(_reading_loop(), name="reading_loop"))
+    library_consolidate_task = _bg_task(asyncio.create_task(_library_consolidate_loop(), name="library_consolidate_loop"))
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
 
     # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
@@ -1847,7 +1871,7 @@ async def lifespan(app: FastAPI):
     # Harmless no-op until RUNPOD_API_KEY + ARIA_RUNPOD_POD_ID secrets
     # are set. Loop ticks its own self_restart heartbeat.
     from .intel import runpod_scheduler as _runpod_sched
-    runpod_sched_task = asyncio.create_task(_runpod_sched.scheduler_loop())
+    runpod_sched_task = _bg_task(asyncio.create_task(_runpod_sched.scheduler_loop(), name="runpod_scheduler"))
     logger.info(
         "[R-F1335] RunPod scheduler started (configured=%s)",
         _runpod_sched.configured(),
@@ -1878,7 +1902,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F1342] memory_wal drain error: %s", e)
             await asyncio.sleep(300)
 
-    memory_wal_task = asyncio.create_task(_memory_wal_drain_loop())
+    memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"))
     logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
 
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
@@ -1918,7 +1942,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Proactive] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Every hour
 
-    proactive_task = asyncio.create_task(_proactive_loop())
+    proactive_task = _bg_task(asyncio.create_task(_proactive_loop(), name="proactive_loop"))
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
     # ── WEEKLY LEARNING REPORT ──────────────────────────────────────────
@@ -1967,7 +1991,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Weekly Report] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Check every hour (only fires on Monday 06-08 UTC)
 
-    weekly_report_task = asyncio.create_task(_weekly_report_loop())
+    weekly_report_task = _bg_task(asyncio.create_task(_weekly_report_loop(), name="weekly_report_loop"))
     logger.info("Weekly report loop started (fires Monday 06-08 UTC)")
 
     # ── WATCHLIST AUTO-RE-SCREEN ──────────────────────────────────────────
@@ -2032,7 +2056,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
             await asyncio.sleep(86400)  # Every 24 hours
 
-    watchlist_rescreen_task = asyncio.create_task(_watchlist_rescreen_loop())
+    watchlist_rescreen_task = _bg_task(asyncio.create_task(_watchlist_rescreen_loop(), name="watchlist_rescreen_loop"))
     logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
 
     # ── TENDER MONITOR ────────────────────────────────────────────────────
@@ -2072,7 +2096,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Tender Monitor] Cycle failed: %s", e)
             await asyncio.sleep(21600)  # Every 6 hours
 
-    tender_monitor_task = asyncio.create_task(_tender_monitor_loop())
+    tender_monitor_task = _bg_task(asyncio.create_task(_tender_monitor_loop(), name="tender_monitor_loop"))
     logger.info("Tender monitor started (every 6h)")
 
     # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
@@ -2351,7 +2375,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[Knowledge Seed] unhandled error (non-fatal): %s", e)
 
-    knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
+    knowledge_seed_task = _bg_task(asyncio.create_task(_seed_knowledge_bg(), name="seed_knowledge"))
 
     # ── R-F803 (2026-05-22): autonomous self-coder boot ───────────────────
     # ARIACoder + GapDetector. R-F996: coder is ALWAYS enabled when ARIA_INTERNAL_TOKEN is set.
