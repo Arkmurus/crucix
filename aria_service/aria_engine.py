@@ -1115,7 +1115,11 @@ def _detect_language_hint(message: str) -> str:
 
     best = max(pt_hits, fr_hits, es_hits, tr_hits)
     if best < 2:
-        return ""
+        # R-F1595: when no language is detected, explicitly instruct English
+        # so the LLM doesn't infer language from search results or context
+        # that may contain non-English text (e.g. Bulgarian Cyrillic sources
+        # about a Balkan defence company).
+        return "[User is writing in English — respond in English]\n"
     if tr_hits == best:
         return "[User is writing in Turkish — respond in Turkish]\n"
     if pt_hits == best:

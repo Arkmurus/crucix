@@ -878,6 +878,8 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         except Exception as _e:
             logger.debug("web_search failed for %r: %s", query, _e)
             continue
+        # R-F1594: space sequential searches to avoid DDG rate limiting
+        await asyncio.sleep(0.5)
         unread = [a for a in results if a.get("link") not in read_urls]
         for article in unread[:max_articles_per_search]:
             article_jobs.append((query, article))
@@ -1242,6 +1244,8 @@ async def build_profile(
 
     for query in searches:
         articles = await _web_search(query)
+        # R-F1594: space sequential searches to avoid DDG rate limiting
+        await asyncio.sleep(0.5)
         for article in articles[:3]:
             body = await _fetch_article_text(article.get("link", ""))
             if not body or len(body) < 100:
@@ -1362,6 +1366,8 @@ async def investigate_person(llm: LLMProvider, name: str, context: str = "") -> 
     for suffix in search_suffixes:
         query = f"{name} {suffix}"
         articles = await _web_search(query)
+        # R-F1594: space sequential searches to avoid DDG rate limiting
+        await asyncio.sleep(0.5)
         for article in articles[:3]:
             body = await _fetch_article_text(article.get("link", ""))
             if not body or len(body) < 100:
@@ -1487,6 +1493,8 @@ async def investigate_company(llm: LLMProvider, company: str, country: str = "")
     for suffix in search_suffixes:
         query = f"{company} {suffix}"
         articles = await _web_search(query)
+        # R-F1594: space sequential searches to avoid DDG rate limiting
+        await asyncio.sleep(0.5)
         for article in articles[:3]:
             body = await _fetch_article_text(article.get("link", ""))
             if not body or len(body) < 100:
