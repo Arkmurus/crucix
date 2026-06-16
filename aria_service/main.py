@@ -1170,7 +1170,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(900)
             while True:
                 # R-F1395: check engine pause flag before each cycle
-                from ..autonomous.safety import is_engine_paused as _is_paused
+                from .autonomous.safety import is_engine_paused as _is_paused
                 if await _is_paused():
                     logger.debug("[Research] engine paused — skipping cycle")
                     await asyncio.sleep(1800)
@@ -1664,7 +1664,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(600)  # Wait 10 min after startup (staggered from research at 15min)
             while True:
                 # R-F1395: check engine pause flag before each cycle
-                from ..autonomous.safety import is_engine_paused as _is_paused
+                from .autonomous.safety import is_engine_paused as _is_paused
                 if await _is_paused():
                     logger.debug("[Self-Improve] engine paused — skipping cycle")
                     await asyncio.sleep(7200)
@@ -1742,7 +1742,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(1200)
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Quiz] engine paused — skipping cycle")
                 await asyncio.sleep(10800)
@@ -1795,7 +1795,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(1500)
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Reading] engine paused — skipping cycle")
                 await asyncio.sleep(21600)
@@ -1829,7 +1829,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(3600)
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Library] engine paused — skipping cycle")
                 await asyncio.sleep(86400)
@@ -1889,7 +1889,7 @@ async def lifespan(app: FastAPI):
         from .intel import knowledge as _kn
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 await asyncio.sleep(300)
                 continue
@@ -1917,7 +1917,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(120)  # 2 min after startup
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Proactive] engine paused — skipping cycle")
                 await asyncio.sleep(3600)
@@ -1954,7 +1954,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(300)  # 5 min after startup
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Weekly] engine paused — skipping cycle")
                 await asyncio.sleep(3600)
@@ -2004,7 +2004,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(600)  # 10 min after startup
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Watchlist] engine paused — skipping cycle")
                 await asyncio.sleep(86400)
@@ -2070,7 +2070,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(900)  # 15 min after startup
         while True:
             # R-F1395: check engine pause flag before each cycle
-            from ..autonomous.safety import is_engine_paused as _is_paused
+            from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Tender] engine paused — skipping cycle")
                 await asyncio.sleep(21600)
