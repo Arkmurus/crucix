@@ -30,23 +30,86 @@ from .intel.agent_contract import AgentContract
 # agent loops (tender_monitor, watchlist_rescreen, weekly_report, etc.) must
 # be added here with a done_callback that logs any unhandled exception.
 _BG_TASKS: set[asyncio.Task] = set()
+# R-F1610 — self-healing actuator state. _BG_RESPAWN maps a loop's task-name to
+# its factory (a no-arg callable returning the loop coroutine) so the supervisor
+# can RE-SPAWN it if it dies — turning self-healing from "log it" into "fix it".
+# _BG_RESPAWN_COUNT bounds re-spawns so a genuinely-broken loop can't crash-loop.
+_BG_RESPAWN: dict[str, "callable"] = {}
+_BG_RESPAWN_COUNT: dict[str, int] = {}
+_BG_MAX_RESPAWNS = 5
 
 
-def _bg_task(task: asyncio.Task, name: str = "") -> asyncio.Task:
+def _bg_task(task: asyncio.Task, name: str = "", factory=None) -> asyncio.Task:
     """Register a background task so it survives GC, and log if it dies.
 
-    R-F1608: mirrors the R-F1534 pattern from self_improve.py. Stores a
-    strong reference in _BG_TASKS and attaches a done_callback that:
-      1. Removes the task from _BG_TASKS when done (so the set doesn't leak)
-      2. Logs any unhandled exception at ERROR level with the task name
-         (so a silent crash is visible in the logs, not invisible)
+    R-F1608: strong reference in _BG_TASKS + done_callback that logs any
+    unhandled exception (so a silent crash is visible, not invisible).
+    R-F1610: if `factory` is given, register it so the bg supervisor can
+    re-spawn this loop should it die — the self-healing actuator.
     """
     _BG_TASKS.add(task)
+    _nm = name or task.get_name()
+    if factory is not None and _nm:
+        _BG_RESPAWN[_nm] = factory
     task.add_done_callback(lambda t: (_BG_TASKS.discard(t),
-                                       t.exception() and logger.error(
+                                       (not t.cancelled()) and t.exception() and logger.error(
                                            "[R-F1608] bg task %s died: %s",
                                            name or t.get_name(), t.exception())))
     return task
+
+
+async def _bg_supervisor_loop() -> None:
+    """R-F1610 — the self-healing ACTUATOR. Periodically checks every
+    respawn-registered bg loop; if its task is no longer live (died/GC'd), it
+    RE-SPAWNS it (bounded by _BG_MAX_RESPAWNS) and records the event to the
+    brain. This is the piece that makes self_healing ACT, not just log — the
+    operator's core gap: 'she detects but doesn't heal'. A loop that is merely
+    sleeping (not done) is still 'live', so normal long-cycle loops are left
+    alone; only genuinely-dead ones are revived."""
+    await asyncio.sleep(180)  # let the initial loops settle past startup delays
+    while True:
+        try:
+            await _bg_supervisor_tick()
+        except Exception as _sup_err:
+            logger.error("[R-F1610] bg_supervisor error (non-fatal): %s", _sup_err)
+        await asyncio.sleep(180)
+
+
+async def _bg_supervisor_tick() -> list[str]:
+    """R-F1610 — one supervisor pass: re-spawn any registered bg loop whose
+    task is no longer live (died), bounded by _BG_MAX_RESPAWNS. Returns the
+    names re-spawned this tick (for tests/observability). A loop that is merely
+    sleeping is `not done()` → 'live' → left alone."""
+    respawned: list[str] = []
+    live = {t.get_name() for t in _BG_TASKS if not t.done()}
+    for _nm, _factory in list(_BG_RESPAWN.items()):
+        if _nm in live:
+            continue
+        n = _BG_RESPAWN_COUNT.get(_nm, 0)
+        if n < _BG_MAX_RESPAWNS:
+            _BG_RESPAWN_COUNT[_nm] = n + 1
+            logger.warning(
+                "[R-F1610] bg_supervisor: loop %s is dead — re-spawning (%d/%d)",
+                _nm, n + 1, _BG_MAX_RESPAWNS,
+            )
+            _bg_task(asyncio.create_task(_factory(), name=_nm), factory=_factory)
+            respawned.append(_nm)
+            try:
+                from .intel import brain_hook as _bh
+                _BG_TASKS.add(asyncio.create_task(_bh.absorb(
+                    module="bg_supervisor",
+                    summary=f"self-heal: re-spawned dead loop {_nm} ({n + 1}/{_BG_MAX_RESPAWNS})",
+                    success=True, confidence="CONFIRMED",
+                )))
+            except Exception:
+                pass
+        elif n == _BG_MAX_RESPAWNS:
+            _BG_RESPAWN_COUNT[_nm] = n + 1  # latch so we alert once
+            logger.error(
+                "[R-F1610] bg_supervisor: loop %s exceeded %d respawns — "
+                "NEEDS OPERATOR (a real crash, not GC)", _nm, _BG_MAX_RESPAWNS,
+            )
+    return respawned
 
 
 async def _run_boot_inits(inits) -> list:
@@ -1267,7 +1330,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(30 * 60)  # Every 30 minutes
 
-        research_task = _bg_task(asyncio.create_task(_research_loop(), name="research_loop"))
+        research_task = _bg_task(asyncio.create_task(_research_loop(), name="research_loop"), factory=_research_loop)
         logger.info("Research scheduler started (every 30min)")
 
     # ── R-F1207/R-F1209: Register all background loops in the agent registry ─────
@@ -1721,7 +1784,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(2 * 3600)  # Every 2 hours
 
-        self_improve_task = _bg_task(asyncio.create_task(_self_improve_loop(), name="self_improve_loop"))
+        self_improve_task = _bg_task(asyncio.create_task(_self_improve_loop(), name="self_improve_loop"), factory=_self_improve_loop)
         logger.info("Self-improvement scheduler started (every 2h)")
 
     # ── ARIA STUDENT LOOPS ──────────────────────────────────────────────
@@ -1859,9 +1922,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Library consolidate failed: %s", e)
             await asyncio.sleep(24 * 3600)  # Daily
 
-    quiz_task = _bg_task(asyncio.create_task(_quiz_loop(), name="quiz_loop"))
-    reading_task = _bg_task(asyncio.create_task(_reading_loop(), name="reading_loop"))
-    library_consolidate_task = _bg_task(asyncio.create_task(_library_consolidate_loop(), name="library_consolidate_loop"))
+    quiz_task = _bg_task(asyncio.create_task(_quiz_loop(), name="quiz_loop"), factory=_quiz_loop)
+    reading_task = _bg_task(asyncio.create_task(_reading_loop(), name="reading_loop"), factory=_reading_loop)
+    library_consolidate_task = _bg_task(asyncio.create_task(_library_consolidate_loop(), name="library_consolidate_loop"), factory=_library_consolidate_loop)
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
 
     # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
@@ -1902,7 +1965,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F1342] memory_wal drain error: %s", e)
             await asyncio.sleep(300)
 
-    memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"))
+    memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"), factory=_memory_wal_drain_loop)
     logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
 
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
@@ -1942,7 +2005,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Proactive] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Every hour
 
-    proactive_task = _bg_task(asyncio.create_task(_proactive_loop(), name="proactive_loop"))
+    proactive_task = _bg_task(asyncio.create_task(_proactive_loop(), name="proactive_loop"), factory=_proactive_loop)
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
     # ── WEEKLY LEARNING REPORT ──────────────────────────────────────────
@@ -1991,7 +2054,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Weekly Report] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Check every hour (only fires on Monday 06-08 UTC)
 
-    weekly_report_task = _bg_task(asyncio.create_task(_weekly_report_loop(), name="weekly_report_loop"))
+    weekly_report_task = _bg_task(asyncio.create_task(_weekly_report_loop(), name="weekly_report_loop"), factory=_weekly_report_loop)
     logger.info("Weekly report loop started (fires Monday 06-08 UTC)")
 
     # ── WATCHLIST AUTO-RE-SCREEN ──────────────────────────────────────────
@@ -2056,7 +2119,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
             await asyncio.sleep(86400)  # Every 24 hours
 
-    watchlist_rescreen_task = _bg_task(asyncio.create_task(_watchlist_rescreen_loop(), name="watchlist_rescreen_loop"))
+    watchlist_rescreen_task = _bg_task(asyncio.create_task(_watchlist_rescreen_loop(), name="watchlist_rescreen_loop"), factory=_watchlist_rescreen_loop)
     logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
 
     # ── TENDER MONITOR ────────────────────────────────────────────────────
@@ -2096,7 +2159,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Tender Monitor] Cycle failed: %s", e)
             await asyncio.sleep(21600)  # Every 6 hours
 
-    tender_monitor_task = _bg_task(asyncio.create_task(_tender_monitor_loop(), name="tender_monitor_loop"))
+    tender_monitor_task = _bg_task(asyncio.create_task(_tender_monitor_loop(), name="tender_monitor_loop"), factory=_tender_monitor_loop)
     logger.info("Tender monitor started (every 6h)")
 
     # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
@@ -2523,6 +2586,17 @@ async def lifespan(app: FastAPI):
         _scheduler_task = asyncio.create_task(_scheduler.start(), name="autonomous_scheduler")
     except Exception as _sched_err:
         logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
+
+    # R-F1610 — start the self-healing actuator: re-spawns any registered bg
+    # loop that dies, instead of only logging it. This is what makes ARIA
+    # actually self-HEAL (not just detect). It runs only AFTER all loops above
+    # are created so _BG_RESPAWN is fully populated.
+    try:
+        _bg_task(asyncio.create_task(_bg_supervisor_loop(), name="bg_supervisor"))
+        logger.info("[R-F1610] bg_supervisor started — supervising %d loops: %s",
+                    len(_BG_RESPAWN), sorted(_BG_RESPAWN))
+    except Exception as _sup_err:
+        logger.warning("[R-F1610] bg_supervisor start failed (non-fatal): %s", _sup_err)
 
     yield
 
