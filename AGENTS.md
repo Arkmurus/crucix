@@ -8,7 +8,12 @@ overrides this file where they overlap.
 
 ## The standard of work (non-negotiable)
 - **Correctness over speed.** A change that isn't verified isn't done.
-- **Root cause, not symptom — BINDING.** Trace the real failure; don't paper over it. Never apply a band-aid (timeout increase, retry count bump, cooldown extension) without first doing a deep-dive investigation to identify and fix the root cause. Every issue must produce a structural fix that eliminates the failure class, not a patch that hides it. If you catch yourself raising a timeout or adding a retry, stop and ask: "What is actually slow/breaking, and why?" Fix that instead.
+- **Root cause, not symptom — BINDING.** Trace the real failure; don't paper over it. Never apply a band-aid (timeout increase, retry count bump, cooldown extension, installing a dormant dependency to make a test green) without first doing a deep-dive investigation to identify and fix the root cause. Every issue must produce a structural fix that eliminates the failure class, not a patch that hides it. If you catch yourself raising a timeout or adding a retry, stop and ask: "What is actually slow/breaking, and why?" Fix that instead.
+
+  **The three forbidden band-aid patterns (R-F1640):**
+  1. **Defensive timeout wrapper on an already-fixed root cause** — R-F1639 fixed the GC-freeze wedge. Adding `asyncio.to_thread` + 1s timeout "defensively" adds a silent-drop path and masks future regressions. Sequence: pull live ERROR counts FIRST. If the flood is gone, the band-aid is unjustified.
+  2. **Installing a paid dependency to make a test pass** — test_writers.py fails because AssessmentWriter is provider-locked to Anthropic. Installing `anthropic` SDK makes the test green but the writer STILL can't run in prod (no credit). Real fix: route through `llm/factory.py` so it runs on DeepSeek.
+  3. **Asserting a phantom regression without verifying it exists** — "2026-06-07 composite regression" was asserted without checking. R-F1350 removed predictor_gate (an inflating constant) and surfaced the honest 0.678. There was no regression event. Verify the trend before claiming a change.
 - **Match the codebase.** Read neighbouring code first and write code that looks
   like it — same naming, structure, error handling, async style, comment density.
 - **Small, focused diffs.** Change only what the task needs. No drive-by rewrites,
@@ -67,6 +72,12 @@ overrides this file where they overlap.
    If you cannot point to a line of code, a test output, or a live probe that PROVES
    every claim you are about to make, you are not done yet. Ground every status claim
    by grepping the current code — never assert from memory.
+
+   **Sample-size awareness (R-F1640):** When citing a metric, always check the sample
+   size before treating it as a hard gate. A PI leak of 0.40 on n=10 is directional,
+   not "40% of responses leak private information." You cannot gate "<0.05" on a
+   10-sample set (minimum measurable non-zero = 0.10). Before any metric-based claim,
+   ask: *What is n? Is this measurement precise enough to support the conclusion?*
 8.6 **Test-before-signoff (R-F1158)** — after self-critique, identify every untested
    code path and add a capability test for it BEFORE signing off. Run ALL tests that
    touch your changes (not just the new ones). Only sign off when every claim is
@@ -159,6 +170,40 @@ def do_thing():
     except Exception as e:
         return {"success": False, "error": str(e)}
 ```
+
+### Anti-hallucination law 17 — every status claim cites its live source (R-F1640)
+Every status claim you make about the system — a gate being open/closed, a metric
+value, a capability being present, a test count — MUST cite the specific file,
+endpoint, or probe that proves it. The pattern:
+
+```python
+# WRONG — asserted from memory or stale document
+"Phase A gate #1 is CLOSED (composite >= 71%)"
+
+# RIGHT — cites the live source
+"Phase A gate #1 composite = 0.678 (OPEN — source: /health/composite endpoint, live probe 2026-06-17)"
+```
+
+**The three-question litmus before any status claim:**
+1. *Can I point to the exact line of code, test output, or live probe that proves this?*
+2. *Did I read that source in this session, or am I recalling it from memory?*
+3. *Is the source a live measurement (endpoint, scorer, eval JSON) or a human-edited document (markdown, CLAUDE.md)?*
+
+If the answer to #1 is "no" or #2 is "memory" or #3 is "human-edited document" —
+**do not make the claim.** Say "unverified" instead. This is the structural fix for
+optimistic status drift: the status surface reads from the actual scorer/eval/run
+output, not from a stale markdown file.
+
+**Concrete examples of violations caught by this law:**
+- "Phase A gate #1 is CLOSED" — asserted from stale CLAUDE.md line; real composite was 0.678 (OPEN)
+- "Self-deploys" — asserted from roadmap aspiration; ARIA_SELF_IMPROVE_AUTO_DEPLOY=0
+- "319 passed / 12,715 errors" — reported a collection-aborted run as "current health"
+- "2026-06-07 composite regression" — asserted a phantom event; R-F1350 removed an inflating constant
+- "PI leak 0.40 is a hard production gate" — asserted from n=10 sample; min measurable non-zero = 0.10
+
+**The structural guard:** before any status claim in a report, commit message, or
+bridge message, run the probe. If the probe doesn't exist, build it first. A status
+dashboard that reads from live endpoints is worth more than any document.
 
 ### Anti-hallucination law 16 — verify direct calls too, not just await (R-F1268)
 Anti-hallucination law #1 says to verify every `await module.function()` call. But

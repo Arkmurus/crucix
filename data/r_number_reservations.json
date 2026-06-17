@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1640,
+  "next_available": 1641,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10797,6 +10797,15 @@
       "commit_sha": "4a18f8fc",
       "notes": null,
       "shipped_at": "2026-06-17T19:04:22Z"
+    },
+    {
+      "r_number": "R-F1640",
+      "title": "AGENTS.md: status-claim verification law - every claim cites its live source",
+      "claimed_at": "2026-06-17T21:03:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
