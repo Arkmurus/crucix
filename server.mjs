@@ -2069,7 +2069,7 @@ function reportOutcome(surface, requestId, intendedResult, actualOutcome, latenc
         detail: detail || '',
       }),
       signal: AbortSignal.timeout(3000),
-    }).catch(() => {});
+    }).catch((_oe) => { console.warn('[R-F1638] reportOutcome failed:', _oe?.message); });
   } catch { /* outcome reporting must never break the reply path */ }
 }
 
@@ -2977,7 +2977,7 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
           fetch(`${ARIA_SERVICE_URL}/api/aria/knowledge/fact`, {
             method: 'POST', headers: _ariaHeaders(),
             body: JSON.stringify({ topic: topic + ' — ' + (ins.title || '').slice(0, 40), content: (ins.summary || ins.title || '').slice(0, 300), confidence: 'ASSESSED' }),
-          }).catch(() => {});
+          }).catch((_kf) => { console.warn('[R-F1638] knowledge/fact POST failed:', _kf?.message); });
         }
       }
       recordQuery(topic, (findings.insights?.[0]?.summary || '').slice(0, 200), market || '');
@@ -5112,7 +5112,7 @@ async function runSweepCycle() {
     const rawData = await fullBriefing();
 
     // Push top defence/procurement signals into the Python brain queue (fire-and-forget)
-    pushSignalsToBrain(rawData).catch(() => {});
+    pushSignalsToBrain(rawData).catch((_ps) => { console.warn('[R-F1638] pushSignalsToBrain failed:', _ps?.message); });
 
     console.log('[Crucix] Fetching extended intelligence sources...');
     const [unscData, centralBanksData, thinkTanksData, tradeData, opensanctionsData] =

@@ -4066,8 +4066,14 @@ async def _aria_chat_impl(
             _cd.extract_learning_suggestions(response_text, session_id)
         )
         _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
-    except Exception:
-        logger.debug("R-F1635 learning_suggestions hook failed (non-fatal)")
+    except Exception as _ls_e:
+        logger.warning("R-F1635 learning_suggestions hook failed: %s", _ls_e)
+        try:
+            from .intel.engine_wiring import wire_failure as _wf_ls
+            _wf_ls(module="aria_engine.learning_suggestions", detail=str(_ls_e)[:200],
+                   gap_type="self_runtime", source="aria_engine")
+        except Exception:
+            pass
 
     # Output harvester — scores every turn (dry-run by default so no
     # data is written). Once ARIA_OUTPUT_HARVEST_ENABLED=1, passing
@@ -4095,8 +4101,14 @@ async def _aria_chat_impl(
             )
         )
         _oh_task.add_done_callback(_bg_done("output_harvester.harvest"))
-    except Exception:
-        logger.debug("R-F1635 output_harvester hook failed (non-fatal)")
+    except Exception as _oh_e:
+        logger.warning("R-F1635 output_harvester hook failed: %s", _oh_e)
+        try:
+            from .intel.engine_wiring import wire_failure as _wf_oh
+            _wf_oh(module="aria_engine.output_harvester", detail=str(_oh_e)[:200],
+                   gap_type="self_runtime", source="aria_engine")
+        except Exception:
+            pass
 
     # R-F732 (2026-05-20) — structured sources[] in the response JSON.
     # Pre-R-F732 callers had to regex inline `[from tool:run_id]` markers
@@ -4454,8 +4466,14 @@ async def _aria_chat_stream_impl(
         logger.warning("ARIA stream LLM error: %s — falling back to local_brain (all providers exhausted)", e)
         try:
             await self_improve.record_error("llm_error", str(e), "aria_engine.py", "aria_chat_stream")
-        except Exception:
-            logger.debug("R-F1635 self_improve.record_error failed (non-fatal)")
+        except Exception as _sie_e:
+            logger.warning("R-F1635 self_improve.record_error failed: %s", _sie_e)
+            try:
+                from .intel.engine_wiring import wire_failure as _wf_sie
+                _wf_sie(module="aria_engine.self_improve_record_error", detail=str(_sie_e)[:200],
+                       gap_type="self_runtime", source="aria_engine")
+            except Exception:
+                pass
         degraded = await local_brain.degraded_response(message, reason=f"LLM error: {str(e)[:120]}")
         yield _emit("chunk", text=degraded["response"])
         yield _emit("done", session_id=session_id, degraded=True)
@@ -4930,7 +4948,13 @@ async def aria_think(
     # Record for training
     try:
         await training_data.record_think_response(question, parsed)
-    except Exception:
-        logger.debug("R-F1635 record_think_response failed (non-fatal)")
+    except Exception as _tr_e:
+        logger.warning("R-F1635 record_think_response failed: %s", _tr_e)
+        try:
+            from .intel.engine_wiring import wire_failure as _wf_tr
+            _wf_tr(module="aria_engine.record_think_response", detail=str(_tr_e)[:200],
+                   gap_type="self_runtime", source="aria_engine")
+        except Exception:
+            pass
 
     return parsed
