@@ -914,6 +914,11 @@ async def _check_smoke(mod: Any) -> tuple[str, str]:
     upstream feed is temporarily unreachable. The module serves cached data
     or gracefully degrades. A FAIL here on a critical module produces a
     RED diagnostic that masks real internal failures.
+
+    R-F1627 (2026-06-17): tighten the except — only network-level errors
+    (ConnectionError, TimeoutError, asyncio.TimeoutError, OSError) are
+    WARN. A genuine code bug (TypeError, AttributeError, KeyError, etc.)
+    must still be FAIL so the diagnostic catches internal module breakage.
     """
     if mod is None or not hasattr(mod, "is_available"):
         return ("WARN", "no is_available() exposed")
@@ -923,10 +928,14 @@ async def _check_smoke(mod: Any) -> tuple[str, str]:
             "PASS" if ok else "WARN",
             "upstream reachable" if ok else "upstream unreachable (may need credentials)",
         )
-    except Exception as e:
-        # R-F1626: upstream unreachable is WARN, not FAIL. The module
-        # itself is structurally sound; the external feed is down.
+    except (ConnectionError, TimeoutError, asyncio.TimeoutError, OSError) as e:
+        # R-F1626/R-F1627: network-level errors = upstream unreachable.
+        # The module is structurally sound; the external feed is down.
         return ("WARN", f"upstream unreachable: {type(e).__name__}: {str(e)[:100]}")
+    except Exception as e:
+        # R-F1627: code bug in is_available() — must stay FAIL so the
+        # diagnostic catches internal module breakage.
+        return ("FAIL", f"is_available raised (internal bug): {type(e).__name__}: {str(e)[:100]}")
 
 
 # ── Main diagnostic ─────────────────────────────────────────────────────────

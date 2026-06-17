@@ -1,19 +1,29 @@
-"""R-F1626: _check_smoke returns WARN (not FAIL) when is_available() raises.
+"""R-F1626/R-F1627: _check_smoke exception handling.
 
-Before R-F1626, an exception from is_available() (e.g. upstream feed
-unreachable) produced FAIL, which on critical modules like ofac_sdn and
-fcdo_sanctions turned the diagnostic RED — masking real internal failures.
-After R-F1626, upstream unreachable is WARN because the module itself is
-structurally sound and serves cached data or gracefully degrades.
+R-F1626: network-level exceptions (ConnectionError, TimeoutError, etc.)
+from is_available() → WARN (upstream unreachable, module structurally
+sound). Before R-F1626 these were FAIL, turning the diagnostic RED on
+critical modules like ofac_sdn/fcdo_sanctions and masking real failures.
+
+R-F1627: code-bug exceptions (TypeError, AttributeError, etc.) must
+still be FAIL — a genuine internal bug in is_available() must not hide
+behind 'upstream unreachable'.
 """
 import pytest
 
 
-class _ModuleWithRaisingAvailable:
-    """Fake module whose is_available() raises an exception."""
+class _ModuleWithNetworkError:
+    """Fake module whose is_available() raises a network-level error."""
     @staticmethod
     async def is_available():
         raise ConnectionError("upstream feed timeout after 10s")
+
+
+class _ModuleWithCodeBug:
+    """Fake module whose is_available() raises a code bug (TypeError)."""
+    @staticmethod
+    async def is_available():
+        raise TypeError("'NoneType' object is not subscriptable")
 
 
 class _ModuleWithFalseAvailable:
@@ -36,12 +46,23 @@ class _ModuleWithoutAvailable:
 
 
 @pytest.mark.asyncio
-async def test_check_smoke_returns_warn_on_exception():
-    """R-F1626: exception from is_available() → WARN, not FAIL."""
+async def test_check_smoke_network_error_is_warn():
+    """R-F1626: network-level exception → WARN, not FAIL."""
     from aria_service.intel.self_diagnostic import _check_smoke
-    status, note = await _check_smoke(_ModuleWithRaisingAvailable())
+    status, note = await _check_smoke(_ModuleWithNetworkError())
     assert status == "WARN", f"Expected WARN, got {status}: {note}"
     assert "upstream unreachable" in note
+
+
+@pytest.mark.asyncio
+async def test_check_smoke_code_bug_is_fail():
+    """R-F1627: code-bug exception (TypeError) → FAIL, not WARN.
+    A genuine internal bug in is_available() must not hide behind
+    'upstream unreachable'."""
+    from aria_service.intel.self_diagnostic import _check_smoke
+    status, note = await _check_smoke(_ModuleWithCodeBug())
+    assert status == "FAIL", f"Expected FAIL, got {status}: {note}"
+    assert "internal bug" in note
 
 
 @pytest.mark.asyncio
