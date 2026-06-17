@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1572,
+  "next_available": 1640,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10127,6 +10127,676 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1572",
+      "title": "DD total time-budget + honest async-push timeout (WA DD overrun root-cause)",
+      "claimed_at": "2026-06-15T07:12:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f0973e53",
+      "notes": null,
+      "shipped_at": "2026-06-15T08:15:58Z"
+    },
+    {
+      "r_number": "R-F1573",
+      "title": "Fix pre_commit_checks encoding - add UTF-8 declaration",
+      "claimed_at": "2026-06-15T07:15:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ddd4be71",
+      "notes": null,
+      "shipped_at": "2026-06-15T07:29:56Z"
+    },
+    {
+      "r_number": "R-F1574",
+      "title": "Register agents at startup - scheduler, wiring_monitor, self_improve",
+      "claimed_at": "2026-06-15T07:15:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "978a65b2",
+      "notes": null,
+      "shipped_at": "2026-06-15T07:30:02Z"
+    },
+    {
+      "r_number": "R-F1575",
+      "title": "Bridge unification - make file-based and Redis bridges sync",
+      "claimed_at": "2026-06-15T07:15:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c688e90",
+      "notes": null,
+      "shipped_at": "2026-06-15T07:30:06Z"
+    },
+    {
+      "r_number": "R-F1576",
+      "title": "Wire agent signup vault import_open_portals into lifecycle",
+      "claimed_at": "2026-06-15T07:15:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1577",
+      "title": "Eagle eye improvements - cross-scan dedup, AST security scanning",
+      "claimed_at": "2026-06-15T07:15:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ddd4be71",
+      "notes": null,
+      "shipped_at": "2026-06-15T07:30:09Z"
+    },
+    {
+      "r_number": "R-F1578",
+      "title": "Add tests for aria_cli/bridge.py file-based bridge",
+      "claimed_at": "2026-06-15T07:15:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1579",
+      "title": "Claude review fixes - heartbeat ticks, FLY_APP_NAME gate, scheduler start",
+      "claimed_at": "2026-06-15T08:06:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "03a87a24",
+      "notes": null,
+      "shipped_at": "2026-06-15T09:15:21Z"
+    },
+    {
+      "r_number": "R-F1580",
+      "title": "Invariant test: every registered agent must have a contract",
+      "claimed_at": "2026-06-15T09:37:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:01Z"
+    },
+    {
+      "r_number": "R-F1581",
+      "title": "Fix stale coder gate comment + add behaviour-asserting test",
+      "claimed_at": "2026-06-15T09:37:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:04Z"
+    },
+    {
+      "r_number": "R-F1582",
+      "title": "Fix ci_deploy to verify live build_rev before reporting success",
+      "claimed_at": "2026-06-15T09:37:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:12Z"
+    },
+    {
+      "r_number": "R-F1583",
+      "title": "Register missing agent contracts + add invariant test",
+      "claimed_at": "2026-06-15T09:37:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:16Z"
+    },
+    {
+      "r_number": "R-F1584",
+      "title": "Add tests for capability_gaps.py",
+      "claimed_at": "2026-06-15T09:37:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:21Z"
+    },
+    {
+      "r_number": "R-F1585",
+      "title": "Add tests for autonomous_scheduler.py",
+      "claimed_at": "2026-06-15T09:37:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:25Z"
+    },
+    {
+      "r_number": "R-F1586",
+      "title": "Add hardcoded secret scanning to eagle eye",
+      "claimed_at": "2026-06-15T09:37:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ffb628ac",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:16:29Z"
+    },
+    {
+      "r_number": "R-F1587",
+      "title": "route system/ecosystem gap-analysis queries to self_introspect (WA misroute fix)",
+      "claimed_at": "2026-06-15T10:17:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3a3a2b91",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:40:13Z"
+    },
+    {
+      "r_number": "R-F1588",
+      "title": "self_coding_os.commit_and_push: tag [deploy] + verify live build_rev landed + alert on lag",
+      "claimed_at": "2026-06-15T10:28:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fc1b666b",
+      "notes": null,
+      "shipped_at": "2026-06-15T10:54:28Z"
+    },
+    {
+      "r_number": "R-F1589",
+      "title": "demote history to summaries when a tool fired for the current message (WA context-bleed fix)",
+      "claimed_at": "2026-06-15T12:33:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b2f5a1b2",
+      "notes": null,
+      "shipped_at": "2026-06-16T05:55:51Z"
+    },
+    {
+      "r_number": "R-F1590",
+      "title": "tool-fired synthesis drops conversation history entirely (deterministic anti-bleed)",
+      "claimed_at": "2026-06-15T12:37:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b2f5a1b2",
+      "notes": null,
+      "shipped_at": "2026-06-16T05:55:51Z"
+    },
+    {
+      "r_number": "R-F1591",
+      "title": "Fix eagle eye re-indexing unchanged files causing event loop stalls",
+      "claimed_at": "2026-06-15T12:41:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b2f5a1b2",
+      "notes": null,
+      "shipped_at": "2026-06-16T05:55:51Z"
+    },
+    {
+      "r_number": "R-F1592",
+      "title": "DD produces OSINT briefing when registry absent + footer counts gathered sources (no more insufficient/0-grounded on data-rich DDs)",
+      "claimed_at": "2026-06-16T06:02:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7ee18547",
+      "notes": null,
+      "shipped_at": "2026-06-16T06:56:49Z"
+    },
+    {
+      "r_number": "R-F1593",
+      "title": "Record language bug and search throttling as capability gaps",
+      "claimed_at": "2026-06-16T07:18:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1594",
+      "title": "Fix deep_researcher search throttling - add request spacing between burst queries",
+      "claimed_at": "2026-06-16T07:26:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "13dda389",
+      "notes": null,
+      "shipped_at": "2026-06-16T07:29:50Z"
+    },
+    {
+      "r_number": "R-F1595",
+      "title": "Fix language detection - probe and fix Russian response to English query",
+      "claimed_at": "2026-06-16T07:26:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "13dda389",
+      "notes": null,
+      "shipped_at": "2026-06-16T07:29:56Z"
+    },
+    {
+      "r_number": "R-F1596",
+      "title": "Record agent probe findings as capability gaps for coder",
+      "claimed_at": "2026-06-16T07:52:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1597",
+      "title": "DD _web_search falls back to working DDG web_search when dead multi-backends return empty",
+      "claimed_at": "2026-06-16T07:59:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "23e74267",
+      "notes": null,
+      "shipped_at": "2026-06-16T08:30:12Z"
+    },
+    {
+      "r_number": "R-F1598",
+      "title": "Fix brain_hook circuit breaker - hot-path callers use _record_signal",
+      "claimed_at": "2026-06-16T08:58:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d0d49b0",
+      "notes": null,
+      "shipped_at": "2026-06-16T09:50:10Z"
+    },
+    {
+      "r_number": "R-F1599",
+      "title": "Fix brain/stats endpoint timeout - add caching",
+      "claimed_at": "2026-06-16T08:59:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d0d49b0",
+      "notes": null,
+      "shipped_at": "2026-06-16T09:50:15Z"
+    },
+    {
+      "r_number": "R-F1600",
+      "title": "Fix agent registration at boot - all agents register in lifespan not in loops",
+      "claimed_at": "2026-06-16T08:59:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d0d49b0",
+      "notes": null,
+      "shipped_at": "2026-06-16T09:50:20Z"
+    },
+    {
+      "r_number": "R-F1601",
+      "title": "Fix /self/assess/briefing 404 - remove from web_integrity probe list",
+      "claimed_at": "2026-06-16T08:59:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d0d49b0",
+      "notes": null,
+      "shipped_at": "2026-06-16T09:50:24Z"
+    },
+    {
+      "r_number": "R-F1602",
+      "title": "Fix eagle_eye and wiring_monitor registration - ensure they register at boot",
+      "claimed_at": "2026-06-16T08:59:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1603",
+      "title": "self-host SearXNG on fly (aria-searxng) + wire SEARXNG_URL — restore native robust search backend",
+      "claimed_at": "2026-06-16T11:27:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0e966bba",
+      "notes": null,
+      "shipped_at": "2026-06-16T11:36:24Z"
+    },
+    {
+      "r_number": "R-F1604",
+      "title": "reasoning_library: detect bare-domain URLs + dd abbreviation so DD-on-URL never serves a stale cross-entity cached answer",
+      "claimed_at": "2026-06-16T19:27:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3685d3b3",
+      "notes": null,
+      "shipped_at": "2026-06-16T20:22:25Z"
+    },
+    {
+      "r_number": "R-F1605",
+      "title": "Fix footer build_rev to show live value instead of stale cached",
+      "claimed_at": "2026-06-16T19:27:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1606",
+      "title": "Fix per-agent stale heartbeat thresholds - replace flat 300s with per-agent cadence",
+      "claimed_at": "2026-06-16T19:32:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1607",
+      "title": "Triage eagle eye 139 high-severity findings",
+      "claimed_at": "2026-06-16T19:32:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1608",
+      "title": "Fix long-cycle agent loops being GC'd - store in module-level set with done_callback",
+      "claimed_at": "2026-06-16T19:42:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b952a2d2",
+      "notes": null,
+      "shipped_at": "2026-06-16T20:22:25Z"
+    },
+    {
+      "r_number": "R-F1609",
+      "title": "fix relative-import-beyond-top-level in 10 bg loops — resurrect dead autonomous loops (research/self_improve/etc)",
+      "claimed_at": "2026-06-16T20:33:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f1afde6a",
+      "notes": null,
+      "shipped_at": "2026-06-16T20:50:24Z"
+    },
+    {
+      "r_number": "R-F1610",
+      "title": "self-healing actuator: bg-loop supervisor auto-respawns dead loops (bounded) instead of only logging",
+      "claimed_at": "2026-06-16T20:43:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c6654493",
+      "notes": null,
+      "shipped_at": "2026-06-16T21:41:51Z"
+    },
+    {
+      "r_number": "R-F1611",
+      "title": "deploy-proprioception: self_introspect surfaces live build_rev+uptime+loop-health (kills confabulation)",
+      "claimed_at": "2026-06-16T22:01:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "920876a2",
+      "notes": null,
+      "shipped_at": "2026-06-16T22:22:47Z"
+    },
+    {
+      "r_number": "R-F1612",
+      "title": "deploy-proprioception #2c: record boot/build event to brain (persistent deploy history ARIA can recall)",
+      "claimed_at": "2026-06-16T22:18:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "40c166f5",
+      "notes": null,
+      "shipped_at": "2026-06-16T22:38:45Z"
+    },
+    {
+      "r_number": "R-F1613",
+      "title": "Track A: fix §22a query-misroute (question routed to company_investigator instead of web search)",
+      "claimed_at": "2026-06-16T22:26:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b375b35",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:33:05Z"
+    },
+    {
+      "r_number": "R-F1614",
+      "title": "make-loud verified silent-failure hotspots (web_search/contract-review/fly_deployer)",
+      "claimed_at": "2026-06-16T23:00:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b375b35",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:33:05Z"
+    },
+    {
+      "r_number": "R-F1615",
+      "title": "web-502 async-complete-and-push for web /api/aria/chat",
+      "claimed_at": "2026-06-16T23:00:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b375b35",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:33:05Z"
+    },
+    {
+      "r_number": "R-F1616",
+      "title": "delete legacy non-canonical WA listener lib/whatsapp/waListener.mjs",
+      "claimed_at": "2026-06-16T23:00:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1617",
+      "title": "e2e behavioral verification gate (real-path deploy smoke replacing source-string proxy tests)",
+      "claimed_at": "2026-06-16T23:00:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b375b35",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:33:05Z"
+    },
+    {
+      "r_number": "R-F1618",
+      "title": "Build dynamic comms bridge - auto-detect Claude messages without operator prompting",
+      "claimed_at": "2026-06-16T23:08:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2fba9b94",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:13:33Z"
+    },
+    {
+      "r_number": "R-F1619",
+      "title": "Stage-1 sovereignty+autonomy launch plan (sequenced, gated)",
+      "claimed_at": "2026-06-16T23:41:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e36d8d70",
+      "notes": null,
+      "shipped_at": "2026-06-16T23:42:35Z"
+    },
+    {
+      "r_number": "R-F1620",
+      "title": "Stage-1 Lane-A grounded corpus pipeline (disjoint train Qs + retrieval handoff)",
+      "claimed_at": "2026-06-17T10:18:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c0435d9",
+      "notes": null,
+      "shipped_at": "2026-06-17T10:19:16Z"
+    },
+    {
+      "r_number": "R-F1621",
+      "title": "fix knowledge-graph json.dump event-loop wedge via gc.freeze + gc-off-during-dump (root cause of cross-tier timeouts)",
+      "claimed_at": "2026-06-17T11:17:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6d032f9f",
+      "notes": null,
+      "shipped_at": "2026-06-17T11:45:43Z"
+    },
+    {
+      "r_number": "R-F1622",
+      "title": "O(1) dedup/contradiction indices in knowledge.store_fact — kill the O(N)-per-absorb 3.5s scan (brain_hook timeouts + wedge)",
+      "claimed_at": "2026-06-17T12:18:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "91161870",
+      "notes": null,
+      "shipped_at": "2026-06-17T12:35:35Z"
+    },
+    {
+      "r_number": "R-F1623",
+      "title": "eagle_eye: persist file_hashes to /data so restart/deploy doesn't re-encode the whole codebase (event-loop wedge)",
+      "claimed_at": "2026-06-17T12:44:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f9503010",
+      "notes": null,
+      "shipped_at": "2026-06-17T13:05:56Z"
+    },
+    {
+      "r_number": "R-F1624",
+      "title": "Record coder-actionable gaps from log DD - state_store, DD layers, VLS, eval()",
+      "claimed_at": "2026-06-17T13:07:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1625",
+      "title": "eagle_eye cold-start hash-only baseline (no codebase re-encode storm) — robust end to the encode-wedge recurrence",
+      "claimed_at": "2026-06-17T13:34:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "62388fbc",
+      "notes": null,
+      "shipped_at": "2026-06-17T14:06:15Z"
+    },
+    {
+      "r_number": "R-F1626",
+      "title": "Fix self-diagnostic: downgrade external-source failures to WARN when cached data available",
+      "claimed_at": "2026-06-17T14:06:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3625a17d",
+      "notes": null,
+      "shipped_at": "2026-06-17T15:38:36Z"
+    },
+    {
+      "r_number": "R-F1627",
+      "title": "Tighten _check_smoke exception handling",
+      "claimed_at": "2026-06-17T15:36:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "eef424eb",
+      "notes": null,
+      "shipped_at": "2026-06-17T15:44:31Z"
+    },
+    {
+      "r_number": "R-F1628",
+      "title": "hard overall DD deadline wrapper — DD can never hang past budget, always returns a partial/honest report",
+      "claimed_at": "2026-06-17T15:44:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5dcff831",
+      "notes": null,
+      "shipped_at": "2026-06-17T16:01:59Z"
+    },
+    {
+      "r_number": "R-F1629",
+      "title": "Fix search health to probe self-hosted SearXNG, not just public instances",
+      "claimed_at": "2026-06-17T16:36:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "348716e4",
+      "notes": null,
+      "shipped_at": "2026-06-17T16:43:54Z"
+    },
+    {
+      "r_number": "R-F1630",
+      "title": "Retire _search_brave stub from web_search backend dispatch",
+      "claimed_at": "2026-06-17T16:44:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "53e813c5",
+      "notes": null,
+      "shipped_at": "2026-06-17T16:56:41Z"
+    },
+    {
+      "r_number": "R-F1631",
+      "title": "DD press-relevance gate — filter search noise at ingestion by entity distinctive tokens (accent-normalized), transparent + graceful",
+      "claimed_at": "2026-06-17T16:54:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b92d741f",
+      "notes": null,
+      "shipped_at": "2026-06-17T17:14:29Z"
+    },
+    {
+      "r_number": "R-F1632",
+      "title": "Fix adversarial grader: add 'answer' to generic refusal verb list",
+      "claimed_at": "2026-06-17T17:09:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3aa4055b",
+      "notes": null,
+      "shipped_at": "2026-06-17T17:11:28Z"
+    },
+    {
+      "r_number": "R-F1633",
+      "title": "Citation validator - post-synthesis check strips unsupported citations",
+      "claimed_at": "2026-06-17T17:18:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb072931",
+      "notes": null,
+      "shipped_at": "2026-06-17T17:28:33Z"
+    },
+    {
+      "r_number": "R-F1634",
+      "title": "WA listener 440 reconnect storm — tear down old socket before reconnect + stable-streak exit (root, was self-conflict)",
+      "claimed_at": "2026-06-17T17:54:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cda9d764",
+      "notes": null,
+      "shipped_at": "2026-06-17T18:04:44Z"
+    },
+    {
+      "r_number": "R-F1635",
+      "title": "Fix bare except:pass in Python core paths",
+      "claimed_at": "2026-06-17T18:02:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "350f505e",
+      "notes": null,
+      "shipped_at": "2026-06-17T18:21:42Z"
+    },
+    {
+      "r_number": "R-F1636",
+      "title": "DD registry-gap enrichment (Wayback age + OSINT) vault-integrated — rich data for no-registry targets, §15 pay-once-remember-forever",
+      "claimed_at": "2026-06-17T18:05:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a18f8fc",
+      "notes": null,
+      "shipped_at": "2026-06-17T19:04:21Z"
+    },
+    {
+      "r_number": "R-F1637",
+      "title": "Cross-reference invariant tests for _MODULES, brain_hook, and endpoints",
+      "claimed_at": "2026-06-17T18:08:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "350f505e",
+      "notes": null,
+      "shipped_at": "2026-06-17T18:21:45Z"
+    },
+    {
+      "r_number": "R-F1638",
+      "title": "Scope .catch logging to critical paths - sanctions, DD, auth, brain-signal",
+      "claimed_at": "2026-06-17T18:10:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "350f505e",
+      "notes": null,
+      "shipped_at": "2026-06-17T18:21:48Z"
+    },
+    {
+      "r_number": "R-F1639",
+      "title": "neural_memory._encode_edges gc-off during json.dumps — last wedge-class instance (R-F1621 pattern)",
+      "claimed_at": "2026-06-17T18:46:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a18f8fc",
+      "notes": null,
+      "shipped_at": "2026-06-17T19:04:22Z"
     }
   ]
 }
