@@ -1565,6 +1565,11 @@ async def get_search_health() -> dict:
     R-F320 (2026-05-11): Brave removed. Health report no longer includes
     a brave key — the dashboard panel and any operator code reading this
     should treat absence as "Brave is gone, not down".
+
+    R-F1629 (2026-06-17): probe the self-hosted SearXNG (search_searxng
+    adapter) in addition to the public SEARXNG_INSTANCES list. The public
+    list has been empty since 2026-04-20; the self-hosted instance is the
+    only active SearXNG backend.
     """
     health = {
         "searxng": False,
@@ -1572,26 +1577,36 @@ async def get_search_health() -> dict:
         "bing_news": False,
         "duckduckgo": True,  # always tried, may be rate-limited
     }
-    # Quick probe of SearXNG
+    # R-F1629: probe self-hosted SearXNG first (primary backend)
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            for inst in SEARXNG_INSTANCES[:2]:
-                try:
-                    r = await client.get(f"{inst}/search", params={"q": "test", "format": "json"})
-                    if r.status_code == 200:
-                        health["searxng"] = True
-                        break
-                except Exception:
-                    continue
+        from . import search_searxng as _sx
+        if _sx.is_configured():
+            res = await _sx.search("test", count=1)
+            if res.get("ok") and res.get("results"):
+                health["searxng"] = True
     except Exception:
-        from .engine_wiring import wire_failure as _wf
-        _wf(
-            module="web_search",
-            detail="get_search_health searxng probe failed",
-            gap_type="engine_failure",
-            source="web_search:get_search_health",
-        )
         pass
+    # Fall back to public instances if self-host is unavailable
+    if not health["searxng"] and SEARXNG_INSTANCES:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                for inst in SEARXNG_INSTANCES[:2]:
+                    try:
+                        r = await client.get(f"{inst}/search", params={"q": "test", "format": "json"})
+                        if r.status_code == 200:
+                            health["searxng"] = True
+                            break
+                    except Exception:
+                        continue
+        except Exception:
+            from .engine_wiring import wire_failure as _wf
+            _wf(
+                module="web_search",
+                detail="get_search_health searxng probe failed",
+                gap_type="engine_failure",
+                source="web_search:get_search_health",
+            )
+            pass
     # Google News RSS is almost always available
     health["google_news"] = True
     health["bing_news"] = True
