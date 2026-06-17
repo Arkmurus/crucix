@@ -10813,18 +10813,20 @@
       "title": "Stage-1 Lane-A remote openbook builder (clear #2: off-box retrieval via /rag/search)",
       "claimed_at": "2026-06-17T21:12:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88453eac",
+      "notes": null,
+      "shipped_at": "2026-06-17T21:57:21Z"
     },
     {
       "r_number": "R-F1642",
       "title": "RunPod scheduler stop-only mode + work-claim guard (WS-4c safe joint management)",
       "claimed_at": "2026-06-17T21:30:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88453eac",
+      "notes": null,
+      "shipped_at": "2026-06-17T21:57:21Z"
     },
     {
       "r_number": "R-F1643",
