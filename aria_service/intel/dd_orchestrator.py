@@ -6086,6 +6086,96 @@ async def orchestrate_dd(
     user_email: str | None = None,
     share_to_company: bool = True,
     total_budget_s: float | None = None,
+) -> "ARKDDReport":
+    """R-F1628 — HARD overall deadline (robust end to 'DD hangs forever').
+
+    The 7-layer impl clamps PER-LAYER timeouts to the budget, but unclamped work
+    (predictor forecast, final synthesis, brain absorbs) can still overrun: a
+    deep DD measured 781s against a 660s budget and returned NOTHING — the
+    WhatsApp poll window closed → no delivery, the recurring symptom. This
+    wrapper GUARANTEES the call returns within budget + a synthesis margin,
+    returning the ACCUMULATED PARTIAL report (with an honest 'time-budget
+    reached' bottom line) instead of hanging. Makes the hang structurally
+    impossible regardless of how slow/unreachable external sources are.
+
+    Tunable: ARIA_DD_TOTAL_BUDGET_S (660), ARIA_DD_HARD_MARGIN_S (150).
+    """
+    budget = (
+        float(total_budget_s) if total_budget_s is not None
+        else float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
+    )
+    hard = budget + float(_env_int("ARIA_DD_HARD_MARGIN_S", 150))
+    holder: dict = {}
+    try:
+        return await asyncio.wait_for(
+            _orchestrate_dd_impl(
+                target,
+                llm=llm,
+                mode=mode,
+                cost_cap_usd=cost_cap_usd,
+                trace_id=trace_id,
+                user_id=user_id,
+                user_email=user_email,
+                share_to_company=share_to_company,
+                total_budget_s=total_budget_s,
+                _report_holder=holder,
+            ),
+            timeout=hard,
+        )
+    except asyncio.TimeoutError:
+        _name = str(target.get("name") or target.get("entity") or target.get("query") or "the target")
+        logger.error(
+            "[dd_orchestrator] R-F1628 HARD DEADLINE hit at %.0fs (budget %.0fs) for %s "
+            "— returning partial (impl overran on unclamped work).",
+            hard, budget, _name[:60],
+        )
+        rep = holder.get("report")
+        if rep is None:
+            rep = ARKDDReport(target=target, orchestrator_mode=mode, trace_id=trace_id)
+            rep.identity.entity_name = _name
+            rep.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
+        rep.risk_classification = RiskClassification.AMBER_LIGHT.value
+        rep.bottom_line = (
+            f"⏱ TIME-BUDGET REACHED — the DD on {_name} was stopped at ~{int(hard)}s to "
+            f"guarantee a response (it exceeded the {int(budget)}s budget, usually slow or "
+            f"unreachable external sources). This is a PARTIAL briefing from the layers that "
+            f"completed — re-run, or narrow scope (supply jurisdiction / registration number / "
+            f"website) for a full result. Treat as 'incomplete', not 'nothing found'."
+        )
+        try:
+            rep.data_gaps_summary.append(
+                f"DD exceeded the {int(budget)}s time budget — partial returned (R-F1628)"
+            )
+        except Exception:
+            pass
+        # §25 — a slow DD is a self-heal trigger; tell the brain (best-effort, bounded).
+        try:
+            from . import brain_hook
+            await asyncio.wait_for(
+                brain_hook.absorb(
+                    module="dd_orchestrator",
+                    summary=f"DD hard-deadline hit ({int(hard)}s) for {_name[:40]} — partial returned",
+                    entity_name=_name, success=False, confidence="ASSESSED",
+                ),
+                timeout=5,
+            )
+        except Exception:
+            pass
+        return rep
+
+
+async def _orchestrate_dd_impl(
+    target: dict,
+    *,
+    llm: Any = None,
+    mode: str = "standard",
+    cost_cap_usd: float | None = None,
+    trace_id: str | None = None,
+    user_id: str | None = None,
+    user_email: str | None = None,
+    share_to_company: bool = True,
+    total_budget_s: float | None = None,
+    _report_holder: "dict | None" = None,
 ) -> ARKDDReport:
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -6245,6 +6335,12 @@ async def orchestrate_dd(
     )
     report.identity.entity_name = target.get("name") or target.get("entity") or target.get("query", "")
     report.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
+
+    # R-F1628: expose the live report to the hard-deadline wrapper so a budget
+    # timeout returns the ACCUMULATED partial (whatever layers completed), not a
+    # bare stub. Stashed as early as possible so even an early timeout has it.
+    if _report_holder is not None:
+        _report_holder["report"] = report
 
     # Hook into cost_tracker so every LLM call made by the layers is
     # attributed to "dd_orchestrator".
