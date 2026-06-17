@@ -1357,6 +1357,19 @@ const _STALE_DISCONNECT_MS = 5 * 60 * 1000;  // 5 min without connection → for
 
 // ── Start the WhatsApp connection ─────────────────────────────────────────────
 async function startListener() {
+  // R-F1634 — tear down any PRIOR socket before creating a new one. Without
+  // this, a reconnect spawned a second socket while the old was still alive →
+  // the new one REPLACED the old at WhatsApp → the old emitted 440
+  // (connectionReplaced) → another reconnect → new socket → 440 → a
+  // self-perpetuating storm (listener effectively dead; brain fetches timed out
+  // as the event loop churned through reconnects). Detaching + closing the old
+  // socket first makes reconnect a clean handoff instead of a self-conflict.
+  if (sock) {
+    try { sock.ev?.removeAllListeners?.(); } catch { /* best-effort */ }
+    try { sock.ws?.close?.(); } catch { /* best-effort */ }
+    try { sock.end?.(undefined); } catch { /* best-effort */ }
+    sock = null;
+  }
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -1405,7 +1418,19 @@ async function startListener() {
       reconnectDelay = 5000;  // reset backoff on successful connect
       _lastConnectedTime = Date.now();
       _logoutCount = 0;
-      _disconnectStreak = 0;
+      // R-F1634 — reset the disconnect streak only after the connection proves
+      // STABLE (>45s), NOT on every brief 'open'. A flap storm
+      // (open→440→open→440) used to reset the streak each cycle, so the
+      // streak>=10 safety-exit (→ fresh Fly restart) never fired and the
+      // listener flapped forever. The delayed, identity-checked reset means a
+      // genuinely stable connection clears the streak while a flap keeps
+      // climbing it toward the self-heal exit.
+      const _openAt = _lastConnectedTime;
+      setTimeout(() => {
+        if (isConnected && _lastConnectedTime === _openAt) {
+          _disconnectStreak = 0;
+        }
+      }, 45000);
       console.log('[ARIA Listener] ✓ Connected to WhatsApp — ARIA is listening');
       console.log('[ARIA Listener] Call GET /groups to find your group IDs');
     }
