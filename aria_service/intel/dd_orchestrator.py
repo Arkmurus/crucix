@@ -3125,6 +3125,48 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     report.compliance.meta.status = LayerStatus.OK.value
 
 
+def _entity_distinctive_tokens(*names: str) -> list[str]:
+    """R-F1631 — distinctive (non-generic) tokens of an entity name, accent-
+    normalized + lowercased. Used to gate search results for ACTUAL entity-
+    relevance so noise (unrelated academic papers, generic 'security' hits,
+    tangential procurement notices) doesn't enter the DD as 'press coverage'.
+    Returns [] for an all-generic name — the caller then keeps everything, so
+    we never silently drop all coverage for an un-discriminable name."""
+    import unicodedata
+    _GENERIC = {
+        "security", "services", "service", "inc", "ltd", "llc", "gmbh", "co",
+        "company", "corp", "corporation", "group", "holding", "holdings",
+        "international", "global", "the", "and", "for", "of", "sa", "ag", "plc",
+        "as", "limited", "trading", "consulting", "solutions", "systems",
+        "technologies", "technology", "defence", "defense", "guvenlik",
+    }
+    def _norm(s: str) -> str:
+        return "".join(
+            c for c in unicodedata.normalize("NFKD", s or "")
+            if not unicodedata.combining(c)
+        ).lower()
+    toks: list[str] = []
+    for nm in names:
+        for t in re.split(r"[^a-z0-9]+", _norm(nm)):
+            if len(t) >= 3 and t not in _GENERIC and t not in toks:
+                toks.append(t)
+    return toks
+
+
+def _press_hit_is_relevant(title: str, snippet: str, url: str, distinctive_tokens: list[str]) -> bool:
+    """R-F1631 — True if a search hit actually references the entity (any
+    distinctive token appears in title/snippet/url, accent-normalized). With no
+    distinctive tokens (all-generic name) returns True — never drop everything."""
+    if not distinctive_tokens:
+        return True
+    import unicodedata
+    hay = "".join(
+        c for c in unicodedata.normalize("NFKD", f"{title or ''} {snippet or ''} {url or ''}")
+        if not unicodedata.combining(c)
+    ).lower()
+    return any(t in hay for t in distinctive_tokens)
+
+
 async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:
     """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research.
 
@@ -3156,7 +3198,18 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         # Convert SearchResult objects to Evidence dataclasses where possible
         press: list[Evidence] = []
         tier_counts: dict[str, int] = {}
+        # R-F1631 — entity-relevance gate: drop search noise at ingestion so the
+        # report's "press coverage" actually references the entity (not unrelated
+        # academic papers / generic 'security' hits / tangential notices).
+        _distinctive = _entity_distinctive_tokens(name_for_search, name, str(target.get("name") or ""))
+        _dropped_irrelevant = 0
         for h in hits or []:
+            if not _press_hit_is_relevant(
+                getattr(h, "title", "") or "", getattr(h, "snippet", "") or "",
+                getattr(h, "url", "") or "", _distinctive,
+            ):
+                _dropped_irrelevant += 1
+                continue
             tier = getattr(h, "source_tier", None) or "UNVERIFIED"
             _url_for_tier = getattr(h, "url", None) or ""
             # R-F316 (2026-05-11): apply web_explorer._classify_tier to
@@ -3183,6 +3236,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             ))
         report.digital.press_coverage = press[:15]
         report.digital.source_tier_breakdown = tier_counts
+        if _dropped_irrelevant:
+            report.digital.data_gaps.append(
+                f"R-F1631: {_dropped_irrelevant} search result(s) excluded as not "
+                f"referencing '{name_for_search}' (entity-relevance filter)"
+            )
         report.digital.meta.subcalls += 1
         # R-F188 (2026-05-11): when web_search returned 0 hits, run a
         # RAG-only fallback so the report still has SOMETHING for the
