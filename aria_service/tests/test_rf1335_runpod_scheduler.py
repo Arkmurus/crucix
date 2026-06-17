@@ -32,10 +32,15 @@ from aria_service.intel import runpod_scheduler as rps
 
 
 @pytest.fixture(autouse=True)
-def _configured_env(monkeypatch):
+def _configured_env(monkeypatch, tmp_path):
     monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
     monkeypatch.setenv("ARIA_RUNPOD_POD_ID", "pod-test-123")
     monkeypatch.setenv("ARIA_RUNPOD_SCHEDULE_ENABLED", "1")
+    # R-F1642: these tests exercise WINDOW-MODE (auto-start in window), so opt
+    # in explicitly — production now defaults to stop-only. Isolate the claim
+    # file to a non-existent tmp path so no stale claim leaks into the sweep.
+    monkeypatch.setenv("ARIA_RUNPOD_AUTOSTART", "1")
+    monkeypatch.setenv("ARIA_RUNPOD_CLAIM_PATH", str(tmp_path / "noclaim.json"))
     monkeypatch.delenv("ARIA_RUNPOD_START_HOUR", raising=False)
     monkeypatch.delenv("ARIA_RUNPOD_STOP_HOUR", raising=False)
     monkeypatch.delenv("ARIA_RUNPOD_TZ", raising=False)

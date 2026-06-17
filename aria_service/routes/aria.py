@@ -22085,6 +22085,64 @@ async def learning_updates_ep(
     }
 
 
+# ── RunPod pod management (R-F1642) ──────────────────────────────────────
+# Lets a training/eval cycle (Claude or ARIA) drive the GPU pod and, crucially,
+# CLAIM it so the on-box stop-only scheduler does not force-stop it mid-run.
+# All token-gated. Stop-only mode means the pod never auto-starts; these give
+# explicit, audited control + the work-claim that protects an active run.
+
+@router.get("/runpod/status", dependencies=[Depends(require_aria_token)])
+async def runpod_status_ep() -> dict:
+    from ..intel import runpod_scheduler as _rps
+    out = _rps.get_status()
+    try:
+        if _rps.configured():
+            out["pod_status_live"] = await _rps.get_pod_status()
+    except Exception as e:  # surfaced, never silently hidden (§22)
+        out["pod_status_live"] = None
+        out["probe_error"] = str(e)[:160]
+    return out
+
+
+@router.post("/runpod/claim", dependencies=[Depends(require_aria_token)])
+async def runpod_claim_ep(ttl_s: float = 7200.0, reason: str = "") -> dict:
+    """Hold the pod for ttl_s seconds — protects it from the stop-only sweep."""
+    from ..intel import runpod_scheduler as _rps
+    return {"ok": True, "claim": _rps.claim_pod(ttl_s=ttl_s, reason=reason)}
+
+
+@router.post("/runpod/release", dependencies=[Depends(require_aria_token)])
+async def runpod_release_ep() -> dict:
+    from ..intel import runpod_scheduler as _rps
+    return {"ok": True, "released": _rps.release_pod()}
+
+
+@router.post("/runpod/start", dependencies=[Depends(require_aria_token)])
+async def runpod_start_ep(ttl_s: float = 7200.0, reason: str = "manual start") -> dict:
+    """Claim THEN start — so the scheduler protects the pod we just started."""
+    from ..intel import runpod_scheduler as _rps
+    if not _rps.configured():
+        return {"ok": False, "error": "runpod not configured (key/pod_id)"}
+    claim = _rps.claim_pod(ttl_s=ttl_s, reason=reason)
+    try:
+        res = await _rps.start_pod()
+        return {"ok": True, "claim": claim, "start": res}
+    except Exception as e:
+        return {"ok": False, "claim": claim, "error": str(e)[:200]}
+
+
+@router.post("/runpod/stop", dependencies=[Depends(require_aria_token)])
+async def runpod_stop_ep() -> dict:
+    """Stop THEN release the claim (cycle finished)."""
+    from ..intel import runpod_scheduler as _rps
+    if not _rps.configured():
+        return {"ok": False, "error": "runpod not configured (key/pod_id)"}
+    try:
+        res = await _rps.stop_pod()
+        _rps.release_pod()
+        return {"ok": True, "stop": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
 
 
 

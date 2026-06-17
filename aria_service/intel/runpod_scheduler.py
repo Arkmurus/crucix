@@ -38,9 +38,12 @@ blackout detector watches it.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -63,12 +66,65 @@ def _cfg() -> dict[str, Any]:
         "api_key": (os.getenv("RUNPOD_API_KEY") or "").strip(),
         "pod_id": (os.getenv("ARIA_RUNPOD_POD_ID") or "").strip(),
         "enabled": (os.getenv("ARIA_RUNPOD_SCHEDULE_ENABLED") or "1").strip() == "1",
+        # R-F1642: autostart gates the WINDOW-MODE start branch. Default "0" =
+        # STOP-ONLY (pre-shadow per CLAUDE.md §24): the scheduler NEVER starts a
+        # pod on its own — it only force-stops a pod left RUNNING with no active
+        # work-claim. Flip to "1" for the shadow phase (auto-start in window).
+        "autostart": (os.getenv("ARIA_RUNPOD_AUTOSTART") or "0").strip() == "1",
         "start_hour": int(os.getenv("ARIA_RUNPOD_START_HOUR", "10")),
         "stop_hour": int(os.getenv("ARIA_RUNPOD_STOP_HOUR", "18")),
         "tz": os.getenv("ARIA_RUNPOD_TZ", "Europe/London"),
         "api_base": (os.getenv("ARIA_RUNPOD_API_BASE") or _DEFAULT_API_BASE).rstrip("/"),
         "interval_s": float(os.getenv("ARIA_RUNPOD_INTERVAL_S", "120")),
     }
+
+
+# ── work-claim (R-F1642) ─────────────────────────────────────────────────
+# A short-TTL claim protects an actively-used pod (training/eval cycle) from
+# the stop-only sweep. Cycle scripts claim before they start the pod and
+# release when done; an expired claim no longer protects, so a forgotten pod
+# survives at most one reconcile interval past its TTL. Stored as a small JSON
+# file (files-only, §6 — no Redis), path overridable for tests.
+
+def _claim_path() -> Path:
+    p = os.getenv("ARIA_RUNPOD_CLAIM_PATH")
+    if p:
+        return Path(p)
+    return Path(os.getenv("ARIA_DATA_DIR", "data")) / "runpod_workclaim.json"
+
+
+def claim_pod(ttl_s: float = 7200.0, reason: str = "") -> dict:
+    """Hold the pod for ttl_s seconds — the stop-only sweep will not stop it
+    while the claim is live. Returns the claim record."""
+    rec = {"until": time.time() + float(ttl_s), "reason": reason or "work in progress",
+           "claimed_at": datetime.now(timezone.utc).isoformat()}
+    path = _claim_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    return rec
+
+
+def release_pod() -> bool:
+    """Drop the work-claim (cycle finished). Idempotent."""
+    try:
+        _claim_path().unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def _claim_active(now: Optional[float] = None) -> tuple[bool, dict]:
+    """(active, record). active iff a claim file exists and has not expired."""
+    path = _claim_path()
+    if not path.exists():
+        return False, {}
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False, {}
+    return (float(rec.get("until", 0)) > (now if now is not None else time.time())), rec
 
 
 def configured() -> bool:
@@ -123,13 +179,21 @@ async def stop_pod() -> dict:
 
 async def ensure_state(now: Optional[datetime] = None) -> str:
     """One reconciliation tick. Returns the action taken:
-    'started' | 'stopped' | 'noop' | 'disabled'."""
+    'started' | 'stopped' | 'stopped_stray' | 'claim_hold' | 'noop' |
+    'disabled'.
+
+    R-F1642 — STOP-ONLY by default (CLAUDE.md §24, pre-shadow). The scheduler
+    never starts a pod unless ARIA_RUNPOD_AUTOSTART=1 (shadow phase). It DOES
+    force-stop any pod left RUNNING with no active work-claim, so a forgotten
+    pod cannot burn GPU. An active work-claim protects a pod in use by a
+    training/eval cycle from being stopped mid-run."""
     from .engine_wiring import wire_failure, wire_success  # verified :73/:102
 
     if not configured():
         _last.update(action="disabled", error=None)
         return "disabled"
 
+    cfg = _cfg()
     _last["checked_at"] = datetime.now(timezone.utc).isoformat()
 
     try:
@@ -137,33 +201,48 @@ async def ensure_state(now: Optional[datetime] = None) -> str:
         # instead of dying log-only (Pass-2 finding, §21a).
         want_on = in_window(now)
         _last["in_window"] = want_on
+        claim_active, claim = _claim_active()
+        _last["claim_active"] = claim_active
         status = await get_pod_status()
         _last["pod_status"] = status
         running = status == "RUNNING"
 
-        if want_on and not running:
+        # A claimed pod is owned by an active cycle — never touch it.
+        if claim_active:
+            _last.update(action="claim_hold", error=None)
+            return "claim_hold"
+
+        # START only in window-mode (shadow phase). Stop-only never starts.
+        if cfg["autostart"] and want_on and not running:
             await start_pod()
             _last.update(action="started", error=None)
             wire_success(
                 module="runpod_scheduler",
                 summary="ARIA-LLM pod STARTED for the daily reasoning window",
-                detail=f"pod={_cfg()['pod_id']} window="
-                       f"{_cfg()['start_hour']:02d}-{_cfg()['stop_hour']:02d} "
-                       f"{_cfg()['tz']} (was {status})",
+                detail=f"pod={cfg['pod_id']} window="
+                       f"{cfg['start_hour']:02d}-{cfg['stop_hour']:02d} "
+                       f"{cfg['tz']} (was {status})",
             )
             logger.info("[runpod_scheduler] pod started (window open)")
             return "started"
 
-        if not want_on and running:
+        # STOP an unclaimed RUNNING pod when: stop-only mode (always), or
+        # window-mode and the window has closed.
+        if running and (not cfg["autostart"] or not want_on):
             await stop_pod()
-            _last.update(action="stopped", error=None)
+            stray = not cfg["autostart"]
+            _last.update(action="stopped_stray" if stray else "stopped", error=None)
             wire_success(
                 module="runpod_scheduler",
-                summary="ARIA-LLM pod STOPPED — DeepSeek takes over off-hours",
-                detail=f"pod={_cfg()['pod_id']} (was {status})",
+                summary=("ARIA-LLM pod FORCE-STOPPED — running with no work-claim (stop-only safety)"
+                         if stray else
+                         "ARIA-LLM pod STOPPED — DeepSeek takes over off-hours"),
+                detail=f"pod={cfg['pod_id']} (was {status}) "
+                       f"mode={'stop_only' if stray else 'window'}",
             )
-            logger.info("[runpod_scheduler] pod stopped (window closed)")
-            return "stopped"
+            logger.info("[runpod_scheduler] pod stopped (%s)",
+                        "stop-only: unclaimed pod" if stray else "window closed")
+            return "stopped_stray" if stray else "stopped"
 
         _last.update(action="noop", error=None)
         return "noop"
@@ -182,13 +261,19 @@ async def ensure_state(now: Optional[datetime] = None) -> str:
 def get_status() -> dict:
     """Diagnostics for health surfaces (no secrets)."""
     c = _cfg()
+    claim_active, claim = _claim_active()
     return {
         "configured": configured(),
         "enabled": c["enabled"],
         "has_key": bool(c["api_key"]),
         "pod_id_set": bool(c["pod_id"]),
+        "mode": "window" if c["autostart"] else "stop_only",  # R-F1642
+        "autostart": c["autostart"],
         "window": f"{c['start_hour']:02d}:00-{c['stop_hour']:02d}:00 {c['tz']}",
         "in_window_now": in_window(),
+        "claim_active": claim_active,
+        "claim_until": claim.get("until"),
+        "claim_reason": claim.get("reason"),
         "last": dict(_last),
     }
 
