@@ -34,10 +34,17 @@ def test_hashes_persist_no_reindex_on_restart(tmp_path, monkeypatch):
 
     monkeypatch.setattr(EE.EagleEyeGuardian, "_index_codebase", _count_index, raising=True)
 
-    # First run (cold) — both files are new → both indexed + hashes saved.
+    # First run (TRULY cold — no persisted hashes). R-F1625: the cold-start
+    # baseline must NOT re-encode the codebase (that storm is the recurring
+    # wedge; the coding RAG already persists). It records hashes + persists,
+    # and indexes ZERO files.
     g1 = EE.EagleEyeGuardian(proj)
+    assert g1._baseline_seeded is False, "truly cold start: baseline not yet seeded"
     g1._scan_files_sync(list(files))
-    assert calls["index"] == 2, "cold scan indexes all files"
+    assert calls["index"] == 0, (
+        "R-F1625: cold-start baseline must NOT re-encode the codebase (no wedge storm)"
+    )
+    assert g1._baseline_seeded is True, "baseline must be marked seeded after the first scan"
     assert g1._hashes_path().exists(), "file_hashes must be persisted to disk"
 
     # Simulate a RESTART: a fresh guardian must LOAD the persisted hashes.

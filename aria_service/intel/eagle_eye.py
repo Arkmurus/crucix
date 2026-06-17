@@ -118,6 +118,17 @@ class EagleEyeGuardian:
         # container fs. Pairs with R-F1591 (which skips re-indexing unchanged
         # files WITHIN a process — useless across restarts without this).
         self.file_hashes: dict[str, str] = self._load_file_hashes()
+        # R-F1625: ROBUST end to the encode-wedge recurrence. R-F1623 persists
+        # hashes, but the FIRST scan on a truly cold start (no persisted hashes
+        # AND no in-memory ones) still saw every file as "changed" and tried to
+        # re-encode the WHOLE codebase via sentence_transformers — a single
+        # multi-minute GIL-bound encode storm that wedged the loop 6-19s and
+        # never completed (so the baseline never persisted, so it recurred every
+        # restart). The coding RAG already PERSISTS on /data, so re-encoding the
+        # whole tree on boot is redundant. On a cold start we therefore SEED the
+        # hash baseline WITHOUT encoding (fast, no wedge, scan completes → baseline
+        # persists); only files that change AFTER the baseline get encoded.
+        self._baseline_seeded: bool = bool(self.file_hashes)
         self.change_history: dict[str, list[dict]] = defaultdict(list)
 
         # R-F1577: cross-scan dedup — tracks (file, line, type) fingerprints
@@ -184,6 +195,7 @@ class EagleEyeGuardian:
                 logger.debug("[EagleEye] Could not scan %s: %s", file_path, e)
 
         self._save_file_hashes()  # R-F1623 — persist so the next restart skips unchanged files
+        self._baseline_seeded = True  # R-F1625 — baseline now exists; future scans encode only changed files
         self.metrics["files_watched"] = len(python_files)
         self.metrics["scans_completed"] += 1
         self.metrics["last_scan"] = datetime.now().isoformat()
@@ -237,7 +249,10 @@ class EagleEyeGuardian:
         # The sentence embedder (PyTorch) blocks the GIL during encode,
         # which stalls the event loop. Re-indexing hundreds of unchanged
         # files every 30 minutes was the root cause of the 5-6s stalls.
-        if is_changed:
+        # R-F1625: also skip during the cold-start baseline pass — re-encoding
+        # the whole codebase on first boot is the redundant storm (RAG persists
+        # on /data). Only encode genuinely-changed files once the baseline exists.
+        if is_changed and self._baseline_seeded:
             self._index_codebase(file_path)
 
     def _scan_security_issues(self, file_path: Path, content: str) -> None:
