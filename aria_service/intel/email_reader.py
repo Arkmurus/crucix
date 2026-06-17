@@ -109,7 +109,7 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
                 severity="medium",
             )
         except Exception:
-            pass
+            logger.debug("R-F1635 email_reader wire_failure failed (non-fatal)")
         return []
 
     try:
@@ -171,7 +171,7 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
             try:
                 await loop.run_in_executor(None, mail.logout)
             except Exception:
-                pass
+                logger.debug("R-F1635 mail.logout cleanup failed (non-fatal)")
 
     except Exception as e:
         logger.warning("[email_reader] read failed: %s", e)
@@ -343,7 +343,7 @@ async def _get_seen_uids() -> set[str]:
         if data:
             return set(json.loads(data))
     except Exception:
-        pass
+        logger.debug("R-F1635 email_reader cache load failed (non-fatal)")
     return set()
 
 
@@ -435,7 +435,7 @@ async def poll_loop() -> dict:
             source_id="email_reader:poll",
         )
     except Exception:
-        pass
+        logger.debug("R-F1635 email_reader wire_success failed (non-fatal)")
 
     return {
         "processed": len(emails),
@@ -559,4 +559,4 @@ try:
         source_id="email_reader:R-F1064",
     )
 except Exception:
-    pass
+    logger.debug("R-F1635 email_reader wire_success (module-level) failed (non-fatal)")

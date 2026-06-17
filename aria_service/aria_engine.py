@@ -2170,7 +2170,7 @@ def _completion_max_tokens(message: str) -> int:
         if message and _looks_like_periodic_brief(message.lower()):
             return 8000
     except Exception:
-        pass
+        logger.debug("R-F1635 _looks_like_periodic_brief failed (non-fatal)")
     return 4000
 
 
@@ -3661,7 +3661,7 @@ async def _aria_chat_impl(
             session["updatedAt"] = time.time()
             await _save_session(session_id, session)
         except Exception:
-            pass
+            logger.debug("R-F1635 degraded session save failed (non-fatal)")
         return {
             "response": degraded["response"],
             "session_id": session_id,
@@ -4067,7 +4067,7 @@ async def _aria_chat_impl(
         )
         _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
     except Exception:
-        pass
+        logger.debug("R-F1635 learning_suggestions hook failed (non-fatal)")
 
     # Output harvester — scores every turn (dry-run by default so no
     # data is written). Once ARIA_OUTPUT_HARVEST_ENABLED=1, passing
@@ -4096,7 +4096,7 @@ async def _aria_chat_impl(
         )
         _oh_task.add_done_callback(_bg_done("output_harvester.harvest"))
     except Exception:
-        pass
+        logger.debug("R-F1635 output_harvester hook failed (non-fatal)")
 
     # R-F732 (2026-05-20) — structured sources[] in the response JSON.
     # Pre-R-F732 callers had to regex inline `[from tool:run_id]` markers
@@ -4455,7 +4455,7 @@ async def _aria_chat_stream_impl(
         try:
             await self_improve.record_error("llm_error", str(e), "aria_engine.py", "aria_chat_stream")
         except Exception:
-            pass
+            logger.debug("R-F1635 self_improve.record_error failed (non-fatal)")
         degraded = await local_brain.degraded_response(message, reason=f"LLM error: {str(e)[:120]}")
         yield _emit("chunk", text=degraded["response"])
         yield _emit("done", session_id=session_id, degraded=True)
@@ -4931,6 +4931,6 @@ async def aria_think(
     try:
         await training_data.record_think_response(question, parsed)
     except Exception:
-        pass
+        logger.debug("R-F1635 record_think_response failed (non-fatal)")
 
     return parsed
