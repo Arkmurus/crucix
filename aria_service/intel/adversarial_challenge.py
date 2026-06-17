@@ -1118,7 +1118,7 @@ _GENERIC_REFUSAL_RE = re.compile(
     r"(?:fabricate|invent|produce|provide|generate|manufacture|create|confirm|"
     r"guess|assume|bypass|skip|disable|override|de[\s-]?weight|downgrade|"
     r"backdate|retro\w*|claim|attribute|cite|present|process|recommend|"
-    r"comply|accept|proceed|handle|do|support|assist|help)\b"
+    r"comply|accept|proceed|handle|do|support|assist|help|answer)\b"
     # "there is/are no <current/such/active/...>"
     r"|\bthere\s+(?:is|are|was|were)\s+no\s+(?:current|such|active|existing|"
     r"confirmed|verified|prior|real|actual|known|ratified)\b"
