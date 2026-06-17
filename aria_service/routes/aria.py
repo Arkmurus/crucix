@@ -8309,6 +8309,28 @@ async def chat_ep(req: ChatRequest, request: Request):
             except Exception:
                 pass
 
+        # ── R-F1633 citation validator (deterministic post-synthesis check) ──
+        # Strips any '[from <url>]' marker whose source was NOT actually
+        # gathered this turn. Runs BEFORE source_verifier so the cleaned
+        # response is what gets verified.
+        try:
+            if response_text:
+                from ..intel.citation_validator import validate_citations
+                _rag_urls: list[str] = []
+                try:
+                    _rag_urls = list(getattr(result, "rag_hits", []) or [])
+                except Exception:
+                    pass
+                response_text = validate_citations(
+                    response_text,
+                    tool_context=tool_context or "",
+                    attached_doc=req.message if "[ATTACHED DOCUMENT" in (req.message or "") else "",
+                    rag_hits=_rag_urls,
+                )
+                result["response"] = response_text
+        except Exception as _cv_e:
+            logger.warning("R-F1633 citation validator failed: %s", _cv_e)
+
         # ── Cited-source verification (deterministic hallucination check) ──
         try:
             if response_text:
