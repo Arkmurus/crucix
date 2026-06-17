@@ -365,6 +365,32 @@ async def _delayed_auto_register(auto_reg_fn, delay_s: int = 120) -> None:
         logger.warning("[R-F1444] Auto-registration failed (non-fatal): %s", e)
 
 
+def _freeze_long_lived_state() -> int:
+    """R-F1621 — move the boot-loaded, long-lived graphs (knowledge ~87k facts,
+    neural_memory, intel_ledger) into CPython's permanent generation so the
+    cyclic GC never scans them again.
+
+    Why: the recurring 5-16s event-loop wedge (wedge_674) is the knowledge
+    json.dump holding the GIL while gen2 GC repeatedly re-scans the huge
+    never-deleted graph during serialisation. §7 makes these objects genuinely
+    permanent (no TTL, no eviction, never deleted), so freezing them is exactly
+    correct — they will never be collected anyway. This is the boot half; the
+    dump half (gc.disable around the json.dump) lives in knowledge._write_to_disk_atomic.
+
+    Idempotent and never fatal — a GC bookkeeping call that must not break boot.
+    Returns the permanent-generation object count for observability/tests."""
+    import gc
+    try:
+        gc.collect()        # promote/settle boot objects first
+        gc.freeze()         # move everything currently alive to the permanent gen
+        frozen = gc.get_freeze_count()
+        logger.info("[R-F1621] gc.freeze() — %d long-lived objects moved out of GC scan set", frozen)
+        return frozen
+    except Exception as e:  # pragma: no cover — defensive; never break boot
+        logger.warning("[R-F1621] gc.freeze() skipped (non-fatal): %s", e)
+        return 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
@@ -470,6 +496,12 @@ async def lifespan(app: FastAPI):
         app.state.boot_init_failures = _boot_init_failures
     except Exception:
         pass
+
+    # ── R-F1621 — freeze the now-loaded long-lived graphs out of GC ──────
+    # knowledge/neural_memory/intel_ledger are warm above; freezing them here
+    # (after their init) is what makes the per-flush json.dump cheap. See
+    # _freeze_long_lived_state() + knowledge._write_to_disk_atomic.
+    _freeze_long_lived_state()
 
     # ── R-F504 (2026-05-14) — ARIA's own search index ───────────────────
     # Opens a separate SQLite file at /data/aria_search.db (configurable

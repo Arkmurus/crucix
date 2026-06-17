@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gc
 import gzip
 import json
 import logging
@@ -453,6 +454,22 @@ def _write_to_disk_atomic(data: dict) -> None:
     fd, tmp_path = tempfile.mkstemp(
         prefix=".aria_knowledge.", suffix=".json.tmp", dir=target_dir,
     )
+    # R-F1621 — disable cyclic GC for the duration of the dump. ROOT CAUSE of
+    # the recurring 5-16s event-loop wedge (wedge_674: main blocker is THIS
+    # json.dump, not aiosqlite as the profiler's aggregate frames suggested):
+    # serialising the ~87k-fact graph allocates a flood of short-lived str
+    # objects, which repeatedly trips gen0/gen1 collections; each collection
+    # also scans the huge long-lived graph in older generations, holding the
+    # GIL in C and starving the asyncio loop between the encoder's write-chunk
+    # yields. Disabling GC across the dump removes that collection cost; the
+    # transient garbage is reclaimed normally once GC is re-enabled. Pairs with
+    # the boot-time gc.freeze() (main._freeze_long_lived_state) that moves the
+    # never-deleted (§7) graph OUT of GC's scan set entirely. Restore the prior
+    # GC state in finally so we never leave collection off (and never enable it
+    # if it was already disabled by a caller).
+    _gc_was_enabled = gc.isenabled()
+    if _gc_was_enabled:
+        gc.disable()
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             try:
@@ -477,6 +494,12 @@ def _write_to_disk_atomic(data: dict) -> None:
         except OSError:
             pass
         raise
+    finally:
+        # R-F1621 — always restore GC (and never enable it if a caller had it
+        # disabled). Re-enabling does NOT force a collection; the deferred
+        # transient garbage is reclaimed on the next natural collection.
+        if _gc_was_enabled:
+            gc.enable()
 
 
 async def _flush_to_disk() -> None:
