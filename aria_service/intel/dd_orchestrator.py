@@ -2377,6 +2377,20 @@ async def _run_identity(
         _age = _age_months(report.identity.incorporation_date)
         if _age is not None:
             profile["age_months"] = _age
+        # R-F1636 — registry-gap enrichment: when the registry lookup was
+        # absent/thin/junk, enrich identity from OSINT (Wayback vintage) + the
+        # intel vault and persist it so the next DD recalls it at $0 (§15).
+        # locals().get avoids a NameError if reg_result never bound on an error
+        # path; never breaks the identity layer.
+        try:
+            if _registry_result_is_thin(locals().get("reg_result")):
+                _enr_name = (report.identity.entity_name or target.get("name")
+                             or target.get("entity") or "").strip()
+                if _enr_name:
+                    await _enrich_registry_gap(target, report, _enr_name)
+        except Exception as _enr_e:
+            logger.debug("R-F1636 registry-gap enrichment failed (non-fatal): %s", _enr_e)
+
         _act = _map_activity(report.identity.declared_activity)
         if _act is not None:
             profile["declared_activity"] = _act
@@ -3165,6 +3179,128 @@ def _press_hit_is_relevant(title: str, snippet: str, url: str, distinctive_token
         if not unicodedata.combining(c)
     ).lower()
     return any(t in hay for t in distinctive_tokens)
+
+
+# ── R-F1636 — registry-gap enrichment (rich data for no-registry targets) ────
+def _extract_domain(target: dict, name: str) -> str:
+    """Best-effort apex domain for the entity, for Wayback vintage enrichment."""
+    from urllib.parse import urlparse
+    for cand in (target.get("website"), target.get("url"), target.get("domain"),
+                 target.get("name"), name):
+        if not cand:
+            continue
+        s = str(cand).strip()
+        if "://" in s:
+            s = urlparse(s).netloc or s
+        s = s.removeprefix("www.").split("/")[0].strip().lower()
+        if "." in s and " " not in s and len(s) <= 80:
+            return s
+    return ""
+
+
+def _registry_result_is_thin(reg_result) -> bool:
+    """True when the registry adapter gave nothing usable: None, or a 'success'
+    with no real identity (empty company number AND no directors). Catches the
+    scrape-returns-boilerplate-junk case (e.g. the TR/MERSIS homepage scrape) —
+    surfacing that as identity is worse than honestly enriching from OSINT."""
+    if not reg_result:
+        return True
+    profile = reg_result.get("profile") or {}
+    has_number = bool((profile.get("company_number") or "").strip())
+    has_directors = bool(reg_result.get("officers"))
+    return not (has_number or has_directors)
+
+
+async def _wayback_earliest(domain: str) -> dict | None:
+    """Earliest archived snapshot of a domain via the Wayback availability API
+    (free, no key). The first-seen date is a vintage proxy when no registry
+    incorporation date exists (a very young domain + recent contact = ghost
+    risk). Returns {first_seen, snapshot_url} or None. Never raises."""
+    if not domain:
+        return None
+    import httpx
+    try:
+        url = f"http://archive.org/wayback/available?url={domain}&timestamp=19960101"
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return None
+            snap = ((r.json() or {}).get("archived_snapshots") or {}).get("closest") or {}
+            ts = snap.get("timestamp") or ""
+            if len(ts) < 8:
+                return None
+            return {"first_seen": f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}", "snapshot_url": snap.get("url", "")}
+    except Exception:
+        return None
+
+
+async def _enrich_registry_gap(target: dict, report, name: str) -> None:
+    """R-F1636 — when registry data is absent/thin/junk, enrich identity from
+    FREE OSINT (Wayback vintage) + the intel VAULT (prior DDs), and WRITE the
+    enrichment back to the vault so the next DD on this entity recalls it at $0
+    (§15 pay-once-remember-forever). Never raises."""
+    domain = _extract_domain(target, name)
+    bits: list[str] = []
+
+    # A-guard (folded in): a thin result may have populated identity with empty/
+    # boilerplate values — clear obviously-unusable ones so the DD shows honest
+    # "MISSING" instead of junk (e.g. a homepage-scrape fragment as 'address').
+    _addr = (report.identity.registered_address or "")
+    if _addr and (len(_addr) > 160 or "veri taban" in _addr.lower() or "mersis)" in _addr.lower()):
+        report.identity.registered_address = ""
+        report.identity.data_gaps.append("R-F1636: discarded non-address registry text (homepage-scrape artifact)")
+
+    # 1. Vault recall first (§15) — did a prior DD already enrich this entity?
+    try:
+        from . import rag_store as _rs
+        hits = await _rs.search(f"{name} registry enrichment vintage", top_k=3)
+        if hits:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Vault recall: {len(hits)} prior memory hit(s) on {name}",
+                detail="Prior DD intel recalled from the intel vault (§15 pay-once-remember-forever).",
+                source="intel_vault", confidence="ASSESSED",
+            ))
+            bits.append("vault_recall")
+    except Exception:
+        pass
+
+    # 2. Wayback domain vintage — proxy for entity age (no incorporation date).
+    if domain:
+        wb = await _wayback_earliest(domain)
+        if wb and wb.get("first_seen"):
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Domain vintage (Wayback): first archived {wb['first_seen']}",
+                detail=(f"Domain {domain} first archived {wb['first_seen']} — vintage proxy "
+                        f"(no registry incorporation date available)."),
+                source=wb.get("snapshot_url") or "web.archive.org",
+                confidence="ASSESSED",
+            ))
+            bits.append(f"wayback:{wb['first_seen']}")
+        else:
+            report.identity.data_gaps.append(
+                f"R-F1636: no Wayback archive for {domain} — possibly a very new domain (age-risk signal)"
+            )
+            bits.append("wayback:none")
+
+    # 3. Write enrichment to the VAULT so the next DD recalls it ($0) — §15.
+    if bits:
+        try:
+            from . import brain_hook as _bh
+            await _bh.absorb(
+                module="dd_registry_enrichment",
+                summary=f"Registry-gap enrichment for {name}: {', '.join(bits)}",
+                detail=f"domain={domain}; jurisdiction={target.get('jurisdiction_iso2', '?')}",
+                entity_name=name, success=True, confidence="ASSESSED", source_id="R-F1636",
+            )
+        except Exception:
+            pass
+
+    report.identity.data_gaps.append(
+        "R-F1636: registry unavailable — identity enriched from OSINT/vault, NOT registry-verified; "
+        "manual registry check still required before transacting."
+    )
 
 
 async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:
