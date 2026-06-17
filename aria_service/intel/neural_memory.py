@@ -22,6 +22,7 @@ from .engine_wiring import wire_success
 
 import asyncio
 import base64
+import gc
 import gzip
 import json
 import logging
@@ -160,12 +161,26 @@ def _encode_edges(edges_dict: dict) -> str:
     `default` is a defensive no-op. Try fast path first; fall back
     to default=str on the impossible TypeError so a non-native type
     leaking in does NOT crash persist."""
+    # R-F1639 — disable cyclic GC across the dump+gzip (same root + fix as
+    # R-F1621 for knowledge.py): serialising the edges graph allocates a flood
+    # of temp objects that trip gen0/1 collections, which also re-scan the large
+    # long-lived neural graph in older generations — holding the GIL in this
+    # throttled worker thread and starving the asyncio loop (wedge_675,
+    # neural_memory:164). gc.freeze() at boot covers the boot graph; this covers
+    # the per-encode churn. Restored in finally; never enables GC a caller had off.
+    _gc_was_enabled = gc.isenabled()
+    if _gc_was_enabled:
+        gc.disable()
     try:
-        raw = json.dumps(edges_dict).encode("utf-8")
-    except TypeError:
-        raw = json.dumps(edges_dict, default=str).encode("utf-8")
-    gz = gzip.compress(raw, compresslevel=6)
-    return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+        try:
+            raw = json.dumps(edges_dict).encode("utf-8")
+        except TypeError:
+            raw = json.dumps(edges_dict, default=str).encode("utf-8")
+        gz = gzip.compress(raw, compresslevel=6)
+        return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+    finally:
+        if _gc_was_enabled:
+            gc.enable()
 
 
 def _decode_edges(value: Any) -> dict | None:
