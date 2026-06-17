@@ -10831,9 +10831,10 @@
       "title": "Wire /health/composite and /phase/gates endpoints reading from live scorer/heatmap/eval",
       "claimed_at": "2026-06-17T21:49:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "44a1c3e6",
+      "notes": null,
+      "shipped_at": "2026-06-17T21:51:59Z"
     }
   ]
 }
