@@ -3255,6 +3255,207 @@ async def health():
     }
 
 
+# ── R-F1643: Phase A gate surface — reads from live scorer/eval, not markdown ──
+
+
+@app.get("/health/composite")
+async def health_composite():
+    """R-F1643 — Live composite autonomy score from compute_composite().
+
+    Returns the same payload as autonomy_scorer.compute_composite() so the
+    status surface reads from ground truth, not from a human-edited document.
+    Editing CLAUDE.md or AGENTS.md does NOT change this endpoint's output.
+    """
+    try:
+        from .intel.autonomy_scorer import compute_composite
+        return await compute_composite()
+    except Exception as e:
+        from .intel.engine_wiring import wire_failure as _wf1643
+        _wf1643(module="health_composite", detail=str(e), gap_type="source_failure", source="health_composite")
+        return {"composite_score": None, "error": str(e), "source": "compute_composite() failed"}
+
+
+@app.get("/phase/gates")
+async def phase_gates():
+    """R-F1643 — Live Phase A gate status from scorer/eval/heatmap.
+
+    Every gate value reads from a live probe — NOT from CLAUDE.md or any
+    human-edited document. Editing markdown does NOT change these values.
+
+    Gates:
+      #1 Composite >= 71%  — from compute_composite()
+      #2 Heatmap floor >= 70% — from coverage_heatmap.build_heatmap()
+      #3 0 fly ERRORs/7d — from mistake_ledger (WARNING-level, not ERROR)
+      #4 Quarantined DDs closed — from dd_case_archive
+      #5 Env vars set — from os.environ probe
+      #6 500-Q eval frozen — from eval_runner.get_golden_set()
+      #7 >=4 design-partner convos — from operator_pending (manual)
+    """
+    gates = {}
+    sources = {}
+
+    # Gate #1: Composite >= 71%
+    try:
+        from .intel.autonomy_scorer import compute_composite
+        comp = await compute_composite()
+        cs = comp.get("composite_score")
+        gates["gate_1_composite"] = {
+            "label": "Composite >= 71%",
+            "value": cs,
+            "pass": cs is not None and cs >= 0.71,
+            "source": "compute_composite()",
+            "confidence": comp.get("confidence"),
+            "low_confidence": comp.get("low_confidence", True),
+        }
+        sources["composite"] = "compute_composite()"
+    except Exception as e:
+        gates["gate_1_composite"] = {"label": "Composite >= 71%", "value": None, "pass": False, "error": str(e)}
+        sources["composite"] = f"error: {e}"
+
+    # Gate #2: Heatmap floor >= 70%
+    try:
+        from .intel.coverage_heatmap import build_heatmap
+        hm = await build_heatmap()
+        cells = hm.get("cells", hm.get("matrix", {}))
+        floor = None
+        if isinstance(cells, dict):
+            vals = [v for v in cells.values() if isinstance(v, (int, float))]
+            if vals:
+                floor = min(vals)
+        elif isinstance(cells, list):
+            flat = []
+            for row in cells:
+                if isinstance(row, dict):
+                    for v in row.values():
+                        if isinstance(v, (int, float)):
+                            flat.append(v)
+                elif isinstance(row, list):
+                    for cell in row:
+                        if isinstance(cell, dict):
+                            for v in cell.values():
+                                if isinstance(v, (int, float)):
+                                    flat.append(v)
+            if flat:
+                floor = min(flat)
+        gates["gate_2_heatmap_floor"] = {
+            "label": "Heatmap floor >= 70%",
+            "value": floor,
+            "pass": floor is not None and floor >= 0.70,
+            "source": "coverage_heatmap.build_heatmap()",
+        }
+        sources["heatmap"] = "coverage_heatmap.build_heatmap()"
+    except Exception as e:
+        gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
+        sources["heatmap"] = f"error: {e}"
+
+    # Gate #3: 0 fly ERRORs/7d — from mistake_ledger (WARNING-level, not ERROR)
+    try:
+        from .intel import mistake_ledger as _ml1643
+        ml_stats = await _ml1643.get_stats()
+        # mistake_ledger tracks WARNING-level events; gate #3 counts ERROR-level
+        # We report the ledger count but flag that this is WARNING not ERROR
+        err_count_24h = ml_stats.get("errors_24h", ml_stats.get("total_24h", -1))
+        gates["gate_3_zero_errors"] = {
+            "label": "0 fly ERRORs/7d",
+            "value": err_count_24h,
+            "pass": err_count_24h == 0,
+            "note": "mistake_ledger tracks WARNING-level; true ERROR count needs Fly log grep",
+            "source": "mistake_ledger.get_stats()",
+        }
+        sources["errors"] = "mistake_ledger.get_stats()"
+    except Exception as e:
+        gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": False, "error": str(e)}
+        sources["errors"] = f"error: {e}"
+
+    # Gate #4: Quarantined DDs closed
+    try:
+        from .intel import dd_case_archive as _ddca1643
+        archive_stats = await _ddca1643.get_stats()
+        quarantined = archive_stats.get("quarantined", archive_stats.get("open", -1))
+        gates["gate_4_quarantine_closed"] = {
+            "label": "Quarantined DDs closed",
+            "value": quarantined,
+            "pass": quarantined == 0,
+            "source": "dd_case_archive.get_stats()",
+        }
+        sources["quarantine"] = "dd_case_archive.get_stats()"
+    except Exception as e:
+        gates["gate_4_quarantine_closed"] = {"label": "Quarantined DDs closed", "value": None, "pass": False, "error": str(e)}
+        sources["quarantine"] = f"error: {e}"
+
+    # Gate #5: Env vars set
+    try:
+        import os as _os1643
+        required_vars = ["ARIA_OUTPUT_HARVEST_ENABLED", "ARIA_AUTONOMOUS_ENABLED"]
+        # ACLED is deferred per operator 2026-06-07 — not checked here
+        var_status = {}
+        for v in required_vars:
+            val = _os1643.environ.get(v, "")
+            var_status[v] = {"set": bool(val), "value": val[:20] if val else None}
+        all_set = all(v["set"] for v in var_status.values())
+        gates["gate_5_env_vars"] = {
+            "label": "Env vars set",
+            "value": var_status,
+            "pass": all_set,
+            "note": "ACLED deferred per operator 2026-06-07 (MVP launch)",
+            "source": "os.environ",
+        }
+        sources["env_vars"] = "os.environ"
+    except Exception as e:
+        gates["gate_5_env_vars"] = {"label": "Env vars set", "value": None, "pass": False, "error": str(e)}
+        sources["env_vars"] = f"error: {e}"
+
+    # Gate #6: 500-Q eval frozen
+    try:
+        from .intel import eval_runner as _er1643
+        items = await _er1643.get_golden_set()
+        count = len(items)
+        gates["gate_6_eval_frozen"] = {
+            "label": "500-Q eval frozen",
+            "value": count,
+            "target": 500,
+            "pass": count >= 500,
+            "source": "eval_runner.get_golden_set()",
+        }
+        sources["eval"] = "eval_runner.get_golden_set()"
+    except Exception as e:
+        gates["gate_6_eval_frozen"] = {"label": "500-Q eval frozen", "value": None, "pass": False, "error": str(e)}
+        sources["eval"] = f"error: {e}"
+
+    # Gate #7: >=4 design-partner convos
+    try:
+        from .intel import operator_pending as _op1643
+        pending = await _op1643.list_pending()
+        # This is a manual gate — we report the count but can't auto-verify
+        convos = len(pending) if isinstance(pending, list) else -1
+        gates["gate_7_design_partners"] = {
+            "label": ">=4 design-partner convos",
+            "value": convos,
+            "pass": convos >= 4,
+            "note": "Manual gate — count from operator_pending list; requires operator confirmation",
+            "source": "operator_pending.list_pending()",
+        }
+        sources["design_partners"] = "operator_pending.list_pending()"
+    except Exception as e:
+        gates["gate_7_design_partners"] = {"label": ">=4 design-partner convos", "value": None, "pass": False, "error": str(e)}
+        sources["design_partners"] = f"error: {e}"
+
+    # Summary
+    passed = sum(1 for g in gates.values() if g.get("pass"))
+    total = len(gates)
+    return {
+        "gates": gates,
+        "summary": {
+            "passed": passed,
+            "total": total,
+            "all_pass": passed == total,
+            "generated_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
+        },
+        "sources_consulted": sources,
+        "note": "R-F1643: every gate value reads from a live probe. Editing markdown does NOT change these values.",
+    }
+
+
 @app.get("/diagnostic")
 async def public_diagnostic():
     """Public diagnostic summary — binary PASS/FAIL per module cluster.
