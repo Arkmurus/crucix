@@ -3370,7 +3370,7 @@ async def phase_gates():
     # Gate #4: Quarantined DDs closed
     try:
         from .intel import dd_case_archive as _ddca1643
-        archive_stats = await _ddca1643.stats()
+        archive_stats = _ddca1643.stats()
         quarantined = archive_stats.get("quarantined", archive_stats.get("open", -1))
         gates["gate_4_quarantine_closed"] = {
             "label": "Quarantined DDs closed",
@@ -3425,7 +3425,7 @@ async def phase_gates():
     # Gate #7: >=4 design-partner convos
     try:
         from .intel import operator_pending as _op1643
-        pending = await _op1643.list_keys()
+        pending = _op1643.list_keys()
         # This is a manual gate — we report the count but can't auto-verify
         convos = len(pending) if isinstance(pending, list) else -1
         gates["gate_7_design_partners"] = {
