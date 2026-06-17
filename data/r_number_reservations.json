@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1641,
+  "next_available": 1643,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10802,6 +10802,25 @@
       "r_number": "R-F1640",
       "title": "AGENTS.md: status-claim verification law - every claim cites its live source",
       "claimed_at": "2026-06-17T21:03:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bbd5327a",
+      "notes": null,
+      "shipped_at": "2026-06-17T21:04:13Z"
+    },
+    {
+      "r_number": "R-F1641",
+      "title": "Stage-1 Lane-A remote openbook builder (clear #2: off-box retrieval via /rag/search)",
+      "claimed_at": "2026-06-17T21:12:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1642",
+      "title": "RunPod scheduler stop-only mode + work-claim guard (WS-4c safe joint management)",
+      "claimed_at": "2026-06-17T21:30:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
