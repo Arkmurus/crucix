@@ -81,6 +81,22 @@ _kb_warn_throttle = 0
 
 _cache: dict[str, list] | None = None
 
+# ── R-F1622 — O(1) dedup/contradiction indices over _cache["facts"] ──────────
+# store_fact used to run THREE O(len(facts)) scans per call (contradictions +
+# content-hash dedup + topic dedup). At ~87k facts that was ~3.5s/call — the
+# brain_hook "knowledge: timeout (>3.5s)" floods, the absorb circuit tripping
+# at p95=120-190s, and a major event-loop wedge contributor (the Python-level
+# 87k-dict iteration holds the GIL even when run in a thread). Knowledge is
+# append-mostly (§7 never deletes), so these indices are maintained
+# incrementally: rebuilt once when the cache (re)loads or its length drifts
+# (out-of-band append), updated on each new-fact insert. Lookups become O(1) /
+# O(facts-in-this-one-topic) and run INLINE — no to_thread, so no interleave
+# window either (the dedup→mutate sequence is now atomic on the loop).
+_topic_index: dict[str, list] = {}      # topic.strip().lower() -> [fact refs], newest-first
+_content_index: dict[str, dict] = {}    # "content_hash|source_domain" -> fact ref
+_index_count: int = -1                  # len(facts) the indices reflect (-1 = unbuilt)
+_indexed_cache_id: int = 0              # id(db) the indices were built for
+
 # R-F939 (2026-05-27) — search_knowledge lowercased-text cache. Pre-R-F939
 # search_knowledge rebuilt `f"{topic} {content}".lower()` for EVERY fact on
 # EVERY chat query (the 7-layer-context "knowledge" layer). At ~67k facts —
@@ -806,6 +822,54 @@ def _detect_contradictions(topic: str, content: str, existing_facts: list[dict])
     return contradictions
 
 
+# ── R-F1622 — O(1) dedup/contradiction indices ──────────────────────────────
+def _index_key_content(content_hash: str, source_domain: str) -> str:
+    return f"{content_hash}|{source_domain}"
+
+
+def _rebuild_indices(db: dict) -> None:
+    """(Re)build the dedup indices from the full facts list. O(N), but runs
+    once per cache load (or if the list length drifts from an out-of-band
+    append/delete) — NOT per store_fact."""
+    global _topic_index, _content_index, _index_count, _indexed_cache_id
+    facts = db.get("facts", []) if db else []
+    ti: dict[str, list] = {}
+    ci: dict[str, dict] = {}
+    for f in facts:  # facts is newest-first (insert(0) order); preserve it
+        t = (f.get("topic") or "").strip().lower()
+        if t:
+            ti.setdefault(t, []).append(f)
+        ch, sd = f.get("content_hash"), f.get("source_domain")
+        if ch and sd:
+            ci.setdefault(_index_key_content(ch, sd), f)  # first seen = newest wins
+    _topic_index, _content_index = ti, ci
+    _index_count = len(facts)
+    _indexed_cache_id = id(db)
+
+
+def _ensure_indices(db: dict) -> None:
+    """Cheap O(1) hot-path guard: rebuild only if the cache identity changed
+    (reload) or the fact count drifted (something appended/removed out of
+    band). store_fact's own insert keeps _index_count in lock-step, so the
+    steady-state path never rebuilds."""
+    if _indexed_cache_id != id(db) or _index_count != len(db.get("facts", [])):
+        _rebuild_indices(db)
+
+
+def _index_add(new_record: dict) -> None:
+    """Incrementally index a freshly-inserted fact. Newest → front of its
+    topic list so topic-dedup keeps picking the newest (matching the prior
+    `for f in db['facts']` first-match-wins order, since new facts insert(0))."""
+    global _index_count
+    t = (new_record.get("topic") or "").strip().lower()
+    if t:
+        _topic_index.setdefault(t, []).insert(0, new_record)
+    ch, sd = new_record.get("content_hash"), new_record.get("source_domain")
+    if ch and sd:
+        _content_index[_index_key_content(ch, sd)] = new_record  # newest wins
+    _index_count += 1
+
+
 # ── R-F1530: auto-verification queue ────────────────────────────────────────
 # Every fact stored via store_fact is automatically queued for verification,
 # regardless of whether the caller supplied source_url/fact_type/entity_name.
@@ -1013,48 +1077,28 @@ async def store_fact(topic: str, content: str, source: str = "user",
     except Exception:
         _source_domain = ""
 
-    # ── R-F775 (2026-05-21) — single-pass scan off the event loop ────────
-    # Pre-R-F775 the contradictions scan + content-hash dedup + topic
-    # dedup ran inline on the response loop, each O(len(facts)). With
-    # ~57k facts in production each store_fact call did ~170k string
-    # ops on the main thread. wedge_675_1779352332.log captured 5-17s
-    # main-thread stalls here and the brain_hook circuit tripped at
-    # 09:04:00 UTC 2026-05-21 with p95 = 22min on absorb(web_atlas)
-    # — paid intel was being skipped (R-cluster: pay-once-remember-
-    # forever degradation). Now all three scans run in a single worker
-    # thread; the response loop is free during the scan. Mutations +
-    # _save() stay on the loop (cheap; per-call work).
-    def _scan_for_dedup_sync() -> tuple[list[dict], dict | None, dict | None]:
-        # Return dict REFERENCES, not indices: between to_thread returning
-        # and the mutation site below, a concurrent store_fact could
-        # `db["facts"].insert(0, ...)` (line 913) which shifts every
-        # index by one. Dict identity is stable across list reorders, so
-        # references survive concurrent inserts. (Knowledge never deletes
-        # — R-F239 warn-only — so references remain valid for the
-        # mutation that follows.)
-        contras = _detect_contradictions(topic, content, db["facts"])
-        content_hit = None
-        if _content_hash and _source_domain:
-            for f in db["facts"]:
-                if (
-                    f.get("content_hash") == _content_hash
-                    and f.get("source_domain") == _source_domain
-                ):
-                    content_hit = f
-                    break
-        topic_hit = None
-        if content_hit is None:
-            _topic_lower = topic.lower()
-            for f in db["facts"]:
-                if f["topic"].lower() == _topic_lower:
-                    topic_hit = f
-                    break
-        return contras, content_hit, topic_hit
-
-    import asyncio as _aio_r775
-    contradictions, _content_hit, _topic_hit = (
-        await _aio_r775.to_thread(_scan_for_dedup_sync)
-    )
+    # ── R-F1622 — O(1) dedup/contradiction via incremental indices ───────
+    # Supersedes R-F775's "single-pass scan in a worker thread". That scan
+    # was still O(len(facts)): at ~87k facts it cost ~3.5s/call, driving the
+    # brain_hook "knowledge: timeout (>3.5s)" floods, the absorb circuit
+    # tripping at p95=120-190s (wedge_673 era), and a major event-loop wedge
+    # (the 87k-dict Python iteration holds the GIL even inside the thread).
+    # The indices (built once per load, kept in sync on insert) make all three
+    # lookups O(1) / O(facts-in-this-topic). They run INLINE — and because
+    # there is now no `await` between the lookup and the mutation below, a
+    # concurrent store_fact cannot interleave, so the R-F775 reference-vs-index
+    # concern is moot (we still hold dict references, which stay valid as
+    # §7 never deletes).
+    _ensure_indices(db)
+    _topic_lower = topic.strip().lower()
+    _same_topic = _topic_index.get(_topic_lower, [])
+    contradictions = _detect_contradictions(topic, content, _same_topic)
+    _content_hit = None
+    if _content_hash and _source_domain:
+        _content_hit = _content_index.get(
+            _index_key_content(_content_hash, _source_domain)
+        )
+    _topic_hit = _same_topic[0] if (_content_hit is None and _same_topic) else None
 
     if _content_hit is not None:
         f = _content_hit
@@ -1129,6 +1173,7 @@ async def store_fact(topic: str, content: str, source: str = "user",
     if verified_meta:
         new_record.update(verified_meta)
     db["facts"].insert(0, new_record)
+    _index_add(new_record)  # R-F1622 — keep O(1) dedup indices in sync
 
     # R-F1530: auto-queue every fact for verification, regardless of whether
     # the caller supplied source_url/fact_type/entity_name. Previously only
