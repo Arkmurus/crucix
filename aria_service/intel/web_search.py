@@ -894,7 +894,8 @@ async def search(
     # that Google-News-en doesn't surface.
     extra_langs = _detect_query_languages(query, base_lang=language)
     backend_tasks = [
-        _search_brave(query, MAX_RESULTS_PER_BACKEND, language),
+        # R-F1630 (2026-06-17): _search_brave removed (R-F320 permanent stub).
+        # SearXNG self-host (R-F183) + DuckDuckGo cover general web.
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
         _search_duckduckgo(query, MAX_RESULTS_PER_BACKEND),
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
@@ -903,7 +904,6 @@ async def search(
         _search_defence_event(query, MAX_RESULTS_PER_BACKEND),  # R-F126
     ]
     for _xl in extra_langs[:3]:  # cap fan-out at 3 extra langs
-        backend_tasks.append(_search_brave(query, MAX_RESULTS_PER_BACKEND, _xl))
         backend_tasks.append(_search_google_news(query, MAX_RESULTS_PER_BACKEND, _xl))
     if extra_langs:
         logger.info(
