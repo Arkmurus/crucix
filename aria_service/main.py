@@ -3348,10 +3348,10 @@ async def phase_gates():
         gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
         sources["heatmap"] = f"error: {e}"
 
-    # Gate #3: 0 fly ERRORs/7d — from mistake_ledger (WARNING-level, not ERROR)
+    # Gate #3: 0 fly ERRORs/7d — from mistake_ledger.stats() (WARNING-level, not ERROR)
     try:
         from .intel import mistake_ledger as _ml1643
-        ml_stats = await _ml1643.get_stats()
+        ml_stats = await _ml1643.stats()
         # mistake_ledger tracks WARNING-level events; gate #3 counts ERROR-level
         # We report the ledger count but flag that this is WARNING not ERROR
         err_count_24h = ml_stats.get("errors_24h", ml_stats.get("total_24h", -1))
@@ -3360,9 +3360,9 @@ async def phase_gates():
             "value": err_count_24h,
             "pass": err_count_24h == 0,
             "note": "mistake_ledger tracks WARNING-level; true ERROR count needs Fly log grep",
-            "source": "mistake_ledger.get_stats()",
+            "source": "mistake_ledger.stats()",
         }
-        sources["errors"] = "mistake_ledger.get_stats()"
+        sources["errors"] = "mistake_ledger.stats()"
     except Exception as e:
         gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": False, "error": str(e)}
         sources["errors"] = f"error: {e}"
@@ -3370,15 +3370,15 @@ async def phase_gates():
     # Gate #4: Quarantined DDs closed
     try:
         from .intel import dd_case_archive as _ddca1643
-        archive_stats = await _ddca1643.get_stats()
+        archive_stats = await _ddca1643.stats()
         quarantined = archive_stats.get("quarantined", archive_stats.get("open", -1))
         gates["gate_4_quarantine_closed"] = {
             "label": "Quarantined DDs closed",
             "value": quarantined,
             "pass": quarantined == 0,
-            "source": "dd_case_archive.get_stats()",
+            "source": "dd_case_archive.stats()",
         }
-        sources["quarantine"] = "dd_case_archive.get_stats()"
+        sources["quarantine"] = "dd_case_archive.stats()"
     except Exception as e:
         gates["gate_4_quarantine_closed"] = {"label": "Quarantined DDs closed", "value": None, "pass": False, "error": str(e)}
         sources["quarantine"] = f"error: {e}"
@@ -3425,7 +3425,7 @@ async def phase_gates():
     # Gate #7: >=4 design-partner convos
     try:
         from .intel import operator_pending as _op1643
-        pending = await _op1643.list_pending()
+        pending = await _op1643.list_keys()
         # This is a manual gate — we report the count but can't auto-verify
         convos = len(pending) if isinstance(pending, list) else -1
         gates["gate_7_design_partners"] = {
@@ -3433,9 +3433,9 @@ async def phase_gates():
             "value": convos,
             "pass": convos >= 4,
             "note": "Manual gate — count from operator_pending list; requires operator confirmation",
-            "source": "operator_pending.list_pending()",
+            "source": "operator_pending.list_keys()",
         }
-        sources["design_partners"] = "operator_pending.list_pending()"
+        sources["design_partners"] = "operator_pending.list_keys()"
     except Exception as e:
         gates["gate_7_design_partners"] = {"label": ">=4 design-partner convos", "value": None, "pass": False, "error": str(e)}
         sources["design_partners"] = f"error: {e}"
