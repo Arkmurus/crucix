@@ -111,7 +111,13 @@ class EagleEyeGuardian:
 
         self.trouble_spots: list[TroubleSpot] = []
         self.code_smells: list[CodeSmell] = []
-        self.file_hashes: dict[str, str] = {}
+        # R-F1623: load persisted per-file hashes so a restart/deploy does NOT
+        # treat the whole codebase as "changed" and re-encode every file via
+        # sentence_transformers (GIL-bound → 9-12s event-loop wedges, the
+        # post-deploy storm). Persisted on /data so it survives the ephemeral
+        # container fs. Pairs with R-F1591 (which skips re-indexing unchanged
+        # files WITHIN a process — useless across restarts without this).
+        self.file_hashes: dict[str, str] = self._load_file_hashes()
         self.change_history: dict[str, list[dict]] = defaultdict(list)
 
         # R-F1577: cross-scan dedup — tracks (file, line, type) fingerprints
@@ -177,6 +183,7 @@ class EagleEyeGuardian:
             except Exception as e:
                 logger.debug("[EagleEye] Could not scan %s: %s", file_path, e)
 
+        self._save_file_hashes()  # R-F1623 — persist so the next restart skips unchanged files
         self.metrics["files_watched"] = len(python_files)
         self.metrics["scans_completed"] += 1
         self.metrics["last_scan"] = datetime.now().isoformat()
@@ -388,6 +395,35 @@ class EagleEyeGuardian:
             metrics_file.write_text(json.dumps(self.metrics, indent=2, default=str))
         except Exception as e:
             logger.debug("[EagleEye] Failed to save metrics: %s", e)
+
+    def _hashes_path(self) -> Path:
+        """R-F1623 — persist file_hashes on the /data volume so they survive a
+        restart/deploy (the .aria dir is on the ephemeral container fs). Falls
+        back to guardian_dir locally / in tests where /data isn't mounted."""
+        try:
+            if Path("/data").exists() and os.access("/data", os.W_OK):
+                return Path("/data") / "eagle_eye_file_hashes.json"
+        except Exception:
+            pass
+        return self.guardian_dir / "file_hashes.json"
+
+    def _load_file_hashes(self) -> dict:
+        try:
+            p = self._hashes_path()
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    logger.info("[EagleEye] R-F1623 — loaded %d persisted file hashes; only changed files re-index", len(data))
+                    return data
+        except Exception as e:
+            logger.debug("[EagleEye] file_hashes load failed (non-fatal): %s", e)
+        return {}
+
+    def _save_file_hashes(self) -> None:
+        try:
+            self._hashes_path().write_text(json.dumps(self.file_hashes), encoding="utf-8")
+        except Exception as e:
+            logger.debug("[EagleEye] file_hashes save failed (non-fatal): %s", e)
 
     def get_report(self) -> dict:
         """Get eagle eye report."""
