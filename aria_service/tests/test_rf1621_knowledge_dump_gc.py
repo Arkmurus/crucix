@@ -24,12 +24,21 @@ def test_dump_runs_with_gc_disabled_and_restores_it(tmp_path, monkeypatch):
 
     gc.enable()  # start enabled so we can prove it's off mid-dump + restored
     seen = {}
+    # R-F1668: the dump now STREAMS the facts list via json.dumps (per fact/key)
+    # to yield the GIL — so hook json.dumps (and json.dump for the fallback path)
+    # to capture GC state DURING serialisation. Same contract, new primitive.
+    real_dumps = json.dumps
     real_dump = json.dump
 
+    def _spy_dumps(obj, **kw):
+        seen.setdefault("gc_enabled_during_dump", gc.isenabled())
+        return real_dumps(obj, **kw)
+
     def _spy_dump(data, f, **kw):
-        seen["gc_enabled_during_dump"] = gc.isenabled()
+        seen.setdefault("gc_enabled_during_dump", gc.isenabled())
         return real_dump(data, f, **kw)
 
+    monkeypatch.setattr(K.json, "dumps", _spy_dumps)
     monkeypatch.setattr(K.json, "dump", _spy_dump)
 
     data = {
@@ -59,10 +68,13 @@ def test_dump_restores_gc_even_when_dump_raises(tmp_path, monkeypatch):
     def _boom(*a, **k):
         raise RuntimeError("dump failed")
 
+    # R-F1668: streaming serialises via json.dumps — make it raise so the
+    # gc-restore-on-error path is exercised on the real (list) dump path too.
+    monkeypatch.setattr(K.json, "dumps", _boom)
     monkeypatch.setattr(K.json, "dump", _boom)
 
     with pytest.raises(RuntimeError):
-        K._write_to_disk_atomic({"facts": [], "version": 1})
+        K._write_to_disk_atomic({"facts": [{"id": 1}], "version": 1})
     assert gc.isenabled() is True, "GC must be restored even when the dump raises"
 
 

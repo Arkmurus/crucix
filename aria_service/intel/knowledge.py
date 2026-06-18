@@ -499,8 +499,12 @@ def _write_to_disk_atomic(data: dict) -> None:
             # unchanged and the recovery path is identical. We iterate a SHALLOW
             # COPY of the facts list so a concurrent store_fact append can't break
             # iteration (also safer than the old live-list json.dump).
-            if isinstance(data, dict):
-                _facts = list(data.get("facts") or [])
+            # Stream ONLY when facts is genuinely a list (the real _cache shape).
+            # For any other shape (facts is a dict / missing, or data isn't a
+            # dict) fall back to json.dump so arbitrary payloads serialise
+            # correctly — a generic dict under "facts" must NOT be coerced.
+            if isinstance(data, dict) and isinstance(data.get("facts"), list):
+                _facts = list(data["facts"])  # shallow copy — safe vs concurrent append
                 f.write("{")
                 _first = True
                 for _k, _v in data.items():
@@ -523,8 +527,12 @@ def _write_to_disk_atomic(data: dict) -> None:
                         time.sleep(0)  # release GIL -> event loop runs
                 f.write("]}")
             else:
-                # Defensive: _cache is always a dict; fall back for anything else.
-                json.dump(data, f, default=str)
+                try:
+                    json.dump(data, f)
+                except TypeError:
+                    f.seek(0)
+                    f.truncate()
+                    json.dump(data, f, default=str)
             # R-F1420 — flush + fsync the DATA to disk BEFORE the rename.
             # Atomic rename protects against torn/partial files but NOT
             # against losing still-in-page-cache data on a host crash /
