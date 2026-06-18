@@ -398,6 +398,27 @@ H. SELF-INSTRUMENTATION
    - R-F595 auto-fires it on capability questions and injects the [TOOL: self_introspect] block
    - R-F401 + R-F594 post-scan guards catch invented numbers/TTLs
 
+I. DD VAULT — PERSISTENT CASE FILE (R-F1655/R-F1658)
+   - Every DD run ever performed is recorded in the DD vault (SQLite, survives restarts).
+   - Query: dd_vault.search("company name") returns past DD cases with findings, risk scores, and cross-references.
+   - Cross-references link related companies (subsidiaries, parents, directors, counterparties).
+   - When a user asks about a company, CHECK THE DD VAULT FIRST before running a new DD.
+   - If a past DD exists, summarize the findings and offer to re-run.
+
+J. AGENT SIGNUP VAULT — PORTAL REGISTRY (R-F1063/R-F1231)
+   - Every portal ARIA has registered on is tracked in the signup vault (SQLite).
+   - 36 portals tracked: 23 registered, 13 open API (no registration needed).
+   - Portals include: SAM.gov, GovTribe, OpenCorporates, GAO.gov, Federal Register,
+     DSCA.mil, Semantic Scholar, Crunchbase, PitchBook, ACLED, and more.
+   - When a user asks about data sources, CHECK THE SIGNUP VAULT for what's available.
+   - If a needed portal is not registered, ARIA can attempt auto-registration.
+
+K. CONTINUOUS SOURCE DISCOVERY (R-F1653)
+   - Every 24h, ARIA discovers new data sources via citation walking, TLD probing,
+     and targeted gap-filling from the coverage heatmap.
+   - New sources are added to the Web Atlas and queued for vault registration.
+   - This means ARIA's source base grows autonomously without operator intervention.
+
 POLICY ON THIS LIST
 If a tool is named here, treat it as AVAILABLE. If a tool fails for a specific query (timeout, 403, etc.), describe the FAILURE — never extrapolate to "the capability does not exist". The capability exists; the call failed. Past incident 2026-05-16: ARIA repeatedly claimed "no UK OFSI access" while fcdo_sanctions.lookup() was successfully fetching ConList.xml in the background. Don't make that mistake again.
 
@@ -1525,6 +1546,76 @@ _INVENTORY_QUERY_RE = _re_inv.compile(
 )
 
 
+def _sync_dd_vault_context(message: str) -> str:
+    """R-F1663: DD vault context — past DD cases matching the query.
+
+    Queries the DD vault for cases matching the user's message and returns
+    a compact summary. This lets ARIA answer "what DDs have we done on X?"
+    from chat without needing a separate API call.
+    """
+    try:
+        import asyncio
+        from .intel.dd_vault import get_vault as _get_dd_vault
+
+        async def _query():
+            vault = _get_dd_vault()
+            results = vault.search(message, limit=5)
+            if not results:
+                return ""
+            parts = ["[DD VAULT — past cases matching this query]"]
+            for r in results:
+                name = r.get("entity_name", "?")
+                risk = r.get("risk_level", "unknown")
+                runs = r.get("run_count", 0)
+                last = r.get("last_run_at", 0)
+                summary = (r.get("findings_summary") or "")[:200]
+                from datetime import datetime
+                last_str = datetime.fromtimestamp(last).strftime("%Y-%m-%d") if last else "?"
+                parts.append(f"  - {name} (risk={risk}, runs={runs}, last={last_str})")
+                if summary:
+                    parts.append(f"    {summary}")
+            return "\n".join(parts)
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_query())
+        finally:
+            loop.close()
+    except Exception:
+        return ""
+
+
+def _sync_signup_vault_context(message: str) -> str:
+    """R-F1663: signup vault context — portal registrations matching the query.
+
+    Queries the agent signup vault for portals matching the user's message.
+    This lets ARIA answer "what portals are we registered on?" from chat.
+    """
+    try:
+        from .intel.agent_signup_vault import get_vault as _get_svault
+        vault = _get_svault()
+        results = vault.list(search=message, limit=10)
+        if not results:
+            # If no specific match, return a summary of all portals
+            stats = vault.stats()
+            by_status = stats.get("by_status", {})
+            return (
+                f"[SIGNUP VAULT — {stats.get('total', 0)} portals tracked: "
+                f"{by_status.get('registered', 0)} registered, "
+                f"{by_status.get('open_api', 0)} open API, "
+                f"{by_status.get('needs_operator', 0)} need operator]"
+            )
+        parts = ["[SIGNUP VAULT — matching portals]"]
+        for r in results[:5]:
+            name = r.get("site_name", r.get("site_id", "?"))
+            status = r.get("status", "?")
+            url = r.get("site_url", "")
+            parts.append(f"  - {name} ({status}) — {url}")
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
 def _build_tag_inventory_context(tag: str) -> str:
     """R-F245 (2026-05-11) — render a compact inventory block for the
     chat-build prompt. Pulls up to 30 tag-matched facts via
@@ -1673,6 +1764,10 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
             ("gtm",         lambda: get_gtm_context(message)),
             ("neural",      lambda: _sync_neural_context(message)),
             ("semantic",    lambda: get_semantic_context(message)),
+            # R-F1663: DD vault — past DD cases matching the query
+            ("dd_vault",    lambda: _sync_dd_vault_context(message)),
+            # R-F1663: signup vault — portal registrations matching the query
+            ("signup_vault", lambda: _sync_signup_vault_context(message)),
         ]
 
     # ── PARALLEL FETCH: run all layer functions concurrently ──────────

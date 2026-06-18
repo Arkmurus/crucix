@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1663,
+  "next_available": 1664,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10999,9 +10999,10 @@
       "title": "Search sovereignty program: remove vestigial Brave path in researcher.py",
       "claimed_at": "2026-06-18T11:46:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5d981e3e",
+      "notes": null,
+      "shipped_at": "2026-06-18T12:07:21Z"
     },
     {
       "r_number": "R-F1661",
@@ -11016,6 +11017,15 @@
       "r_number": "R-F1662",
       "title": "Search sovereignty: frontier-crawl depth (own index covers the beat)",
       "claimed_at": "2026-06-18T11:46:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1663",
+      "title": "Wire DD vault + signup vault into ARIA's brain as chat-queryable context layers",
+      "claimed_at": "2026-06-18T12:08:59Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
