@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1676,
+  "next_available": 1677,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11142,6 +11142,15 @@
       "r_number": "R-F1675",
       "title": "Surgical: parallelize researcher.read_document per-chunk LLM analysis (real WA doc path)",
       "claimed_at": "2026-06-18T16:23:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1676",
+      "title": "grounding-aware judge — pass retrieved evidence to the eval judge + require claim-level support (trustworthy RLAIF/eval reward, anti-fabrication)",
+      "claimed_at": "2026-06-18T16:31:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
