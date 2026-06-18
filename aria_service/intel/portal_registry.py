@@ -2106,7 +2106,7 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
 
     # 6. Attempt auto-registration
     try:
-        outcome = await register_for_portal(portal_id)
+        outcome = await register_for_portal(portal_id, purpose=f"Auto-registration for {portal.name} — {portal.description[:100]}")
         if outcome.get("success"):
             # Real registration succeeded
             try:
