@@ -229,9 +229,8 @@ async def read_document(
     # Strategy 3a: Chunked vision for large PDFs
     if llm and PYMUPDF_AVAILABLE:
         try:
-            _doc = fitz.open(filepath)
-            _page_count = len(_doc)
-            _doc.close()
+            # R-F1666: page-count probe off the event loop.
+            _page_count = await asyncio.to_thread(_fitz_page_count, filepath)
         except Exception:
             _page_count = 0
         if _page_count > VISION_LARGE_DOC_THRESHOLD:
@@ -449,6 +448,72 @@ def _strategy_ocr_tesseract(filepath: str, lang: str = "eng+por") -> ExtractionR
 
 # ── Strategy 3: LLM vision ─────────────────────────────────────────────────
 
+# ── R-F1666: sync fitz helpers — dispatched via asyncio.to_thread so PDF
+# parsing / page rendering (fitz.open, get_text, get_pixmap) NEVER blocks the
+# event loop. Rendering a large/scanned PDF ON the loop froze the whole brain —
+# the doc read AND every other request (WA brain-fetch, /api/aria/health,
+# state_store) timed out together (2026-06-18 contract-review outage; wedge
+# stack: main thread blocked in read_document). The text/table/OCR strategies
+# were already offloaded (~lines 193/205/222); the VISION path was the missed
+# one. All blocking fitz work now lives in these sync helpers, off the loop.
+
+def _fitz_page_count(filepath: str) -> int:
+    doc = fitz.open(filepath)
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
+def _fitz_vision_pdf_summaries_sync(filepath: str) -> tuple[list[str], int, int]:
+    """Sync page-text extraction for _strategy_vision_pdf (runs in a thread)."""
+    doc = fitz.open(filepath)
+    try:
+        total_pages = len(doc)
+        pages_to_process = min(total_pages, _VISION_MAX_PAGES)
+        page_summaries: list[str] = []
+        for i in range(pages_to_process):
+            page = doc[i]
+            text = page.get_text()
+            if text.strip():
+                page_summaries.append(f"[Page {i+1}]: {text[:2000]}")
+            else:
+                page_summaries.append(f"[Page {i+1}]: (image-only, no text layer)")
+        return page_summaries, total_pages, pages_to_process
+    finally:
+        doc.close()
+
+
+def _fitz_chunk_summaries_sync(
+    filepath: str, start_page: int, end_page: int,
+) -> list[str]:
+    """Sync page-text + image-render for _vision_single_chunk (runs in a thread).
+    get_pixmap rasterisation is the heaviest CPU op in the doc path — keeping it
+    off the loop is the core of R-F1666."""
+    doc = fitz.open(filepath)
+    try:
+        page_summaries: list[str] = []
+        for page_num in range(start_page, end_page):
+            page = doc[page_num]
+            text = page.get_text()
+            if text.strip():
+                page_summaries.append(f"[PAGE {page_num + 1}]:\n{text[:3000]}")
+            else:
+                mat = fitz.Matrix(150 / 72, 150 / 72)
+                pixmap = page.get_pixmap(matrix=mat)
+                img_bytes = pixmap.tobytes("jpeg")
+                if len(img_bytes) > 4_500_000:
+                    mat = fitz.Matrix(100 / 72, 100 / 72)
+                    pixmap = page.get_pixmap(matrix=mat)
+                    img_bytes = pixmap.tobytes("jpeg")
+                page_summaries.append(
+                    f"[PAGE {page_num + 1}]: (image-only, {len(img_bytes)} bytes, no text layer)"
+                )
+        return page_summaries
+    finally:
+        doc.close()
+
+
 async def _strategy_vision_pdf(
     filepath: str,
     llm: "LLMProvider",
@@ -460,24 +525,11 @@ async def _strategy_vision_pdf(
     vision/multimodal, this will fail gracefully.
     """
     try:
-        doc = fitz.open(filepath)
-        try:
-            total_pages = len(doc)
-            pages_to_process = min(total_pages, _VISION_MAX_PAGES)
-
-            # Build a text prompt describing the pages (since our LLM abstraction
-            # is text-only, we describe what we need and let the system prompt
-            # guide extraction)
-            page_summaries = []
-            for i in range(pages_to_process):
-                page = doc[i]
-                text = page.get_text()
-                if text.strip():
-                    page_summaries.append(f"[Page {i+1}]: {text[:2000]}")
-                else:
-                    page_summaries.append(f"[Page {i+1}]: (image-only, no text layer)")
-        finally:
-            doc.close()
+        # R-F1666: fitz parsing/get_text off the event loop (was blocking the
+        # whole brain on large/scanned PDFs).
+        page_summaries, total_pages, pages_to_process = await asyncio.to_thread(
+            _fitz_vision_pdf_summaries_sync, filepath,
+        )
 
         if not page_summaries:
             return ExtractionResult(
@@ -593,9 +645,8 @@ async def _read_pdf_chunked(
         )
 
     try:
-        doc = fitz.open(source)
-        total_pages = len(doc)
-        doc.close()
+        # R-F1666: page-count probe off the event loop.
+        total_pages = await asyncio.to_thread(_fitz_page_count, source)
     except Exception as e:
         return ExtractionResult(
             method="VISION_CHUNKED",
@@ -736,30 +787,12 @@ async def _vision_single_chunk(
     direct Anthropic client call.
     """
     try:
-        doc = fitz.open(filepath)
-        try:
-            page_summaries: list[str] = []
-
-            for page_num in range(start_page, end_page):
-                page = doc[page_num]
-                # Try text layer first (much cheaper than vision)
-                text = page.get_text()
-                if text.strip():
-                    page_summaries.append(f"[PAGE {page_num + 1}]:\n{text[:3000]}")
-                else:
-                    # Render to image, encode as base64 for description
-                    mat = fitz.Matrix(150 / 72, 150 / 72)
-                    pixmap = page.get_pixmap(matrix=mat)
-                    img_bytes = pixmap.tobytes("jpeg")
-                    if len(img_bytes) > 4_500_000:
-                        mat = fitz.Matrix(100 / 72, 100 / 72)
-                        pixmap = page.get_pixmap(matrix=mat)
-                        img_bytes = pixmap.tobytes("jpeg")
-                    page_summaries.append(
-                        f"[PAGE {page_num + 1}]: (image-only, {len(img_bytes)} bytes, no text layer)"
-                    )
-        finally:
-            doc.close()
+        # R-F1666: fitz get_text + get_pixmap rasterisation off the event loop —
+        # this rendering was the heaviest on-loop block (froze the brain on the
+        # 2026-06-18 contract review).
+        page_summaries = await asyncio.to_thread(
+            _fitz_chunk_summaries_sync, filepath, start_page, end_page,
+        )
 
         if not page_summaries:
             return ExtractionResult(
