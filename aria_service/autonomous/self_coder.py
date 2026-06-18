@@ -241,7 +241,9 @@ class ARIACoder:
         self.harvester = output_harvester
 
         # Allow injection for tests; default to constructing from scratch
-        self.gap_detector = gap_detector or GapDetector(redis_client)
+        # R-F1680: pass the LLM so GapDetector can auto-write reproduce tests
+        # when no existing test is found for the target module.
+        self.gap_detector = gap_detector or GapDetector(redis_client, llm=llm)
         # R-F1025: default to the LLM-backed SovereignLLM, NOT the template-only
         # AutonomousCoder stub. The stub ignored existing_code (emitted fresh
         # stubs), returned the wrong test key, and never produced corrected code

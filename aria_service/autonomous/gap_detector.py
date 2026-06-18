@@ -1473,8 +1473,12 @@ class GapDetector:
     FIXED_KEY_PREFIX = "crucix:aria:gap:fixed:"
     ATTEMPTED_KEY_PREFIX = "crucix:aria:gap:attempted:"
 
-    def __init__(self, redis_client: Any) -> None:
+    def __init__(self, redis_client: Any, llm: Any | None = None) -> None:
+        """R-F1680: `llm` is an optional SovereignLLM instance for auto-writing
+        reproduce tests when no existing test is found for the target module.
+        When None, the old behaviour applies (reject with 'no test found')."""
         self.redis = redis_client
+        self._llm = llm
         # R-F884 — reconnected to the REAL producer stores. Dropped
         # HealthPerfExtractor (`crucix:health:perf:latest`) and
         # SourceHealthExtractor (`crucix:sweep:last_result`): NO producer
@@ -1676,8 +1680,106 @@ class GapDetector:
                     continue
         return None
 
+    async def _auto_write_reproduce_test(self, gap: Gap, module: str) -> tuple[bool, str]:
+        """R-F1680: auto-write a reproduce test via LLM when no existing test exists.
+
+        The LLM writes a pytest that targets the gap's symptom. We run it on
+        the UNFIXED code — it MUST FAIL. If it passes, the test is gamed or
+        doesn't reproduce anything → reject (no false gold).
+
+        Returns:
+            (True, "symptom reproduced via auto-written test <path>") on success
+            (False, "reason") if the test couldn't be written or doesn't fail
+        """
+        if self._llm is None:
+            return (False, "no LLM available to write reproduce test")
+
+        # Build a prompt for the LLM to write a reproduce test
+        import json as _json1680
+        _prompt = (
+            f"Write a single pytest test function that reproduces the following gap symptom "
+            f"in module '{module}'. The test must FAIL when run against the CURRENT (unfixed) "
+            f"code — it should assert the buggy behaviour exists.\n\n"
+            f"GAP TITLE: {gap.title}\n"
+            f"GAP DESCRIPTION: {gap.description}\n"
+            f"GAP TYPE: {gap.gap_type}\n"
+            f"MODULE: {module}\n"
+            f"ERROR TRACE: {gap.error_trace or 'N/A'}\n\n"
+            f"RULES:\n"
+            f"1. The test MUST fail on the current unfixed code (that proves the bug exists).\n"
+            f"2. Use only standard library + pytest — no live network calls.\n"
+            f"3. Mock external dependencies (httpx, Redis, file I/O) at the boundary.\n"
+            f"4. Name the test function `test_reproduce_{gap.gap_id[:12]}`.\n"
+            f"5. Reply with ONLY valid JSON: {{\"test_code\": \"complete test code\"}}\n"
+        )
+        try:
+            _resp = await self._llm._call(prompt=_prompt, task="test")
+        except Exception as _e:
+            return (False, f"LLM failed to write reproduce test: {_e}")
+
+        _test_code = (_resp or {}).get("test_code", "")
+        if not _test_code:
+            return (False, "LLM returned empty test code")
+
+        # Write the test to a temp file
+        import tempfile as _tf1680
+        import os as _os1680
+        _tmp = _tf1680.NamedTemporaryFile(
+            mode="w", suffix=".py", prefix=f"repro_{gap.gap_id[:8]}_",
+            delete=False, encoding="utf-8",
+        )
+        _tmp_path = _tmp.name
+        try:
+            _tmp.write(_test_code)
+            _tmp.close()
+
+            # Run the test on UNFIXED code — it MUST FAIL
+            import subprocess as _sp1680
+            import sys as _sys1680
+            _proc = await asyncio.create_subprocess_exec(
+                _sys1680.executable, "-m", "pytest", _tmp_path, "-x", "--tb=short",
+                "-q", "--no-header",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _stdout, _stderr = await asyncio.wait_for(
+                    _proc.communicate(), timeout=35.0,
+                )
+            except asyncio.TimeoutError:
+                return (False, f"auto-written reproduce test timed out — unverifiable")
+
+            _output = (_stdout or b"").decode("utf-8", errors="replace")
+            _errors = (_stderr or b"").decode("utf-8", errors="replace")
+
+            if _proc.returncode == 0:
+                # Test PASSED on unfixed code — it's a gamed/trivial test
+                return (False, f"auto-written reproduce test PASSES on unfixed code — test is not a valid reproduction (gamed)")
+
+            # Test FAILED — symptom reproduced. Verify the failure is related.
+            _combined = (_output + _errors).lower()
+            _clues = [
+                c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
+                            gap.title[:40], gap.description[:60]]
+                if c
+            ]
+            if any(clue.lower() in _combined for clue in _clues):
+                return (True, f"symptom reproduced via auto-written test {_tmp_path} (exit={_proc.returncode})")
+            else:
+                return (False, f"auto-written reproduce test failed for unrelated reason (exit={_proc.returncode}) — unverifiable")
+        finally:
+            # Clean up temp file
+            try:
+                _os1680.unlink(_tmp_path)
+            except OSError:
+                pass
+
     async def reproduce_symptom(self, gap: Gap) -> tuple[bool, str]:
         """R-F1460: attempt to reproduce the gap's symptom via an existing test.
+
+        R-F1680: when no existing test is found and an LLM is available,
+        auto-writes a reproduce test via _auto_write_reproduce_test. The
+        auto-written test MUST fail on unfixed code to be a valid reproduction.
 
         Returns:
             (True, "") — symptom reproduced (test failed as expected) → real gap
@@ -1692,6 +1794,12 @@ class GapDetector:
 
         test_path = self._find_test_for_module(module)
         if test_path is None:
+            # R-F1680 — no existing test: auto-write a reproduce test via LLM.
+            # The test MUST fail on unfixed code to be a valid reproduction.
+            # If the LLM is unavailable or the test passes on unfixed code,
+            # reject (no false gold).
+            if self._llm is not None:
+                return await self._auto_write_reproduce_test(gap, module)
             return (False, f"no existing test found for module '{module}' — spawn write-test gap instead")
 
         # Run the test — use pytest with a short timeout
