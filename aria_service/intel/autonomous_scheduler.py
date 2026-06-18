@@ -56,6 +56,12 @@ class AutonomousScheduler:
         self._tasks["vault_retry"] = asyncio.create_task(
             self._run_interval("vault_retry", 43200, self._retry_pending_vault),  # 12 hours
         )
+        # R-F1653: daily source discovery — citation walking + TLD probing +
+        # targeted gap-filling. Runs every 24h to find new procurement portals,
+        # defence journals, and government sources. Feeds into vault registration.
+        self._tasks["source_discovery"] = asyncio.create_task(
+            self._run_interval("source_discovery", 86400, self._discover_sources),  # 24 hours
+        )
         
         logger.info("[scheduler] started %d tasks", len(self._tasks))
 
@@ -264,3 +270,123 @@ class AutonomousScheduler:
             logger.info("[scheduler] security: %d findings", result.get("total_findings", 0))
         except Exception as e:
             logger.debug("[scheduler] optimize skipped: %s", e)
+
+    async def _discover_sources(self) -> None:
+        """R-F1653: Daily source discovery — find new portals and data sources.
+
+        Runs three scout patterns in sequence:
+          1. citation — walk outbound citations from trusted Tier 1a/1b/2 sources
+          2. tld_probe — sweep gov/mil/ministry subdomains in target markets
+          3. targeted — fill specific (region x topic) gaps from coverage heatmap
+
+        New sources are added to the Web Atlas and queued for vault registration.
+        This is how ARIA's source base grows autonomously — every day she finds
+        new procurement portals, defence journals, and government data sources
+        without operator intervention.
+        """
+        try:
+            from .source_scout import run as scout_run
+            from .ecosystem_reassess import run as reassess_run
+            from .portal_registry import PORTALS, PortalDef, auto_register_all
+            from .coverage_heatmap import gap_targets
+            from . import redis_store as rs
+            import json, time
+
+            results = {}
+
+            # Phase 1: Citation walking — find new sources from trusted citations
+            try:
+                citation_result = await scout_run(pattern="citation", max_finds=5)
+                results["citation"] = citation_result.get("found", 0)
+                logger.info("[R-F1653] Citation scout: %d new sources", citation_result.get("found", 0))
+            except Exception as e:
+                logger.debug("[R-F1653] Citation scout failed: %s", e)
+                results["citation"] = -1
+
+            # Phase 2: TLD probe — sweep target market domains for new portals
+            try:
+                tld_result = await scout_run(pattern="tld_probe", max_finds=5)
+                results["tld_probe"] = tld_result.get("found", 0)
+                logger.info("[R-F1653] TLD probe: %d new sources", tld_result.get("found", 0))
+            except Exception as e:
+                logger.debug("[R-F1653] TLD probe failed: %s", e)
+                results["tld_probe"] = -1
+
+            # Phase 3: Targeted gap-filling — find sources for weak coverage cells
+            try:
+                from .coverage_heatmap import build_heatmap, gap_targets
+                hm = await build_heatmap()
+                gaps = gap_targets(hm, max_targets=3)
+                targeted_found = 0
+                for gap in gaps:
+                    region = gap.get("region", "global")
+                    topic = gap.get("topic", "defence_procurement")
+                    try:
+                        gap_result = await scout_run(
+                            pattern="targeted",
+                            region=region,
+                            topic=topic,
+                            max_finds=3,
+                        )
+                        targeted_found += gap_result.get("found", 0)
+                    except Exception as e:
+                        logger.debug("[R-F1653] Targeted scout %s/%s failed: %s", region, topic, e)
+                results["targeted"] = targeted_found
+                logger.info("[R-F1653] Targeted scout: %d new sources from %d gaps", targeted_found, len(gaps))
+            except Exception as e:
+                logger.debug("[R-F1653] Targeted scout failed: %s", e)
+                results["targeted"] = -1
+
+            # Phase 4: Run ecosystem reassessment to update the gap map
+            try:
+                await reassess_run()
+                results["reassess"] = True
+            except Exception as e:
+                logger.debug("[R-F1653] Reassessment failed: %s", e)
+                results["reassess"] = False
+
+            # Phase 5: Attempt vault registration for any new portals
+            try:
+                vault_result = await auto_register_all()
+                results["vault_new"] = vault_result.get("newly_registered", 0)
+                results["vault_captcha"] = vault_result.get("captcha_deferred", 0)
+            except Exception as e:
+                logger.debug("[R-F1653] Vault auto-register failed: %s", e)
+                results["vault_new"] = -1
+
+            # Log summary
+            total_new = sum(v for v in results.values() if isinstance(v, int) and v > 0)
+            logger.info(
+                "[R-F1653] Source discovery complete: %d total new sources "
+                "(citation=%s, tld=%s, targeted=%s, vault_new=%s)",
+                total_new,
+                results.get("citation"),
+                results.get("tld_probe"),
+                results.get("targeted"),
+                results.get("vault_new"),
+            )
+
+            # Wire to brain
+            try:
+                from .engine_wiring import wire_success as _ws1653
+                _ws1653(
+                    module="source_discovery",
+                    summary=f"Source discovery: {total_new} new sources found, "
+                            f"{results.get('vault_new', 0)} registered",
+                    source_id="scheduler:source_discovery:R-F1653",
+                )
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.error("[R-F1653] Source discovery failed: %s", e)
+            try:
+                from .engine_wiring import wire_failure as _wf1653
+                _wf1653(
+                    module="source_discovery",
+                    detail=f"Source discovery failed: {e}",
+                    gap_type="engine_failure",
+                    source="autonomous_scheduler",
+                )
+            except Exception:
+                pass
