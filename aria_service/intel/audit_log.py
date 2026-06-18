@@ -308,9 +308,16 @@ async def record(
         action, actor, entity_name[:40], deal_id, entry_hash[:12], decision[:40],
     )
 
-    # ── Brain hook: ARIA learns from her own audit trail. She should be
-    # able to answer "what compliance work did I do on Deal X?" without
-    # querying the audit log directly — the brain absorbs the same info.
+    # ── Brain hook: record that an audit event occurred. R-F1670 (wedge cure):
+    # this fires per AUDIT ACTION (every DD layer, compliance decision, etc.) —
+    # high-frequency telemetry. It was calling the HEAVY brain_hook.absorb
+    # (mastery+knowledge+neural encode per action), which flooded the absorb
+    # pipeline and drove absorb(audit_log) p95 to 52s, freezing the event loop
+    # (live 2026-06-18, blocking the WA contract review). Per §21a, per-tick
+    # telemetry belongs in the lightweight metric path, not the neural graph.
+    # The audit content is NOT lost — it stays durable + queryable in the audit
+    # log itself; only the redundant per-action neural encode is dropped. The
+    # module stays §21a-wired via the metric.
     if feed_brain:
         try:
             from . import brain_hook
@@ -318,16 +325,13 @@ async def record(
                 f"Audit: {action} on {entity_name or deal_id or 'system'} "
                 f"by {actor} → {decision or 'recorded'}"
             )
-            await brain_hook.absorb(
+            await brain_hook.record_signal(
                 module="audit_log",
-                summary=summary,
-                entity_name=entity_name or deal_id,
-                source_id=entry_hash,
                 success=True,
-                confidence=confidence or "ASSESSED",
+                summary=summary,
             )
         except Exception as e:
-            logger.debug("audit→brain absorb failed (non-fatal): %s", e)
+            logger.debug("audit→brain signal failed (non-fatal): %s", e)
 
     return entry
 
