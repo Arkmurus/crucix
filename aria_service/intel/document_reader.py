@@ -672,39 +672,53 @@ async def _read_pdf_chunked(
     total_extracted_pages = 0
     confidence_scores: list[float] = []
 
-    for chunk_idx in range(num_chunks):
-        start_page = chunk_idx * chunk_size
-        end_page = min(start_page + chunk_size, pages_to_process)
+    # R-F1672 (surgical): process chunks CONCURRENTLY (bounded) instead of
+    # strictly sequentially. The old serial loop ran N vision-LLM calls one
+    # after another (up to 30 chunks × ~60-120s = 30-60 min for a max-size doc)
+    # — far beyond the WhatsApp 15-min poll window, so large/scanned documents
+    # NEVER delivered. Running up to ARIA_VISION_CHUNK_CONCURRENCY (default 4)
+    # chunks at once cuts wall-time to ~ceil(N/conc) × per-chunk, while PRESERVING
+    # page order (results re-sorted by chunk index before merge), failure
+    # handling, and counts. Each chunk's fitz render is already off the event
+    # loop (R-F1666); the semaphore bounds concurrent LLM calls + memory.
+    _chunk_conc = int(os.getenv("ARIA_VISION_CHUNK_CONCURRENCY", "4"))
+    _chunk_sem = asyncio.Semaphore(max(1, _chunk_conc))
 
-        logger.info(
-            "Processing chunk %d/%d: pages %d-%d",
-            chunk_idx + 1, num_chunks, start_page + 1, end_page,
-        )
+    async def _run_chunk(_idx: int):
+        _sp = _idx * chunk_size
+        _ep = min(_sp + chunk_size, pages_to_process)
+        async with _chunk_sem:
+            logger.info("Processing chunk %d/%d: pages %d-%d",
+                        _idx + 1, num_chunks, _sp + 1, _ep)
+            _cr = await _vision_single_chunk(
+                filepath=source, start_page=_sp, end_page=_ep,
+                total_pages=total_pages, llm=llm, query=query,
+            )
+        return _idx, _sp, _ep, _cr
 
-        chunk_result = await _vision_single_chunk(
-            filepath=source,
-            start_page=start_page,
-            end_page=end_page,
-            total_pages=total_pages,
-            llm=llm,
-            query=query,
-        )
-
+    _chunk_results = await asyncio.gather(
+        *[_run_chunk(i) for i in range(num_chunks)], return_exceptions=True,
+    )
+    # Re-assemble in PAGE ORDER — gather may complete out of order.
+    _ok = sorted(
+        (r for r in _chunk_results if not isinstance(r, Exception)),
+        key=lambda r: r[0],
+    )
+    for _idx, _sp, _ep, chunk_result in _ok:
         if chunk_result.confidence > 0.10 and chunk_result.text.strip():
             chunk_texts.append(chunk_result.text)
             total_extracted_pages += chunk_result.pages_extracted
             confidence_scores.append(chunk_result.confidence)
-            logger.info(
-                "Chunk %d OK: %d pages, %.0f%% confidence",
-                chunk_idx + 1, chunk_result.pages_extracted,
-                chunk_result.confidence * 100,
-            )
+            logger.info("Chunk %d OK: %d pages, %.0f%% confidence",
+                        _idx + 1, chunk_result.pages_extracted,
+                        chunk_result.confidence * 100)
         else:
-            chunk_failures_list.append(f"{start_page + 1}-{end_page}")
-            logger.warning(
-                "Chunk %d failed: %s",
-                chunk_idx + 1, chunk_result.gap_description,
-            )
+            chunk_failures_list.append(f"{_sp + 1}-{_ep}")
+            logger.warning("Chunk %d failed: %s", _idx + 1, chunk_result.gap_description)
+    for r in _chunk_results:
+        if isinstance(r, Exception):
+            chunk_failures_list.append("exception")
+            logger.warning("Chunk raised during parallel extraction: %s", r)
 
     if not chunk_texts:
         return ExtractionResult(

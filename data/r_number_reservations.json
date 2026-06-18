@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1672,
+  "next_available": 1673,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11076,9 +11076,10 @@
       "title": "Cure 3: stream knowledge json.dump in GIL-yielding chunks (kill the dump stall)",
       "claimed_at": "2026-06-18T14:26:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0ac67f5",
+      "notes": null,
+      "shipped_at": "2026-06-18T15:29:47Z"
     },
     {
       "r_number": "R-F1669",
@@ -11095,14 +11096,24 @@
       "title": "Wedge cure: route audit_log per-action absorb to lightweight signal path",
       "claimed_at": "2026-06-18T15:13:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0ac67f5",
+      "notes": null,
+      "shipped_at": "2026-06-18T15:29:48Z"
     },
     {
       "r_number": "R-F1671",
       "title": "14B pod disk fix — bump container disk + disable HF xet (No space left on device on Qwen2.5-14B download)",
       "claimed_at": "2026-06-18T15:19:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1672",
+      "title": "Surgical: parallelize vision-chunk extraction (bounded) — large-doc read time / N",
+      "claimed_at": "2026-06-18T16:00:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
