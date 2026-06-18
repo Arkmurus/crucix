@@ -488,11 +488,42 @@ def _write_to_disk_atomic(data: dict) -> None:
         gc.disable()
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            try:
-                json.dump(data, f)
-            except TypeError:
-                f.seek(0)
-                f.truncate()
+            # R-F1668 — STREAM the facts array in GIL-yielding chunks instead of
+            # one json.dump(). The C json encoder does NOT release the GIL during
+            # serialisation, so dumping the ~87k-fact graph in a single call held
+            # the GIL ~2-7s in this worker thread and starved the asyncio event
+            # loop (the residual stall after the R-F1656/1664/1665 absorb cures —
+            # cause of the periodic "event loop stalled" + state_store timeouts).
+            # A time.sleep(0) every 2048 facts releases the GIL between chunks so
+            # the loop keeps serving requests; the on-disk JSON content is
+            # unchanged and the recovery path is identical. We iterate a SHALLOW
+            # COPY of the facts list so a concurrent store_fact append can't break
+            # iteration (also safer than the old live-list json.dump).
+            if isinstance(data, dict):
+                _facts = list(data.get("facts") or [])
+                f.write("{")
+                _first = True
+                for _k, _v in data.items():
+                    if _k == "facts":
+                        continue
+                    if not _first:
+                        f.write(",")
+                    _first = False
+                    f.write(json.dumps(_k))
+                    f.write(":")
+                    f.write(json.dumps(_v, default=str))
+                if not _first:
+                    f.write(",")
+                f.write('"facts":[')
+                for _i, _fact in enumerate(_facts):
+                    if _i:
+                        f.write(",")
+                    f.write(json.dumps(_fact, default=str))
+                    if (_i & 0x7FF) == 0:
+                        time.sleep(0)  # release GIL -> event loop runs
+                f.write("]}")
+            else:
+                # Defensive: _cache is always a dict; fall back for anything else.
                 json.dump(data, f, default=str)
             # R-F1420 — flush + fsync the DATA to disk BEFORE the rename.
             # Atomic rename protects against torn/partial files but NOT
@@ -934,8 +965,26 @@ def _auto_verify_fact(
                 except Exception:
                     pass  # Verification is best-effort — never break fact storage
 
+        # R-F1669: bound the PENDING-task QUEUE, not just concurrency. R-F1656's
+        # Semaphore(4) caps how many verifies RUN at once, but create_task still
+        # fired once per fact — so a fact burst piled up thousands of pending
+        # _verify() coroutines (each holding a closure over fact_record/content)
+        # → memory growth + event-loop scheduler overhead → the R-F1530 wedge
+        # recurred despite R-F1656. Cap the in-flight backlog; drop new verifies
+        # when full (verification is best-effort and the fact is already stored,
+        # so this loses enrichment, never knowledge — §7 unaffected).
+        _max_pending = int(os.getenv("ARIA_VERIFY_MAX_PENDING", "64"))
+        if getattr(_auto_verify_fact, "_pending", 0) >= _max_pending:
+            _auto_verify_fact._dropped = getattr(_auto_verify_fact, "_dropped", 0) + 1
+            return  # backlog full — skip to keep the queue bounded
+        _auto_verify_fact._pending = getattr(_auto_verify_fact, "_pending", 0) + 1
+
         task = loop.create_task(_verify())
-        task.add_done_callback(lambda t: None)  # prevent GC collection
+
+        def _verify_done(_t):  # decrement the backlog (loop thread → no race)
+            _auto_verify_fact._pending = max(0, getattr(_auto_verify_fact, "_pending", 1) - 1)
+
+        task.add_done_callback(_verify_done)  # also keeps a ref (no GC)
     except Exception:
         pass  # verification not available — no-op
 

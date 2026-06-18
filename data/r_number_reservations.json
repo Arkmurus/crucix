@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1668,
+  "next_available": 1670,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11057,14 +11057,33 @@
       "title": "Cure doc-read brain freeze: offload ALL vision-path fitz render off the event loop",
       "claimed_at": "2026-06-18T14:02:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "90984daa",
+      "notes": null,
+      "shipped_at": "2026-06-18T14:21:44Z"
     },
     {
       "r_number": "R-F1667",
       "title": "v0.8 14B base experiment (Qwen2.5-14B on v0.7 grounded corpus — test if 7B capacity was the parity cap)",
       "claimed_at": "2026-06-18T14:11:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1668",
+      "title": "Cure 3: stream knowledge json.dump in GIL-yielding chunks (kill the dump stall)",
+      "claimed_at": "2026-06-18T14:26:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1669",
+      "title": "bound the R-F1530 verify PENDING-task queue (backlog cap) — Semaphore alone leaks pending tasks under burst",
+      "claimed_at": "2026-06-18T14:27:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
