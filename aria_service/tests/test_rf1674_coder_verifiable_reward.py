@@ -22,18 +22,30 @@ class _TR:
         self.attempts = attempts
 
 
-def _rec(test_result, stage_ok, tests_enabled):
+def _rec(test_result, stage_ok, tests_enabled, reproduce_fail_to_pass=False):
     return build_coder_reward_record(
         instruction="Fix gap: x", approach="do y", code_changes={"a.py": "..."},
         r_number=1, test_result=test_result, stage_ok=stage_ok,
         auto_deployed=False, tests_enabled=tests_enabled,
+        reproduce_fail_to_pass=reproduce_fail_to_pass,
     )
 
 
 def test_gold_only_when_tests_genuinely_ran_green_and_preserved():
-    r = _rec(_TR(True, 12, 0), stage_ok=True, tests_enabled=True)
+    r = _rec(_TR(True, 12, 0), stage_ok=True, tests_enabled=True,
+             reproduce_fail_to_pass=True)
     assert r["gold"] is True
     assert r["reward"]["tests_ran"] is True
+
+
+def test_not_gold_when_reproduce_test_did_not_fail_to_pass():
+    """R-F1681: even if all other conditions are met, gold=False when the
+    reproduce test did not go FAIL->PASS (e.g. no reproduce test existed
+    and the fix relied on generated tests only)."""
+    r = _rec(_TR(True, 12, 0), stage_ok=True, tests_enabled=True,
+             reproduce_fail_to_pass=False)
+    assert r["gold"] is False
+    assert r["reward"]["reproduce_fail_to_pass"] is False
 
 
 def test_not_gold_when_tests_disabled_even_if_all_green():

@@ -1683,6 +1683,9 @@ class GapDetector:
     async def _auto_write_reproduce_test(self, gap: Gap, module: str) -> tuple[bool, str]:
         """R-F1680: auto-write a reproduce test via LLM when no existing test exists.
 
+        R-F1681: the test file is PRESERVED (not deleted) so the caller can re-run
+        it after applying the fix. Gold requires FAIL-on-unfixed → PASS-on-fixed.
+
         The LLM writes a pytest that targets the gap's symptom. We run it on
         the UNFIXED code — it MUST FAIL. If it passes, the test is gamed or
         doesn't reproduce anything → reject (no false gold).
@@ -1721,58 +1724,52 @@ class GapDetector:
         if not _test_code:
             return (False, "LLM returned empty test code")
 
-        # Write the test to a temp file
-        import tempfile as _tf1680
-        import os as _os1680
-        _tmp = _tf1680.NamedTemporaryFile(
-            mode="w", suffix=".py", prefix=f"repro_{gap.gap_id[:8]}_",
-            delete=False, encoding="utf-8",
-        )
-        _tmp_path = _tmp.name
+        # R-F1681: write the test to a PERSISTENT path (not temp) so the caller
+        # can re-run it after the fix. Named after the gap_id for traceability.
+        import os as _os1681
+        _repro_dir = _os1681.environ.get("ARIA_CODER_REPRO_DIR") or "/tmp/aria_repro_tests"
+        _os1681.makedirs(_repro_dir, exist_ok=True)
+        _test_path = _os1681.path.join(_repro_dir, f"repro_{gap.gap_id[:12]}.py")
         try:
-            _tmp.write(_test_code)
-            _tmp.close()
+            with open(_test_path, "w", encoding="utf-8") as _fh:
+                _fh.write(_test_code)
+        except OSError as _e:
+            return (False, f"failed to write reproduce test: {_e}")
 
-            # Run the test on UNFIXED code — it MUST FAIL
-            import subprocess as _sp1680
-            import sys as _sys1680
-            _proc = await asyncio.create_subprocess_exec(
-                _sys1680.executable, "-m", "pytest", _tmp_path, "-x", "--tb=short",
-                "-q", "--no-header",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        # Run the test on UNFIXED code — it MUST FAIL
+        import subprocess as _sp1680
+        import sys as _sys1680
+        _proc = await asyncio.create_subprocess_exec(
+            _sys1680.executable, "-m", "pytest", _test_path, "-x", "--tb=short",
+            "-q", "--no-header",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _stdout, _stderr = await asyncio.wait_for(
+                _proc.communicate(), timeout=35.0,
             )
-            try:
-                _stdout, _stderr = await asyncio.wait_for(
-                    _proc.communicate(), timeout=35.0,
-                )
-            except asyncio.TimeoutError:
-                return (False, f"auto-written reproduce test timed out — unverifiable")
+        except asyncio.TimeoutError:
+            return (False, f"auto-written reproduce test timed out — unverifiable")
 
-            _output = (_stdout or b"").decode("utf-8", errors="replace")
-            _errors = (_stderr or b"").decode("utf-8", errors="replace")
+        _output = (_stdout or b"").decode("utf-8", errors="replace")
+        _errors = (_stderr or b"").decode("utf-8", errors="replace")
 
-            if _proc.returncode == 0:
-                # Test PASSED on unfixed code — it's a gamed/trivial test
-                return (False, f"auto-written reproduce test PASSES on unfixed code — test is not a valid reproduction (gamed)")
+        if _proc.returncode == 0:
+            # Test PASSED on unfixed code — it's a gamed/trivial test
+            return (False, f"auto-written reproduce test PASSES on unfixed code — test is not a valid reproduction (gamed)")
 
-            # Test FAILED — symptom reproduced. Verify the failure is related.
-            _combined = (_output + _errors).lower()
-            _clues = [
-                c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
-                            gap.title[:40], gap.description[:60]]
-                if c
-            ]
-            if any(clue.lower() in _combined for clue in _clues):
-                return (True, f"symptom reproduced via auto-written test {_tmp_path} (exit={_proc.returncode})")
-            else:
-                return (False, f"auto-written reproduce test failed for unrelated reason (exit={_proc.returncode}) — unverifiable")
-        finally:
-            # Clean up temp file
-            try:
-                _os1680.unlink(_tmp_path)
-            except OSError:
-                pass
+        # Test FAILED — symptom reproduced. Verify the failure is related.
+        _combined = (_output + _errors).lower()
+        _clues = [
+            c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
+                        gap.title[:40], gap.description[:60]]
+            if c
+        ]
+        if any(clue.lower() in _combined for clue in _clues):
+            return (True, f"symptom reproduced via auto-written test {_test_path} (exit={_proc.returncode})")
+        else:
+            return (False, f"auto-written reproduce test failed for unrelated reason (exit={_proc.returncode}) — unverifiable")
 
     async def reproduce_symptom(self, gap: Gap) -> tuple[bool, str]:
         """R-F1460: attempt to reproduce the gap's symptom via an existing test.
@@ -1781,8 +1778,17 @@ class GapDetector:
         auto-writes a reproduce test via _auto_write_reproduce_test. The
         auto-written test MUST fail on unfixed code to be a valid reproduction.
 
+        R-F1681: the auto-written test is PRESERVED on disk so the caller can
+        re-run it after the fix. Gold requires FAIL-on-unfixed → PASS-on-fixed.
+        The test path is embedded in the success message after 'via auto-written
+        test ' — callers can extract it with msg.split('via auto-written test
+        ')[-1].split(' ')[0].
+
         Returns:
-            (True, "") — symptom reproduced (test failed as expected) → real gap
+            (True, "symptom reproduced via auto-written test <path> (exit=N)")
+              — symptom reproduced, test preserved at <path>
+            (True, "symptom reproduced: test <path> failed (exit=N)")
+              — symptom reproduced via existing test
             (False, "reason") — symptom NOT reproduced or unverifiable
 
         The caller MUST discard the gap when this returns False — no reproduced
@@ -1844,6 +1850,39 @@ class GapDetector:
 
         # Test PASSED — the code works, this is a false positive
         return (False, f"test {test_path} PASSES — code works, false positive gap")
+
+    async def verify_reproduce_test_passes(self, reproduce_test_path: str) -> tuple[bool, str]:
+        """R-F1681: re-run the auto-written reproduce test after the fix is applied.
+
+        The test MUST PASS on the fixed code — this proves the symptom is resolved.
+        Returns (True, "") if the test passes, (False, "reason") if it still fails.
+
+        This is the ungameable core of the gold gate: a fix is only verifiable if
+        the SAME test that FAILED on unfixed code now PASSES on fixed code.
+        """
+        import subprocess as _sp1681
+        import sys as _sys1681
+        try:
+            _proc = await asyncio.create_subprocess_exec(
+                _sys1681.executable, "-m", "pytest", reproduce_test_path, "-x",
+                "--tb=short", "-q", "--no-header",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, _stderr = await asyncio.wait_for(
+                _proc.communicate(), timeout=35.0,
+            )
+        except asyncio.TimeoutError:
+            return (False, "reproduce test timed out after fix — unverifiable")
+        except Exception as _e:
+            return (False, f"reproduce test execution error after fix: {_e}")
+
+        if _proc.returncode == 0:
+            return (True, "reproduce test PASSES on fixed code — symptom resolved")
+        _output = (_stdout or b"").decode("utf-8", errors="replace")
+        _errors = (_stderr or b"").decode("utf-8", errors="replace")
+        _combined = (_output + _errors)[:500]
+        return (False, f"reproduce test still FAILS on fixed code (exit={_proc.returncode}): {_combined}")
 
     async def verify_fixed(self, gap: Gap) -> bool:
         """R-F1155: post-fix verification — re-run the relevant extractor

@@ -174,19 +174,28 @@ class FixResult:
 def build_coder_reward_record(
     *, instruction: str, approach: str, code_changes: dict, r_number,
     test_result, stage_ok: bool, auto_deployed: bool, tests_enabled: bool,
+    reproduce_fail_to_pass: bool = False,
 ) -> dict:
     """R-F1674 — assemble a verifiable-reward coder training record (DeepSeek-R1
     style). The record is GOLD (training-grade) only when the reward is REAL and
     OBJECTIVE: tests GENUINELY ran (not the ARIA_CODER_TESTS_ENABLED=0 no-op pass)
-    AND green AND the function-preservation guard held (stage_ok). Pure function so
-    the gold gate is unit-testable; the caller persists it. Offline coder SFT trains
-    on gold=True only — an ungameable signal, not a chat-quality heuristic."""
+    AND green AND the function-preservation guard held (stage_ok).
+
+    R-F1681: when a reproduce test was auto-written, gold ALSO requires that the
+    reproduce test went FAIL-on-unfixed → PASS-on-fixed (reproduce_fail_to_pass).
+    This prevents gamed fixes where generated tests pass but the real symptom
+    is unresolved. Pure function so the gold gate is unit-testable; the caller
+    persists it. Offline coder SFT trains on gold=True only — an ungameable
+    signal, not a chat-quality heuristic."""
     passed = getattr(test_result, "passed", 0) or 0
     failed = getattr(test_result, "failed", 0) or 0
     all_green = bool(getattr(test_result, "all_green", False))
     # tests genuinely executed iff the runner was enabled AND it actually ran cases
     tests_ran = bool(tests_enabled and (passed + failed) > 0)
-    gold = bool(tests_ran and all_green and stage_ok)
+    # R-F1681: gold requires reproduce FAIL->PASS when a reproduce test exists.
+    # When no reproduce test was needed (existing test covered it), this is
+    # trivially True (the existing test already proves the symptom).
+    gold = bool(tests_ran and all_green and stage_ok and reproduce_fail_to_pass)
     return {
         "instruction": instruction,
         "approach": approach,
@@ -201,6 +210,7 @@ def build_coder_reward_record(
             "healing_attempts": getattr(test_result, "attempts", None),
             "function_preserved": bool(stage_ok),
             "auto_deployed": bool(auto_deployed),
+            "reproduce_fail_to_pass": bool(reproduce_fail_to_pass),
         },
         "gold": gold,
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -501,6 +511,7 @@ class ARIACoder:
         # with tests that mock gap_detector — we check the method is
         # actually defined on GapDetector, not auto-created by a mock).
         _has_reproduce = hasattr(type(self.gap_detector), "reproduce_symptom")
+        _reproduce_test_path: str | None = None  # R-F1681: path to auto-written reproduce test
         if not operator_initiated and _has_reproduce:
             await self._publish_progress(
                 fix_id, "reproducing_symptom",
@@ -520,6 +531,15 @@ class ARIACoder:
                 "[aria_coder] R-F1460 reproduce_symptom PASSED for %s: %s",
                 gap.gap_id, symptom_msg,
             )
+            # R-F1681: extract the auto-written reproduce test path from the
+            # success message. Format: "symptom reproduced via auto-written
+            # test /path/to/test.py (exit=1)"
+            if "via auto-written test " in symptom_msg:
+                _reproduce_test_path = symptom_msg.split("via auto-written test ")[-1].split(" ")[0]
+                logger.info(
+                    "[aria_coder] R-F1681 auto-written reproduce test at %s",
+                    _reproduce_test_path,
+                )
 
         try:
             # STEP 1 — context
@@ -676,6 +696,24 @@ class ARIACoder:
                         workspace, test_path, test_code,
                     )
 
+            # R-F1681: include the auto-written reproduce test in the test suite
+            # so _test_with_healing runs it alongside generated tests. The reproduce
+            # test MUST go from FAIL (on unfixed) to PASS (on fixed) for gold.
+            _reproduce_fail_to_pass = False
+            if _reproduce_test_path:
+                _reproduce_target = f"aria_service/tests/repro_{gap.gap_id[:12]}.py"
+                plan.new_tests[_reproduce_target] = _reproduce_test_path
+                # Copy the reproduce test into the workspace so the test runner
+                # can find it alongside the generated tests
+                import shutil as _shutil1681
+                try:
+                    _ws_repro = str(workspace / _reproduce_target)
+                    _ws_repro_dir = _os1681.path.dirname(_ws_repro)
+                    _os1681.makedirs(_ws_repro_dir, exist_ok=True)
+                    _shutil1681.copy2(_reproduce_test_path, _ws_repro)
+                except Exception as _e:
+                    logger.warning("[R-F1681] failed to copy reproduce test to workspace: %s", _e)
+
             # STEP 6 — self-healing test loop
             safe_mode = not os.environ.get("ARIA_CODER_TESTS_FULL", "0").strip() == "1"
             await self._publish_progress(
@@ -712,6 +750,37 @@ class ARIACoder:
                         f"attempts: {test_result.failure_summary[:500]}"
                     ),
                 )
+
+            # R-F1681: re-run the auto-written reproduce test on the FIXED code.
+            # It MUST go from FAIL (on unfixed) to PASS (on fixed) for the fix
+            # to be verifiable. If it still fails, the fix didn't resolve the
+            # real symptom — reject even if generated tests pass.
+            if _reproduce_test_path:
+                await self._publish_progress(
+                    fix_id, "verifying_reproduce",
+                    "Re-running reproduce test on fixed code — must PASS",
+                )
+                _repro_ok, _repro_msg = await self.gap_detector.verify_reproduce_test_passes(
+                    _reproduce_test_path,
+                )
+                if _repro_ok:
+                    _reproduce_fail_to_pass = True
+                    logger.info(
+                        "[aria_coder] R-F1681 reproduce test FAIL->PASS confirmed for %s",
+                        gap.gap_id,
+                    )
+                else:
+                    logger.warning(
+                        "[aria_coder] R-F1681 reproduce test still FAILS after fix for %s: %s",
+                        gap.gap_id, _repro_msg,
+                    )
+                    return FixResult(
+                        success=False, fix_id=fix_id, gap_id=gap.gap_id,
+                        r_number=r_number,
+                        failure_reason=(
+                            f"Reproduce test still fails after fix — symptom not resolved: {_repro_msg[:300]}"
+                        ),
+                    )
 
             # STEP 6.5 — Claude review (R-F805). Dormant unless both
             # ARIA_CODER_CLAUDE_REVIEW_ENABLED=1 and ANTHROPIC_API_KEY
@@ -862,6 +931,7 @@ class ARIACoder:
                     r_number=r_number, test_result=test_result,
                     stage_ok=stage_ok, auto_deployed=auto_deployed,
                     tests_enabled=(os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "1"),
+                    reproduce_fail_to_pass=_reproduce_fail_to_pass,
                 )
                 _gp = os.environ.get("ARIA_CODER_GOLD_PATH") or str(
                     Path(os.environ.get("ARIA_DATA_DIR", "data")) / "aria_training"
