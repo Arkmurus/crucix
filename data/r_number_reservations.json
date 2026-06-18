@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1678,
+  "next_available": 1680,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11163,6 +11163,26 @@
       "r_number": "R-F1677",
       "title": "SL-CAI revision-quality gate + clause coverage — re-score self-critique revisions before they become training data (no blind-trust)",
       "claimed_at": "2026-06-18T17:10:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c3bd4ec7",
+      "notes": null,
+      "shipped_at": "2026-06-18T17:31:57Z"
+    },
+    {
+      "r_number": "R-F1678",
+      "title": "Fix WA doc-review: job-store done-write retry + health-check resilience",
+      "claimed_at": "2026-06-18T17:37:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "77803faa",
+      "notes": null,
+      "shipped_at": "2026-06-18T17:46:36Z"
+    },
+    {
+      "r_number": "R-F1679",
+      "title": "adversarial grader refusal-detection robustness — stop false-failing correctly-phrased refusals (honest SUPERVISED score)",
+      "claimed_at": "2026-06-18T18:02:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
