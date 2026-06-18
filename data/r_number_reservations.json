@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1658,
+  "next_available": 1660,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10970,9 +10970,27 @@
       "claimed_at": "2026-06-18T10:50:29Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "23420a22",
+      "commit_sha": "3d99e1e7",
       "notes": null,
-      "shipped_at": "2026-06-18T10:53:04Z"
+      "shipped_at": "2026-06-18T11:07:03Z"
+    },
+    {
+      "r_number": "R-F1658",
+      "title": "Wire DD vault recording into dd_orchestrator._persist_report (re-apply lost R-F1655 changes)",
+      "claimed_at": "2026-06-18T11:14:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1659",
+      "title": "SearXNG resilient engine config — datacenter-tolerant engines, drop perma-blocked",
+      "claimed_at": "2026-06-18T11:19:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -5782,6 +5782,26 @@ async def _persist_report(report: ARKDDReport) -> None:
             logger.debug("dd_orchestrator: mem0 hook failed (non-fatal): %s", _mem0_e)
 
 
+
+    # R-F1658: record in the persistent DD vault (SQLite, survives restarts)
+    try:
+        from .dd_vault import get_vault as _get_dd_vault
+        _vault = _get_dd_vault()
+        _vault.record_case(
+            canonical_entity_id=getattr(report, "canonical_entity_id", None) or report.run_id,
+            entity_name=getattr(report.identity, "entity_name", "unknown"),
+            entity_type=getattr(report.identity, "entity_type", "company"),
+            jurisdiction=getattr(report.identity, "jurisdiction", ""),
+            registration_number=getattr(report.identity, "registration_number", ""),
+            latest_report_id=report.run_id,
+            findings_summary=_summarize_findings(report),
+            risk_score=_compute_risk_score(report),
+            risk_level=report.risk_classification or "unknown",
+            tags=_extract_tags(report),
+        )
+    except Exception as _vault_err:
+        logger.debug("dd_vault: record failed (non-fatal): %s", _vault_err)
+
 # =============================================================================
 # HELPERS
 # =============================================================================
