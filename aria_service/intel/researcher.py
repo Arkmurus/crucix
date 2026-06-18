@@ -3581,17 +3581,43 @@ async def read_document(
 
     compliance_results: list[dict] = []
 
-    for i, chunk in enumerate(chunks):  # No limit — process entire document
-        doc_text = f"Document: {filename}\nSource: {source}\n"
-        if context:
-            doc_text += f"Context: {context}\n"
-        doc_text += f"Content (part {i + 1}/{len(chunks)}):\n{chunk}"
+    # ── R-F1675 (surgical): PRE-COMPUTE the per-chunk LLM analysis CONCURRENTLY.
+    # This was THE bottleneck behind the all-day WhatsApp doc-review failure: a
+    # 62KB contract chunks into ~18 windows and the old loop ran one LLM analysis
+    # per chunk SEQUENTIALLY ("# No limit") → ~10-18 min, far beyond the WA poll
+    # window, so the review never delivered. Running up to ARIA_DOC_CHUNK_CONCURRENCY
+    # (default 4) analyses at once cuts that to ~ceil(N/conc) × per-call. The
+    # storage loop below stays SEQUENTIAL + in page order (state mutation:
+    # store_fact, hypotheses via _process_analysis, RAG/semantic batches).
+    # _analyse_article / _analyse_compliance_document only READ hypotheses
+    # (verified — no mutation), so concurrent analysis is safe.
+    _doc_sem = asyncio.Semaphore(max(1, int(os.getenv("ARIA_DOC_CHUNK_CONCURRENCY", "4"))))
 
-        existing_kb = search_knowledge(chunk[:200])
+    async def _rf1675_analyse(_i: int, _chunk: str):
+        _dt = f"Document: {filename}\nSource: {source}\n"
+        if context:
+            _dt += f"Context: {context}\n"
+        _dt += f"Content (part {_i + 1}/{len(chunks)}):\n{_chunk}"
+        _ekb = search_knowledge(_chunk[:200])
+        async with _doc_sem:
+            if is_compliance:
+                return await _analyse_compliance_document(llm, _dt, f"{source}:{filename}", _ekb)
+            return await _analyse_article(llm, _dt, f"{source}:{filename}", _ekb, hypotheses)
+
+    _parsed_results = await asyncio.gather(
+        *[_rf1675_analyse(i, c) for i, c in enumerate(chunks)],
+        return_exceptions=True,
+    )
+    _parsed_list = [
+        (None if isinstance(p, BaseException) else p) for p in _parsed_results
+    ]
+
+    # ── Storage phase: SEQUENTIAL + in page order (preserves the original
+    # stateful behaviour exactly; only the slow LLM calls were parallelised).
+    for i, chunk in enumerate(chunks):
+        parsed = _parsed_list[i]
 
         if is_compliance:
-            # Use compliance-specific analysis
-            parsed = await _analyse_compliance_document(llm, doc_text, f"{source}:{filename}", existing_kb)
             if parsed and not parsed.get("skip"):
                 compliance_results.append(parsed)
                 # F48 2026-04-29: collect this chunk's facts so a single
@@ -3642,8 +3668,6 @@ async def read_document(
                         await _aio.to_thread(_ss.index_facts_batch, semantic_batch)
                     except Exception as e:
                         logger.debug("semantic_search.index_facts_batch (compliance) failed: %s", e)
-        else:
-            parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
 
         if parsed and not is_compliance:
             fl, hg = await _process_analysis(parsed, f"{source}:{filename}", hypotheses)
