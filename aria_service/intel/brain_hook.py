@@ -852,6 +852,7 @@ async def absorb(
                 user_id=user_id,
                 result=result,
                 _get_absorb_concurrency_sem=_get_absorb_concurrency_sem,
+                _get_neural_concurrency_sem=_get_neural_concurrency_sem,
                 _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
                 _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
                 _run_tier=_run_tier,
@@ -921,7 +922,12 @@ async def record_signal(
     """
     if not BRAIN_HOOK_ENABLED:
         return {"skipped": True, "reason": "disabled"}
-    _record_signal(module, success=success)
+    # R-F1664: _record_signal is async — it was being called WITHOUT await, so
+    # the signal was never recorded (the coroutine was created and discarded,
+    # emitting "coroutine never awaited"). Cure 1 routes the high-frequency
+    # wire_success telemetry through this path, so it MUST actually record or
+    # those modules go dark (violating §21a). Await it.
+    await _record_signal(module, success=success)
     return {"recorded": True, "module": module, "success": success}
 
 
@@ -1104,6 +1110,17 @@ _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
 )
 _absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
 
+# R-F1665 (wedge cure 2): a SEPARATE, smaller concurrency lane for the NEURAL
+# tier. The neural encode (concept extraction + edge formation + GIL-bound
+# neural_memory persist) can run up to the tier timeout (15s). Running it INSIDE
+# the main 8-slot absorb semaphore meant ≤8 slow neural encodes occupied every
+# slot, so the fast mastery+knowledge tiers queued behind them and absorb p95
+# climbed to 22-44s (the wedge). Gating neural on its own small sem (default 2,
+# matched to GIL-bound encode) lets the main 8 slots drain after the cheap
+# durable tiers, while neural work is still bounded on its own lane.
+_NEURAL_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_NEURAL_CONCURRENCY", "2"))
+_neural_concurrency_sem: Optional[asyncio.Semaphore] = None
+
 # R-F1342 (Pillar-1 invariant): cap the COUNT of in-flight absorb background
 # tasks. Each task's work is already bounded (tier timeouts, concurrency sem,
 # circuit breaker), but NOTHING capped how many absorb_tiers_bg tasks could
@@ -1136,6 +1153,18 @@ def _get_absorb_concurrency_sem() -> Optional[asyncio.Semaphore]:
     if _absorb_concurrency_sem is None:
         _absorb_concurrency_sem = asyncio.Semaphore(_ABSORB_CONCURRENCY)
     return _absorb_concurrency_sem
+
+
+def _get_neural_concurrency_sem() -> Optional[asyncio.Semaphore]:
+    """R-F1665: lazy-init the SEPARATE neural-tier semaphore. Returns None
+    when disabled (ARIA_BRAIN_NEURAL_CONCURRENCY=0). Keeps the slow neural
+    encode off the main absorb concurrency lane (wedge cure 2)."""
+    global _neural_concurrency_sem
+    if _NEURAL_CONCURRENCY <= 0:
+        return None
+    if _neural_concurrency_sem is None:
+        _neural_concurrency_sem = asyncio.Semaphore(_NEURAL_CONCURRENCY)
+    return _neural_concurrency_sem
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60

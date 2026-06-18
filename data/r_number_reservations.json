@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1664,
+  "next_available": 1666,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11031,6 +11031,24 @@
       "commit_sha": "62a605da",
       "notes": null,
       "shipped_at": "2026-06-18T12:14:41Z"
+    },
+    {
+      "r_number": "R-F1664",
+      "title": "Wedge cure 1: route telemetry signals to lightweight path (cut absorb volume)",
+      "claimed_at": "2026-06-18T12:30:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1665",
+      "title": "Wedge cure 2: coalesce absorb neural-encode off the critical path",
+      "claimed_at": "2026-06-18T12:30:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

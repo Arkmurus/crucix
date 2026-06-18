@@ -145,20 +145,24 @@ def wire_success(
 ) -> None:
     """Fire-and-forget brain signal for a successful engine run.
 
-    Writes to brain_hook.absorb_silent so the neural memory + gap_detector
-    see the output. Never raises, never blocks the caller.
+    R-F1664 (wedge cure 1): routes to brain_hook.record_signal — the
+    lightweight §21a metric path — instead of the heavy absorb_silent.
+    wire_success is per-tick / per-module telemetry ("engine X ran"); routing
+    it through the expensive mastery+knowledge+neural tiers flooded the absorb
+    pipeline (live probe 2026-06-18: 258 heavy absorb() vs 21 metric calls) and
+    was a dominant driver of the absorb-p95 wedge (autonomous_scheduler tick +
+    124-module boot burst). Genuine new knowledge is absorbed by the engines
+    via direct absorb() calls; this success-telemetry belongs in the metric
+    counter. The module stays §21a-wired (success branch -> metric); failures
+    still flow through wire_failure -> capability_gaps.record_gap. Never raises.
     """
     try:
         from . import brain_hook as _bh
 
-        _dispatch_fire_and_forget(lambda: _bh.absorb_silent(
+        _dispatch_fire_and_forget(lambda: _bh.record_signal(
             module=module,
-            summary=summary[:300],
-            detail=detail[:600],
-            entity_name=entity_name[:120],
             success=True,
-            confidence=confidence,
-            source_id=source_id or module,
+            summary=summary[:300],
         ))
     except Exception:
         logger.debug("[engine_wiring] wire_success failed for %s", module, exc_info=True)

@@ -40,6 +40,7 @@ async def absorb_tiers_bg(
     _record_latency,
     _maybe_trip_breaker,
     _start_ms: float,
+    _get_neural_concurrency_sem=None,
 ) -> None:
     """Run the 3 expensive learning tiers in a background task.
 
@@ -108,21 +109,11 @@ async def absorb_tiers_bg(
                 if err:
                     result["errors"].append(err)
 
-            await asyncio.sleep(0)
-
-            if text_for_neural and len(text_for_neural) > 50:
-                from . import neural_memory
-                ok, err = await _run_tier(
-                    neural_memory.learn_from_text(
-                        text=text_for_neural[:5000],
-                        source=source,
-                        confidence=confidence,
-                    ),
-                    "neural",
-                )
-                result["neural_ok"] = ok
-                if err:
-                    result["errors"].append(err)
+            # R-F1665 (wedge cure 2): the NEURAL tier was here, inside the main
+            # absorb semaphore. It now runs LAST, on its own bounded lane, AFTER
+            # the breaker latency is recorded on the durable core — so a slow
+            # GIL-bound encode no longer occupies a main slot (which built the
+            # 22-44s absorb-p95 queue) and no longer inflates the breaker p95.
     finally:
         if acquired and sem is not None:
             sem.release()
@@ -185,6 +176,51 @@ async def absorb_tiers_bg(
     # R-F1505: pass module name for per-module trip threshold
     _maybe_trip_breaker(reason=f"absorb({module})", module=module)
     result["latency_ms"] = round(_elapsed_ms, 1)
+
+    # ── R-F1665 (wedge cure 2): NEURAL enrichment LAST, on its OWN bounded lane.
+    # Runs AFTER _record_latency/_maybe_trip_breaker, so the breaker measures the
+    # DURABLE-CORE latency (mastery+knowledge — fast SQLite/disk), NOT the slow
+    # GIL-bound neural encode that was driving the absorb-p95 wedge. Neural is
+    # best-effort enrichment: bounded by its own small semaphore (default 2, so
+    # concurrent encodes can't oversubscribe the GIL) and the same per-tier
+    # timeout via _run_tier. A neural cap-skip/failure never affects the durable
+    # fact (already persisted or WAL'd above) nor the module success metric.
+    if (sem is None or acquired) and text_for_neural and len(text_for_neural) > 50:
+        nsem = _get_neural_concurrency_sem() if _get_neural_concurrency_sem else None
+        n_acquired = False
+        if nsem is not None:
+            try:
+                await asyncio.wait_for(
+                    nsem.acquire(), timeout=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
+                )
+                n_acquired = True
+            except asyncio.TimeoutError:
+                logger.debug(
+                    "brain_hook bg: neural lane cap hit — skipping neural for "
+                    "module=%s (durable fact already persisted)", module,
+                )
+                result["errors"].append(
+                    "neural: concurrency cap (>{:.1f}s wait)".format(
+                        _ABSORB_SEM_ACQUIRE_TIMEOUT_S
+                    )
+                )
+        if nsem is None or n_acquired:
+            try:
+                from . import neural_memory
+                ok, err = await _run_tier(
+                    neural_memory.learn_from_text(
+                        text=text_for_neural[:5000],
+                        source=source,
+                        confidence=confidence,
+                    ),
+                    "neural",
+                )
+                result["neural_ok"] = ok
+                if err:
+                    result["errors"].append(err)
+            finally:
+                if n_acquired and nsem is not None:
+                    nsem.release()
 
 
 # ── R-F1150: Auto-gap from chat patterns ──────────────────────────────────────
