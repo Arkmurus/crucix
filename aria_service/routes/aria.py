@@ -556,6 +556,36 @@ async def dd_orchestrate_ep(req: Request):
     if not isinstance(body, dict) or not (body.get("name") or body.get("entity")):
         raise HTTPException(status_code=400, detail="request body must include 'name' or 'entity'")
 
+    # R-F1655: check the DD vault for existing cases on this entity
+    # before running a new DD. If found, return the existing summary
+    # with an option to re-run (unless force=true is set).
+    try:
+        from ..intel.dd_vault import get_vault as _get_dd_vault
+        from ..intel.dd_versioning import canonical_entity_id as _canonical_id
+        _entity_name = body.get("name") or body.get("entity") or ""
+        _canonical = _canonical_id(_entity_name)
+        if _canonical and not body.get("force"):
+            _vault = _get_dd_vault()
+            _existing = _vault.get_case(_canonical)
+            if _existing:
+                return {
+                    "existing_case": True,
+                    "canonical_entity_id": _canonical,
+                    "entity_name": _existing.get("entity_name", _entity_name),
+                    "last_run_at": _existing.get("last_run_at"),
+                    "run_count": _existing.get("run_count", 1),
+                    "risk_score": _existing.get("risk_score", 0.0),
+                    "risk_level": _existing.get("risk_level", "unknown"),
+                    "findings_summary": _existing.get("findings_summary", ""),
+                    "message": (
+                        f"DD already exists for {_existing.get('entity_name', _entity_name)} "
+                        f"(last run {_existing.get('run_count', 1)} times). "
+                        f"Set force=true to re-run."
+                    ),
+                }
+    except Exception as _vault_check_err:
+        logger.debug("dd_vault check failed (non-fatal): %s", _vault_check_err)
+
     mode = (body.get("mode") or "standard").lower()
     if mode not in ("quick", "standard", "deep"):
         mode = "standard"
@@ -20929,6 +20959,61 @@ async def dd_quarantine_closure_summary_ep():
     from ..intel import run_quarantine
     return await run_quarantine.closure_summary()
 
+
+
+# R-F1655: DD vault endpoints
+
+@router.get("/dd/vault/stats")
+async def dd_vault_stats_ep():
+    """Get DD vault statistics."""
+    try:
+        from ..intel.dd_vault import get_vault as _get_dd_vault
+        vault = _get_dd_vault()
+        return {"success": True, "stats": vault.stats()}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/dd/vault/search")
+async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50):
+    """Search the DD vault."""
+    try:
+        from ..intel.dd_vault import get_vault as _get_dd_vault
+        vault = _get_dd_vault()
+        if q:
+            results = vault.search(q, limit=limit)
+        elif status:
+            results = vault.list_by_status(status, limit=limit)
+        else:
+            results = vault.list_all(limit=limit)
+        return {"success": True, "entries": results, "count": len(results)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/dd/vault/case/{canonical_entity_id:path}")
+async def dd_vault_case_ep(canonical_entity_id: str):
+    """Get a single DD case with cross-references."""
+    try:
+        from ..intel.dd_vault import get_vault as _get_dd_vault
+        vault = _get_dd_vault()
+        case = vault.get_case(canonical_entity_id)
+        if not case:
+            return {"success": False, "error": "Case not found"}
+        refs = vault.get_cross_references(canonical_entity_id)
+        related = vault.get_related_cases(canonical_entity_id)
+        return {"success": True, "case": case, "cross_references": refs, "related_cases": related}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.delete("/dd/vault/case/{canonical_entity_id:path}")
+async def dd_vault_delete_ep(canonical_entity_id: str):
+    """Delete a DD case."""
+    try:
+        from ..intel.dd_vault import get_vault as _get_dd_vault
+        vault = _get_dd_vault()
+        deleted = vault.delete_case(canonical_entity_id)
+        return {"success": deleted}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ── Verification gate (2026-04-18) ────────────────────────────────────────
 # On CRITICAL outputs (RED DD verdicts, sanctions yes/no, client-facing

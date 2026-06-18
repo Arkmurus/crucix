@@ -889,6 +889,11 @@ def _auto_verify_fact(
     Runs as a sync function (fire-and-forget via asyncio.create_task)
     so it never blocks the store_fact caller. If verification is not
     configured (no verified_intel module), this is a no-op.
+
+    R-F1656: bounded with a global Semaphore (max 4 concurrent) and
+    asyncio.wait_for timeout (30s per verify). Skips verification when
+    the search circuit breaker is OPEN to prevent tasks queuing against
+    a dead dependency.
     """
     try:
         import asyncio
@@ -900,54 +905,85 @@ def _auto_verify_fact(
         from . import verified_intel as _vi
         from . import redis_store as rs
 
+        # R-F1656: global semaphore — max 4 concurrent verify tasks
+        if not hasattr(_auto_verify_fact, "_sem"):
+            _auto_verify_fact._sem = asyncio.Semaphore(4)
+        _sem = _auto_verify_fact._sem
+
         async def _verify():
+            # R-F1656: skip verification when search circuit is OPEN
+            # to prevent tasks queuing against a dead dependency.
             try:
-                # Check if verification engine is available
-                engine = _vi.ARIAVerificationEngine()
-                # Use the fact's content as the claim to verify
-                claim_text = (content or "")[:500]
-                if len(claim_text) < 20:
-                    return  # too short to verify
-
-                # Extract entity name from topic or source
-                entity = (topic or "")[:100]
-                if not entity:
-                    entity = (source or "").split(":")[0][:100]
-
-                # Run verification in background
-                vfact = await engine.averify_and_store(
-                    claim_text=claim_text,
-                    claim_value=content[:200],
-                    entity_name=entity,
-                    entity_type="unknown",
-                    fact_type=_vi.FactType.GENERAL_CLAIM,
-                    source_url=fact_record.get("source_url", ""),
-                    source_excerpt=content[:300],
-                )
-
-                # Update the fact record with verification results
-                if vfact:
-                    fact_record["verification_status"] = vfact.verification_status.value
-                    fact_record["verification_score"] = vfact.verification_score
-                    fact_record["verified_fact_id"] = vfact.fact_id
-                    fact_record["citation"] = vfact.citation
-                    fact_record["expires_at"] = vfact.expires_at
-                    fact_record["source_urls"] = [s.url for s in vfact.sources]
-
-                    # Persist the updated verification status
-                    await rs.set_json(
-                        f"crucix:verified_intel:fact:{vfact.fact_id}",
-                        vfact.to_dict(),
-                    )
-
+                from .circuit_breaker import get_breaker as _cb
+                _ddg = _cb("search:duckduckgo")
+                if _ddg and _ddg.is_open():
+                    return  # search is down — verification would hang
             except Exception:
-                # Verification is best-effort — never break fact storage
                 pass
+
+            async with _sem:
+                try:
+                    # R-F1656: hard timeout so a hanging verify can't wedge
+                    await asyncio.wait_for(
+                        _do_verify(fact_record, topic, content, source, _vi, rs),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    # Timeout is expected when search is slow — skip silently
+                    pass
+                except Exception:
+                    pass  # Verification is best-effort — never break fact storage
 
         task = loop.create_task(_verify())
         task.add_done_callback(lambda t: None)  # prevent GC collection
     except Exception:
         pass  # verification not available — no-op
+
+
+async def _do_verify(
+    fact_record: dict,
+    topic: str,
+    content: str,
+    source: str,
+    _vi,
+    rs,
+) -> None:
+    """Actual verification logic, extracted so _verify() can wrap it with
+    semaphore + timeout without duplicating the try/except nesting."""
+    try:
+        engine = _vi.ARIAVerificationEngine()
+        claim_text = (content or "")[:500]
+        if len(claim_text) < 20:
+            return
+
+        entity = (topic or "")[:100]
+        if not entity:
+            entity = (source or "").split(":")[0][:100]
+
+        vfact = await engine.averify_and_store(
+            claim_text=claim_text,
+            claim_value=content[:200],
+            entity_name=entity,
+            entity_type="unknown",
+            fact_type=_vi.FactType.GENERAL_CLAIM,
+            source_url=fact_record.get("source_url", ""),
+            source_excerpt=content[:300],
+        )
+
+        if vfact:
+            fact_record["verification_status"] = vfact.verification_status.value
+            fact_record["verification_score"] = vfact.verification_score
+            fact_record["verified_fact_id"] = vfact.fact_id
+            fact_record["citation"] = vfact.citation
+            fact_record["expires_at"] = vfact.expires_at
+            fact_record["source_urls"] = [s.url for s in vfact.sources]
+
+            await rs.set_json(
+                f"crucix:verified_intel:fact:{vfact.fact_id}",
+                vfact.to_dict(),
+            )
+    except Exception:
+        pass
 
 
 async def store_fact(topic: str, content: str, source: str = "user",
