@@ -396,6 +396,103 @@ async def is_available() -> bool:
 
 # ── R-F1651: JS-rendered form field detection ──────────────────────────────
 
+async def submit_form(
+    url: str,
+    form_data: dict[str, str],
+    *,
+    submit_selector: str = '[type="submit"]',
+    success_indicator: str = "",
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
+    """R-F1652: Fill and submit a form through Playwright.
+
+    Uses the browser to fill form fields, click submit, and wait for
+    navigation. This carries the browser session, cookies, and CSRF
+    tokens through submission — unlike httpx POST which loses the
+    browser context.
+
+    Args:
+        url: The registration page URL.
+        form_data: Dict of field name/selector -> value.
+        submit_selector: CSS selector for the submit button.
+        success_indicator: Text that indicates success in the resulting page.
+        timeout: Max time for the whole operation.
+
+    Returns:
+        {"success": bool, "final_url": str, "response_text": str,
+         "error": str, "cookies": list[dict]}
+    """
+    async with _semaphore():
+        playwright = None
+        browser = None
+        context = None
+        page = None
+        try:
+            playwright, browser, context, page = await _launch_browser()
+            await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
+            await page.wait_for_timeout(1000)
+
+            # Fill each form field
+            for field_name, value in form_data.items():
+                try:
+                    # Try by name first, then by id, then by label text
+                    selector = f'[name="{field_name}"]'
+                    el = await page.query_selector(selector)
+                    if not el:
+                        selector = f'#{field_name}'
+                        el = await page.query_selector(selector)
+                    if not el:
+                        selector = f'[id="{field_name}"]'
+                        el = await page.query_selector(selector)
+                    if el:
+                        await el.fill(value)
+                        await page.wait_for_timeout(100)
+                    else:
+                        logger.debug("[submit_form] field %s not found on %s", field_name, url)
+                except Exception as e:
+                    logger.debug("[submit_form] failed to fill %s: %s", field_name, e)
+
+            # Click submit and wait for navigation
+            try:
+                async with page.expect_navigation(timeout=20000):
+                    await page.click(submit_selector)
+                await page.wait_for_load_state("networkidle")
+            except Exception as e:
+                # Page may have already navigated or form submitted via JS
+                logger.debug("[submit_form] navigation after submit: %s", e)
+                await page.wait_for_timeout(3000)
+
+            final_url = page.url
+            response_text = await page.content()
+            cookies = await context.cookies()
+
+            # Check for success indicator
+            success = False
+            if success_indicator:
+                success = success_indicator.lower() in response_text.lower()
+            else:
+                # No indicator specified — assume success if we got a response
+                success = True
+
+            return {
+                "success": success,
+                "final_url": final_url,
+                "response_text": response_text[:50000],
+                "cookies": cookies,
+                "error": "",
+            }
+        except Exception as e:
+            logger.debug("[submit_form] failed for %s: %s", url, e)
+            return {
+                "success": False,
+                "final_url": "",
+                "response_text": "",
+                "cookies": [],
+                "error": str(e),
+            }
+        finally:
+            await _cleanup_browser(playwright, browser, context, page)
+
 async def detect_form_fields(
     url: str,
     *,

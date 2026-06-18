@@ -1245,100 +1245,89 @@ async def _attempt_form_fill_submit(
         # Step 2: Build form data from signup_fields schema
         form_data = _build_form_data(portal.signup_fields, registration_data)
 
-        # Step 3: Submit the form via POST to the register URL
-        # We use httpx for the actual POST since Playwright's fetch only GETs
-        async with httpx.AsyncClient(
-            timeout=30.0,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; ARIA-Registration/1.0)",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Origin": portal.url,
-                "Referer": register_url,
-            },
-        ) as client:
-            # First GET to get any CSRF tokens
-            get_resp = await client.get(register_url)
-            html = get_resp.text
+        # Step 3: Submit the form through Playwright (carries browser session,
+        # cookies, and CSRF tokens — unlike httpx POST which loses browser context)
+        from .scraper.playwright_engine import submit_form as _pw_submit
+        submit_result = await _pw_submit(
+            register_url,
+            form_data,
+            submit_selector='[type="submit"]',
+            success_indicator=portal.success_indicator,
+            timeout=45.0,
+        )
 
-            # Extract CSRF / form tokens from the page
-            csrf_token = _extract_csrf_token(html)
-            if csrf_token:
-                form_data["csrf_token"] = csrf_token
-
-            # Extract Drupal form tokens if present
-            for field in ["form_build_id", "form_id", "honeypot_time", "pp_version", "tou_version"]:
-                value = _extract_hidden_field(html, field)
-                if value:
-                    form_data[field] = value
-
-            # Submit the form
-            resp = await client.post(register_url, data=form_data)
-
-            # Step 4: Check for success indicators
-            if _is_registration_successful(resp, portal):
-                # Store credentials in vault
-                await store_credential(portal.id, registration_data)
-
-                # If email verification required, attempt to verify
-                if portal.requires_email_verify and portal.verify_email_domain:
-                    verified = await _handle_email_verification(portal, registration_data)
-                    if not verified:
-                        return {
-                            "success": False,
-                            "requires_email_verify": True,
-                            "message": (
-                                f"Registration submitted for {portal.name}. "
-                                f"Email verification required — waiting for confirmation link "
-                                f"from {portal.verify_email_domain}. "
-                                f"Credentials stored in encrypted vault."
-                            ),
-                            "portal_id": portal.id,
-                            "email": _ARIA_EMAIL,
-                        }
-
-                return {
-                    "success": True,
-                    "message": (
-                        f"Successfully registered for {portal.name}. "
-                        f"Credentials stored in encrypted vault."
-                    ),
-                    "portal_id": portal.id,
-                    "email": _ARIA_EMAIL,
-                }
-
-            # Step 5: Check for bot detection / rate limiting
-            resp_text = resp.text.lower()
-            if "please wait" in resp_text and "seconds" in resp_text:
-                return {
-                    "success": False,
-                    "requires_operator": True,
-                    "message": (
-                        f"{portal.name} rate-limited the registration attempt. "
-                        f"Try again later or register manually."
-                    ),
-                    "portal_id": portal.id,
-                    "email": _ARIA_EMAIL,
-                }
-
-            # Check for field errors
-            field_errors = _extract_field_errors(resp.text)
-            if field_errors:
-                logger.debug(
-                    "[portal_registry] Registration field errors for %s: %s",
-                    portal.id, field_errors,
-                )
-                return {
-                    "success": False,
-                    "error": f"Registration failed: {'; '.join(field_errors[:3])}",
-                    "portal_id": portal.id,
-                }
-
+        if submit_result.get("error"):
             logger.debug(
-                "[portal_registry] Registration POST returned %s for %s (unexpected response)",
-                resp.status_code, portal.id,
+                "[portal_registry] Playwright form submit failed for %s: %s",
+                portal.id, submit_result["error"],
             )
-            return {"success": False, "error": f"Unexpected response: HTTP {resp.status_code}"}
+            return {"success": False, "error": f"Form submit failed: {submit_result['error']}"}
+
+        # Step 4: Check for success indicators
+        if submit_result.get("success"):
+            # Store credentials in vault
+            await store_credential(portal.id, registration_data)
+
+            # If email verification required, attempt to verify
+            if portal.requires_email_verify and portal.verify_email_domain:
+                verified = await _handle_email_verification(portal, registration_data)
+                if not verified:
+                    return {
+                        "success": False,
+                        "requires_email_verify": True,
+                        "message": (
+                            f"Registration submitted for {portal.name}. "
+                            f"Email verification required — waiting for confirmation link "
+                            f"from {portal.verify_email_domain}. "
+                            f"Credentials stored in encrypted vault."
+                        ),
+                        "portal_id": portal.id,
+                        "email": _ARIA_EMAIL,
+                    }
+
+            return {
+                "success": True,
+                "message": (
+                    f"Successfully registered for {portal.name}. "
+                    f"Credentials stored in encrypted vault."
+                ),
+                "portal_id": portal.id,
+                "email": _ARIA_EMAIL,
+            }
+
+        # Step 5: Check for bot detection / rate limiting in response
+        response_text = submit_result.get("response_text", "")
+        resp_lower = response_text.lower()
+        if "please wait" in resp_lower and "seconds" in resp_lower:
+            return {
+                "success": False,
+                "requires_operator": True,
+                "message": (
+                    f"{portal.name} rate-limited the registration attempt. "
+                    f"Try again later or register manually."
+                ),
+                "portal_id": portal.id,
+                "email": _ARIA_EMAIL,
+            }
+
+        # Check for field errors
+        field_errors = _extract_field_errors(response_text)
+        if field_errors:
+            logger.debug(
+                "[portal_registry] Registration field errors for %s: %s",
+                portal.id, field_errors,
+            )
+            return {
+                "success": False,
+                "error": f"Registration failed: {'; '.join(field_errors[:3])}",
+                "portal_id": portal.id,
+            }
+
+        logger.debug(
+            "[portal_registry] Form submission for %s returned unexpected response",
+            portal.id,
+        )
+        return {"success": False, "error": "Unexpected response from registration form"}
 
     except Exception as e:
         logger.debug("[portal_registry] Form fill+submit failed for %s: %s", portal.id, e)
