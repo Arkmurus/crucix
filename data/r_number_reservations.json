@@ -10969,9 +10969,10 @@
       "title": "Fix search: make-loud on empty SearXNG results, fix backend name mislabel, fix gather timeout partial results",
       "claimed_at": "2026-06-18T10:50:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "23420a22",
+      "notes": null,
+      "shipped_at": "2026-06-18T10:53:04Z"
     }
   ]
 }

@@ -282,31 +282,28 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
                 if out:
                     logger.debug("SearXNG (self-host R-F183): %d results for %r", len(out), query[:60])
                     return out
-            # R-F1657: make-loud on empty SearXNG results when engines are blocked.
-            # A 200 with 0 results and unresponsive_engines means search is BLOCKED,
-            # not that the world has no answer. Wire a failure so the brain knows.
-            if res.get("ok") and not res.get("results"):
-                unresponsive = res.get("unresponsive_engines", {})
-                if unresponsive and all(
-                    "CAPTCHA" in str(v) or "Suspended" in str(v) or "too many" in str(v).lower()
-                    for v in unresponsive.values()
-                ):
-                    logger.warning(
-                        "SearXNG returned 0 results — all engines blocked by CAPTCHA/rate-limit "
-                        "(%d unresponsive): %s",
-                        len(unresponsive), list(unresponsive.keys())[:5],
+            # R-F1657: make-loud on empty SearXNG results when the adapter
+            # returned ok but no results. A 200 with 0 results from a
+            # configured self-host instance means search is BLOCKED (all
+            # upstream engines CAPTCHA/rate-limited), not that the world
+            # has no answer. Wire a failure so the brain knows.
+            if res.get("ok") and res.get("configured") and not res.get("results"):
+                logger.warning(
+                    "SearXNG returned 0 results — all upstream engines likely blocked "
+                    "(query=%r, backend=%s)",
+                    query[:60], res.get("backend", "searxng"),
+                )
+                try:
+                    from .engine_wiring import wire_failure as _wf1657
+                    _wf1657(
+                        module="web_search",
+                        detail=f"SearXNG 0 results: configured instance returned empty "
+                               f"for query={query[:80]} — all upstream engines blocked",
+                        gap_type="search_all_engines_blocked",
+                        source="web_search:_search_searxng",
                     )
-                    try:
-                        from .engine_wiring import wire_failure as _wf1657
-                        _wf1657(
-                            module="web_search",
-                            detail=f"SearXNG 0 results: all {len(unresponsive)} engines blocked "
-                                   f"({', '.join(list(unresponsive.keys())[:5])})",
-                            gap_type="search_all_engines_blocked",
-                            source="web_search:_search_searxng",
-                        )
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
             # If self-host returned no results / error, fall through to
             # the legacy public-instance loop (currently empty); the path
             # is harmless and lets us add public instances later.
@@ -1156,10 +1153,9 @@ async def search(
                     # `_lang` suffix so telemetry stays accurate rather
                     # than bucketing as `backend_<n>`.
                     _post = _ord - len(_names)
-                    if _post % 2 == 0:
-                        bname = "brave_lang"
-                    else:
-                        bname = "google_news_lang"
+                    # R-F1657: brave was removed (R-F1630), all fan-out
+                    # tasks are google_news now.
+                    bname = "google_news_lang"
             ok = (not isinstance(batch, Exception)) and bool(batch)
             metric = "ok" if ok else "fail"
             try:
