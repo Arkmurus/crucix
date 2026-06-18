@@ -172,6 +172,24 @@ async function brainFetch(path, options = {}) {
     }
   }
 }
+// R-F1678 — dedicated health-check fetch with NO retries. The doc-poll health
+// check (readDocumentAsync) uses this instead of brainFetch so a transient
+// brain slowdown doesn't cascade into 3 retries × 8s = 24s of health-check
+// delay, which can trigger the 3-consecutive-failure abort (~90s) and kill a
+// healthy document extraction. Single attempt, caller-specified timeout.
+async function brainFetchHealth(path, timeoutMs = 8000) {
+  // Try .internal fast-path first (best-effort, no retry)
+  if (BRAIN_FAST_PATH) {
+    try {
+      const r = await fetch(`${BRAIN_FAST_PATH}${path}`, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) return r;
+    } catch { /* fall through to public URL */ }
+  }
+  // Single attempt on public URL — no retries
+  const r = await fetch(`${BRAIN_URL}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+  return r;
+}
+
 // R-F1413 — async-complete-and-push callback URL. The brain POSTs completed
 // job results here so deep queries deliver even after the poll loop times out.
 // Defaults to the WA listener's own /send endpoint (internal Fly DNS).
@@ -724,7 +742,7 @@ async function readDocumentAsync(payload, chatId, filename) {
     if (Date.now() - lastHealthCheck > 30000) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
+        const hc = await brainFetchHealth(`/health/live`, 8000);
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
         docHealthFails = 0;  // reset on success
       } catch {
@@ -880,7 +898,7 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
     if (Date.now() - lastHealthCheck > BRAIN_HEALTH_CHECK_INTERVAL_MS) {
       lastHealthCheck = Date.now();
       try {
-        const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
+        const hc = await brainFetchHealth(`/health/live`, 8000);
         if (!hc.ok) throw new Error(`health returned ${hc.status}`);
         chatHealthFails = 0;  // reset on success
       } catch {
@@ -1667,7 +1685,7 @@ async function startListener() {
             if (Date.now() - lastHealthCheck > 30000) {
               lastHealthCheck = Date.now();
               try {
-                const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(8000) });
+                const hc = await brainFetchHealth(`/health/live`, 8000);
                 if (!hc.ok) throw new Error(`health returned ${hc.status}`);
                 ocrHealthFails = 0;  // reset on success
               } catch {
@@ -2042,7 +2060,7 @@ app.use(express.json());
 app.get('/health', async (_req, res) => {
   let brainOk = false;
   try {
-    const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(3000) });
+    const hc = await brainFetchHealth(`/health/live`, 3000);
     brainOk = hc.ok;
   } catch { /* brain unreachable */ }
   res.json({
@@ -2057,7 +2075,7 @@ app.get('/health', async (_req, res) => {
 app.get('/status', requireAuth, async (_req, res) => {
   let brainOk = false;
   try {
-    const hc = await brainFetch(`/health/live`, { signal: AbortSignal.timeout(3000) });
+    const hc = await brainFetchHealth(`/health/live`, 3000);
     brainOk = hc.ok;
   } catch { /* brain unreachable */ }
   res.json({

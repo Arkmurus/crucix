@@ -9858,14 +9858,30 @@ async def read_document_ep(request: Request):
             try:
                 _res = await _read_document_ep_impl(_r873_shim)
                 if isinstance(_res, dict):
-                    await _readdoc_job_set(_job_id, {"status": "done", "result": _res, "filename": _fname})
+                    _job_data = {"status": "done", "result": _res, "filename": _fname}
                 else:
                     _sc = getattr(_res, "status_code", "?")
-                    await _readdoc_job_set(_job_id, {"status": "failed",
-                                                     "error": f"extraction returned HTTP {_sc}", "filename": _fname})
+                    _job_data = {"status": "failed",
+                                 "error": f"extraction returned HTTP {_sc}", "filename": _fname}
             except Exception as _e:
                 _log.warning("R-F873 async read-document job %s failed: %s", _job_id, _e)
-                await _readdoc_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": _fname})
+                _job_data = {"status": "failed", "error": str(_e)[:300], "filename": _fname}
+
+            # R-F1678 — retry the job-store write up to 3x with backoff so a
+            # transient state_store blip (write queue full / reconnect window)
+            # doesn't strand the job in "processing" forever. If all retries
+            # fail, log and accept the loss — the WA listener will eventually
+            # time out, but we tried.
+            for _r1678_attempt in range(3):
+                if await _readdoc_job_set(_job_id, _job_data):
+                    break
+                import asyncio as _asyncio1678
+                await _asyncio1678.sleep(1.0 * (2 ** _r1678_attempt))
+            else:
+                _log.warning(
+                    "R-F1678 readdoc job-store write failed for %s after 3 retries — "
+                    "job stranded in 'processing' state", _job_id,
+                )
 
         # R-F1377 — strong ref: a GC'd extraction job = document parse that
         # never finishes ("extraction timed out after 15 minutes" on WA).
