@@ -7,6 +7,18 @@
 #     real secret is committed.
 #   - limiter/public_instance off: this instance is INTERNAL-ONLY (reached via
 #     aria-searxng.internal on fly's private network), not a public instance.
+#
+# R-F1659 — RESILIENT ENGINE SET. Live probe 2026-06-18 found this instance was
+# effectively single-engine: of its default general engines, brave / duckduckgo /
+# startpage all return "Suspended: too many requests" / "CAPTCHA" because the Fly
+# DATACENTER IP is rate-limited/CAPTCHA'd by them — the same block that killed the
+# direct backends, just one hop upstream. Only Google was carrying results, and
+# some queries came back 200-with-0-results. Fix: explicitly ENABLE the
+# datacenter-tolerant engines (mojeek = independent crawler, bing, wikipedia,
+# wikidata, qwant) so search has real redundancy, and DISABLE the three
+# perma-blocked engines so they stop adding CAPTCHA noise + per-query timeout
+# latency to every search. Listed engines override the matching default by name;
+# unlisted defaults are untouched.
 use_default_settings: true
 
 general:
@@ -26,6 +38,30 @@ search:
   formats:
     - html
     - json
+
+# R-F1659 — per-engine overrides (merged into defaults by name).
+engines:
+  # Datacenter-tolerant general-web engines — keep / enable.
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: wikidata
+    disabled: false
+  # Perma-blocked from the Fly datacenter IP — disable so they stop adding
+  # CAPTCHA/rate-limit noise + timeout latency to every query.
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: startpage
+    disabled: true
 
 ui:
   static_use_hash: true
