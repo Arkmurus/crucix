@@ -212,9 +212,57 @@
       <a class="dd-act-btn" href="/vls-chain.html" style="padding:10px 14px;font-size:13px;text-decoration:none" title="VLS chain verification">
         <i class="bi bi-shield-check"></i> VLS Chain
       </a>
+      <button class="dd-act-btn" id="dd-vault-btn" style="padding:10px 14px;font-size:13px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.25);border-radius:9px;color:#a78bfa;cursor:pointer" title="DD Vault">
+        <i class="bi bi-archive"></i> Vault
+      </button>
     </div>
 
     <div id="dd-content">
+      <div class="dd-loading">Loading reports...</div>
+    </div>
+
+    <!-- DD Vault panel (hidden by default) -->
+    <div id="dd-vault-panel" style="display:none">
+      <div class="dd-eyebrow" style="margin-top:8px">DD Vault</div>
+      <h2 class="dd-title" style="font-size:20px;margin-bottom:12px">Persistent case storage</h2>
+
+      <div id="dd-vault-stats" style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#fff">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Total Cases</div>
+        </div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#22c55e">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Cross-References</div>
+        </div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#3b82f6">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Run Last 7d</div>
+        </div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#f59e0b">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">By Type</div>
+        </div>
+      </div>
+
+      <div class="dd-toolbar">
+        <input class="dd-search" id="dd-vault-search" placeholder="Search vault by entity name, jurisdiction, or tags..." type="search">
+        <button class="dd-new-btn" id="dd-vault-search-btn" style="padding:10px 16px"><i class="bi bi-search"></i> Search</button>
+      </div>
+
+      <div id="dd-vault-results">
+        <div class="dd-empty"><i class="bi bi-archive"></i> Search the vault to find past DD cases</div>
+      </div>
+
+      <div id="dd-vault-case-detail" style="display:none;margin-top:20px">
+        <button class="dd-act-btn" id="dd-vault-back-btn" style="margin-bottom:12px;cursor:pointer;background:none;border:none;color:#a78bfa;font-size:13px">
+          <i class="bi bi-arrow-left"></i> Back to vault
+        </button>
+        <div id="dd-vault-case-content"></div>
+      </div>
+    </div>
+
+    <!--
       <div class="dd-loading">Loading reports…</div>
     </div>
 
@@ -1150,6 +1198,149 @@ loadReports();
       toggleBtn.setAttribute('aria-expanded', !grid.classList.contains('collapsed'));
       toggleBtn.querySelector('i').className = grid.classList.contains('collapsed')
         ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+    });
+  }
+})();
+
+// DD Vault UI
+(function() {
+  const vaultBtn = document.getElementById('dd-vault-btn');
+  const vaultPanel = document.getElementById('dd-vault-panel');
+  const ddContent = document.getElementById('dd-content');
+  const vaultSearch = document.getElementById('dd-vault-search');
+  const vaultSearchBtn = document.getElementById('dd-vault-search-btn');
+  const vaultResults = document.getElementById('dd-vault-results');
+  const vaultCaseDetail = document.getElementById('dd-vault-case-detail');
+  const vaultCaseContent = document.getElementById('dd-vault-case-content');
+  const vaultBackBtn = document.getElementById('dd-vault-back-btn');
+
+  let vaultData = null;
+
+  // Toggle vault panel
+  vaultBtn.addEventListener('click', function() {
+    const isVisible = vaultPanel.style.display !== 'none';
+    vaultPanel.style.display = isVisible ? 'none' : 'block';
+    ddContent.style.display = isVisible ? 'block' : 'none';
+    vaultBtn.style.background = isVisible
+      ? 'rgba(124,58,237,0.12)'
+      : 'rgba(124,58,237,0.3)';
+    if (!isVisible && !vaultData) {
+      loadVaultStats();
+    }
+  });
+
+  async function loadVaultStats() {
+    try {
+      const r = await authed('/api/aria/dd/vault/stats');
+      const data = await r.json();
+      if (!data || !data.stats) return;
+      vaultData = data.stats;
+      const s = data.stats;
+      document.querySelector('#dd-vault-stats .dd-vault-stat:nth-child(1) .dd-vault-stat-num').textContent = s.total_cases || 0;
+      document.querySelector('#dd-vault-stats .dd-vault-stat:nth-child(2) .dd-vault-stat-num').textContent = s.total_cross_references || 0;
+      document.querySelector('#dd-vault-stats .dd-vault-stat:nth-child(3) .dd-vault-stat-num').textContent = s.run_last_7d || 0;
+      const byType = s.by_type || {};
+      const typeStr = Object.entries(byType).map(function(e) { return e[0] + ':' + e[1]; }).join(', ');
+      document.querySelector('#dd-vault-stats .dd-vault-stat:nth-child(4) .dd-vault-stat-num').textContent = typeStr || '--';
+    } catch(e) {
+      console.error('Vault stats failed:', e);
+    }
+  }
+
+  async function searchVault() {
+    const q = vaultSearch.value.trim();
+    if (!q) return;
+    vaultResults.innerHTML = '<div class="dd-loading">Searching vault...</div>';
+    try {
+      const r = await authed('/api/aria/dd/vault/search?q=' + encodeURIComponent(q) + '&limit=20');
+      const data = await r.json();
+      if (!data || !data.entries || data.entries.length === 0) {
+        vaultResults.innerHTML = '<div class="dd-empty"><i class="bi bi-search"></i> No cases found for "' + escHtml(q) + '"</div>';
+        return;
+      }
+      var html = '<table class="dd-table"><thead><tr><th>Entity</th><th>Type</th><th>Risk</th><th>Runs</th><th>Last Run</th><th>Jurisdiction</th></tr></thead><tbody>';
+      data.entries.forEach(function(e) {
+        var riskClass = (e.risk_level || '').toLowerCase();
+        var lastRun = e.last_run_at ? new Date(e.last_run_at * 1000).toLocaleDateString() : '--';
+        html += '<tr class="dd-row" onclick="showVaultCase(\'' + escHtml(e.canonical_entity_id) + '\')">';
+        html += '<td class="col-entity">' + escHtml(e.entity_name) + '</td>';
+        html += '<td class="col-meta">' + escHtml(e.entity_type) + '</td>';
+        html += '<td><span class="dd-pill ' + riskClass + '">' + escHtml(e.risk_level || 'unknown') + '</span></td>';
+        html += '<td class="col-meta">' + (e.run_count || 1) + '</td>';
+        html += '<td class="col-meta">' + lastRun + '</td>';
+        html += '<td class="col-meta">' + escHtml(e.jurisdiction || '--') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      vaultResults.innerHTML = html;
+    } catch(e) {
+      vaultResults.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i> Search failed: ' + escHtml(e.message) + '</div>';
+    }
+  }
+
+  window.showVaultCase = async function(canonicalId) {
+    vaultResults.style.display = 'none';
+    vaultCaseDetail.style.display = 'block';
+    vaultCaseContent.innerHTML = '<div class="dd-loading">Loading case...</div>';
+    try {
+      const r = await authed('/api/aria/dd/vault/case/' + encodeURIComponent(canonicalId));
+      const data = await r.json();
+      if (!data || !data.case) {
+        vaultCaseContent.innerHTML = '<div class="dd-empty">Case not found</div>';
+        return;
+      }
+      var c = data.case;
+      var html = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:20px">';
+      html += '<h3 style="color:#fff;margin:0 0 8px">' + escHtml(c.entity_name) + '</h3>';
+      html += '<div style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:16px">';
+      html += 'Type: ' + escHtml(c.entity_type) + ' &middot; Jurisdiction: ' + escHtml(c.jurisdiction || '--');
+      html += ' &middot; Risk: <span class="dd-pill ' + (c.risk_level || '').toLowerCase() + '">' + escHtml(c.risk_level || 'unknown') + '</span>';
+      html += ' &middot; Runs: ' + (c.run_count || 1);
+      html += '</div>';
+      if (c.findings_summary) {
+        html += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px;color:rgba(255,255,255,0.7);white-space:pre-wrap">' + escHtml(c.findings_summary) + '</div>';
+      }
+      if (data.cross_references && data.cross_references.length > 0) {
+        html += '<h4 style="color:#22c55e;font-size:13px;margin:12px 0 8px">Cross-References</h4>';
+        html += '<div style="font-size:12px">';
+        data.cross_references.forEach(function(ref) {
+          html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">';
+          html += '<strong>' + escHtml(ref.relationship) + '</strong>: ' + escHtml(ref.target_entity || ref.source_entity);
+          if (ref.finding_summary) html += ' &mdash; ' + escHtml(ref.finding_summary);
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      if (data.related_cases && data.related_cases.length > 0) {
+        html += '<h4 style="color:#3b82f6;font-size:13px;margin:12px 0 8px">Related Cases</h4>';
+        html += '<div style="font-size:12px">';
+        data.related_cases.forEach(function(rc) {
+          html += '<div style="padding:4px 0;cursor:pointer;color:#a78bfa" onclick="showVaultCase(\'' + escHtml(rc.canonical_entity_id) + '\')">';
+          html += '<i class="bi bi-box-arrow-up-right" style="font-size:10px"></i> ' + escHtml(rc.entity_name) + ' (' + escHtml(rc.risk_level || 'unknown') + ')';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+      vaultCaseContent.innerHTML = html;
+    } catch(e) {
+      vaultCaseContent.innerHTML = '<div class="dd-empty">Error loading case: ' + escHtml(e.message) + '</div>';
+    }
+  };
+
+  vaultBackBtn.addEventListener('click', function() {
+    vaultCaseDetail.style.display = 'none';
+    vaultResults.style.display = 'block';
+  });
+
+  vaultSearchBtn.addEventListener('click', searchVault);
+  vaultSearch.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') searchVault();
+  });
+
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
     });
   }
 })();
