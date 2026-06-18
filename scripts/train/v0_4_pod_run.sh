@@ -119,6 +119,12 @@ PY
 # trust ANY training on it. Downloads only config.json (~1KB). The v0.3 signature
 # is vocab_size=32768 (v0.2 was 32000) + 32 layers + hidden 4096 — a mislabeled or
 # wrong-version mirror fails here, NOT silently after a 1.5h train + a bad eval.
+if [ "${ARIA_SKIP_ARCH_CHECK:-0}" = "1" ]; then
+  # R-F1667: the v0.8 14B experiment uses a different base (e.g. Qwen2.5-14B).
+  # The pipeline is model-agnostic (sft_train + serve use apply_chat_template +
+  # AutoModel trust_remote_code), so skip the Mistral-7B signature guard here.
+  log "ARCH CHECK SKIPPED (ARIA_SKIP_ARCH_CHECK=1) — base=$BASE_MODEL (non-Mistral experiment)"
+else
 log "verifying base architecture is Mistral-7B-Instruct-v0.3 ($BASE_MODEL) …"
 python - "$BASE_MODEL" <<'PY' || fail "base-model architecture check failed — refusing to train on a non-v0.3 base"
 import sys
@@ -131,6 +137,7 @@ if bad:
     print(f"BASE MISMATCH (got, want): {bad}", file=sys.stderr); sys.exit(1)
 print(f"base OK: Mistral-7B-Instruct-v0.3 signature confirmed (vocab=32768, 32L, 4096d)")
 PY
+fi
 
 log "SFT training v0.4 → $SFT_OUT (epochs=$EPOCHS, 4-bit) …"
 python "$SCRIPTS/sft_train.py" \

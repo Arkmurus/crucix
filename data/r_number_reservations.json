@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1667,
+  "next_available": 1668,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11056,6 +11056,15 @@
       "r_number": "R-F1666",
       "title": "Cure doc-read brain freeze: offload ALL vision-path fitz render off the event loop",
       "claimed_at": "2026-06-18T14:02:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1667",
+      "title": "v0.8 14B base experiment (Qwen2.5-14B on v0.7 grounded corpus — test if 7B capacity was the parity cap)",
+      "claimed_at": "2026-06-18T14:11:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
