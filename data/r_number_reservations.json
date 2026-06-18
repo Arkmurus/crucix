@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1677,
+  "next_available": 1678,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11134,23 +11134,35 @@
       "title": "coder verifiable-reward gold corpus capture (DeepSeek-R1 style: record fixes that genuinely passed tests + preservation guard for SFT)",
       "claimed_at": "2026-06-18T16:20:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fb789059",
+      "notes": null,
+      "shipped_at": "2026-06-18T16:34:57Z"
     },
     {
       "r_number": "R-F1675",
       "title": "Surgical: parallelize researcher.read_document per-chunk LLM analysis (real WA doc path)",
       "claimed_at": "2026-06-18T16:23:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "10873216",
+      "notes": null,
+      "shipped_at": "2026-06-18T16:45:33Z"
     },
     {
       "r_number": "R-F1676",
       "title": "grounding-aware judge — pass retrieved evidence to the eval judge + require claim-level support (trustworthy RLAIF/eval reward, anti-fabrication)",
       "claimed_at": "2026-06-18T16:31:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "10873216",
+      "notes": null,
+      "shipped_at": "2026-06-18T16:34:57Z"
+    },
+    {
+      "r_number": "R-F1677",
+      "title": "SL-CAI revision-quality gate + clause coverage — re-score self-critique revisions before they become training data (no blind-trust)",
+      "claimed_at": "2026-06-18T17:10:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

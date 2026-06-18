@@ -120,10 +120,19 @@ async def should_collect() -> bool:
 # over time) and aligns with the living-constitution feedback loop.
 
 _CLAUSE_SUMMARIES = """CONSTITUTIONAL CLAUSES THAT MATTER FOR THIS REVIEW:
+  Clause 1   — Epistemic honesty. Confidence tags [CONFIRMED]/[PROBABLE]/[ASSESSED]
+               must match the actual evidence; never overclaim certainty.
+  Clause 3   — Compliance first. Sanctions/export-control/AML conclusions must be
+               grounded and caveated; no confident compliance verdict without basis.
   Clause 9   — No profiling without data. If no tool extract, no confident claim.
+  Clause 12  — No document review without the text. Don't critique/summarise a doc
+               you were not actually given the contents of.
   Clause 13  — Current-event honesty. Don't assert as fact what you're guessing.
   Clause 14  — No fabricated verifiable facts (jurisdictions, numbers, names,
                dates that could be checked but weren't).
+  Clause 15  — Inline citation on tool-derived facts. Tool/RAG facts carry [from <source>].
+  Clause 16  — Counterparty-deception awareness; don't launder an unverified claim
+               into a confident finding.
   Clause 17  — Verified intel. CONFIRMED tag requires grounded citation.
   Clause 18  — Source-quality gate on citations.
   Clause 19  — Search doctrine. Paraphrase discipline, [WEB]/[MEMORY] markers.
@@ -131,6 +140,10 @@ _CLAUSE_SUMMARIES = """CONSTITUTIONAL CLAUSES THAT MATTER FOR THIS REVIEW:
   Clause 20(f) — No tool-execution claims when no tool ran this turn.
   Clause 21  — Understand before act. UNDERSTOOD AS: prefix on substantive replies.
   Clause 22  — Think before speak. Scratchpad before answer.
+  Clause 23  — No user-asserted compliance premises accepted as fact (verify, don't
+               inherit the user's "X is sanctioned/clean" assertion).
+  Clause 25  — No architectural self-claims (don't assert internal system facts about
+               yourself you can't substantiate).
 """
 
 _CRITIQUE_SYSTEM_PROMPT = """You audit a defence-intelligence assistant's
@@ -176,6 +189,24 @@ If the original has NO violations, return:
 
 Max 5 violations listed. `revision` MUST be empty if `clauses_violated`
 is empty (no need to revise a clean response)."""
+
+
+def _is_training_grade(orig_violations: list, revision: str, recritique_violations) -> bool:
+    """R-F1677 — revision-quality gate (rejection sampling). A self-critique pair is
+    training-grade ONLY when the revision is VERIFIED, never blind-trusted:
+      • clean original (no violations) -> True (already-good behaviour is a valid target);
+      • violated + a substantive revision that RE-CRITIQUES CLEAN (recritique_violations
+        empty) -> True (the fix genuinely fixed it);
+      • violated but revision missing/short, OR the revision STILL violates -> False
+        (a "fix" that didn't fix it must not become training data).
+    Pure so the gate is unit-testable."""
+    if not orig_violations:
+        return True  # original already clean — usable positive, no revision risk
+    if not revision or len(revision.strip()) < 20:
+        return False  # claimed a violation but produced no real revision
+    if recritique_violations is None:
+        return False  # re-critique didn't run / failed -> not verified -> not gold
+    return len(recritique_violations) == 0  # revision must come back clean
 
 
 def _parse_triple(raw: str) -> dict | None:
@@ -291,6 +322,34 @@ async def collect(
             logger.debug("[critique] parse failed raw=%r", raw[:200])
             return None
 
+        # R-F1677 — REVISION-QUALITY GATE. The collector previously trusted the
+        # LLM's revision blindly; a "fix" that didn't actually fix the violation
+        # would poison the SL-CAI training set. Re-critique the revision and accept
+        # it as training-grade ONLY if it comes back CLEAN (rejection sampling). One
+        # extra LLM call, and ONLY when there is a revision to verify.
+        recritique_violations = None
+        if parsed["clauses_violated"] and len((parsed["revision"] or "").strip()) >= 20:
+            try:
+                verify_prompt = _CRITIQUE_USER_TEMPLATE.format(
+                    clauses=_CLAUSE_SUMMARIES,
+                    query=(query[:600] or "(empty)"),
+                    response=(parsed["revision"][:4000]),
+                )
+                with cost_tracker.feature("critique_collector"):
+                    verify_result = await llm.complete(
+                        _CRITIQUE_SYSTEM_PROMPT, verify_prompt,
+                        max_tokens=1200, timeout=60.0,
+                    )
+                rec = _parse_triple(getattr(verify_result, "text", None) or "")
+                if rec is not None:
+                    recritique_violations = rec["clauses_violated"]
+            except Exception as e:
+                logger.debug("[critique] revision re-critique failed: %s", e)
+
+        training_grade = _is_training_grade(
+            parsed["clauses_violated"], parsed["revision"], recritique_violations
+        )
+
         # Build the triple record
         triple = {
             "trace_id": trace_id,
@@ -307,6 +366,9 @@ async def collect(
             "revision": parsed["revision"],
             "domain": parsed["domain"],
             "clean": not parsed["clauses_violated"],
+            # R-F1677: revision verified by re-critique (or clean original)
+            "revision_recritique_violations": recritique_violations,
+            "training_grade": training_grade,
         }
 
         await _persist(triple)
@@ -412,6 +474,7 @@ async def export_jsonl(
     limit: int = 1000,
     only_clean: bool = False,
     only_violations: bool = False,
+    training_grade_only: bool = True,
 ) -> str:
     """Export collected triples as JSONL for fine-tuning.
 
@@ -420,6 +483,10 @@ async def export_jsonl(
         only_clean — only include no-violation triples (as positive examples)
         only_violations — only include triples WITH violations (DPO preferred/
                           dispreferred pairs)
+        training_grade_only — R-F1677: DEFAULT True. Only emit pairs whose revision
+                          was VERIFIED by re-critique (or clean originals). Excludes
+                          blind-trusted revisions that didn't actually fix the
+                          violation — never train on an unverified "fix".
 
     The returned string is newline-delimited JSON — one triple per line.
     """
@@ -441,6 +508,15 @@ async def export_jsonl(
             continue
         if only_violations and t.get("clean"):
             continue
+        # R-F1677: by default, only export verified (training-grade) pairs.
+        # Back-compat: triples collected before R-F1677 lack the field — treat a
+        # missing flag as training_grade for clean ones, but require it for revisions.
+        if training_grade_only:
+            tg = t.get("training_grade")
+            if tg is None:
+                tg = bool(t.get("clean"))  # pre-R-F1677: only clean originals trusted
+            if not tg:
+                continue
         # Output schema — stable across time so future fine-tuning
         # tooling doesn't break when we add fields
         record = {
