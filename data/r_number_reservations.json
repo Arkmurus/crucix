@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1657,
+  "next_available": 1658,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10958,6 +10958,16 @@
       "r_number": "R-F1656",
       "title": "Fix knowledge.py _auto_verify_fact wedge: bound with Semaphore + timeout, skip when search circuit OPEN",
       "claimed_at": "2026-06-18T10:43:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4d33c43a",
+      "notes": null,
+      "shipped_at": "2026-06-18T10:50:24Z"
+    },
+    {
+      "r_number": "R-F1657",
+      "title": "Fix search: make-loud on empty SearXNG results, fix backend name mislabel, fix gather timeout partial results",
+      "claimed_at": "2026-06-18T10:50:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

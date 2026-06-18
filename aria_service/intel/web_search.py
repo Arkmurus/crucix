@@ -282,6 +282,31 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
                 if out:
                     logger.debug("SearXNG (self-host R-F183): %d results for %r", len(out), query[:60])
                     return out
+            # R-F1657: make-loud on empty SearXNG results when engines are blocked.
+            # A 200 with 0 results and unresponsive_engines means search is BLOCKED,
+            # not that the world has no answer. Wire a failure so the brain knows.
+            if res.get("ok") and not res.get("results"):
+                unresponsive = res.get("unresponsive_engines", {})
+                if unresponsive and all(
+                    "CAPTCHA" in str(v) or "Suspended" in str(v) or "too many" in str(v).lower()
+                    for v in unresponsive.values()
+                ):
+                    logger.warning(
+                        "SearXNG returned 0 results — all engines blocked by CAPTCHA/rate-limit "
+                        "(%d unresponsive): %s",
+                        len(unresponsive), list(unresponsive.keys())[:5],
+                    )
+                    try:
+                        from .engine_wiring import wire_failure as _wf1657
+                        _wf1657(
+                            module="web_search",
+                            detail=f"SearXNG 0 results: all {len(unresponsive)} engines blocked "
+                                   f"({', '.join(list(unresponsive.keys())[:5])})",
+                            gap_type="search_all_engines_blocked",
+                            source="web_search:_search_searxng",
+                        )
+                    except Exception:
+                        pass
             # If self-host returned no results / error, fall through to
             # the legacy public-instance loop (currently empty); the path
             # is harmless and lets us add public instances later.
@@ -952,9 +977,11 @@ async def search(
     # to see ACTUAL backend health for the most-recent search.
     _backend_names = (
         ["memory"]
-        + ["brave", "searxng", "duckduckgo", "google_news", "bing_news",
+        # R-F1657: "brave" removed (R-F1630 stub). Order must match
+        # backend_tasks list above: searxng, ddg, gnews, bing, academic,
+        # defence_event, gnews[langs]...
+        + ["searxng", "duckduckgo", "google_news", "bing_news",
            "academic", "defence_event"]
-        + [f"brave[{l}]" for l in extra_langs[:3]]
         + [f"google_news[{l}]" for l in extra_langs[:3]]
     )
     import time as _t_ws
@@ -964,13 +991,16 @@ async def search(
     # is the per-backend HTTP timeout; the gather should complete within
     # that window. If it doesn't, return partial results rather than
     # blocking the caller (deep researcher, chat, etc.).
+    # R-F1657: create tasks individually so we can read .result() from
+    # completed ones on timeout instead of discarding everything.
+    _all_tasks = [
+        asyncio.create_task(_query_memory(query, max_results=max_results))
+    ]
+    for _bt in backend_tasks:
+        _all_tasks.append(asyncio.create_task(_bt))
     try:
         raw_results_list = await asyncio.wait_for(
-            asyncio.gather(
-                _query_memory(query, max_results=max_results),
-                *backend_tasks,
-                return_exceptions=True,
-            ),
+            asyncio.gather(*_all_tasks, return_exceptions=True),
             timeout=REQUEST_TIMEOUT,
         )
     except asyncio.TimeoutError:
@@ -978,9 +1008,19 @@ async def search(
             "search gather timed out after %.1fs — returning partial results",
             REQUEST_TIMEOUT,
         )
-        # Collect results from completed tasks; unfinished ones raised
-        # TimeoutError which we treat as empty.
-        raw_results_list = [TimeoutError("gather timeout")] * (1 + len(backend_tasks))
+        # R-F1657: preserve results from backends that DID complete before
+        # the timeout, instead of discarding everything. Each task that
+        # finished gets its result; unfinished ones get TimeoutError.
+        raw_results_list = []
+        for _t in _all_tasks:
+            if _t.done() and not _t.cancelled():
+                try:
+                    raw_results_list.append(_t.result())
+                except Exception:
+                    raw_results_list.append(TimeoutError("gather timeout"))
+            else:
+                raw_results_list.append(TimeoutError("gather timeout"))
+                _t.cancel()  # cancel the hung task so it doesn't linger
     raw_results = list(raw_results_list)
     _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
 
@@ -1102,20 +1142,19 @@ async def search(
                 bname = "memory"
             else:
                 # backend_tasks order:
-                # brave, searxng, ddg, google_news, bing_news, academic, defence_event
-                _names = ["brave", "searxng", "ddg", "google_news",
+                # searxng, ddg, google_news, bing_news, academic, defence_event
+                _names = ["searxng", "ddg", "google_news",
                           "bing_news", "academic", "defence_event"]
                 _ord = backend_idx - 1
                 if 0 <= _ord < len(_names):
                     bname = _names[_ord]
                 else:
                     # R-F190 follow-up (2026-05-11 verification): extra-
-                    # language fan-out tasks at positions 8+ alternate
-                    # brave + google_news (see backend_tasks loop). Re-
+                    # language fan-out tasks at positions 7+ are
+                    # google_news (see backend_tasks loop). Re-
                     # attribute them to their underlying backend with a
                     # `_lang` suffix so telemetry stays accurate rather
-                    # than bucketing as `backend_<n>`. Pattern: indices
-                    # 7,9,11 are brave; 8,10,12 are google_news.
+                    # than bucketing as `backend_<n>`.
                     _post = _ord - len(_names)
                     if _post % 2 == 0:
                         bname = "brave_lang"
