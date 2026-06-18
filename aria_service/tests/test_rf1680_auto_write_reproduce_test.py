@@ -65,6 +65,31 @@ def test_self_coder_passes_llm_to_gap_detector():
 
 
 @pytest.mark.asyncio
+async def test_gap_detector_llm_is_not_none_at_runtime():
+    """R-F1682: behavioral test — construct ARIACoder with default llm=None
+    and assert gap_detector._llm is a real SovereignLLM, not None.
+
+    This catches the init-order bug where self.llm was set AFTER
+    self.gap_detector, causing GapDetector to receive llm=None and
+    the reproduce gate to silently fall back to the old reject path.
+    A source-string check alone would miss this regression.
+    """
+    from aria_service.autonomous.self_coder import ARIACoder
+    from unittest.mock import MagicMock
+
+    coder = ARIACoder(
+        redis_client=MagicMock(),
+        aria_service_url="http://localhost:8000",
+        llm=None,  # exercise the default provider path
+    )
+    assert coder.gap_detector._llm is not None, (
+        "gap_detector._llm must be a real SovereignLLM, not None. "
+        "If this fails, the init-order bug has regressed — self.llm "
+        "must be set BEFORE self.gap_detector in ARIACoder.__init__."
+    )
+
+
+@pytest.mark.asyncio
 async def test_auto_write_reproduce_rejects_gamed_test(monkeypatch):
     """Capability: a reproduce test that PASSES on unfixed code is REJECTED.
 
