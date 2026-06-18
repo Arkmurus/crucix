@@ -15,7 +15,7 @@ Why a helper: API-created pods (unlike console ones) don't get the account SSH
 key automatically, and the create body needs JSON-safe quoting for the key.
 Only VALID gpuTypeIds (the enum the REST API accepts) — one bad string rejects
 the whole request (R-F1514 learned this the hard way)."""
-import json, urllib.request, urllib.error, pathlib
+import json, os, urllib.request, urllib.error, pathlib
 
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
 GPUS = ["NVIDIA A40", "NVIDIA L40S", "NVIDIA RTX A6000", "NVIDIA L40",
@@ -33,8 +33,10 @@ body = {
     "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
     "gpuTypeIds": GPUS, "gpuCount": 1, "cloudType": "SECURE",
     # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
-    # Container disk holds the fresh base download (~15GB) + checkpoints.
-    "containerDiskInGb": 120, "ports": ["8888/http", "22/tcp"],
+    # Container disk holds the fresh base download + checkpoints. R-F1671: a 7B
+    # fits in 120GB, but a 14B (~30GB) + HF xet tmp-doubling overflowed it
+    # ("No space left on device"). Env-overridable — the v0.8 14B run sets 250.
+    "containerDiskInGb": int(os.getenv("ARIA_POD_DISK_GB", "120")), "ports": ["8888/http", "22/tcp"],
     "env": {"PUBLIC_KEY": pub},
 }
 req = urllib.request.Request(

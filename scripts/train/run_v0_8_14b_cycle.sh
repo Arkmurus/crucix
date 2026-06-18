@@ -82,6 +82,7 @@ echo "[driver] launching v0.8 GROUNDED cycle DETACHED on the pod..."
 TSSH -p "$PORT" root@"$HOST" \
   "rm -f /workspace/eval/_cycle_status; mkdir -p /workspace/logs; \
    BASE_MODEL='${BASE_MODEL:-Qwen/Qwen2.5-14B-Instruct}' ARIA_SKIP_ARCH_CHECK=1 \
+   HF_HUB_DISABLE_XET=1 \
    TRAIN_FILE=/workspace/datasets/aria_grounded_v3.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_openbook.jsonl \
    DEEPSEEK_API_KEY='$DSK' EPOCHS=${EPOCHS:-3} SKIP_TEACHER_EVAL='${SKIP_TEACHER_EVAL:-}' \
