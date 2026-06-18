@@ -250,10 +250,6 @@ class ARIACoder:
         self.brain_hook = brain_hook
         self.harvester = output_harvester
 
-        # Allow injection for tests; default to constructing from scratch
-        # R-F1680: pass the LLM so GapDetector can auto-write reproduce tests
-        # when no existing test is found for the target module.
-        self.gap_detector = gap_detector or GapDetector(redis_client, llm=llm)
         # R-F1025: default to the LLM-backed SovereignLLM, NOT the template-only
         # AutonomousCoder stub. The stub ignored existing_code (emitted fresh
         # stubs), returned the wrong test key, and never produced corrected code
@@ -264,6 +260,13 @@ class ARIACoder:
         self.llm = llm or SovereignLLM(
             aria_service_url=aria_service_url or "http://localhost:8000",
         )
+        # Allow injection for tests; default to constructing from scratch
+        # R-F1680: pass the LLM so GapDetector can auto-write reproduce tests
+        # when no existing test is found for the target module.
+        # NOTE: self.llm MUST be set BEFORE this line — GapDetector receives
+        # the llm parameter at construction time. If llm is None here, the
+        # reproduce gate falls back to the old reject path (R-F1680 bug).
+        self.gap_detector = gap_detector or GapDetector(redis_client, llm=self.llm)
         # R-F1191: constitutional validator removed
         self.validator = None
         self.codebase = codebase or CodebaseReader(aria_service_url)

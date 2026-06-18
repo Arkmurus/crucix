@@ -61,7 +61,7 @@ def test_gap_detector_accepts_llm_param():
 def test_self_coder_passes_llm_to_gap_detector():
     """The coder must pass its LLM to GapDetector."""
     coder_src = (Path(__file__).resolve().parents[1] / "autonomous" / "self_coder.py").read_text(encoding="utf-8")
-    assert "GapDetector(redis_client, llm=llm)" in coder_src
+    assert "GapDetector(redis_client, llm=self.llm)" in coder_src
 
 
 @pytest.mark.asyncio
