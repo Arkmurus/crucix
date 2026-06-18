@@ -10871,9 +10871,10 @@
       "title": "C2: Build >=100-prompt PI eval set from adversarial library + generative variants",
       "claimed_at": "2026-06-18T06:45:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "792f56e6",
+      "notes": null,
+      "shipped_at": "2026-06-18T06:48:01Z"
     }
   ]
 }

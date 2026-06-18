@@ -1,0 +1,797 @@
+{"question": "Which U.S. government agency primarily administers and enforces economic sanctions programs?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the legal basis for the EU to impose sanctions under its Common Foreign and Security Policy?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How does the Office of Foreign Assets Control define a 'Specially Designated National'?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "Which countries are currently subject to comprehensive U.S. sanctions, including North Korea, Iran, and Syria?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the difference between a primary sanctions program and a secondary sanctions program?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What due-diligence steps should be taken when a counterparty is located in a high-risk jurisdiction like Crimea?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the role of the Financial Action Task Force in relation to sanctions compliance?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How does the EU's 'smart sanctions' approach differ from comprehensive embargoes?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is a '50% Rule' in the context of U.S. sanctions, and how does it affect ownership analysis?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "Which sectors of the Russian economy are targeted by U.S. sanctions under the CAATSA legislation?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the significance of a 'blocked person' designation under OFAC regulations?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How should a financial institution handle a wire transfer that involves a sanctioned entity as an intermediary?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the difference between a general license and a specific license in U.S. sanctions?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What red flags indicate potential sanctions evasion through the use of shell companies?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How does the UK's Office of Financial Sanctions Implementation enforce sanctions breaches?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of the UN Security Council's sanctions committees?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "Which specific individuals and entities are listed under the EU's sanctions regime against Belarus?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the legal framework for OFAC to impose civil penalties for sanctions violations?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How can a company verify whether a business partner is listed on the OFAC SDN list?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What are the key differences between U.S. sanctions on Iran and EU sanctions on Iran?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the role of a 'compliance officer' in monitoring sanctions screening?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the definition of 'ownership or control' under the U.S. sanctions '50% Rule'?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How do sanctions against Venezuela target the state-owned oil company PDVSA?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the process for applying for an OFAC license to conduct business with a sanctioned entity?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What are the common red flags associated with trade-based money laundering and sanctions evasion?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "Which international agreements form the basis for sanctions against North Korea's weapons programs?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How does the EU's 'asset freeze' differ from a 'travel ban' in its sanctions measures?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'CAATSA' sanctions on Russia's defense and intelligence sectors?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What due-diligence checks should be performed on beneficial owners of a corporate entity?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How do sanctions against the Taliban affect humanitarian aid delivery in Afghanistan?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the legal definition of 'facilitation' under U.S. sanctions laws?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "Which countries are subject to OFAC's 'Country Sanctions' programs as of the current year?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the difference between 'primary' and 'secondary' sanctions in the context of Iran?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How can a company screen its supply chain for potential sanctions risks?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the role of the UN Panel of Experts in monitoring sanctions compliance?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What are the specific sanctions imposed on the Russian financial sector after the 2022 invasion of Ukraine?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How does the EU's 'Global Human Rights Sanctions Regime' target individuals responsible for abuses?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is a 'red flag' indicator of sanctions evasion in trade finance documentation?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How do sanctions on Syria affect transactions involving the Syrian Central Bank?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the legal consequence of a company failing to report a potential sanctions match to OFAC?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the 'EU Blocking Statute' and how does it relate to U.S. sanctions?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "How can a company distinguish between a 'true match' and a 'false positive' in sanctions screening?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What are the key sanctions imposed on the Democratic People's Republic of Korea's shipping industry?\",", "topic": "sanctions", "source": "v06_grounded_distill"}
+{"question": "What is the core purpose of the International Traffic in Arms Regulations (ITAR) in the United States?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Which U.S. government agency is primarily responsible for administering the Export Administration Regulations (EAR)?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Under the EAR, what is the definition of an 'item' subject to export controls?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the difference between a 'dual-use' item and a 'munitions' item under U.S. export control laws?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the Wassenaar Arrangement influence the export control policies of its member states?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Which countries are subject to comprehensive U.S. arms embargoes under ITAR?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the significance of an Export Control Classification Number (ECCN) in the EAR?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the role of a 'validated end-user' authorization in export control compliance?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How do sanctions programs administered by OFAC intersect with U.S. export control regulations?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the penalty for a civil violation of the EAR involving controlled encryption software?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Under what circumstances can a U.S. citizen be held liable for exporting controlled technology to a foreign national within the United States?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'de minimis' rule under the EAR regarding foreign-made items containing U.S.-origin components?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the 'catch-all' provision of the EAR apply to items not specifically listed on the Commerce Control List?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a 'BIS license exception' and name one common example?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Which EU regulation governs the export control of dual-use items within the European Union?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the UK's Export Control Act 2002 differ from the EU dual-use regulation post-Brexit?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'End-Use and End-User' check required for exporting controlled items to China?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is a 'red flag' when a buyer requests shipment to a freight forwarder without a clear end-user?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How do export controls apply to the transfer of technical data via email or cloud storage?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the Wassenaar Arrangement's 'Munitions List' and how does it relate to national control lists?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the role of the 'Australia Group' in controlling chemical and biological weapons-related exports?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the Missile Technology Control Regime (MTCR) restrict the export of missile-related technologies?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'Nuclear Suppliers Group' and its guidelines for controlling nuclear-related exports?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is a 'deemed export' under U.S. export control regulations?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How must a company handle a 'red flag' involving a buyer with a history of sanctions evasion?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the '10% rule' for foreign-made items containing controlled U.S.-origin content under the EAR?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Under ITAR, what is the 'manufacturing license agreement' and when is it required?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for applying for an export license from the U.S. Department of Commerce?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the 'embargoed country' list affect export transactions with North Korea?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is a 'red flag' when a buyer provides vague or incomplete end-use information for a sensitive item?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'Entity List' maintained by the U.S. Bureau of Industry and Security (BIS)?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does the 'Denied Persons List' restrict transactions with certain individuals or entities?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'Unverified List' and how does it impact export compliance due diligence?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "Under EU export control law, what is the 'General Export Authorisation' and its limitations?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'catch-all control' under EU Regulation 2021/821 for non-listed dual-use items?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "How does Japan's Foreign Exchange and Foreign Trade Act (FEFTA) regulate dual-use exports?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the 'Screening of End-Users' requirement for exporting controlled items to India?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is a 'red flag' when a transaction involves payment from an unrelated third party in a high-risk jurisdiction?\",", "topic": "export_control", "source": "v06_grounded_distill"}
+{"question": "What is the typical method used to divert U.S. agricultural subsidies to unauthorized recipients in sub-Saharan Africa?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the diversion of dual-use chemicals from legitimate pharmaceutical supply chains in India raise red flags for export control compliance?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific documentation is required to verify that goods destined for a free trade zone in Dubai are not being diverted to Iran?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What are the key indicators of diversion in the trade of second-hand vehicles from Europe to West Africa?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the use of shell companies in the British Virgin Islands facilitate the diversion of humanitarian aid intended for Yemen?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What procedures should a compliance officer follow when detecting a potential diversion of medical devices from a Singapore distributor to a sanctioned entity?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What red flags are associated with the diversion of high-end electronics from Hong Kong to North Korea via Macau?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How can the diversion of timber from Myanmar to China be identified through discrepancies in shipping manifests?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What jurisdictional challenges arise when investigating the diversion of stolen art through Swiss free ports?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps are needed to prevent the diversion of rare earth minerals from the Democratic Republic of Congo to conflict zones?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does over-invoicing of agricultural commodities from Brazil to Venezuela indicate potential diversion of funds?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What are the common red flags for diversion of pharmaceutical precursors from Germany to illicit drug labs in Eastern Europe?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What entity-level checks are necessary to avoid diversion of aircraft parts from a U.S. supplier to a Russian airline via a third country?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the use of transshipment points in the Netherlands Antilles mask the diversion of oil from Iran?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What documentation discrepancies suggest diversion of food aid from the World Food Programme in Somalia?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific red flags in customs declarations indicate diversion of used clothing from Canada to illegal markets in Nigeria?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How can a financial institution identify diversion of funds from a development bank loan intended for infrastructure in Kenya?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What are the jurisdictional pitfalls when prosecuting diversion of cultural heritage items from Iraq to the United Kingdom?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What due-diligence procedures apply to intermediaries in the trade of lithium batteries to prevent diversion to military end-users in Syria?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the use of freight forwarders in the UAE obscure the diversion of telecommunications equipment to Hezbollah?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What red flags in shipping routes suggest diversion of steel from South Korea to North Korea?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific compliance measures are required to prevent diversion of vaccines from cold chain logistics in India to unauthorized clinics?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How can the diversion of counterfeit currency from North Korea be detected through banking transaction patterns?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What are the key due-diligence questions for a distributor in Thailand to prevent diversion of pesticides to Myanmar's illegal armed groups?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What documentation is needed to trace the diversion of gold from artisanal mines in Peru to illegal markets in the United States?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the use of false end-user certificates in Turkey facilitate the diversion of military-grade drones to Libya?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What red flags in payment terms indicate potential diversion of funds from a renewable energy project in Morocco?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific jurisdictional issues arise when investigating diversion of lobster from Canada to China via Vietnam?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How can the diversion of timber from the Amazon to Europe be identified through satellite imagery and trade data?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What due-diligence steps are critical for a bank in Switzerland to prevent diversion of funds from a charitable foundation to sanctioned individuals in Russia?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What are the common red flags for diversion of used electronics from Japan to illegal recycling operations in Ghana?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How does the use of multiple shell companies in Panama facilitate the diversion of oil revenues from Venezuela?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What specific compliance procedures apply to the trade of graphite electrodes from China to prevent diversion to North Korea?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What documentation discrepancies in bills of lading suggest diversion of cotton from Uzbekistan to conflict zones in Afghanistan?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "How can the diversion of humanitarian supplies from the UN in South Sudan be detected through inventory audits?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What red flags in shipping destinations indicate diversion of luxury goods from France to sanctioned individuals in Belarus?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "What due-diligence measures are needed for a distributor in Mexico to prevent diversion of firearms components to cartels?\",", "topic": "diversion", "source": "v06_grounded_distill"}
+{"question": "Does the supplier have a documented anti-corruption policy that applies to third-party intermediaries?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the procurement threshold above which competitive bidding is mandatory in the EU?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the vendor been debarred from any government contracts in the last five years?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any beneficial owners of the supplier domiciled in a FATF grey-listed jurisdiction?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement contract include a mandatory audit clause for cost verification?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the vendor's average delivery lead time compared to industry benchmarks?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the supplier ever been cited for labor violations under the ILO core conventions?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are subcontractors required to undergo the same due diligence as the primary contractor?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the procurement entity's policy on single-source justifications?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the supplier have an ISO 14001 certification for environmental management?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any pending lawsuits against the supplier for breach of contract?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the jurisdiction's legal framework governing public procurement transparency?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the vendor been involved in a bid-rigging scheme in the past decade?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement require a performance bond, and what is the typical amount?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any conflicts of interest between the procurement officer and the bidder?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What are the supplier's payment terms, and do they deviate from standard net-30?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the supplier ever been sanctioned by the World Bank for fraud or corruption?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement process mandate a formal debriefing for unsuccessful bidders?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's cybersecurity certification, such as ISO 27001 or SOC 2?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there restrictions on using foreign suppliers in this procurement jurisdiction?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the vendor been flagged for using shell companies in offshore havens?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the tender require a local content percentage, and how is it verified?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's financial health based on its latest audited statements?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any politically exposed persons linked to the supplier's ownership?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement contract include liquidated damages for late delivery?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the typical procurement cycle time from tender to award in this sector?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the supplier ever defaulted on a government contract?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any known human rights abuses in the supplier's supply chain?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement require an environmental impact assessment for goods?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the vendor's policy on preventing conflicts of interest among employees?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any exclusivity clauses that restrict competitive bidding?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the supplier been investigated by antitrust authorities in any jurisdiction?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement use e-procurement platforms, and are they auditable?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's record on meeting sustainability targets in past contracts?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any red flags such as unusually low bids compared to market rates?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the vendor have a whistleblower mechanism accessible to its employees?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the jurisdiction's law on procurement appeals and bid protests?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the supplier ever been convicted of money laundering?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any mandatory local partnerships required for foreign bidders?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement include a clause for termination due to ethics violations?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's track record with small and medium enterprises?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any past allegations of bribery involving the vendor's agents?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement process require disclosure of all subcontractors?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's geographic diversification to mitigate supply chain risk?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the vendor been audited by a recognized independent accounting firm?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any sanctions against the supplier's country of registration?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement contract have a force majeure clause covering pandemics?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the supplier's policy on data privacy compliance with GDPR or similar?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Are there any conflicts between the supplier's other clients and this procurement?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Has the vendor ever been accused of using child labor in its operations?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "Does the procurement require a quality assurance plan with defined metrics?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What is the jurisdiction's rule on procurement of goods from state-owned enterprises?\",", "topic": "procurement", "source": "v06_grounded_distill"}
+{"question": "What are the mandatory eligibility criteria for a contractor to participate in a public works tender in the European Union?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the UK Public Contracts Regulations 2015 define a ‘competitive procedure with negotiation’?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the typical validity period for a tender bond in a construction project in Saudi Arabia?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "Which entity is responsible for issuing tender invitations for federal government contracts in the United States?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What constitutes a conflict of interest for a tender evaluation committee member in India?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the World Bank’s procurement framework treat abnormally low bids in a tender?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the key red flags for bid rigging in a public tender for IT services?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "In a tender for infrastructure in Brazil, what is the role of the ‘Lei de Licitações’ (Law 14,133/2021)?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the difference between an open tender and a selective tender under Singapore’s Government Procurement Act?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Australian Commonwealth Procurement Rules define ‘value for money’ in a tender evaluation?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What documents are typically required for a tender submission in a pharmaceutical supply contract in Nigeria?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a pre-qualification questionnaire (PQQ) in a European tender process?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Japanese public procurement system handle tenders for large-scale infrastructure projects?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the legal consequences of submitting a false declaration in a tender in Canada?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is a ‘tender guarantee’ and when is it forfeited in a construction tender in the UAE?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the EU’s directive on public procurement address the use of electronic auctions in tenders?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is a ‘most economically advantageous tender’ (MEAT) criterion and how is it applied?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the common grounds for disqualifying a bidder in a tender for defense contracts in the United States?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the South African Public Finance Management Act influence tender procedures for state-owned enterprises?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the role of the ‘Tender Board’ in procurement processes in Malaysia?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the typical timelines for publishing a tender notice and submitting bids in the Philippines?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Freedom of Information Act affect the confidentiality of tender documents in the UK?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is a ‘reverse auction’ and how is it used in procurement tenders for commodities?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the red flags indicating potential corruption in a tender for mining rights in Zambia?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Indian Companies Act address related-party transactions in tender submissions?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the ‘standstill period’ in EU tender procedures and why is it required?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How are subcontracting arrangements disclosed in a tender for a large-scale solar farm in Morocco?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the legal basis for rejecting a tender bid that fails to meet technical specifications in Germany?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the implications of a bid bond being invalid due to an expired surety license in a US municipal tender?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Kenyan Public Procurement and Asset Disposal Act treat unsolicited bids?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the process for appealing a tender award decision in the European Court of Justice?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How do tender evaluation criteria differ between price-based and quality-based procurement in healthcare in Sweden?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the mandatory disclosures for a tenderer regarding beneficial ownership in a UK government contract?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is a ‘tender waiver’ and when is it applicable under the World Bank’s procurement regulations?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the Chilean public procurement system use the ‘ChileCompra’ platform for electronic tenders?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the typical penalties for late tender submission in a construction project in Qatar?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What is the role of a ‘procurement ombudsman’ in tender disputes in New Zealand?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the US Federal Acquisition Regulation (FAR) define ‘best value’ in tender evaluation?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the specific requirements for local content in a tender for manufacturing in South Africa?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "How does the French ‘Code de la commande publique’ regulate the use of framework agreements in tenders?\",", "topic": "tender", "source": "v06_grounded_distill"}
+{"question": "What are the key differences between the GDPR and the CCPA in terms of data subject consent requirements?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the EU's AI Act classify high-risk AI systems, and what compliance obligations arise from this classification?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What specific red flags indicate potential violations of the U.S. Foreign Corrupt Practices Act (FCPA) in cross-border joint ventures?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the UK Bribery Act, what constitutes 'adequate procedures' for a corporate anti-bribery compliance program?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the mandatory reporting obligations for a financial institution under the Bank Secrecy Act (BSA) when detecting suspicious transactions?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the California Consumer Privacy Act (CCPA) define 'sale' of personal data, and what are the opt-out requirements?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What compliance procedures must a pharmaceutical company follow under the U.S. Physician Payments Sunshine Act?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the specific sanctions screening requirements for a U.S. company dealing with entities in OFAC-designated countries?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the EU's General Data Protection Regulation (GDPR) require data controllers to handle data breach notifications?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the key compliance requirements for a public company under the Sarbanes-Oxley Act regarding internal controls over financial reporting?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. False Claims Act, what constitutes a 'knowing' submission of a false claim for government funds?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the specific compliance obligations for a company subject to the EU's Markets in Financial Instruments Directive (MiFID II) regarding client categorization?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Foreign Corrupt Practices Act (FCPA) apply to payments made to foreign officials for routine governmental actions?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for money laundering in a real estate transaction under the U.S. Anti-Money Laundering (AML) regulations?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What compliance steps must a company take under the UK Modern Slavery Act to publish a slavery and human trafficking statement?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the GDPR's 'right to be forgotten' differ from the CCPA's right to delete personal information?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the specific documentation requirements for a company claiming a tax credit under the U.S. Research and Development (R&D) Tax Credit?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. Occupational Safety and Health Act (OSHA), what are the employer's compliance obligations for recordkeeping of work-related injuries?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the key compliance provisions of the EU's Digital Services Act (DSA) for very large online platforms?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Securities and Exchange Commission (SEC) define 'best execution' for broker-dealers under compliance rules?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What specific red flags indicate potential violations of the U.S. Export Administration Regulations (EAR) in dual-use technology transfers?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. Americans with Disabilities Act (ADA), what are the compliance requirements for accessible website design?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the compliance obligations for a company collecting biometric data under the Illinois Biometric Information Privacy Act (BIPA)?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the EU's Payment Services Directive (PSD2) require payment service providers to comply with strong customer authentication (SCA)?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the specific compliance procedures for a company conducting internal investigations under the U.S. Department of Justice's Evaluation of Corporate Compliance Programs?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. Clean Water Act, what are the compliance requirements for industrial facilities regarding stormwater discharge permits?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for insider trading in a publicly traded company under SEC Rule 10b-5?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Health Insurance Portability and Accountability Act (HIPAA) require covered entities to handle protected health information (PHI) in research?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the key compliance differences between the EU's GDPR and Brazil's Lei Geral de Proteção de Dados (LGPD) regarding data processing bases?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. Federal Trade Commission (FTC) Act, what constitutes an unfair or deceptive practice in consumer data privacy compliance?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What specific compliance obligations does a company have under the U.S. Toxic Substances Control Act (TSCA) for new chemical substances?\",", "topic": "compliance", "source": "v06_grounded_distill"}
+{"question": "What are the specific AML obligations for a broker arranging a real estate transaction in the United Arab Emirates?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under UK law, what constitutes a 'brokering arrangement' for sanctions evasion purposes?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What red flags indicate a broker may be facilitating trade-based money laundering through over-invoicing?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Which EU jurisdictions require a broker to register as a virtual asset service provider for crypto transactions?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker verify the beneficial ownership of a corporate entity in a Panama-registered shell company?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What due-diligence steps must a broker take when arranging an insurance policy for a politically exposed person?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "In Singapore, what are the reporting obligations for a broker suspecting a client is involved in tax evasion?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What specific documentation is required for a broker to prove the economic substance of a Seychelles-based intermediary?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker identify a transaction structured to avoid triggering a currency transaction report in the US?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the legal consequences for a broker who fails to screen a client against the OFAC sanctions list?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What red flags suggest a broker is involved in the illicit trade of dual-use goods under EU export controls?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under FATF Recommendation 16, what information must a broker collect for wire transfers exceeding $1,000?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker determine if a client's use of a trust in the British Virgin Islands is legitimate or suspicious?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the specific KYC requirements for a broker handling a transaction involving a Nigerian oil license?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What indicators should a broker look for when assessing a client who claims to be a diamond trader in Antwerp?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under Swiss law, what is the threshold at which a broker must report a suspicious transaction to the MROS?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker verify the authenticity of a trade finance letter of credit presented by a Hong Kong intermediary?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What red flags point to a broker being used to launder proceeds from illegal wildlife trafficking in Southeast Asia?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "In Canada, what are the due-diligence obligations for a broker arranging a loan for a non-resident property buyer?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What steps must a broker take to ensure compliance with the US Foreign Corrupt Practices Act when dealing with a foreign government official?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker identify a client who is a front for a sanctioned entity in North Korea?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the specific reporting requirements for a broker in Australia when a client uses cryptocurrency to settle a deal?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What red flags indicate a broker is facilitating the movement of funds through a correspondent banking network for illicit purposes?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under the EU's 5th Anti-Money Laundering Directive, what enhanced due diligence must a broker apply to high-risk third countries?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker verify the source of funds for a client purchasing a luxury yacht through a Marshall Islands corporation?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the legal risks for a broker who ignores a client's request to use a layered corporate structure in multiple jurisdictions?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What specific procedures must a broker follow when handling a deal involving a client from a country on the FATF grey list?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker detect a transaction designed to obscure the true origin of funds through a series of shell banks?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under Japanese law, what are the obligations of a broker when arranging a cross-border merger with a Chinese firm?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What red flags should a broker watch for when a client insists on using a non-face-to-face verification method?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for a broker facilitating a deal in the art market with a client from a conflict zone?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker assess the legitimacy of a client's business license issued in the Cayman Islands?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "Under US law, what constitutes a 'brokered transaction' that triggers FinCEN reporting for a real estate deal?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What steps must a broker take when a client's transaction involves a country subject to UN sanctions on arms trade?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "How does a broker identify a 'straw man' used to conceal the true purchaser in a high-value asset transaction?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "What are the specific red flags for a broker handling a transaction involving a free trade zone in the Middle East?\",", "topic": "brokering", "source": "v06_grounded_distill"}
+{"question": "[\"What are the standard Know Your Customer (KYC) documents required for a Letter of Credit applicant in Singapore?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which regulatory body governs trade finance activities in the United Arab Emirates?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a Documentary Collection differ from a Letter of Credit in terms of bank risk?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the role of a confirming bank in an irrevocable Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Under UCP 600, what is the maximum time allowed for a bank to examine documents under a Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What sanctions screening procedures should a bank apply to a shipment destined for Iran?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does the Incoterm 'CIF' affect the allocation of insurance responsibility in a trade finance transaction?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a Standby Letter of Credit in a construction contract?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction requires a 'Bill of Lading' to be presented in negotiable form for a Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What are the compliance obligations under the US Bank Secrecy Act for trade finance transactions exceeding $10,000?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a 'back-to-back' Letter of Credit differ from a standard L/C?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the typical duration for a usance Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which international convention governs the legal validity of electronic bills of lading?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What are the specific due-diligence requirements for a trade finance deal involving a shell company in the Cayman Islands?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does the Wolfsberg Group define high-risk jurisdictions in trade finance?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the role of a shipping guarantee in trade finance?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the difference between a 'clean' and a 'documentary' Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which regulatory authority in Hong Kong oversees trade finance anti-money laundering compliance?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a 'red clause' Letter of Credit facilitate pre-shipment financing?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'date of shipment' in a Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What are the compliance red flags associated with a trade transaction involving multiple intermediaries?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does the FATF Recommendation 16 apply to trade finance transactions?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is a 'silent confirmation' in the context of a Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction requires specific reporting for trade finance transactions involving dual-use goods?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a 'revolving' Letter of Credit work for ongoing supply contracts?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a 'packing list' in a trade finance document set?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the legal effect of a 'force majeure' clause in a trade finance contract?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which entity typically issues a Certificate of Origin in international trade?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does the 'London Interbank Offered Rate' (LIBOR) transition affect trade finance pricing?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence steps for verifying a trading company in a high-risk jurisdiction like Syria?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the role of an 'advising bank' in a Letter of Credit transaction?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a 'transferable' Letter of Credit benefit intermediaries?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What specific sanctions apply to trade finance involving North Korean entities?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a bank verify the authenticity of a Bill of Lading under a Letter of Credit?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the difference between 'open account' and 'cash-in-advance' trade finance terms?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which regulatory framework in the EU requires enhanced due diligence for trade finance to high-risk third countries?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for over-invoicing in a trade finance transaction?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a 'warehouse receipt' serve as collateral in commodity trade finance?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a 'trust receipt' in import financing?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does the 'Uniform Rules for Demand Guarantees' (URDG 758) apply to trade finance?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "What is a 'countertrade' arrangement and its typical due-diligence requirements?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which document proves the insurance coverage in a CIF shipment?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "How does a bank perform sanctions screening on a letter of credit beneficiary?\",", "topic": "trade_finance", "source": "v06_grounded_distill"}
+{"question": "Which entity is the registered owner of the vessel 'MSC Zoe'?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the International Maritime Organization (IMO) number of the tanker 'Suezmax' currently flagged to Panama?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Has the Liberian International Ship and Corporate Registry sanctioned any vessels for oil smuggling in 2023?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for verifying a vessel's flag state compliance with the International Safety Management (ISM) Code?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Is the 'Ever Given' owned by a company under investigation by the European Union for sanctions evasion?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What jurisdiction governs the arrest of a vessel for crew wage disputes in the Port of Rotterdam?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which Port State Control (PSC) regime has the highest detention rate for bulk carriers over 15 years old?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags indicating a vessel might be involved in ship-to-ship (STS) transfers of sanctioned crude oil?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Has the Marshall Islands registry revoked any vessel certificates due to false crew documentation in 2024?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps are required to screen a vessel's beneficial owner under the UK's Economic Crime Act?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which company is the manager of the chemical tanker 'Chem Venus' according to the IMO GISIS database?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the standard procedure for conducting a background check on a shipbroker based in Dubai?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Does the 'Nordic Odin' have any recorded Port State Control detentions in the Paris MoU region in the last 24 months?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the legal framework for enforcing maritime liens in the jurisdiction of Singapore?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which flag state has the highest number of vessels blacklisted by the Indian Ocean Memorandum of Understanding?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "How can an analyst verify if a vessel's insurance provider is on the OFAC sanctions list?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a vessel repeatedly changing its name and flag within a 12-month period?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Is the 'Diamond Ocean' owned by a corporate entity registered in a secrecy jurisdiction like the Seychelles?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What specific documentation is required for a vessel to obtain a 'Blue Card' under the International Group of P&I Clubs?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which entity operates the bulker 'Panamax Fortune' and what is its corporate registry number in Panama?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for reporting a suspected maritime sanctions violation to the Office of Foreign Assets Control (OFAC)?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Has the 'Maersk Eindhoven' been involved in any maritime incidents resulting in environmental fines in the North Sea?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a vessel using Automatic Identification System (AIS) manipulation to hide its location?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction has the most stringent requirements for vessel beneficial ownership disclosure under the FATF recommendations?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What due-diligence checks are needed for a ship management company based in Cyprus to ensure compliance with EU sanctions?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Is the tanker 'Nissos Rhenia' flagged to Greece and owned by a company linked to a sanctioned Russian entity?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for verifying a vessel's compliance with the International Convention for the Prevention of Pollution from Ships (MARPOL) Annex VI?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which Port State Control authority has the highest inspection rate for vessels carrying liquefied natural gas (LNG)?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a shipping company that uses shell corporations in multiple jurisdictions to obscure ownership?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Has the 'Seadream' vessel been involved in any crew abandonment cases reported to the International Transport Workers' Federation (ITF)?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What is the specific legal procedure for arresting a vessel for unpaid bunker supply debts in the jurisdiction of Hong Kong?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which flag state is known for having a low compliance rate with the Maritime Labour Convention (MLC) 2006?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "How can an analyst verify the authenticity of a vessel's continuous synopsis record (CSR) from the flag state?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a vessel that has a history of frequent changes in its commercial manager?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Is the 'Adelaide Express' a vessel flagged to Malta and managed by a company on the US Commerce Department's Entity List?\",", "topic": "maritime", "source": "v06_grounded_distill"}
+{"question": "Which entity is responsible for overseeing defence procurement in the United Kingdom?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the legal basis for the U.S. Department of Defense's 'Other Transaction Authority'?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under the EU's Common Security and Defence Policy, what constitutes a 'Permanent Structured Cooperation' project?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the key red flags for potential corruption in defence contracts under the UK Bribery Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction requires defence contractors to register with the Directorate General of Defence Acquisition?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for a company to obtain a 'Controlled Goods' registration in Canada?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What specific sanctions apply to defence trade with Russia under the U.S. International Traffic in Arms Regulations?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which entity in India is responsible for issuing 'No Objection Certificates' for defence exports?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the role of the 'Defence Exports Security Guarantee' in UK defence trade?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "How does the Wassenaar Arrangement classify 'dual-use' items in defence-related transactions?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for a foreign investor acquiring a stake in a French defence firm?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which Australian government body administers the Defence Trade Controls Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What constitutes a 'red flag' for offset obligations in defence contracts under the U.S. Defense Federal Acquisition Regulation Supplement?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for challenging a debarment from U.S. defence procurement?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under Japanese law, what restrictions apply to foreign ownership of defence technology companies?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which entity in Israel is responsible for approving defence exports under the Defence Export Control Law?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the specific compliance obligations for a defence contractor under the U.S. False Claims Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "How does the NATO Security Investment Programme affect due-diligence for infrastructure contracts?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the legal definition of 'defence article' under the U.S. Arms Export Control Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction imposes a 'national security' review for defence mergers under the Investment Canada Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for conflict of interest in defence procurement involving former military officials?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under the EU Dual-Use Regulation, what triggers an export license for cyber-surveillance technology?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for verifying a supplier's compliance with the U.S. Defense Logistics Agency's quality standards?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which entity in the UAE oversees defence procurement for the Ministry of Defence?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the specific anti-bribery provisions in the U.K. Defence and Security Public Contracts Regulations?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Foreign Corrupt Practices Act apply to defence contractors operating in high-risk jurisdictions?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the role of the 'Defence Industry Security Program' in Australia for foreign ownership?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which red flags indicate potential export control violations in defence logistics contracts?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under South Korean law, what due-diligence is required for technology transfer in defence joint ventures?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for obtaining a 'Defense Export License' in Germany?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which entity in Brazil is responsible for approving defence acquisitions under the Law on Defence Products?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the specific compliance requirements for defence contractors under the U.S. Buy American Act?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "How does the European Defence Fund assess the eligibility of a consortium for funding?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What red flags are associated with shell companies in defence subcontracting?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. National Defense Authorization Act, what restrictions apply to Chinese telecom equipment?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for a company to appeal a denial of a defence export license in Sweden?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction requires defence contractors to disclose beneficial ownership under anti-money laundering laws?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the key due-diligence questions for a supplier of military-grade drone components?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "How does the Missile Technology Control Regime affect due-diligence for rocket propulsion contracts?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What is the legal significance of 'end-user certificates' in defence exports from India?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Which red flags indicate potential diversion of defence items to embargoed countries?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "Under the U.S. Defense Federal Acquisition Regulation, what are the rules for subcontracting to small businesses?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What entity in Turkey oversees the approval of defence offset agreements?\",", "topic": "defence", "source": "v06_grounded_distill"}
+{"question": "What are the specific requirements for an entity to register as a foreign principal under the U.S. Foreign Agents Registration Act?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "Which U.S. federal agency oversees the implementation of the Intelligence Reform and Terrorism Prevention Act of 2004?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the key red flags indicating potential espionage activity within a corporate R&D department?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does the UK's Investigatory Powers Act 2016 regulate the retention of communications data by intelligence agencies?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What due-diligence steps should a financial institution take when onboarding a client linked to a sanctioned intelligence service?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the legal framework for warrantless surveillance under Section 702 of the FISA Amendments Act?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "Which countries are listed as state sponsors of terrorism by the U.S. State Department as of 2024?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does the European Union's General Data Protection Regulation impact the sharing of intelligence data between member states?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the compliance obligations for a company whose employees have access to classified U.S. defense information?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What specific indicators suggest a foreign intelligence service is targeting a political campaign via cyber operations?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the role of the Australian Security Intelligence Organisation in vetting visa applicants for national security risks?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does the Five Eyes alliance share signals intelligence without violating domestic privacy laws?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for a private equity firm acquiring a company with intelligence-related contracts?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What red flags should a compliance officer watch for in a transaction involving a shell company registered in a secrecy jurisdiction?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the process for a U.S. company to obtain a license for exporting dual-use technology with intelligence applications?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does Israel's Shin Bet vet employees for loyalty and counterintelligence risks?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the legal consequences for a journalist who publishes classified intelligence leaks under the U.S. Espionage Act?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "Which international treaties govern the prohibition of intelligence activities that violate diplomatic immunity?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What specific procedures does the UK's MI5 follow when conducting surveillance on a suspected foreign agent?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What due-diligence checks are recommended for verifying the background of a consultant with prior intelligence service employment?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does China's Counter-Espionage Law of 2023 expand the definition of state secrets?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a company being used as a front for intelligence-gathering by a foreign government?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the jurisdiction of the U.S. Foreign Intelligence Surveillance Court over non-U.S. persons?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does Canada's Communications Security Establishment comply with privacy laws when intercepting foreign communications?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What specific financial transactions are flagged as suspicious under anti-money laundering rules linked to intelligence activities?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for a university accepting research funding from a foreign military intelligence agency?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does Russia's Federal Security Service regulate the use of encryption by domestic companies?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the key provisions of the U.S. Intelligence Authorization Act regarding whistleblower protections?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What red flags indicate a foreign intelligence service is using a law firm for influence operations?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for a U.S. intelligence contractor to report a security violation to the Defense Counterintelligence and Security Agency?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does India's Intelligence Bureau coordinate with state police to monitor cross-border terrorism financing?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the compliance challenges for a tech company handling data requests from foreign intelligence agencies under the CLOUD Act?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps should a bank take when a client is a diplomat from a high-risk intelligence jurisdiction?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does France's Directorate for Internal Intelligence vet candidates for sensitive government positions?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the legal restrictions on the use of human intelligence sources by private investigation firms in the EU?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What red flags suggest a non-profit organization is being used to launder funds for an intelligence operation?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What is the role of the U.S. Office of the Director of National Intelligence in overseeing the intelligence community's budget?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "How does Germany's Federal Office for the Protection of the Constitution classify extremist groups for surveillance?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for a company bidding on a contract with the U.S. National Security Agency?\",", "topic": "intelligence", "source": "v06_grounded_distill"}
+{"question": "What specific cybersecurity frameworks does the target company adhere to, such as NIST or ISO 27001?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company experienced a data breach in the past five years, and what was the nature of the incident?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a dedicated Chief Information Security Officer (CISO) or equivalent role?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's policy on employee use of personal devices for work purposes (BYOD)?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How frequently does the company conduct penetration testing on its network infrastructure?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Is the company compliant with the General Data Protection Regulation (GDPR) for handling EU citizen data?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What encryption standards does the company use for data at rest and in transit?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company ever been fined or sanctioned by a regulatory body for cybersecurity lapses?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a documented incident response plan, and when was it last tested?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What third-party vendors does the company rely on for cybersecurity services, and how are they vetted?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company manage access controls for privileged users, such as administrators?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's patch management process for critical vulnerabilities?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have cyber insurance, and what is the coverage amount?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company handle phishing simulation training for employees?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's data retention and deletion policy for customer records?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company ever been the target of a ransomware attack, and what was the outcome?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company conduct background checks on employees with access to sensitive systems?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's approach to securing Internet of Things (IoT) devices in its operations?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company ensure compliance with the California Consumer Privacy Act (CCPA)?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's policy on using cloud service providers, and how are they evaluated?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a bug bounty program, and what is its scope?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How often does the company perform vulnerability scans on its external-facing systems?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's process for reporting cybersecurity incidents to regulators?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company ever faced litigation related to cybersecurity or data privacy?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company use multi-factor authentication (MFA) for all remote access?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's strategy for securing its software development lifecycle (SDLC)?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company protect intellectual property from cyber theft?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's policy on data localization for operations in jurisdictions like China or Russia?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a history of cybersecurity-related whistleblower complaints?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company monitor for insider threats, such as data exfiltration by employees?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's approach to securing its supply chain against cyber attacks?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company ever failed a cybersecurity audit by a major client or regulator?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company employ endpoint detection and response (EDR) solutions on all devices?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's policy on using artificial intelligence for cybersecurity threat detection?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company handle cybersecurity due diligence when acquiring other firms?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's record on timely disclosure of security vulnerabilities?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a formal policy for managing cyber risks from mergers and acquisitions?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company secure its email systems against business email compromise (BEC) attacks?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's approach to network segmentation to limit breach impact?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Has the company ever been involved in a state-sponsored cyber espionage incident?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company conduct regular tabletop exercises for its incident response team?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's policy on using open-source software, and how are vulnerabilities tracked?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company ensure compliance with the Health Insurance Portability and Accountability Act (HIPAA) if handling health data?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's process for decommissioning hardware to prevent data leaks?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "Does the company have a formal cybersecurity awareness program for new hires?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "How does the company handle cross-border data transfers under privacy regulations?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What is the company's track record on responding to customer data subject access requests?\",", "topic": "cyber", "source": "v06_grounded_distill"}
+{"question": "What are the key red flags indicating potential money laundering in cross-border wire transfers?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the Financial Action Task Force (FATF) classify jurisdictions with strategic AML deficiencies?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps should be taken when onboarding a politically exposed person (PEP) from Nigeria?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the reporting obligations under the US Bank Secrecy Act for cash transactions exceeding $10,000?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the EU's 6th Anti-Money Laundering Directive (6AMLD) expand criminal liability for money laundering?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What is the role of a compliance officer in detecting trade-based money laundering schemes?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the common typologies of shell companies used in illicit financial flows?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the UK's Proceeds of Crime Act 2002 define the offense of acquiring criminal property?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for correspondent banking relationships under the Wolfsberg Group principles?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What specific indicators suggest a customer is structuring transactions to avoid reporting thresholds?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the US Office of Foreign Assets Control (OFAC) enforce sanctions against entities in Iran?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for identifying human trafficking-related financial transactions in the hospitality sector?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What is the difference between customer due diligence (CDD) and enhanced due diligence (EDD) in high-risk jurisdictions?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How should a financial institution handle a suspicious transaction report (STR) involving a cryptocurrency exchange?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the key elements of a robust anti-bribery compliance program under the US Foreign Corrupt Practices Act (FCPA)?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the common methods used to launder money through real estate purchases in the United States?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the EU's Markets in Crypto-Assets Regulation (MiCA) address money laundering risks in digital assets?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence procedures for verifying the beneficial ownership of a trust in the Cayman Islands?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What red flags in trade finance transactions may indicate invoice fraud or over-invoicing?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the use of virtual private networks (VPNs) obscure the origin of illicit funds in online gambling?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the compliance challenges in monitoring transactions from jurisdictions with weak AML enforcement like North Korea?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What specific procedures should a bank follow when a customer's source of wealth is unexplained inheritance?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the US Patriot Act Section 311 permit special measures against foreign jurisdictions or institutions of primary money laundering concern?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the indicators of a 'smurfing' scheme in cash deposits across multiple bank branches?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'travel rule' in cryptocurrency transactions under FATF recommendations?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How should a company screen third-party intermediaries for potential bribery risks in emerging markets?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for identifying illicit use of non-profit organizations in terrorist financing?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for accepting high-value art as collateral for a loan?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the UK's Sanctions and Anti-Money Laundering Act 2018 impact financial crime compliance?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the common techniques used to launder money through free trade zones?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What specific data points should be analyzed in transaction monitoring for unusual patterns in retail banking?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the Australian Transaction Reports and Analysis Centre (AUSTRAC) regulate digital currency exchanges?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the legal implications for a financial institution that fails to file a Suspicious Activity Report (SAR) in the US?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for detecting corruption in public procurement contracts?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the use of bearer shares facilitate anonymous ownership in certain jurisdictions?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence steps for verifying the legitimacy of a customer's business in a high-risk sector like precious metals trading?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the indicators of a 'round-tripping' scheme in trade-based money laundering?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "How does the Monetary Authority of Singapore (MAS) enforce AML regulations for family offices?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What are the specific risks associated with using prepaid cards for cross-border fund transfers?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What is the role of a 'nominated officer' in the UK's Suspicious Activity Report (SAR) regime?\",", "topic": "financial_crime", "source": "v06_grounded_distill"}
+{"question": "What is the minimum transaction amount that triggers a currency transaction report in the United States?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which international body sets the global standards for anti-money laundering efforts?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the primary purpose of a suspicious activity report?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "In which jurisdiction is the Financial Action Task Force headquartered?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a common red flag indicating potential money laundering through trade transactions?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which type of entity is most frequently used for layering funds in money laundering schemes?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the role of a money services business in anti-money laundering compliance?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does a shell company differ from a legitimate business in money laundering contexts?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the typical threshold for customer due diligence under the Bank Secrecy Act?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which sector is most vulnerable to money laundering through real estate transactions?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the term for the process of integrating illicit funds into the legitimate economy?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which U.S. agency enforces the Bank Secrecy Act?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a common indicator of structuring behavior to avoid reporting requirements?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does a politically exposed person differ from a standard customer in risk assessment?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a beneficial ownership register in anti-money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which European directive governs anti-money laundering regulations in the EU?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a typical red flag in correspondent banking relationships?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How do casinos facilitate money laundering through chips and transactions?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the threshold for reporting cross-border currency movements in the United States?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which type of cryptocurrency is most associated with money laundering risks?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the role of a compliance officer in a financial institution?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does trade-based money laundering misrepresent invoice values?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the Wolfsberg Group in anti-money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which jurisdiction is known for its strict banking secrecy laws historically linked to money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a common method for laundering money through art auctions?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does a trust structure obscure beneficial ownership in money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the penalty for non-compliance with anti-money laundering regulations in the UK?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which red flag involves frequent transactions just below reporting thresholds?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the role of a financial intelligence unit in combating money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How do informal value transfer systems like hawala pose money laundering risks?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the typical lifespan of a money laundering operation before detection?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which industry is most targeted for money laundering through shell companies?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of enhanced due diligence for high-risk customers?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does the placement stage of money laundering involve cash deposits?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a common red flag in insurance policy transactions for money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which country is often cited as a tax haven with weak anti-money laundering controls?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the function of a transaction monitoring system in compliance?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How do prepaid cards enable anonymous money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the threshold for reporting suspicious transactions in Canada?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which type of legal entity is frequently used in offshore money laundering schemes?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a typical indicator of money laundering through securities trading?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does the layering stage utilize multiple bank accounts?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the role of a designated non-financial business in anti-money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which red flag involves transactions from high-risk jurisdictions?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a risk-based approach in anti-money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How do free trade zones facilitate money laundering?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the Egmont Group in financial intelligence sharing?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which U.S. regulation requires casinos to file suspicious activity reports?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a common method for laundering money through precious metals?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does a nominee director arrangement hide beneficial ownership?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the typical penalty for failing to file a suspicious activity report?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "Which sector is most exposed to money laundering through virtual currencies?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is a red flag involving transactions with no apparent economic purpose?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "How does the integration stage involve real estate purchases?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What is the role of a centralized database in anti-money laundering checks?\",", "topic": "money_laundering", "source": "v06_grounded_distill"}
+{"question": "What specific red flags in procurement contracts might indicate bid rigging between vendors?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which U.S. law prohibits bribery of foreign officials, and what are its key provisions?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the UK Bribery Act 2010 define a 'foreign public official' for liability purposes?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What are the requirements for a company to establish an 'adequate procedures' defense under the UK Bribery Act?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "In which jurisdictions is facilitating payments explicitly legal, and under what conditions?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the role of the OECD Anti-Bribery Convention in cross-border corruption enforcement?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the Foreign Corrupt Practices Act (FCPA) treat payments to third-party agents?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps should be taken when vetting a local partner in high-risk jurisdictions?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which industries are most frequently associated with corruption in public procurement?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the difference between active and passive bribery under civil law systems?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How do anti-corruption compliance programs typically address gifts and hospitality?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What are the key indicators of 'straw man' ownership structures used to conceal corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which international body issues the 'Corruption Perceptions Index', and how is it calculated?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What legal consequences can a company face for failing to report suspected corruption under the U.S. False Claims Act?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the UN Convention against Corruption (UNCAC) define 'illicit enrichment'?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What specific red flags in financial transactions suggest money laundering linked to corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which countries have the most robust whistleblower protection laws for reporting corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the statute of limitations for FCPA violations in the United States?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How do multilateral development banks (e.g., World Bank) sanction companies for corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the 'business judgment rule' and how does it apply to corruption risk assessments by boards?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which specific clauses in joint venture agreements can mitigate corruption risks?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the EU Whistleblower Directive impact corporate compliance obligations?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What are the common red flags in political contributions made by corporations?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How do 'politically exposed persons' (PEPs) trigger enhanced due diligence under anti-money laundering rules?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the difference between extortion and bribery in legal terms?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which countries have extraterritorial anti-corruption laws similar to the FCPA?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the 'facilitation payment' exception under the FCPA differ from outright bribery?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence questions should be asked about a potential acquisition target's third-party intermediaries?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What role do 'integrity pacts' play in preventing corruption in public infrastructure projects?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How can shell companies be used to obscure corrupt payments in cross-border transactions?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What are the key elements of a 'zero-tolerance' anti-corruption policy?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which U.S. regulatory agency enforces the FCPA, and what are its investigative powers?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the OECD define 'foreign bribery' in its 2009 Recommendation?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What specific records must a company maintain to demonstrate compliance with anti-corruption laws?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'U.S. v. Siemens' case in FCPA enforcement history?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How do 'compliance monitors' function in deferred prosecution agreements for corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which jurisdictions have the highest perceived corruption levels according to Transparency International?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the legal definition of 'corruption' under the Indian Prevention of Corruption Act?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the Brazilian Clean Company Act hold companies liable for acts of corruption?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What specific red flags in expense reports might indicate embezzlement or bribery?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the 'control person' liability theory under securities laws for corruption-related disclosures?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How do customs and trade regulations address corruption in cross-border shipments?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What are the key differences between the FCPA and the UK Bribery Act regarding hospitality?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "Which international treaties require countries to criminalize bribery of foreign officials?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "How does the 'private-to-private' bribery differ from public sector bribery in legal frameworks?\",", "topic": "corruption", "source": "v06_grounded_distill"}
+{"question": "What is the primary difference between sex trafficking and labor trafficking under U.S. federal law?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which international treaty is the cornerstone of global anti-human trafficking efforts?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What are the three core elements of the Palermo Protocol definition of human trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. federal agency leads the investigation of human trafficking cases?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a typical red flag for labor trafficking in agricultural industries?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the Trafficking Victims Protection Act define 'severe forms of trafficking in persons'?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the role of the National Human Trafficking Hotline in the United States?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which country has the highest number of prosecutions for human trafficking annually?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a common indicator of human trafficking in domestic servitude?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the EU Directive on Preventing and Combating Trafficking in Human Beings differ from the Palermo Protocol?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the minimum age of consent for commercial sex in the context of trafficking under U.S. law?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. state has the highest rate of reported human trafficking cases?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of a 'safe harbor' law in human trafficking legislation?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How do traffickers often use debt bondage to control victims in the fishing industry?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the difference between human trafficking and human smuggling?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which federal law in the United States criminalizes the use of forced labor in supply chains?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a 'John School' and how does it relate to human trafficking prevention?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Department of State's Trafficking in Persons Report rank countries?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a common red flag for human trafficking in the hospitality sector?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. law prohibits the importation of goods made with forced labor?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the role of a victim-centered approach in human trafficking investigations?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How do traffickers exploit visa programs to facilitate labor trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'Moscow Protocol' in combating human trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which NGO is known for operating the Polaris Project and the National Human Trafficking Hotline?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a typical indicator of human trafficking in nail salons?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the UK Modern Slavery Act 2015 require companies to report on supply chains?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the difference between Tier 1, Tier 2, and Tier 3 rankings in the TIP Report?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. federal statute criminalizes sex trafficking by force, fraud, or coercion?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a common red flag for human trafficking in the construction industry?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How do traffickers use social media platforms to recruit victims?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the role of the International Labour Organization in combating forced labor?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which country has the highest number of human trafficking victims in the European Union?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a 'forced marriage' and how is it linked to human trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Immigration and Nationality Act provide relief to trafficking victims?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a typical red flag for human trafficking in the trucking industry?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. federal law provides for civil remedies for trafficking victims?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the purpose of the '3P' paradigm in anti-human trafficking efforts?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How do traffickers use fake job advertisements to lure victims into labor trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the significance of the 'Blue Campaign' in the United States?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which U.S. law criminalizes the trafficking of children for commercial sex?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a common indicator of human trafficking in the restaurant industry?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the European Court of Human Rights address trafficking cases?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the role of the U.S. Department of Labor in combating forced labor?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "Which country is known for the 'Mekong Club' and its anti-trafficking initiatives?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is a typical red flag for human trafficking in the mining sector?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Victims of Trafficking and Violence Protection Act fund anti-trafficking programs?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the difference between 'push' and 'pull' factors in human trafficking?\",", "topic": "human_trafficking", "source": "v06_grounded_distill"}
+{"question": "What is the International Atomic Energy Agency's role in monitoring nuclear material transfers?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which countries are signatories to the Arms Trade Treaty and what are its key provisions?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the United Nations Security Council Resolution 1540 address non-state actor proliferation?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the specific reporting requirements under the Chemical Weapons Convention for dual-use chemicals?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which entities are listed on the U.S. Department of Commerce's Entity List for weapons proliferation concerns?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What triggers a mandatory investigation under the Biological Weapons Convention?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Wassenaar Arrangement control conventional arms and dual-use goods?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for front companies involved in missile technology transfers?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which jurisdictions have the most stringent export controls on firearms components?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What is the process for obtaining a license to export depleted uranium munitions?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Missile Technology Control Regime restrict ballistic missile technology?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the penalties for violating the Iran North Korea Syria Nonproliferation Act?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which specific dual-use items are monitored under the Australia Group for chemical weapons?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How do financial institutions screen for proliferation financing using SWIFT data?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What is the role of the Nuclear Suppliers Group in regulating uranium enrichment technology?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which countries have been sanctioned by the U.S. for acquiring Chinese missile technology?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the compliance requirements for exporting laser-based weapon systems?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the European Union's Dual-Use Regulation differ from U.S. EAR controls?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What indicators suggest a company is evading sanctions on Russian arms exports?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which types of drone technology are prohibited under the Wassenaar Arrangement?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What is the Zangger Committee's trigger list for nuclear exports?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Treasury's OFAC identify proliferation-related designations?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence steps for verifying end-users of sniper rifle scopes?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which entities in Pakistan are under UN sanctions for nuclear proliferation?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Proliferation Security Initiative intercept suspect shipments?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for procurement of specialty steel used in centrifuge manufacturing?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which countries have been cited for transferring chemical precursors to Syria?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What is the legal definition of 'proliferation-sensitive' under U.S. law?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How do export control officers authenticate end-user certificates for military electronics?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What specific technologies are covered under the China-specific military end-use rule?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which international agreements regulate the transfer of man-portable air defense systems?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the reporting obligations for banks handling transactions involving North Korean arms dealers?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Comprehensive Nuclear-Test-Ban Treaty Organization monitor suspected tests?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What distinguishes a dual-use item from a munitions list item in EU regulations?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which entities in the UAE have been blacklisted for re-exporting U.S. defense articles?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for shipping cryptographic software to Iran?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Directorate of Defense Trade Controls process ITAR exemptions?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for cluster munition component orders from non-state actors?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which jurisdictions have lax enforcement of chemical precursor controls?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Hague Code of Conduct against Ballistic Missile Proliferation work?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What specific data points are used in UN panel reports on North Korean arms smuggling?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the compliance steps for exporting night vision goggles to Saudi Arabia?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How do sanctions on Hezbollah affect procurement of explosive materials?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which dual-use biological agents require permits under the BWC?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What is the role of the U.S. Commerce Department's BIS in investigating export violations?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the Kimberly Process certify rough diamonds from conflict zones?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for orders of high-speed switching devices used in nuclear triggers?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which countries have been sanctioned for supplying arms to Myanmar's military?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "How does the EU's Global Human Rights Sanctions Regime target arms dealers?\",", "topic": "weapons_proliferation", "source": "v06_grounded_distill"}
+{"question": "Which U.S. government agency is responsible for maintaining the Entity List that restricts technology exports to certain foreign entities?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What is the primary regulatory framework in the European Union for screening foreign direct investments in critical technologies?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What specific semiconductor manufacturing equipment is subject to export controls under the Wassenaar Arrangement?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which Japanese law governs the control of dual-use technologies that could impact national security?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What is the threshold for triggering a CFIUS review of a foreign acquisition involving a U.S. company developing quantum computing technology?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does the UK National Security and Investment Act define 'critical technology' for mandatory notification requirements?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the red flags indicating a foreign entity might be attempting to acquire sensitive artificial intelligence algorithms through a joint venture?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which Chinese companies are currently listed on the U.S. Department of Defense's list of Chinese military companies operating in critical technology sectors?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What is the role of the European Commission's Expert Group on Critical Technologies in assessing technology sovereignty risks?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does Australia's Defence Trade Controls Act regulate the supply of critical technology data to foreign persons?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What specific cryptographic technologies are prohibited for export to Iran under U.S. International Traffic in Arms Regulations?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "In which jurisdictions are there specific due-diligence requirements for investments in biotechnology companies developing gene-editing tools?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the compliance obligations for a U.S. company licensing 5G telecommunications technology to an entity in India under U.S. export controls?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which multilateral export control regime covers advanced aerospace propulsion technologies?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does South Korea's Act on Prevention of Divulgence and Protection of Industrial Technology identify critical national technologies?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the red flags associated with shell companies attempting to acquire advanced robotics technology for military end-uses?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which specific open-source AI models are subject to U.S. export restrictions when shared with entities in embargoed countries?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for obtaining a license from the U.S. Bureau of Industry and Security to export advanced laser technology to a university in Singapore?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does the EU's Critical Raw Materials Act intersect with due diligence for technologies reliant on rare earth elements?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the key differences between the U.S. Entity List and the Unverified List in terms of restrictions on critical technology transfers?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which Israeli regulatory body oversees the export of cyber defense technologies to foreign governments?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What specific due-diligence steps should a venture capital firm take before investing in a startup developing hypersonic propulsion systems?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does Canada's Investment Canada Act assess whether a foreign investment in a critical technology company poses a national security risk?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for potential technology diversion in supply chains involving advanced sensor manufacturers?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which quantum computing algorithms are classified as controlled technologies under the Wassenaar Arrangement?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What is the legal basis for the U.S. to impose sanctions on foreign entities that facilitate the transfer of semiconductor fabrication equipment to Russia?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does Japan's Foreign Exchange and Foreign Trade Act require due diligence for technology licensing agreements with Chinese entities?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What specific biotechnology research areas are flagged as 'dual-use' under the Australia Group's guidelines?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which European countries have implemented national investment screening mechanisms specifically targeting artificial intelligence technologies?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the compliance procedures for a German company transferring advanced battery technology to a subsidiary in Mexico?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Department of Treasury's Office of Foreign Assets Control define 'critical technology' for sanctions on Iran?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What red flags indicate a potential violation of export controls when a company provides cloud computing services for AI model training to a foreign entity?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which specific technologies related to autonomous underwater vehicles are controlled under the Missile Technology Control Regime?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "How does the Netherlands' Foreign Direct Investment Screening Act apply to acquisitions of photolithography equipment manufacturers?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What due-diligence checks are required for a UK company collaborating with a Taiwanese firm on advanced semiconductor packaging?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What are the key indicators that a foreign research collaboration in quantum sensors might trigger national security concerns?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "Which U.S. federal agencies are involved in reviewing technology transfers related to directed energy weapons?\",", "topic": "critical_technology", "source": "v06_grounded_distill"}
+{"question": "What specific biological agents are listed under the Australia Group's control lists for dual-use export controls?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which U.S. regulatory body enforces the Export Administration Regulations (EAR) for dual-use items?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the Wassenaar Arrangement's threshold for controlling dual-use cryptographic software?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the EU Dual-Use Regulation 2021/821 define 'cybersurveillance items' as dual-use goods?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a dual-use transaction involving high-purity quartz intended for semiconductor manufacturing?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which Japanese laws govern the export of dual-use carbon fiber composites?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What documentation is required under UK law to prove end-use for a dual-use chemical precursor?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the Missile Technology Control Regime (MTCR) classify dual-use rocket propulsion components?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the penalties in China for exporting dual-use items without a license under its Export Control Law?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which dual-use items are subject to 'catch-all' controls for military end-uses in the EU?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the role of the U.S. Department of Commerce's Bureau of Industry and Security (BIS) in dual-use licensing?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does South Korea's Strategic Trade Control System handle dual-use items for civilian nuclear research?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What specific dual-use lasers are controlled under the Wassenaar Arrangement's Sensitive List?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence obligations for a freight forwarder shipping dual-use chemicals to a sanctioned country?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does Australia's Defence and Strategic Goods List define dual-use navigation equipment?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the 'no-knowledge' standard in dual-use export compliance for intangible technology transfers?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which dual-use items require a license for export from India to countries under UN embargo?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the common red flags for dual-use transactions involving offshore shell companies?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the EU regulate the export of dual-use water-jet cutting machines for missile applications?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the definition of 'intangible technology' under the U.S. International Traffic in Arms Regulations (ITAR) for dual-use?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which dual-use biological equipment is controlled by the Biological Weapons Convention's export guidelines?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does Canada's Export Control List categorize dual-use high-performance computers?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the sanctions for violating dual-use export controls under the UK's Export Control Act 2002?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What due-diligence steps are required for a distributor reselling dual-use industrial robots to unknown end-users?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the Nuclear Suppliers Group (NSG) control dual-use zirconium alloys for nuclear applications?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which dual-use items are exempt from export licensing for intra-EU transfers?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the 'de minimis' rule for U.S.-origin dual-use components in foreign-made products?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does Singapore's Strategic Goods (Control) Act regulate dual-use unmanned aerial vehicles (UAVs)?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for a dual-use transaction involving a customer with a history of denied party listings?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does Switzerland align its dual-use controls with EU regulations despite non-membership?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What specific dual-use software is controlled for encryption under the Wassenaar Arrangement?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the procedure for applying a dual-use export license in Brazil under its SISCOMEX system?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the U.S. Entity List affect dual-use shipments to Chinese universities?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the due-diligence requirements for cloud service providers exporting dual-use cybersecurity tools?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "Which dual-use chemicals are listed under the Chemical Weapons Convention (CWC) Schedule 3?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does Israel's Defense Export Control Agency define dual-use items for missile technology?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What is the 'end-use check' process for dual-use items exported to high-risk jurisdictions?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the UAE regulate dual-use items for re-export from free trade zones?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "What are the red flags for dual-use transactions involving unusual payment methods like cryptocurrency?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
+{"question": "How does the EU's 'General Export Authorisation' (EU001) cover dual-use items to certain destinations?\",", "topic": "dual_use", "source": "v06_grounded_distill"}
