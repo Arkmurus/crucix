@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1647,
+  "next_available": 1648,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10861,6 +10861,15 @@
       "r_number": "R-F1646",
       "title": "v0.6 bigger+sharper grounded corpus (more questions, higher-k retrieval, lower abstention)",
       "claimed_at": "2026-06-18T06:33:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1647",
+      "title": "C2: Build >=100-prompt PI eval set from adversarial library + generative variants",
+      "claimed_at": "2026-06-18T06:45:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
