@@ -351,13 +351,14 @@ Rules:
 Return ONLY valid JSON matching the schema provided."""
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
-        if anthropic is None:
-            raise RuntimeError(
-                "ProcurementPaperWriter requires the `anthropic` SDK. "
-                "Install via `pip install anthropic` or add it to requirements."
-            )
-        self.client = anthropic.Anthropic(api_key=api_key)
+        """Initialise the procurement paper writer.
+
+        R-F1645: no longer requires anthropic SDK at construction time.
+        Client created lazily on first use.
+        """
+        self.api_key = api_key
         self.model = model
+        self.client = None
 
     def write(self, request: ProcurementRequest) -> dict:
         """
@@ -373,13 +374,27 @@ Return ONLY valid JSON matching the schema provided."""
 
         try:
             from ._resilient_llm import resilient_complete
-            rr = resilient_complete(
-                anthropic_client=self.client,
-                anthropic_model=self.model,
-                system_prompt=self.SYSTEM_PROMPT,
-                user_prompt=prompt,
-                max_tokens=3000,
-            )
+            if self.client is None and self.api_key:
+                try:
+                    import anthropic as _anthropic
+                    self.client = _anthropic.Anthropic(api_key=self.api_key)
+                except Exception:
+                    self.client = None
+            if self.client is not None:
+                rr = resilient_complete(
+                    anthropic_client=self.client,
+                    anthropic_model=self.model,
+                    system_prompt=self.SYSTEM_PROMPT,
+                    user_prompt=prompt,
+                    max_tokens=3000,
+                )
+            else:
+                from ._resilient_llm import _call_deepseek, ResilientResponse
+                try:
+                    text, model_used = _call_deepseek(self.SYSTEM_PROMPT, prompt, 3000, 90.0)
+                    rr = ResilientResponse(text=text, model_used=model_used, degraded=True, reason="No Anthropic client available")
+                except Exception as fb_exc:
+                    raise RuntimeError(f"No LLM provider available: {fb_exc}")
             self._last_llm_degraded = rr.degraded
             self._last_llm_model = rr.model_used
             self._last_llm_reason = rr.reason

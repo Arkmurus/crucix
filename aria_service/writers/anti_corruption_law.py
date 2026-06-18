@@ -349,13 +349,10 @@ Return ONLY valid JSON matching the schema."""
     )
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
-        if anthropic is None:
-            raise RuntimeError(
-                "AntiCorruptionLawEngine requires the `anthropic` SDK. "
-                "Install via `pip install anthropic` or add it to requirements."
-            )
-        self.client = anthropic.Anthropic(api_key=api_key)
+        """R-F1645: no longer requires anthropic SDK at construction time."""
+        self.api_key = api_key
         self.model = model
+        self.client = None
 
     def write_compliance_opinion(
         self, request: ComplianceOpinionRequest

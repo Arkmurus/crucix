@@ -469,6 +469,7 @@ class TestOrchestratorMocked(unittest.TestCase):
     })
 
     def _make_mock_client(self, response_text: str):
+        """R-F1645: return a mock Anthropic-style client for testing."""
         mock_content = MagicMock()
         mock_content.text = response_text
         mock_response = MagicMock()
@@ -514,6 +515,8 @@ class TestOrchestratorMocked(unittest.TestCase):
         self.assertIn("BOTTOM LINE UP FRONT", result.document)
 
     def test_error_handling_returns_failure_result(self):
+        """R-F1645: when Anthropic fails, the writer falls back to DeepSeek
+        and returns a degraded result (not a hard failure)."""
         orchestrator = WriterOrchestrator(api_key="test-key")
         orchestrator._assessment.client = MagicMock()
         orchestrator._assessment.client.messages.create.side_effect = Exception("API error")
@@ -521,8 +524,9 @@ class TestOrchestratorMocked(unittest.TestCase):
         result = orchestrator.write_assessment(
             subject="Test", region="Angola", requester="Test"
         )
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error)
+        # The writer falls back to DeepSeek — result is degraded, not failed
+        self.assertTrue(result.success)
+        self.assertTrue(result.degraded)
 
     def test_output_hash_is_consistent(self):
         orchestrator = WriterOrchestrator(api_key="test-key")

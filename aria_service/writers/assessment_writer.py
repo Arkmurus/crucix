@@ -30,14 +30,15 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
-
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
+from typing import Any, Optional
 
 logger = logging.getLogger("ARIA.AssessmentWriter")
+
+# R-F1645: no longer hard-requires anthropic SDK. The writer accepts an
+# optional llm_provider (from llm/factory.py) and falls back to the
+# resilient_llm helper which tries DeepSeek when Anthropic is unavailable.
+# The old `import anthropic` gate is removed — the writer never crashes
+# at import time due to a missing SDK.
 
 # R-F1319: wire module health to the brain
 try:
@@ -311,13 +312,16 @@ Clause 14 (no fabricated verifiable facts), Clause 15 (inline citation).
 Return ONLY valid JSON matching the schema provided."""
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
-        if anthropic is None:
-            raise RuntimeError(
-                "AssessmentWriter requires the `anthropic` SDK. "
-                "Install via `pip install anthropic` or add it to requirements."
-            )
-        self.client = anthropic.Anthropic(api_key=api_key)
+        """Initialise the assessment writer.
+
+        R-F1645: no longer requires anthropic SDK at construction time.
+        The client is created lazily on first use. Tests can mock
+        self.client or set self.llm_provider after construction.
+        """
+        self.api_key = api_key
         self.model = model
+        self.client = None
+        self.llm_provider = None
 
     def write(self, request: AssessmentRequest) -> IntelligenceAssessment:
         """
@@ -366,13 +370,31 @@ Return JSON with this exact schema:
 
         try:
             from ._resilient_llm import resilient_complete
-            rr = resilient_complete(
-                anthropic_client=self.client,
-                anthropic_model=self.model,
-                system_prompt=self.SYSTEM_PROMPT,
-                user_prompt=prompt,
-                max_tokens=2000,
-            )
+            # Lazily create Anthropic client only if needed
+            if self.client is None and self.api_key:
+                try:
+                    import anthropic as _anthropic
+                    self.client = _anthropic.Anthropic(api_key=self.api_key)
+                except Exception:
+                    self.client = None
+            if self.client is not None:
+                rr = resilient_complete(
+                    anthropic_client=self.client,
+                    anthropic_model=self.model,
+                    system_prompt=self.SYSTEM_PROMPT,
+                    user_prompt=prompt,
+                    max_tokens=2000,
+                )
+            else:
+                # No Anthropic client — try DeepSeek directly via resilient_llm
+                from ._resilient_llm import resilient_complete, _call_deepseek, ResilientResponse
+                try:
+                    text, model_used = _call_deepseek(
+                        self.SYSTEM_PROMPT, prompt, 2000, 90.0
+                    )
+                    rr = ResilientResponse(text=text, model_used=model_used, degraded=True, reason="No Anthropic client available")
+                except Exception as fb_exc:
+                    raise RuntimeError(f"No LLM provider available: {fb_exc}")
             # Carry degradation flags onto self so the writer's caller
             # (WriterOrchestrator) can propagate them into the final
             # WriterResult without changing the method signature.

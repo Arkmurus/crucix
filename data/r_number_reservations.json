@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1645,
+  "next_available": 1647,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10847,6 +10847,24 @@
       "commit_sha": "18d30c8e",
       "notes": null,
       "shipped_at": "2026-06-18T06:27:37Z"
+    },
+    {
+      "r_number": "R-F1645",
+      "title": "Decouple AssessmentWriter from Anthropic lock-in, route through llm provider",
+      "claimed_at": "2026-06-18T06:31:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1646",
+      "title": "v0.6 bigger+sharper grounded corpus (more questions, higher-k retrieval, lower abstention)",
+      "claimed_at": "2026-06-18T06:33:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
