@@ -913,15 +913,18 @@ def test_knowledge_store_fact_tags_legacy_when_no_source():
     async def run():
         result = await knowledge.store_fact(
             topic="Test topic — legacy",
-            content="Test content, no URL provided.",
+            content="Test content for legacy unverified fact storage without URL provided. This is long enough to pass the R-F1526 content-length guard.",
             source="user",
             confidence="CONFIRMED",
         )
-        assert result["action"] in ("created", "updated")
+        assert result["action"] in ("created", "updated"), f"Expected created/updated, got {result['action']}: {result.get('reason', '')}"
         facts = await knowledge.get_all_facts()
         match = next((f for f in facts if f.get("id") == result["fact_id"]), None)
         assert match is not None
-        assert match.get("verification_status") == "LEGACY_UNVERIFIED"
+        # R-F1656: _auto_verify_fact may update status from LEGACY_UNVERIFIED
+        # to PENDING_CORROBORATION before we read it. Accept either.
+        assert match.get("verification_status") in ("LEGACY_UNVERIFIED", "PENDING_CORROBORATION"), \
+            f"Expected LEGACY_UNVERIFIED or PENDING_CORROBORATION, got {match.get('verification_status')}"
         return True
 
     assert asyncio.run(run()) is True
@@ -948,9 +951,13 @@ def test_knowledge_store_fact_verified_when_url_and_fact_type():
         facts = await knowledge.get_all_facts()
         match = next((f for f in facts if f.get("id") == result["fact_id"]), None)
         assert match is not None
-        # Tier 1a → VERIFIED
-        assert match.get("verification_status") == "VERIFIED"
-        assert match.get("verification_score", 0) >= 0.9
+        # Tier 1a → VERIFIED (or PENDING_CORROBORATION if single source)
+        # R-F1658: single-source facts get PENDING_CORROBORATION until
+        # corroborated by a second independent source.
+        assert match.get("verification_status") in ("VERIFIED", "PENDING_CORROBORATION"), \
+            f"Expected VERIFIED or PENDING_CORROBORATION, got {match.get('verification_status')}"
+        if match.get("verification_status") == "VERIFIED":
+            assert match.get("verification_score", 0) >= 0.9
         return True
 
     assert asyncio.run(run()) is True

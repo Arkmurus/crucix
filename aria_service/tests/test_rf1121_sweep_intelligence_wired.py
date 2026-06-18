@@ -41,12 +41,17 @@ class TestSweepIntelligenceWired:
 
     async def test_success_wires_to_brain(self, sample_target, empty_report):
         """On success, wire_success is called via @wired decorator."""
-        from aria_service.intel.dd_orchestrator import _run_sweep_intelligence
-
         with patch("aria_service.intel.engine_wiring.wire_success") as mock_ws, \
              patch("aria_service.intel.engine_wiring.wire_failure") as mock_wf, \
              patch("aria_service.intel.brain_hook.get_stats", return_value={"modules": {}}), \
              patch("aria_service.intel.intel_ledger.get_recent", return_value=[]):
+
+            # Import AFTER patching so module-level wire_success calls
+            # from brain_hook/intel_ledger are caught by the mock.
+            from aria_service.intel.dd_orchestrator import _run_sweep_intelligence
+
+            # Reset mock to clear any module-level wiring calls
+            mock_ws.reset_mock()
 
             await _run_sweep_intelligence(sample_target, empty_report)
 
