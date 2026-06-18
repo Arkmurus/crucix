@@ -171,6 +171,42 @@ class FixResult:
     )
 
 
+def build_coder_reward_record(
+    *, instruction: str, approach: str, code_changes: dict, r_number,
+    test_result, stage_ok: bool, auto_deployed: bool, tests_enabled: bool,
+) -> dict:
+    """R-F1674 — assemble a verifiable-reward coder training record (DeepSeek-R1
+    style). The record is GOLD (training-grade) only when the reward is REAL and
+    OBJECTIVE: tests GENUINELY ran (not the ARIA_CODER_TESTS_ENABLED=0 no-op pass)
+    AND green AND the function-preservation guard held (stage_ok). Pure function so
+    the gold gate is unit-testable; the caller persists it. Offline coder SFT trains
+    on gold=True only — an ungameable signal, not a chat-quality heuristic."""
+    passed = getattr(test_result, "passed", 0) or 0
+    failed = getattr(test_result, "failed", 0) or 0
+    all_green = bool(getattr(test_result, "all_green", False))
+    # tests genuinely executed iff the runner was enabled AND it actually ran cases
+    tests_ran = bool(tests_enabled and (passed + failed) > 0)
+    gold = bool(tests_ran and all_green and stage_ok)
+    return {
+        "instruction": instruction,
+        "approach": approach,
+        "code_changes": code_changes,
+        "target_files": list((code_changes or {}).keys()),
+        "r_number": r_number,
+        "reward": {
+            "tests_ran": tests_ran,
+            "tests_green": all_green,
+            "tests_passed": passed,
+            "tests_failed": failed,
+            "healing_attempts": getattr(test_result, "attempts", None),
+            "function_preserved": bool(stage_ok),
+            "auto_deployed": bool(auto_deployed),
+        },
+        "gold": gold,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 class ARIACoder:
     """The autonomous self-coding engine — orchestrator only.
 
@@ -812,6 +848,30 @@ class ARIACoder:
                 ),
                 "r_number": r_number,
             }
+
+            # R-F1674 — capture this fix as a VERIFIABLE-REWARD training example.
+            # Reaching here means tests passed (all_green) AND stage_ok (the R-F1450/
+            # R-F1285 function-preservation guard held). Marked gold ONLY when tests
+            # genuinely ran (ARIA_CODER_TESTS_ENABLED=1) — never the no-op pass.
+            try:
+                _rec = build_coder_reward_record(
+                    instruction=training_pair["instruction"],
+                    approach=plan.approach, code_changes=plan.code_changes,
+                    r_number=r_number, test_result=test_result,
+                    stage_ok=stage_ok, auto_deployed=auto_deployed,
+                    tests_enabled=(os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "1"),
+                )
+                _gp = os.environ.get("ARIA_CODER_GOLD_PATH") or str(
+                    Path(os.environ.get("ARIA_DATA_DIR", "data")) / "aria_training"
+                    / "coder_verifiable_gold.jsonl"
+                )
+                Path(_gp).parent.mkdir(parents=True, exist_ok=True)
+                with open(_gp, "a", encoding="utf-8") as _gf:
+                    _gf.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+                logger.info("[R-F1674] verifiable-reward captured gold=%s tests_ran=%s R-F%s",
+                            _rec["gold"], _rec["reward"]["tests_ran"], r_number)
+            except Exception as _e:
+                logger.warning("[R-F1674] verifiable-reward capture failed: %s", _e)
 
             elapsed = time.monotonic() - start_ts
             await self._publish_progress(

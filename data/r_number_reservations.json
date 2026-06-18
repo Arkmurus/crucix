@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1673,
+  "next_available": 1676,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11114,6 +11114,34 @@
       "r_number": "R-F1672",
       "title": "Surgical: parallelize vision-chunk extraction (bounded) — large-doc read time / N",
       "claimed_at": "2026-06-18T16:00:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f2607e69",
+      "notes": null,
+      "shipped_at": "2026-06-18T16:17:31Z"
+    },
+    {
+      "r_number": "R-F1673",
+      "title": "v0.9 GOLD corpus — vetted-source-grounded Q&A (corpus docs + sanctions_canonical, verification-gated; breaks the DeepSeek teacher ceiling)",
+      "claimed_at": "2026-06-18T16:04:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1674",
+      "title": "coder verifiable-reward gold corpus capture (DeepSeek-R1 style: record fixes that genuinely passed tests + preservation guard for SFT)",
+      "claimed_at": "2026-06-18T16:20:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1675",
+      "title": "Surgical: parallelize researcher.read_document per-chunk LLM analysis (real WA doc path)",
+      "claimed_at": "2026-06-18T16:23:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
