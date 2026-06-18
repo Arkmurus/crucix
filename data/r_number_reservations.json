@@ -10843,9 +10843,10 @@
       "title": "v0.5 grounded SFT cycle driver (train on grounded corpus, open-book eval, G1)",
       "claimed_at": "2026-06-17T22:00:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "18d30c8e",
+      "notes": null,
+      "shipped_at": "2026-06-18T06:27:37Z"
     }
   ]
 }
