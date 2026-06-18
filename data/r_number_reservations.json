@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1648,
+  "next_available": 1650,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10875,6 +10875,25 @@
       "commit_sha": "792f56e6",
       "notes": null,
       "shipped_at": "2026-06-18T06:48:01Z"
+    },
+    {
+      "r_number": "R-F1648",
+      "title": "Fix brain_hook_bg knowledge timeout mismatch and verified_intel absorb flood",
+      "claimed_at": "2026-06-18T08:01:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "792f56e6",
+      "notes": null,
+      "shipped_at": "2026-06-18T08:07:37Z"
+    },
+    {
+      "r_number": "R-F1649",
+      "title": "Fix deep researcher search path to check circuit breaker before HTTP calls",
+      "claimed_at": "2026-06-18T08:13:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

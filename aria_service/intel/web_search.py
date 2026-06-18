@@ -959,11 +959,28 @@ async def search(
     )
     import time as _t_ws
     _ws_t0 = _t_ws.monotonic()
-    raw_results_list = await asyncio.gather(
-        _query_memory(query, max_results=max_results),
-        *backend_tasks,
-        return_exceptions=True,
-    )
+    # R-F1649: wrap the parallel gather in a timeout so a single hanging
+    # backend can't block the entire search pipeline. REQUEST_TIMEOUT (12s)
+    # is the per-backend HTTP timeout; the gather should complete within
+    # that window. If it doesn't, return partial results rather than
+    # blocking the caller (deep researcher, chat, etc.).
+    try:
+        raw_results_list = await asyncio.wait_for(
+            asyncio.gather(
+                _query_memory(query, max_results=max_results),
+                *backend_tasks,
+                return_exceptions=True,
+            ),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "search gather timed out after %.1fs — returning partial results",
+            REQUEST_TIMEOUT,
+        )
+        # Collect results from completed tasks; unfinished ones raised
+        # TimeoutError which we treat as empty.
+        raw_results_list = [TimeoutError("gather timeout")] * (1 + len(backend_tasks))
     raw_results = list(raw_results_list)
     _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
 
