@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1660,
+  "next_available": 1663,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10993,6 +10993,33 @@
       "commit_sha": "ef95fe7a",
       "notes": null,
       "shipped_at": "2026-06-18T11:35:44Z"
+    },
+    {
+      "r_number": "R-F1660",
+      "title": "Search sovereignty program: remove vestigial Brave path in researcher.py",
+      "claimed_at": "2026-06-18T11:46:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1661",
+      "title": "Search sovereignty: sovereign-first sequencing + capture-to-index",
+      "claimed_at": "2026-06-18T11:46:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1662",
+      "title": "Search sovereignty: frontier-crawl depth (own index covers the beat)",
+      "claimed_at": "2026-06-18T11:46:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

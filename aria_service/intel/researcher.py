@@ -2020,17 +2020,22 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
 async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) -> dict:
     """Perform a web search and return structured results.
 
+    R-F1660 (2026-06-18) — Brave provider REMOVED. Operator sovereignty
+    directive ("no Brave API... not an option"; ARIA must be independent,
+    not add third-party dependencies — see memory aria_sovereignty_no_new
+    _dependencies). The Brave block was vestigial anyway (no key set; the
+    web_search.py _search_brave is already a permanent R-F320 stub). This
+    function now goes straight to the keyless backends.
+
     Tries providers in order:
-      1. Brave Search API (when BRAVE_SEARCH_API_KEY env var is set —
-         2k queries/month free, 1 q/s rate limit, well-structured JSON)
-      2. DuckDuckGo HTML scraping (free, no key, fragile but adequate
-         for low-volume DD)
+      1. DuckDuckGo HTML scraping (free, no key)
+      2. _multi_backend_fallback (Google News / Bing News RSS, all keyless)
 
     Returns:
       {
         "ok": bool,
         "query": str,
-        "provider": "brave" | "ddg" | "none",
+        "provider": "ddg" | "none",
         "results": [{"title": str, "url": str, "snippet": str}, ...],
         "error": str (only present when ok=False),
         "duration_ms": int,
@@ -2070,49 +2075,11 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
         truncated = query[:200].rsplit(" ", 1)[0] if " " in query[:200] else query[:200]
         query = truncated
 
-    # ── Provider 1: Brave Search API ──────────────────────────────────
-    brave_key = (os.getenv("BRAVE_SEARCH_API_KEY") or "").strip()
-    logger.info(
-        "web_search ENTRY query=%r brave_key_present=%s brave_key_len=%d",
-        query[:80], bool(brave_key), len(brave_key),
-    )
-    if brave_key:
-        try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                resp = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": min(max_results, 20)},
-                    headers={
-                        "Accept": "application/json",
-                        "X-Subscription-Token": brave_key,
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json() or {}
-                    results = []
-                    for r in (data.get("web", {}) or {}).get("results", [])[:max_results]:
-                        if not isinstance(r, dict):
-                            continue
-                        results.append({
-                            "title": (r.get("title") or "")[:200],
-                            "url": r.get("url") or "",
-                            "snippet": (r.get("description") or "")[:400],
-                        })
-                    return {
-                        "ok": True, "query": query, "provider": "brave",
-                        "results": results,
-                        "duration_ms": int((time.time() - t0) * 1000),
-                    }
-                else:
-                    logger.warning(
-                        "web_search Brave API returned HTTP %d for query %r",
-                        resp.status_code, query[:80],
-                    )
-        except Exception as e:
-            logger.warning("web_search Brave API failed for %r: %s", query[:80], e)
-        # fall through to DuckDuckGo
+    # ── R-F1660: Brave provider removed (sovereignty — no third-party
+    # search API). Straight to the keyless backends below.
+    logger.info("web_search ENTRY query=%r", query[:80])
 
-    # ── Provider 2: DuckDuckGo HTML scraping ──────────────────────────
+    # ── Provider 1: DuckDuckGo HTML scraping ──────────────────────────
     # Free, no key required. The HTML endpoint at html.duckduckgo.com
     # returns standard HTML with anchor tags we can parse out. Fragile
     # against DDG layout changes but works as of 2026-04-09.
