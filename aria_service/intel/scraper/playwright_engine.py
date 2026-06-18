@@ -392,3 +392,152 @@ async def is_available() -> bool:
             await _aio.wait_for(playwright.stop(), timeout=3.0)
         except Exception:
             pass
+
+
+# ── R-F1651: JS-rendered form field detection ──────────────────────────────
+
+async def detect_form_fields(
+    url: str,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> list[tuple[str, str, str]]:
+    """R-F1651: Extract registration form fields from a JS-rendered page.
+
+    Uses Playwright to load the page, wait for JS to render, then evaluate
+    JavaScript in the browser context to extract form field names and types
+    from the rendered DOM. Handles SPAs (React, Angular, Vue) that don't
+    include form fields in the raw HTML.
+
+    Returns a list of (selector, field_type, value_source) tuples compatible
+    with portal_registry._build_form_data.
+
+    Falls back to empty list if Playwright is unavailable or the page has
+    no detectable form — caller should fall back to the HTML-based detector.
+    """
+    async with _semaphore():
+        playwright = None
+        browser = None
+        context = None
+        page = None
+        try:
+            playwright, browser, context, page = await _launch_browser()
+            await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
+            # Extra wait for SPA frameworks to finish rendering
+            await page.wait_for_timeout(2000)
+
+            # Evaluate JS in the browser to extract form fields from the
+            # rendered DOM — this catches React/Angular/Vue forms that
+            # don't exist in the raw HTML.
+            fields = await page.evaluate("""() => {
+                const form = document.querySelector('form');
+                if (!form) return [];
+                const results = [];
+                const seen = new Set();
+                form.querySelectorAll('input, select, textarea').forEach(el => {
+                    const name = el.name || el.id;
+                    if (!name || seen.has(name)) return;
+                    seen.add(name);
+                    let type = 'text';
+                    if (el.tagName === 'SELECT') type = 'select';
+                    else if (el.tagName === 'TEXTAREA') type = 'text';
+                    else if (el.type === 'email') type = 'email';
+                    else if (el.type === 'password') type = 'password';
+                    else if (el.type === 'checkbox') type = 'checkbox';
+                    else if (el.type === 'radio') type = 'radio';
+                    else if (el.type === 'hidden') type = 'hidden';
+                    results.push([name, type, '']);
+                });
+                return results;
+            }""")
+            return [(f[0], f[1], f[2]) for f in fields] if fields else []
+        except Exception as e:
+            logger.debug("[playwright] detect_form_fields failed for %s: %s", url, e)
+            return []
+        finally:
+            await _cleanup_browser(playwright, browser, context, page)
+
+
+# ── R-F1651: Behavioural CAPTCHA detection ─────────────────────────────────
+
+async def detect_captcha_type(
+    url: str,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
+    """R-F1651: Detect CAPTCHA type on a page.
+
+    Uses Playwright to load the page and check for known CAPTCHA widgets:
+      - reCAPTCHA v2/v3 (Google) — image-based, solvable via 2Captcha
+      - hCAPTCHA (Cloudflare) — image-based, solvable via 2Captcha
+      - Cloudflare Turnstile — behavioural, NOT solvable via 2Captcha
+      - DataDome — behavioural, NOT solvable
+      - PerimeterX (Human) — behavioural, NOT solvable
+
+    Returns:
+        {"has_captcha": bool, "captcha_type": str | None,
+         "is_behavioural": bool, "details": str}
+    """
+    async with _semaphore():
+        playwright = None
+        browser = None
+        context = None
+        page = None
+        try:
+            playwright, browser, context, page = await _launch_browser()
+            await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
+            await page.wait_for_timeout(2000)
+
+            # Check for known CAPTCHA widgets via JS evaluation
+            result = await page.evaluate("""() => {
+                // reCAPTCHA v2 — explicit div.g-recaptcha or iframe
+                if (document.querySelector('.g-recaptcha') ||
+                    document.querySelector('iframe[src*="recaptcha"]') ||
+                    document.querySelector('div[data-sitekey]')) {
+                    return {has: true, type: 'recaptcha', behavioural: false};
+                }
+                // hCAPTCHA
+                if (document.querySelector('.h-captcha') ||
+                    document.querySelector('iframe[src*="hcaptcha"]')) {
+                    return {has: true, type: 'hcaptcha', behavioural: false};
+                }
+                // Cloudflare Turnstile
+                if (document.querySelector('[data-turnstile]') ||
+                    document.querySelector('cf-turnstile') ||
+                    document.querySelector('div[data-widget="turnstile"]')) {
+                    return {has: true, type: 'turnstile', behavioural: true};
+                }
+                // DataDome
+                if (document.querySelector('[data-datadome]') ||
+                    document.querySelector('script[src*="datadome"]')) {
+                    return {has: true, type: 'datadome', behavioural: true};
+                }
+                // PerimeterX / Human
+                if (document.querySelector('[data-px]') ||
+                    document.querySelector('script[src*="perimeterx"]') ||
+                    document.querySelector('script[src*="px-cdn"]')) {
+                    return {has: true, type: 'perimeterx', behavioural: true};
+                }
+                // Generic CAPTCHA references in page text
+                const body = document.body.innerText || '';
+                if (/captcha|recaptcha|hcaptcha|turnstile/i.test(body)) {
+                    return {has: true, type: 'unknown', behavioural: true};
+                }
+                return {has: false, type: null, behavioural: false};
+            }""")
+
+            return {
+                "has_captcha": result.get("has", False),
+                "captcha_type": result.get("type"),
+                "is_behavioural": result.get("behavioural", False),
+                "details": (
+                    f"Detected {result.get('type', 'unknown')} "
+                    f"({'behavioural' if result.get('behavioural') else 'image-based'})"
+                    if result.get("has") else "No CAPTCHA detected"
+                ),
+            }
+        except Exception as e:
+            logger.debug("[playwright] detect_captcha_type failed for %s: %s", url, e)
+            return {"has_captcha": False, "captcha_type": None,
+                    "is_behavioural": False, "error": str(e)}
+        finally:
+            await _cleanup_browser(playwright, browser, context, page)

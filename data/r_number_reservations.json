@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1651,
+  "next_available": 1652,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10900,6 +10900,16 @@
       "r_number": "R-F1650",
       "title": "eval_aria_llm external PI set support (consume C2 155-prompt set, n=155 leak gate)",
       "claimed_at": "2026-06-18T08:47:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2f50c48",
+      "notes": null,
+      "shipped_at": "2026-06-18T08:49:36Z"
+    },
+    {
+      "r_number": "R-F1651",
+      "title": "4 safe vault registration improvements: weekly rate cap, purpose logging, JS form detection, behavioural CAPTCHA detection",
+      "claimed_at": "2026-06-18T09:00:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

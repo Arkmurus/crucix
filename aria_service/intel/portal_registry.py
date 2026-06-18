@@ -42,6 +42,11 @@ class PortalDef:
     requires_captcha: bool = False
     requires_email_verify: bool = False
     rate_limit_per_hour: int = 60
+    # R-F1651: weekly per-domain registration cap. Default 3 per week.
+    # Prevents ARIA from registering on the same domain more than N times
+    # in a 7-day window, regardless of per-hour rate limits. This is a
+    # ToS-compliance safety net — not a rate-limit for the portal's API.
+    max_per_week: int = 3
     terms_url: str = ""
     # R-F1108: Per-portal signup field schemas for automated form fill.
     # Each entry: (field_selector, field_type, value_source)
@@ -887,14 +892,19 @@ async def _audit_registered(
     portal: PortalDef,
     identity_email: str,
     identity_name: str,
+    purpose: str = "",
 ) -> None:
     """Write a non-blocking audit record for a COMPLETED registration.
 
     The form was filled, submitted, and (if required) email-verified.
     This is a truthful claim of completion.
+
+    R-F1651: `purpose` captures why this registration was needed, for
+    audit defensibility.
     """
     try:
         from . import pending_actions as _pa
+        purpose_line = f"  Purpose: {purpose}\n" if purpose else ""
         await _pa.record(
             promise=f"Registered on {portal.name} ({portal.id})",
             reason=(
@@ -902,6 +912,7 @@ async def _audit_registered(
                 f"  Portal: {portal.url}\n"
                 f"  Identity: {identity_email} / {identity_name}\n"
                 f"  ToS: {portal.terms_url or 'N/A'}\n"
+                f"{purpose_line}"
                 f"  Status: REGISTERED (form submitted and verified)\n"
                 f"  Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}"
             ),
@@ -985,11 +996,14 @@ async def get_registered_portals() -> list[dict]:
 # ── Registration workflows ─────────────────────────────────────────────
 
 
-async def register_for_portal(portal_id: str) -> dict[str, Any]:
+async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, Any]:
     """Register ARIA for a portal account.
 
     Args:
         portal_id: The portal ID to register for.
+        purpose: R-F1651 — why this registration is needed (e.g. "accessing
+            Angola procurement notices for Q3 2026 market assessment").
+            Passed through to the audit trail for defensibility.
 
     Returns:
         Dict with success status, message, and any credential info.
@@ -1004,6 +1018,32 @@ async def register_for_portal(portal_id: str) -> dict[str, Any]:
     # Check if already registered
     if await is_registered(portal_id):
         return {"success": True, "message": f"Already registered for {portal.name}", "portal_id": portal_id}
+
+    # R-F1651: weekly per-domain rate cap. Count registrations on this
+    # portal's domain in the last 7 days from the credential store.
+    # This is a ToS-compliance safety net, not a rate-limit for the API.
+    try:
+        creds = await _get_credentials()
+        domain = portal.url.rstrip("/").lower()
+        one_week_ago = time.time() - (7 * 86400)
+        recent = [
+            c for c in creds.values()
+            if isinstance(c, dict)
+            and c.get("portal_id") == portal.id
+            and c.get("stored_at", 0) >= one_week_ago
+        ]
+        if len(recent) >= portal.max_per_week:
+            return {
+                "success": False,
+                "error": f"Weekly registration cap reached for {portal.name} "
+                         f"({len(recent)}/{portal.max_per_week} in 7 days). "
+                         f"Next window opens when the oldest registration expires.",
+                "portal_id": portal_id,
+                "cap": portal.max_per_week,
+                "current": len(recent),
+            }
+    except Exception as e:
+        logger.debug("[R-F1651] weekly cap check failed (non-fatal): %s", e)
 
     # Handle different registration types
     if portal.registration_type == "none":
@@ -1080,6 +1120,8 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
         "email": _ARIA_EMAIL,
         "name": _ARIA_NAME,
         "password": password,
+        # R-F1651: pass purpose through to audit trail
+        "purpose": purpose,
     }
 
     register_url = f"{portal.url.rstrip('/')}{portal.register_path}"
@@ -1089,7 +1131,7 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
         result = await _attempt_form_fill_submit(portal, register_url, registration_data)
         if result.get("success"):
             # Real registration succeeded — audit as REGISTERED
-            await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
+            await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME, purpose=registration_data.get("purpose", ""))
             return result
         elif result.get("requires_operator"):
             return result
@@ -1135,7 +1177,7 @@ async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
                 temp_portal = dataclasses.replace(portal, signup_fields=detected_fields)
                 result = await _attempt_form_fill_submit(temp_portal, register_url, registration_data)
                 if result.get("success"):
-                    await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME)
+                    await _audit_registered(portal, _ARIA_EMAIL, _ARIA_NAME, purpose=registration_data.get("purpose", ""))
                     return result
                 elif result.get("requires_operator"):
                     return result
