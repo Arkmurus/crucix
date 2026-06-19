@@ -14249,6 +14249,41 @@ async def portal_registry_auto_register_ep():
     return result
 
 
+@router.post("/portal-registry/drive/{portal_id}")
+async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False):
+    """R-F1722: trigger determine_and_drive for ONE portal IN-APP (faithful —
+    state_store is initialised here, unlike an ad-hoc ssh `python -c`). For live
+    verification of autonomous onboarding. fresh=true first clears the portal's
+    vault row + stored credential so it runs a clean fresh registration.
+    Returns the determine_and_drive result plus whether a key actually landed.
+    """
+    import re as _re1722
+    if not _re1722.fullmatch(r"[a-z0-9_]{2,40}", portal_id or ""):
+        raise HTTPException(status_code=400, detail="invalid portal_id")
+    from ..intel import portal_registry as _pr1722
+    if fresh:
+        try:
+            from ..intel.agent_signup_vault import get_vault as _gv1722
+            _gv1722().delete(portal_id)
+        except Exception:
+            pass
+        try:
+            _creds1722 = await _pr1722._get_credentials()
+            _creds1722.pop(portal_id, None)
+            await _pr1722._save_credentials(_creds1722)
+        except Exception:
+            pass
+    result = await _pr1722.determine_and_drive(portal_id)
+    try:
+        from ..intel.key_resolver import resolve_key as _rk1722
+        _k1722 = await _rk1722([], portal_id=portal_id)
+        result["api_key_present"] = bool(_k1722)
+        result["api_key_len"] = len(_k1722)
+    except Exception:
+        pass
+    return result
+
+
 @router.post("/portal-registry/email-requirements")
 async def portal_registry_email_requirements_ep():
     """R-F1498: email the operator exactly what each portal ARIA cannot
