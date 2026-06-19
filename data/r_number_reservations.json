@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1733,
+  "next_available": 1734,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11692,6 +11692,15 @@
       "r_number": "R-F1732",
       "title": "ofac ingest: skip per-fact verify pipeline for bulk speed",
       "claimed_at": "2026-06-19T22:20:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1733",
+      "title": "ofac ingest: unique per-entity topic (store_fact one-fact-per-topic update collapses bulk)",
+      "claimed_at": "2026-06-19T22:39:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

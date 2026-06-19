@@ -50,9 +50,18 @@ MAX_ROWS_DEFAULT = 2000
 SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 ADD_URL = "https://www.treasury.gov/ofac/downloads/add.csv"
 
-# The topic MUST be a real coverage_heatmap domain slug so the fact lands in the
-# sanctions cell (see module docstring). Verified against coverage_heatmap.DOMAINS.
-SANCTIONS_TOPIC = "sanctions_screening"
+# R-F1733: the topic must (a) carry BOTH heatmap domain tokens 'sanctions' +
+# 'screening' so the fact lands in the sanctions cell, AND (b) be UNIQUE per entity.
+# store_fact (knowledge.py:1194-1246) has one-fact-per-topic UPDATE semantics: a new
+# fact whose exact topic already exists OVERWRITES it instead of creating a new fact.
+# A shared literal topic='sanctions_screening' therefore collapsed 800 entities into
+# one churned fact (0 heatmap movement). We prefix the domain slug and suffix the
+# entity id+name → tokens preserved, topic unique → one distinct fact per designation.
+SANCTIONS_DOMAIN_SLUG = "sanctions_screening"
+
+
+def _entity_topic(ent_num: str, name: str) -> str:
+    return f"{SANCTIONS_DOMAIN_SLUG}: OFAC SDN {ent_num} — {name}"[:160]
 
 # OFAC SDN.CSV is headerless, fixed column order; empty fields are "-0-".
 _SDN_COLS = ["ent_num", "name", "sdn_type", "program", "title", "call_sign",
@@ -117,7 +126,9 @@ def _entity_to_fact(entity: dict, country: str) -> tuple[str, str]:
     if remarks:
         parts.append(f"OFAC remarks: {remarks[:280]}.")
     parts.append("Source: US Treasury OFAC Specially Designated Nationals (SDN) list.")
-    return SANCTIONS_TOPIC, " ".join(parts)
+    # R-F1733: unique-per-entity topic (see _entity_topic) so each designation is a
+    # distinct fact, not an update of a shared topic.
+    return _entity_topic(entity.get("ent_num", ""), name), " ".join(parts)
 
 
 async def ingest_rows(sdn_rows: list[dict], add_rows: list[dict],

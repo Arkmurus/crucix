@@ -36,10 +36,12 @@ def _cell_count(domain: str, juris: str, facts: list[dict]) -> int:
 
 def test_crafted_fact_matches_sanctions_cells_and_naive_topic_does_not():
     topic, content = ing._entity_to_fact(
-        {"name": "BAD ACTOR LDA", "sdn_type": "entity", "program": "ANGOLA-EO14"},
+        {"ent_num": "1", "name": "BAD ACTOR LDA", "sdn_type": "entity", "program": "ANGOLA-EO14"},
         "Angola",
     )
-    assert topic == "sanctions_screening"
+    # R-F1733: topic carries both domain tokens but is unique per entity.
+    assert topic.startswith("sanctions_screening")
+    assert "sanctions" in topic.lower() and "screening" in topic.lower()
     fact = {"topic": topic, "content": content, "source": "ofac_sdn"}
     facts = [fact]
     # The REAL matcher counts it for both the US (OFAC authority) and Angola cells.
@@ -50,6 +52,20 @@ def test_crafted_fact_matches_sanctions_cells_and_naive_topic_does_not():
     naive = {"topic": "ofac", "content": "BAD ACTOR LDA on the OFAC list (Angola)",
              "source": "ofac_sdn"}
     assert _cell_count("sanctions_screening", "Angola", [naive]) == 0
+
+
+def test_distinct_entities_get_distinct_topics_R_F1733():
+    """The fix for the bulk-collapse bug: two different SDN entities MUST produce
+    different topics, else store_fact's one-fact-per-topic UPDATE overwrites them
+    into a single fact (the live 800→+6 failure)."""
+    t1, _ = ing._entity_to_fact({"ent_num": "1", "name": "ACTOR ONE"}, "Angola")
+    t2, _ = ing._entity_to_fact({"ent_num": "2", "name": "ACTOR TWO"}, "Mozambique")
+    assert t1 != t2
+    # both still match their sanctions cells (tokens preserved)
+    f1 = {"topic": t1, "content": "United States OFAC SDN sanctions screening Angola"}
+    f2 = {"topic": t2, "content": "United States OFAC SDN sanctions screening Mozambique"}
+    assert _cell_count("sanctions_screening", "Angola", [f1, f2]) == 1
+    assert _cell_count("sanctions_screening", "Mozambique", [f1, f2]) == 1
 
 
 @pytest.mark.asyncio
@@ -64,7 +80,9 @@ async def test_ingest_csv_bytes_stores_sanctions_facts_with_country():
         summary = await ing.ingest_csv_bytes(_SDN, _ADD, max_rows=10)
 
     assert summary["ingested"] == 2
-    assert all(c["topic"] == "sanctions_screening" for c in calls)
+    # R-F1733: topics carry the domain tokens but are UNIQUE per entity.
+    assert all(c["topic"].lower().startswith("sanctions_screening") for c in calls)
+    assert len({c["topic"] for c in calls}) == 2, "distinct entities → distinct topics"
     # The Angola (weak-tracked) entity was prioritised first.
     assert summary["weak_juris_prioritised"] >= 1
     assert "Angola" in calls[0]["content"]
