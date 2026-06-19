@@ -26,9 +26,9 @@ STATS_KEY = "crucix:aria:eu_sanctions_ingest:stats"
 MAX_ROWS_DEFAULT = 2000
 
 # EU Sanctions data URLs (open data, no registration).
-# Primary: EU FSF XML endpoint (may need updating if the EU changes their API).
-# Fallback: web portal URL from portal_registry.
-EU_FSF_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/FullSanctionsList_1/content"
+# The EU FSF (Financial Sanctions File) XML endpoint with public token.
+# Token 'dG9rZW4tMjAxNw' = base64('token-2017') — the EU's public token, not a secret.
+EU_FSF_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
 EU_PORTAL_URL = "https://sanctionsmap.eu"
 
 # Same domain as OFAC SDN and UK OFSI.
