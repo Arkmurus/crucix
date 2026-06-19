@@ -627,26 +627,69 @@ async def detect_and_solve_captcha(
     # via `data-sitekey` which is ALSO present in Turnstile and hCaptcha HTML,
     # so they were always mis-detected as reCAPTCHA -> wrong task type -> wrong
     # token -> CAPTCHA solve failed silently.
+    #
+    # R-F1695b: use CANONICAL markers (class names, script sources) that are
+    # ORDER-INDEPENDENT of data-sitekey. Real Cloudflare Turnstile uses
+    # <div class="cf-turnstile" data-sitekey="0x..."> — NO data-action attr.
+    # Real hCaptcha uses <div class="h-captcha" data-sitekey="...">.
+    # The old regex required data-sitekey BEFORE the class, which fails when
+    # attributes are in a different order or on different lines.
 
-    # Detect Cloudflare Turnstile (most specific — has data-action="turnstile")
+    # Detect Cloudflare Turnstile by canonical class name (order-independent)
     turnstile_match = _re.search(
-        r'data-sitekey=["\']([^"\']+)["\'].*data-action=["\']turnstile',
+        r'class=["\']cf-turnstile["\'][^>]*data-sitekey=["\']([^"\']+)',
         page_html,
     )
+    if not turnstile_match:
+        # Also try data-sitekey before class
+        turnstile_match = _re.search(
+            r'data-sitekey=["\']([^"\']+)["\'][^>]*class=["\']cf-turnstile',
+            page_html,
+        )
+    if not turnstile_match:
+        # Also detect via data-action="turnstile" (some sites use this)
+        turnstile_match = _re.search(
+            r'data-sitekey=["\']([^"\']+)["\'][^>]*data-action=["\']turnstile',
+            page_html,
+        )
+    if not turnstile_match:
+        # Also detect via Turnstile script inclusion
+        turnstile_match = _re.search(
+            r'challenges\.cloudflare\.com/turnstile',
+            page_html,
+        )
+        if turnstile_match:
+            # Extract sitekey from nearby data attributes
+            sk_match = _re.search(r'data-sitekey=["\']([^"\']+)["\']', page_html)
+            if sk_match:
+                turnstile_match = sk_match
     if turnstile_match:
-        site_key = turnstile_match.group(1)
+        site_key = turnstile_match.group(1) if turnstile_match.lastindex else turnstile_match.group(0)
         logger.info(
-            "[captcha_solver] detected Turnstile on %s", page_url,
+            "[captcha_solver] detected Turnstile on %s (sitekey=%s...)",
+            page_url, site_key[:8],
         )
         return await solver.solve_turnstile(site_key, page_url)
 
-    # Detect hCaptcha (has class="h-captcha")
+    # Detect hCaptcha by canonical class name (order-independent)
     hcaptcha_match = _re.search(
-        r'data-sitekey=["\']([^"\']+)["\'].*class=["\']h-captcha',
+        r'class=["\']h-captcha["\'][^>]*data-sitekey=["\']([^"\']+)',
         page_html,
     )
+    if not hcaptcha_match:
+        hcaptcha_match = _re.search(
+            r'data-sitekey=["\']([^"\']+)["\'][^>]*class=["\']h-captcha',
+            page_html,
+        )
+    if not hcaptcha_match:
+        # Also detect via hCaptcha script
+        hcaptcha_match = _re.search(r'js\.hcaptcha\.com', page_html)
+        if hcaptcha_match:
+            sk_match = _re.search(r'data-sitekey=["\']([^"\']+)["\']', page_html)
+            if sk_match:
+                hcaptcha_match = sk_match
     if hcaptcha_match:
-        site_key = hcaptcha_match.group(1)
+        site_key = hcaptcha_match.group(1) if hcaptcha_match.lastindex else hcaptcha_match.group(0)
         logger.info(
             "[captcha_solver] detected hCaptcha on %s", page_url,
         )

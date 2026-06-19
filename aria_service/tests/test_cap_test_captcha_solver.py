@@ -292,8 +292,33 @@ class TestCaptchaDetectionSpecificity:
     """CAPTCHA type detection must be specific — Turnstile/hCaptcha before reCAPTCHA."""
 
     @pytest.mark.asyncio
-    async def test_turnstile_detected_before_recaptcha(self):
-        """R-F1695: Turnstile must be detected BEFORE reCAPTCHA when both patterns present."""
+    async def test_turnstile_detected_by_class(self):
+        """R-F1695: Turnstile detected by cf-turnstile class (real-world markup)."""
+        html = '''
+        <html><body>
+        <div class="cf-turnstile" data-sitekey="0x4AAAAAAturnstile_key"></div>
+        <div class="g-recaptcha" data-sitekey="6Lc_recaptcha_key"></div>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_turnstile = AsyncMock(return_value="turnstile_token")
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="recaptcha_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "turnstile_token", "Turnstile should be detected by cf-turnstile class"
+        mock_provider.solve_turnstile.assert_awaited_once()
+        mock_provider.solve_recaptcha_v2.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turnstile_detected_by_data_action(self):
+        """R-F1695: Turnstile detected by data-action='turnstile' (alternative markup)."""
         html = '''
         <html><body>
         <div data-sitekey="0x4AAAAAAturnstile_key" data-action="turnstile"></div>
@@ -312,7 +337,32 @@ class TestCaptchaDetectionSpecificity:
         token = await detect_and_solve_captcha(
             "https://example.com", html, solver=solver,
         )
-        assert token == "turnstile_token", "Turnstile should be detected first"
+        assert token == "turnstile_token", "Turnstile should be detected by data-action"
+        mock_provider.solve_turnstile.assert_awaited_once()
+        mock_provider.solve_recaptcha_v2.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turnstile_detected_by_script(self):
+        """R-F1695: Turnstile detected by script inclusion (challenges.cloudflare.com)."""
+        html = '''
+        <html><body>
+        <script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+        <div data-sitekey="0x4AAAAAAturnstile_key"></div>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_turnstile = AsyncMock(return_value="turnstile_token")
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="recaptcha_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "turnstile_token", "Turnstile should be detected by script inclusion"
         mock_provider.solve_turnstile.assert_awaited_once()
         mock_provider.solve_recaptcha_v2.assert_not_called()
 

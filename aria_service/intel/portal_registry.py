@@ -1056,9 +1056,9 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
         }
 
     elif portal.registration_type == "email_form":
-        result = await _register_via_email_form(portal)
+        result = await _register_via_email_form(portal, purpose=purpose)
     elif portal.registration_type == "api_key":
-        result = await _register_for_api_key(portal)
+        result = await _register_for_api_key(portal, purpose=purpose)
     else:
         result = {"success": False, "error": f"Unknown registration type: {portal.registration_type}"}
 
@@ -1081,7 +1081,7 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
     return result
 
 
-async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
+async def _register_via_email_form(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
     """Register for a portal via email form.
 
     For portals WITH CAPTCHA: defers to operator (report-and-defer).
@@ -1796,7 +1796,7 @@ def _extract_confirmation_link(text: str) -> str | None:
     return None
 
 
-async def _register_for_api_key(portal: PortalDef) -> dict[str, Any]:
+async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
     """Register for an API key.
 
     If the portal has signup_fields defined, attempts auto-registration
@@ -2176,10 +2176,20 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
     if portal.registration_type == "none":
         return {"status": "open_api"}
 
-    # 2. Check if already registered (credentials exist in Redis)
+    # 2. Check if already registered — use the VAULT as source of truth, NOT Redis.
+    #    R-F1702: previously checked `is_registered()` which looks for credentials in
+    #    Redis. But `_audit_preparation` stores credentials BEFORE form submission, so
+    #    Redis always has credentials for 'prepared' portals too. This caused
+    #    determine_and_drive to return 'registered' for portals that were only prepared
+    #    — a fabricated status. The vault is the authoritative record because it tracks
+    #    the REAL registration outcome (registered/verified vs pending/needs_operator).
+    #    Only return 'registered' when the vault status confirms a real registration.
     try:
-        if await is_registered(portal_id):
-            return {"status": "registered", "message": "Credentials found in vault"}
+        from .agent_signup_vault import get_vault as _get_vault1702
+        _vault1702 = _get_vault1702()
+        _entry1702 = _vault1702.get(portal_id)
+        if _entry1702 and _entry1702.get("status") in ("registered", "verified"):
+            return {"status": "registered", "message": "Confirmed registered in vault"}
     except Exception:
         pass
 
