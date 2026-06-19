@@ -160,3 +160,71 @@ class TestVaultCleanupAndFilter:
         assert declined is not None
         meta = declined.get("metadata", {})
         assert meta.get("declined") is True, f"Expected declined=True, got {meta}"
+
+
+class TestVaultMigration:
+    """R-F1704: Startup migration corrects fabricated registrations."""
+
+    def setup_method(self):
+        import tempfile
+        self.tmp_dir = Path(tempfile.mkdtemp())
+        self.db_path = self.tmp_dir / "test_migration.db"
+        self.vault = AgentSignupVault(db_path=self.db_path)
+
+    def teardown_method(self):
+        self.vault.close()
+        import shutil
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_migration_corrects_fabricated_registrations(self):
+        """R-F1704: Entries with 'Credentials found in vault' notes get corrected."""
+        # Create a fabricated entry (old code's pattern)
+        self.vault.record(
+            site_id="fabricated_portal", site_name="Fabricated Portal",
+            site_url="http://fake.com", agent_id="system",
+            status="registered",
+            notes="Credentials found in vault",
+        )
+
+        # Create a real registration (should NOT be touched)
+        self.vault.record(
+            site_id="real_portal", site_name="Real Portal",
+            site_url="http://real.com", agent_id="system",
+            status="registered",
+            notes="Autonomously registered. Identity: aria@arkmurus.com.",
+        )
+
+        # Close and reopen to trigger migration
+        self.vault.close()
+        self.vault = AgentSignupVault(db_path=self.db_path)
+
+        # Fabricated entry should be corrected to needs_operator
+        fabricated = self.vault.get("fabricated_portal")
+        assert fabricated is not None
+        assert fabricated["status"] == "needs_operator", (
+            f"Fabricated entry should be needs_operator, got {fabricated['status']}"
+        )
+        assert "R-F1704" in (fabricated.get("notes") or ""), (
+            "Migration note should be present"
+        )
+
+        # Real registration should remain registered
+        real = self.vault.get("real_portal")
+        assert real is not None
+        assert real["status"] == "registered", (
+            f"Real registration should remain registered, got {real['status']}"
+        )
+
+    def test_migration_skips_clean_vault(self):
+        """R-F1704: Vault with no fabricated entries stays unchanged."""
+        self.vault.record(
+            site_id="clean_portal", site_name="Clean Portal",
+            site_url="http://clean.com", agent_id="system",
+            status="needs_operator",
+        )
+        self.vault.close()
+        self.vault = AgentSignupVault(db_path=self.db_path)
+
+        entry = self.vault.get("clean_portal")
+        assert entry is not None
+        assert entry["status"] == "needs_operator"

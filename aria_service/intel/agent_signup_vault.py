@@ -116,6 +116,66 @@ class AgentSignupVault:
         """Initialize the database schema."""
         self._conn.executescript(_CREATE_SQL)
         self._conn.commit()
+        self._migrate_v1()
+
+    def _migrate_v1(self):
+        """R-F1704: Correct fabricated 'registered' entries from the old
+        determine_and_drive code.
+
+        The old determine_and_drive() checked Redis credentials as proof of
+        registration. But _audit_preparation stores credentials BEFORE form
+        submission, so every 'prepared' portal had Redis credentials too.
+        This caused 23 portals to be falsely marked as 'registered'.
+
+        This migration checks every 'registered' entry: if its notes say
+        'Credentials found in vault' (the old code's message), it was
+        fabricated — downgrade to 'needs_operator'. Real registrations
+        have notes like 'Autonomously registered' or 'Confirmed registered'.
+        """
+        import logging as _log1704
+        _log1704 = logging.getLogger("aria.agent_signup_vault.migration")
+        try:
+            cursor = self._conn.execute(
+                "SELECT site_id, site_name, notes FROM signups WHERE status = 'registered'"
+            )
+            fabricated = []
+            for row in cursor.fetchall():
+                notes = (row["notes"] or "").lower()
+                site_id = row["site_id"]
+                site_name = row["site_name"]
+                # Old code set notes to "Credentials found in vault"
+                # Real registrations have notes like "Autonomously registered"
+                if "credentials found" in notes or not notes.strip():
+                    fabricated.append((site_id, site_name))
+
+            if fabricated:
+                for site_id, site_name in fabricated:
+                    self._conn.execute(
+                        "UPDATE signups SET status = 'needs_operator', "
+                        "updated_at = ?, notes = ? WHERE site_id = ?",
+                        (time.time(),
+                         f"R-F1704: corrected from fabricated 'registered' to 'needs_operator' — "
+                         f"no real registration completed",
+                         site_id),
+                    )
+                self._conn.commit()
+                _log1704.info(
+                    "[R-F1704] Corrected %d fabricated 'registered' entries to 'needs_operator': %s",
+                    len(fabricated), ", ".join(s for s, _ in fabricated),
+                )
+                try:
+                    from .engine_wiring import wire_success as _ws1704
+                    _ws1704(
+                        module="agent_signup_vault",
+                        summary=f"Migration v1: corrected {len(fabricated)} fabricated registrations",
+                        source_id="agent_signup_vault:migration_v1",
+                    )
+                except Exception:
+                    pass
+            else:
+                _log1704.debug("[R-F1704] No fabricated registrations found — vault is clean")
+        except Exception as _e1704:
+            _log1704.warning("[R-F1704] Migration v1 failed (non-fatal): %s", _e1704)
 
     def close(self):
         """Close the database connection."""
