@@ -11634,45 +11634,50 @@
       "title": "httpx form-submit registration fallback when headless browser is anti-bot-blocked (newsapi: GET->solve captcha->POST form+token)",
       "claimed_at": "2026-06-19T18:19:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "febe1e4d",
+      "notes": null,
+      "shipped_at": "2026-06-19T21:55:30Z"
     },
     {
       "r_number": "R-F1727",
       "title": "httpx onboard diagnostics + login-first + JSON-API detect",
       "claimed_at": "2026-06-19T18:38:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b4bceb2d",
+      "notes": null,
+      "shipped_at": "2026-06-19T21:55:30Z"
     },
     {
       "r_number": "R-F1728",
       "title": "newsapi alias-retry: key on /register/success, handle already-registered",
       "claimed_at": "2026-06-19T21:01:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "353632eb",
+      "notes": null,
+      "shipped_at": "2026-06-19T21:55:30Z"
     },
     {
       "r_number": "R-F1729",
       "title": "route use_httpx_flow portals to httpx onboard before is_registered short-circuit",
       "claimed_at": "2026-06-19T21:12:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "03503643",
+      "notes": null,
+      "shipped_at": "2026-06-19T21:55:30Z"
     },
     {
       "r_number": "R-F1730",
       "title": "wire captcha_solver success+failure to brain (ARIA P0 dark-path)",
       "claimed_at": "2026-06-19T21:14:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "02ffe2b4",
+      "notes": null,
+      "shipped_at": "2026-06-19T21:55:31Z"
     }
   ]
 }
