@@ -172,9 +172,12 @@ def test_find_repo_root_none_outside(tmp_path):
     assert find_repo_root(tmp_path) is None
 
 
-def test_self_mode_constitution_removed():
-    """R-F1191: constitutional validator removed — constitution_active is False."""
-    assert WriteGuard(self_mode=True).constitution_active is False
+def test_self_mode_constitution_active():
+    """R-F1699: the constitutional validator is RE-ARMED in self-mode (closing the
+    R-F995-class bypass that let the CLI overwrite honesty-critical files).
+    General-mode (arbitrary user projects) stays validator-free — only the
+    truncation guard applies there."""
+    assert WriteGuard(self_mode=True).constitution_active is True
     assert WriteGuard(self_mode=False).constitution_active is False
 
 

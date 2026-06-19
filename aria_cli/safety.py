@@ -1,9 +1,12 @@
 """R-F988 — write-time safety net for the ARIA Coder CLI.
 
-R-F1191: constitutional validator removed per operator directive. Only the
-truncation guard remains — it prevents accidental destructive full-file
-replacements (the 2026-05-26 incident pattern). ARIA is fully autonomous
-with no code-safety limitations beyond cost/rate limits.
+R-F1699: the constitutional validator is RE-ARMED for self-mode (editing the
+crucix repo). R-F1191 had removed it CLI-side, leaving an R-F995-class bypass:
+the CLI could overwrite honesty-critical files and deploy them with no
+PROTECTED_FILES / weakening-pattern / AST check (the server side was hardened
+by R-F1287 but the CLI was not). General-mode (arbitrary user projects) keeps
+the truncation guard only — crucix's constitution does not apply to someone
+else's codebase.
 
 Two layers, both deterministic (no LLM judgement — same discipline as R-F462):
 
@@ -14,7 +17,9 @@ Two layers, both deterministic (no LLM judgement — same discipline as R-F462):
      against the 2026-05-26 incident where staged "fixes" were full-file stubs
      that would have wiped core modules.
 
-  2. **Constitutional validator** — REMOVED (R-F1191). ARIA is fully autonomous.
+  2. **Constitutional validator** (self-mode only, R-F1699). Runs the server's
+     ConstitutionalValidator — PROTECTED_FILES, weakening-pattern, learned-attack
+     and AST checks — fail-closed: if it can't run, the write is refused.
 """
 from __future__ import annotations
 
@@ -64,7 +69,11 @@ class WriteGuard:
 
     @property
     def constitution_active(self) -> bool:
-        return False  # R-F1191: constitutional validator removed
+        # R-F1699: the constitutional validator is ACTIVE in self-mode (editing
+        # the crucix repo). General-mode (arbitrary user projects) stays
+        # truncation-guard-only — crucix's honesty constitution does not apply
+        # to someone else's codebase.
+        return self.self_mode
 
     def review(self, target_path: str, old_content: str, new_content: str) -> WriteVerdict:
         # Layer 1 — truncation guard (every mode).
@@ -72,5 +81,41 @@ class WriteGuard:
         if not safe:
             return WriteVerdict(allowed=False, reason=reason)
 
-        # Layer 2 — constitution: REMOVED (R-F1191). ARIA is fully autonomous.
+        # Layer 2 — constitutional validator (SELF-MODE only). R-F1699 closes the
+        # R-F995-class bypass: before this, the CLI could overwrite honesty-
+        # critical files (constitutional_validator.py, safety.py, sanctions.py,
+        # …) and deploy them with NO PROTECTED_FILES / weakening-pattern / AST
+        # check — the exact path by which ARIA once gutted her own validator.
+        # The server self-coder runs this validator (R-F1287); the CLI must
+        # match it. FAIL-CLOSED: if the validator cannot be loaded or run in
+        # self-mode, the write is REFUSED — an unvalidated write to the
+        # constitutional repo is the hole, so "can't check" must mean "don't
+        # write", never "allow".
+        if self.self_mode:
+            rel_path = self._resolve(target_path) if self._resolve else target_path
+            try:
+                from aria_service.autonomous.constitutional_validator import (
+                    ConstitutionalValidator,
+                )
+                res = ConstitutionalValidator().validate(new_content, rel_path)
+            except Exception as exc:  # noqa: BLE001
+                return WriteVerdict(
+                    allowed=False,
+                    reason=(
+                        f"constitutional validator could not run on {rel_path} "
+                        f"({type(exc).__name__}: {exc}) — refusing the write "
+                        f"(fail-closed in self-mode)."
+                    ),
+                )
+            if not res.passed:
+                return WriteVerdict(
+                    allowed=False,
+                    reason=(
+                        f"constitutional validator BLOCKED {rel_path} "
+                        f"(risk={res.risk_score:.2f}): " + "; ".join(res.violations)
+                    ),
+                )
+            return WriteVerdict(allowed=True, warnings=tuple(res.warnings))
+
+        # General-mode: truncation guard only (editing arbitrary user projects).
         return WriteVerdict(allowed=True)
