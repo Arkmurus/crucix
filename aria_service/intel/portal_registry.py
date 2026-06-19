@@ -81,6 +81,11 @@ class PortalDef:
     # This is the "no wrong key ever goes live" guard — a key-shaped regex can
     # match CSRF tokens / hashes, so we never trust an unverified candidate.
     api_key_test_url: str = ""
+    # R-F1726: when the headless browser is anti-bot-blocked but a normal HTTP
+    # client loads the site, onboard entirely over httpx (register + login +
+    # key retrieval) with standard form POSTs + the 2captcha token. signup_fields
+    # selectors are then the actual FORM FIELD NAMES.
+    use_httpx_flow: bool = False
 
 
 # ── Supported portals ──────────────────────────────────────────────────
@@ -484,11 +489,17 @@ PORTALS: list[PortalDef] = [
         # are text inputs; the entity radio + terms checkbox are handled by the
         # R-F1714 type-aware fill (clicked/checked, not filled). Individual =
         # the free, non-commercial dev tier.
+        # R-F1726: the headless browser is anti-bot-blocked on newsapi (live
+        # trace: "Playwright could not load … blocked=True"), but httpx loads it
+        # fine and the form is a standard POST → onboard over httpx. signup_fields
+        # are the EXACT form field NAMES (inspected live): FirstName/Email/
+        # Password.Value (dot!) + EntityType=Individual radio + HasAcceptedTerms.
+        use_httpx_flow=True,
         signup_fields=[
-            ("Email", "email", "email"),
             ("FirstName", "text", "name"),
-            ("Password_Value", "password", "password"),
-            ("EntityTypeIndividual", "radio", "literal:on"),
+            ("Email", "email", "email"),
+            ("Password.Value", "password", "password"),
+            ("EntityType", "radio", "literal:Individual"),
             ("HasAcceptedTerms", "checkbox", "literal:true"),
         ],
         # R-F1714: NO email verification needed — newsapi shows the key on
@@ -2007,6 +2018,98 @@ async def _verify_api_key(portal: PortalDef, key: str) -> bool:
         return False
 
 
+async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
+    """R-F1726: full onboarding over httpx — register + login + key retrieval —
+    for portals whose anti-bot blocks the headless browser but accept a normal
+    HTTP client (live trace proved httpx loads newsapi while Playwright is
+    blocked). Standard form POSTs with the 2captcha token; the cookie session is
+    preserved across register → login → dashboard. Honest: returns success only
+    when a real key is retrieved + verified.
+    """
+    import re as _re1726
+    import secrets as _sec1726
+    from urllib.parse import urljoin as _urljoin1726
+    ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+    base = portal.url.rstrip("/")
+    password = "Ax" + _sec1726.token_urlsafe(12) + "7!"
+
+    def _hidden(html: str, form: dict) -> None:
+        for hm in _re1726.finditer(r'<input[^>]*type=["\']hidden["\'][^>]*>', html, _re1726.I):
+            t = hm.group(0)
+            n = _re1726.search(r'name=["\']([^"\']+)["\']', t)
+            v = _re1726.search(r'value=["\']([^"\']*)["\']', t)
+            if n and n.group(1) not in form:
+                form[n.group(1)] = v.group(1) if v else ""
+
+    def _action(html: str, default: str) -> str:
+        m = _re1726.search(r'<form[^>]*action=["\']([^"\']+)["\']', html, _re1726.I)
+        return _urljoin1726(base + "/", m.group(1)) if m else default
+
+    try:
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:
+            # 1. REGISTER ──────────────────────────────────────────────
+            reg_url = base + (portal.register_path or "/register")
+            page = (await client.get(reg_url)).text
+            form = _build_form_data(
+                portal.signup_fields,
+                {"email": _ARIA_EMAIL, "name": _ARIA_NAME, "password": password},
+            )
+            _hidden(page, form)
+            if portal.requires_captcha:
+                from .captcha_solver import detect_and_solve_captcha
+                tok = await detect_and_solve_captcha(reg_url, page)
+                if not tok:
+                    return {"success": False, "requires_operator": True, "portal_id": portal.id,
+                            "message": f"{portal.name}: httpx onboard — captcha returned no token"}
+                form["g-recaptcha-response"] = tok
+            reg = await client.post(_action(page, reg_url), data=form)
+            # store creds (so login works + future runs can log in)
+            try:
+                await store_credential(portal.id, {"email": _ARIA_EMAIL, "password": password})
+            except Exception:
+                pass
+
+            # 2. LOGIN (cookies persist on the same client) ─────────────
+            login_url = base + (portal.login_path or "/login")
+            lpage = (await client.get(login_url)).text
+            lform: dict[str, str] = {}
+            for sel, _t, src in (portal.login_fields or []):
+                if src == "email":
+                    lform[sel] = _ARIA_EMAIL
+                elif src == "password":
+                    lform[sel] = password
+                elif src.startswith("literal:"):
+                    lform[sel] = src.split(":", 1)[1]
+            _hidden(lpage, lform)
+            await client.post(_action(lpage, login_url), data=lform)
+
+            # 3. DASHBOARD → extract candidate keys ─────────────────────
+            acct = (await client.get(base + (portal.api_key_path or "/account"))).text
+            cands: list[str] = []
+            if portal.api_key_regex:
+                for m in _re1726.finditer(portal.api_key_regex, acct):
+                    c = (m.group(1) if m.groups() else m.group(0)).strip()
+                    if c and c not in cands:
+                        cands.append(c)
+
+            # 4. VERIFY + STORE (only a working key is activated) ───────
+            for c in cands:
+                if await _verify_api_key(portal, c):
+                    from .key_resolver import store_obtained_key
+                    await store_obtained_key(portal.id, c, note="httpx onboarding (R-F1726)")
+                    return {"success": True, "api_key_obtained": True, "portal_id": portal.id,
+                            "message": f"Onboarded {portal.name} via httpx — key retrieved, VERIFIED & stored (live)"}
+            return {"success": False, "requires_operator": True, "portal_id": portal.id,
+                    "api_key_obtained": False,
+                    "message": (f"{portal.name}: httpx onboard reached dashboard but no key VERIFIED "
+                                f"({len(cands)} candidate(s); register HTTP {reg.status_code}). "
+                                f"Likely additional anti-bot on register, or key not yet visible.")}
+    except Exception as e:
+        return {"success": False, "requires_operator": True, "portal_id": portal.id,
+                "message": f"{portal.name}: httpx onboard error: {e!r}"}
+
+
 async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
     """Register for an API key.
 
@@ -2016,6 +2119,10 @@ async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[st
 
     Falls back to operator deferral if no signup_fields or auto-reg fails.
     """
+    # R-F1726 — when the headless browser is anti-bot-blocked, onboard over httpx.
+    if getattr(portal, "use_httpx_flow", False):
+        return await _httpx_onboard(portal)
+
     # R-F1161 — if portal has signup_fields, try auto-registration first
     if portal.signup_fields:
         result = await _register_via_email_form(portal)
