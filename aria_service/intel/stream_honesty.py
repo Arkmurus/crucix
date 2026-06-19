@@ -371,11 +371,27 @@ def build_correction_banner(result: dict) -> str | None:
         return None
 
     lines = [f"  • {name}: {count}" for name, count in changes]
-    return (
+    header = (
         "\n\n──────────\n"
-        "🛡 **Honesty corrections** (R-F448 — 7 output guards reviewed this response):\n"
+        "🛡 **Honesty note** (R-F448 output guards):\n"
         + "\n".join(lines)
-        + "\n──────────\n\n"
-        "**Revised response:**\n\n"
-        + rewritten
     )
+
+    # R-F1713 — only re-print the FULL revised answer when a guard SUBSTANTIVELY
+    # rewrote content (removed a fabricated commitment / tool claim / officeholder
+    # error). For tag-only passes (response_verifier / citation / propaganda just
+    # ANNOTATE claims with [UNVERIFIED]/[PENDING CORROBORATION]), re-printing the
+    # entire response made the user read the whole thing twice — operator-reported
+    # on the NDA review. Those get a concise note instead of a full re-print.
+    _SUBSTANTIVE_GUARDS = {"commitment_guard", "tool_claim_guard", "officeholder_guard"}
+    substantive = any((name in _SUBSTANTIVE_GUARDS) and count for name, count in changes)
+
+    if not substantive:
+        return (
+            header
+            + "\n\nSome claims above are flagged inline as [UNVERIFIED] / "
+            "[PENDING CORROBORATION] — they could not be independently corroborated. "
+            "Treat them as unconfirmed and verify before relying on them.\n──────────"
+        )
+
+    return header + "\n──────────\n\n**Revised response:**\n\n" + rewritten

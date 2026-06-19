@@ -4569,6 +4569,23 @@ def _strip_attached_document(message: str) -> str:
     return _re.sub(r"\s+", " ", stripped).strip()
 
 
+# R-F1713 — doc-review follow-up guard helpers. After a document review, a
+# generic web-search-class intent on a follow-up is almost always about the doc;
+# suppress it so the answer comes from conversation history.
+_WEB_CLASS_TOOLS_RF1713 = ("brave_answer", "web_search", "deep_research")
+
+
+def _is_recent_doc_review_rf1713(ts, *, now: float | None = None, window_s: int = 1800) -> bool:
+    """True if a document review happened within `window_s` seconds (default 30m)."""
+    if not ts:
+        return False
+    try:
+        _now = time.time() if now is None else now
+        return (_now - float(ts)) < window_s
+    except (TypeError, ValueError):
+        return False
+
+
 def _detect_tool_intent(message: str) -> dict | None:
     """Parse free-form text into a structured tool call. Returns None if no tool intent."""
     # Strip the WhatsApp listener context prefix BEFORE any pattern matching.
@@ -9147,6 +9164,22 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
             yield f'data: {json.dumps({"type":"progress","stage":"detecting","message":"Detecting intent…"})}\n\n'
             intent = _detect_tool_intent(req.message)
+            # R-F1713 — doc-review follow-up guard. Right after a document review,
+            # a generic web-search-class intent on a follow-up ("what are your
+            # recommendations, so no red flags?") is almost always ABOUT the
+            # document, not a new web query — firing brave_answer returned
+            # irrelevant results (operator-reported: dating advice for the NDA).
+            # Suppress the web-class tool so the LLM answers from conversation
+            # history (the prior analysis). Explicit slash/entity tools still fire.
+            if intent and intent.get("tool") in _WEB_CLASS_TOOLS_RF1713:
+                try:
+                    from ..intel import redis_store as _rs1713
+                    _sess1713 = await _rs1713.get_json(f"crucix:aria:session:{session_id}")
+                    if _is_recent_doc_review_rf1713((_sess1713 or {}).get("last_doc_review")):
+                        _log.info("R-F1713: suppressing %s for doc-review follow-up (answer from history)", intent.get("tool"))
+                        intent = None
+                except Exception as _e1713:
+                    _log.debug("R-F1713 doc-review-followup guard skipped: %s", _e1713)
             if intent and llm and llm.is_configured:
                 tool_used = intent.get("tool")
                 _entity_for_progress = (intent.get("entity") or intent.get("topic") or "")[:80]

@@ -3537,6 +3537,10 @@ async def _aria_chat_impl(
 
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
+    # R-F1713 (§13 parity with the stream path) — mark a document-review turn so
+    # a follow-up is answered from context, not misrouted to a web search.
+    if "[ATTACHED DOCUMENT" in (message or ""):
+        session["last_doc_review"] = time.time()
 
     # Persist user_id in session. Prefer the explicit user_id argument (web
     # UI passes it in the request body); fall back to extracting from
@@ -4415,6 +4419,12 @@ async def _aria_chat_stream_impl(
     # R-F1691 — edit-&-resend: trim stored history BEFORE this turn so the
     # backend thread matches the edited view.
     _trim_session_for_resend(session, keep_history)
+    # R-F1713 — mark a document-review turn so the NEXT (follow-up) message in
+    # this session is answered from conversation context rather than misrouted to
+    # a generic web search (the chat_stream_ep doc-review-follow-up guard reads
+    # session["last_doc_review"]).
+    if "[ATTACHED DOCUMENT" in (message or ""):
+        session["last_doc_review"] = time.time()
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
     # Persist user_id in session (same as aria_chat — prefer explicit arg
