@@ -37,6 +37,7 @@ import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage,
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
+import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
@@ -2153,6 +2154,33 @@ async function _ariaChatAsyncPoll(message, sid, personaUserId, persona) {
   throw new Error('chat job timed out');
 }
 
+// R-F1687 (2026-06-19) — canonical, stable per-account key for bucketing
+// conversation history. THE fix for the empty-sidebar bug: the /chat/stream
+// proxy previously sent `user_id: req.user?.id` — but the auth token payload
+// has `userId`, not `id`, so it sent '' on every turn. With an empty user_id
+// the Python brain fell back to `session_id.rsplit("_",1)[0]` = a per-SESSION
+// bucket, so every conversation landed under its own `{slug}_{ts}` key and the
+// sidebar (which lists the bare `{slug}` bucket) showed nothing.
+//
+// This MUST return exactly the slug the web UI queries with. aria.html builds
+//   USER_ID_SLUG = (user.email || user.username || user.id).replace(/[^A-Za-z0-9]/g,'')
+// so a chat WRITE and a sidebar LIST land in the same bucket. Email is stable
+// across deploys / account-store rebuilds; user.id is not (R-F1687 also moves
+// users.json onto the /data volume so the id stops churning).
+function stableUserId(req) {
+  try {
+    const uid = req.user?.userId;
+    if (uid) {
+      const key = conversationKeyForUser(findUserById(uid));
+      if (key) return key;
+    }
+  } catch { /* fall through to fallbacks */ }
+  // Internal-token path sets req.user = { id: 'aria-internal' } — preserve it.
+  if (req.user?.id)    return slugifyIdentity(req.user.id);
+  if (req.user?.email) return slugifyIdentity(req.user.email);
+  return '';
+}
+
 async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs } = {}) {
   let lastStatus = 0;
   let lastErr = '';
@@ -3009,7 +3037,10 @@ app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
 app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id, skip_aria_service } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
-  const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+  // R-F1687: stable per-account key (email-slug) so this path buckets
+  // conversations under the account, identical to /chat/stream + the sidebar.
+  const _stableUid = stableUserId(req);
+  const sid = session_id || `${_stableUid || req.user?.userId || 'anon'}_${Date.now()}`;
   // §25a (R-F1565) — delivery-outcome instrumentation for the MAIN web answer
   // path so the brain knows whether a web user actually received a real answer.
   const _outT0 = Date.now();
@@ -3083,7 +3114,7 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
       // Full DD on a URL takes 5-10 min with DeepSeek synthesis; the WA listener
       // long budget matches (services/wa-listener/aria_wa_listener.mjs) so the
       // outer listener abort doesn't fire before this completes.
-      const data = await _ariaChatAsyncPoll(message, sid, _personaUserId, _persona);
+      const data = await _ariaChatAsyncPoll(message, sid, _stableUid, _persona);
       if (data && (data.response || data.answer)) {
         data.service = 'python';
         data.engine = 'aria-8layer';
@@ -3230,7 +3261,10 @@ app.get('/api/aria/unguarded-fallback/stats', requireAuth, (req, res) => {
 app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
   const { message, session_id, auto_tools, group_context } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
-  const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+  // R-F1687: stable per-account key (email-slug) — bucket conversations under
+  // the account, matching the slug the sidebar lists with.
+  const _stableUid = stableUserId(req);
+  const sid = session_id || `${_stableUid || req.user?.userId || 'anon'}_${Date.now()}`;
   // R-F48b: resolve persona from authenticated user record (sector
   // field captured at registration). Empty → Python falls back to
   // broker overlay = current default behaviour.
@@ -3274,7 +3308,7 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
       body: JSON.stringify({
         message,
         session_id: sid,
-        user_id: req.user?.id || '',
+        user_id: _stableUid,   // R-F1687: was `req.user?.id` (undefined → '')
         persona: _persona,
         auto_tools: auto_tools !== false,
         group_context: group_context || '',
@@ -3342,7 +3376,11 @@ app.get('/api/aria/conversations', requireAuth, async (req, res) => {
   // JWT payload field is userId, not id) so every conversations fetch
   // returned 401 → aria.html showed 'Failed to load.' in the convos
   // panel. Aligning with the rest of the handlers in this file.
-  const userId = req.user?.userId || '';
+  // R-F1687: server-authoritative email-slug — identical to the write-side
+  // bucket (stableUserId in /chat + /chat/stream), so LIST and WRITE always
+  // address the same `crucix:aria:conversations:{slug}` key. Also closes the
+  // pre-fix info-leak where this endpoint trusted the client's ?user_id.
+  const userId = stableUserId(req);
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   const offset = parseInt(req.query.offset) || 0;
   const limit = parseInt(req.query.limit) || 30;
@@ -3356,7 +3394,7 @@ app.get('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
   // backend so it can enforce ownership. Pre-R-F606 we proxied only the
   // session_id and Python returned the conversation unconditionally.
   const sid = req.params.sessionId;
-  const userId = req.user?.userId || '';
+  const userId = stableUserId(req);   // R-F1687: email-slug, matches write-side bucket
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   await ariaProxy(req, res, `/api/aria/conversations/${sid}/detail?user_id=${encodeURIComponent(userId)}`, {
     fallback: null,
@@ -3370,7 +3408,7 @@ app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) =
   // bug let any authenticated user destroy any other user's conversation
   // (zrem from your own empty set + unconditional delete of the target's
   // meta + session keys). Both halves fixed in this R-number.
-  const userId = req.user?.userId || '';
+  const userId = stableUserId(req);   // R-F1687: email-slug, matches write-side bucket
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
@@ -3392,7 +3430,9 @@ app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res
   if (!title) return res.status(400).json({ error: 'title required' });
   // R-F606 (2026-05-16): pin user_id to the JWT-resolved value, not to
   // whatever the client sent in the body. Python now enforces ownership.
-  const userId = req.user?.userId || '';
+  // R-F1687: use the stable email-slug so rename addresses the same bucket
+  // as list/detail/write.
+  const userId = stableUserId(req);
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
