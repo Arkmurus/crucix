@@ -52,47 +52,72 @@ class TestTestFailureExtractor:
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     @pytest.mark.asyncio
-    async def test_extractor_produces_module_bug_gaps(self):
-        """R-F1684: TestFailureExtractor produces MODULE_BUG gaps from cache."""
-        # Create extractor with patched repo root
+    async def test_extractor_disabled_by_default(self, monkeypatch):
+        """R-F1686: OPT-IN — with ARIA_CODER_TEST_FUEL_ENABLED unset/0 the
+        extractor produces NO gaps even with a cache full of failures. The
+        firehose never fires unreviewed."""
+        monkeypatch.delenv("ARIA_CODER_TEST_FUEL_ENABLED", raising=False)
+        extractor = TestFailureExtractor(redis_client=None)
+        extractor._repo_root = self.tmp_dir
+        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        gaps = await extractor.extract(since)
+        assert gaps == [], f"opt-in gate OFF must yield no gaps, got {len(gaps)}"
+
+    @pytest.mark.asyncio
+    async def test_extractor_produces_curated_module_bug_gaps(self, monkeypatch):
+        """R-F1684/R-F1686: when ARMED, produces MODULE_BUG gaps ONLY for
+        curated _TEST_TO_MODULE_MAP clusters; uncurated failing tests (e.g.
+        test_session_*) are DROPPED, never guessed; module paths are
+        aria_service/-prefixed so the coder can find them."""
+        monkeypatch.setenv("ARIA_CODER_TEST_FUEL_ENABLED", "1")
         extractor = TestFailureExtractor(redis_client=None)
         extractor._repo_root = self.tmp_dir
 
-        # Run extract with a recent lookback
         since = datetime.now(timezone.utc) - timedelta(hours=1)
         gaps = await extractor.extract(since)
 
-        # Should produce gaps
         assert len(gaps) > 0, f"Expected at least 1 gap, got {len(gaps)}"
-
-        # All gaps should be MODULE_BUG type
         for gap in gaps:
             assert gap.gap_type == GapType.MODULE_BUG, \
                 f"Expected MODULE_BUG, got {gap.gap_type} for {gap.title}"
 
-        # Check specific mappings
         gap_titles = {g.title for g in gaps}
         gap_modules = {g.module for g in gaps}
 
-        # test_rf672 → main.py
+        # test_rf672 → aria_service/main.py (curated, prefixed)
         assert any("test_rf672" in t for t in gap_titles), \
             f"Expected test_rf672 in titles: {gap_titles}"
-        assert "main.py" in gap_modules, \
-            f"Expected main.py in modules: {gap_modules}"
+        assert "aria_service/main.py" in gap_modules, \
+            f"Expected aria_service/main.py in modules: {gap_modules}"
 
-        # test_rf434 → routes/aria.py
+        # test_rf434 → aria_service/routes/aria.py (curated, prefixed)
         assert any("test_rf434" in t for t in gap_titles), \
             f"Expected test_rf434 in titles: {gap_titles}"
-        assert "routes/aria.py" in gap_modules, \
-            f"Expected routes/aria.py in modules: {gap_modules}"
+        assert "aria_service/routes/aria.py" in gap_modules, \
+            f"Expected aria_service/routes/aria.py in modules: {gap_modules}"
 
-        # test_session_2026_05_11 → heuristic fallback
-        assert any("test_session" in t for t in gap_titles), \
-            f"Expected test_session in titles: {gap_titles}"
+        # test_session_2026_05_11 → NOT curated → DROPPED (no guessing)
+        assert not any("test_session" in t for t in gap_titles), \
+            f"uncurated test_session must be dropped, got: {gap_titles}"
+
+    def test_curated_module_returns_none_for_unmapped(self):
+        """R-F1686: _curated_module returns None (skip) for unmapped tests and
+        aria_service/-prefixed paths for curated clusters."""
+        extractor = TestFailureExtractor(redis_client=None)
+        assert extractor._curated_module(
+            "aria_service/tests/test_rf672_lifespan_silent_except_promoted.py",
+        ) == "aria_service/main.py"
+        assert extractor._curated_module(
+            "aria_service/tests/test_rf434_brandified_hostname_cap.py",
+        ) == "aria_service/routes/aria.py"
+        assert extractor._curated_module(
+            "aria_service/tests/test_session_2026_05_11.py",
+        ) is None
 
     @pytest.mark.asyncio
-    async def test_extractor_returns_empty_without_cache(self):
-        """R-F1684: No cache file → empty result."""
+    async def test_extractor_returns_empty_without_cache(self, monkeypatch):
+        """R-F1684: No cache file → empty result (even when armed)."""
+        monkeypatch.setenv("ARIA_CODER_TEST_FUEL_ENABLED", "1")
         empty_dir = Path(tempfile.mkdtemp())
         try:
             extractor = TestFailureExtractor(redis_client=None)
@@ -106,8 +131,9 @@ class TestTestFailureExtractor:
             shutil.rmtree(empty_dir, ignore_errors=True)
 
     @pytest.mark.asyncio
-    async def test_extractor_respects_lookback_window(self):
+    async def test_extractor_respects_lookback_window(self, monkeypatch):
         """R-F1684: Old lookback → empty result (no scan)."""
+        monkeypatch.setenv("ARIA_CODER_TEST_FUEL_ENABLED", "1")
         extractor = TestFailureExtractor(redis_client=None)
         extractor._repo_root = self.tmp_dir
 

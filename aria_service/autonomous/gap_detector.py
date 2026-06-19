@@ -1581,6 +1581,15 @@ class TestFailureExtractor:
 
     async def extract(self, since: datetime) -> list[Gap]:
         """Read pytest lastfailed cache and surface failing tests as gaps."""
+        # R-F1686: OPT-IN gate (default OFF). The operator chose a CURATED,
+        # opt-in fuel path — NOT an unconditional firehose over every failing
+        # test (a stale/wrong test would otherwise make the coder gerrymander
+        # the source module to satisfy it → polluted gold). This extractor only
+        # arms when ARIA_CODER_TEST_FUEL_ENABLED=1.
+        import os as _os1686
+        if _os1686.environ.get("ARIA_CODER_TEST_FUEL_ENABLED", "0").strip() != "1":
+            return []
+
         if since is not None:
             age = (datetime.now(timezone.utc) - since).total_seconds()
             if age > 7200 or age < 0:  # 2 hours max lookback
@@ -1629,9 +1638,16 @@ class TestFailureExtractor:
             if len(parts) >= 2:
                 by_file[parts[0]].append(test_id)
 
+        _dropped = 0
         for test_file, test_ids in by_file.items():
-            # Map test file to source module
-            module = self._map_test_to_module(test_file)
+            # R-F1686: CURATED-ONLY. Only emit gaps for test files in the
+            # _TEST_TO_MODULE_MAP (known real-bug clusters). Unmapped tests are
+            # SKIPPED — no guess-the-module heuristic, so the coder never
+            # targets a wrong source file off a stale/unrelated failing test.
+            module = self._curated_module(test_file)
+            if module is None:
+                _dropped += 1
+                continue
             test_name = test_ids[0].split("::")[-1] if "::" in test_ids[0] else test_ids[0]
 
             gap = Gap(
@@ -1666,14 +1682,40 @@ class TestFailureExtractor:
                 "surfaced as MODULE_BUG gaps for coder fuel",
                 len(gaps),
             )
+        if _dropped:
+            # R-F1686: never silently truncate — log what curation dropped.
+            logger.info(
+                "[TestFailureExtractor] R-F1686: dropped %d uncurated failing "
+                "test file(s) (only _TEST_TO_MODULE_MAP clusters are eligible)",
+                _dropped,
+            )
 
         return gaps
+
+    def _curated_module(self, test_file: str) -> str | None:
+        """R-F1686: curated-ONLY mapping (no heuristic fallback).
+
+        Returns the full repo-relative source module path ONLY for test files
+        whose basename matches a prefix in _TEST_TO_MODULE_MAP (the known
+        real-bug clusters). Unmapped tests return None and are skipped, so the
+        coder is never fed a guessed/wrong source module from an unrelated
+        failing test. The aria_service/ prefix is added so the path matches
+        what CodebaseReader/_find_test_for_module expect.
+        """
+        test_basename = Path(test_file).stem
+        for prefix, module in self._TEST_TO_MODULE_MAP.items():
+            if test_basename.startswith(prefix):
+                return module if module.startswith("aria_service/") else f"aria_service/{module}"
+        return None
 
     def _map_test_to_module(self, test_file: str) -> str:
         """Map a test file path to the source module it tests.
 
         Uses the explicit _TEST_TO_MODULE_MAP first, then falls back to
         heuristic: strip 'test_' prefix and '_rfNNNN_' suffix.
+
+        NOTE (R-F1686): no longer used by extract() — superseded by
+        _curated_module (curated-only). Retained for any external callers.
         """
         test_basename = Path(test_file).stem  # e.g. test_rf434_brandified_hostname_cap
 
@@ -2056,12 +2098,17 @@ class GapDetector:
         import subprocess as _sp
         import sys as _sys
         try:
+            # R-F1686: `timeout=` is NOT a valid kwarg for
+            # create_subprocess_exec — it forwards unknown kwargs to Popen,
+            # which has no `timeout`, so this raised TypeError every time and
+            # reproduce_symptom ALWAYS errored out for the existing-test path
+            # (no existing-test reproduction ever succeeded -> no gold). The
+            # timeout belongs on the wait_for below, which already has it.
             proc = await asyncio.create_subprocess_exec(
                 _sys.executable, "-m", "pytest", test_path, "-x", "--tb=short",
                 "-q", "--no-header",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                timeout=30.0,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=35.0,

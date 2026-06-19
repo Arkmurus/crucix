@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1684,
+  "next_available": 1687,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11228,6 +11228,34 @@
       "commit_sha": "3462e6b2",
       "notes": null,
       "shipped_at": "2026-06-19T00:18:37Z"
+    },
+    {
+      "r_number": "R-F1684",
+      "title": "Kill signup vault root causes: test pollution, missing statuses, missing portals, gap detector fuel",
+      "claimed_at": "2026-06-19T06:50:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "83c98bf6",
+      "notes": null,
+      "shipped_at": "2026-06-19T07:07:57Z"
+    },
+    {
+      "r_number": "R-F1685",
+      "title": "existing-test reproduce path gold-eligible (enable known-failing-test fuel)",
+      "claimed_at": "2026-06-19T06:58:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1686",
+      "title": "gate+curate TestFailureExtractor opt-in; fix reproduce_symptom Popen timeout TypeError; gold capability test",
+      "claimed_at": "2026-06-19T07:16:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
