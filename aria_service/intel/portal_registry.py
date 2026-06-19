@@ -1365,6 +1365,35 @@ async def _attempt_form_fill_submit(
             captcha_token=captcha_token,  # R-F1689: pass solved token
         )
 
+        # R-F1707: If the form submission failed and we have a CAPTCHA solver,
+        # check if a CAPTCHA challenge appeared in the response. Many portals
+        # show the CAPTCHA only AFTER form submission (not on the initial page).
+        if not submit_result.get("success") and solve_captcha and not captcha_token:
+            response_text = submit_result.get("response_text", "")
+            if response_text:
+                try:
+                    from .captcha_solver import detect_and_solve_captcha as _dsc1707
+                    _post_submit_token = await _dsc1707(register_url, response_text)
+                    if _post_submit_token:
+                        logger.info(
+                            "[portal_registry] R-F1707: CAPTCHA detected after submit for %s — retrying with token",
+                            portal.id,
+                        )
+                        # Retry the submission with the solved token
+                        submit_result = await _pw_submit(
+                            register_url,
+                            form_data,
+                            submit_selector='[type="submit"]',
+                            success_indicator=portal.success_indicator,
+                            timeout=45.0,
+                            captcha_token=_post_submit_token,
+                        )
+                except Exception as _e1707:
+                    logger.debug(
+                        "[portal_registry] R-F1707: post-submit CAPTCHA detection failed for %s: %s",
+                        portal.id, _e1707,
+                    )
+
         if submit_result.get("error"):
             logger.debug(
                 "[portal_registry] Playwright form submit failed for %s: %s",
