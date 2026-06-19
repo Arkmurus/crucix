@@ -38,7 +38,13 @@ from .intel import conversation_store
 
 logger = logging.getLogger("aria.engine")
 
-SESSION_TTL = 30 * 86400  # 30 days — long-running WhatsApp / Telegram threads
+# R-F1688 (2026-06-19): chat history is PERMANENT — CLAUDE.md §7 "infinite
+# memory, no TTL". Pre-fix sessions expired after 30 days, so a returning user's
+# older conversations opened blank even though the sidebar entry survived. None →
+# state_store writes expires_at=NULL → the row is never swept. New conversations
+# now "hold" forever, like Claude/DeepSeek. (Each session is still bounded by
+# MAX_TURNS, so a single thread can't grow without limit.)
+SESSION_TTL = None  # persist forever (was 30*86400)
 
 
 # ── R-F452 (2026-05-13) — honest mastery correctness signal ─────────────
