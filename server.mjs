@@ -3276,6 +3276,21 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
     }
   } catch {}
 
+  // R-F1697 §25/§25a — delivery-outcome proprioception for the WEB STREAMING
+  // chat path (the limb the UI actually uses). Pre-fix this path was DARK: only
+  // the non-stream /chat reported outcomes, so the brain never knew whether a
+  // web chat user received a real answer / hit an error / lost the brain
+  // mid-deploy. Now every terminal state reports to /api/aria/outcome (success
+  // AND failure → failure records a gap → self-heal). Idempotent: fires once.
+  const _outT0 = Date.now();
+  const _outReqId = (req.headers['x-request-id'] || `web_stream_${sid}`).toString();
+  let _outReported = false;
+  function _reportChat(outcome, detail) {
+    if (_outReported) return;
+    _outReported = true;
+    reportOutcome('web', _outReqId, 'chat_answer', outcome, Date.now() - _outT0, detail);
+  }
+
   // Trivial short-circuit — no need to call Python for greetings
   const _trivial = trivialReply(message);
   if (_trivial !== null) {
@@ -3286,11 +3301,13 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
     res.flushHeaders();
     res.write(`data: ${JSON.stringify({type:'chunk',text:_trivial})}\n\n`);
     res.write(`data: ${JSON.stringify({type:'done',session_id:sid,trivial:true})}\n\n`);
+    _reportChat('delivered_real_answer', 'trivial');
     return res.end();
   }
 
   if (!ARIA_SERVICE_URL) {
     // No Python service — fall back to non-streaming local
+    _reportChat('send_failed', 'no_aria_service');
     return res.status(503).json({ error: 'Streaming requires ARIA Python service' });
   }
 
@@ -3324,30 +3341,39 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
     if (!r.ok) {
       const errBody = await r.text().catch(() => '');
       res.write(`data: ${JSON.stringify({type:'error',message:`Python ${r.status}: ${errBody.slice(0,200)}`})}\n\n`);
+      _reportChat('error', `python_${r.status}`);   // R-F1697 §25
       return res.end();
     }
 
     // Pipe the SSE stream from Python directly to the browser
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
+    let _sawContent = false;   // R-F1697 — did a real answer chunk reach the user?
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+        if (!_sawContent && chunk.indexOf('"type":"chunk"') !== -1) _sawContent = true;
         res.write(chunk);
       }
+      // Stream finished cleanly — report whether real content was delivered.
+      _reportChat(_sawContent ? 'delivered_real_answer' : 'error', _sawContent ? '' : 'empty_stream');
     } catch (e) {
-      // Client disconnected or stream error
+      // Client disconnected or stream error mid-pipe.
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({type:'error',message:e.message})}\n\n`);
       }
+      _reportChat(_sawContent ? 'delivered_real_answer' : 'send_failed', 'stream_interrupted: ' + (e?.message || ''));
     }
   } catch (e) {
+    // Proxy-level failure — most commonly the brain restarting mid-deploy. The
+    // brain must FEEL this (§25): the web limb could not deliver.
     console.warn('[ARIA] Stream proxy error:', e.message);
     if (!res.writableEnded) {
       res.write(`data: ${JSON.stringify({type:'error',message:e.message})}\n\n`);
     }
+    _reportChat('send_failed', 'proxy_error: ' + (e?.message || ''));
   }
 
   if (!res.writableEnded) res.end();

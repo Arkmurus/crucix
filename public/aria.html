@@ -518,6 +518,23 @@
     /* #6 conversation-open loading skeleton (reuses .thinking visuals). */
     .convo-loading { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 
+    /* R-F1697 — deploy-resilient reconnect banner. Shown when the backend is
+       briefly unreachable (a deploy restart); auto-hides on reconnect. */
+    .conn-banner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      padding: 8px 14px; font-size: 13px; font-weight: 500;
+      background: rgba(200,150,255,0.16); color: var(--accent);
+      border-bottom: 1px solid rgba(200,150,255,0.32);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    }
+    .conn-banner .conn-spinner {
+      width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid rgba(200,150,255,0.35); border-top-color: var(--accent);
+      animation: conn-spin .8s linear infinite;
+    }
+    @keyframes conn-spin { to { transform: rotate(360deg); } }
+
     @media (max-width: 900px) {
       .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.5); }
       .convos-panel.collapsed { margin-left: -280px; box-shadow: none; }
@@ -1453,9 +1470,13 @@ async function send(text, opts) {
       }
       if (streamBadge) streamBadge.remove();
     } else {
-      streamBody.innerHTML = md('Connection error — please try again.');
-      streamBadge.remove();
+      // R-F1697 — a connectivity failure (often a deploy restart) becomes a
+      // self-healing reconnect: show the banner + poll health, and tell the
+      // user to retry once back (the Regenerate button is added in finally).
+      streamBody.innerHTML = md('Connection interrupted — reconnecting…');
+      if (streamBadge) streamBadge.remove();
       console.error('[ARIA stream]', err);
+      if (ConnectionMonitor.isConnErr(err)) ConnectionMonitor.lost();
     }
   } finally {
     streamAbort = null;
@@ -1615,6 +1636,56 @@ function showUndoToast(msg, onUndo, onCommit, duration) {
   return { commit: finish, undo: undo };
 }
 
+// R-F1697 §25 — deploy-resilient connection monitor. When a backend call fails
+// with a transient connectivity error (most often aria-web or aria-intel
+// restarting during a deploy), show a non-blocking "Reconnecting…" banner and
+// poll /healthz until the server returns, then auto-hide + toast. A deploy blip
+// becomes a brief self-healing reconnect instead of a broken UI. On recovery it
+// pings the brain (/api/aria/outcome) so ARIA FEELS that her web limb had a gap.
+var ConnectionMonitor = (function() {
+  var banner = null, polling = false, downSince = 0;
+  function show() {
+    if (banner) return;
+    banner = document.createElement('div');
+    banner.className = 'conn-banner';
+    banner.innerHTML = '<span class="conn-spinner"></span><span>Reconnecting…</span>';
+    document.body.appendChild(banner);
+  }
+  function hide() { if (banner) { banner.remove(); banner = null; } }
+  function isConnErr(err) {
+    if (!err) return false;
+    var m = ((err.message || '') + '');
+    return /Failed to fetch|NetworkError|load failed|ERR_|fetch failed|502|503|504|timeout/i.test(m)
+        || err.name === 'TypeError';   // a bare fetch network failure is a TypeError
+  }
+  async function lost() {
+    if (polling) return;
+    polling = true; downSince = Date.now(); show();
+    while (true) {
+      await new Promise(function(r) { setTimeout(r, 2500); });
+      try { var resp = await fetch('/healthz', { cache: 'no-store' }); if (resp && resp.ok) break; }
+      catch (e) { /* still down */ }
+    }
+    polling = false; hide();
+    var gapMs = Date.now() - downSince;
+    try { Toast.show('Reconnected', 'success', 2000); } catch (_) {}
+    // §25 — report the connection gap so the brain feels the web limb recovered.
+    try {
+      var token = localStorage.getItem('crucix_token') || '';
+      fetch('/api/aria/outcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+          surface: 'web_ui', request_id: 'web_reconnect_' + Date.now(),
+          intended_result: 'connection', actual_outcome: 'reconnected',
+          latency_ms: gapMs, detail: 'client reconnect after ' + Math.round(gapMs / 1000) + 's',
+        }),
+      }).catch(function() {});
+    } catch (_) {}
+  }
+  return { lost: lost, isConnErr: isConnErr };
+})();
+
 // ── Conversations panel (R-F533, 2026-05-15) ──
 // Rewritten around a `rows[]` cache so we can re-render with date groups
 // + client-side search on every change. Bumping a conversation to the top
@@ -1721,8 +1792,13 @@ var Convos = (function() {
       // /chat turn). Retry is also opt-out via opts2.retry = false
       // for the caller that wants no auto-retry.
       if (allowRetry && err && err._isTimeout) {
-        return await _attempt();
+        try { return await _attempt(); }
+        catch (err2) {
+          if (ConnectionMonitor.isConnErr(err2) || err2._isTimeout) ConnectionMonitor.lost();  // R-F1697
+          throw err2;
+        }
       }
+      if (ConnectionMonitor.isConnErr(err) || err._isTimeout) ConnectionMonitor.lost();  // R-F1697
       throw err;
     }
   }
