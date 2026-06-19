@@ -447,10 +447,16 @@ class AntiCaptchaProvider(CaptchaProvider):
                         if token:
                             logger.info(
                                 "[anti-captcha] solved %s in %.1fs (task=%s)",
-                            task_type, time.monotonic() - (deadline - _SOLVE_TIMEOUT), task_id,
-                        )
-                        return token
-                    return None
+                                task_type, time.monotonic() - (deadline - _SOLVE_TIMEOUT), task_id,
+                            )
+                            return token
+                        return None
+                    # R-F1695: status != "ready" yet — continue polling.
+                    # The old `return None` was INSIDE the `if` block (mis-indented
+                    # at 20 spaces), so the first poll that wasn't "ready"
+                    # immediately returned None — the 2nd/3rd fallback provider
+                    # was never reached because the solver returned None on
+                    # poll #1 every time.
 
             logger.debug("[anti-captcha] timeout waiting for %s solve", task_type)
             return None
@@ -616,20 +622,13 @@ async def detect_and_solve_captcha(
     if not solver.is_ready:
         return None
 
-    # Detect reCAPTCHA v2/v3
-    recaptcha_match = _re.search(
-        r'data-sitekey=["\']([^"\']+)["\']',
-        page_html,
-    )
-    if recaptcha_match:
-        site_key = recaptcha_match.group(1)
-        logger.info(
-            "[captcha_solver] detected reCAPTCHA on %s (sitekey=%s...)",
-            page_url, site_key[:8],
-        )
-        return await solver.solve_recaptcha_v2(site_key, page_url)
+    # R-F1695: check MORE SPECIFIC patterns FIRST (Turnstile, hCaptcha) before
+    # falling back to generic reCAPTCHA. The old code checked reCAPTCHA first
+    # via `data-sitekey` which is ALSO present in Turnstile and hCaptcha HTML,
+    # so they were always mis-detected as reCAPTCHA -> wrong task type -> wrong
+    # token -> CAPTCHA solve failed silently.
 
-    # Detect Cloudflare Turnstile
+    # Detect Cloudflare Turnstile (most specific — has data-action="turnstile")
     turnstile_match = _re.search(
         r'data-sitekey=["\']([^"\']+)["\'].*data-action=["\']turnstile',
         page_html,
@@ -641,7 +640,7 @@ async def detect_and_solve_captcha(
         )
         return await solver.solve_turnstile(site_key, page_url)
 
-    # Detect hCaptcha
+    # Detect hCaptcha (has class="h-captcha")
     hcaptcha_match = _re.search(
         r'data-sitekey=["\']([^"\']+)["\'].*class=["\']h-captcha',
         page_html,
@@ -650,6 +649,19 @@ async def detect_and_solve_captcha(
         site_key = hcaptcha_match.group(1)
         logger.info(
             "[captcha_solver] detected hCaptcha on %s", page_url,
+        )
+        return await solver.solve_recaptcha_v2(site_key, page_url)
+
+    # Detect reCAPTCHA v2/v3 (generic — data-sitekey alone, checked last)
+    recaptcha_match = _re.search(
+        r'data-sitekey=["\']([^"\']+)["\']',
+        page_html,
+    )
+    if recaptcha_match:
+        site_key = recaptcha_match.group(1)
+        logger.info(
+            "[captcha_solver] detected reCAPTCHA on %s (sitekey=%s...)",
+            page_url, site_key[:8],
         )
         return await solver.solve_recaptcha_v2(site_key, page_url)
 

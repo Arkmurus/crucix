@@ -286,3 +286,122 @@ class TestAntiCaptchaProvider:
                 "6Lc_test", "https://example.com",
             )
             assert token == "anticaptcha_token_222"
+
+
+class TestCaptchaDetectionSpecificity:
+    """CAPTCHA type detection must be specific — Turnstile/hCaptcha before reCAPTCHA."""
+
+    @pytest.mark.asyncio
+    async def test_turnstile_detected_before_recaptcha(self):
+        """R-F1695: Turnstile must be detected BEFORE reCAPTCHA when both patterns present."""
+        html = '''
+        <html><body>
+        <div data-sitekey="0x4AAAAAAturnstile_key" data-action="turnstile"></div>
+        <div class="g-recaptcha" data-sitekey="6Lc_recaptcha_key"></div>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_turnstile = AsyncMock(return_value="turnstile_token")
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="recaptcha_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "turnstile_token", "Turnstile should be detected first"
+        mock_provider.solve_turnstile.assert_awaited_once()
+        mock_provider.solve_recaptcha_v2.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hcaptcha_detected_before_recaptcha(self):
+        """R-F1695: hCaptcha must be detected BEFORE reCAPTCHA when both patterns present."""
+        html = '''
+        <html><body>
+        <div data-sitekey="hcaptcha_key" class="h-captcha"></div>
+        <div class="g-recaptcha" data-sitekey="6Lc_recaptcha_key"></div>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="hcaptcha_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "hcaptcha_token", "hCaptcha should be detected before generic reCAPTCHA"
+        mock_provider.solve_recaptcha_v2.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_recaptcha_detected_when_no_specific_pattern(self):
+        """R-F1695: Generic reCAPTCHA detected when no Turnstile/hCaptcha pattern."""
+        html = '''
+        <html><body>
+        <div class="g-recaptcha" data-sitekey="6Lc_generic_key"></div>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="recaptcha_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "recaptcha_token"
+
+
+class TestAntiCaptchaPollLoop:
+    """AntiCaptchaProvider must poll multiple times, not return None on first poll."""
+
+    @pytest.mark.asyncio
+    async def test_anti_captcha_polls_multiple_times(self):
+        """R-F1695: AntiCaptchaProvider must poll until status='ready', not return None on first poll."""
+        provider = AntiCaptchaProvider("test_api_key")
+
+        with patch("aria_service.intel.captcha_solver.httpx.AsyncClient") as mock_client_cls:
+            mock_instance = MagicMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_instance
+
+            call_count = [0]
+
+            async def mock_post(url, **kwargs):
+                call_count[0] += 1
+                resp = MagicMock()
+                if call_count[0] == 1:
+                    # createTask succeeds
+                    resp.json = MagicMock(return_value={"errorId": 0, "taskId": "task_111"})
+                elif call_count[0] == 2:
+                    # First poll: not ready yet (would have returned None with the bug)
+                    resp.json = MagicMock(return_value={"errorId": 0, "status": "processing"})
+                else:
+                    # Second poll: ready
+                    resp.json = MagicMock(return_value={
+                        "errorId": 0, "status": "ready",
+                        "solution": {"gRecaptchaResponse": "anticaptcha_token_after_poll"},
+                    })
+                return resp
+
+            mock_instance.post = mock_post
+
+            token = await provider.solve_recaptcha_v2(
+                "6Lc_test", "https://example.com",
+            )
+            assert token == "anticaptcha_token_after_poll", (
+                f"Expected token after multiple polls, got {token}. "
+                "This means the poll loop returns None on first non-ready poll (mis-indented return None)."
+            )
+            assert call_count[0] >= 3, (
+                f"Expected at least 3 HTTP calls (1 create + 2+ polls), got {call_count[0]}. "
+                "This means the poll loop isn't retrying."
+            )

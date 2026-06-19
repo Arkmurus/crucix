@@ -438,19 +438,26 @@ async def submit_form(
             # R-F1689: Inject pre-solved CAPTCHA token before filling form
             if captcha_token:
                 try:
-                    # Inject the token into the reCAPTCHA response textarea
+                    # R-F1695: use .value (not innerHTML) for textarea, and
+                    # JSON-escape the token to prevent JS injection.
+                    # The reCAPTCHA response is a <textarea>, so innerHTML
+                    # sets the HTML content (wrong) while .value sets the
+                    # form field value (correct). Also escape via JSON so
+                    # special chars in the token don't break the JS.
+                    import json as _json1695
+                    _escaped_token = _json1695.dumps(captcha_token)
                     await page.evaluate(f'''
                         () => {{
                             const ta = document.getElementById("g-recaptcha-response");
                             if (ta) {{
-                                ta.innerHTML = "{captcha_token}";
+                                ta.value = {_escaped_token};
                                 ta.style.display = "block";
                             }}
                             // Also try the invisible reCAPTCHA callback
                             if (typeof ___grecaptcha_cfg !== "undefined") {{
                                 for (const [k, v] of Object.entries(___grecaptcha_cfg.clients)) {{
                                     if (v && v.callback) {{
-                                        v.callback("{captcha_token}");
+                                        v.callback({_escaped_token});
                                     }}
                                 }}
                             }}
