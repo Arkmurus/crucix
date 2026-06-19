@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1715,
+  "next_available": 1716,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11523,6 +11523,15 @@
       "r_number": "R-F1714",
       "title": "fully configure newsapi autonomous onboarding (real fields + login + /account key regex) + type-aware form fill (checkbox/radio/select)",
       "claimed_at": "2026-06-19T14:53:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1715",
+      "title": "onboarding bulletproofing: verify obtained API key WORKS before activating (try candidates, keep the validated one) + wire outcome to brain",
+      "claimed_at": "2026-06-19T15:19:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

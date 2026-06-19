@@ -605,30 +605,40 @@ async def login_and_get_api_key(
             await page.wait_for_timeout(1200)
             rendered = await page.content()
 
-            # 3. Extract the key from the RENDERED DOM (selector first, then regex).
-            api_key = ""
+            # 3. Extract the key from the RENDERED DOM. R-F1715: collect ALL
+            #    candidates (selector result first, then every regex match) — a
+            #    bare key-shaped regex can also match CSRF tokens / asset hashes
+            #    on the page, so the caller VERIFIES each candidate against the
+            #    portal API and keeps the one that actually works. Returning only
+            #    the first match risked activating a wrong string as the key.
+            candidates: list[str] = []
+
+            def _add(c: str) -> None:
+                c = (c or "").strip()
+                if c and c not in candidates:
+                    candidates.append(c)
+
             if key_selector:
                 try:
                     el = await page.query_selector(key_selector)
                     if el:
-                        api_key = (await el.get_attribute("value")) or (await el.inner_text()) or ""
-                        api_key = api_key.strip()
+                        _add((await el.get_attribute("value")) or (await el.inner_text()) or "")
                 except Exception as e:
                     logger.debug("[login_and_get_api_key] selector extract failed: %s", e)
-            if not api_key and key_regex:
+            if key_regex:
                 try:
                     import re as _re
-                    m = _re.search(key_regex, rendered)
-                    if m:
-                        api_key = (m.group(1) if m.groups() else m.group(0)).strip()
+                    for m in _re.finditer(key_regex, rendered):
+                        _add(m.group(1) if m.groups() else m.group(0))
                 except Exception as e:
                     logger.debug("[login_and_get_api_key] regex extract failed: %s", e)
 
             return {
-                "success": bool(api_key),
-                "api_key": api_key,
+                "success": bool(candidates),
+                "api_key": candidates[0] if candidates else "",
+                "candidates": candidates[:10],
                 "final_url": page.url,
-                "error": "" if api_key else "no API key found on dashboard (selector/regex matched nothing)",
+                "error": "" if candidates else "no API key found on dashboard (selector/regex matched nothing)",
             }
         except Exception as e:
             logger.debug("[login_and_get_api_key] failed for %s: %s", login_url, e)

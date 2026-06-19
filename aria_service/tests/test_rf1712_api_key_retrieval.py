@@ -126,7 +126,8 @@ async def test_retrieve_builds_login_data_from_login_fields():
     with patch.object(portal_registry, "get_credential", _get), \
          patch.object(playwright_engine, "login_and_get_api_key", _fake_login):
         key = await portal_registry._retrieve_api_key(portal)
-    assert key == "k"
+    # R-F1715: _retrieve_api_key now returns a candidate LIST (verified downstream).
+    assert key == ["k"]
     assert captured["login_data"]["email"] == "aria@arkmurus.com"
     assert captured["login_data"]["password"] == "pw-secret-999"
     assert captured["login_url"] == "https://testportal.example/login"

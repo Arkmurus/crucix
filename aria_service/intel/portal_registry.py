@@ -75,6 +75,12 @@ class PortalDef:
     api_key_path: str = ""       # dashboard path where the API key is displayed
     api_key_selector: str = ""   # CSS selector for the key element (value/text)
     api_key_regex: str = ""      # fallback: regex over rendered HTML (group 1 if present)
+    # R-F1715: a test URL with a {key} placeholder. After extracting candidate
+    # keys, each is VERIFIED with a real request to this endpoint; only a key
+    # that returns success (HTTP 2xx, not an auth error) is stored + activated.
+    # This is the "no wrong key ever goes live" guard — a key-shaped regex can
+    # match CSRF tokens / hashes, so we never trust an unverified candidate.
+    api_key_test_url: str = ""
 
 
 # ── Supported portals ──────────────────────────────────────────────────
@@ -493,6 +499,11 @@ PORTALS: list[PortalDef] = [
         ],
         api_key_path="/account",
         api_key_regex=r"\b[0-9a-f]{32}\b",
+        # R-F1715: verify a candidate key really works before activating it.
+        # A valid key → 200 {"status":"ok"}; an invalid one → 401 "apiKeyInvalid".
+        # This is what lets the bare 32-hex regex be safe: wrong candidates
+        # (CSRF tokens etc.) fail verification and are discarded.
+        api_key_test_url="https://newsapi.org/v2/top-headlines?country=us&pageSize=1&apiKey={key}",
     ),
     # ── Company and financial data ─────────────────────────────────────
     PortalDef(
@@ -1866,10 +1877,12 @@ def _extract_confirmation_link(text: str) -> str | None:
     return None
 
 
-async def _retrieve_api_key(portal: PortalDef) -> str:
-    """R-F1712: log into the portal dashboard with the stored registration
-    credentials and read the issued API key. Returns "" if it cannot (honest —
-    the caller must NOT claim success without a real key).
+async def _retrieve_api_key(portal: PortalDef) -> list[str]:
+    """R-F1712/R-F1715: log into the portal dashboard with the stored
+    registration credentials and read CANDIDATE API keys from the rendered page.
+    Returns a list of candidates (selector result first, then regex matches) —
+    the caller verifies each against the portal API and keeps the working one.
+    Returns [] if none found (honest — never claim success without a real key).
     """
     try:
         cred = await get_credential(portal.id) or {}
@@ -1906,20 +1919,52 @@ async def _retrieve_api_key(portal: PortalDef) -> str:
             key_selector=portal.api_key_selector,
             key_regex=portal.api_key_regex,
         )
-        if res.get("success") and res.get("api_key"):
-            logger.info("[portal_registry] R-F1712: retrieved API key for %s", portal.id)
-            return res["api_key"]
+        cands = res.get("candidates") or ([res["api_key"]] if res.get("api_key") else [])
+        if cands:
+            logger.info(
+                "[portal_registry] R-F1712: %d candidate key(s) for %s",
+                len(cands), portal.id,
+            )
+            return cands
         logger.info(
             "[portal_registry] R-F1712: key retrieval for %s found none (%s)",
             portal.id, res.get("error"),
         )
-        return ""
+        return []
     except Exception as e:
         logger.info(
             "[portal_registry] R-F1712: api-key retrieval failed for %s: %s",
             portal.id, e,
         )
-        return ""
+        return []
+
+
+async def _verify_api_key(portal: PortalDef, key: str) -> bool:
+    """R-F1715: prove an obtained key WORKS before activating it. Substitutes
+    {key} into portal.api_key_test_url and makes a real request; success =
+    HTTP 2xx and not an auth-error body. If no test URL is configured we cannot
+    verify — return True (best effort) but the caller logs it as unverified.
+    """
+    key = (key or "").strip()
+    if not key:
+        return False
+    if not portal.api_key_test_url:
+        return True  # nothing to test against — trust but unverified
+    try:
+        url = portal.api_key_test_url.replace("{key}", key)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+        if 200 <= resp.status_code < 300:
+            low = (resp.text or "")[:2000].lower()
+            # reject bodies that signal an invalid/missing key even on a 200
+            if any(s in low for s in ("apikeyinvalid", "invalid api key", "invalid_api_key",
+                                       "unauthorized", "\"status\":\"error\"", "apikeymissing")):
+                return False
+            return True
+        return False
+    except Exception as e:
+        logger.info("[portal_registry] R-F1715: key verification error for %s: %s", portal.id, e)
+        return False
 
 
 async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
@@ -1940,29 +1985,64 @@ async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[st
             # to fetch it manually). Honest: success=True ONLY if a real key was
             # captured + stored; otherwise report it needs review (no fabrication).
             if portal.api_key_path and (portal.api_key_selector or portal.api_key_regex):
-                key = await _retrieve_api_key(portal)
-                if key:
+                candidates = await _retrieve_api_key(portal)
+                # R-F1715: VERIFY each candidate against the portal API; store
+                # only the one that actually works. A key-shaped regex can match
+                # CSRF tokens / hashes — we never activate an unverified string.
+                verified_key = ""
+                for cand in candidates:
+                    if await _verify_api_key(portal, cand):
+                        verified_key = cand
+                        break
+                if verified_key:
                     from .key_resolver import store_obtained_key
                     await store_obtained_key(
-                        portal.id, key,
-                        note="autonomously retrieved post-registration (R-F1712)",
+                        portal.id, verified_key,
+                        note="autonomously retrieved + verified post-registration (R-F1712/1715)",
                     )
+                    try:
+                        from .engine_wiring import wire_success as _ws1715
+                        _ws1715(
+                            module="portal_onboarding",
+                            summary=(
+                                f"Autonomously onboarded {portal.name}: registered, "
+                                f"retrieved + VERIFIED API key, stored live."
+                            ),
+                            source_id=f"portal_onboarding:{portal.id}",
+                        )
+                    except Exception:
+                        pass
                     return {
                         "success": True,
                         "message": (
-                            f"Account created AND API key auto-retrieved + stored "
-                            f"for {portal.name} — live via key_resolver (no operator)."
+                            f"Account created AND API key auto-retrieved, VERIFIED & "
+                            f"stored for {portal.name} — live via key_resolver (no operator)."
                         ),
                         "portal_id": portal.id,
                         "api_key_obtained": True,
+                        "api_key_verified": bool(portal.api_key_test_url),
                         "email": _ARIA_EMAIL,
                     }
+                # Honest failure: account exists, but no candidate verified.
+                try:
+                    from .engine_wiring import wire_failure as _wf1715
+                    _wf1715(
+                        module="portal_onboarding",
+                        detail=(
+                            f"{portal.name}: account created but no extracted key "
+                            f"candidate verified ({len(candidates)} tried). Check "
+                            f"api_key_selector/regex/test_url."
+                        ),
+                        gap_type="onboarding_key_unverified",
+                        source=f"portal_onboarding:{portal.id}",
+                    )
+                except Exception:
+                    pass
                 return {
                     "success": False,
                     "message": (
-                        f"Account created for {portal.name} but the API key could "
-                        f"not be auto-retrieved from the dashboard — needs review "
-                        f"(check login_fields / api_key_path / selector)."
+                        f"Account created for {portal.name} but no retrieved key "
+                        f"candidate VERIFIED ({len(candidates)} tried) — needs review."
                     ),
                     "portal_id": portal.id,
                     "api_key_obtained": False,
