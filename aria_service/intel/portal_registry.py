@@ -2439,13 +2439,31 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
 
     # 3. CAPTCHA — ARIA cannot bypass
     if portal.requires_captcha:
-        return {
-            "status": "needs_operator",
-            "blocker": "captcha",
-            "declined": portal_id in _DECLINED_PORTAL_IDS,
-            "deferred": portal_id in _DEFERRED_PORTAL_IDS,
-            "message": f"{portal.name} requires CAPTCHA — operator must register manually",
-        }
+        # R-F1719: only bail to the operator if we CANNOT solve the CAPTCHA.
+        # Pre-fix this returned needs_operator unconditionally — predating the
+        # 2captcha solver — so a captcha portal was NEVER attempted even with a
+        # solver configured (the live newsapi run hit exactly this). With a
+        # ready solver, fall through to register_for_portal, which detects +
+        # solves the CAPTCHA via 2captcha and injects the token before submit.
+        _solver_ready = False
+        try:
+            from .captcha_solver import get_solver as _get_solver1719
+            _slv = _get_solver1719()
+            _solver_ready = bool(_slv and getattr(_slv, "is_ready", False))
+        except Exception:
+            _solver_ready = False
+        if not _solver_ready:
+            return {
+                "status": "needs_operator",
+                "blocker": "captcha",
+                "declined": portal_id in _DECLINED_PORTAL_IDS,
+                "deferred": portal_id in _DEFERRED_PORTAL_IDS,
+                "message": (
+                    f"{portal.name} requires CAPTCHA and no solver is configured "
+                    f"(set ARIA_TWOCAPTCHA_API_KEY) — operator must register manually"
+                ),
+            }
+        # solver ready → proceed to the register+solve path below.
 
     # 4. Paid/declined portals
     if portal_id in _DECLINED_PORTAL_IDS:
