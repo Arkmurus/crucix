@@ -357,7 +357,10 @@
     }
 
     .msg-actions { display: flex; gap: 4px; margin-top: 10px; opacity: 0; transition: opacity .15s; flex-wrap: wrap; }
-    .msg:hover .msg-actions { opacity: 1; }
+    .msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
+    /* R-F1690 — touch devices have no hover; reveal message actions
+       permanently so Copy / Export / Regenerate are reachable by tap. */
+    @media (hover: none) { .msg-actions { opacity: 1; } }
     .msg-action-btn, .regen-btn {
       background: transparent; border: 1px solid var(--warm-border); border-radius: 6px;
       color: var(--warm-text-faint); font-size: 11.5px; padding: 4px 9px; cursor: pointer;
@@ -466,6 +469,17 @@
       outline: 2px dashed rgba(200,150,255,0.4); outline-offset: -8px;
       background: rgba(200,150,255,0.03);
     }
+
+    /* R-F1690 — Undo action inside a toast (delete-with-undo replaces the
+       primitive confirm() dialog). Base .crucix-toast styling is in
+       crucix.css; this styles the inline Undo button. */
+    .crucix-toast .undo-toast-action {
+      background: transparent; border: 1px solid var(--accent, #c896ff);
+      color: var(--accent, #c896ff); font: inherit; font-size: 12px; font-weight: 600;
+      padding: 3px 12px; border-radius: 6px; cursor: pointer; margin-left: 8px;
+      white-space: nowrap; transition: background .12s;
+    }
+    .crucix-toast .undo-toast-action:hover { background: rgba(200,150,255,0.14); }
 
     @media (max-width: 900px) {
       .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.5); }
@@ -965,6 +979,10 @@ function md(text) {
 
 // ── Scroll to bottom ──
 function bottom() { scroll.scrollTop = scroll.scrollHeight; }
+// R-F1690 — only auto-follow a live stream when the user is already near the
+// bottom. Pre-fix every token forced a scroll-to-bottom, so scrolling up to
+// re-read earlier output during a long answer was impossible (it snapped back).
+function isNearBottom() { return (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 120; }
 
 // ── Message index tracking ──
 var nextMsgIndex = 0;
@@ -1006,7 +1024,7 @@ async function exportMsgAsPdf(btn) {
   if (!msgEl) return;
   var idx = parseInt(msgEl.dataset.msgIndex, 10);
   if (!Number.isFinite(idx)) {
-    alert('Cannot export — message index missing.');
+    Toast.show('Cannot export — message index missing.', 'error');
     return;
   }
   var orig = btn.innerHTML;
@@ -1028,7 +1046,7 @@ async function exportMsgAsPdf(btn) {
     });
     if (!resp.ok) {
       var data = await resp.json().catch(() => ({}));
-      alert('PDF export failed: ' + (data.error || resp.status));
+      Toast.show('PDF export failed: ' + (data.error || resp.status), 'error');
       return;
     }
     var blob = await resp.blob();
@@ -1055,7 +1073,7 @@ async function exportMsgAsPdf(btn) {
     }, 2500);
   } catch (err) {
     console.error('[Export PDF]', err);
-    alert('Export error: ' + err.message);
+    Toast.show('Export error: ' + err.message, 'error');
     btn.innerHTML = orig;
     btn.disabled = false;
   }
@@ -1198,9 +1216,10 @@ async function send(text, opts) {
         try {
           var evt = JSON.parse(raw.slice(6));
           if (evt.type === 'chunk' && evt.text) {
+            var _stick = isNearBottom();   // R-F1690 — capture BEFORE the DOM grows
             fullText += evt.text;
             streamBody.innerHTML = md(fullText);
-            bottom();
+            if (_stick) bottom();
           } else if (evt.type === 'status' && evt.message) {
             streamBadge.textContent = evt.message;
             streamBadge.style.opacity = '1';
@@ -1434,6 +1453,44 @@ chatScroll.addEventListener('drop', function(e) {
   }
 });
 
+// R-F1690 — non-blocking delete-with-undo toast. Replaces the primitive
+// blocking confirm()/alert() dialogs. The caller removes the item optimistically
+// (instant UI); this shows a toast with an Undo button for `duration` ms. Undo
+// click → onUndo(); timeout OR dismiss → onCommit() (the real delete fires then).
+function showUndoToast(msg, onUndo, onCommit, duration) {
+  duration = duration || 6000;
+  var container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.setAttribute('aria-live', 'polite');
+    document.body.appendChild(container);
+  }
+  var t = document.createElement('div');
+  t.className = 'crucix-toast toast-info undo-toast';
+  t.setAttribute('role', 'status');
+  var span = document.createElement('span');
+  span.textContent = msg;
+  var undoBtn = document.createElement('button');
+  undoBtn.className = 'undo-toast-action';
+  undoBtn.type = 'button';
+  undoBtn.textContent = 'Undo';
+  var closeBtn = document.createElement('button');
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.type = 'button';
+  closeBtn.textContent = '✕';
+  t.appendChild(span); t.appendChild(undoBtn); t.appendChild(closeBtn);
+  container.appendChild(t);
+  var done = false;
+  var timer = setTimeout(finish, duration);
+  function teardown() { clearTimeout(timer); if (t.parentNode) t.parentNode.removeChild(t); }
+  function finish() { if (done) return; done = true; teardown(); try { if (onCommit) onCommit(); } catch (e) { console.error('[undo-toast] commit', e); } }
+  function undo()   { if (done) return; done = true; teardown(); try { if (onUndo) onUndo(); } catch (e) { console.error('[undo-toast] undo', e); } }
+  undoBtn.addEventListener('click', undo);
+  closeBtn.addEventListener('click', finish);   // dismiss = accept the deletion
+  return { commit: finish, undo: undo };
+}
+
 // ── Conversations panel (R-F533, 2026-05-15) ──
 // Rewritten around a `rows[]` cache so we can re-render with date groups
 // + client-side search on every change. Bumping a conversation to the top
@@ -1566,10 +1623,21 @@ var Convos = (function() {
         '<button class="convo-act-btn convo-rename" title="Rename" aria-label="Rename conversation"><i class="bi bi-pencil" aria-hidden="true"></i></button>' +
         '<button class="convo-act-btn convo-del danger" title="Delete" aria-label="Delete conversation"><i class="bi bi-trash" aria-hidden="true"></i></button>' +
       '</div>';
+    // R-F1690 — disambiguate single-click (open) from double-click (rename) so
+    // double-clicking the title edits it in place instead of only opening it.
+    var _clickTimer = null;
     row.addEventListener('click', function(e) {
       if (e.target.closest('.convo-actions')) return;
       if (e.target.closest('.convo-title-edit')) return;
-      load(c.session_id);
+      if (_clickTimer) return;
+      _clickTimer = setTimeout(function() { _clickTimer = null; load(c.session_id); }, 200);
+    });
+    row.addEventListener('dblclick', function(e) {
+      if (e.target.closest('.convo-actions')) return;
+      if (e.target.closest('.convo-title-edit')) return;
+      if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
+      e.preventDefault();
+      startRename(row, c);
     });
     // Keyboard handlers
     //   Enter / Space     → load
@@ -1648,7 +1716,7 @@ var Convos = (function() {
           console.error('[Convos] rename', err);
           c.title = current;
           newTitleLine.textContent = current;
-          alert('Rename failed.');
+          Toast.show('Couldn’t rename — reverted.', 'error');
         });
     }
     function cancel() {
@@ -1836,19 +1904,38 @@ var Convos = (function() {
     }
   }
 
-  async function del(sid, title) {
+  // R-F1690 — delete-with-undo. No blocking confirm(): the row vanishes
+  // instantly and a non-blocking "Conversation deleted · Undo" toast lets the
+  // user reverse it for ~6s. The active conversation's feed is left intact
+  // during the grace window (so Undo is seamless) and only cleared if the
+  // delete actually commits. On server failure the row is restored.
+  function del(sid, title) {
     if (!CURRENT_USER) return;
-    if (!confirm('Delete “' + title + '”? This cannot be undone.')) return;
-    try {
-      await authedJson('DELETE', '/api/aria/conversations/' + encodeURIComponent(sid) +
-        '?user_id=' + encodeURIComponent(USER_ID_SLUG));
-      rows = rows.filter(function(c) { return c.session_id !== sid; });
-      if (sid === activeSid) startNewConversation();
-      render();
-    } catch (err) {
-      console.error('[Convos] delete', err);
-      alert('Delete failed.');
-    }
+    var idx = rows.findIndex(function(c) { return c.session_id === sid; });
+    if (idx === -1) return;
+    var removed = rows[idx];
+    rows.splice(idx, 1);          // optimistic remove
+    render();
+    showUndoToast(
+      'Conversation deleted',
+      function onUndo() {
+        rows.splice(Math.min(idx, rows.length), 0, removed);
+        render();
+      },
+      function onCommit() {
+        authedJson('DELETE', '/api/aria/conversations/' + encodeURIComponent(sid) +
+          '?user_id=' + encodeURIComponent(USER_ID_SLUG))
+          .then(function() {
+            if (sid === activeSid) startNewConversation();
+          })
+          .catch(function(err) {
+            console.error('[Convos] delete', err);
+            rows.splice(Math.min(idx, rows.length), 0, removed);
+            render();
+            Toast.show('Couldn’t delete “' + escHtml(title) + '” — restored.', 'error');
+          });
+      }
+    );
   }
 
   function setActive(sid) {
