@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1687,
+  "next_available": 1689,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11252,6 +11252,26 @@
       "r_number": "R-F1686",
       "title": "gate+curate TestFailureExtractor opt-in; fix reproduce_symptom Popen timeout TypeError; gold capability test",
       "claimed_at": "2026-06-19T07:16:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8a889965",
+      "notes": null,
+      "shipped_at": "2026-06-19T07:35:51Z"
+    },
+    {
+      "r_number": "R-F1687",
+      "title": "durable users.json on /data volume — stable user identity so chat history follows the account",
+      "claimed_at": "2026-06-19T07:26:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b37257ac",
+      "notes": null,
+      "shipped_at": "2026-06-19T07:46:29Z"
+    },
+    {
+      "r_number": "R-F1688",
+      "title": "remove SESSION_TTL — chat history never expires (Claude/DeepSeek parity)",
+      "claimed_at": "2026-06-19T07:49:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
