@@ -470,6 +470,12 @@ PORTALS: list[PortalDef] = [
         url="https://newsapi.org",
         description="News article search API (free dev tier — adverse-media OSINT)",
         registration_type="api_key",
+        # R-F1718: newsapi.org/register HAS a Google reCAPTCHA (g-recaptcha /
+        # data-sitekey in the page). Was wrongly False, so the 2captcha solver
+        # was never engaged and submit failed the captcha. True → the
+        # _register_via_email_form captcha path solves it via 2captcha
+        # (ARIA_TWOCAPTCHA_API_KEY) and injects the token before submit.
+        requires_captcha=True,
         rate_limit_per_hour=100,
         register_path="/register",
         # R-F1714: REAL field names read from the live newsapi.org/register form
