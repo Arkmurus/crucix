@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1680,
+  "next_available": 1684,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11183,6 +11183,46 @@
       "r_number": "R-F1679",
       "title": "adversarial grader refusal-detection robustness — stop false-failing correctly-phrased refusals (honest SUPERVISED score)",
       "claimed_at": "2026-06-18T18:02:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a05e202",
+      "notes": null,
+      "shipped_at": "2026-06-18T20:44:18Z"
+    },
+    {
+      "r_number": "R-F1680",
+      "title": "Auto-write reproduce test when none exists for coder fix verification",
+      "claimed_at": "2026-06-18T21:01:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c4993bca",
+      "notes": null,
+      "shipped_at": "2026-06-18T21:24:05Z"
+    },
+    {
+      "r_number": "R-F1681",
+      "title": "Reproduce test FAIL->PASS pairing for ungameable coder gold verification",
+      "claimed_at": "2026-06-18T21:13:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0952184e",
+      "notes": null,
+      "shipped_at": "2026-06-18T21:24:01Z"
+    },
+    {
+      "r_number": "R-F1682",
+      "title": "Fix coder reproduce gate init order bug",
+      "claimed_at": "2026-06-18T22:25:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "01e1f4e3",
+      "notes": null,
+      "shipped_at": "2026-06-18T22:25:27Z"
+    },
+    {
+      "r_number": "R-F1683",
+      "title": "fix test_banner_cp1252 hang (Windows cp1252 banner render freezes the suite)",
+      "claimed_at": "2026-06-19T00:13:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -680,8 +680,20 @@ class _BoxChars:
         enc = getattr(sys.stdout, "encoding", "") or ""
         if "utf" in enc.lower():
             return True
-        # R-F1202: Windows 10+ terminals support Unicode box-drawing even
-        # when encoding is cp1252 (the default for cmd.exe).
+        # R-F1683: the Windows-10+ heuristic below assumed conhost renders Unicode
+        # even under cp1252 — but if sys.stdout.encoding is LITERALLY cp1252 (cmd.exe
+        # default, or a redirected/reconfigured stream), Python ENCODES output as
+        # cp1252 and the box chars (═ etc.) raise UnicodeEncodeError mid-print, which
+        # corrupts stdout and (in the full test suite) hangs the next test's output.
+        # Display capability != byte encoding: if there is an explicit encoding that
+        # cannot encode the box chars, fall back to ASCII regardless of OS version.
+        if enc:
+            try:
+                "═╔╗║╚╝".encode(enc)
+            except (UnicodeEncodeError, LookupError):
+                return False
+        # R-F1202: Windows 10+ terminals (conhost/Windows Terminal) render Unicode
+        # box-drawing — safe now that we've confirmed the encoding can encode them.
         if os.name == "nt":
             try:
                 ver = sys.getwindowsversion()
@@ -1772,14 +1784,20 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
     mode = color.green("self") if self_mode else "general"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     approval = color.green("auto") if auto_approve else "confirm"
+    bx = _BoxChars()
+    # R-F1683: under a non-Unicode stdout (cp1252) use ASCII for the ellipsis and
+    # the dot separator too — not just the box chars — so the banner emits only
+    # encodable bytes (avoids UnicodeEncodeError on a real cp1252 terminal and the
+    # capsys utf-8-capture choke in the test suite).
+    ell = "…" if bx._unicode else "..."
+    dot = "·" if bx._unicode else "-"
     dir_short = str(cwd)
     # Truncate path to a reasonable length
     if len(dir_short) > 60:
-        dir_short = "…" + dir_short[-59:]
-    bx = _BoxChars()
+        dir_short = ell + dir_short[-59:]
     print()
     print(f"  {color.cyan('ARIA')} {color.dim('v' + __version__)}  {color.dim(dir_short)}")
-    print(f"  {color.dim(f'{cfg.provider}/{cfg.model}  ·  {mode}  ·  brain:{brain}  ·  {approval}')}")
+    print(f"  {color.dim(f'{cfg.provider}/{cfg.model}  {dot}  {mode}  {dot}  brain:{brain}  {dot}  {approval}')}")
     print(f"  {color.dim(bx.h * 40)}")
     print()
 
