@@ -708,4 +708,26 @@ async def detect_and_solve_captcha(
         )
         return await solver.solve_recaptcha_v2(site_key, page_url)
 
+    # R-F1704: Detect reCAPTCHA via Google API script inclusion.
+    # Many sites load reCAPTCHA via <script src="https://www.google.com/recaptcha/api.js?render=6Lc...">
+    # or <script src="https://www.google.com/recaptcha/api.js?onload=...&render=6Lc...">
+    # The sitekey is in the 'render' query parameter. Also check for the older
+    # pattern where sitekey is in a data-sitekey attribute on the script tag.
+    recaptcha_script_match = _re.search(
+        r'src=["\']https://www\.google\.com/recaptcha/api\.js\?[^"\']*render=([^"\'&]+)',
+        page_html,
+    )
+    if not recaptcha_script_match:
+        recaptcha_script_match = _re.search(
+            r'src=["\']https://www\.google\.com/recaptcha/api\.js[^"\']*["\'][^>]*data-sitekey=["\']([^"\']+)',
+            page_html,
+        )
+    if recaptcha_script_match:
+        site_key = recaptcha_script_match.group(1)
+        logger.info(
+            "[captcha_solver] detected reCAPTCHA via script on %s (sitekey=%s...)",
+            page_url, site_key[:8],
+        )
+        return await solver.solve_recaptcha_v2(site_key, page_url)
+
     return None

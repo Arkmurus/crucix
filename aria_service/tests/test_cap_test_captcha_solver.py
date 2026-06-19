@@ -410,6 +410,51 @@ class TestCaptchaDetectionSpecificity:
         )
         assert token == "recaptcha_token"
 
+    @pytest.mark.asyncio
+    async def test_recaptcha_detected_via_script_render_param(self):
+        """R-F1704: reCAPTCHA detected via Google API script with render parameter."""
+        html = '''
+        <html><body>
+        <script src="https://www.google.com/recaptcha/api.js?render=6Lc_script_key"></script>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="script_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "script_token", "reCAPTCHA should be detected via script render param"
+        mock_provider.solve_recaptcha_v2.assert_awaited_once_with(
+            "6Lc_script_key", "https://example.com",
+        )
+
+    @pytest.mark.asyncio
+    async def test_recaptcha_detected_via_script_data_sitekey(self):
+        """R-F1704: reCAPTCHA detected via script tag with data-sitekey attribute."""
+        html = '''
+        <html><body>
+        <script src="https://www.google.com/recaptcha/api.js" data-sitekey="6Lc_data_key"></script>
+        </body></html>
+        '''
+
+        solver = CaptchaSolver()
+        mock_provider = MagicMock(spec=TwoCaptchaProvider)
+        mock_provider.name = "mock"
+        mock_provider.is_configured = True
+        mock_provider.solve_recaptcha_v2 = AsyncMock(return_value="data_key_token")
+        solver.providers = [mock_provider]
+
+        token = await detect_and_solve_captcha(
+            "https://example.com", html, solver=solver,
+        )
+        assert token == "data_key_token", "reCAPTCHA should be detected via script data-sitekey"
+
 
 class TestAntiCaptchaPollLoop:
     """AntiCaptchaProvider must poll multiple times, not return None on first poll."""
