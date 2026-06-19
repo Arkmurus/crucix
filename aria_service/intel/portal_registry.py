@@ -1076,6 +1076,20 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
     if not portal:
         return {"success": False, "error": f"Unknown portal: {portal_id}"}
 
+    # R-F1729: portals whose anti-bot blocks the headless browser onboard over
+    # httpx. _httpx_onboard self-handles the already-registered case (login-first
+    # with stored creds, then '+portal' alias-retry). Route it BEFORE the
+    # is_registered short-circuit below, which otherwise calls the Playwright-based
+    # _retrieve_api_key (anti-bot blocked) and dead-ends at "account exists but key
+    # could not be retrieved". Idempotent: if a key is already stored, we're done.
+    if getattr(portal, "use_httpx_flow", False):
+        _c1729 = await get_credential(portal_id) or {}
+        if (_c1729.get("api_key") or "").strip():
+            return {"success": True, "api_key_obtained": True,
+                    "message": f"Already registered for {portal.name} (key present)",
+                    "portal_id": portal_id}
+        return await _httpx_onboard(portal)
+
     # Check if already registered
     if await is_registered(portal_id):
         # R-F1721: credentials existing != having the API key. For an api_key
