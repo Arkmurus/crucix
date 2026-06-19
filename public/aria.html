@@ -2386,24 +2386,16 @@ var Convos = (function() {
   return { refresh: refresh, load: load, setActive: setActive, bumpToTop: bumpToTop };
 })();
 
-// Once the auth probe resolves, refresh the conversation list. CURRENT_USER
-// + USER_ID_SLUG are already set by then.
-// R-F722 (2026-05-19) — after the list loads, auto-resume the last
-// active conversation for this user (Claude-style). Only loads if the
-// saved SID belongs to this user (prefix match) AND appears in their
-// returned conversations list (defensive against stale localStorage
-// entries pointing at deleted convos). Falls through silently to a
-// fresh chat if anything is missing.
+// Once the auth probe resolves, populate the conversation list (sidebar).
+// R-F1708 (2026-06-19) — open on a CLEAN NEW CHAT, do NOT auto-resume the last
+// conversation. R-F722 used to auto-load the last thread (Claude-style resume),
+// but the desired behaviour (matching Claude/DeepSeek's home screen) is to land
+// on the fresh "How can I help you today?" view with past conversations
+// available in the sidebar — the user clicks one to open it. We only refresh the
+// list; the welcome/new-chat state set at page load stays.
 AUTH_READY.then(function(user) {
   if (!user) return;
-  Convos.refresh().then(function() {
-    var saved = getLastSid();
-    if (!saved || !saved.indexOf || saved.indexOf(USER_ID_SLUG + '_') !== 0) return;
-    Convos.load(saved).catch(function(e) {
-      console.warn('[Convos] auto-resume failed, starting fresh:', e);
-      clearLastSid();
-    });
-  });
+  Convos.refresh();
 });
 
 // After every successful send, bump the conversation to the top.
