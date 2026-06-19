@@ -62,6 +62,19 @@ class PortalDef:
     success_indicator: str = ""  # text or URL pattern that indicates success
     # IMAP sender domain for email verification (to filter confirmation emails)
     verify_email_domain: str = ""
+    # R-F1712: autonomous API-key RETRIEVAL after account creation (the missing
+    # back-half of onboarding). login_fields uses the same (selector, type,
+    # value_source) schema as signup_fields; value_source 'email'/'password'
+    # resolve from the stored registration credentials. api_key_path is the
+    # dashboard page where the key is shown; the key is read from the RENDERED
+    # DOM via api_key_selector first, else api_key_regex. When all three are
+    # set, _register_for_api_key logs in and stores the obtained key via
+    # key_resolver.store_obtained_key (→ live, no operator). When they are not
+    # set, the portal honestly reports it cannot self-retrieve (no fabrication).
+    login_fields: list[tuple[str, str, str]] = field(default_factory=list)
+    api_key_path: str = ""       # dashboard path where the API key is displayed
+    api_key_selector: str = ""   # CSS selector for the key element (value/text)
+    api_key_regex: str = ""      # fallback: regex over rendered HTML (group 1 if present)
 
 
 # ── Supported portals ──────────────────────────────────────────────────
@@ -1833,6 +1846,65 @@ def _extract_confirmation_link(text: str) -> str | None:
     return None
 
 
+async def _retrieve_api_key(portal: PortalDef) -> str:
+    """R-F1712: log into the portal dashboard with the stored registration
+    credentials and read the issued API key. Returns "" if it cannot (honest —
+    the caller must NOT claim success without a real key).
+    """
+    try:
+        cred = await get_credential(portal.id) or {}
+        email = cred.get("email") or _ARIA_EMAIL
+        if "@" not in str(email):
+            email = _ARIA_EMAIL
+        password = cred.get("password") or ""
+        if not password:
+            # registration_data is keyed by signup-field selectors; last resort,
+            # take a value that looks like a generated password.
+            for v in cred.values():
+                if isinstance(v, str) and "@" not in v and len(v) >= 8 and v != email:
+                    password = v
+                    break
+        if not password:
+            logger.info(
+                "[portal_registry] R-F1712: no stored password for %s — cannot auto-login",
+                portal.id,
+            )
+            return ""
+        login_data: dict[str, str] = {}
+        for selector, _ftype, source in (portal.login_fields or []):
+            if source == "email":
+                login_data[selector] = email
+            elif source == "password":
+                login_data[selector] = password
+            elif source.startswith("literal:"):
+                login_data[selector] = source.split(":", 1)[1]
+        if not login_data:
+            login_data = {"email": email, "password": password}
+        base = portal.url.rstrip("/")
+        login_url = base + (portal.login_path or "/user/login")
+        api_key_url = base + (portal.api_key_path or "")
+        from .scraper.playwright_engine import login_and_get_api_key as _pw_login
+        res = await _pw_login(
+            login_url, login_data, api_key_url,
+            key_selector=portal.api_key_selector,
+            key_regex=portal.api_key_regex,
+        )
+        if res.get("success") and res.get("api_key"):
+            logger.info("[portal_registry] R-F1712: retrieved API key for %s", portal.id)
+            return res["api_key"]
+        logger.info(
+            "[portal_registry] R-F1712: key retrieval for %s found none (%s)",
+            portal.id, res.get("error"),
+        )
+        return ""
+    except Exception as e:
+        logger.info(
+            "[portal_registry] R-F1712: api-key retrieval failed for %s: %s",
+            portal.id, e,
+        )
+        return ""
+
+
 async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
     """Register for an API key.
 
@@ -1846,17 +1918,49 @@ async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[st
     if portal.signup_fields:
         result = await _register_via_email_form(portal)
         if result.get("success"):
-            # Registration succeeded — try to extract API key from response
-            # or mark as needing operator to provide the key
+            # R-F1712: account created — now ACTUALLY RETRIEVE the key by logging
+            # into the dashboard (was a fake-success that just told the operator
+            # to fetch it manually). Honest: success=True ONLY if a real key was
+            # captured + stored; otherwise report it needs review (no fabrication).
+            if portal.api_key_path and (portal.api_key_selector or portal.api_key_regex):
+                key = await _retrieve_api_key(portal)
+                if key:
+                    from .key_resolver import store_obtained_key
+                    await store_obtained_key(
+                        portal.id, key,
+                        note="autonomously retrieved post-registration (R-F1712)",
+                    )
+                    return {
+                        "success": True,
+                        "message": (
+                            f"Account created AND API key auto-retrieved + stored "
+                            f"for {portal.name} — live via key_resolver (no operator)."
+                        ),
+                        "portal_id": portal.id,
+                        "api_key_obtained": True,
+                        "email": _ARIA_EMAIL,
+                    }
+                return {
+                    "success": False,
+                    "message": (
+                        f"Account created for {portal.name} but the API key could "
+                        f"not be auto-retrieved from the dashboard — needs review "
+                        f"(check login_fields / api_key_path / selector)."
+                    ),
+                    "portal_id": portal.id,
+                    "api_key_obtained": False,
+                    "requires_operator": True,
+                }
+            # No retrieval config — honest: account exists, key not auto-gettable.
             return {
-                "success": True,
+                "success": False,
                 "message": (
-                    f"Account created for {portal.name}. "
-                    f"API key may need to be obtained from the account dashboard. "
-                    f"Credentials stored in encrypted vault."
+                    f"Account created for {portal.name}; no api_key_path/selector "
+                    f"configured, so the key cannot be auto-retrieved yet."
                 ),
                 "portal_id": portal.id,
-                "email": _ARIA_EMAIL,
+                "api_key_obtained": False,
+                "requires_operator": True,
             }
         elif result.get("requires_email_verify"):
             return result

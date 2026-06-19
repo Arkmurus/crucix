@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1712,
+  "next_available": 1713,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11496,6 +11496,15 @@
       "r_number": "R-F1711",
       "title": "autonomous onboarding: fix email-verify field-name bug + generic env-then-vault key accessor (obtained key goes live, zero operator)",
       "claimed_at": "2026-06-19T13:17:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1712",
+      "title": "autonomous portal login + dashboard API-key retrieval -> store_obtained_key (close the onboarding loop), proven on a template portal",
+      "claimed_at": "2026-06-19T13:24:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

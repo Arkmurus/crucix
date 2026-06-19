@@ -531,6 +531,96 @@ async def submit_form(
         finally:
             await _cleanup_browser(playwright, browser, context, page)
 
+
+async def login_and_get_api_key(
+    login_url: str,
+    login_data: dict[str, str],
+    api_key_url: str,
+    *,
+    key_selector: str = "",
+    key_regex: str = "",
+    submit_selector: str = '[type="submit"]',
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
+    """R-F1712: log into a portal then read the API key from its dashboard.
+
+    The missing back-half of autonomous onboarding. Logs in (same browser
+    context carries the auth cookies), navigates to the API-key page, waits for
+    JS to render, and extracts the key from the RENDERED DOM — `key_selector`
+    first (read the element's value/text), else `key_regex` over the rendered
+    HTML. (Rendered DOM, not static HTML: dashboards inject the key via JS, so a
+    static httpx scan misses it — the R-F1707 dynamic-content lesson applied to
+    retrieval.)
+
+    Returns {"success": bool, "api_key": str, "final_url": str, "error": str}.
+    success is True ONLY when a non-empty key was actually extracted — never a
+    fabricated/assumed key (R-F1702 honesty).
+    """
+    async with _semaphore():
+        playwright = browser = context = page = None
+        try:
+            playwright, browser, context, page = await _launch_browser()
+
+            # 1. Log in (carries cookies through the shared context).
+            await page.goto(login_url, wait_until="networkidle", timeout=int(timeout * 1000))
+            await page.wait_for_timeout(800)
+            for field_name, value in login_data.items():
+                try:
+                    el = (await page.query_selector(f'[name="{field_name}"]')
+                          or await page.query_selector(f'#{field_name}')
+                          or await page.query_selector(f'[id="{field_name}"]'))
+                    if el:
+                        await el.fill(value)
+                        await page.wait_for_timeout(100)
+                    else:
+                        logger.debug("[login_and_get_api_key] login field %s not found", field_name)
+                except Exception as e:
+                    logger.debug("[login_and_get_api_key] fill %s failed: %s", field_name, e)
+            try:
+                async with page.expect_navigation(timeout=20000):
+                    await page.click(submit_selector)
+                await page.wait_for_load_state("networkidle")
+            except Exception as e:
+                logger.debug("[login_and_get_api_key] post-login nav: %s", e)
+                await page.wait_for_timeout(2500)
+
+            # 2. Navigate to the API-key page + let JS render.
+            await page.goto(api_key_url, wait_until="networkidle", timeout=int(timeout * 1000))
+            await page.wait_for_timeout(1200)
+            rendered = await page.content()
+
+            # 3. Extract the key from the RENDERED DOM (selector first, then regex).
+            api_key = ""
+            if key_selector:
+                try:
+                    el = await page.query_selector(key_selector)
+                    if el:
+                        api_key = (await el.get_attribute("value")) or (await el.inner_text()) or ""
+                        api_key = api_key.strip()
+                except Exception as e:
+                    logger.debug("[login_and_get_api_key] selector extract failed: %s", e)
+            if not api_key and key_regex:
+                try:
+                    import re as _re
+                    m = _re.search(key_regex, rendered)
+                    if m:
+                        api_key = (m.group(1) if m.groups() else m.group(0)).strip()
+                except Exception as e:
+                    logger.debug("[login_and_get_api_key] regex extract failed: %s", e)
+
+            return {
+                "success": bool(api_key),
+                "api_key": api_key,
+                "final_url": page.url,
+                "error": "" if api_key else "no API key found on dashboard (selector/regex matched nothing)",
+            }
+        except Exception as e:
+            logger.debug("[login_and_get_api_key] failed for %s: %s", login_url, e)
+            return {"success": False, "api_key": "", "final_url": "", "error": str(e)}
+        finally:
+            await _cleanup_browser(playwright, browser, context, page)
+
+
 async def detect_form_fields(
     url: str,
     *,
