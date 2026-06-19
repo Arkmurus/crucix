@@ -14250,7 +14250,7 @@ async def portal_registry_auto_register_ep():
 
 
 @router.post("/portal-registry/drive/{portal_id}")
-async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False):
+async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, background: bool = True):
     """R-F1722: trigger determine_and_drive for ONE portal IN-APP (faithful —
     state_store is initialised here, unlike an ad-hoc ssh `python -c`). For live
     verification of autonomous onboarding. fresh=true first clears the portal's
@@ -14273,6 +14273,34 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False):
             await _pr1722._save_credentials(_creds1722)
         except Exception:
             pass
+    # R-F1723: run as an in-app BACKGROUND task by default. A full onboarding
+    # (74s 2captcha solve + page loads + login + retrieve + verify) far exceeds
+    # fly's ~60s HTTP request timeout, which killed the synchronous call before
+    # it finished. create_task runs it in the app's event loop (state_store
+    # initialised, no HTTP timeout); poll the vault / resolve_key for the result.
+    if background:
+        import asyncio as _aio1723
+
+        async def _run1723():
+            try:
+                r = await _pr1722.determine_and_drive(portal_id)
+                _k = ""
+                try:
+                    from ..intel.key_resolver import resolve_key as _rk
+                    _k = await _rk([], portal_id=portal_id)
+                except Exception:
+                    pass
+                logger.info(
+                    "[R-F1723] background onboarding %s -> status=%s key=%s",
+                    portal_id, r.get("status"), ("PRESENT len=%d" % len(_k)) if _k else "NONE",
+                )
+            except Exception as e:
+                logger.error("[R-F1723] background onboarding %s FAILED: %r", portal_id, e)
+
+        _aio1723.create_task(_run1723())
+        return {"queued": True, "portal_id": portal_id, "fresh": fresh,
+                "note": "running in-app; poll vault/resolve_key for the result"}
+
     result = await _pr1722.determine_and_drive(portal_id)
     try:
         from ..intel.key_resolver import resolve_key as _rk1722

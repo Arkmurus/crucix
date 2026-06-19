@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1723,
+  "next_available": 1724,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11597,6 +11597,15 @@
       "r_number": "R-F1722",
       "title": "in-app POST /portal-registry/drive/{id}?fresh trigger for faithful live onboarding verification",
       "claimed_at": "2026-06-19T17:01:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1723",
+      "title": "drive endpoint runs onboarding as in-app background task (beat fly HTTP timeout on the 74s captcha solve); poll vault for result",
+      "claimed_at": "2026-06-19T17:24:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
