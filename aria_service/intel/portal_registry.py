@@ -884,7 +884,7 @@ async def _audit_preparation(
             )
         except ValueError:
             pass  # already in vault
-    except Exception:
+    except Exception as _e:
         logger.debug("[portal_registry] vault record failed (non-fatal): %s", _e)
 
 
@@ -1056,13 +1056,29 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
         }
 
     elif portal.registration_type == "email_form":
-        return await _register_via_email_form(portal)
-
+        result = await _register_via_email_form(portal)
     elif portal.registration_type == "api_key":
-        return await _register_for_api_key(portal)
-
+        result = await _register_for_api_key(portal)
     else:
-        return {"success": False, "error": f"Unknown registration type: {portal.registration_type}"}
+        result = {"success": False, "error": f"Unknown registration type: {portal.registration_type}"}
+
+    # R-F1692: wire failure branch to brain so the operator has visibility
+    # into registration failures (previously all failures were masked as
+    # 'prepared' with no brain signal — §25 proprioception violation).
+    if not result.get("success"):
+        try:
+            from .engine_wiring import wire_failure as _wf1692
+            _wf1692(
+                module="portal_registry",
+                detail=f"Registration failed for {portal_id} ({portal.name}): "
+                       f"{result.get('error') or result.get('message', 'unknown')}",
+                gap_type="source_failure",
+                source="portal_registry",
+            )
+        except Exception:
+            pass
+
+    return result
 
 
 async def _register_via_email_form(portal: PortalDef) -> dict[str, Any]:
@@ -1304,6 +1320,30 @@ async def _attempt_form_fill_submit(
                         "[portal_registry] R-F1689: CAPTCHA solved for %s",
                         portal.id,
                     )
+                else:
+                    # R-F1692: CAPTCHA solving failed on a required-captcha portal.
+                    # Fail immediately — submitting without a token will be rejected
+                    # and the brain would see a false 'prepared' success.
+                    logger.warning(
+                        "[portal_registry] R-F1692: CAPTCHA solve failed for %s "
+                        "(all providers returned None) — aborting registration",
+                        portal.id,
+                    )
+                    try:
+                        from .engine_wiring import wire_failure as _wf1692
+                        _wf1692(
+                            module="portal_registry",
+                            detail=f"CAPTCHA solve failed for {portal.id} — all providers returned None",
+                            gap_type="source_failure",
+                            source="portal_registry",
+                        )
+                    except Exception:
+                        pass
+                    return {
+                        "success": False,
+                        "error": f"CAPTCHA solve failed for {portal.name} — all providers returned None",
+                        "portal_id": portal.id,
+                    }
             except Exception as e:
                 logger.debug(
                     "[portal_registry] R-F1689: CAPTCHA detection failed for %s: %s",

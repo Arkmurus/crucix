@@ -278,10 +278,12 @@ class TestVaultImport:
     """Test importing from portal_registry."""
 
     def test_import_from_portal_registry(self, vault, sample_portals):
-        """Importing should create entries for portals with signup_fields."""
-        # R-F1477: method is import_open_portals, not import_from_portal_registry
+        """Importing should create entries for all portal types."""
+        # R-F1684: import_open_portals now handles ALL portal types, not just
+        # those with signup_fields. test_portal_3 (api_key, no signup_fields)
+        # now gets imported as 'needs_operator'.
         count = vault.import_open_portals(sample_portals, agent_id="test_agent")
-        assert count == 2  # only portals with signup_fields
+        assert count == 3  # all 3 portals now imported (R-F1684 widened coverage)
 
         # Check the imported entries
         entry1 = vault.get("test_portal_1")
@@ -294,9 +296,12 @@ class TestVaultImport:
         assert entry2 is not None
         assert entry2["site_name"] == "Test Portal Two"
 
-        # Portal without signup_fields should NOT be imported
+        # Portal without signup_fields now gets imported as 'needs_operator'
         entry3 = vault.get("test_portal_3")
-        assert entry3 is None
+        assert entry3 is not None, "test_portal_3 should now be imported as needs_operator"
+        assert entry3["status"] == "needs_operator", (
+            f"Expected needs_operator, got {entry3['status']}"
+        )
 
     def test_import_skips_existing(self, vault, sample_portals):
         """Importing should skip already-recorded sites."""
@@ -304,8 +309,9 @@ class TestVaultImport:
                      agent_id="existing_agent")
 
         # R-F1477: method is import_open_portals, not import_from_portal_registry
+        # R-F1684: now imports 3 portals (was 2), so after skipping 1, count=2
         count = vault.import_open_portals(sample_portals, agent_id="test_agent")
-        assert count == 1  # only test_portal_2 is new
+        assert count == 2  # test_portal_2 and test_portal_3 are new (was 1)
 
         # Existing entry should not be overwritten
         entry = vault.get("test_portal_1")

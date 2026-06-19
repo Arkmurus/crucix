@@ -35,8 +35,11 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.agent_signup_vault")
 
-# SQLite database path
-_VAULT_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent.parent.parent / "data")))
+# SQLite database path — MUST resolve onto /data volume (persistent across deploys).
+# R-F1692: was resolving via ARIA_DATA_DIR which is unset on Fly, so the DB lived
+# in /app/data/ (ephemeral) and ALL registration state was wiped every deploy.
+# Now scoped to /data/ directly, matching the Fly volume mount.
+_VAULT_DIR = Path("/data")
 _VAULT_DB = _VAULT_DIR / "agent_signup_vault.db"
 
 # Valid statuses
@@ -238,12 +241,11 @@ class AgentSignupVault:
         conn.commit()
 
         # Wire success to brain
-        _wire_to_brain("agent_signup_vault.recorded", {
+        _wire_success("agent_signup_vault.recorded", {
             "site_id": site_id,
             "site_name": site_name,
             "agent_id": agent_id,
             "status": status,
-            "success": True,
         })
 
         # R-F1233: Notify all agents about the new signup
@@ -307,10 +309,9 @@ class AgentSignupVault:
         conn.commit()
 
         # Wire to brain
-        _wire_to_brain("agent_signup_vault.status_updated", {
+        _wire_success("agent_signup_vault.status_updated", {
             "site_id": site_id,
             "status": status,
-            "success": True,
         })
 
         # R-F1233: Notify all agents about the status change
@@ -326,9 +327,8 @@ class AgentSignupVault:
         deleted = cursor.rowcount > 0
 
         if deleted:
-            _wire_to_brain("agent_signup_vault.deleted", {
+            _wire_success("agent_signup_vault.deleted", {
                 "site_id": site_id,
-                "success": True,
             })
             _notify_agents("signup_deleted", site_id)
 
@@ -397,7 +397,7 @@ class AgentSignupVault:
                 "[agent_signup_vault] R-F1684: cleaned %d test entries older than %dh",
                 deleted, max_age_hours,
             )
-            _wire_to_brain("agent_signup_vault.test_data_cleaned", {
+            _wire_success("agent_signup_vault.test_data_cleaned", {
                 "deleted": deleted,
                 "max_age_hours": max_age_hours,
             })
@@ -521,14 +521,37 @@ class AgentSignupVault:
 
 # ── Brain wiring ──────────────────────────────────────────────────────
 
+# R-F1692: replaced the broken _wire_to_brain (called observe_self_event with
+# wrong kwargs -> TypeError swallowed by except:pass) with engine_wiring calls
+# that match the real function signatures. Every vault operation now emits a
+# verifiable brain signal on BOTH success and failure branches.
 
-def _wire_to_brain(event: str, details: dict[str, Any]):
-    """Emit a brain signal (lazy import, never crashes)."""
+
+def _wire_success(event: str, details: dict[str, Any]):
+    """Emit a success signal to the brain (lazy import, never crashes)."""
     try:
-        from . import brain_hook as _bh
-        _bh.observe_self_event(source="agent_signup_vault", event=event, details=details)
+        from .engine_wiring import wire_success as _ws
+        _ws(
+            module="agent_signup_vault",
+            summary=f"{event}: {details.get('site_id', 'unknown')}",
+            source_id=f"agent_signup_vault:{event}",
+        )
     except Exception:
-        pass  # brain unreachable
+        pass
+
+
+def _wire_failure(event: str, details: dict[str, Any], error: str = ""):
+    """Emit a failure signal to the brain (lazy import, never crashes)."""
+    try:
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="agent_signup_vault",
+            detail=f"{event} failed for {details.get('site_id', 'unknown')}: {error}",
+            gap_type="source_failure",
+            source="agent_signup_vault",
+        )
+    except Exception:
+        pass
 
 
 def _notify_agents(event: str, site_id: str, agent_id: str = "system"):

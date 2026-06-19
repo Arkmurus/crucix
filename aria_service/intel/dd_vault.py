@@ -26,7 +26,7 @@ logger = logging.getLogger("aria.dd_vault")
 # R-F1166 — wire to brain on vault operations
 from .engine_wiring import wire_success, wire_failure
 
-_VAULT_DIR = Path(os.getenv("ARIA_DATA_DIR", str(Path(__file__).resolve().parent.parent.parent / "data")))
+_VAULT_DIR = Path("/data")
 _VAULT_DB = _VAULT_DIR / "dd_vault.db"
 
 _CREATE_SQL = """
