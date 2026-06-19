@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1701,
+  "next_available": 1707,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11390,6 +11390,65 @@
       "r_number": "R-F1700",
       "title": "delete dead+dark autonomous_scheduler._fix_gaps duplicate (live coder run_forever owns gap-fixing)",
       "claimed_at": "2026-06-19T09:43:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1701",
+      "title": "fix mode-menu popover clipped by input-wrap overflow:hidden",
+      "claimed_at": "2026-06-19T09:47:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5ac59f75",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:51:22Z"
+    },
+    {
+      "r_number": "R-F1702",
+      "title": "Fix vault registered fabrication - determine_and_drive must not trust credential existence as proof of registration",
+      "claimed_at": "2026-06-19T09:49:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "38730444",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:52:33Z"
+    },
+    {
+      "r_number": "R-F1703",
+      "title": "CSP-safe message action buttons — Copy/Export/Edit blocked by script-src-attr none; use event delegation",
+      "claimed_at": "2026-06-19T09:55:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "04fb34f9",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:59:41Z"
+    },
+    {
+      "r_number": "R-F1704",
+      "title": "Startup migration to correct 23 fabricated vault registered entries",
+      "claimed_at": "2026-06-19T10:08:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5b056322",
+      "notes": null,
+      "shipped_at": "2026-06-19T10:23:39Z"
+    },
+    {
+      "r_number": "R-F1705",
+      "title": "professional PDF report — fix empty-pages (watermark auto-paginate), Unicode mojibake, redesign layout",
+      "claimed_at": "2026-06-19T10:08:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3eeb14eb",
+      "notes": null,
+      "shipped_at": "2026-06-19T10:22:52Z"
+    },
+    {
+      "r_number": "R-F1706",
+      "title": "audit_log.record: serialize the entry ONCE (off-loop) instead of 4x inline json.dumps on the DD/compliance hot path",
+      "claimed_at": "2026-06-19T12:47:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

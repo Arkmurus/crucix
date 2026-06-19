@@ -62,6 +62,7 @@ Public API
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -281,16 +282,28 @@ async def record(
         "signing_key_fingerprint": signing_key_fingerprint(),
         "signed_in_dev_mode": is_dev,
     }
-    body["signature"] = _compute_signature(body)
-    entry_hash = hashlib.sha256(_serialise_for_hash(body)).hexdigest()
+    # R-F1706: the body/entry can carry large DD/compliance inputs+outputs
+    # (tens of KB). Pre-fix this path serialised on the event loop FOUR times
+    # per record (signature, hash, lpush, by_hash) with the slower default=str
+    # encoder — a real per-DD-run stall source. Cure: run each JSON
+    # serialisation OFF the loop via to_thread, and serialise the stored `entry`
+    # ONCE (reused for both the chain and the by-hash index) instead of twice.
+    # The signed/hashed BYTES are unchanged (same _serialise_for_hash /
+    # _compute_signature on the same body) — the tamper-evident chain is
+    # byte-identical, only the execution location moved.
+    body["signature"] = await asyncio.to_thread(_compute_signature, body)
+    entry_hash = hashlib.sha256(
+        await asyncio.to_thread(_serialise_for_hash, body)
+    ).hexdigest()
     entry = {**body, "entry_hash": entry_hash}
+    entry_json = await asyncio.to_thread(json.dumps, entry, default=str)
 
     # Persist: main chain + indexes + direct-lookup. Each is a separate Redis
     # call; if any fails we still have the main chain. Logging on best-effort.
     try:
-        await rs.lpush(_KEY_LOG, json.dumps(entry, default=str))
+        await rs.lpush(_KEY_LOG, entry_json)
         await rs.set(_KEY_HEAD_HASH, entry_hash)
-        await rs.set(_KEY_BY_HASH.format(hash=entry_hash), json.dumps(entry, default=str))
+        await rs.set(_KEY_BY_HASH.format(hash=entry_hash), entry_json)
         if deal_id:
             await rs.lpush(_KEY_BY_DEAL.format(deal_id=deal_id), entry_hash)
         if entity_name:
