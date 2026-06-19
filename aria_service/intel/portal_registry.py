@@ -2155,38 +2155,54 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                 if done:
                     return await _finish(done)
 
-            # 1. REGISTER (solve captcha, submit the real form) ─────────
+            # 1. REGISTER — alias-retry. R-F1728: live proof — a FRESH email
+            #    POST lands on /register/success with the 32-hex key ON the page
+            #    (no email-verify, no login). The configured aria@arkmurus.com is
+            #    already registered from prior attempts, so its POST silently
+            #    re-renders /register. Retry with `+portal` sub-addresses of the
+            #    SAME real mailbox (honest identity, same inbox) until one creates
+            #    a fresh account and yields a VERIFIED key.
             reg_url = base + (portal.register_path or "/register")
-            page = _step("register_get", await client.get(reg_url))
-            form = _build_form_data(
-                portal.signup_fields,
-                {"email": _ARIA_EMAIL, "name": _ARIA_NAME, "password": password},
-            )
-            _hidden(page, form)
-            if portal.requires_captcha:
-                from .captcha_solver import detect_and_solve_captcha
-                tok = await detect_and_solve_captcha(reg_url, page)
-                if not tok:
-                    return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
-                            "message": f"{portal.name}: httpx onboard — captcha returned no token"})
-                form["g-recaptcha-response"] = tok
-                form["g-recaptcha-response-100000"] = tok  # some ASP.NET forms suffix the field
-            reg = await client.post(_action(page, reg_url), data=form)
-            reg_body = _step("register_post", reg)
-            # the key may be on the post-register response itself
-            done = await _try_store(reg_body, "register-response")
-            if done:
-                return await _finish(done)
-            # store creds so login works now + future runs can log in
-            try:
-                await store_credential(portal.id, {"email": _ARIA_EMAIL, "password": password})
-            except Exception:
-                pass
+            _local, _at, _domain = _ARIA_EMAIL.partition("@")
+            email_candidates = [_ARIA_EMAIL]
+            if _domain:
+                email_candidates += [
+                    f"{_local}+{portal.id}@{_domain}",
+                    f"{_local}+{portal.id}{_sec1726.token_hex(3)}@{_domain}",
+                ]
 
-            # 2. LOGIN (cookies persist on the same client) ─────────────
+            async def _attempt_register(email: str, label: str):
+                pg = _step(f"register_get[{label}]", await client.get(reg_url))
+                f = _build_form_data(
+                    portal.signup_fields,
+                    {"email": email, "name": _ARIA_NAME, "password": password},
+                )
+                _hidden(pg, f)
+                if portal.requires_captcha:
+                    from .captcha_solver import detect_and_solve_captcha
+                    t = await detect_and_solve_captcha(reg_url, pg)
+                    if not t:
+                        return None
+                    f["g-recaptcha-response"] = t
+                rp = await client.post(_action(pg, reg_url), data=f)
+                return _step(f"register_post[{label}]", rp,
+                             {"email": email, "success_url": "success" in str(rp.url)})
+
+            for _i, _em in enumerate(email_candidates):
+                _body = await _attempt_register(_em, f"a{_i}")
+                if _body is None:
+                    continue
+                _done = await _try_store(_body, f"register-success({_em})")
+                if _done:
+                    try:
+                        await store_credential(portal.id, {"email": _em, "password": password})
+                    except Exception:
+                        pass
+                    _done["email_used"] = _em
+                    return await _finish(_done)
+
+            # 2/3. Last resort — login + dashboard (account may need a 2nd hop)
             await _do_login(client)
-
-            # 3. DASHBOARD → extract + verify + store ───────────────────
             acct = _step("account_final", await client.get(acct_url))
             done = await _try_store(acct, "post-register-login")
             if done:
@@ -2194,15 +2210,13 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
 
             # Honest failure — emit the decisive evidence in the message.
             last = diag["steps"][-1] if diag["steps"] else {}
-            reg_step = next((s for s in diag["steps"] if s["step"] == "register_post"), {})
+            reg_steps = [s for s in diag["steps"] if s["step"].startswith("register_post")]
+            tried = ", ".join(f"{s.get('email','?')}→{'success' if s.get('success_url') else 'rejected'}" for s in reg_steps)
             return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
                     "api_key_obtained": False,
-                    "message": (f"{portal.name}: httpx onboard reached /account "
-                                f"(status={last.get('status')}, logged_in={last.get('logged_in')}, "
-                                f"len={last.get('len')}) but 0 keys VERIFIED. "
-                                f"register_post status={reg_step.get('status')} "
-                                f"err={reg_step.get('err') or 'none'} | account err={last.get('err') or 'none'}. "
-                                f"See {portal.id}_httpx_debug.json.")})
+                    "message": (f"{portal.name}: httpx onboard — no email candidate yielded a VERIFIED key. "
+                                f"Tried: {tried or 'none'}. Last step status={last.get('status')} "
+                                f"logged_in={last.get('logged_in')}. See {portal.id}_httpx_debug.json.")})
     except Exception as e:
         return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
                 "message": f"{portal.name}: httpx onboard error: {e!r}"})

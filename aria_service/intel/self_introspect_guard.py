@@ -90,7 +90,20 @@ def detect_self_capability_question(message: str) -> bool:
         result = is_self_state_query(message)
         if result:
             _wire_introspect_hit(message)
-        return result
+            return True
+    except Exception:
+        pass
+    # R-F1725: also check for self-analysis requests ("system gap analysis",
+    # "audit of your ecosystem", "deep dive of your system"). These were
+    # previously missed because is_self_state_query only checks availability
+    # questions ("are you down"), and _CAPABILITY_KEYWORDS requires "your X"
+    # or "how many" patterns. The is_self_analysis_request function exists
+    # in self_infra_detector but was never wired into this guard.
+    try:
+        from .self_infra_detector import is_self_analysis_request
+        if is_self_analysis_request(message):
+            _wire_introspect_hit(message)
+            return True
     except Exception:
         pass
     return False
