@@ -1067,6 +1067,40 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
 
     # Check if already registered
     if await is_registered(portal_id):
+        # R-F1721: credentials existing != having the API key. For an api_key
+        # portal whose key is not stored yet, the ACCOUNT exists (from a prior
+        # attempt) but we still need to log in and RETRIEVE the key. Returning
+        # "already registered" here faked success and left the portal keyless —
+        # the live newsapi case: status=registered but resolve_key → empty.
+        if portal.registration_type == "api_key" and portal.api_key_path:
+            _cred1721 = await get_credential(portal_id) or {}
+            if not (_cred1721.get("api_key") or "").strip():
+                _cands1721 = await _retrieve_api_key(portal)
+                _verified1721 = ""
+                for _c1721 in _cands1721:
+                    if await _verify_api_key(portal, _c1721):
+                        _verified1721 = _c1721
+                        break
+                if _verified1721:
+                    from .key_resolver import store_obtained_key
+                    await store_obtained_key(
+                        portal_id, _verified1721,
+                        note="retrieved for existing account (R-F1721)",
+                    )
+                    return {
+                        "success": True, "api_key_obtained": True,
+                        "message": f"Logged into existing {portal.name} account + retrieved & verified API key",
+                        "portal_id": portal_id,
+                    }
+                return {
+                    "success": False, "api_key_obtained": False, "requires_operator": True,
+                    "message": f"{portal.name} account exists but its API key could not be retrieved/verified",
+                    "portal_id": portal_id,
+                }
+            # has a real stored key → genuinely registered
+            return {"success": True, "api_key_obtained": True,
+                    "message": f"Already registered for {portal.name} (key present)",
+                    "portal_id": portal_id}
         return {"success": True, "message": f"Already registered for {portal.name}", "portal_id": portal_id}
 
     # R-F1651: weekly per-domain rate cap. Count registrations on this
@@ -2433,7 +2467,17 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
         _vault1702 = _get_vault1702()
         _entry1702 = _vault1702.get(portal_id)
         if _entry1702 and _entry1702.get("status") in ("registered", "verified"):
-            return {"status": "registered", "message": "Confirmed registered in vault"}
+            # R-F1721: for an api_key portal, 'registered' is only REAL if a key
+            # is actually stored. A registered-but-keyless entry (faked by the
+            # old 'already registered' path) must fall through and be RE-DRIVEN
+            # so register_for_portal logs in + retrieves the key — not reported
+            # as done. (This re-drives the ~19 keyless 'registered' entries.)
+            _has_key1721 = True
+            if portal.registration_type == "api_key" and portal.api_key_path:
+                _c1702 = await get_credential(portal_id) or {}
+                _has_key1721 = bool((_c1702.get("api_key") or "").strip())
+            if _has_key1721:
+                return {"status": "registered", "message": "Confirmed registered in vault"}
     except Exception:
         pass
 

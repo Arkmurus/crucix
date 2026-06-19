@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1720,
+  "next_available": 1722,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11570,6 +11570,24 @@
       "r_number": "R-F1719",
       "title": "determine_and_drive: don't bail on captcha when a 2captcha solver is ready — proceed to register+solve",
       "claimed_at": "2026-06-19T16:35:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1720",
+      "title": "register_for_portal: credentials-exist != registered for api_key portals — if account exists but no key, login+retrieve instead of fake 'already registered'",
+      "claimed_at": "2026-06-19T16:44:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1721",
+      "title": "api_key portals: registered REQUIRES a stored key — if account exists but no key, login+retrieve; don't fake 'registered'/'already registered'",
+      "claimed_at": "2026-06-19T16:45:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
