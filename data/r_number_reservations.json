@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1727,
+  "next_available": 1728,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11633,6 +11633,15 @@
       "r_number": "R-F1726",
       "title": "httpx form-submit registration fallback when headless browser is anti-bot-blocked (newsapi: GET->solve captcha->POST form+token)",
       "claimed_at": "2026-06-19T18:19:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1727",
+      "title": "httpx onboard diagnostics + login-first + JSON-API detect",
+      "claimed_at": "2026-06-19T18:38:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

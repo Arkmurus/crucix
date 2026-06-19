@@ -2026,13 +2026,66 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
     preserved across register → login → dashboard. Honest: returns success only
     when a real key is retrieved + verified.
     """
+    import json as _json1727
     import re as _re1726
     import secrets as _sec1726
     from urllib.parse import urljoin as _urljoin1726
     ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-GB,en;q=0.9"}
     base = portal.url.rstrip("/")
-    password = "Ax" + _sec1726.token_urlsafe(12) + "7!"
+    # R-F1727: reuse the stored password if the account already exists (we cannot
+    # log into a pre-existing account with a fresh random password). Only mint a
+    # new one when there are no stored creds.
+    _existing = {}
+    try:
+        _existing = await get_credential(portal.id) or {}
+    except Exception:
+        _existing = {}
+    password = (_existing.get("password") or "").strip() or ("Ax" + _sec1726.token_urlsafe(12) + "7!")
+
+    # R-F1727: structured diagnostics — written to a debug file AND summarised in
+    # the return so ONE live run reveals exactly where the flow breaks (§22:
+    # evidence, not speculation about CSRF / anti-bot).
+    diag: dict[str, Any] = {"portal": portal.id, "steps": []}
+
+    def _keys(html: str) -> list[str]:
+        out: list[str] = []
+        if portal.api_key_regex:
+            for m in _re1726.finditer(portal.api_key_regex, html or ""):
+                c = (m.group(1) if m.groups() else m.group(0)).strip()
+                if c and c not in out:
+                    out.append(c)
+        return out
+
+    def _errsnip(html: str) -> str:
+        # surface ASP.NET / generic validation-error text so we KNOW why a POST
+        # was rejected (email-already-used, recaptcha-invalid, field-missing…).
+        for pat in (r'class=["\'][^"\']*(?:validation|field-validation|text-danger|error)[^"\']*["\'][^>]*>([^<]{3,200})',
+                    r'(The .{3,80} field is required\.)',
+                    r'(reCAPTCHA[^<]{0,80})',
+                    r'(already (?:in use|registered|exists)[^<]{0,60})'):
+            m = _re1726.search(pat, html or "", _re1726.I)
+            if m:
+                return _re1726.sub(r"\s+", " ", m.group(1)).strip()[:200]
+        return ""
+
+    def _step(name: str, resp, extra: dict | None = None) -> str:
+        body = resp.text if resp is not None else ""
+        rec = {
+            "step": name,
+            "status": getattr(resp, "status_code", None),
+            "final_url": str(getattr(resp, "url", "")),
+            "len": len(body),
+            "keys_found": _keys(body),
+            "err": _errsnip(body),
+            "logged_in": bool(_re1726.search(r"log\s*out|sign\s*out|/account", body or "", _re1726.I)),
+        }
+        if extra:
+            rec.update(extra)
+        diag["steps"].append(rec)
+        return body
 
     def _hidden(html: str, form: dict) -> None:
         for hm in _re1726.finditer(r'<input[^>]*type=["\']hidden["\'][^>]*>', html, _re1726.I):
@@ -2046,11 +2099,65 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
         m = _re1726.search(r'<form[^>]*action=["\']([^"\']+)["\']', html, _re1726.I)
         return _urljoin1726(base + "/", m.group(1)) if m else default
 
+    async def _finish(result: dict[str, Any]) -> dict[str, Any]:
+        # always persist diagnostics so the operator/next-run can SEE the chain
+        try:
+            import os as _os1727
+            _dbg_dir = "/data/_onboarding"
+            _os1727.makedirs(_dbg_dir, exist_ok=True)
+            with open(f"{_dbg_dir}/{portal.id}_httpx_debug.json", "w", encoding="utf-8") as _f:
+                _json1727.dump(diag, _f, indent=2, default=str)
+        except Exception:
+            pass
+        result["diag"] = diag["steps"]
+        return result
+
+    async def _try_store(html: str, via: str) -> dict[str, Any] | None:
+        for c in _keys(html):
+            if await _verify_api_key(portal, c):
+                from .key_resolver import store_obtained_key
+                await store_obtained_key(portal.id, c, note=f"httpx onboarding {via} (R-F1726/1727)")
+                try:
+                    from .engine_wiring import wire_success as _ws
+                    _ws(module="portal_onboarding",
+                        summary=f"Onboarded {portal.name} via httpx ({via}): key retrieved, VERIFIED, stored live.",
+                        source_id=f"portal_onboarding:{portal.id}")
+                except Exception:
+                    pass
+                return {"success": True, "api_key_obtained": True, "portal_id": portal.id,
+                        "message": f"Onboarded {portal.name} via httpx ({via}) — key retrieved, VERIFIED & stored (live)"}
+        return None
+
+    async def _do_login(client) -> str:
+        login_url = base + (portal.login_path or "/login")
+        lpage = _step("login_get", await client.get(login_url))
+        lform: dict[str, str] = {}
+        for sel, _t, src in (portal.login_fields or []):
+            if src == "email":
+                lform[sel] = _ARIA_EMAIL
+            elif src == "password":
+                lform[sel] = password
+            elif src.startswith("literal:"):
+                lform[sel] = src.split(":", 1)[1]
+        _hidden(lpage, lform)
+        return _step("login_post", await client.post(_action(lpage, login_url), data=lform))
+
     try:
         async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:
-            # 1. REGISTER ──────────────────────────────────────────────
+            acct_url = base + (portal.api_key_path or "/account")
+
+            # 0. LOGIN-FIRST — the account may already exist from a prior run; a
+            #    fresh register POST would just bounce on "email already in use".
+            if _existing.get("password"):
+                login_body = await _do_login(client)
+                acct = _step("account_after_login", await client.get(acct_url))
+                done = await _try_store(acct, "login-first")
+                if done:
+                    return await _finish(done)
+
+            # 1. REGISTER (solve captcha, submit the real form) ─────────
             reg_url = base + (portal.register_path or "/register")
-            page = (await client.get(reg_url)).text
+            page = _step("register_get", await client.get(reg_url))
             form = _build_form_data(
                 portal.signup_fields,
                 {"email": _ARIA_EMAIL, "name": _ARIA_NAME, "password": password},
@@ -2060,54 +2167,45 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                 from .captcha_solver import detect_and_solve_captcha
                 tok = await detect_and_solve_captcha(reg_url, page)
                 if not tok:
-                    return {"success": False, "requires_operator": True, "portal_id": portal.id,
-                            "message": f"{portal.name}: httpx onboard — captcha returned no token"}
+                    return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
+                            "message": f"{portal.name}: httpx onboard — captcha returned no token"})
                 form["g-recaptcha-response"] = tok
+                form["g-recaptcha-response-100000"] = tok  # some ASP.NET forms suffix the field
             reg = await client.post(_action(page, reg_url), data=form)
-            # store creds (so login works + future runs can log in)
+            reg_body = _step("register_post", reg)
+            # the key may be on the post-register response itself
+            done = await _try_store(reg_body, "register-response")
+            if done:
+                return await _finish(done)
+            # store creds so login works now + future runs can log in
             try:
                 await store_credential(portal.id, {"email": _ARIA_EMAIL, "password": password})
             except Exception:
                 pass
 
             # 2. LOGIN (cookies persist on the same client) ─────────────
-            login_url = base + (portal.login_path or "/login")
-            lpage = (await client.get(login_url)).text
-            lform: dict[str, str] = {}
-            for sel, _t, src in (portal.login_fields or []):
-                if src == "email":
-                    lform[sel] = _ARIA_EMAIL
-                elif src == "password":
-                    lform[sel] = password
-                elif src.startswith("literal:"):
-                    lform[sel] = src.split(":", 1)[1]
-            _hidden(lpage, lform)
-            await client.post(_action(lpage, login_url), data=lform)
+            await _do_login(client)
 
-            # 3. DASHBOARD → extract candidate keys ─────────────────────
-            acct = (await client.get(base + (portal.api_key_path or "/account"))).text
-            cands: list[str] = []
-            if portal.api_key_regex:
-                for m in _re1726.finditer(portal.api_key_regex, acct):
-                    c = (m.group(1) if m.groups() else m.group(0)).strip()
-                    if c and c not in cands:
-                        cands.append(c)
+            # 3. DASHBOARD → extract + verify + store ───────────────────
+            acct = _step("account_final", await client.get(acct_url))
+            done = await _try_store(acct, "post-register-login")
+            if done:
+                return await _finish(done)
 
-            # 4. VERIFY + STORE (only a working key is activated) ───────
-            for c in cands:
-                if await _verify_api_key(portal, c):
-                    from .key_resolver import store_obtained_key
-                    await store_obtained_key(portal.id, c, note="httpx onboarding (R-F1726)")
-                    return {"success": True, "api_key_obtained": True, "portal_id": portal.id,
-                            "message": f"Onboarded {portal.name} via httpx — key retrieved, VERIFIED & stored (live)"}
-            return {"success": False, "requires_operator": True, "portal_id": portal.id,
+            # Honest failure — emit the decisive evidence in the message.
+            last = diag["steps"][-1] if diag["steps"] else {}
+            reg_step = next((s for s in diag["steps"] if s["step"] == "register_post"), {})
+            return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
                     "api_key_obtained": False,
-                    "message": (f"{portal.name}: httpx onboard reached dashboard but no key VERIFIED "
-                                f"({len(cands)} candidate(s); register HTTP {reg.status_code}). "
-                                f"Likely additional anti-bot on register, or key not yet visible.")}
+                    "message": (f"{portal.name}: httpx onboard reached /account "
+                                f"(status={last.get('status')}, logged_in={last.get('logged_in')}, "
+                                f"len={last.get('len')}) but 0 keys VERIFIED. "
+                                f"register_post status={reg_step.get('status')} "
+                                f"err={reg_step.get('err') or 'none'} | account err={last.get('err') or 'none'}. "
+                                f"See {portal.id}_httpx_debug.json.")})
     except Exception as e:
-        return {"success": False, "requires_operator": True, "portal_id": portal.id,
-                "message": f"{portal.name}: httpx onboard error: {e!r}"}
+        return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
+                "message": f"{portal.name}: httpx onboard error: {e!r}"})
 
 
 async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[str, Any]:
