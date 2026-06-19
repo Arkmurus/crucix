@@ -78,6 +78,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /data/aria_rag && chmod 755 /data/aria_rag
 
 COPY aria_service/requirements.txt ./requirements.txt
+# R-F1709: install the CPU-only torch wheel FIRST. torch is pulled transitively
+# (sentence-transformers / easyocr); with no pin, PyPI serves the CUDA build
+# (2.12.0+cu130 ≈ 2 GB of nvidia-cuda-* libs the CPU-only Fly machine can never
+# use). That download dominated — and timed out — cold deploys and pushed the
+# image toward Fly's 8 GB cap. The CPU wheel is the SAME version (2.12.0 → zero
+# runtime change; torch executes on CPU either way) at ~1/10th the size. Pinned
+# to the live version so it's a byte-for-byte runtime equivalent, just smaller.
+# Installing it before `-r requirements.txt` means torch is already satisfied,
+# so the requirements install never pulls the CUDA build.
+RUN pip install --no-cache-dir torch==2.12.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Lightpanda headless browser (JS rendering, 24MB) ──────────────────────
@@ -101,6 +112,19 @@ RUN curl -fsSL -o /usr/local/bin/lightpanda \
 # so the first _get_embedder() call is a fast file read instead of an HTTP
 # download. Adds ~80MB to the image but makes cold starts predictable.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+# ── Playwright Chromium install (R-F1709: moved BEFORE the app/.git COPYs) ────
+# This ~400 MB step (chromium + apt --with-deps) does NOT depend on app code.
+# It used to sit AFTER `COPY aria_service/` and `COPY .git/HEAD` — and .git/HEAD
+# changes on EVERY commit, busting this layer's cache, so chromium re-installed
+# on every single deploy (a major deploy-time cost). Placed here (after the
+# pip install that provides the `playwright` CLI, before any code COPY) it stays
+# cached across commits and only re-runs when deps actually change.
+# Use `--with-deps` so Playwright's own upstream-maintained apt list is used (it
+# tracks Debian package renames like libasound2 → libasound2t64; hard-coding the
+# list drifted and broke a 2026-04-20 deploy). No silent `|| echo` fallback — if
+# this fails the build fails loudly. To intentionally skip: ARIA_PLAYWRIGHT_DISABLED=1.
+RUN playwright install --with-deps chromium
 
 # ── R-F958 (2026-05-28) — Whisper model is NOT baked into the image ──────────
 # R-F956 baked the faster-whisper 'base' model here, but stacked on top of the
@@ -138,31 +162,9 @@ COPY .git/packed-refs* ./.git/
 # Also future-proofs eval/smoke/admin scripts that need server-side execution.
 COPY scripts/ ./scripts/
 
-# ── Playwright Chromium install (2026-04-18) ──────────────────────────────
-# Install Chromium + dependencies for the scraper package
-# (aria_service/intel/scraper/*). This is the HEAVY browser fallback
-# beyond Lightpanda — used only for JS-heavy sites that Lightpanda
-# can't render AND aren't known publishers AND aren't covered by a
-# direct API. Adds ~400 MB to the image but unlocks the final 20% of
-# the crawl-capability audit (SEACE Peru, SSB Turkey, etc.).
-#
-# Memory: Chromium is ~300 MB resident per browser instance. We cap
-# concurrency at 2 via ARIA_PLAYWRIGHT_MAX_CONCURRENT so the 4 GB
-# fly.io machine has headroom.
-#
-# If this install ever blocks a deploy, set
-# ARIA_PLAYWRIGHT_DISABLED=1 on fly and the scraper package falls back
-# silently (crawl_enhancements detects ImportError and skips).
-# Use `--with-deps` so Playwright's own upstream-maintained apt-package
-# list is used (it tracks Debian trixie vs bookworm package renames like
-# libasound2 → libasound2t64; hard-coding the list here drifted and broke
-# a 2026-04-20 deploy). CRITICAL: no silent `|| echo` fallback — the pre-
-# 2026-04-20 version had that, and when `--with-deps` partially failed
-# on a base-OS upgrade the image shipped without chromium for weeks and
-# the scraper was silently unavailable. If this step fails, the build
-# fails loudly and we fix it. To intentionally skip Playwright: set
-# ARIA_PLAYWRIGHT_DISABLED=1 at runtime.
-RUN playwright install --with-deps chromium
+# NOTE: Playwright Chromium is installed earlier (before the app COPY) — see the
+# R-F1709 note above. It used to live here, but that placement re-ran the
+# ~400 MB install on every commit (cache busted by the .git/HEAD COPY).
 
 # NOTE: EasyOCR model weights are NOT pre-warmed at build time anymore.
 # Pre-warming with 4 languages forced ~600MB of PyTorch + model weights into
