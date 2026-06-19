@@ -483,7 +483,23 @@ async def submit_form(
                         selector = f'[id="{field_name}"]'
                         el = await page.query_selector(selector)
                     if el:
-                        await el.fill(value)
+                        # R-F1714: type-aware fill. A registration form is not
+                        # all text inputs — terms checkboxes and entity-type
+                        # radios must be CLICKED/CHECKED, not .fill()'d (fill
+                        # raises on a checkbox and silently leaves terms
+                        # unaccepted → registration rejected). Selects need
+                        # select_option. Detect the control and act correctly.
+                        el_type = (await el.get_attribute("type") or "").lower()
+                        tag = (await el.evaluate("e => e.tagName")) or ""
+                        if el_type == "checkbox":
+                            want = str(value).strip().lower() in ("1", "true", "on", "yes", "checked")
+                            await (el.check() if want else el.uncheck())
+                        elif el_type == "radio":
+                            await el.check()
+                        elif tag.lower() == "select":
+                            await el.select_option(value)
+                        else:
+                            await el.fill(value)
                         await page.wait_for_timeout(100)
                     else:
                         logger.debug("[submit_form] field %s not found on %s", field_name, url)

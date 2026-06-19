@@ -462,17 +462,37 @@ PORTALS: list[PortalDef] = [
         id="newsapi",
         name="NewsAPI",
         url="https://newsapi.org",
-        description="News article search API (free tier available)",
+        description="News article search API (free dev tier — adverse-media OSINT)",
         registration_type="api_key",
         rate_limit_per_hour=100,
         register_path="/register",
+        # R-F1714: REAL field names read from the live newsapi.org/register form
+        # (the prior lowercase email/password/name were guesses and would never
+        # match → registration silently failed). Email/FirstName/Password_Value
+        # are text inputs; the entity radio + terms checkbox are handled by the
+        # R-F1714 type-aware fill (clicked/checked, not filled). Individual =
+        # the free, non-commercial dev tier.
         signup_fields=[
-            ("email", "email", "email"),
-            ("password", "password", "password"),
-            ("name", "text", "name"),
+            ("Email", "email", "email"),
+            ("FirstName", "text", "name"),
+            ("Password_Value", "password", "password"),
+            ("EntityTypeIndividual", "radio", "literal:on"),
+            ("HasAcceptedTerms", "checkbox", "literal:true"),
         ],
-        success_indicator="API key",
-        verify_email_domain="newsapi.org",
+        # R-F1714: NO email verification needed — newsapi shows the key on
+        # /account immediately after registration (verify_email_domain left
+        # empty so the flow doesn't wait on an inbox).
+        success_indicator="account",
+        # R-F1712/R-F1714: log in (real /login fields) → read the key off
+        # /account. The key is a 32-char lowercase hex string; the regex is more
+        # robust than a brittle dashboard selector.
+        login_path="/login",
+        login_fields=[
+            ("Email", "email", "email"),
+            ("Password", "password", "password"),
+        ],
+        api_key_path="/account",
+        api_key_regex=r"\b[0-9a-f]{32}\b",
     ),
     # ── Company and financial data ─────────────────────────────────────
     PortalDef(
@@ -1853,17 +1873,14 @@ async def _retrieve_api_key(portal: PortalDef) -> str:
     """
     try:
         cred = await get_credential(portal.id) or {}
-        email = cred.get("email") or _ARIA_EMAIL
+        # R-F1714: registration_data is keyed by the SIGNUP field selectors, so
+        # resolve email/password via the same signup_fields mapping that stored
+        # them (reliable) — not a fragile value-scan that could grab the name.
+        _sel_for = {src: sel for sel, _t, src in (portal.signup_fields or [])}
+        email = cred.get(_sel_for.get("email", "")) or cred.get("email") or _ARIA_EMAIL
         if "@" not in str(email):
             email = _ARIA_EMAIL
-        password = cred.get("password") or ""
-        if not password:
-            # registration_data is keyed by signup-field selectors; last resort,
-            # take a value that looks like a generated password.
-            for v in cred.values():
-                if isinstance(v, str) and "@" not in v and len(v) >= 8 and v != email:
-                    password = v
-                    break
+        password = cred.get(_sel_for.get("password", "")) or cred.get("password") or ""
         if not password:
             logger.info(
                 "[portal_registry] R-F1712: no stored password for %s — cannot auto-login",

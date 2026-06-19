@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1713,
+  "next_available": 1715,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11505,6 +11505,24 @@
       "r_number": "R-F1712",
       "title": "autonomous portal login + dashboard API-key retrieval -> store_obtained_key (close the onboarding loop), proven on a template portal",
       "claimed_at": "2026-06-19T13:24:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1713",
+      "title": "doc-review follow-up: keep context + no web misroute; R-F448 verifier replace-in-place not double-print",
+      "claimed_at": "2026-06-19T14:50:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1714",
+      "title": "fully configure newsapi autonomous onboarding (real fields + login + /account key regex) + type-aware form fill (checkbox/radio/select)",
+      "claimed_at": "2026-06-19T14:53:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
