@@ -14397,7 +14397,17 @@ async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
         logger.info("[R-F1731] OFAC SDN ingest done: %s", out.get("summary") or out.get("error"))
 
     if background:
-        _aio.create_task(_run())
+        # R-F1734: register the task so it survives GC. A bare create_task() local
+        # is garbage-collected mid-run (main.py:28 warns about exactly this) — that
+        # is why the _run never overwrote /data/_ingest/ofac_sdn.json and every
+        # heatmap read was the stale first-run file. _bg_task keeps a strong ref
+        # in _BG_TASKS + logs any death.
+        _t = _aio.create_task(_run(), name="ofac_sdn_ingest")
+        try:
+            from ..main import _bg_task as _bgt
+            _bgt(_t, name="ofac_sdn_ingest")
+        except Exception:
+            pass
         return {"queued": True, "note": "running in-app; read /data/_ingest/ofac_sdn.json for the before/after heatmap delta"}
     await _run()
     return {"done": True, "note": "read /data/_ingest/ofac_sdn.json"}
