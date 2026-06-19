@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1732,
+  "next_available": 1733,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11683,6 +11683,15 @@
       "r_number": "R-F1731",
       "title": "OFAC SDN open_api ingester - raise sanctions heatmap floor (mastery gate #2)",
       "claimed_at": "2026-06-19T22:04:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1732",
+      "title": "ofac ingest: skip per-fact verify pipeline for bulk speed",
+      "claimed_at": "2026-06-19T22:20:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -160,12 +160,17 @@ async def ingest_rows(sdn_rows: list[dict], add_rows: list[dict],
             skipped_short += 1
             continue
         try:
+            # R-F1732: do NOT pass source_url+fact_type+entity_name together —
+            # that triggers store_fact's per-fact verified_intel.averify_and_store
+            # pipeline (knowledge.py:72), which made a 1500-row bulk ingest
+            # pathologically slow. For authoritative open-data reference rows we
+            # want FAST legacy writes; provenance lives in the content ("Source:
+            # US Treasury OFAC SDN list"). Contradiction-detection is scoped to the
+            # same topic only, so this stays fast. skip_semantic_index: the heatmap
+            # reads facts, not the index.
             await _k.store_fact(
                 topic, content, source="ofac_sdn", confidence="CONFIRMED",
-                source_url=SDN_URL, fact_type="sanctions_designation",
-                entity_name=(e.get("name") or "")[:120],
-                entity_type="sanctions_entity",
-                skip_semantic_index=True,  # heatmap reads facts, not the index — keep bulk fast
+                skip_semantic_index=True,
             )
             ingested += 1
             ck = country or "Unspecified"
