@@ -1770,6 +1770,12 @@ var Convos = (function() {
     //   Home / End        → first / last
     //   Delete            → delete (with confirmation)
     row.addEventListener('keydown', function(e) {
+      // R-F1694 — while renaming, the inline <input> is a child of this row, so
+      // its keystrokes bubble here. Pre-fix, pressing Space (or Enter) in the
+      // title editor hit the row handler below → preventDefault() swallowed the
+      // space AND load()ed the conversation (the "can't type a space + jumps
+      // into the chat" bug). Ignore any event originating from the editor.
+      if (e.target && e.target.closest && e.target.closest('.convo-title-edit')) return;
       var key = e.key;
       if (key === 'Enter' || key === ' ') {
         e.preventDefault();
@@ -1850,6 +1856,7 @@ var Convos = (function() {
       input.replaceWith(orig);
     }
     input.addEventListener('keydown', function(e) {
+      e.stopPropagation();   // R-F1694 — keep keystrokes (incl. Space) inside the editor
       if (e.key === 'Enter') { e.preventDefault(); commit(); }
       else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
     });
