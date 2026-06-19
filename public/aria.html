@@ -509,6 +509,23 @@
     .action-chip i { font-size: 14px; color: var(--accent); }
     @media (max-width: 640px) { .action-chips { display: none; } }
 
+    /* R-F1710 — staged attachment chip inside the input box. */
+    .attach-preview { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 2px; }
+    .attach-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--warm-active); border: 1px solid var(--warm-border-strong);
+      border-radius: 10px; padding: 6px 7px 6px 11px; max-width: 100%;
+    }
+    .attach-chip > i { color: var(--accent); font-size: 14px; flex-shrink: 0; }
+    .attach-chip-name { font-size: 13px; color: var(--warm-text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attach-chip-size { font-size: 11px; color: var(--warm-text-faint); flex-shrink: 0; }
+    .attach-chip-remove {
+      width: 20px; height: 20px; border: none; background: transparent; color: var(--warm-text-faint);
+      cursor: pointer; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
+    }
+    .attach-chip-remove:hover { background: rgba(255,255,255,0.12); color: var(--warm-text); }
+
     .input-foot {
       text-align: center; font-size: 11px; color: var(--warm-text-faint);
       padding: 8px 0 0; max-width: 760px; margin: 0 auto;
@@ -651,6 +668,8 @@
 
   <div class="input-area">
     <div class="input-wrap" id="input-wrap">
+      <!-- R-F1710 — staged attachment chip(s); held here until the user sends. -->
+      <div class="attach-preview" id="attach-preview" style="display:none;"></div>
       <textarea id="chat-input" placeholder="How can I help you today?" rows="1"></textarea>
       <div class="input-bar">
         <button class="ib-btn" id="upload-btn" title="Attach a document" aria-label="Attach document"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
@@ -783,6 +802,7 @@ var AUTH_READY = Auth.me().then(function(user) {
 }).catch(function(e) { console.warn('[Auth] me() failed:', e); return null; });
 var thinkMode = false;
 var sending = false;
+var pendingFile = null;   // R-F1710 — attachment staged in the input until the user sends
 var feed = document.getElementById('chat-feed');
 var scroll = document.getElementById('chat-scroll');
 var ta = document.getElementById('chat-input');
@@ -991,7 +1011,7 @@ document.addEventListener('keydown', function(e) {
 function resize() {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
-  var has = ta.value.trim().length > 0;
+  var has = ta.value.trim().length > 0 || !!pendingFile;   // R-F1710 — a staged file alone can be sent
   if (sending) {
     // While streaming, button becomes a Stop control — never disabled so the
     // user can always abort.
@@ -1389,6 +1409,16 @@ function removeThinking() { var t = document.getElementById('thk'); if (t) t.rem
 // ── Send message (SSE streaming) ──
 async function send(text, opts) {
   opts = opts || {};
+  // R-F1710 — if a document is staged, send it now WITH `text` as the prompt
+  // (or a default) instead of a plain message. pendingFile is cleared first so
+  // the inner streaming send() (with the [ATTACHED DOCUMENT] block) doesn't
+  // re-enter here.
+  if (pendingFile && !opts.skipUserBubble) {
+    if (sending) return;
+    var _pf = pendingFile; pendingFile = null; renderAttachPreview();
+    await processAttachedFile(_pf, text);
+    return;
+  }
   if (!text || sending) return;
   if (!CURRENT_USER) {
     try {
@@ -1653,34 +1683,60 @@ fileInput.accept = '.pdf,.docx,.xlsx,.xls,.csv,.txt,.json,.xml,.png,.jpg,.jpeg';
 fileInput.style.display = 'none';
 document.body.appendChild(fileInput);
 
-fileInput.addEventListener('change', async function() {
+// R-F1710 — STAGE the picked file (show a chip in the input box) instead of
+// analysing it immediately. The extract + analyse runs only when the user SENDS
+// (send() diverts to processAttachedFile with the typed prompt). Drag-drop +
+// clipboard paste route through this same change handler, so they stage too.
+fileInput.addEventListener('change', function() {
   if (!fileInput.files.length) return;
-  var file = fileInput.files[0];
+  pendingFile = fileInput.files[0];
   fileInput.value = '';
+  renderAttachPreview();
+  ta.focus();
+  resize();
+});
 
-  // R-F718 (2026-05-19) — capture the textarea query BEFORE clearing it,
-  // and inject the extracted document text into a chat-stream call so the
-  // LLM actually sees the file. Pre-R-F718 the extract-document response
-  // was rendered to the DOM and nothing else — chat-stream never saw the
-  // text, so "review these documents" follow-ups returned "no parsed text
-  // or file content reached my context". Symptom: user uploaded Peru
-  // economics PDF 2026-05-19 10:41/10:50, both times ARIA couldn't see it.
-  var userContext = ta.value.trim();
+function _fmtSize(b) {
+  if (b == null) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(0) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+function renderAttachPreview() {
+  var el = document.getElementById('attach-preview');
+  if (!el) return;
+  ta.placeholder = pendingFile ? 'Add a prompt for this document (optional), then Send…' : 'How can I help you today?';
+  if (!pendingFile) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = '';
+  var chip = document.createElement('div');
+  chip.className = 'attach-chip';
+  var icon = document.createElement('i'); icon.className = 'bi bi-paperclip'; icon.setAttribute('aria-hidden', 'true');
+  var name = document.createElement('span'); name.className = 'attach-chip-name'; name.textContent = pendingFile.name; name.title = pendingFile.name;
+  var size = document.createElement('span'); size.className = 'attach-chip-size'; size.textContent = _fmtSize(pendingFile.size);
+  var rm = document.createElement('button'); rm.className = 'attach-chip-remove'; rm.type = 'button'; rm.setAttribute('aria-label', 'Remove attachment');
+  rm.innerHTML = '<i class="bi bi-x-lg" aria-hidden="true"></i>';
+  rm.addEventListener('click', function() { pendingFile = null; renderAttachPreview(); resize(); ta.focus(); });
+  chip.appendChild(icon); chip.appendChild(name); chip.appendChild(size); chip.appendChild(rm);
+  el.appendChild(chip);
+}
+
+// R-F1710 — extract the staged document then fire the streaming analysis with
+// the user's prompt. Same R-F718 (inject [ATTACHED DOCUMENT] block) + R-F849
+// (truncation notice) logic as before — but now driven at SEND time with
+// `userText` as the prompt, instead of immediately at pick time.
+async function processAttachedFile(file, userText) {
+  if (sending) return;
+  var userContext = (userText || '').trim();
   var queryForLLM = userContext || 'Review this document and flag blockers or anything missed.';
-
   var formData = new FormData();
   formData.append('file', file);
   formData.append('context', queryForLLM);
   var token = localStorage.getItem('crucix_token') || '';
-
   addUser('📎 ' + file.name + (userContext ? '\n' + userContext : ''));
-  // Clear textarea immediately so the user doesn't see their query lingering
-  // through the extraction wait — send() would clear it anyway.
-  ta.value = '';
-  ta.style.height = 'auto';
-  resize();
+  ta.value = ''; ta.style.height = 'auto'; resize();
   showThinking();
-
   try {
     var resp = await fetch('/api/aria/extract-document', {
       method: 'POST',
@@ -1688,33 +1744,19 @@ fileInput.addEventListener('change', async function() {
       body: formData,
     });
     removeThinking();
-    if (!resp.ok) {
-      addAria(md('Failed to process ' + file.name + ': ' + resp.status));
-      return;
-    }
+    if (!resp.ok) { addAria(md('Failed to process ' + file.name + ': ' + resp.status)); return; }
     var data = await resp.json();
-    if (data.error) {
-      addAria(md('Failed to process ' + file.name + ': ' + data.error));
-      return;
-    }
+    if (data.error) { addAria(md('Failed to process ' + file.name + ': ' + data.error)); return; }
     var docText = (data.text || '').trim();
     if (!docText) {
-      // Strategies all failed (or gave only metadata) — fall back to
-      // the legacy display path so the user at least sees what happened.
       addAria(md(data.summary || data.gap_description || 'Document processed but no usable text extracted.'), file.name);
       return;
     }
-    // R-F718 — fire a streaming chat with the extracted text embedded as
-    // an [ATTACHED DOCUMENT] block. send() handles the SSE reply, persists
-    // the turn into conversation_store, and any future follow-up in this
-    // session will see the doc via conversation history.
     var label = file.name + ' · ' + (data.method || 'extracted') +
                 ' · ' + Math.round((data.confidence || 0) * 100) + '%' +
                 (data.pages_extracted && data.total_pages
                   ? ' · ' + data.pages_extracted + '/' + data.total_pages + ' pages'
                   : '') +
-                // R-F849 — surface server-side truncation so the user knows the
-                // tail (annexes / signature / schedules) is not in the analysis.
                 (data.truncated
                   ? ' · ⚠ truncated ' + (data.returned_chars || 0).toLocaleString() +
                     '/' + (data.total_chars || 0).toLocaleString() + ' chars'
@@ -1724,13 +1766,12 @@ fileInput.addEventListener('change', async function() {
       docText + '\n' +
       '[/ATTACHED DOCUMENT]\n\n' +
       queryForLLM;
-    // skipUserBubble — the upload bubble was already added above.
     send(promptText, { skipUserBubble: true });
-  } catch(err) {
+  } catch (err) {
     removeThinking();
     addAria(md('Upload failed: ' + err.message));
   }
-});
+}
 
 // Drag-and-drop
 var chatScroll = document.getElementById('chat-scroll');
