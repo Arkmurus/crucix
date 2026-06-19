@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1689,
+  "next_available": 1694,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11272,6 +11272,55 @@
       "r_number": "R-F1688",
       "title": "remove SESSION_TTL — chat history never expires (Claude/DeepSeek parity)",
       "claimed_at": "2026-06-19T07:49:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a508027d",
+      "notes": null,
+      "shipped_at": "2026-06-19T08:05:48Z"
+    },
+    {
+      "r_number": "R-F1689",
+      "title": "Autonomous CAPTCHA solver - multi-provider integration for portal registration",
+      "claimed_at": "2026-06-19T08:13:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9047c2c2",
+      "notes": null,
+      "shipped_at": "2026-06-19T08:17:49Z"
+    },
+    {
+      "r_number": "R-F1690",
+      "title": "aria.html chat UX batch 1 — undo-toast delete, rename polish, kill native alerts, smart scroll, touch-visible actions",
+      "claimed_at": "2026-06-19T08:17:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7f93381f",
+      "notes": null,
+      "shipped_at": "2026-06-19T08:25:13Z"
+    },
+    {
+      "r_number": "R-F1691",
+      "title": "aria.html chat UX batch 2 — loading skeleton, edit-and-resend, scroll-to-bottom, timestamps, attach chip",
+      "claimed_at": "2026-06-19T08:35:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1692",
+      "title": "Fix vault ephemeral path, brain-wiring, NameError, CAPTCHA false success, register_for_portal wiring",
+      "claimed_at": "2026-06-19T08:44:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f763209a",
+      "notes": null,
+      "shipped_at": "2026-06-19T08:48:50Z"
+    },
+    {
+      "r_number": "R-F1693",
+      "title": "kill-switch fail-CLOSED on redis error (emergency stop must hold) + in-proc pause mirror",
+      "claimed_at": "2026-06-19T08:55:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

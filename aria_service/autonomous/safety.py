@@ -391,16 +391,42 @@ async def clear_dedupe(task_id: str, entity: str = "") -> None:
 
 # ── Public: pause / resume ─────────────────────────────────────────────────
 
+# R-F1693: in-process mirror of the pause state so the kill switch FAILS CLOSED
+# (holds the last-known intent) during a Redis outage instead of silently
+# resuming ALL autonomy. The emergency stop is the one control that must never
+# fail open: an operator who hit "pause" because something was going wrong must
+# stay paused even when state is unreliable. A successful Redis read refreshes
+# the mirror; pause/resume set it FIRST so the intent holds even if the Redis
+# write fails. Default is "not paused" so a transient blip (when nobody paused)
+# does not spuriously halt autonomy — we hold last-known intent, not "always
+# paused".
+_paused_inproc: bool = False
+_task_paused_inproc: dict[str, bool] = {}
+
+
 async def is_engine_paused() -> bool:
-    """Global engine kill switch. When True, NO tasks fire."""
+    """Global engine kill switch. When True, NO tasks fire.
+
+    R-F1693: fails CLOSED on Redis error — returns the last-known in-process
+    pause state, never an unconditional False.
+    """
+    global _paused_inproc
     try:
         val = await rs.get(_PAUSE_KEY)
-        return (val or "").strip() == "1"
+        _paused_inproc = (val or "").strip() == "1"  # refresh mirror on success
+        return _paused_inproc
     except Exception:
-        return False  # Fail open — pause must be deliberate, not by accident
+        logger.warning(
+            "[autonomous safety] is_engine_paused: Redis unreadable — failing "
+            "CLOSED to last-known pause=%s",
+            _paused_inproc,
+        )
+        return _paused_inproc  # R-F1693: hold last-known, never default to "run"
 
 
 async def pause_engine(reason: str = "") -> None:
+    global _paused_inproc
+    _paused_inproc = True  # R-F1693: set intent FIRST so pause holds even if the Redis write fails
     try:
         await rs.set(_PAUSE_KEY, "1")
         logger.warning(
@@ -423,6 +449,8 @@ async def pause_engine(reason: str = "") -> None:
 
 
 async def resume_engine() -> None:
+    global _paused_inproc
+    _paused_inproc = False  # R-F1693: clear intent FIRST (mirror stays consistent with operator action)
     try:
         # Use delete (atomic), not set "0" (would still be truthy)
         if hasattr(rs, "delete"):
@@ -446,12 +474,18 @@ async def resume_engine() -> None:
 
 
 async def is_task_paused(task_id: str) -> bool:
-    """Per-task pause flag (independent of the global engine pause)."""
+    """Per-task pause flag (independent of the global engine pause).
+
+    R-F1693: fails CLOSED to the last-known per-task state on Redis error.
+    """
+    global _task_paused_inproc
     try:
         val = await rs.get(_PAUSE_TASK_FMT.format(task_id=task_id))
-        return (val or "").strip() == "1"
+        paused = (val or "").strip() == "1"
+        _task_paused_inproc[task_id] = paused  # refresh mirror on success
+        return paused
     except Exception:
-        return False
+        return _task_paused_inproc.get(task_id, False)  # hold last-known
 
 
 async def pause_task(task_id: str) -> None:
