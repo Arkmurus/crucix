@@ -543,6 +543,25 @@ class ARIACoder:
                     "[aria_coder] R-F1681 auto-written reproduce test at %s",
                     _reproduce_test_path,
                 )
+            # R-F1685: a pre-existing failing test is ALSO a valid reproduce
+            # artifact — a human-written test already RED is the strongest
+            # FAIL->PASS evidence there is. reproduce_symptom returns it as
+            # "symptom reproduced: test <path> failed (exit=N)" (gap_detector
+            # _find_test_for_module path). Without capturing it here the
+            # existing-test path could NEVER set reproduce_fail_to_pass, so
+            # known-failing-test fuel could never accrue gold (the gold gate
+            # requires reproduce_fail_to_pass). Extract the path so STEP 6.5
+            # re-runs it FAIL->PASS exactly like the auto-written case.
+            elif "symptom reproduced: test " in symptom_msg:
+                _reproduce_test_path = (
+                    symptom_msg.split("symptom reproduced: test ", 1)[-1]
+                    .split(" failed", 1)[0]
+                    .strip()
+                )
+                logger.info(
+                    "[aria_coder] R-F1685 existing reproduce test at %s",
+                    _reproduce_test_path,
+                )
 
         try:
             # STEP 1 — context
@@ -703,19 +722,38 @@ class ARIACoder:
             # so _test_with_healing runs it alongside generated tests. The reproduce
             # test MUST go from FAIL (on unfixed) to PASS (on fixed) for gold.
             _reproduce_fail_to_pass = False
+            _reproduce_target = None
             if _reproduce_test_path:
                 _reproduce_target = f"aria_service/tests/repro_{gap.gap_id[:12]}.py"
-                plan.new_tests[_reproduce_target] = _reproduce_test_path
-                # Copy the reproduce test into the workspace so the test runner
-                # can find it alongside the generated tests
-                import shutil as _shutil1681
+                # R-F1685 ROOT-CAUSE FIX: store the reproduce test CODE (read
+                # from disk), NOT its path. run_isolated writes new_tests VALUES
+                # as the test file's CONTENTS (test_runner.py), so the prior
+                # `plan.new_tests[_reproduce_target] = _reproduce_test_path`
+                # wrote a bare path string into the repro file → a collection
+                # SyntaxError → all_green=False → the fix was rejected at STEP 6
+                # before it could ever reach the gold gate. Read the real code
+                # and register it consistently in both new_tests and workspace.
                 try:
-                    _ws_repro = str(workspace / _reproduce_target)
-                    _ws_repro_dir = _os1681.path.dirname(_ws_repro)
-                    _os1681.makedirs(_ws_repro_dir, exist_ok=True)
-                    _shutil1681.copy2(_reproduce_test_path, _ws_repro)
+                    _repro_src = Path(_reproduce_test_path).read_text(
+                        encoding="utf-8",
+                    )
                 except Exception as _e:
-                    logger.warning("[R-F1681] failed to copy reproduce test to workspace: %s", _e)
+                    _repro_src = ""
+                    logger.warning(
+                        "[R-F1685] failed to read reproduce test %s: %s",
+                        _reproduce_test_path, _e,
+                    )
+                if _repro_src:
+                    plan.new_tests[_reproduce_target] = _repro_src
+                    try:
+                        self.codebase.write_to_workspace(
+                            workspace, _reproduce_target, _repro_src,
+                        )
+                    except Exception as _e:
+                        logger.warning(
+                            "[R-F1685] failed to write reproduce test to workspace: %s",
+                            _e,
+                        )
 
             # STEP 6 — self-healing test loop
             safe_mode = not os.environ.get("ARIA_CODER_TESTS_FULL", "0").strip() == "1"
@@ -754,28 +792,47 @@ class ARIACoder:
                     ),
                 )
 
-            # R-F1681: re-run the auto-written reproduce test on the FIXED code.
-            # It MUST go from FAIL (on unfixed) to PASS (on fixed) for the fix
-            # to be verifiable. If it still fails, the fix didn't resolve the
-            # real symptom — reject even if generated tests pass.
+            # R-F1681/R-F1685: re-run the reproduce test on the FIXED code. It
+            # MUST go from FAIL (on unfixed) to PASS (on fixed) for the fix to be
+            # verifiable. If it still fails, the fix didn't resolve the real
+            # symptom — reject even if generated tests pass.
+            #
+            # R-F1685 ROOT-CAUSE FIX: the old path called
+            # gap_detector.verify_reproduce_test_passes(path), which ran
+            # `pytest <repo_path>` with cwd=repo — i.e. against the UNFIXED repo
+            # code (the fix lives only in `workspace`, never written to the repo
+            # before staging). So it ALWAYS failed → _reproduce_fail_to_pass
+            # could never be True → the gold gate (build_coder_reward_record)
+            # could never fire. That is why first gold never landed. We now
+            # re-run the reproduce test through the SAME isolation
+            # _test_with_healing uses (copy repo → overlay the workspace fix →
+            # pytest in the app_copy with cwd=app_copy), so it genuinely tests
+            # the FIXED code.
             if _reproduce_test_path:
                 await self._publish_progress(
                     fix_id, "verifying_reproduce",
-                    "Re-running reproduce test on fixed code — must PASS",
+                    "Re-running reproduce test on FIXED code (isolated) — must PASS",
                 )
-                _repro_ok, _repro_msg = await self.gap_detector.verify_reproduce_test_passes(
-                    _reproduce_test_path,
-                )
+                # _repro_src + _reproduce_target were set in STEP 5.5 (same scope).
+                if _reproduce_target and _repro_src:
+                    _repro_result = await self.test_runner.run_isolated(
+                        workspace, {_reproduce_target: _repro_src},
+                    )
+                    _repro_ok = bool(_repro_result.all_green)
+                    _repro_msg = _repro_result.failure_summary or ""
+                else:
+                    _repro_ok = False
+                    _repro_msg = "reproduce test code missing from workspace"
                 if _repro_ok:
                     _reproduce_fail_to_pass = True
                     logger.info(
-                        "[aria_coder] R-F1681 reproduce test FAIL->PASS confirmed for %s",
-                        gap.gap_id,
+                        "[aria_coder] R-F1685 reproduce test FAIL->PASS confirmed "
+                        "(isolated, fixed code) for %s", gap.gap_id,
                     )
                 else:
                     logger.warning(
-                        "[aria_coder] R-F1681 reproduce test still FAILS after fix for %s: %s",
-                        gap.gap_id, _repro_msg,
+                        "[aria_coder] R-F1685 reproduce test still FAILS after fix "
+                        "(isolated) for %s: %s", gap.gap_id, _repro_msg,
                     )
                     return FixResult(
                         success=False, fix_id=fix_id, gap_id=gap.gap_id,

@@ -1415,6 +1415,11 @@ class PortalCoverageExtractor:
         try:
             from ..intel.agent_signup_vault import get_vault
             vault = get_vault()
+            # R-F1684: run test-data cleanup before listing — prevents phantom gaps
+            try:
+                vault.cleanup_test_data()
+            except Exception:
+                pass
             pending = vault.list(status="pending", limit=20)
             for entry in pending:
                 site_id = entry.get("site_id", "unknown")
@@ -1423,6 +1428,10 @@ class PortalCoverageExtractor:
                 agent_id = entry.get("agent_id", "unknown")
                 created = entry.get("created_at", 0)
                 age_days = (time.time() - created) / 86400 if created else 0
+
+                # R-F1684: skip test artifacts that survived cleanup
+                if agent_id in ("test_agent", "test"):
+                    continue
 
                 detail = (
                     f"Signup for '{site_name}' ({site_id}) is still pending "
@@ -1448,10 +1457,244 @@ class PortalCoverageExtractor:
                     },
                 )
                 gaps.append(gap)
+
+            # R-F1684: also check for needs_operator entries that are NOT
+            # declined/deferred — these are actionable portals the operator
+            # hasn't addressed yet. Skip declined/deferred (terminal states).
+            needs_op = vault.list(status="needs_operator", limit=20)
+            for entry in needs_op:
+                site_id = entry.get("site_id", "unknown")
+                site_name = entry.get("site_name", site_id)
+                site_url = entry.get("site_url", "")
+                agent_id = entry.get("agent_id", "unknown")
+                created = entry.get("created_at", 0)
+                age_days = (time.time() - created) / 86400 if created else 0
+
+                # Skip test artifacts
+                if agent_id in ("test_agent", "test"):
+                    continue
+
+                # R-F1684: check metadata for declined/deferred flags.
+                # The determine_and_drive function sets these in the vault
+                # notes/metadata. If the portal is in _DECLINED_PORTAL_IDS
+                # or _DEFERRED_PORTAL_IDS, skip it — operator already decided.
+                metadata_raw = entry.get("metadata_json") or "{}"
+                try:
+                    import json as _json1684
+                    metadata = _json1684.loads(metadata_raw) if isinstance(metadata_raw, str) else metadata_raw
+                except Exception:
+                    metadata = {}
+                if metadata.get("declined") or metadata.get("deferred"):
+                    continue
+
+                detail = (
+                    f"Signup for '{site_name}' ({site_id}) needs operator action "
+                    f"({age_days:.0f} days waiting). "
+                    f"URL: {site_url}. "
+                    f"ARIA cannot auto-register this portal."
+                )
+
+                gap = Gap(
+                    gap_id=_gap_id_for("needs_operator_signup", "agent_signup_vault", site_id),
+                    gap_type="portal_registration",
+                    severity=GapSeverity.MEDIUM,
+                    title=f"Operator action needed: {site_name}",
+                    description=detail,
+                    module="agent_signup_vault",
+                    evidence={
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "url": site_url,
+                        "agent_id": agent_id,
+                        "age_days": round(age_days, 1),
+                        "source": "vault_needs_operator",
+                    },
+                )
+                gaps.append(gap)
         except Exception as e:
             logger.debug("[PortalCoverageExtractor] vault check failed: %s", e)
 
         return gaps
+
+
+# ── TEST FAILURE EXTRACTOR (R-F1684) ──────────────────────────────────────
+
+class TestFailureExtractor:
+    """R-F1684 — Detect failing tests and surface them as MODULE_BUG gaps.
+
+    Reads the pytest lastfailed cache to find tests that consistently fail.
+    Each failing test is mapped to its source module and surfaced as a
+    MODULE_BUG gap so the coder can autonomously fix it.
+
+    This is the structural fix for the coder's fuel problem: the 72 known
+    failing tests (CLAUDE.md §16 baseline) are real code bugs that the
+    reproduce→fix→FAIL→PASS→gold pipeline can consume. Every failing test
+    IS a reproduce test that already fails — perfect for the gold gate.
+
+    The extractor:
+      1. Reads `.pytest_cache/v/cache/lastfailed` for the list of failing tests
+      2. Maps each test to its source module (the file being tested)
+      3. Creates a MODULE_BUG gap with the test name as evidence
+      4. The coder's reproduce_symptom gate runs the failing test → it FAILS
+         → the fix makes it PASS → gold=true
+
+    Cost: ~0.01s per scan (pure file read, no subprocess). Runs on the same
+    15-minute scan interval as the other extractors.
+    """
+
+    # Map test file patterns to source modules they test.
+    # This is a heuristic — test_rf434_brandified_hostname_cap.py tests
+    # the brandified hostname capability, which lives in routes/aria.py.
+    # The fallback strips 'test_' prefix and '_rfNNNN_' suffix.
+    _TEST_TO_MODULE_MAP: dict[str, str] = {
+        # R-F434 cluster: brandified hostname cap
+        "test_rf434": "routes/aria.py",
+        # R-F436 cluster: page entity extraction
+        "test_rf436": "intel/page_entity_extractor.py",
+        # R-F445 cluster: polyglot execute
+        "test_rf445": "intel/polyglot_executor.py",
+        # R-F450 cluster: upload magic-byte routing
+        "test_rf450": "routes/aria.py",
+        # R-F460 cluster: brain absorb pause
+        "test_rf460": "intel/brain_hook.py",
+        # R-F463 cluster: memory replication patterns
+        "test_rf463": "intel/memory_replication.py",
+        # R-F468 cluster: mistake ledger no TTL
+        "test_rf468": "intel/mistake_ledger.py",
+        # R-F513 cluster: build_rev autoderive
+        "test_rf513": "main.py",
+        # R-F528 cluster: read_document clientdisconnect
+        "test_rf528": "routes/aria.py",
+        # R-F574 cluster: self-improve discard
+        "test_rf574": "intel/self_improve.py",
+        # R-F672 cluster: lifespan silent except promoted
+        "test_rf672": "main.py",
+    }
+
+    # Cache file path (relative to repo root)
+    _LASTFAILED_PATH = ".pytest_cache/v/cache/lastfailed"
+    _NODEIDS_PATH = ".pytest_cache/v/cache/nodeids"
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+        self._repo_root = Path(__file__).resolve().parent.parent.parent
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        """Read pytest lastfailed cache and surface failing tests as gaps."""
+        if since is not None:
+            age = (datetime.now(timezone.utc) - since).total_seconds()
+            if age > 7200 or age < 0:  # 2 hours max lookback
+                return []
+
+        gaps: list[Gap] = []
+
+        # Read the lastfailed cache
+        lastfailed_path = self._repo_root / self._LASTFAILED_PATH
+        nodeids_path = self._repo_root / self._NODEIDS_PATH
+
+        if not lastfailed_path.exists() or not nodeids_path.exists():
+            logger.debug("[TestFailureExtractor] pytest cache not found — skipping")
+            return gaps
+
+        try:
+            lastfailed_raw = lastfailed_path.read_text(encoding="utf-8", errors="replace")
+            nodeids_raw = nodeids_path.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError) as e:
+            logger.debug("[TestFailureExtractor] cache read failed: %s", e)
+            return gaps
+
+        try:
+            import json as _json1684
+            lastfailed = _json1684.loads(lastfailed_raw)
+            nodeids = _json1684.loads(nodeids_raw)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.debug("[TestFailureExtractor] cache parse failed: %s", e)
+            return gaps
+
+        if not isinstance(lastfailed, dict) or not isinstance(nodeids, list):
+            return gaps
+
+        # Filter to only tests that exist (nodeids) and are marked as failed (True)
+        nodeid_set = set(nodeids)
+        failing_tests = {
+            k: v for k, v in lastfailed.items()
+            if k in nodeid_set and v is True
+        }
+
+        # Group by test file for dedup
+        from collections import defaultdict
+        by_file: dict[str, list[str]] = defaultdict(list)
+        for test_id in failing_tests:
+            parts = test_id.split("::")
+            if len(parts) >= 2:
+                by_file[parts[0]].append(test_id)
+
+        for test_file, test_ids in by_file.items():
+            # Map test file to source module
+            module = self._map_test_to_module(test_file)
+            test_name = test_ids[0].split("::")[-1] if "::" in test_ids[0] else test_ids[0]
+
+            gap = Gap(
+                gap_id=_gap_id_for(
+                    GapType.MODULE_BUG, module,
+                    f"failing_test_{test_file.split('/')[-1].replace('.py', '')}",
+                ),
+                gap_type=GapType.MODULE_BUG,
+                severity=GapSeverity.HIGH,
+                title=f"Failing test: {test_file.split('/')[-1]} ({len(test_ids)} failures)",
+                description=(
+                    f"Test file '{test_file}' has {len(test_ids)} failing test(s). "
+                    f"First failing test: {test_name}. "
+                    f"Source module: {module}. "
+                    f"This is a real code bug — the failing test IS a reproduce test "
+                    f"that already fails, perfect for the coder's gold pipeline."
+                ),
+                module=module,
+                evidence={
+                    "test_file": test_file,
+                    "failing_count": len(test_ids),
+                    "first_failing_test": test_name,
+                    "all_failing_tests": test_ids[:20],  # cap at 20
+                    "source": "pytest_lastfailed_cache",
+                },
+            )
+            gaps.append(gap)
+
+        if gaps:
+            logger.info(
+                "[TestFailureExtractor] R-F1684: %d failing test file(s) detected — "
+                "surfaced as MODULE_BUG gaps for coder fuel",
+                len(gaps),
+            )
+
+        return gaps
+
+    def _map_test_to_module(self, test_file: str) -> str:
+        """Map a test file path to the source module it tests.
+
+        Uses the explicit _TEST_TO_MODULE_MAP first, then falls back to
+        heuristic: strip 'test_' prefix and '_rfNNNN_' suffix.
+        """
+        test_basename = Path(test_file).stem  # e.g. test_rf434_brandified_hostname_cap
+
+        # Check explicit map first
+        for prefix, module in self._TEST_TO_MODULE_MAP.items():
+            if test_basename.startswith(prefix):
+                return module
+
+        # Heuristic fallback: strip test_ prefix and _rfNNNN_ suffix
+        module = test_basename
+        if module.startswith("test_"):
+            module = module[5:]
+        # Strip _rfNNNN_ pattern
+        import re as _re1684
+        module = _re1684.sub(r"_rf\d+_", "_", module)
+        module = _re1684.sub(r"_rf\d+$", "", module)
+        # Strip trailing _test
+        if module.endswith("_test"):
+            module = module[:-5]
+        # Prepend aria_service/ path
+        return f"intel/{module}.py" if module else "unknown"
 
 
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
@@ -1496,6 +1739,7 @@ class GapDetector:
             AdversarialStalenessExtractor(redis_client),  # R-F1166: stale adversarial score
             GroundedRateExtractor(redis_client),          # R-F1166: grounded rate below threshold
             FileIntegrityExtractor(redis_client),         # R-F1171: missing critical files (Kaspersky)
+            TestFailureExtractor(redis_client),           # R-F1684: failing tests → MODULE_BUG gaps
         ]
         self._active_gaps: dict[str, Gap] = {}
 

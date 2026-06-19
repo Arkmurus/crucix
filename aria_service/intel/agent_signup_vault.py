@@ -46,7 +46,10 @@ _VAULT_DB = _VAULT_DIR / "agent_signup_vault.db"
 # R-F1502: added 'needs_operator' for portals ARIA cannot auto-register
 # (CAPTCHA, paid, email_verify, attempt_failed, manual_signup).
 # Replaces the perpetual 'pending' status that never resolved.
-VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled", "open_api", "needs_operator"}
+# R-F1684: added 'declined' (operator said no — paid/declined per §18) and
+# 'deferred' (waiting on env vars or prerequisites). These are terminal states
+# that suppress the portal from the recurring digest — never re-surfaced.
+VALID_STATUSES = {"pending", "registered", "verified", "failed", "expired", "cancelled", "open_api", "needs_operator", "declined", "deferred"}
 
 # Schema version for migration
 _SCHEMA_VERSION = 1
@@ -369,14 +372,52 @@ class AgentSignupVault:
             "db_path": str(self._db_path),
         }
 
+    # ── R-F1684: Test-data cleanup ──────────────────────────────────────
+
+    def cleanup_test_data(self, max_age_hours: int = 24) -> int:
+        """Delete test entries older than `max_age_hours`.
+
+        Test entries (agent_id='test_agent' or 'test') accumulate during
+        test runs and pollute the vault with phantom 'pending' entries.
+        The gap detector's PortalCoverageExtractor picks them up and creates
+        phantom gaps that waste the coder's budget.
+
+        Returns the number of deleted entries.
+        """
+        conn = self._get_conn()
+        cutoff = time.time() - (max_age_hours * 3600)
+        cursor = conn.execute(
+            "DELETE FROM signups WHERE agent_id IN ('test_agent', 'test') AND created_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        deleted = cursor.rowcount
+        if deleted:
+            logger.info(
+                "[agent_signup_vault] R-F1684: cleaned %d test entries older than %dh",
+                deleted, max_age_hours,
+            )
+            _wire_to_brain("agent_signup_vault.test_data_cleaned", {
+                "deleted": deleted,
+                "max_age_hours": max_age_hours,
+            })
+        return deleted
+
     # ── Bulk import from portal_registry ───────────────────────────────
 
     def import_open_portals(self, portals: list, agent_id: str = "system") -> int:
         """Import portals from portal_registry into the vault.
 
-        Handles two types:
-        1. registration_type='none' → marked as 'registered' (free/open APIs)
+        Handles ALL portal types — no gaps:
+        1. registration_type='none' → marked as 'open_api' (free/open APIs)
         2. Portals with signup_fields → marked as 'pending' (registrable)
+        3. CAPTCHA portals → marked as 'needs_operator' (ARIA cannot bypass)
+        4. API-key portals without signup_fields → marked as 'needs_operator'
+        5. Portals without signup_fields → marked as 'needs_operator'
+
+        R-F1684: covers the 6 missing portals (sam_gov, opensanctions, fedbizops,
+        fapiis, state_ddtc, core_ac_uk) that fell through because they had no
+        signup_fields or were CAPTCHA-only.
 
         Accepts both list[PortalDef] (dataclass objects) and list[dict].
 
@@ -403,12 +444,10 @@ class AgentSignupVault:
 
             reg_type = _get(portal, "registration_type", "")
             signup_fields = _get(portal, "signup_fields")
+            requires_captcha = _get(portal, "requires_captcha", False)
 
             if reg_type == "none":
                 # Free/open API — no registration required.
-                # R-F1491: marked as 'open_api' not 'registered' — no registration
-                # ever happened. This is honest: the data source is accessible
-                # without any signup or credentials.
                 try:
                     self.record(
                         site_id=site_id,
@@ -419,6 +458,25 @@ class AgentSignupVault:
                         status="open_api",
                         notes="Free/open API — no registration required.",
                         metadata={"portal_type": "open_api", "registration_type": "none"},
+                    )
+                    count += 1
+                except ValueError:
+                    pass
+            elif requires_captcha:
+                # CAPTCHA-protected — ARIA cannot bypass autonomously.
+                # R-F1684: previously these fell through the cracks because
+                # the code only checked signup_fields. Now they get an honest
+                # 'needs_operator' status.
+                try:
+                    self.record(
+                        site_id=site_id,
+                        site_name=_get(portal, "name", site_id),
+                        site_url=_get(portal, "url", ""),
+                        agent_id=agent_id,
+                        site_type="portal",
+                        status="needs_operator",
+                        notes=f"CAPTCHA-protected — operator must register manually.",
+                        metadata={"portal_type": reg_type or "email_form", "requires_captcha": True},
                     )
                     count += 1
                 except ValueError:
@@ -435,6 +493,24 @@ class AgentSignupVault:
                         status="pending",
                         notes=f"Auto-imported from portal_registry. Has {len(signup_fields)} signup fields defined.",
                         metadata={"portal_type": reg_type or "email_form"},
+                    )
+                    count += 1
+                except ValueError:
+                    pass
+            else:
+                # Portal without signup_fields and without CAPTCHA — needs
+                # operator action (API-key portals, email_form without fields).
+                # R-F1684: previously these fell through entirely.
+                try:
+                    self.record(
+                        site_id=site_id,
+                        site_name=_get(portal, "name", site_id),
+                        site_url=_get(portal, "url", ""),
+                        agent_id=agent_id,
+                        site_type="portal",
+                        status="needs_operator",
+                        notes=f"Registration type '{reg_type}' — no signup fields defined. Operator action needed.",
+                        metadata={"portal_type": reg_type or "unknown"},
                     )
                     count += 1
                 except ValueError:
