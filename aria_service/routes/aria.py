@@ -385,6 +385,13 @@ class ChatRequest(BaseModel):
     # that caused the DUMA / Iraq incident on 2026-04-09. Empty string when
     # the caller is a single-user channel (curl, frontend, /ask command).
     group_context: str = ""
+    # R-F1691 (2026-06-19) — edit-&-resend. When the web UI edits a previous
+    # user message, it removes that message + everything after it from view and
+    # sends `keep_history` = the number of prior session messages to retain. The
+    # engine trims session["messages"] to that length BEFORE processing this
+    # turn, so the backend thread matches what the user sees. None = no trim
+    # (normal send). Out-of-range values are clamped/ignored defensively.
+    keep_history: int | None = None
     # R-F916 (2026-05-26) — async job mode. When true, /chat enqueues a
     # background task that runs the FULL chat handler (sync path) and returns
     # a job_id immediately; the caller polls /chat/result/{job_id}. This is for
@@ -9218,7 +9225,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 _r412_response_buf: list[str] = []
                 _r412_verification = None
                 _r412_deferred_done = None
-                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or ""):
+                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or "", keep_history=getattr(req, "keep_history", None)):
                     if event.get("type") == "chunk":
                         _t = event.get("text") or ""
                         if _t:

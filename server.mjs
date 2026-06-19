@@ -3259,7 +3259,7 @@ app.get('/api/aria/unguarded-fallback/stats', requireAuth, (req, res) => {
 
 // ARIA chat streaming — SSE proxy to Python ARIA service
 app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
-  const { message, session_id, auto_tools, group_context } = req.body || {};
+  const { message, session_id, auto_tools, group_context, keep_history } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   // R-F1687: stable per-account key (email-slug) — bucket conversations under
   // the account, matching the slug the sidebar lists with.
@@ -3312,6 +3312,8 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         persona: _persona,
         auto_tools: auto_tools !== false,
         group_context: group_context || '',
+        // R-F1691 #7 — edit-&-resend: trim backend history to N prior messages.
+        ...(Number.isInteger(keep_history) && keep_history >= 0 ? { keep_history } : {}),
       }),
       // R-F525 (2026-05-14): 300s → 600s, env-tunable. Streaming DD
       // requests can run 5-10 min; we don't want the outer fetch to

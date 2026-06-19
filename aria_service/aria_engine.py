@@ -1879,6 +1879,23 @@ async def _save_session(session_id: str, session: dict) -> None:
     await rs.set_json(key, session, ex=SESSION_TTL)
 
 
+def _trim_session_for_resend(session: dict, keep_history: int | None) -> dict:
+    """R-F1691 — edit-&-resend: trim the stored message list to the first
+    ``keep_history`` entries (the UI removed the edited message + everything
+    after it). ``None`` is a no-op (normal send). Defensive against bad input;
+    returns the session for chaining."""
+    if keep_history is None:
+        return session
+    try:
+        kh = max(0, int(keep_history))
+    except (TypeError, ValueError):
+        return session
+    msgs = session.get("messages") or []
+    if kh < len(msgs):
+        session["messages"] = msgs[:kh]
+    return session
+
+
 # ── Identity ─────────────────────────────────────────────────────────────────
 
 IDENTITY_KEY = "crucix:brain:aria:identity"
@@ -4269,6 +4286,7 @@ async def aria_chat_stream(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    keep_history: int | None = None,
 ):
     """Streaming variant of aria_chat — yields SSE event dicts.
 
@@ -4276,6 +4294,10 @@ async def aria_chat_stream(
     triggered by downstream modules (deep_research, dd_orchestrator,
     watchlist re-screen, etc.) get the correct per-customer tags via
     brain_hook.get_chat_context().
+
+    R-F1691: ``keep_history`` (edit-&-resend) trims the session message list to
+    that many entries BEFORE this turn, so the stored thread matches what the
+    user sees after editing a prior message.
     """
     from .intel import brain_hook as _bh_ctx
     from .personas import resolve_persona as _resolve_persona_ctx
@@ -4286,7 +4308,7 @@ async def aria_chat_stream(
     try:
         async for _ev in _aria_chat_stream_impl(
             message=message, session_id=session_id, llm=llm, intel_data=intel_data,
-            user_id=user_id, persona=persona,
+            user_id=user_id, persona=persona, keep_history=keep_history,
         ):
             yield _ev
     finally:
@@ -4300,6 +4322,7 @@ async def _aria_chat_stream_impl(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    keep_history: int | None = None,
 ):
     """Internal implementation of aria_chat_stream (R-F56 split — public
     wrapper sets the per-turn brain_hook contextvar; this impl is the
@@ -4389,6 +4412,9 @@ async def _aria_chat_stream_impl(
     yield _emit("status", message="Building intelligence context (9 layers)...")
 
     session = await _get_session(session_id)
+    # R-F1691 — edit-&-resend: trim stored history BEFORE this turn so the
+    # backend thread matches the edited view.
+    _trim_session_for_resend(session, keep_history)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
     # Persist user_id in session (same as aria_chat — prefer explicit arg

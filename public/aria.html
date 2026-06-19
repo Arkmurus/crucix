@@ -481,6 +481,43 @@
     }
     .crucix-toast .undo-toast-action:hover { background: rgba(200,150,255,0.14); }
 
+    /* ── R-F1691 — chat UX batch 2 ── */
+    /* #8 scroll-to-bottom button (floats above the input when scrolled up). */
+    .scroll-bottom-btn {
+      position: absolute; right: 28px; bottom: 104px; z-index: 6;
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 1px solid var(--warm-border-strong); background: var(--warm-bg-input);
+      color: var(--warm-text); cursor: pointer; display: none;
+      align-items: center; justify-content: center; font-size: 17px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.45); transition: transform .12s, background .12s;
+    }
+    .scroll-bottom-btn.show { display: flex; animation: fadeUp .2s ease; }
+    .scroll-bottom-btn:hover { background: var(--warm-active); transform: translateY(-2px); }
+    @media (max-width: 640px) { .scroll-bottom-btn { right: 16px; bottom: 92px; } }
+
+    /* #7 edit-&-resend — Edit action on user bubbles + inline editor. */
+    .msg-user .msg-actions { justify-content: flex-end; }
+    .msg-edit-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 85%; margin-left: auto; }
+    .msg-edit-area {
+      width: 100%; background: var(--warm-bg-input); border: 1px solid var(--accent);
+      border-radius: 14px; padding: 12px 16px; color: var(--warm-text);
+      font: inherit; font-size: 15px; line-height: 1.6; resize: none; outline: none;
+      box-shadow: 0 0 0 4px rgba(200,150,255,0.08);
+    }
+    .msg-edit-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+    .msg-edit-hint { margin-right: auto; font-size: 11px; color: var(--warm-text-faint); }
+    .msg-edit-btn {
+      border: 1px solid var(--warm-border-strong); background: transparent; color: var(--warm-text);
+      font: inherit; font-size: 13px; padding: 6px 16px; border-radius: 8px; cursor: pointer;
+      transition: all .12s;
+    }
+    .msg-edit-btn:hover { background: var(--warm-hover); }
+    .msg-edit-btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); border: none; color: #fff; }
+    .msg-edit-btn.primary:hover { filter: brightness(1.08); }
+
+    /* #6 conversation-open loading skeleton (reuses .thinking visuals). */
+    .convo-loading { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+
     @media (max-width: 900px) {
       .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.5); }
       .convos-panel.collapsed { margin-left: -280px; box-shadow: none; }
@@ -550,6 +587,9 @@
       </div>
     </div>
   </div>
+
+  <!-- R-F1691 #8 — jump-to-latest button (shown only when scrolled up). -->
+  <button class="scroll-bottom-btn" id="scroll-bottom-btn" aria-label="Scroll to latest message" title="Jump to latest"><i class="bi bi-arrow-down" aria-hidden="true"></i></button>
 
   <div class="input-area">
     <div class="input-wrap" id="input-wrap">
@@ -984,6 +1024,15 @@ function bottom() { scroll.scrollTop = scroll.scrollHeight; }
 // re-read earlier output during a long answer was impossible (it snapped back).
 function isNearBottom() { return (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 120; }
 
+// R-F1691 #8 — jump-to-latest button: visible only when scrolled away from the
+// bottom; one click returns to the live end.
+var scrollBottomBtn = document.getElementById('scroll-bottom-btn');
+function updateScrollBtn() { if (scrollBottomBtn) scrollBottomBtn.classList.toggle('show', !isNearBottom()); }
+if (scrollBottomBtn) {
+  scroll.addEventListener('scroll', updateScrollBtn, { passive: true });
+  scrollBottomBtn.addEventListener('click', function() { bottom(); updateScrollBtn(); });
+}
+
 // ── Message index tracking ──
 var nextMsgIndex = 0;
 function resetMsgIndex(n) { nextMsgIndex = n || 0; }
@@ -994,7 +1043,17 @@ function addUser(text) {
   var d = document.createElement('div');
   d.className = 'msg msg-user';
   d.dataset.msgIndex = String(nextMsgIndex++);
-  d.innerHTML = '<div class="msg-user-bubble">' + escHtml(text) + '</div>';
+  d.dataset.raw = text;   // R-F1691 #7 — exact text kept for edit-&-resend
+  // Document-upload bubbles ('📎 file…') aren't editable — the real content is
+  // the extracted doc, not the label — so the Edit action is omitted for them.
+  var canEdit = text.indexOf('📎') !== 0;
+  d.innerHTML =
+    '<div class="msg-user-bubble">' + escHtml(text) + '</div>' +
+    (canEdit
+      ? '<div class="msg-actions">' +
+          '<button class="msg-action-btn" onclick="editUserMsg(this)" title="Edit & resend"><i class="bi bi-pencil"></i> Edit</button>' +
+        '</div>'
+      : '');
   feed.appendChild(d);
   bottom();
 }
@@ -1087,6 +1146,66 @@ function copyMsg(btn) {
     btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
     btn.classList.add('copied');
     setTimeout(function() { btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// ── R-F1691 #7 — edit a previous user message and resend from that point ──
+// Claude/DeepSeek style. Replaces the bubble with an inline editor; on Save it
+// removes this message + everything after it, tells the backend how much history
+// to keep (keep_history = count of prior bubbles), and resends the edited text.
+function editUserMsg(btn) {
+  if (sending) return;
+  var msgEl = btn.closest('.msg');
+  if (!msgEl) return;
+  var bubble = msgEl.querySelector('.msg-user-bubble');
+  var raw = msgEl.dataset.raw || (bubble ? bubble.innerText : '') || '';
+
+  var all = Array.prototype.slice.call(feed.querySelectorAll('.msg'));
+  var pos = all.indexOf(msgEl);
+  if (pos < 0) return;
+
+  var original = msgEl.innerHTML;
+  var wrap = document.createElement('div');
+  wrap.className = 'msg-edit-wrap';
+  var area = document.createElement('textarea');
+  area.className = 'msg-edit-area';
+  area.value = raw;
+  area.rows = 1;
+  var actions = document.createElement('div');
+  actions.className = 'msg-edit-actions';
+  actions.innerHTML =
+    '<span class="msg-edit-hint">Enter to send · Esc to cancel</span>' +
+    '<button class="msg-edit-btn" data-act="cancel" type="button">Cancel</button>' +
+    '<button class="msg-edit-btn primary" data-act="save" type="button">Save &amp; send</button>';
+  wrap.appendChild(area);
+  wrap.appendChild(actions);
+  msgEl.innerHTML = '';
+  msgEl.appendChild(wrap);
+
+  function autosize() { area.style.height = 'auto'; area.style.height = Math.min(area.scrollHeight, 240) + 'px'; }
+  autosize();
+  area.addEventListener('input', autosize);
+  area.focus();
+  try { area.setSelectionRange(area.value.length, area.value.length); } catch (_) {}
+
+  function cancel() { msgEl.innerHTML = original; }
+  function save() {
+    var next = (area.value || '').trim();
+    if (!next) { cancel(); return; }
+    // Remove this message + everything after it — the thread diverges here.
+    for (var i = all.length - 1; i >= pos; i--) {
+      if (all[i] && all[i].parentNode) all[i].parentNode.removeChild(all[i]);
+    }
+    resetMsgIndex(pos);
+    send(next, { keepHistory: pos });   // backend trims its history to `pos`
+  }
+  actions.addEventListener('click', function(e) {
+    var b = e.target.closest('.msg-edit-btn'); if (!b) return;
+    if (b.dataset.act === 'save') save(); else cancel();
+  });
+  area.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
   });
 }
 
@@ -1187,7 +1306,12 @@ async function send(text, opts) {
     var resp = await fetch('/api/aria/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ message: text, session_id: SID, user_id: USER_ID_SLUG, auto_tools: true }),
+      body: JSON.stringify({
+        message: text, session_id: SID, user_id: USER_ID_SLUG, auto_tools: true,
+        // R-F1691 #7 — edit-&-resend: trim the backend history to this many
+        // prior messages before this turn (omitted on normal sends).
+        keep_history: (opts.keepHistory != null ? opts.keepHistory : undefined),
+      }),
       signal: streamAbort.signal,
     });
 
@@ -1838,6 +1962,21 @@ var Convos = (function() {
 
   async function load(sid) {
     if (sending) return;
+    // R-F1691 #6 — immediate feedback: mark active, clear the feed, and show a
+    // loading skeleton BEFORE the (possibly slow) /detail round-trip so opening
+    // a conversation never looks frozen.
+    Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
+      var on = n.dataset.sid === sid;
+      n.classList.toggle('active', on);
+      n.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
+    document.getElementById('welcome').style.display = 'none';
+    var _skel = document.createElement('div');
+    _skel.className = 'thinking convo-loading';
+    _skel.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>' +
+                      '<span class="thinking-text">Loading conversation…</span>';
+    feed.appendChild(_skel);
     try {
       // R-F739 (2026-05-20) — R-F606 ownership check on the backend
       // requires `user_id` on every /conversations/{sid}/detail GET.
@@ -1848,13 +1987,7 @@ var Convos = (function() {
       SID = sid;
       activeSid = sid;
       saveLastSid(sid);  // R-F722 — remember which conversation is open
-      Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
-        var on = n.dataset.sid === sid;
-        n.classList.toggle('active', on);
-        n.setAttribute('aria-selected', on ? 'true' : 'false');
-      });
       feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
-      document.getElementById('welcome').style.display = 'none';
       resetMsgIndex(0);
       var msgs = data.messages || [];
       msgs.forEach(function(m) {
@@ -1865,6 +1998,7 @@ var Convos = (function() {
       setTitlebar(data.title || 'Conversation');
       if (window.innerWidth <= 900) panel.classList.add('collapsed');
     } catch (err) {
+      feed.querySelectorAll('.thinking').forEach(function(n) { n.remove(); });  // R-F1691 — drop the loading skeleton
       var errMsg = (err && err.message) ? err.message : 'unknown error';
       // R-F791 (2026-05-21) — 404 on /detail means the sid points at a
       // conversation the backend has no record of for this user. Most
