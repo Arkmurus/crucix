@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1716,
+  "next_available": 1717,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11515,9 +11515,10 @@
       "title": "doc-review follow-up: keep context + no web misroute; R-F448 verifier replace-in-place not double-print",
       "claimed_at": "2026-06-19T14:50:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f4ba618",
+      "notes": null,
+      "shipped_at": "2026-06-19T15:25:51Z"
     },
     {
       "r_number": "R-F1714",
@@ -11532,6 +11533,15 @@
       "r_number": "R-F1715",
       "title": "onboarding bulletproofing: verify obtained API key WORKS before activating (try candidates, keep the validated one) + wire outcome to brain",
       "claimed_at": "2026-06-19T15:19:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1716",
+      "title": "autonomous driver re-drives needs_operator portals (not just pending) so newly-auto-onboardable portals get attempted; declined/deferred stay terminal",
+      "claimed_at": "2026-06-19T16:15:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

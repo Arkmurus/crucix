@@ -2516,8 +2516,26 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
         try:
             from .agent_signup_vault import get_vault
             vault = get_vault()
+            # R-F1716: drive BOTH 'pending' AND 'needs_operator'. needs_operator
+            # is RETRYABLE, not terminal — its blocker may now be resolved (a
+            # CAPTCHA solver got configured, or auto-onboard config like
+            # login_fields/api_key_path was added, as for newsapi in R-F1714).
+            # Before this, the R-F1704 migration parked ~30 portals in
+            # needs_operator and the driver only processed 'pending', so they
+            # were NEVER re-attempted — ARIA silently stopped registering them.
+            # determine_and_drive re-checks each blocker and only actually
+            # registers when clear; genuinely-blocked ones just return
+            # needs_operator again (cheap, idempotent). declined/deferred are
+            # NOT listed here → they stay terminal (operator decisions).
             pending = vault.list(status="pending", limit=100)
-            portal_ids = [e["site_id"] for e in pending]
+            retryable = vault.list(status="needs_operator", limit=100)
+            seen: set[str] = set()
+            portal_ids = []
+            for e in list(pending) + list(retryable):
+                sid = e["site_id"]
+                if sid not in seen:
+                    seen.add(sid)
+                    portal_ids.append(sid)
         except Exception:
             portal_ids = [p.id for p in PORTALS if p.registration_type != "none"]
 
