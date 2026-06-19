@@ -11224,9 +11224,10 @@
       "title": "fix test_banner_cp1252 hang (Windows cp1252 banner render freezes the suite)",
       "claimed_at": "2026-06-19T00:13:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3462e6b2",
+      "notes": null,
+      "shipped_at": "2026-06-19T00:18:37Z"
     }
   ]
 }
