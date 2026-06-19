@@ -38,8 +38,10 @@ def test_load_detail_passes_user_id():
     """R-F739: frontend MUST include user_id when fetching conversation
     detail, or R-F606 ownership check returns HTTP 400."""
     src = _read_html()
-    # Locate the load(sid) function block
-    m = re.search(r"async function load\(sid\)[\s\S]{0,800}", src)
+    # Locate the load(sid) function block. R-F1717: widened 800→3000 chars — the
+    # R-F1691 loading skeleton added ~400 chars at the top of load(), pushing the
+    # (still-present, correct) /detail?user_id= line past the old 800-char window.
+    m = re.search(r"async function load\(sid\)[\s\S]{0,3000}", src)
     assert m is not None, "load(sid) function missing"
     block = m.group(0)
     # Must use the /detail endpoint and pass user_id as a query param
@@ -74,12 +76,18 @@ def test_refresh_error_surfaces_message():
 
 
 def test_load_error_surfaces_message():
-    """R-F739: per-conversation load error must surface the actual error."""
+    """R-F739: per-conversation load error must surface the actual error.
+
+    R-F1717: updated to the current form. R-F791 (de949ccb, 2026-05-21) refactored
+    the catch to derive `errMsg = (err && err.message) ? err.message : 'unknown
+    error'` and surface `'Failed to load conversation: ' + errMsg` — which still
+    shows the real error. The old assertion expected the pre-R-F791 inline
+    `(err && err.message` form and had been failing ever since.
+    """
     src = _read_html()
-    # The improved string starts with "Failed to load conversation: "
-    # Use a regex because there's a stray "Failed to load conversation."
-    # in the legacy comment block we kept for the changelog.
-    assert "Failed to load conversation: ' + (err && err.message" in src
+    # Current form: errMsg is derived from err.message and surfaced inline.
+    assert "var errMsg = (err && err.message)" in src
+    assert "'Failed to load conversation: ' + errMsg" in src
 
 
 def test_rf739_markers_present():
