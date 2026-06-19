@@ -14351,6 +14351,58 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
     return result
 
 
+@router.post("/ingest/ofac-sdn")
+async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
+    """R-F1731: ingest the OFAC SDN open_api list as sanctions_screening knowledge
+    facts and MEASURE the heatmap delta (gate #2). First proven template of the
+    mastery-ingest pipeline. Runs in-app (state_store initialised) and snapshots
+    the sanctions cells before/after so the impact is proven, not asserted. Result
+    written to /data/_ingest/ofac_sdn.json."""
+    import asyncio as _aio
+
+    def _snapshot_cells():
+        from ..intel import knowledge as _k, coverage_heatmap as _ch
+        facts = _k.all_facts() if hasattr(_k, "all_facts") else []
+        cells = {}
+        for j in ("US", "UN", "Angola", "Mozambique", "UK", "EU", "Saudi Arabia", "UAE"):
+            cells[f"sanctions_screening×{j}"] = _ch._count_facts_for_cell_sync(
+                "sanctions_screening", j, facts, [])[0]
+        return cells, len(facts)
+
+    async def _run():
+        import json as _js, os as _os, traceback as _tb
+        out = {}
+        try:
+            before, n_before = _snapshot_cells()
+            from ..intel import ofac_sdn_ingest as _ofac
+            summary = await _ofac.fetch_and_ingest(max_rows=max_rows)
+            # invalidate heatmap cache so the next /learning/coverage reflects it
+            try:
+                from ..intel.coverage_heatmap import invalidate_heatmap_cache
+                invalidate_heatmap_cache()
+            except Exception:
+                pass
+            after, n_after = _snapshot_cells()
+            out = {"summary": summary, "cells_before": before, "cells_after": after,
+                   "total_facts_before": n_before, "total_facts_after": n_after,
+                   "delta": {k: after[k] - before.get(k, 0) for k in after}}
+        except Exception as e:
+            out = {"error": repr(e), "tb": _tb.format_exc()[-2000:]}
+        try:
+            _os.makedirs("/data/_ingest", exist_ok=True)
+            with open("/data/_ingest/ofac_sdn.json", "w") as _f:
+                _js.dump(out, _f, indent=2, default=str)
+        except Exception:
+            pass
+        logger.info("[R-F1731] OFAC SDN ingest done: %s", out.get("summary") or out.get("error"))
+
+    if background:
+        _aio.create_task(_run())
+        return {"queued": True, "note": "running in-app; read /data/_ingest/ofac_sdn.json for the before/after heatmap delta"}
+    await _run()
+    return {"done": True, "note": "read /data/_ingest/ofac_sdn.json"}
+
+
 @router.post("/portal-registry/email-requirements")
 async def portal_registry_email_requirements_ep():
     """R-F1498: email the operator exactly what each portal ARIA cannot
