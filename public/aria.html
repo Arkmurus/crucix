@@ -460,6 +460,51 @@
     .send-btn.stop:hover { box-shadow: 0 2px 14px rgba(220,38,38,0.5); }
     .send-btn:disabled { opacity: .45; cursor: not-allowed; }
 
+    /* ── R-F1698 — Claude-parity input bar (inline + attach, mode, mic, chips) ── */
+    .ib-btn {
+      width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px;
+      border: 1px solid transparent; background: transparent; color: var(--warm-text-muted);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 17px; transition: all .15s;
+    }
+    .ib-btn:hover { background: var(--warm-hover); color: var(--warm-text); }
+    .ib-btn.recording { color: #f87171; background: rgba(248,113,113,0.14); animation: pulse 1.2s ease-in-out infinite; }
+    .input-spacer { flex: 1; }
+    .mode-wrap { position: relative; }
+    .mode-btn {
+      display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+      border: 1px solid var(--warm-border); border-radius: 8px; background: transparent;
+      color: var(--warm-text-muted); font-size: 12.5px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .mode-btn:hover { border-color: var(--warm-border-strong); color: var(--warm-text); }
+    .mode-btn.deep { background: rgba(200,150,255,0.12); border-color: rgba(200,150,255,0.35); color: var(--accent); }
+    .mode-menu {
+      position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20;
+      background: var(--warm-bg-input); border: 1px solid var(--warm-border-strong);
+      border-radius: 10px; padding: 6px; min-width: 230px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.45); display: none;
+    }
+    .mode-menu.open { display: block; animation: fadeUp .15s ease; }
+    .mode-opt { padding: 9px 11px; border-radius: 7px; cursor: pointer; }
+    .mode-opt:hover { background: var(--warm-hover); }
+    .mode-opt .mo-title { font-size: 13px; font-weight: 600; color: var(--warm-text); display: flex; align-items: center; gap: 7px; }
+    .mode-opt .mo-desc { font-size: 11.5px; color: var(--warm-text-faint); padding-left: 23px; margin-top: 2px; }
+    .mode-opt .mo-check { margin-left: auto; color: var(--accent); opacity: 0; }
+    .mode-opt.active .mo-check { opacity: 1; }
+    .action-chips {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+      max-width: 760px; margin: 16px auto 0; padding: 0 4px;
+    }
+    .action-chip {
+      display: flex; align-items: center; gap: 7px; padding: 8px 14px;
+      border: 1px solid var(--warm-border); border-radius: 10px; background: transparent;
+      color: var(--warm-text-muted); font-size: 13px; font-family: inherit; cursor: pointer; transition: all .15s;
+    }
+    .action-chip:hover { background: var(--warm-hover); border-color: var(--warm-border-strong); color: var(--warm-text); }
+    .action-chip i { font-size: 14px; color: var(--accent); }
+    @media (max-width: 640px) { .action-chips { display: none; } }
+
     .input-foot {
       text-align: center; font-size: 11px; color: var(--warm-text-faint);
       padding: 8px 0 0; max-width: 760px; margin: 0 auto;
@@ -591,16 +636,8 @@
     <div class="chat-feed" id="chat-feed">
       <div class="welcome" id="welcome">
         <div class="welcome-mark">A</div>
-        <h2>How can I help you today?</h2>
-        <p>I'm ARIA, your defence market analyst. Ask about procurement, intelligence, compliance, or strategy.</p>
-        <div class="chips" id="chips">
-          <button class="chip">What are the top procurement opportunities this week?</button>
-          <button class="chip">Summarise the latest Lusophone Africa intelligence</button>
-          <button class="chip">Which markets have active tenders right now?</button>
-          <button class="chip">Brief me on Angola's defence procurement pipeline</button>
-          <button class="chip">Any export control alerts I should know about?</button>
-          <button class="chip">Give me a strategic priority assessment</button>
-        </div>
+        <h2 id="welcome-greeting">How can I help you today?</h2>
+        <p>I'm ARIA, your defence market analyst — procurement, intelligence, compliance, and strategy.</p>
       </div>
     </div>
   </div>
@@ -610,13 +647,27 @@
 
   <div class="input-area">
     <div class="input-wrap" id="input-wrap">
-      <textarea id="chat-input" placeholder="Message ARIA…" rows="1"></textarea>
+      <textarea id="chat-input" placeholder="How can I help you today?" rows="1"></textarea>
       <div class="input-bar">
-        <button class="think-btn" id="think-btn" title="Deep analysis mode" aria-label="Toggle deep analysis mode"><i class="bi bi-cpu" aria-hidden="true"></i> Think</button>
-        <button class="upload-btn" id="upload-btn" title="Upload document" aria-label="Upload document"><i class="bi bi-paperclip" aria-hidden="true"></i> Attach</button>
-        <span class="input-hint">Enter to send · Drop or paste files · Ctrl+K new · Ctrl+/ screen</span>
+        <button class="ib-btn" id="upload-btn" title="Attach a document" aria-label="Attach document"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+        <span class="input-spacer"></span>
+        <div class="mode-wrap">
+          <button class="mode-btn" id="mode-btn" title="Response mode" aria-haspopup="true" aria-expanded="false"><i class="bi bi-stars" aria-hidden="true"></i> <span id="mode-label">Standard</span> <i class="bi bi-chevron-down" style="font-size:9px" aria-hidden="true"></i></button>
+          <div class="mode-menu" id="mode-menu" role="menu">
+            <div class="mode-opt active" data-mode="standard" role="menuitemradio" tabindex="0"><span class="mo-title"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Standard <i class="bi bi-check2 mo-check" aria-hidden="true"></i></span><span class="mo-desc">Fast, conversational answers</span></div>
+            <div class="mode-opt" data-mode="deep" role="menuitemradio" tabindex="0"><span class="mo-title"><i class="bi bi-cpu" aria-hidden="true"></i> Deep analysis <i class="bi bi-check2 mo-check" aria-hidden="true"></i></span><span class="mo-desc">Structured, reasoned assessment</span></div>
+          </div>
+        </div>
+        <button class="ib-btn" id="mic-btn" title="Dictate (voice input)" aria-label="Voice input" style="display:none;"><i class="bi bi-mic" aria-hidden="true"></i></button>
         <button class="send-btn" id="send-btn" disabled aria-label="Send message"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
       </div>
+    </div>
+    <div class="action-chips" id="action-chips">
+      <button class="action-chip" data-prefill="/screen " type="button"><i class="bi bi-shield-check" aria-hidden="true"></i> Screen entity</button>
+      <button class="action-chip" data-prefill="/dd " type="button"><i class="bi bi-diagram-3" aria-hidden="true"></i> Due diligence</button>
+      <button class="action-chip" data-prefill="Brief me on " type="button"><i class="bi bi-newspaper" aria-hidden="true"></i> Brief</button>
+      <button class="action-chip" data-prefill="Research " type="button"><i class="bi bi-search" aria-hidden="true"></i> Research</button>
+      <button class="action-chip" data-prefill="Check export-control / compliance for " type="button"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Compliance</button>
     </div>
     <div class="input-foot">ARIA can make mistakes. Verify critical intelligence.</div>
   </div>
@@ -734,19 +785,95 @@ var ta = document.getElementById('chat-input');
 var sendBtn = document.getElementById('send-btn');
 var wrap = document.getElementById('input-wrap');
 
-// ── Chips: click sends immediately ──
-document.getElementById('chips').addEventListener('click', function(e) {
-  var chip = e.target.closest('.chip');
+// ── R-F1698 — welcome + action-chips visibility (kept in sync). ──
+function hideWelcomeUI() {
+  var w = document.getElementById('welcome'); if (w) w.style.display = 'none';
+  var ac = document.getElementById('action-chips'); if (ac) ac.style.display = 'none';
+}
+function showWelcomeUI() {
+  var w = document.getElementById('welcome'); if (w) w.style.display = '';
+  var ac = document.getElementById('action-chips'); if (ac) ac.style.display = 'flex';
+}
+
+// ── R-F1698 — action chips under the input: prefill the box + focus, no auto-send
+// (they start a prompt the user completes, e.g. "/screen <entity>"). ──
+document.getElementById('action-chips').addEventListener('click', function(e) {
+  var chip = e.target.closest('.action-chip');
   if (!chip || sending) return;
-  send(chip.textContent.trim());
+  ta.value = chip.dataset.prefill || (chip.textContent || '').trim();
+  ta.focus();
+  try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+  resize();
 });
 
-// ── Think toggle ──
-document.getElementById('think-btn').addEventListener('click', function() {
-  thinkMode = !thinkMode;
-  this.classList.toggle('on', thinkMode);
-  wrap.classList.toggle('think-on', thinkMode);
-});
+// ── R-F1698 — response-mode selector (Standard / Deep analysis). "Deep" maps to
+// the existing thinkMode (structured /think path). Honest stand-in for a model
+// picker: ARIA's model is fixed, so this selects response DEPTH, not a model. ──
+(function() {
+  var modeBtn = document.getElementById('mode-btn');
+  var modeMenu = document.getElementById('mode-menu');
+  var modeLabel = document.getElementById('mode-label');
+  if (!modeBtn || !modeMenu) return;
+  function closeMenu() { modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded', 'false'); }
+  function setMode(mode) {
+    thinkMode = (mode === 'deep');
+    modeLabel.textContent = thinkMode ? 'Deep analysis' : 'Standard';
+    modeBtn.classList.toggle('deep', thinkMode);
+    wrap.classList.toggle('think-on', thinkMode);
+    Array.prototype.forEach.call(modeMenu.querySelectorAll('.mode-opt'), function(o) {
+      o.classList.toggle('active', o.dataset.mode === mode);
+    });
+    closeMenu();
+  }
+  modeBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (modeMenu.classList.contains('open')) { closeMenu(); }
+    else { modeMenu.classList.add('open'); modeBtn.setAttribute('aria-expanded', 'true'); }
+  });
+  modeMenu.addEventListener('click', function(e) {
+    var opt = e.target.closest('.mode-opt'); if (opt) setMode(opt.dataset.mode);
+  });
+  document.addEventListener('click', function(e) {
+    if (modeMenu.classList.contains('open') && !e.target.closest('.mode-wrap')) closeMenu();
+  });
+})();
+
+// ── R-F1698 — voice input (Web Speech API). Shown only where supported; dictates
+// into the textarea. ARIA already transcribes voice on WhatsApp via Whisper —
+// this is the in-browser equivalent for the web UI. ──
+(function() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var micBtn = document.getElementById('mic-btn');
+  if (!SR || !micBtn) return;
+  micBtn.style.display = 'flex';
+  var rec = new SR();
+  rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
+  var listening = false, baseText = '';
+  micBtn.addEventListener('click', function() {
+    if (listening) { try { rec.stop(); } catch (_) {} return; }
+    baseText = ta.value ? ta.value.replace(/\s*$/, '') + ' ' : '';
+    try { rec.start(); } catch (_) {}
+  });
+  rec.onstart = function() { listening = true; micBtn.classList.add('recording'); micBtn.title = 'Stop dictation'; };
+  rec.onend = function() { listening = false; micBtn.classList.remove('recording'); micBtn.title = 'Dictate (voice input)'; };
+  rec.onerror = function() { listening = false; micBtn.classList.remove('recording'); };
+  rec.onresult = function(ev) {
+    var t = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+    ta.value = baseText + t;
+    resize();
+  };
+})();
+
+// ── R-F1698 — personalized greeting (time-of-day + real user name; honest,
+// no fabricated data — falls back to a generic line when the name is unknown). ──
+AUTH_READY.then(function(user) {
+  var el = document.getElementById('welcome-greeting'); if (!el) return;
+  var h = new Date().getHours();
+  var part = h < 12 ? 'morning' : (h < 18 ? 'afternoon' : 'evening');
+  var name = user ? ((user.fullName || user.username || '').split(' ')[0] || '') : '';
+  el.textContent = name ? ('Good ' + part + ', ' + name + '.') : ('Good ' + part + '. How can I help?');
+}).catch(function() {});
 
 // ── Upload button ──
 document.getElementById('upload-btn').addEventListener('click', function() {
@@ -758,7 +885,7 @@ function startNewConversation() {
   SID = newSID();
   clearLastSid();  // R-F722 — don't auto-resume after explicit New chat
   feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
-  document.getElementById('welcome').style.display = '';
+  showWelcomeUI();
   Convos.setActive(null);
   setTitlebar('New conversation');
   resetMsgIndex(0);
@@ -1056,7 +1183,7 @@ function resetMsgIndex(n) { nextMsgIndex = n || 0; }
 
 // ── Add user message ──
 function addUser(text) {
-  document.getElementById('welcome').style.display = 'none';
+  hideWelcomeUI();
   var d = document.createElement('div');
   d.className = 'msg msg-user';
   d.dataset.msgIndex = String(nextMsgIndex++);
@@ -1302,7 +1429,7 @@ async function send(text, opts) {
       '<span class="msg-aria-badge streaming-badge" id="stream-badge">streaming</span>' +
     '</div>' +
     '<div class="msg-aria-body" id="stream-body"></div>';
-  document.getElementById('welcome').style.display = 'none';
+  hideWelcomeUI();
   feed.appendChild(ariaDiv);
   var streamBody = document.getElementById('stream-body');
   var streamBadge = document.getElementById('stream-badge');
@@ -2054,7 +2181,7 @@ var Convos = (function() {
       n.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
-    document.getElementById('welcome').style.display = 'none';
+    hideWelcomeUI();
     var _skel = document.createElement('div');
     _skel.className = 'thinking convo-loading';
     _skel.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>' +
@@ -2107,7 +2234,7 @@ var Convos = (function() {
           n.setAttribute('aria-selected', 'false');
         });
         feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
-        document.getElementById('welcome').style.display = '';
+        showWelcomeUI();
         setTitlebar('New conversation');
         resetMsgIndex(0);
         return;
