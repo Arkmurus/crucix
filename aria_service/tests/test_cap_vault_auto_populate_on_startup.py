@@ -72,9 +72,14 @@ class TestVaultImportFromPortalRegistry:
             assert stats_after["total"] == count, (
                 f"Stats total ({stats_after['total']}) must match imported count ({count})"
             )
-            # Some are 'registered' (open APIs), some are 'pending' (registrable)
-            assert stats_after["by_status"].get("pending", 0) > 0 or stats_after["by_status"].get("registered", 0) > 0, (
-                f"Imported entries should be pending or registered, got {stats_after['by_status']}"
+            # Some are 'open_api' (open APIs), some are 'pending' (registrable),
+            # some are 'needs_operator' (CAPTCHA/API-key without fields)
+            assert (
+                stats_after["by_status"].get("pending", 0) > 0
+                or stats_after["by_status"].get("open_api", 0) > 0
+                or stats_after["by_status"].get("needs_operator", 0) > 0
+            ), (
+                f"Imported entries should be pending/open_api/needs_operator, got {stats_after['by_status']}"
             )
 
             # Verify entries are queryable
@@ -126,7 +131,8 @@ class TestVaultImportFromPortalRegistry:
                     f"Entry {entry.get('site_id', '?')} missing fields: {missing}"
                 )
                 # R-F1491: added 'open_api' for free/open portals that need no registration
-                assert entry["status"] in ("pending", "registered", "verified", "failed", "expired", "cancelled", "open_api"), (
+                # R-F1502: added 'needs_operator' for portals ARIA cannot auto-register
+                assert entry["status"] in ("pending", "registered", "verified", "failed", "expired", "cancelled", "open_api", "needs_operator"), (
                     f"Entry {entry['site_id']} has invalid status: {entry['status']}"
                 )
         finally:
