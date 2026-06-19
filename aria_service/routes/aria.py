@@ -9433,6 +9433,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 except Exception:
                     pass
         finally:
+            # R-F1725: GUARANTEE a 'done' event on EVERY exit path.
+            # If the stream ends without a done event (unhandled exception,
+            # GeneratorExit from client disconnect, CancelledError), the
+            # browser shows [!stream cut: terminated] and the user sees a
+            # truncated response. This finally block ensures the client
+            # always gets a clean termination signal.
+            try:
+                yield f'data: {json.dumps({"type":"done","session_id":session_id})}\n\n'
+            except Exception:
+                pass
             cost_tracker.reset_feature(_cost_token)
 
     return StreamingResponse(
