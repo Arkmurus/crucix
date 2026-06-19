@@ -14282,20 +14282,49 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
         import asyncio as _aio1723
 
         async def _run1723():
+            # R-F1724: capture the full step-by-step DEBUG trace + result to a
+            # file on /data so the outcome is readable deterministically (the
+            # flyctl logs window is unreliable; this is the source of truth).
+            import logging as _lg, io as _io, json as _js, os as _os, traceback as _tb
+            _buf = _io.StringIO()
+            _h = _lg.StreamHandler(_buf)
+            _h.setLevel(_lg.DEBUG)
+            _h.setFormatter(_lg.Formatter("%(levelname)s:%(name)s:%(message)s"))
+            _names = ["aria.portal_registry", "aria.captcha_solver",
+                      "aria_service.intel.scraper.playwright_engine"]
+            _prev = {}
+            for _n in _names:
+                _l = _lg.getLogger(_n)
+                _prev[_n] = _l.level
+                _l.addHandler(_h)
+                _l.setLevel(_lg.DEBUG)
+            _res, _k = {}, ""
             try:
-                r = await _pr1722.determine_and_drive(portal_id)
-                _k = ""
+                _res = await _pr1722.determine_and_drive(portal_id)
                 try:
                     from ..intel.key_resolver import resolve_key as _rk
                     _k = await _rk([], portal_id=portal_id)
                 except Exception:
                     pass
+            except Exception as e:
+                _res = {"status": "exception", "error": repr(e), "tb": _tb.format_exc()[-2000:]}
+            finally:
+                for _n in _names:
+                    _l = _lg.getLogger(_n)
+                    _l.removeHandler(_h)
+                    _l.setLevel(_prev.get(_n, _lg.WARNING))
+                try:
+                    _os.makedirs("/data/_onboarding", exist_ok=True)
+                    with open("/data/_onboarding/%s.json" % portal_id, "w") as _f:
+                        _js.dump({"result": _res, "api_key_present": bool(_k),
+                                  "api_key_len": len(_k),
+                                  "trace_tail": _buf.getvalue()[-25000:]}, _f)
+                except Exception:
+                    pass
                 logger.info(
                     "[R-F1723] background onboarding %s -> status=%s key=%s",
-                    portal_id, r.get("status"), ("PRESENT len=%d" % len(_k)) if _k else "NONE",
+                    portal_id, _res.get("status"), ("len=%d" % len(_k)) if _k else "NONE",
                 )
-            except Exception as e:
-                logger.error("[R-F1723] background onboarding %s FAILED: %r", portal_id, e)
 
         _aio1723.create_task(_run1723())
         return {"queued": True, "portal_id": portal_id, "fresh": fresh,
