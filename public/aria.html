@@ -418,7 +418,11 @@
     .input-wrap {
       max-width: 760px; margin: 0 auto;
       background: var(--warm-bg-input); border: 1px solid var(--warm-border);
-      border-radius: 16px; overflow: hidden;
+      border-radius: 16px;
+      /* R-F1701: overflow VISIBLE (was hidden) so the mode-selector popover
+         isn't clipped when it opens above the bar. Children are inset by padding
+         and transparent, so the rounded corners stay clean. */
+      overflow: visible;
       transition: border-color .2s, box-shadow .2s;
     }
     .input-wrap.focused { border-color: var(--warm-border-strong); box-shadow: 0 0 0 4px rgba(255,255,255,0.03); }
