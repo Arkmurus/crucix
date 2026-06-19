@@ -1756,16 +1756,24 @@ async def _handle_email_verification(
             try:
                 emails = await _read_emails()
                 for email in emails or []:
-                    sender = (email.get("from") or "").lower()
+                    # R-F1711: read the keys email_reader._parse_email ACTUALLY
+                    # returns — from_addr / to_addr / body_text (email_reader.py
+                    # :267-270). The old code read "from"/"to"/"body", which are
+                    # ALWAYS absent → sender/body/to resolved to "" → the
+                    # verify_email_domain filter `continue`d on every email, so
+                    # email verification could NEVER complete even with a real
+                    # confirmation email in a configured inbox. (subject is
+                    # correct — that key exists.)
+                    sender = (email.get("from_addr") or "").lower()
                     subject = (email.get("subject") or "").lower()
-                    body = (email.get("body") or "").lower()
+                    body = (email.get("body_text") or "").lower()
 
                     # Check if this email is from the portal's domain
                     if portal.verify_email_domain not in sender:
                         continue
 
                     # Check if it's addressed to our email
-                    if email_addr.lower() not in (email.get("to") or "").lower():
+                    if email_addr.lower() not in (email.get("to_addr") or "").lower():
                         continue
 
                     # Extract confirmation link

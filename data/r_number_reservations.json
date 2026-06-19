@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1710,
+  "next_available": 1712,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11477,6 +11477,25 @@
       "r_number": "R-F1709",
       "title": "Dockerfile: install heavy deps (torch) in a cached layer before app COPY so app-code changes don't trigger torch reinstall / deploy timeouts",
       "claimed_at": "2026-06-19T13:02:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1710",
+      "title": "aria.html — stage attached document in input (chip) until user sends, instead of auto-analysing on pick",
+      "claimed_at": "2026-06-19T13:11:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "741038fe",
+      "notes": null,
+      "shipped_at": "2026-06-19T13:18:26Z"
+    },
+    {
+      "r_number": "R-F1711",
+      "title": "autonomous onboarding: fix email-verify field-name bug + generic env-then-vault key accessor (obtained key goes live, zero operator)",
+      "claimed_at": "2026-06-19T13:17:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
