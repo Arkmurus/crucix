@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1730,
+  "next_available": 1731,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11660,6 +11660,15 @@
       "r_number": "R-F1729",
       "title": "route use_httpx_flow portals to httpx onboard before is_registered short-circuit",
       "claimed_at": "2026-06-19T21:12:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1730",
+      "title": "wire captcha_solver success+failure to brain (ARIA P0 dark-path)",
+      "claimed_at": "2026-06-19T21:14:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

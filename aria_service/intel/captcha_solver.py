@@ -61,6 +61,54 @@ _SOLVE_TIMEOUT = 120        # max seconds to wait for a solve
 _POLL_INTERVAL = 2          # seconds between poll attempts
 _CREATE_TIMEOUT = 15        # max seconds to create the task
 
+
+# ── R-F1730: §21a brain-wiring (fire-and-forget, never raises) ────────────
+def _wire_captcha_success(label: str, host: str, provider: str, elapsed_s: float) -> None:
+    """A solved CAPTCHA → brain. Keeps ARIA aware that the solver is live + which
+    provider/type/host/latency, so the onboarding limb is felt (§25)."""
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="captcha_solver",
+            summary=f"Solved {label} via {provider} for {host} in {elapsed_s}s",
+            detail=f"provider={provider} type={label} host={host} latency_s={elapsed_s}",
+            source_id=f"captcha_solve:{host}",
+        )
+    except Exception:
+        pass
+
+
+async def _wire_captcha_failure(label: str, host: str, reason: str, site_key: str) -> None:
+    """An unsolvable CAPTCHA (all providers None / none configured) → brain + a
+    capability gap, so portals whose CAPTCHA 2captcha can't read (SAM.gov/FPDS/DDTC)
+    surface as actionable gaps instead of a silent operator-deferral."""
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="captcha_solver",
+            detail=(f"CAPTCHA solve FAILED for {host} ({label}): {reason}. "
+                    f"sitekey={site_key[:24]}"),
+            gap_type="captcha_unsolvable",
+            source=f"captcha_solve:{host}",
+        )
+    except Exception:
+        pass
+    # Also record a capability gap directly so the coder/self-heal loop can act
+    # (§21e: a finding the coder could address must become a Gap, not a TODO).
+    # record_gap is async; gap_type must be in VALID_GAP_TYPES → 'api_missing'
+    # (a portal API we cannot reach because its CAPTCHA is unsolvable).
+    try:
+        from . import capability_gaps as _cg
+        await _cg.record_gap(
+            gap_type="api_missing",
+            detail=(f"CAPTCHA on {host} ({label}) could not be solved: {reason}. "
+                    f"May need a different solver/captcha-type or operator login."),
+            source="captcha_solver",
+        )
+    except Exception:
+        pass
+
+
 # ── Abstract provider ────────────────────────────────────────────────────
 
 
@@ -550,9 +598,27 @@ class CaptchaSolver:
         self, label: str, method: str,
         site_key: str, page_url: str, **kwargs: Any,
     ) -> str | None:
-        """Try each provider in order until one succeeds."""
+        """Try each provider in order until one succeeds.
+
+        R-F1730: §21a brain-wiring — BOTH branches reach the brain. A solved
+        CAPTCHA fires wire_success (provider, type, host, latency); an all-providers
+        -failed CAPTCHA fires wire_failure + records a capability gap, so the
+        government-portal CAPTCHAs that 2captcha can't read (SAM.gov/FPDS/DDTC —
+        'all providers returned None') become VISIBLE gaps the self-heal/coder loop
+        can act on, instead of a silent dead-end. This module was 0-wiring (the
+        ARIA 360 probe flagged it P0).
+        """
+        host = ""
+        try:
+            from urllib.parse import urlparse as _urlparse
+            host = _urlparse(page_url).netloc or page_url[:60]
+        except Exception:
+            host = page_url[:60]
+        _t0 = time.monotonic()
+
         if not self.providers:
             logger.debug("[captcha_solver] no providers configured — cannot solve %s", label)
+            await _wire_captcha_failure(label, host, "no providers configured", site_key)
             return None
 
         last_error = ""
@@ -561,10 +627,12 @@ class CaptchaSolver:
                 solve_method = getattr(provider, method)
                 token = await solve_method(site_key, page_url, **kwargs)
                 if token:
+                    elapsed = round(time.monotonic() - _t0, 1)
                     logger.info(
                         "[captcha_solver] %s solved by %s",
                         label, provider.name,
                     )
+                    _wire_captcha_success(label, host, provider.name, elapsed)
                     return token
                 last_error = f"{provider.name} returned no token"
             except Exception as e:
@@ -578,6 +646,7 @@ class CaptchaSolver:
             "[captcha_solver] %s not solved — all providers failed: %s",
             label, last_error,
         )
+        await _wire_captcha_failure(label, host, last_error, site_key)
         return None
 
 
