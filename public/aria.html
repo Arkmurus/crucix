@@ -799,6 +799,21 @@ function showWelcomeUI() {
   var ac = document.getElementById('action-chips'); if (ac) ac.style.display = 'flex';
 }
 
+// ── R-F1703 — CSP-safe message action buttons. The response CSP sets
+// `script-src-attr 'none'`, which BLOCKS inline onclick= attributes — so the
+// Copy / Export PDF / Edit buttons (built via innerHTML with onclick) were dead
+// while addEventListener-wired buttons worked. Fix without weakening the CSP:
+// the buttons now carry data-act and a single delegated listener on the feed
+// dispatches them (covers both streamed and history-loaded messages). ──
+feed.addEventListener('click', function(e) {
+  var btn = e.target.closest('.msg-action-btn');
+  if (!btn) return;
+  var act = btn.dataset.act;
+  if (act === 'copy') copyMsg(btn);
+  else if (act === 'pdf') exportMsgAsPdf(btn);
+  else if (act === 'edit') editUserMsg(btn);
+});
+
 // ── R-F1698 — action chips under the input: prefill the box + focus, no auto-send
 // (they start a prompt the user completes, e.g. "/screen <entity>"). ──
 document.getElementById('action-chips').addEventListener('click', function(e) {
@@ -1199,7 +1214,7 @@ function addUser(text) {
     '<div class="msg-user-bubble">' + escHtml(text) + '</div>' +
     (canEdit
       ? '<div class="msg-actions">' +
-          '<button class="msg-action-btn" onclick="editUserMsg(this)" title="Edit & resend"><i class="bi bi-pencil"></i> Edit</button>' +
+          '<button class="msg-action-btn" data-act="edit" title="Edit & resend"><i class="bi bi-pencil"></i> Edit</button>' +
         '</div>'
       : '');
   feed.appendChild(d);
@@ -1218,8 +1233,8 @@ function addAria(html, badge) {
     '</div>' +
     '<div class="msg-aria-body">' + html + '</div>' +
     '<div class="msg-actions">' +
-      '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
-      '<button class="msg-action-btn" onclick="exportMsgAsPdf(this)" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>' +
+      '<button class="msg-action-btn" data-act="copy" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
+      '<button class="msg-action-btn" data-act="pdf" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>' +
     '</div>';
   feed.appendChild(d);
   bottom();
@@ -1580,8 +1595,8 @@ async function send(text, opts) {
     var actions = document.createElement('div');
     actions.className = 'msg-actions';
     actions.innerHTML =
-      '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
-      '<button class="msg-action-btn" onclick="exportMsgAsPdf(this)" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>';
+      '<button class="msg-action-btn" data-act="copy" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
+      '<button class="msg-action-btn" data-act="pdf" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>';
     ariaDiv.appendChild(actions);
     if (toolUsed) {
       var tb = document.createElement('span');
