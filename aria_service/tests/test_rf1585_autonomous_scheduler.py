@@ -26,9 +26,9 @@ async def test_scheduler_start_creates_tasks():
     await sched.start()
     assert sched._running is True
     assert len(sched._tasks) > 0
-    # Expected tasks: dd_monitor, gap_fixer, self_diagnostic,
-    # adversarial, ecosystem_optimize, collab_drain, vault_retry
-    expected = {"dd_monitor", "gap_fixer", "self_diagnostic",
+    # Expected tasks (R-F1700: gap_fixer removed — dead+dark duplicate of the
+    # live coder.run_forever path).
+    expected = {"dd_monitor", "self_diagnostic",
                 "adversarial", "ecosystem_optimize", "collab_drain", "vault_retry"}
     assert expected.issubset(set(sched._tasks.keys())), (
         f"Missing tasks. Have: {set(sched._tasks.keys())}"
@@ -98,7 +98,7 @@ async def test_scheduler_has_expected_intervals():
     # Check the _run_interval calls in start()
     # We can verify by checking the method exists
     assert hasattr(sched, "_run_dd_monitor")
-    assert hasattr(sched, "_fix_gaps")
+    assert not hasattr(sched, "_fix_gaps")  # R-F1700: dead+dark duplicate deleted
     assert hasattr(sched, "_run_diagnostics")
     assert hasattr(sched, "_run_adversarial")
     assert hasattr(sched, "_optimize_ecosystem")

@@ -35,9 +35,14 @@ class AutonomousScheduler:
         self._tasks["dd_monitor"] = asyncio.create_task(
             self._run_interval("dd_monitor", 300, self._run_dd_monitor),  # 5 min
         )
-        self._tasks["gap_fixer"] = asyncio.create_task(
-            self._run_interval("gap_fixer", 900, self._fix_gaps),  # 15 min
-        )
+        # R-F1700: the "gap_fixer" tick was REMOVED. It was a divergent DUPLICATE
+        # of the live coder path (coder_entrypoint.start_aria_coder ->
+        # coder.run_forever -> gap_detector.scan -> fix_gap, main.py:2513) and was
+        # DEAD + DARK: it imported `from .gap_detector` (wrong module — it lives in
+        # ..autonomous), constructed GapDetector()/ARIACoder() with the wrong
+        # signatures, and called .get() on a FixResult — so every 15-min tick
+        # raised and was swallowed at debug with NO brain signal (self-healing
+        # theatre). Gap-fixing is owned solely by the run_forever coder path.
         self._tasks["self_diagnostic"] = asyncio.create_task(
             self._run_interval("self_diagnostic", 3600, self._run_diagnostics),  # 1 hour
         )
@@ -120,42 +125,9 @@ class AutonomousScheduler:
                     pass
             await asyncio.sleep(interval)
 
-    async def _fix_gaps(self) -> None:
-        """Scan for gaps and fix them using the ARIACoder pipeline.
-
-        Wired to the real gap detection (R-F1207). Scans Redis error-ledger,
-        chat-audit, capability-gaps, and mistake-ledger signals, then feeds
-        actionable gaps to the ARIACoder for autonomous remediation.
-        """
-        try:
-            from .gap_detector import GapDetector
-            from ..autonomous.self_coder import ARIACoder
-
-            logger.info("[scheduler] scanning for gaps via GapDetector")
-            detector = GapDetector()
-            gaps = await detector.scan()
-            if gaps:
-                logger.info(
-                    "[scheduler] found %d gaps — feeding to ARIACoder",
-                    len(gaps),
-                )
-                coder = ARIACoder(gap_detector=detector)
-                for gap in gaps[:5]:  # Process top 5 per cycle
-                    try:
-                        result = await coder.fix_gap(gap)
-                        logger.info(
-                            "[scheduler] gap %s: %s",
-                            gap.gap_id, result.get("status", "unknown"),
-                        )
-                    except Exception as _fix_e:
-                        logger.warning(
-                            "[scheduler] fix_gap failed for %s: %s",
-                            gap.gap_id, _fix_e,
-                        )
-            else:
-                logger.info("[scheduler] no gaps found")
-        except Exception as e:
-            logger.debug("[scheduler] gap fix skipped: %s", e)
+    # R-F1700: _fix_gaps DELETED — it was a dead+dark duplicate of the live
+    # coder.run_forever path (see the note in start()). Gap detection + fixing
+    # is owned solely by coder_entrypoint.start_aria_coder.
 
     async def _run_dd_monitor(self) -> None:
         """Run DD trigger monitor — check signals and fire DD triggers."""
