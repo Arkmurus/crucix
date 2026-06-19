@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1694,
+  "next_available": 1698,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11303,9 +11303,10 @@
       "title": "aria.html chat UX batch 2 — loading skeleton, edit-and-resend, scroll-to-bottom, timestamps, attach chip",
       "claimed_at": "2026-06-19T08:35:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "87b7d74f",
+      "notes": null,
+      "shipped_at": "2026-06-19T08:58:58Z"
     },
     {
       "r_number": "R-F1692",
@@ -11321,6 +11322,45 @@
       "r_number": "R-F1693",
       "title": "kill-switch fail-CLOSED on redis error (emergency stop must hold) + in-proc pause mirror",
       "claimed_at": "2026-06-19T08:55:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2791dc1a",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:00:22Z"
+    },
+    {
+      "r_number": "R-F1694",
+      "title": "fix title-rename space bug (event bubbling) + chat UI deploy-disruption review",
+      "claimed_at": "2026-06-19T09:09:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "84f2ba48",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:14:00Z"
+    },
+    {
+      "r_number": "R-F1695",
+      "title": "Fix CAPTCHA solver bugs: AntiCaptcha indent, Turnstile/hCaptcha detection, playwright token injection",
+      "claimed_at": "2026-06-19T09:09:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b5bca6fd",
+      "notes": null,
+      "shipped_at": "2026-06-19T09:12:34Z"
+    },
+    {
+      "r_number": "R-F1696",
+      "title": "sanctions: source-unavailable != clean — propagate availability helpers->screen->DD render, never report unscreenable entity as cleared",
+      "claimed_at": "2026-06-19T09:12:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1697",
+      "title": "deploy-resilient chat UI — reconnect banner + auto-retry through restarts",
+      "claimed_at": "2026-06-19T09:13:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

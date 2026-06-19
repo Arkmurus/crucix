@@ -1671,7 +1671,14 @@ async def _run_identity(
             derive_verified_sources as _dvs_co,
         )
         _matches_for_dvs = screen.get("matches") or []
-        _screen_ok_co = not screen.get("error") and isinstance(_matches_for_dvs, list)
+        # R-F1696: a source-unavailable screen has error="sanctions_source_unavailable"
+        # AND source_unavailable=True — it must NOT count as succeeded (else the
+        # renderer fabricates verified-clean sources for a screen that never ran).
+        _screen_ok_co = (
+            not screen.get("error")
+            and not screen.get("source_unavailable")
+            and isinstance(_matches_for_dvs, list)
+        )
         screen["verified_sources"] = _dvs_co(
             _matches_for_dvs, screen_succeeded=_screen_ok_co,
         )
@@ -1770,8 +1777,34 @@ async def _run_identity(
                 source="sanctions.screen_with_aliases",
                 confidence="ASSESSED",
             ))
+        elif screen.get("source_unavailable") or screen.get("error") == "sanctions_source_unavailable":
+            # R-F1696: ZERO matches but the source NEVER ANSWERED. This is the
+            # catastrophic false-negative class — pre-fix this branch stamped
+            # "Sanctions screen CLEAN — CONFIRMED — treat as clearance" on an
+            # entity that was never actually screened (OpenSanctions down/auth/
+            # rate-limited/breaker-open). NEVER report an unscreenable entity as
+            # clear: surface it as UNVERIFIED + a hard data-gap so the verdict
+            # cannot read as a clearance.
+            _reasons = ", ".join((screen.get("source_reasons") or [])[:4]) or "source unreachable"
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title="Sanctions screen NOT performed — source unavailable",
+                detail=(
+                    f"{name} — the sanctions source (OpenSanctions / primary lists) "
+                    f"could not be reached ({_reasons}), so NO screen was performed. "
+                    f"This is UNVERIFIED — it is NOT a clearance. A re-screen against "
+                    f"OFAC SDN / UK OFSI / EU / UN is required before relying on this."
+                ),
+                source="sanctions.screen_with_aliases",
+                confidence="UNCERTAIN",
+            ))
+            report.identity.data_gaps.append(
+                "sanctions screen did not complete — source unavailable "
+                "(UNVERIFIED, must re-screen; not a clearance)"
+            )
         else:
-            # Clean screen — zero matches across the full alias/variant set.
+            # Clean screen — zero matches across the full alias/variant set,
+            # AND the source actually answered (screened=True / no error).
             # Emit an explicit INFO-tier finding so consumers can see the
             # screen actually RAN and came back clean. Previously an empty
             # matches list produced no finding at all, which the LLM

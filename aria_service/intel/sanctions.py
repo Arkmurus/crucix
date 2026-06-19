@@ -23,12 +23,12 @@ Usage:
     result = await fuzzy_screen("Bank Rossiya")
     # → {matches: [...], top_score: 0.95, blocked: True, suggestions: [...]}"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 
@@ -444,7 +444,25 @@ def _generate_variants(name: str) -> list[str]:
 
 # ── OpenSanctions API ───────────────────────────────────────────────────────
 
-async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[dict]:
+class _SourceQuery(NamedTuple):
+    """R-F1696: result of a single OpenSanctions call that distinguishes
+    'queried OK, no hits' from 'source unavailable'. The old helpers returned a
+    bare list and collapsed EVERY failure (auth/429/5xx/timeout/breaker-open/
+    input-rejected) to `[]` — making 'source down' indistinguishable from
+    'clean'. A sanctions screen that could not run must NEVER be reported as a
+    clearance, so availability has to flow up to the screen + the DD renderer.
+
+      results: normalised raw hits (possibly empty, even when ok=True)
+      ok:      True ONLY if a query actually COMPLETED (HTTP 200)
+      reason:  'ok' | 'auth' | 'rate_limit' | 'http_<code>' | 'network' |
+               'breaker_open' | 'input_rejected'
+    """
+    results: list
+    ok: bool
+    reason: str
+
+
+async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _SourceQuery:
     """Query the OpenSanctions /match endpoint (free, no key required).
 
     OpenSanctions consolidates OFAC SDN, EU, UK OFSI, UN, Interpol Red Notices,
@@ -473,7 +491,7 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
             "(looks like a prompt fragment / search query, not a name)",
             name[:80],
         )
-        return []
+        return _SourceQuery([], False, "input_rejected")
     # R-F469 (2026-05-14): OpenSanctions circuit breaker. Free-tier is
     # 1 req/sec; under a 429 storm pre-R-F469 every match() call still
     # hit the upstream → quota drained, latency spiked, every screen
@@ -490,7 +508,7 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
     )
     if _r469_breaker.is_open():
         logger.info("R-F469: OpenSanctions breaker OPEN — skipping match() for %r", name[:80])
-        return []
+        return _SourceQuery([], False, "breaker_open")
     payload = {
         "queries": {
             "q1": {
@@ -505,27 +523,27 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed — check OPENSANCTIONS_API_KEY env var")
                 _r469_breaker.record_failure(reason="auth")
-                return []
+                return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
                 logger.warning("OpenSanctions rate-limited (free tier: 1 req/sec). "
                                "Set OPENSANCTIONS_API_KEY for unlimited access.")
                 _r469_breaker.record_failure(reason="rate_limit")
-                return []
+                return _SourceQuery([], False, "rate_limit")
             if resp.status_code != 200:
                 logger.debug("OpenSanctions match failed: %s %s", resp.status_code, resp.text[:200])
                 _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
-                return []
+                return _SourceQuery([], False, f"http_{resp.status_code}")
             data = resp.json()
             results = (data.get("responses", {}) or {}).get("q1", {}).get("results", [])
             _r469_breaker.record_success()
-            return results or []
+            return _SourceQuery(results or [], True, "ok")
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions request error: %s", e)
         _r469_breaker.record_failure(reason="timeout")
-        return []
+        return _SourceQuery([], False, "network")
 
 
-async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
+async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
     """Free-text search against OpenSanctions when /match returns nothing."""
     # F73 fix 2026-04-28: production trace 10:13:40 hit /search/default
     # with `q=HIGH-STAKES and you are NOT 100% confident, state what you
@@ -550,7 +568,7 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
             "(looks like a prompt fragment / search query, not a name)",
             query[:80],
         )
-        return []
+        return _SourceQuery([], False, "input_rejected")
     # R-F469: same breaker as match() — single host, single quota pool.
     from .circuit_breaker import get_breaker as _r469_get_breaker
     _r469_breaker = _r469_get_breaker(
@@ -560,7 +578,7 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
     )
     if _r469_breaker.is_open():
         logger.info("R-F469: OpenSanctions breaker OPEN — skipping search() for %r", query[:80])
-        return []
+        return _SourceQuery([], False, "breaker_open")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -571,21 +589,21 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed on search — check OPENSANCTIONS_API_KEY")
                 _r469_breaker.record_failure(reason="auth")
-                return []
+                return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
                 logger.warning("OpenSanctions rate-limited on search — set OPENSANCTIONS_API_KEY for higher quota")
                 _r469_breaker.record_failure(reason="rate_limit")
-                return []
+                return _SourceQuery([], False, "rate_limit")
             if resp.status_code != 200:
                 _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
-                return []
+                return _SourceQuery([], False, f"http_{resp.status_code}")
             data = resp.json()
             _r469_breaker.record_success()
-            return data.get("results", []) or []
+            return _SourceQuery(data.get("results", []) or [], True, "ok")
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions search error: %s", e)
         _r469_breaker.record_failure(reason="timeout")
-        return []
+        return _SourceQuery([], False, "network")
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -703,13 +721,23 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     variants = _generate_variants(name)
     seen_ids: set[str] = set()
     all_matches: list[dict] = []
+    # R-F1696: track whether ANY source query actually completed. If every
+    # variant + the free-text fallback failed to reach OpenSanctions, an empty
+    # result is NOT "clean" — it's an UNPERFORMED screen.
+    source_ok = False
+    source_reasons: list[str] = []
 
     for variant in variants[:6]:  # cap to avoid API hammering
         try:
-            raw_results = await _opensanctions_match(variant)
+            _q = await _opensanctions_match(variant)
+            raw_results = _q.results
+            source_ok = source_ok or _q.ok
+            if not _q.ok:
+                source_reasons.append(_q.reason)
         except Exception as e:
             logger.warning("OpenSanctions match crashed on '%s': %s", variant, e)
             raw_results = []
+            source_reasons.append(f"crash:{type(e).__name__}")
         for r in raw_results:
             rid = r.get("id")
             if rid and rid in seen_ids:
@@ -723,10 +751,15 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     # If no /match hits, try free-text /search as a backup
     if not all_matches:
         try:
-            search_results = await _opensanctions_search(name, limit=8)
+            _qs = await _opensanctions_search(name, limit=8)
+            search_results = _qs.results
+            source_ok = source_ok or _qs.ok
+            if not _qs.ok:
+                source_reasons.append(_qs.reason)
         except Exception as e:
             logger.warning("OpenSanctions search crashed: %s", e)
             search_results = []
+            source_reasons.append(f"crash:{type(e).__name__}")
         for r in search_results:
             rid = r.get("id")
             if rid and rid in seen_ids:
@@ -744,6 +777,12 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     top_score = all_matches[0]["score"] if all_matches else 0.0
     blocking_matches = [m for m in all_matches if m["score"] >= threshold]
 
+    # R-F1696: a screen is only "performed" if the source actually answered
+    # (matches found ⇒ it answered; or at least one call returned HTTP 200).
+    # No matches AND no successful call ⇒ source unavailable ⇒ NOT clean.
+    screened = bool(all_matches) or source_ok
+    source_unavailable = not screened
+
     result = {
         "name": name,
         "variants_tried": variants[:6],
@@ -752,6 +791,7 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         "match_count": len(all_matches),
         "top_score": top_score,
         "blocked": len(blocking_matches) > 0,
+        "screened": screened,  # R-F1696
         "threshold": threshold,
         "disclaimer": (
             "Pre-screen only. Blocking matches require manual verification against "
@@ -759,14 +799,36 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
             "OpenSanctions is updated daily but may lag designations by 24-48 hours."
         ),
     }
+    if source_unavailable:
+        # R-F1696: surface loudly so callers/the DD renderer NEVER treat an
+        # unscreenable entity as a clearance. `error` makes downstream
+        # screen-succeeded checks fail closed.
+        result["source_unavailable"] = True
+        result["error"] = "sanctions_source_unavailable"
+        result["source_reasons"] = sorted(set(source_reasons))[:6]
 
-    # ── Brain hook: feed sanctions screening result ──
-    if all_matches:
+    # ── Brain hook (§21a): feed BOTH outcomes — never let a failed screen be
+    #    indistinguishable from a clean one. ──
+    if source_unavailable:
+        try:
+            wire_failure(
+                module="sanctions",
+                detail=(
+                    f"Sanctions screen '{name}' NOT performed — OpenSanctions "
+                    f"unreachable ({', '.join(sorted(set(source_reasons))[:4]) or 'unknown'}). "
+                    f"Result is UNVERIFIED, not clear."
+                ),
+                gap_type="sanctions_source_unavailable",
+                source="sanctions:fuzzy_screen",
+            )
+        except Exception as _wf:
+            logger.debug("sanctions wire_failure failed: %s", _wf)
+    else:
         try:
             from . import brain_hook
             await brain_hook.absorb(
                 module="sanctions",
-                summary=f"Sanctions screen '{name}': {len(all_matches)} matches, top_score={top_score:.2f}, blocked={result['blocked']}",
+                summary=f"Sanctions screen '{name}': {len(all_matches)} matches, top_score={top_score:.2f}, blocked={result['blocked']}, screened=True",
                 entity_name=name,
                 success=True,
                 confidence="PROBABLE",
@@ -813,7 +875,7 @@ async def enrich_with_relationships(screen_result: dict, *, max_targets: int = 3
             try:
                 # Free-text search is the cheapest path; /match would need a
                 # schema choice we don't have for a raw name.
-                hits = await _opensanctions_search(target_name, limit=2)
+                hits = (await _opensanctions_search(target_name, limit=2)).results
             except Exception:
                 continue
             target_hit = None
@@ -1078,7 +1140,16 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
             logger.warning("fuzzy_screen failed for alias '%s': %s", target, e)
 
     if not all_results:
-        return {"name": name, "error": "all screens failed", "blocked": False}
+        return {
+            "name": name, "error": "sanctions_source_unavailable",
+            "matches": [], "blocked": False,
+            "screened": False, "source_unavailable": True,
+        }
+
+    # R-F1696: the aggregate is only "performed" if at least one underlying
+    # fuzzy_screen actually reached the source. Otherwise every empty result is
+    # an UNPERFORMED screen, not a clearance.
+    any_screened = any(r.get("screened") or r.get("matches") for r in all_results)
 
     # Aggregate
     worst = max(all_results, key=lambda r: r.get("top_score", 0))
@@ -1118,18 +1189,36 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
         deduped.append(m)
 
 
-    # R-F996 — wire to brain
-    wire_success(
-        module="sanctions",
-        summary="Sanctions screening",
-        source_id="sanctions:R-F996",
-    )
+    # R-F996/R-F1696 — wire to brain HONESTLY: success only when the screen
+    # actually ran; failure (so the coder/operator can see it) when the source
+    # was unreachable for every alias.
+    _source_unavailable = not any_screened
+    if _source_unavailable:
+        wire_failure(
+            module="sanctions",
+            detail=(
+                f"Sanctions screen '{name}' (+{len(targets)-1} aliases) NOT "
+                f"performed — source unreachable for all targets. UNVERIFIED, "
+                f"not clear."
+            ),
+            gap_type="sanctions_source_unavailable",
+            source="sanctions:screen_with_aliases",
+        )
+    else:
+        wire_success(
+            module="sanctions",
+            summary="Sanctions screening",
+            source_id="sanctions:R-F996",
+        )
     return {
         "name": name,
         "aliases_checked": targets,
         "matches": deduped[:15],
         "top_score": worst.get("top_score", 0),
         "blocked": worst.get("blocked", False),
+        "screened": any_screened,  # R-F1696
+        **({"source_unavailable": True, "error": "sanctions_source_unavailable"}
+           if _source_unavailable else {}),
         "match_count": len(deduped),
         "per_alias_results": all_results,
         "disclaimer": worst.get("disclaimer"),
