@@ -14413,6 +14413,76 @@ async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
     return {"done": True, "note": "read /data/_ingest/ofac_sdn.json"}
 
 
+@router.post("/ingest/run/{portal}")
+async def ingest_run_portal_ep(portal: str, domain: str = "sanctions_screening",
+                               max_rows: int = 2000, background: bool = True):
+    """R-F1737: generic open_api ingest runner + heatmap-delta verifier. Imports
+    aria_service.intel.{portal}_ingest.fetch_and_ingest, snapshots the given
+    domain's cells (across all jurisdictions) before/after, and writes the delta
+    to /data/_ingest/{portal}.json. This is the verification harness for every
+    open_api ingester (OFAC/UK-OFSI/EU/UN/…) AND what ARIA's Phase-0 scheduler can
+    call. Registers the bg task with _bg_task (a bare create_task is GC'd mid-run,
+    R-F1734). A full ingest takes ~5+ min, so the sync path 500s on fly's 60s
+    timeout — use background (default)."""
+    import asyncio as _aio, re as _re
+    if not _re.fullmatch(r"[a-z0-9_]{2,40}", portal or ""):
+        raise HTTPException(status_code=400, detail="invalid portal id")
+    if not _re.fullmatch(r"[a-z0-9_]{2,60}", domain or ""):
+        raise HTTPException(status_code=400, detail="invalid domain")
+
+    def _snapshot():
+        from ..intel import knowledge as _k, coverage_heatmap as _ch
+        facts = _k.all_facts() if hasattr(_k, "all_facts") else []
+        cells = {}
+        for j in _ch.JURISDICTION_SYNONYMS:
+            cells[j] = _ch._count_facts_for_cell_sync(domain, j, facts, [])[0]
+        return cells, len(facts)
+
+    async def _run():
+        import json as _js, os as _os, importlib as _il, traceback as _tb
+        out = {}
+        try:
+            before, nb = _snapshot()
+            mod = _il.import_module(f"aria_service.intel.{portal}_ingest")
+            fn = getattr(mod, "fetch_and_ingest", None)
+            if fn is None:
+                raise AttributeError(f"{portal}_ingest has no fetch_and_ingest()")
+            summary = await fn(max_rows=max_rows)
+            try:
+                from ..intel.coverage_heatmap import invalidate_heatmap_cache
+                invalidate_heatmap_cache()
+            except Exception:
+                pass
+            after, na = _snapshot()
+            # only report cells that actually moved, plus the headline jurisdictions
+            moved = {j: {"before": before[j], "after": after[j], "delta": after[j] - before[j]}
+                     for j in after if after[j] != before.get(j, 0)}
+            out = {"portal": portal, "domain": domain, "summary": summary,
+                   "total_facts_before": nb, "total_facts_after": na,
+                   "cells_moved": moved}
+        except Exception as e:
+            out = {"portal": portal, "error": repr(e), "tb": _tb.format_exc()[-2000:]}
+        try:
+            _os.makedirs("/data/_ingest", exist_ok=True)
+            with open(f"/data/_ingest/{portal}.json", "w") as _f:
+                _js.dump(out, _f, indent=2, default=str)
+        except Exception:
+            pass
+        logger.info("[R-F1737] ingest/run %s -> %s", portal, out.get("summary") or out.get("error"))
+
+    if background:
+        _t = _aio.create_task(_run(), name=f"ingest_run_{portal}")
+        try:
+            from ..main import _bg_task as _bgt
+            _bgt(_t, name=f"ingest_run_{portal}")
+        except Exception:
+            pass
+        return {"queued": True, "portal": portal, "domain": domain,
+                "note": f"running in-app; read /data/_ingest/{portal}.json for the cell delta (~5 min)"}
+    await _run()
+    return {"done": True, "portal": portal, "note": f"read /data/_ingest/{portal}.json"}
+
+
 @router.post("/portal-registry/email-requirements")
 async def portal_registry_email_requirements_ep():
     """R-F1498: email the operator exactly what each portal ARIA cannot
