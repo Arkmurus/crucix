@@ -403,6 +403,7 @@ async def submit_form(
     submit_selector: str = '[type="submit"]',
     success_indicator: str = "",
     timeout: float = _DEFAULT_TIMEOUT_S,
+    captcha_token: str | None = None,  # R-F1689: pre-solved CAPTCHA token
 ) -> dict[str, Any]:
     """R-F1652: Fill and submit a form through Playwright.
 
@@ -417,6 +418,8 @@ async def submit_form(
         submit_selector: CSS selector for the submit button.
         success_indicator: Text that indicates success in the resulting page.
         timeout: Max time for the whole operation.
+        captcha_token: R-F1689 — pre-solved CAPTCHA token to inject into
+            the page's g-recaptcha-response textarea before submission.
 
     Returns:
         {"success": bool, "final_url": str, "response_text": str,
@@ -431,6 +434,34 @@ async def submit_form(
             playwright, browser, context, page = await _launch_browser()
             await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
             await page.wait_for_timeout(1000)
+
+            # R-F1689: Inject pre-solved CAPTCHA token before filling form
+            if captcha_token:
+                try:
+                    # Inject the token into the reCAPTCHA response textarea
+                    await page.evaluate(f'''
+                        () => {{
+                            const ta = document.getElementById("g-recaptcha-response");
+                            if (ta) {{
+                                ta.innerHTML = "{captcha_token}";
+                                ta.style.display = "block";
+                            }}
+                            // Also try the invisible reCAPTCHA callback
+                            if (typeof ___grecaptcha_cfg !== "undefined") {{
+                                for (const [k, v] of Object.entries(___grecaptcha_cfg.clients)) {{
+                                    if (v && v.callback) {{
+                                        v.callback("{captcha_token}");
+                                    }}
+                                }}
+                            }}
+                        }}
+                    ''')
+                    await page.wait_for_timeout(500)
+                    logger.debug("[submit_form] R-F1689: injected CAPTCHA token")
+                except Exception as e:
+                    logger.debug(
+                        "[submit_form] R-F1689: failed to inject CAPTCHA token: %s", e,
+                    )
 
             # Fill each form field
             for field_name, value in form_data.items():
