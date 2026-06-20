@@ -34,42 +34,86 @@ EU_PORTAL_URL = "https://sanctionsmap.eu"
 # Same domain as OFAC SDN and UK OFSI.
 SANCTIONS_TOPIC = "sanctions_screening"
 
-# XML namespace for EU FSF format
-_NS = {"eu": "http://eu.europa.ec/fsd/fsf"}
+# XML namespace for EU FSF format (real EU Sanctions Map export XML)
+_NS = {"eu": "http://eu.europa.ec/fpi/fsd/export"}
 
 
 def _parse_xml(raw_bytes: bytes) -> list[dict]:
-    """Parse EU FSF XML into a list of entity dicts."""
+    """Parse EU FSF XML into a list of entity dicts.
+
+    Handles the real EU Sanctions Map export XML format:
+    - Namespace: http://eu.europa.ec/fpi/fsd/export
+    - Root: <export>
+    - Entities: <sanctionEntity> with euReferenceNumber attribute
+    - Names: <nameAlias wholeName="..."> attribute
+    - Country: <citizenship countryDescription="..."> attribute
+    - Regime: <regulation programme="..."> attribute
+    - Type: <subjectType code="..."> attribute
+    """
     if not raw_bytes:
         return []
     try:
         root = ET.fromstring(raw_bytes)
     except ET.ParseError:
         return []
-    
+
     entities = []
-    # Try different possible XML structures
-    targets = root.findall(".//eu:SanctionEntity", _NS) or root.findall(".//SanctionEntity")
-    
+    # Real XML uses lowercase <sanctionEntity> with namespace
+    targets = root.findall(".//eu:sanctionEntity", _NS)
+    if not targets:
+        targets = root.findall(".//sanctionEntity")
+
     for t in targets:
-        def _g(tag: str) -> str:
-            el = t.find(f"eu:{tag}", _NS) or t.find(tag)
+        # Helper: get attribute from first matching child element
+        def _attr(tag: str, attr: str) -> str:
+            el = t.find(f"eu:{tag}", _NS)
+            if el is None:
+                el = t.find(tag)
+            return (el.get(attr) or "").strip() if el is not None else ""
+
+        # Helper: get text content from first matching child element
+        def _text(tag: str) -> str:
+            el = t.find(f"eu:{tag}", _NS)
+            if el is None:
+                el = t.find(tag)
             return (el.text or "").strip() if el is not None and el.text else ""
-        
-        name = _g("FullName") or _g("Name") or _g("FirstName") or ""
+
+        # Name: from <nameAlias wholeName="..."> attribute (first strong=true alias)
+        name = ""
+        for alias in (t.findall("eu:nameAlias", _NS) or t.findall("nameAlias")):
+            wn = (alias.get("wholeName") or "").strip()
+            if wn:
+                name = wn
+                break
+
         if not name:
             continue
-        
+
+        # Reference: euReferenceNumber attribute on <sanctionEntity>
+        ref = (t.get("euReferenceNumber") or "").strip()
+
+        # Type: from <subjectType code="..."> attribute
+        sdn_type = _attr("subjectType", "code") or "entity"
+
+        # Regime: from <regulation programme="..."> attribute
+        regime = _attr("regulation", "programme") or "EU sanctions"
+
+        # Country: from <citizenship countryDescription="..."> attribute
+        country = _attr("citizenship", "countryDescription") or ""
+
+        # Remark: from <remark> text
+        remark = _text("remark")
+
         entity = {
             "name": name,
-            "sdn_type": _g("EntityType") or _g("LegalType") or "entity",
-            "regime": _g("SanctionsProgram") or _g("Regulation") or "EU sanctions",
-            "country": _g("Country") or _g("Nationality") or "",
-            "ref": _g("ReferenceNumber") or _g("Id") or "",
-            "remark": _g("Remark") or _g("Reason") or "",
+            "sdn_type": sdn_type,
+            "regime": regime,
+            "country": country,
+            "ref": ref,
+            "remark": remark,
         }
         entities.append(entity)
-    
+
     return entities
 
 

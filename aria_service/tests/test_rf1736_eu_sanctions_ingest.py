@@ -10,26 +10,36 @@ from aria_service.intel import eu_sanctions_ingest as ing
 from aria_service.intel import coverage_heatmap as ch
 
 
-# Sample EU FSF XML (schema based on the EU Financial Sanctions File format)
-_SAMPLE_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
-<root>
-  <SanctionEntity>
-    <FullName>Bad Actor LDA</FullName>
-    <EntityType>Entity</EntityType>
-    <SanctionsProgram>Angola</SanctionsProgram>
-    <Country>Angola</Country>
-    <ReferenceNumber>EU-ANG-001</ReferenceNumber>
-    <Remark>Designated under Angola sanctions regime.</Remark>
-  </SanctionEntity>
-  <SanctionEntity>
-    <FullName>Dodgy Person</FullName>
-    <EntityType>Individual</EntityType>
-    <SanctionsProgram>Russia</SanctionsProgram>
-    <Country>Russia</Country>
-    <ReferenceNumber>EU-RUS-001</ReferenceNumber>
-    <Remark>Designated under Russia sanctions regime.</Remark>
-  </SanctionEntity>
-</root>
+# Sample EU FSF XML (real EU Sanctions Map export format with namespace)
+_SAMPLE_XML = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<export xmlns="http://eu.europa.ec/fpi/fsd/export" generationDate="2026-06-05T15:51:25.849+02:00" globalFileId="1">
+  <sanctionEntity designationDetails="" unitedNationId="" euReferenceNumber="EU-ANG-001" logicalId="1">
+    <remark>Designated under Angola sanctions regime.</remark>
+    <regulation regulationType="regulation" organisationType="commission" publicationDate="2024-01-01" entryIntoForceDate="2024-01-01" numberTitle="2024/100" programme="Angola" logicalId="1">
+      <publicationUrl>http://eur-lex.europa.eu/</publicationUrl>
+    </regulation>
+    <subjectType code="Entity" classificationCode="E"/>
+    <nameAlias firstName="" middleName="" lastName="" wholeName="Bad Actor LDA" function="" gender="" title="" nameLanguage="" strong="true" regulationLanguage="en" logicalId="1">
+      <regulationSummary regulationType="regulation" publicationDate="2024-01-01" numberTitle="2024/100" publicationUrl="http://eur-lex.europa.eu/"/>
+    </nameAlias>
+    <citizenship region="" countryIso2Code="AO" countryDescription="Angola" regulationLanguage="en" logicalId="1">
+      <regulationSummary regulationType="regulation" publicationDate="2024-01-01" numberTitle="2024/100" publicationUrl="http://eur-lex.europa.eu/"/>
+    </citizenship>
+  </sanctionEntity>
+  <sanctionEntity designationDetails="" unitedNationId="" euReferenceNumber="EU-RUS-001" logicalId="2">
+    <remark>Designated under Russia sanctions regime.</remark>
+    <regulation regulationType="regulation" organisationType="commission" publicationDate="2024-01-01" entryIntoForceDate="2024-01-01" numberTitle="2024/200" programme="Russia" logicalId="2">
+      <publicationUrl>http://eur-lex.europa.eu/</publicationUrl>
+    </regulation>
+    <subjectType code="Individual" classificationCode="P"/>
+    <nameAlias firstName="" middleName="" lastName="" wholeName="Dodgy Person" function="" gender="" title="" nameLanguage="" strong="true" regulationLanguage="en" logicalId="2">
+      <regulationSummary regulationType="regulation" publicationDate="2024-01-01" numberTitle="2024/200" publicationUrl="http://eur-lex.europa.eu/"/>
+    </nameAlias>
+    <citizenship region="" countryIso2Code="RU" countryDescription="Russia" regulationLanguage="en" logicalId="2">
+      <regulationSummary regulationType="regulation" publicationDate="2024-01-01" numberTitle="2024/200" publicationUrl="http://eur-lex.europa.eu/"/>
+    </citizenship>
+  </sanctionEntity>
+</export>
 '''
 
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1741,
+  "next_available": 1743,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11769,6 +11769,24 @@
       "r_number": "R-F1740",
       "title": "Wire semantic RAG search into local_brain.try_local_response for mastery improvement",
       "claimed_at": "2026-06-20T00:03:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1741",
+      "title": "Fix EU sanctions parser for real XML namespace and element structure",
+      "claimed_at": "2026-06-20T08:14:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1742",
+      "title": "EU sanctions ingester namespace fix - real fpi/fsd/export schema",
+      "claimed_at": "2026-06-20T08:17:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
