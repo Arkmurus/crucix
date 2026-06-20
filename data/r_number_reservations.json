@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1752,
+  "next_available": 1753,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11832,9 +11832,10 @@
       "title": "Wire self_quiz to update_regional_mastery for honest gate-2 movement",
       "claimed_at": "2026-06-20T09:19:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6612e273",
+      "notes": null,
+      "shipped_at": "2026-06-20T09:25:55Z"
     },
     {
       "r_number": "R-F1747",
@@ -11882,6 +11883,16 @@
       "notes": null,
       "abandoned_at": "2026-06-20T09:22:48Z",
       "abandon_reason": "duplicate of R-F1747"
+    },
+    {
+      "r_number": "R-F1752",
+      "title": "Add missing R-F1746 capability test - self_quiz regional mastery honesty property (pass lifts, fail does not credit)",
+      "claimed_at": "2026-06-20T09:34:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cf7baf8a",
+      "notes": null,
+      "shipped_at": "2026-06-20T09:34:34Z"
     }
   ]
 }
