@@ -814,7 +814,19 @@ async def self_quiz(num_questions: int = 5) -> dict:
     with it, ARIA actually verifies that her local stack can reproduce
     answers she's been taught.
     """
-    index = await reasoning_library._load_index()
+    # R-F1745 — wire quiz outcome to brain
+    try:
+        index = await reasoning_library._load_index()
+    except Exception as _e:
+        logger.warning("[Student] self_quiz _load_index failed: %s", _e)
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="student", detail=f"self_quiz _load_index: {_e}",
+                gap_type="source_failure", source="student:self_quiz")
+        except Exception:
+            pass
+        return {"quizzed": 0, "passed": 0, "score": 0.0,
+                "note": "library load failed", "library_size": 0}
     if not index:
         return {"quizzed": 0, "passed": 0, "score": 0.0,
                 "note": "library empty", "library_size": 0}
@@ -849,11 +861,13 @@ async def self_quiz(num_questions: int = 5) -> dict:
             continue
 
         # Try the LOCAL reasoning stack (no cloud)
-        # R-F1743: pass exclude_topic to prevent quiz-gaming — the RAG
+        # R-F1743/R-F1745: pass exclude_topic to prevent quiz-gaming — the RAG
         # retrieval will exclude facts whose topic matches the case's
-        # own topic, forcing the local stack to reason from domain
-        # knowledge rather than retrieving the stored answer.
-        _exclude = case.get("topic") or None
+        # own intent (e.g. "sanctions"), forcing the local stack to reason
+        # from domain knowledge rather than retrieving the stored answer.
+        # Uses case.get("intent") because reasoning_library cases store
+        # their domain under the intent field, not a topic field.
+        _exclude = case.get("intent") or None
         local = await reasoning_router.try_local_reasoning(
             question, exclude_topic=_exclude,
         )
@@ -940,6 +954,16 @@ async def self_quiz(num_questions: int = 5) -> dict:
     })
     history = history[-200:]  # keep last 200
     await rs.set_json(QUIZ_HISTORY_KEY, history, ex=180 * 86400)
+
+    # R-F1745 — wire quiz completion to brain
+    try:
+        from .engine_wiring import wire_success as _ws
+        _ws(module="student",
+            summary=f"self_quiz: {len(results)} quizzed, {passed} passed, "
+                    f"{round(passed / max(len(results), 1), 3)} score",
+            source_id="student:self_quiz")
+    except Exception:
+        pass
 
     return {
         "quizzed": len(results),

@@ -575,6 +575,13 @@ async def try_local_response(message: str, *,
                 }
         except Exception as e:
             logger.warning("local_brain handler %s failed: %s", intent, e)
+            # R-F1745 — wire failure to brain so the coder can see broken intents
+            try:
+                from .engine_wiring import wire_failure as _wf
+                _wf(module="local_brain", detail=f"handler {intent} failed: {e}",
+                    gap_type="no_symbolic_rule", source="local_brain:try_local_response")
+            except Exception:
+                pass
             continue
 
     return {"answered": False, "response": None, "intent": None}
@@ -609,6 +616,13 @@ async def degraded_response(message: str, reason: str = "LLM unavailable") -> di
             _asyncio.get_running_loop().create_task(_bump())
         except RuntimeError:
             pass
+    except Exception:
+        pass
+    # R-F1745 — wire degraded mode activation to brain
+    try:
+        from .engine_wiring import wire_failure as _wf
+        _wf(module="local_brain", detail=f"Degraded mode: {reason}",
+            gap_type="source_failure", source="local_brain:degraded_response")
     except Exception:
         pass
 

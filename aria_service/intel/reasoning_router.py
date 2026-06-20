@@ -246,6 +246,13 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
     except Exception as e:
         logger.warning("symbolic_reasoner failed: %s", e)
         trace.append({"stage": "symbolic_reasoner", "error": str(e)})
+        # R-F1745 — wire failure to brain
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="reasoning_router", detail=f"symbolic_reasoner: {e}",
+                gap_type="no_symbolic_rule", source="reasoning_router:try_local_reasoning")
+        except Exception:
+            pass
 
     # ── Stage 2: Reasoning library (case-based retrieval) ────────────────
     try:
@@ -283,6 +290,13 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
     except Exception as e:
         logger.warning("reasoning_library failed: %s", e)
         trace.append({"stage": "reasoning_library", "error": str(e)})
+        # R-F1745 — wire failure to brain
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="reasoning_router", detail=f"reasoning_library: {e}",
+                gap_type="source_failure", source="reasoning_router:try_local_reasoning")
+        except Exception:
+            pass
 
     # ── Stage 3: Local brain (rule-based intent router) ──────────────────
     try:
@@ -312,6 +326,13 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
     except Exception as e:
         logger.warning("local_brain failed: %s", e)
         trace.append({"stage": "local_brain", "error": str(e)})
+        # R-F1745 — wire failure to brain
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="reasoning_router", detail=f"local_brain: {e}",
+                gap_type="source_failure", source="reasoning_router:try_local_reasoning")
+        except Exception:
+            pass
 
     # R-F1047 -- try grounded reasoner BEFORE cloud LLM escalation.
     # The grounded reasoner decomposes the question, gathers evidence from
