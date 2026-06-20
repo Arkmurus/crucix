@@ -11770,36 +11770,42 @@
       "title": "Wire semantic RAG search into local_brain.try_local_response for mastery improvement",
       "claimed_at": "2026-06-20T00:03:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4768f137",
+      "notes": null,
+      "shipped_at": "2026-06-20T08:36:02Z"
     },
     {
       "r_number": "R-F1741",
       "title": "Fix EU sanctions parser for real XML namespace and element structure",
       "claimed_at": "2026-06-20T08:14:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "abandoned",
+      "commit_sha": "4e0e3a15",
+      "notes": null,
+      "shipped_at": "2026-06-20T08:24:45Z",
+      "abandoned_at": "2026-06-20T08:36:02Z",
+      "abandon_reason": "Duplicate of R-F1742 (same EU-namespace fix). Commit 4e0e3a15 message says R-F1742; collision from concurrent claude+aria reservation. R-F1742 is canonical."
     },
     {
       "r_number": "R-F1742",
       "title": "EU sanctions ingester namespace fix - real fpi/fsd/export schema",
       "claimed_at": "2026-06-20T08:17:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4e0e3a15",
+      "notes": null,
+      "shipped_at": "2026-06-20T08:36:01Z"
     },
     {
       "r_number": "R-F1743",
       "title": "Fix R-F1740: move RAG context from visible answer to reasoning-only field, guard quiz-gaming",
       "claimed_at": "2026-06-20T08:17:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7b2c903f",
+      "notes": null,
+      "shipped_at": "2026-06-20T08:24:42Z"
     }
   ]
 }
