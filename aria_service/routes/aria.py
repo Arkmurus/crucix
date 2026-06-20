@@ -9264,6 +9264,17 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                             if _done:
                                 tool_context = _tool_task.result()
                                 break
+                            # R-F1754 — keep the interactive-yield window alive
+                            # for the WHOLE tool run so background encoders
+                            # (eagle_eye codebase index) keep backing off and
+                            # don't GIL-starve this stream. mark_interactive()
+                            # only stamps once at request entry (8s window); a
+                            # multi-minute /dd would otherwise lapse mid-run.
+                            try:
+                                from ..intel import brain_hook as _bh1754
+                                _bh1754.mark_interactive()
+                            except Exception:
+                                pass
                             _elapsed_s = int(time.monotonic() - _hb_t0)
                             _hb_msg = (
                                 f"Still running {tool_used}"

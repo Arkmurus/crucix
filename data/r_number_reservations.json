@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1753,
+  "next_available": 1755,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11893,6 +11893,24 @@
       "commit_sha": "173827b4",
       "notes": null,
       "shipped_at": "2026-06-20T09:42:41Z"
+    },
+    {
+      "r_number": "R-F1753",
+      "title": "Fix vault: correct fabricated registered entries, proper declined/deferred status",
+      "claimed_at": "2026-06-20T11:37:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1754",
+      "title": "EagleEye codebase-index backs off during interactive traffic (GIL starvation)",
+      "claimed_at": "2026-06-20T11:37:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

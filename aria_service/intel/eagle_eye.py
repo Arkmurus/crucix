@@ -298,6 +298,29 @@ class EagleEyeGuardian:
 
     def _index_codebase(self, file_path: Path) -> None:
         """Index the file structure via CodingRAG."""
+        # R-F1754 (2026-06-20) — BACK OFF during interactive traffic. This calls
+        # index_codebase_structure → sentence_transformers.encode(), which is
+        # GIL-SERIALISED: even though this scan runs in a to_thread worker, the
+        # encode holds the GIL and starves the MAIN event loop, so a concurrent
+        # user /dd or Research stream gets 0 bytes (live wedge capture 2026-06-20:
+        # eagle_eye:303 _index_codebase → _encode_edges blocking the loop while
+        # /dd produced nothing for 130s). The chat stream marks interactivity
+        # (brain_hook.mark_interactive, refreshed every heartbeat tick — R-F1747),
+        # so when a user is mid-request we DEFER the codebase encode. The file is
+        # still hash-tracked; it re-indexes on the next quiet scan. This makes
+        # the autonomous coder's index yield to live users (§21 stays enabled,
+        # just not at the user's expense).
+        try:
+            from aria_service.intel import brain_hook as _bh
+            if _bh._interactive_active():
+                logger.debug(
+                    "[EagleEye] R-F1754: deferring CodingRAG index of %s — "
+                    "interactive traffic active (avoids GIL starvation of user stream)",
+                    file_path,
+                )
+                return
+        except Exception:
+            pass
         try:
             from aria_service.intel.coding_rag_indexer import index_codebase_structure
             index_codebase_structure(file_path)
