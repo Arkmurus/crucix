@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1746,
+  "next_available": 1752,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11822,9 +11822,66 @@
       "title": "Fix wiring gaps and dead exclude_topic guard in critical-path modules",
       "claimed_at": "2026-06-20T08:58:08Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "141a30c3",
+      "notes": null,
+      "shipped_at": "2026-06-20T09:05:13Z"
+    },
+    {
+      "r_number": "R-F1746",
+      "title": "Wire self_quiz to update_regional_mastery for honest gate-2 movement",
+      "claimed_at": "2026-06-20T09:19:56Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1747",
+      "title": "Heavy-tool stream heartbeat: flush progress + keepalive during dd/research",
+      "claimed_at": "2026-06-20T09:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1748",
+      "title": "Web chat UI self-heal on mid-stream connectivity error events",
+      "claimed_at": "2026-06-20T09:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1749",
+      "title": "Compliance/export-control NLU intent fires real sanctions screen tool",
+      "claimed_at": "2026-06-20T09:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1750",
+      "title": "Offload sync encode/JSON in deep_research+dd to threads (event-loop wedge)",
+      "claimed_at": "2026-06-20T09:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1751",
+      "title": "Heavy-tool stream heartbeat: flush progress + keepalive during dd/research",
+      "claimed_at": "2026-06-20T09:22:36Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-06-20T09:22:48Z",
+      "abandon_reason": "duplicate of R-F1747"
     }
   ]
 }

@@ -888,6 +888,17 @@ async def self_quiz(num_questions: int = 5) -> dict:
         topics = detect_topics(question)
         await update_mastery(topics, correct=passed_quiz, weight=0.5)
 
+        # R-F1746: also update REGIONAL mastery so self_quiz is an honest
+        # gate-#2 mover. update_regional_mastery internally filters by TOPICS
+        # (compliance/legal/etc., not sanctions), so only gate-2-relevant
+        # topic x region cells get credited. Combined with R-F1744's reading-
+        # side attack, this closes gate #2 from both recall and reading sides.
+        # Uses detect_regions on question + original_response because many
+        # library questions don't name a region explicitly but the stored
+        # answer does — this is still honest (the case IS about that region).
+        regions = detect_regions(f"{question} {original_response}")
+        await update_regional_mastery(topics, regions, correct=passed_quiz, weight=0.5)
+
         # R-F661 (2026-05-17): failed-quiz → reading-list auto-enrol.
         # Failed quiz = a topic we *thought* we knew but the local stack
         # couldn't reproduce. Enqueue each failed topic so the Phase B
