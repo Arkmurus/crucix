@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1756,
+  "next_available": 1757,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11922,6 +11922,16 @@
       "r_number": "R-F1755",
       "title": "Bulletproof vault: fix is_registered, never fabricate, notify operator, auto-register",
       "claimed_at": "2026-06-20T11:46:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b8d2480d",
+      "notes": null,
+      "shipped_at": "2026-06-20T11:51:14Z"
+    },
+    {
+      "r_number": "R-F1756",
+      "title": "Capability test for is_registered vault-based fix",
+      "claimed_at": "2026-06-20T11:55:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
