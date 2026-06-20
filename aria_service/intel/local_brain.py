@@ -431,6 +431,30 @@ async def try_local_response(message: str) -> dict:
     # near _PATTERNS. The R-F511 commit message explains the live failure
     # (2026-05-14 08:55 BST Hikvision/UK) that drives the yield-to-LLM path.
 
+    # R-F1740: Semantic RAG retrieval — query the knowledge base for facts
+    # relevant to this question BEFORE pattern matching. This makes ingested
+    # facts (OFAC SDN, UK OFSI, EU/UN sanctions) available to the local
+    # reasoning stack during self_quiz, so coverage feeds mastery.
+    # The retrieved facts are stored in _rag_context which intents can
+    # optionally include in their response. This runs for EVERY query,
+    # not just degraded mode, so the local stack always has the best
+    # available domain knowledge.
+    _rag_context: str | None = None
+    try:
+        from .rag_store import search as _rag_search
+        _rag_results = await _rag_search(msg, top_k=5, min_similarity=0.4)
+        if _rag_results:
+            _rag_parts = []
+            for r in _rag_results[:5]:
+                text = (r.get("text") or "").strip()
+                score = r.get("score", 0)
+                if text and len(text) > 50:
+                    _rag_parts.append(f"[RAG: {text[:300]} (score={score:.2f})]")
+            if _rag_parts:
+                _rag_context = "\n".join(_rag_parts)
+    except Exception as _rag_err:
+        logger.debug("[R-F1740] RAG retrieval failed (non-fatal): %s", _rag_err)
+
     for pattern, intent in _PATTERNS:
         m = pattern.search(msg)
         if not m:
@@ -454,9 +478,15 @@ async def try_local_response(message: str) -> dict:
                 if _JURISDICTION_QUALIFIER.search(msg):
                     return {"answered": False, "response": None, "intent": None}
                 result = await fuzzy_sanctions.fuzzy_screen(arg)
+                _resp = _fmt_sanctions(arg, result)
+                # R-F1740: append semantically retrieved RAG facts to the
+                # sanctions response so ingested OFAC/UK/EU/UN sanctions
+                # data feeds into the local reasoning stack during self_quiz.
+                if _rag_context:
+                    _resp += f"\n\n---\n_R-F1740: semantically retrieved knowledge facts:_\n{_rag_context}"
                 return {
                     "answered": True,
-                    "response": _fmt_sanctions(arg, result),
+                    "response": _resp,
                     "intent": intent,
                     "source": "local_brain",
                 }
