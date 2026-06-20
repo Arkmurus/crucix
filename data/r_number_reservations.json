@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1744,
+  "next_available": 1745,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11806,6 +11806,16 @@
       "commit_sha": "7b2c903f",
       "notes": null,
       "shipped_at": "2026-06-20T08:24:42Z"
+    },
+    {
+      "r_number": "R-F1744",
+      "title": "Region-targeted gate-2 closer: reading_session reads weak topic-region cells and lifts update_regional_mastery (connect targeting to mastery-lifter)",
+      "claimed_at": "2026-06-20T08:54:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c7b4807c",
+      "notes": null,
+      "shipped_at": "2026-06-20T08:57:17Z"
     }
   ]
 }

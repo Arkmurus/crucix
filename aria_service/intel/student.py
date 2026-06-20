@@ -1253,6 +1253,75 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         except Exception as _bre:
             logger.warning("[student] starved-tag branch failed: %s", _bre)
 
+    # ── R-F1744 (2026-06-20) — region-targeted gate-#2 closer ──────────────
+    # Phase A gate #2 is the regional-mastery heatmap floor (topic×region
+    # EWMA, target ≥0.70). Its blocking cells are weak in specific REGIONS
+    # (e.g. competitor_intel:southern_africa, osint:balkans), but the
+    # feed-selection above is region-BLIND (weak_topic_to_categories has no
+    # region axis) and research_engine.run_research_tick targets these cells
+    # yet routes its hits to the spider queue (→ facts/coverage), never to
+    # update_regional_mastery. So no path reads region-specific content for a
+    # blocked cell and lifts THAT cell — the floor stays stuck. This branch
+    # closes that seam: read the weakest topic×region cells from the heatmap,
+    # fetch region-specific content cost-free, and lift the exact cell — but
+    # ONLY when the fetched text actually mentions the region (detect_regions
+    # confirms), so the lift is read-grounded reinforcement, not a blind bump.
+    regional_studied: list[dict] = []
+    try:
+        _hm = await get_regional_heatmap()
+        _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
+        from . import web_explorer as _we2
+        for _cell in _weak_cells[:3]:
+            _topic = (_cell.get("topic") or "").strip()
+            _region = (_cell.get("region") or "").strip()
+            # Only act on real, region-specific gate-#2 cells.
+            if _topic not in TOPICS or _region not in REGIONS or _region == "global":
+                continue
+            _rphrase = _REGION_QUERY_PHRASE.get(_region, _region.replace("_", " "))
+            _tphrase = _topic.replace("_", " ")
+            _query = f"{_tphrase} {_rphrase} defence procurement 2026"
+            try:
+                _er = await _we2.explore(
+                    query=_query, cost_free=True, max_results=3, memory_first=True,
+                )
+            except Exception as _wee:
+                logger.debug("[student] R-F1744 explore failed %s:%s — %s",
+                             _topic, _region, _wee)
+                continue
+            _stored = 0
+            _grounded = False
+            for _f in (getattr(_er, "facts", None) or []):
+                _val = str(getattr(_f, "value", "") or "")
+                _ctx = str(getattr(_f, "context", "") or "")
+                # Read-grounded: only credit the cell when the fetched text
+                # actually mentions the region (detect_regions confirms).
+                if _region in detect_regions(f"{_val} {_ctx}"):
+                    _grounded = True
+                if getattr(_f, "source_url", ""):
+                    try:
+                        await kb.store_fact(
+                            topic=f"{_tphrase} {_rphrase}: {_val[:60]}",
+                            content=(_ctx or _val)[:800],
+                            source=f"reading_region:{_topic}:{_region}",
+                            confidence="ASSESSED",
+                        )
+                        _stored += 1
+                    except Exception as _kse:
+                        logger.debug("[student] R-F1744 kb store failed: %s", _kse)
+            if _stored and _grounded:
+                await update_regional_mastery(
+                    [_topic], [_region], correct=True, weight=0.3,
+                )
+                regional_studied.append({
+                    "topic": _topic, "region": _region, "stored": _stored,
+                })
+                logger.info(
+                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts)",
+                    _topic, _region, _stored,
+                )
+    except Exception as _rce:
+        logger.warning("[student] R-F1744 region-targeted branch failed (non-fatal): %s", _rce)
+
     # R-F167 (2026-05-11): drain the queue for topics we actually
     # consumed this session. Without this the same tags re-surface every
     # 6h forever — both from the queue itself and from the proactive
@@ -1274,6 +1343,8 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         "topics_focused": weak_topics,
         "starved_studied": [s["tag"] for s in starved_studied],
         "queue_drained": consumed_now,
+        # R-F1744: gate-#2 cells lifted this session (topic:region).
+        "regional_cells_lifted": [f"{r['topic']}:{r['region']}" for r in regional_studied],
     })
     log = log[-100:]
     await rs.set_json(READING_LOG_KEY, log, ex=180 * 86400)
@@ -1288,6 +1359,8 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         "weak_topics_studied": weak_topics,
         "studied": studied,
         "starved_studied": starved_studied,
+        # R-F1744: gate-#2 regional cells read + lifted this session.
+        "regional_studied": regional_studied,
     }
 
 
@@ -1439,6 +1512,30 @@ REGIONS = [
     "europe", "balkans", "nato",
     "global",
 ]
+
+# R-F1744 — region → search-phrase map for the region-targeted gate-#2
+# closer in reading_session. Each phrase carries the prominent countries
+# of the region so a cost-free web search returns region-specific content
+# that detect_regions() will re-recognise (read-grounded mastery lift).
+_REGION_QUERY_PHRASE: dict[str, str] = {
+    "lusophone": "Angola Mozambique",
+    "west_africa": "Nigeria Ghana West Africa",
+    "east_africa": "Ethiopia Kenya East Africa",
+    "central_africa": "DRC Rwanda Central Africa",
+    "north_africa": "Egypt Algeria North Africa",
+    "southern_africa": "South Africa southern Africa SADC",
+    "mena": "Middle East Iraq Jordan",
+    "gulf": "Saudi Arabia UAE Gulf GCC",
+    "turkey": "Turkey defence industry",
+    "south_asia": "India Pakistan South Asia",
+    "southeast_asia": "Indonesia Philippines Vietnam Southeast Asia",
+    "latam_lusophone": "Brazil",
+    "latam_non_lusophone": "Colombia Chile Latin America",
+    "europe": "Ukraine Poland Europe",
+    "balkans": "Serbia Balkans",
+    "nato": "NATO alliance",
+    "global": "global",
+}
 
 _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("lusophone", re.compile(
