@@ -239,8 +239,14 @@ async def _engine_loop(llm) -> None:
 
     # First load of tasks.yaml — also re-loadable via the reload-tasks
     # admin endpoint.
+    # R-F1750 (2026-06-20) — offload the load: load_tasks() does a synchronous
+    # yaml.safe_load of tasks.yaml, and a live wedge capture 2026-06-20
+    # (/data/wedge_stacks/wedge_675) caught `_engine_loop:243 → load_tasks →
+    # yaml.safe_load` blocking the MAIN event loop ~5-6s (this runs ~90s after
+    # boot, exactly when post-deploy users retry), starving concurrent SSE
+    # streams. Parse off-loop so the engine's own loop never freezes requests.
     try:
-        tasks_mod.load_tasks()
+        await asyncio.to_thread(tasks_mod.load_tasks)
     except Exception as e:
         logger.error("[autonomous engine] initial tasks load failed: %s", e)
 

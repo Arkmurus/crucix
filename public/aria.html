@@ -1486,6 +1486,7 @@ async function send(text, opts) {
 
   var fullText = '';
   var toolUsed = '';
+  var _streamConnError = false;   // R-F1748 — set when a mid-stream error event is connectivity-class
 
   // R-F753 — reset per-stream malformed-event counter so each new
   // /chat/stream call starts at zero. The global total
@@ -1581,9 +1582,25 @@ async function send(text, opts) {
             // so the operator saw a truncated answer and had no way to
             // tell if it was a complete response or a network/LB cut.
             var _r467_reason = evt.message || evt.reason || 'unknown';
-            fullText = (fullText ? fullText + '\n\n' : '')
-                     + '⚠️ [!stream cut: ' + _r467_reason + ']';
-            streamBody.innerHTML = md(fullText);
+            // R-F1748 (2026-06-20) — a mid-stream CONNECTIVITY error (the brain
+            // restarting during a deploy, or the proxy timing out a heavy tool)
+            // must SELF-HEAL like the outer-catch path (R-F1697), not dead-end
+            // on a scary "[!stream cut: fetch failed]" marker. This is exactly
+            // what the operator saw at 10:00 (/screen during the R-F1744
+            // deploy). If nothing useful streamed yet, flip to the reconnect
+            // banner + flag a one-shot retry (handled in finally). App-level
+            // errors (Python 500 / 429 / a real tool failure) are NOT
+            // connectivity-class, so they still show the marker — no silent
+            // retry of a genuinely failed request.
+            if (ConnectionMonitor.isConnReason(_r467_reason) && !fullText) {
+              _streamConnError = true;
+              streamBody.innerHTML = md('Connection interrupted — reconnecting…');
+              try { ConnectionMonitor.lost(); } catch (_) {}
+            } else {
+              fullText = (fullText ? fullText + '\n\n' : '')
+                       + '⚠️ [!stream cut: ' + _r467_reason + ']';
+              streamBody.innerHTML = md(fullText);
+            }
           }
         } catch(e) {
           // R-F753 (2026-05-20) — was a silent `catch { }`. Audit on
@@ -1656,6 +1673,19 @@ async function send(text, opts) {
     }
   } finally {
     streamAbort = null;
+    // R-F1748 — self-healing ONE-SHOT retry after a mid-stream connectivity
+    // drop (deploy restart / heavy-tool proxy timeout). Takes precedence over
+    // the Regenerate button and skips the turn-persist hook (an empty failed
+    // turn isn't worth saving). Guarded by opts._autoRetried so it fires at
+    // most once — a second drop falls through to the normal Regenerate path.
+    if (_streamConnError && !fullText && !opts._autoRetried && lastUserMessage) {
+      if (ariaDiv && ariaDiv.parentNode) ariaDiv.parentNode.removeChild(ariaDiv);
+      sending = false; resize();
+      var _retryOpts = {}; for (var _k in opts) _retryOpts[_k] = opts[_k];
+      _retryOpts._autoRetried = true; _retryOpts.skipUserBubble = true;
+      _awaitHealthThenRetry(lastUserMessage, _retryOpts);
+      return;
+    }
     try { if (window._ariaTurnFinished) window._ariaTurnFinished(SID, lastUserMessage); } catch(e) {}
     if (ariaDiv && lastUserMessage) {
       var regenBtn = document.createElement('button');
@@ -1839,10 +1869,16 @@ var ConnectionMonitor = (function() {
     document.body.appendChild(banner);
   }
   function hide() { if (banner) { banner.remove(); banner = null; } }
+  // R-F1748 — single source of truth for "is this a connectivity-class
+  // failure?" Used by BOTH the outer-catch path (err object) and the
+  // mid-stream error-event path (a reason string). Note: 500/429 are app
+  // errors and deliberately NOT matched — only transport-level failures.
+  var CONN_RE = /Failed to fetch|NetworkError|load failed|ERR_|fetch failed|terminated|ECONN|ENOTFOUND|EAI_AGAIN|aborted|502|503|504|gateway|timed? ?out/i;
+  function isConnReason(s) { return CONN_RE.test(String(s == null ? '' : s)); }
   function isConnErr(err) {
     if (!err) return false;
     var m = ((err.message || '') + '');
-    return /Failed to fetch|NetworkError|load failed|ERR_|fetch failed|502|503|504|timeout/i.test(m)
+    return CONN_RE.test(m)
         || err.name === 'TypeError';   // a bare fetch network failure is a TypeError
   }
   async function lost() {
@@ -1870,8 +1906,24 @@ var ConnectionMonitor = (function() {
       }).catch(function() {});
     } catch (_) {}
   }
-  return { lost: lost, isConnErr: isConnErr };
+  return { lost: lost, isConnErr: isConnErr, isConnReason: isConnReason };
 })();
+
+// R-F1748 — wait for the brain to come back (ConnectionMonitor is already
+// polling /healthz and showing the banner), then resend the dropped message
+// ONCE. Bounded to ~60s of polling so a genuinely-down backend doesn't retry
+// forever; if health never returns, the resend still fires and surfaces the
+// real error to the user rather than hanging silently.
+async function _awaitHealthThenRetry(text, opts) {
+  for (var i = 0; i < 24; i++) {            // up to ~60s (24 × 2.5s)
+    await new Promise(function(r) { setTimeout(r, 2500); });
+    try {
+      var resp = await fetch('/healthz', { cache: 'no-store' });
+      if (resp && resp.ok) break;
+    } catch (e) { /* still down — keep polling */ }
+  }
+  try { send(text, opts); } catch (e) { console.error('[R-F1748] auto-retry failed:', e); }
+}
 
 // ── Conversations panel (R-F533, 2026-05-15) ──
 // Rewritten around a `rows[]` cache so we can re-render with date groups

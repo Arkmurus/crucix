@@ -4642,6 +4642,47 @@ def _detect_tool_intent(message: str) -> dict | None:
                 "_reason": "screen_slash_command",
             }
 
+    # ── R-F1749 (2026-06-20) — compliance / export-control NLU → real screen ──
+    # The "Compliance" action chip emits the natural-language form
+    # "Check export-control / compliance for <entity>" (no slash). Pre-fix this
+    # matched NO intent → no_tool → the LLM answered from TRAINING knowledge and
+    # even FABRICATED a "[TOOL: sanctions_canonical.lookup]" block (live probe
+    # 2026-06-20: "Check export-control / compliance for Rosoboronexport"
+    # returned precise OFAC IDs straight from the model's memory, not the live
+    # module). Route it to the SAME fuzzy_screen sanctions tool /screen uses so
+    # the answer is grounded in the live OFAC/EU/OFSI/UN data. Only fires when a
+    # compliance/export/sanctions keyword is present AND a "for/on/of <entity>"
+    # tail exists. Skipped entirely when a document is attached so doc-review
+    # stays on the LLM-pure path (§22a). Slash /screen + capability intents
+    # already returned above — this is purely the no-slash compliance ask.
+    if "[ATTACHED DOCUMENT" not in message:
+        _COMPLIANCE_KW_RE = re.compile(
+            r"\b(?:export[\s-]?controls?|compliance|sanction(?:s|ed|ing)?)\b",
+            re.IGNORECASE,
+        )
+        _COMPLIANCE_FOR_RE = re.compile(
+            r"\b(?:for|on|of|against)\s+(.+?)\s*$",
+            re.IGNORECASE,
+        )
+        if _COMPLIANCE_KW_RE.search(msg):
+            _comp_for = _COMPLIANCE_FOR_RE.search(msg)
+            if _comp_for:
+                _comp_entity = _comp_for.group(1).strip(" .,:;-?!\"'")
+                _comp_low = _comp_entity.lower()
+                if (
+                    _comp_entity
+                    and 2 <= len(_comp_entity) <= 200
+                    and "document" not in _comp_low
+                    and "attached" not in _comp_low
+                    and "this file" not in _comp_low
+                ):
+                    return {
+                        "tool": "screen",
+                        "entity": _comp_entity[:200],
+                        "context": msg,
+                        "_reason": "compliance_nlu_rf1749",
+                    }
+
 
     # R-F1545 -- auto-fire registry lookup when a company name + jurisdiction
     # is mentioned. Detects patterns like "Turkish company X", "Estonian firm
@@ -9190,8 +9231,49 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 )
                 yield f'data: {json.dumps({"type":"progress","stage":"tool_running","tool":tool_used,"entity":_entity_for_progress,"message":_progress_msg})}\n\n'
                 _log.info("ARIA stream tool-use detected: %s", intent)
+                # R-F1747 (2026-06-20) — heartbeat the heavy-tool wait so the
+                # browser sees LIVE progress instead of a frozen badge. Pre-fix,
+                # `await _execute_tool(...)` for dd_orchestrate / deep_research
+                # ran 30s–12min inline; its periodic synchronous CPU sections
+                # (sentence_transformers.encode / large JSON — see R-F703 stall
+                # logs) starved the SSE writer so EVEN the already-yielded
+                # "Running…" event above never reached the client (live probe
+                # 2026-06-20: /dd Embraer = 0 bytes in 170s; user sees a dead
+                # "streaming" badge → 600s proxy cut → "[!stream cut]"). Now we
+                # (a) flush the "Running…" event during the first free loop
+                # window, then (b) run the tool as a shielded task and emit a
+                # "still working… (Ns elapsed)" progress every few seconds while
+                # it runs. Heartbeats flow during the tool's network awaits even
+                # when CPU stalls delay individual ticks — the deep CPU-offload
+                # fix is R-F1750. tool_used is a string here (intent["tool"]),
+                # so the wrapper is purely additive — no behaviour change for
+                # fast tools (screen/profile return before the first tick).
                 try:
-                    tool_context = await _execute_tool(intent, llm)
+                    _hb_interval = float(os.getenv("ARIA_STREAM_HEARTBEAT_S", "4"))
+                    _tool_task = _aio.create_task(_execute_tool(intent, llm))
+                    await _aio.sleep(0)   # yield once so the "Running…" event flushes
+                    _hb_t0 = time.monotonic()
+                    try:
+                        # asyncio.wait() (NOT wait_for) does NOT cancel the task
+                        # on timeout — so the tool keeps running across heartbeat
+                        # ticks. The finally cancels it only if the generator is
+                        # torn down mid-run (client disconnect), preserving the
+                        # pre-fix cancel-on-disconnect behaviour.
+                        while True:
+                            _done, _ = await _aio.wait({_tool_task}, timeout=_hb_interval)
+                            if _done:
+                                tool_context = _tool_task.result()
+                                break
+                            _elapsed_s = int(time.monotonic() - _hb_t0)
+                            _hb_msg = (
+                                f"Still running {tool_used}"
+                                + (f" on {_entity_for_progress}" if _entity_for_progress else "")
+                                + f"… ({_elapsed_s}s elapsed)"
+                            )
+                            yield f'data: {json.dumps({"type":"progress","stage":"tool_running","tool":tool_used,"entity":_entity_for_progress,"message":_hb_msg,"elapsed_s":_elapsed_s})}\n\n'
+                    finally:
+                        if not _tool_task.done():
+                            _tool_task.cancel()
                 except Exception as _te:
                     _log.warning("R-F737 tool execution failed in stream: %s", _te)
                     tool_context = ""
@@ -13476,7 +13558,9 @@ async def autonomous_reload_tasks_ep():
     restarting the service."""
     try:
         from ..autonomous import tasks as _tsk
-        loaded = _tsk.load_tasks()
+        # R-F1750 — yaml.safe_load is sync CPU; offload so a manual reload from
+        # this async route never freezes the event loop (see engine.py:243).
+        loaded = await asyncio.to_thread(_tsk.load_tasks)
         return {
             "ok": True,
             "tasks_loaded": len(loaded),

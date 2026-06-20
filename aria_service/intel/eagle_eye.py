@@ -161,15 +161,22 @@ class EagleEyeGuardian:
             if ".venv" not in str(f) and ".aria" not in str(f) and "__pycache__" not in str(f)
         ]
 
-        # Run the CPU-intensive scan in a thread
+        # Run the CPU-intensive scan in a thread. _scan_files_sync ALSO runs
+        # _detect_code_smells() + _save_metrics() at its tail (lines ~203-204),
+        # i.e. inside this same thread — so the loop stays free for requests.
         await asyncio.to_thread(self._scan_files_sync, python_files)
 
+        # R-F1750 (2026-06-20) — REMOVED the duplicate on-loop calls to
+        # self._detect_code_smells() + self._save_metrics() that used to sit
+        # here. They re-ran the exact CPU-bound regex scan + JSON write that
+        # _scan_files_sync already did in the worker thread, but ON THE EVENT
+        # LOOP — live wedge capture (/data/wedge_stacks/wedge_674, 2026-06-20)
+        # caught `eagle_eye:171 _detect_code_smells` stalling the loop ~5s while
+        # a user's /dd stream got 0 bytes. The metrics below are cheap and the
+        # threaded scan already populated them; this is now wedge-free.
         self.metrics["files_watched"] = len(python_files)
         self.metrics["scans_completed"] += 1
         self.metrics["last_scan"] = datetime.now().isoformat()
-
-        self._detect_code_smells()
-        self._save_metrics()
 
         return self.get_report()
 
