@@ -319,8 +319,14 @@ def _fmt_country_risk(country: str) -> str:
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-async def try_local_response(message: str) -> dict:
+async def try_local_response(message: str, *,
+                             exclude_topic: str | None = None) -> dict:
     """Attempt to answer a message using ONLY local data. No LLM call.
+
+    Args:
+        exclude_topic: when set, RAG retrieval will exclude facts whose topic
+            starts with this prefix. Used by self_quiz to prevent quiz-gaming
+            (retrieving the quizzed case's own answer).
 
     Returns:
         {
@@ -329,6 +335,7 @@ async def try_local_response(message: str) -> dict:
             "intent": str | None,
             "source": "local_brain",
             "degraded": bool,  # True if this is a fallback from a failed LLM
+            "rag_context": str | None,  # R-F1743: reasoning-only context
         }
     """
     if not message or len(message.strip()) < 3:
@@ -431,14 +438,14 @@ async def try_local_response(message: str) -> dict:
     # near _PATTERNS. The R-F511 commit message explains the live failure
     # (2026-05-14 08:55 BST Hikvision/UK) that drives the yield-to-LLM path.
 
-    # R-F1740: Semantic RAG retrieval — query the knowledge base for facts
-    # relevant to this question BEFORE pattern matching. This makes ingested
-    # facts (OFAC SDN, UK OFSI, EU/UN sanctions) available to the local
-    # reasoning stack during self_quiz, so coverage feeds mastery.
-    # The retrieved facts are stored in _rag_context which intents can
-    # optionally include in their response. This runs for EVERY query,
-    # not just degraded mode, so the local stack always has the best
-    # available domain knowledge.
+    # R-F1740/R-F1743: Semantic RAG retrieval — query the knowledge base for
+    # facts relevant to this question BEFORE pattern matching. This makes
+    # ingested facts (OFAC SDN, UK OFSI, EU/UN sanctions) available to the
+    # local reasoning stack during self_quiz, so coverage feeds mastery.
+    # The retrieved facts are stored in _rag_context as a separate field
+    # (NOT appended to the visible response) for quiz-mode reasoning use.
+    # When exclude_topic is set, facts whose topic starts with that prefix
+    # are filtered out to prevent quiz-gaming.
     _rag_context: str | None = None
     try:
         from .rag_store import search as _rag_search
@@ -448,8 +455,15 @@ async def try_local_response(message: str) -> dict:
             for r in _rag_results[:5]:
                 text = (r.get("text") or "").strip()
                 score = r.get("score", 0)
-                if text and len(text) > 50:
-                    _rag_parts.append(f"[RAG: {text[:300]} (score={score:.2f})]")
+                if not text or len(text) < 50:
+                    continue
+                # R-F1743: guard against quiz-gaming — exclude the quizzed
+                # case's own topic from RAG retrieval so the local stack
+                # must reason from domain knowledge, not echo the answer.
+                topic = (r.get("topic") or "").strip()
+                if exclude_topic and topic.startswith(exclude_topic):
+                    continue
+                _rag_parts.append(f"[RAG: {text[:300]} (score={score:.2f})]")
             if _rag_parts:
                 _rag_context = "\n".join(_rag_parts)
     except Exception as _rag_err:
@@ -479,14 +493,14 @@ async def try_local_response(message: str) -> dict:
                     return {"answered": False, "response": None, "intent": None}
                 result = await fuzzy_sanctions.fuzzy_screen(arg)
                 _resp = _fmt_sanctions(arg, result)
-                # R-F1740: append semantically retrieved RAG facts to the
-                # sanctions response so ingested OFAC/UK/EU/UN sanctions
-                # data feeds into the local reasoning stack during self_quiz.
-                if _rag_context:
-                    _resp += f"\n\n---\n_R-F1740: semantically retrieved knowledge facts:_\n{_rag_context}"
+                # R-F1743: RAG context is passed as a separate field for
+                # reasoning/quiz use, NOT appended to the visible response.
+                # The raw [RAG:...] dump polluted the user-facing answer and
+                # inflated similarity scores in self_quiz.
                 return {
                     "answered": True,
                     "response": _resp,
+                    "rag_context": _rag_context,  # reasoning-only, not visible
                     "intent": intent,
                     "source": "local_brain",
                 }

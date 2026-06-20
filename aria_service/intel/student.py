@@ -849,11 +849,20 @@ async def self_quiz(num_questions: int = 5) -> dict:
             continue
 
         # Try the LOCAL reasoning stack (no cloud)
-        local = await reasoning_router.try_local_reasoning(question)
+        # R-F1743: pass exclude_topic to prevent quiz-gaming — the RAG
+        # retrieval will exclude facts whose topic matches the case's
+        # own topic, forcing the local stack to reason from domain
+        # knowledge rather than retrieving the stored answer.
+        _exclude = case.get("topic") or None
+        local = await reasoning_router.try_local_reasoning(
+            question, exclude_topic=_exclude,
+        )
         local_answered = local.get("answered", False)
         local_response = local.get("response") if local_answered else None
 
         # Score similarity between local and original (token overlap proxy)
+        # R-F1743: rag_context is NOT included in the response text, so
+        # similarity is measured against the clean answer only.
         similarity = 0.0
         if local_response and original_response:
             similarity = _quick_similarity(local_response, original_response)

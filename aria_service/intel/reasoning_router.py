@@ -143,7 +143,8 @@ async def _record_routing(source: str) -> None:
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
+async def try_local_reasoning(question: str, *, silent: bool = False,
+                              exclude_topic: str | None = None) -> dict:
     """Try every LOCAL reasoning source. Returns the first confident answer
     or a {"answered": False} signal to escalate.
 
@@ -156,6 +157,9 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
             silent_brain_hook flag (F53 2026-04-28). Set by
             student.compare_local_silently which re-runs the same query
             purely to score local-vs-cloud divergence.
+        exclude_topic: when set, the RAG retrieval in local_brain will exclude
+            facts matching this topic prefix. Used by self_quiz to prevent
+            quiz-gaming (retrieving the quizzed case's own answer).
     """
     if not question or len(question.strip()) < 5:
         return {"answered": False, "reason": "empty query"}
@@ -282,7 +286,7 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
 
     # ── Stage 3: Local brain (rule-based intent router) ──────────────────
     try:
-        local = await local_brain.try_local_response(question)
+        local = await local_brain.try_local_response(question, exclude_topic=exclude_topic)
         trace.append({
             "stage": "local_brain",
             "matched": local.get("answered", False),
@@ -290,7 +294,7 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
         })
         if local.get("answered"):
             await _record_routing("local_brain")
-            return {
+            result = {
                 "answered": True,
                 "response": local["response"],
                 "source": "local_brain",
@@ -301,6 +305,10 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
                 "independent": True,
                 "llm_calls_avoided": 1,
             }
+            # R-F1743: propagate rag_context for quiz-mode reasoning
+            if local.get("rag_context"):
+                result["rag_context"] = local["rag_context"]
+            return result
     except Exception as e:
         logger.warning("local_brain failed: %s", e)
         trace.append({"stage": "local_brain", "error": str(e)})
