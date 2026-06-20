@@ -1030,9 +1030,24 @@ async def _audit_registered(
 
 
 async def is_registered(portal_id: str) -> bool:
-    """Check if ARIA has registered for a portal."""
-    creds = await _get_credentials()
-    return portal_id in creds
+    """Check if ARIA has registered for a portal.
+
+    Uses the AGENT SIGNUP VAULT as source of truth, NOT Redis credentials.
+    The old implementation checked _get_credentials() which returns True for
+    every portal that _audit_preparation stored credentials for — BEFORE any
+    form submission. This caused 19 portals to be falsely marked as registered.
+
+    Only returns True when the vault status is 'registered' or 'verified'.
+    """
+    try:
+        from .agent_signup_vault import get_vault as _gv
+        _v = _gv()
+        _entry = _v.get(portal_id)
+        if _entry and _entry.get("status") in ("registered", "verified"):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 async def get_registered_portals() -> list[dict]:
@@ -1090,27 +1105,29 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
                     "portal_id": portal_id}
         return await _httpx_onboard(portal)
 
-    # Check if already registered
+    # R-F1755: Check if already registered using the VAULT as source of truth.
+    # The old is_registered() checked Redis credentials which were stored by
+    # _audit_preparation BEFORE any form submission — causing 19 fabricated
+    # registrations. Now is_registered() checks the vault, which only records
+    # 'registered' after a REAL form submission + email verification.
+    # When the vault says registered, we trust it — but for api_key portals
+    # we still verify the key is actually stored (R-F1721).
     if await is_registered(portal_id):
-        # R-F1721: credentials existing != having the API key. For an api_key
-        # portal whose key is not stored yet, the ACCOUNT exists (from a prior
-        # attempt) but we still need to log in and RETRIEVE the key. Returning
-        # "already registered" here faked success and left the portal keyless —
-        # the live newsapi case: status=registered but resolve_key → empty.
         if portal.registration_type == "api_key" and portal.api_key_path:
-            _cred1721 = await get_credential(portal_id) or {}
-            if not (_cred1721.get("api_key") or "").strip():
-                _cands1721 = await _retrieve_api_key(portal)
-                _verified1721 = ""
-                for _c1721 in _cands1721:
-                    if await _verify_api_key(portal, _c1721):
-                        _verified1721 = _c1721
+            _cred1755 = await get_credential(portal_id) or {}
+            if not (_cred1755.get("api_key") or "").strip():
+                # Vault says registered but no key stored — try to retrieve it
+                _cands1755 = await _retrieve_api_key(portal)
+                _verified1755 = ""
+                for _c1755 in _cands1755:
+                    if await _verify_api_key(portal, _c1755):
+                        _verified1755 = _c1755
                         break
-                if _verified1721:
+                if _verified1755:
                     from .key_resolver import store_obtained_key
                     await store_obtained_key(
-                        portal_id, _verified1721,
-                        note="retrieved for existing account (R-F1721)",
+                        portal_id, _verified1755,
+                        note="retrieved for existing account (R-F1755)",
                     )
                     return {
                         "success": True, "api_key_obtained": True,
@@ -2735,6 +2752,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
                 "blocker": "captcha",
                 "declined": portal_id in _DECLINED_PORTAL_IDS,
                 "deferred": portal_id in _DEFERRED_PORTAL_IDS,
+                "_portal_name": portal.name,
+                "_portal_url": portal.url,
                 "message": (
                     f"{portal.name} requires CAPTCHA and no solver is configured "
                     f"(set ARIA_TWOCAPTCHA_API_KEY) — operator must register manually"
@@ -2749,6 +2768,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "blocker": "paid",
             "declined": True,
             "deferred": False,
+            "_portal_name": portal.name,
+            "_portal_url": portal.url,
             "message": f"{portal.name} requires paid subscription — operator declined (§18)",
         }
 
@@ -2759,6 +2780,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "blocker": "manual_signup",
             "declined": False,
             "deferred": True,
+            "_portal_name": portal.name,
+            "_portal_url": portal.url,
             "message": f"{portal.name} deferred — waiting for env vars (ACLED_EMAIL, ACLED_PASSWORD)",
         }
 
@@ -2782,6 +2805,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
                 "blocker": "email_verify",
                 "declined": False,
                 "deferred": False,
+                "_portal_name": portal.name,
+                "_portal_url": portal.url,
                 "message": f"{portal.name} requires email verification — IMAP not configured",
             }
 
@@ -2792,6 +2817,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "blocker": "attempt_failed",
             "declined": False,
             "deferred": False,
+            "_portal_name": portal.name,
+            "_portal_url": portal.url,
             "message": f"{portal.name}: auto-registration failed — {error[:200]}",
         }
     except Exception as e:
@@ -2800,6 +2827,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "blocker": "attempt_failed",
             "declined": False,
             "deferred": False,
+            "_portal_name": portal.name,
+            "_portal_url": portal.url,
             "message": f"{portal.name}: auto-registration exception — {e}",
         }
 
@@ -2871,6 +2900,31 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
                             notes=notes + " [DEFERRED — suppressed from digest]")
                     else:
                         vault.update_status(pid, "needs_operator", notes=notes)
+                        # R-F1755: notify operator about portals that need
+                        # manual action (CAPTCHA, email_verify, attempt_failed).
+                        # This ensures the operator is actually informed instead
+                        # of the portal sitting silently in needs_operator forever.
+                        try:
+                            from . import pending_actions as _pa1755
+                            await _pa1755.record(
+                                promise=f"Register on {result.get('_portal_name', pid)}",
+                                reason=(
+                                    f"ARIA cannot auto-register on {result.get('_portal_name', pid)}.\n"
+                                    f"  Portal: {result.get('_portal_url', '')}\n"
+                                    f"  Blocker: {blocker}\n"
+                                    f"  Detail: {notes}\n"
+                                    f"  Action needed: "
+                                    f"{'Set up CAPTCHA solver (ARIA_TWOCAPTCHA_API_KEY)' if blocker == 'captcha' else ''}"
+                                    f"{'Set up IMAP email verification' if blocker == 'email_verify' else ''}"
+                                    f"{'Register manually on the portal website' if blocker in ('attempt_failed', 'manual_signup') else ''}"
+                                ),
+                                resolver_kind="operator_action",
+                                resolver_ref=f"portal_registration:{pid}",
+                                severity="MEDIUM",
+                                source="portal_registry",
+                            )
+                        except Exception:
+                            pass
             except Exception:
                 pass
             results.append(result)
