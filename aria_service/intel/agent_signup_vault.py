@@ -117,6 +117,7 @@ class AgentSignupVault:
         self._conn.executescript(_CREATE_SQL)
         self._conn.commit()
         self._migrate_v1()
+        self._migrate_v2()
 
     def _migrate_v1(self):
         """R-F1704: Correct fabricated 'registered' entries from the old
@@ -176,6 +177,98 @@ class AgentSignupVault:
                 _log1704.debug("[R-F1704] No fabricated registrations found — vault is clean")
         except Exception as _e1704:
             _log1704.warning("[R-F1704] Migration v1 failed (non-fatal): %s", _e1704)
+
+    def _migrate_v2(self):
+        """R-F1753: Correct fabricated 'registered' entries missed by v1.
+
+        The v1 migration only caught notes containing 'Credentials found in
+        vault'. But the old register_for_portal() code path wrote notes like
+        'Already registered for X' — a different pattern. The live vault had
+        19 entries with this pattern, all fabricated (Redis credentials existed
+        from _audit_preparation, not from real registration).
+
+        This migration catches ALL 'registered' entries whose notes match
+        the fabricated pattern: 'Already registered for', 'Credentials found',
+        or empty notes. Real registrations have notes like 'Autonomously
+        registered', 'Confirmed registered', or 'Auto-registered:'.
+
+        Also corrects needs_operator entries whose notes say [DECLINED] or
+        [DEFERRED] — these should have the proper status.
+        """
+        import logging as _log1753
+        _log1753 = logging.getLogger("aria.agent_signup_vault.migration")
+        try:
+            # Part 1: Fix fabricated 'registered' entries
+            cursor = self._conn.execute(
+                "SELECT site_id, site_name, notes FROM signups WHERE status = 'registered'"
+            )
+            fabricated = []
+            for row in cursor.fetchall():
+                notes = (row["notes"] or "").lower()
+                site_id = row["site_id"]
+                site_name = row["site_name"]
+                # Fabricated patterns from old code paths:
+                #   "Already registered for X" (register_for_portal is_registered shortcut)
+                #   "Credentials found in vault" (old determine_and_drive)
+                #   empty notes
+                # Real registrations have notes like:
+                #   "Autonomously registered", "Confirmed registered",
+                #   "Auto-registered:", "Logged into existing", "retrieved"
+                if ("already registered" in notes
+                        or "credentials found" in notes
+                        or not notes.strip()):
+                    fabricated.append((site_id, site_name))
+
+            if fabricated:
+                for site_id, site_name in fabricated:
+                    self._conn.execute(
+                        "UPDATE signups SET status = 'needs_operator', "
+                        "updated_at = ?, notes = ? WHERE site_id = ?",
+                        (time.time(),
+                         f"R-F1753: corrected from fabricated 'registered' to 'needs_operator' — "
+                         f"no real registration completed",
+                         site_id),
+                    )
+                self._conn.commit()
+                _log1753.info(
+                    "[R-F1753] Corrected %d fabricated 'registered' entries to 'needs_operator': %s",
+                    len(fabricated), ", ".join(s for s, _ in fabricated),
+                )
+                try:
+                    from .engine_wiring import wire_success as _ws1753
+                    _ws1753(
+                        module="agent_signup_vault",
+                        summary=f"Migration v2: corrected {len(fabricated)} fabricated registrations",
+                        source_id="agent_signup_vault:migration_v2",
+                    )
+                except Exception:
+                    pass
+            else:
+                _log1753.debug("[R-F1753] No fabricated registrations found — vault is clean")
+
+            # Part 2: Fix needs_operator entries that should be declined/deferred
+            cursor2 = self._conn.execute(
+                "SELECT site_id, notes FROM signups WHERE status = 'needs_operator'"
+            )
+            for row in cursor2.fetchall():
+                notes = (row["notes"] or "").lower()
+                site_id = row["site_id"]
+                if "[declined" in notes:
+                    self._conn.execute(
+                        "UPDATE signups SET status = 'declined', updated_at = ? WHERE site_id = ?",
+                        (time.time(), site_id),
+                    )
+                    _log1753.info("[R-F1753] Corrected '%s' from needs_operator to declined", site_id)
+                elif "[deferred" in notes:
+                    self._conn.execute(
+                        "UPDATE signups SET status = 'deferred', updated_at = ? WHERE site_id = ?",
+                        (time.time(), site_id),
+                    )
+                    _log1753.info("[R-F1753] Corrected '%s' from needs_operator to deferred", site_id)
+            self._conn.commit()
+
+        except Exception as _e1753:
+            _log1753.warning("[R-F1753] Migration v2 failed (non-fatal): %s", _e1753)
 
     def close(self):
         """Close the database connection."""

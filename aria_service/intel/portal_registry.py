@@ -2860,11 +2860,17 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
                     declined = result.get("declined", False)
                     deferred = result.get("deferred", False)
                     notes = result.get("message", "Operator action needed.")[:200]
+                    # R-F1753: set the proper vault status instead of lumping
+                    # everything into needs_operator. declined/deferred are
+                    # terminal states that suppress the portal from the digest.
                     if declined:
-                        notes += " [DECLINED — suppressed from digest]"
-                    if deferred:
-                        notes += " [DEFERRED — suppressed from digest]"
-                    vault.update_status(pid, "needs_operator", notes=notes)
+                        vault.update_status(pid, "declined",
+                            notes=notes + " [DECLINED — suppressed from digest]")
+                    elif deferred:
+                        vault.update_status(pid, "deferred",
+                            notes=notes + " [DEFERRED — suppressed from digest]")
+                    else:
+                        vault.update_status(pid, "needs_operator", notes=notes)
             except Exception:
                 pass
             results.append(result)
