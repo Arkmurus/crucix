@@ -2026,6 +2026,48 @@ async def eval_count_ep():
     }
 
 
+# ── R-F1771 — external eval-result sink (pod-self-run eval, no client SSH) ──
+# A self-running RunPod eval pod (eval_selfrun_v07.sh) serves the on-volume
+# adapter, runs the 500-Q eval, then POSTs its judge-DD result HERE; we read it
+# via GET. This removes the Windows RunPod-SCP transport dependency entirely —
+# the result comes OUT of the pod to the brain instead of us pulling it over SSH.
+_EVAL_EXTERNAL_KEY = "crucix:aria:eval:external:latest"
+
+
+@router.post("/eval/external-result")
+async def eval_external_result_post_ep(request: Request):
+    """Receive a judge-DD eval result POSTed by a self-running eval pod."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    import time as _t1771
+    record = {
+        "model": str(body.get("model") or "")[:80],
+        "accuracy": body.get("accuracy"),
+        "leak_rate": body.get("leak_rate"),
+        "n": body.get("n"),
+        "label": str(body.get("label") or "")[:160],
+        "report": body.get("report"),  # optional full report dict
+        "received_at": _t1771.time(),
+        "source": str(body.get("source") or "runpod_selfrun")[:60],
+    }
+    try:
+        await rs.set_json(_EVAL_EXTERNAL_KEY, record, ex=30 * 86400)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"store failed: {e}")
+    return {"ok": True, "stored": {k: record.get(k) for k in ("model", "accuracy", "leak_rate", "n")}}
+
+
+@router.get("/eval/external-result")
+async def eval_external_result_get_ep():
+    """Read the latest external eval result (what the self-run pod POSTed)."""
+    rec = await rs.get_json(_EVAL_EXTERNAL_KEY)
+    return {"result": rec, "present": rec is not None}
+
+
 # ── Source verification: deterministic citation grounding check ──────────
 @router.get("/verify/list")
 async def verify_list_ep(limit: int = 30, verdict: str | None = None):

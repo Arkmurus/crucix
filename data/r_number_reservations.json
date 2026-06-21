@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1771,
+  "next_available": 1773,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12072,9 +12072,30 @@
       "title": "Use WhatsApp typing indicator instead of progress messages",
       "claimed_at": "2026-06-21T11:39:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6ff63e20",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:47:30Z"
+    },
+    {
+      "r_number": "R-F1771",
+      "title": "External eval-result endpoint (POST/GET /eval/external-result) for pod-self-run eval",
+      "claimed_at": "2026-06-21T12:26:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9ff01f77",
+      "notes": null,
+      "shipped_at": "2026-06-21T12:30:18Z"
+    },
+    {
+      "r_number": "R-F1772",
+      "title": "Pod-self-run v0.7 eval launcher (dockerStartCmd, no client SSH, POSTs result)",
+      "claimed_at": "2026-06-21T12:26:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9ff01f77",
+      "notes": null,
+      "shipped_at": "2026-06-21T12:30:19Z"
     }
   ]
 }

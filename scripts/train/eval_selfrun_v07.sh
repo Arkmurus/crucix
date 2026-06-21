@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# R-F1772 — POD-SELF-RUN v0.7 eval. ZERO client SSH/SCP — works from ANY OS
+# (incl. Windows, where RunPod SCP drops). Creates an on-demand pod whose
+# dockerStartCmd runs the ENTIRE eval pod-side from the assets ALREADY on the
+# network volume (serve_eval_shim, eval_aria_llm, the 500-Q open-book set, the
+# v0.7 adapter — all pushed there by the v0.7 cycle), then POSTs the judge-DD
+# result to the brain (/api/aria/eval/external-result) and SELF-STOPS. The
+# launcher only makes HTTPS API calls (curl) + polls the brain for the result.
+# Does NOT retrain. Does NOT touch ARIA_LLM_URL.
+set -uo pipefail
+REPO="/c/code/crucix"; cd "$REPO"
+API="https://rest.runpod.io/v1"
+KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+DSK=$(grep -E '^DEEPSEEK_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+TOK=$(grep -E '^ARIA_INTERNAL_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+BRAIN="${ARIA_BRAIN_URL:-https://aria-intel.fly.dev}"
+VOL=4vdw2zmqov
+GPUS='["NVIDIA A40","NVIDIA RTX A4000","NVIDIA RTX A5000","NVIDIA GeForce RTX 3090","NVIDIA GeForce RTX 4090","NVIDIA L40S","NVIDIA L40"]'
+[ -n "$KEY" ] || { echo "[selfrun] FATAL RUNPOD_API_KEY missing"; exit 1; }
+[ -n "$TOK" ] || { echo "[selfrun] FATAL ARIA_INTERNAL_TOKEN missing"; exit 1; }
+
+# ── The POD-SIDE script (runs entirely on the Linux pod; base64'd to avoid any
+#    JSON/shell escaping). Self-contained + always self-stops (cost safety). ──
+read -r -d '' POD_SCRIPT <<'PODEOF'
+set -uo pipefail
+mkdir -p /workspace/logs /workspace/eval
+exec >/workspace/logs/selfrun.log 2>&1
+echo "[selfrun] $(date -u) start pod=${RUNPOD_POD_ID:-?}"
+selfstop(){ echo "[selfrun] self-stop pod ${RUNPOD_POD_ID:-?}"; curl -s -X POST "https://rest.runpod.io/v1/pods/${RUNPOD_POD_ID}/stop" -H "Authorization: Bearer ${RUNPOD_API_KEY}" >/dev/null 2>&1 || true; }
+trap selfstop EXIT
+cd /workspace
+pip install -q "transformers==4.46.3" "peft==0.13.2" "accelerate>=0.34" bitsandbytes sentencepiece protobuf fastapi uvicorn httpx 2>&1 | tail -3
+export HF_HOME=/workspace/.cache/huggingface
+export BASE_MODEL=unsloth/mistral-7b-instruct-v0.3
+SFT=/workspace/checkpoints/aria_llm_v0_4_sft
+EVALSET=/workspace/datasets/aria_eval_openbook.jsonl
+SCR=/workspace/crucix/scripts/train
+PORT=8888; NAME=aria-llm-v0.7
+post_result(){ # post_result <json>
+  python - "$1" <<'PY'
+import json,os,sys,urllib.request
+payload=json.loads(sys.argv[1])
+req=urllib.request.Request(os.environ['ARIA_BRAIN_URL'].rstrip('/')+'/api/aria/eval/external-result',
+  data=json.dumps(payload).encode(), headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['ARIA_TOKEN']})
+try: print('[selfrun] POSTed result:', urllib.request.urlopen(req,timeout=30).read()[:200])
+except Exception as e: print('[selfrun] POST failed:', e)
+PY
+}
+if [ ! -f "$SFT/adapter_config.json" ]; then post_result '{"model":"aria-llm-v0.7","accuracy":null,"label":"FAIL: no adapter on volume","source":"runpod_selfrun"}'; exit 1; fi
+if [ ! -s "$EVALSET" ]; then post_result '{"model":"aria-llm-v0.7","accuracy":null,"label":"FAIL: no eval set on volume","source":"runpod_selfrun"}'; exit 1; fi
+# serve the EXISTING adapter (no train)
+ADAPTER=$SFT MODEL_NAME=$NAME PORT=$PORT BASE_MODEL=$BASE_MODEL HF_HOME=$HF_HOME setsid nohup python "$SCR/serve_eval_shim.py" >/workspace/logs/shim.log 2>&1 &
+served=0; for i in $(seq 1 90); do curl -s --max-time 5 "localhost:$PORT/v1/models" | grep -q "$NAME" && { served=1; echo "[selfrun] serving (try $i)"; break; }; sleep 10; done
+if [ "$served" != 1 ]; then tail -30 /workspace/logs/shim.log; post_result '{"model":"aria-llm-v0.7","accuracy":null,"label":"FAIL: shim did not serve","source":"runpod_selfrun"}'; exit 1; fi
+cd /workspace/crucix
+DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" python "$SCR/eval_aria_llm.py" --target "http://localhost:$PORT/v1" --model "$NAME" --eval-set "$EVALSET" --out /workspace/eval/v07_rerun.json 2>&1 | tail -25
+python - <<'PY'
+import json,os,urllib.request
+try:
+    d=json.load(open('/workspace/eval/v07_rerun.json')); dd=d.get('defence_dd') or {}; pi=d.get('prompt_injection') or {}
+    payload={"model":"aria-llm-v0.7","accuracy":dd.get('accuracy'),"leak_rate":pi.get('leak_rate'),"n":dd.get('total'),
+             "label":"v0.7 rerun open-book (pod-selfrun)","source":"runpod_selfrun",
+             "report":{"defence_dd_accuracy":dd.get('accuracy'),"defence_dd_total":dd.get('total'),"leak_rate":pi.get('leak_rate')}}
+except Exception as e:
+    payload={"model":"aria-llm-v0.7","accuracy":None,"label":"FAIL eval parse: %s"%e,"source":"runpod_selfrun"}
+req=urllib.request.Request(os.environ['ARIA_BRAIN_URL'].rstrip('/')+'/api/aria/eval/external-result',
+  data=json.dumps(payload).encode(), headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['ARIA_TOKEN']})
+try: print('[selfrun] POSTed result:', urllib.request.urlopen(req,timeout=30).read()[:200])
+except Exception as e: print('[selfrun] POST failed:', e)
+PY
+echo "[selfrun] done"
+PODEOF
+
+B64=$(printf '%s' "$POD_SCRIPT" | base64 -w0 2>/dev/null || printf '%s' "$POD_SCRIPT" | base64 | tr -d '\n')
+START="echo $B64 | base64 -d | bash"
+
+mkjson(){ python - "$VOL" "$GPUS" "$START" "$DSK" "$TOK" "$BRAIN" "$KEY" <<'PY'
+import json,sys
+vol,gpus,start,dsk,tok,brain,rpkey=sys.argv[1:8]
+print(json.dumps({
+  "name":"aria-v07-selfrun","imageName":"runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+  "gpuTypeIds":json.loads(gpus),"gpuCount":1,"cloudType":"SECURE",
+  "networkVolumeId":vol,"volumeMountPath":"/workspace","containerDiskInGb":80,
+  "dockerStartCmd":["bash","-c",start],
+  "env":{"DEEPSEEK_API_KEY":dsk,"ARIA_TOKEN":tok,"ARIA_BRAIN_URL":brain,"RUNPOD_API_KEY":rpkey},
+}))
+PY
+}
+
+POD_ID=""
+for i in $(seq 1 20); do
+  R=$(curl -s -X POST "$API/pods" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d "$(mkjson)")
+  POD_ID=$(echo "$R" | python -c "import sys,json
+try: print(json.load(sys.stdin).get('id','') or '')
+except: print('')" 2>/dev/null)
+  [ -n "$POD_ID" ] && { echo "[selfrun] CREATED self-run pod $POD_ID (try $i) — it will eval + POST + self-stop"; break; }
+  ERR=$(echo "$R" | python -c "import sys,json
+try: print((json.load(sys.stdin).get('error','') or str(json.load(sys.stdin)))[:80])
+except: print('')" 2>/dev/null)
+  echo "[selfrun] no capacity ($ERR) — retry 120s ($i/20)"; sleep 120
+done
+[ -n "$POD_ID" ] || { echo "[selfrun] GAVE UP — US-KS-2 capacity-blocked across GPU types"; exit 2; }
+
+# Backstop force-stop (in case the pod's self-stop fails) — launcher owns the key.
+force_stop(){ curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true; }
+trap force_stop EXIT
+
+echo "[selfrun] polling brain for the result (cap ~50 min)…"
+for i in $(seq 1 50); do
+  sleep 60
+  RES=$(curl -s --max-time 15 -H "Authorization: Bearer $TOK" "$BRAIN/api/aria/eval/external-result" 2>/dev/null)
+  HAS=$(echo "$RES" | python -c "import sys,json
+try:
+  d=json.load(sys.stdin); r=d.get('result') or {}
+  print('YES' if (r.get('source')=='runpod_selfrun' and (r.get('accuracy') is not None or 'FAIL' in (r.get('label') or ''))) else '')
+except: print('')" 2>/dev/null)
+  [ "$HAS" = "YES" ] && { echo "[selfrun] RESULT RECEIVED:"; echo "$RES" | python -m json.tool 2>/dev/null | head -20; break; }
+  echo "[selfrun] [$i/50] result not in yet…"
+done
+force_stop
+echo "[selfrun] DONE — pod $POD_ID stopped."
