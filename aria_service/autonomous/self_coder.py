@@ -324,6 +324,16 @@ class ARIACoder:
     async def _one_cycle(self) -> None:
         gaps = await self.gap_detector.scan()
 
+        # R-F1761: publish scan results to Redis so /api/aria/coder/gaps
+        # returns real data instead of scanned_at=null. R-F1046 removed
+        # gap_detector.run_forever() (double-scanning) but forgot to move
+        # publish_latest() here — so the scan ran but results were never
+        # written to the key the endpoint reads.
+        try:
+            await self.gap_detector.publish_latest(gaps)
+        except Exception:
+            logger.debug("[aria_coder] publish_latest failed (non-fatal)")
+
         # R-F1287: constitutional validator RESTORED — protected-file gaps are
         # filtered here AND fail-closed at the deploy gate.
         protected_file_gaps = []
