@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1765,
+  "next_available": 1766,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12016,6 +12016,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1765",
+      "title": "Self-verifying deploy: deploy_verifier primitive (is_sha_live + reconcile committed deploys vs live build_rev)",
+      "claimed_at": "2026-06-21T11:12:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d22d6158",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:18:27Z"
     }
   ]
 }
