@@ -75,6 +75,23 @@ def test_reconcile_emits_failure_gap_past_grace_once():
     assert gaps2 == []
 
 
+def test_superseded_intent_does_not_cry_wolf():
+    # The real scenario: 92dc032e was live, then 712f5c53 deployed over it before the
+    # loop verified 92dc032e (the loop had been down). 92dc032e is past grace and NOT
+    # in the live build_rev — but it was SUPERSEDED, not failed. No gap may fire.
+    old = dv.add_deploy_intent([], "92dc032e0000", "pre_push_hook", at=1000.0)
+    both = dv.add_deploy_intent(old, "712f5c530000", "pre_push_hook", at=2000.0)
+    # live now serves the NEWER commit; the older is well past grace
+    updated, gaps = asyncio.run(dv.reconcile_deploy_intents(
+        both, fetcher=_fetcher("R-F1773 · sha 712f5c53"), grace_s=1200.0, now=9000.0))
+    newer = [i for i in updated if i["commit_sha"] == "712f5c530000"][0]
+    older = [i for i in updated if i["commit_sha"] == "92dc032e0000"][0]
+    assert newer["verified_live"] is True
+    assert older["verified_live"] is False
+    assert older.get("superseded") is True
+    assert gaps == []  # superseded ≠ failed — NO cry-wolf gap
+
+
 class _FakeReq:
     def __init__(self, body):
         self._body = body
@@ -129,8 +146,10 @@ def test_reconcile_via_store_drives_whole_glue():
     # reconcile → persist → record gaps) is exercised end-to-end with a fake store.
     # A landed intent flips verified; an un-landed one past grace records a gap.
     store = _FakeRS()
-    landed = dv.add_deploy_intent([], "1a939896c0ffee", "pre_push_hook")
-    stale = dv.add_deploy_intent(landed, "deadbeef1234", "pre_push_hook", at=1.0)
+    # The failing commit must be the NEWEST push (no later live commit supersedes it),
+    # else the supersede guard correctly treats it as live-by-ancestry. at=2000 > 1000.
+    landed = dv.add_deploy_intent([], "1a939896c0ffee", "pre_push_hook", at=1000.0)
+    stale = dv.add_deploy_intent(landed, "deadbeef1234", "pre_push_hook", at=2000.0)
     asyncio.run(store.set_json(dv.DEPLOY_INTENTS_KEY, stale))
 
     recorded = []

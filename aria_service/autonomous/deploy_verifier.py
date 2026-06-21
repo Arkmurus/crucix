@@ -243,16 +243,38 @@ async def reconcile_deploy_intents(
     network is injectable). For each not-yet-verified intent:
       • live build_rev now serves its SHA → mark verified_live=True.
       • else still within grace → leave pending (a fly rolling restart takes time).
-      • else past grace and not yet flagged → emit a failure gap ONCE
+      • else SUPERSEDED (a newer push landed live) → mark superseded, NO gap. A commit
+        that was live but got replaced by a newer deploy before we verified it did NOT
+        fail — flagging it would be crying-wolf confabulation. This matters when an
+        older intent sat un-verified (e.g. the loop was down) then a newer deploy went out.
+      • else past grace and not superseded → emit a failure gap ONCE
         (failure_recorded=True so it isn't re-emitted every tick).
 
     Returns (updated_intents, gaps). gaps feed capability_gaps.record_gap so the
     self-heal/coder loop retries a push that silently never went live.
     """
     _now = float(now if now is not None else time.time())
+    # Pass 1: resolve each intent's live status once (avoid double-fetching).
+    landed_map: dict[int, dict] = {}
+    for idx, it in enumerate(intents or []):
+        if isinstance(it, dict) and it.get("verified_live") is not True:
+            sha = str(it.get("commit_sha") or "").strip()
+            if sha:
+                landed_map[idx] = await verify_deploy_landed(sha, app, fetcher=fetcher)
+    # The most-recent `at` among intents confirmed live THIS run (or already verified)
+    # — any older un-landed intent has been superseded by it.
+    latest_live_at = None
+    for idx, it in enumerate(intents or []):
+        if not isinstance(it, dict):
+            continue
+        is_live = it.get("verified_live") is True or (landed_map.get(idx, {}).get("landed"))
+        if is_live:
+            at = float(it.get("at") or 0.0)
+            latest_live_at = at if latest_live_at is None else max(latest_live_at, at)
+
     updated: list[dict] = []
     gaps: list[dict] = []
-    for it in intents or []:
+    for idx, it in enumerate(intents or []):
         if not isinstance(it, dict):
             continue
         rec = dict(it)
@@ -260,14 +282,20 @@ async def reconcile_deploy_intents(
         if not sha or rec.get("verified_live") is True:
             updated.append(rec)
             continue
-        v = await verify_deploy_landed(sha, app, fetcher=fetcher)
+        v = landed_map.get(idx) or await verify_deploy_landed(sha, app, fetcher=fetcher)
         rec["checks"] = int(rec.get("checks") or 0) + 1
         if v["landed"]:
             rec["verified_live"] = True
             rec["live_build_rev"] = v["live_build_rev"]
         else:
             age = _now - float(rec.get("at") or _now)
-            if age >= grace_s and not rec.get("failure_recorded"):
+            superseded = (latest_live_at is not None
+                          and float(rec.get("at") or 0.0) < latest_live_at)
+            if superseded:
+                # newer deploy is live → this one was replaced, not failed.
+                rec["superseded"] = True
+                rec["failure_recorded"] = True  # suppress any future failure gap
+            elif age >= grace_s and not rec.get("failure_recorded"):
                 rec["failure_recorded"] = True
                 gaps.append({
                     "commit_sha": sha,
