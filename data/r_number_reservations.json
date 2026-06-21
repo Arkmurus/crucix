@@ -12042,18 +12042,20 @@
       "title": "Capability-test gate: autonomous auto-deploy requires reproduce FAIL->PASS",
       "claimed_at": "2026-06-21T11:26:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1f91015b",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:31:58Z"
     },
     {
       "r_number": "R-F1768",
       "title": "Progressive disclosure: quick initial answer + deep-dive on request",
       "claimed_at": "2026-06-21T11:29:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e9c68843",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:31:34Z"
     }
   ]
 }

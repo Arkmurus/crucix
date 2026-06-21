@@ -156,6 +156,33 @@ def resolve_staging_decision(
     return (force_stage, force_deploy)
 
 
+def apply_capability_test_gate(
+    *,
+    reproduce_fail_to_pass: bool,
+    operator_initiated: bool,
+    force_stage: bool,
+    force_deploy: bool,
+) -> tuple[bool, bool, bool]:
+    """R-F1767 — CAPABILITY-TEST GATE (pure, unit-testable).
+
+    An AUTONOMOUS self-improve change may auto-deploy ONLY if a capability test
+    proved the real symptom went FAIL→PASS on the fix (reproduce_fail_to_pass,
+    R-F1681). Without that proof, force stage-only — no autonomous deploy lands
+    untested, even under AUTO_DEPLOY=1 or ticket-mode. This is what makes
+    no-human-gate autonomy safe: deploy rests on a passing capability test.
+
+    Bypass (returns the decision unchanged): operator-initiated fixes (the
+    request is the approval) and already-force-staged verdicts (flagged — handled
+    upstream, don't double-process).
+
+    Returns (force_stage, force_deploy, blocked) — `blocked` True iff the gate
+    intervened (caller wires the capability_test_missing signal).
+    """
+    if not reproduce_fail_to_pass and not operator_initiated and not force_stage:
+        return (True, False, True)
+    return (force_stage, force_deploy, False)
+
+
 @dataclass
 class FixResult:
     success: bool
@@ -901,6 +928,29 @@ class ARIACoder:
                 ticket_mode_enabled=ticket_mode_enabled,
                 force_stage_only=force_stage_only,
             )
+            # R-F1767 — CAPABILITY-TEST GATE (pure fn): no autonomous auto-deploy
+            # without a reproduce FAIL->PASS capability test.
+            force_stage, force_deploy, _cap_blocked = apply_capability_test_gate(
+                reproduce_fail_to_pass=_reproduce_fail_to_pass,
+                operator_initiated=operator_initiated,
+                force_stage=force_stage,
+                force_deploy=force_deploy,
+            )
+            if _cap_blocked:
+                logger.warning(
+                    "[aria_coder] R-F1767 capability-test gate: no reproduce "
+                    "FAIL->PASS for %s — forcing stage-only (no auto-deploy "
+                    "without a passing capability test)", gap.gap_id,
+                )
+                try:
+                    from aria_service.intel.engine_wiring import wire_failure as _wf1767
+                    _wf1767(module="aria_coder",
+                            detail=(f"Auto-deploy blocked — no capability test "
+                                    f"FAIL->PASS: {gap.gap_id} ({plan.gap_type})"),
+                            gap_type="capability_test_missing",
+                            source="aria_coder:capability_test_gate")
+                except Exception:
+                    pass
             stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
                 plan=plan, change_type=change_type,
                 force_stage=force_stage,
