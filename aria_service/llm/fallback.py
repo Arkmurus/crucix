@@ -100,6 +100,14 @@ class FallbackProvider(LLMProvider):
         return stats.get("cooldown_until", 0)
 
     def _should_skip(self, stats: dict) -> bool:
+        # R-F1758: when this provider is the ONLY one in the chain, never
+        # skip it even if cooling down. Skipping the only provider means
+        # NO call gets made and everyone gets 502. Better to retry and
+        # fail fast than to sit in cooldown doing nothing.
+        # This is ARIA's autonomy guarantee: she never goes silent just
+        # because her primary LLM had a transient blip.
+        if len(self.providers) <= 1:
+            return False
         return self._cooldown_until(stats) > time.time()
 
     def _fallback_chain_has_healthy_peer(self, failed_provider_name: str) -> bool:

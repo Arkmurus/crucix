@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1758,
+  "next_available": 1759,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11942,6 +11942,16 @@
       "r_number": "R-F1757",
       "title": "Fix document reader: add python-docx dep, fix regex backtracking, add timeout",
       "claimed_at": "2026-06-21T08:13:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e78d5509",
+      "notes": null,
+      "shipped_at": "2026-06-21T08:15:26Z"
+    },
+    {
+      "r_number": "R-F1758",
+      "title": "Auto-clear cooldown when DeepSeek is the only LLM provider",
+      "claimed_at": "2026-06-21T09:23:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
