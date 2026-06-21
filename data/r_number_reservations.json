@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1757,
+  "next_available": 1758,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11932,6 +11932,16 @@
       "r_number": "R-F1756",
       "title": "Capability test for is_registered vault-based fix",
       "claimed_at": "2026-06-20T11:55:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "27cce145",
+      "notes": null,
+      "shipped_at": "2026-06-20T11:56:34Z"
+    },
+    {
+      "r_number": "R-F1757",
+      "title": "Fix document reader: add python-docx dep, fix regex backtracking, add timeout",
+      "claimed_at": "2026-06-21T08:13:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

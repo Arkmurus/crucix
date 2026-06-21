@@ -1010,10 +1010,13 @@ def _read_docx(filepath: str) -> ExtractionResult:
                 # Removing the entire w:del block ensures struck-through text never
                 # appears as live contract terms. Keep w:ins insertions — those are
                 # the live/new terms the author accepted (they contain normal w:r runs).
-                xml = _re.sub(r"<w:del\b[^>]*>.*?</w:del>", "", xml, flags=_re.DOTALL)
+                # R-F1757: use [^<] instead of .*? to avoid catastrophic backtracking
+                # on large documents with many tracked changes. The old .*? with
+                # re.DOTALL could hang indefinitely on multi-MB XML.
+                xml = _re.sub(r"<w:del\b[^>]*>[^<]*(?:<(?!/w:del>)[^<]*)*</w:del>", "", xml)
                 # Drop field instruction codes (TOC/HYPERLINK/REF) — they are not
                 # body text and would inject noise.
-                xml = _re.sub(r"<w:instrText[^>]*>.*?</w:instrText>", "", xml, flags=_re.DOTALL)
+                xml = _re.sub(r"<w:instrText[^>]*>[^<]*(?:<(?!/w:instrText>)[^<]*)*</w:instrText>", "", xml)
                 # Structural boundaries → whitespace, BEFORE stripping tags.
                 xml = _re.sub(r"<w:p\b[^>]*>", "\n", xml)      # paragraph
                 xml = _re.sub(r"<w:tr\b[^>]*>", "\n", xml)     # table row
