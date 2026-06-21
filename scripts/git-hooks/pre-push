@@ -1,5 +1,5 @@
 #!/bin/sh
-# R-F559 pre-push hook.
+# R-F559 pre-push hook (+ R-F1773 deploy-intent recording).
 #
 # Install via: python scripts/install_git_hooks.py
 # Or manually: git config core.hooksPath scripts/git-hooks
@@ -9,6 +9,13 @@
 set -e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# R-F1773 — capture the pushed refs from stdin up-front (git feeds the hook
+# "<local_ref> <local_sha> <remote_ref> <remote_sha>" lines on stdin). We record a
+# UNIVERSAL deploy-intent for every push to main so the proprioception loop can
+# verify the commit actually went live (deploy_verification_failure gap if not).
+# This closes the confabulation hole a RAW `git push` (R-F1770) slipped through.
+PUSH_REFS="$(cat)"
 
 # Detect available Python interpreter — prefer repo venv.
 if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
@@ -23,3 +30,33 @@ fi
 
 echo "[R-F559 pre-push] running verifier via $PY"
 "$PY" "$REPO_ROOT/scripts/verify_commit.py" --fast
+
+# ── R-F1773 — record deploy-intent (best-effort, NEVER blocks/fails the push) ──
+# Only runs after the verifier passes (a push that won't happen needs no intent).
+record_deploy_intent() {
+    ENVF="$REPO_ROOT/.env"
+    TOK=""; BRAIN="https://aria-intel.fly.dev"
+    if [ -f "$ENVF" ]; then
+        TOK=$(grep -E '^ARIA_INTERNAL_TOKEN=' "$ENVF" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+        B=$(grep -E '^ARIA_BRAIN_URL=' "$ENVF" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+        [ -n "$B" ] && BRAIN="$B"
+    fi
+    [ -n "$TOK" ] || return 0
+    printf '%s\n' "$PUSH_REFS" | while read -r local_ref local_sha remote_ref remote_sha; do
+        case "$remote_ref" in
+            refs/heads/main|refs/heads/master)
+                case "$local_sha" in
+                    0000000000000000000000000000000000000000|"") continue ;;
+                esac
+                curl -s --max-time 6 -X POST "$BRAIN/api/aria/deploy/intent" \
+                    -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+                    -d "{\"commit_sha\":\"$local_sha\",\"source\":\"pre_push_hook\"}" \
+                    >/dev/null 2>&1 &
+                echo "[R-F1773] recorded deploy-intent for $(printf '%s' "$local_sha" | cut -c1-8) -> brain (verified on timer)"
+                ;;
+        esac
+    done
+}
+( record_deploy_intent ) || true
+
+exit 0
