@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1767,
+  "next_available": 1769,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12036,6 +12036,24 @@
       "commit_sha": "11fdfb2d",
       "notes": null,
       "shipped_at": "2026-06-21T11:25:47Z"
+    },
+    {
+      "r_number": "R-F1767",
+      "title": "Capability-test gate: autonomous auto-deploy requires reproduce FAIL->PASS",
+      "claimed_at": "2026-06-21T11:26:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1768",
+      "title": "Progressive disclosure: quick initial answer + deep-dive on request",
+      "claimed_at": "2026-06-21T11:29:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
