@@ -4600,6 +4600,25 @@ def _detect_tool_intent(message: str) -> dict | None:
     if not msg:
         return None
 
+    # ── R-F1759 (2026-06-21) — /help command for command discovery ──
+    # MUST run before any other intent detection so "/help" always returns
+    # the command catalogue regardless of what follows. Without this handler,
+    # "/help" falls through to the LLM which invents commands from training
+    # data — the exact pattern that _tool_claim_guard catches.
+    _HELP_RE = __import__("re").compile(
+        r"^\s*/help\b\s*(.*)$",
+        __import__("re").IGNORECASE,
+    )
+    _help_m = _HELP_RE.match(msg)
+    if _help_m:
+        topic = (_help_m.group(1) or "").strip().lower()
+        return {
+            "tool": "help",
+            "topic": topic,
+            "context": msg,
+            "_reason": "help_command_rf1759",
+        }
+
     # ── R-F399 (2026-05-13) — capability-introspection intent ──
     # MUST run before any web-search / spawn_research_task path,
     # otherwise capability questions get routed to crossref / brave /
@@ -6185,6 +6204,43 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
             return "\n".join(lines)
 
+        # ── R-F1759 (2026-06-21) — /help command — return command catalogue ──
+        if tool == "help":
+            topic = (intent.get("topic") or "").strip().lower()
+            # Build the full command catalogue from the live registry
+            commands = _build_command_catalogue()
+            if topic:
+                # Filter to a specific command
+                filtered = {k: v for k, v in commands.items() if topic in k.lower() or topic in v.get("description", "").lower()}
+                if filtered:
+                    lines = ["\n\n[TOOL: help — matching commands]\n"]
+                    for cmd, info in filtered.items():
+                        lines.append(f"  `{cmd}` — {info.get('description', '')}")
+                        if info.get("usage"):
+                            lines.append(f"    Usage: {info['usage']}")
+                        if info.get("note"):
+                            lines.append(f"    _{info['note']}_")
+                    lines.append("\nSay `/help` for the full list.")
+                    return "\n".join(lines)
+                else:
+                    return (
+                        f"\n\n[TOOL: help — no command matches '{topic}']\n"
+                        f"No command matches '{topic}'. Say `/help` for the full list of available commands."
+                    )
+            # Full catalogue
+            lines = ["\n\n[TOOL: help — ARIA command catalogue]\n"]
+            for cmd, info in commands.items():
+                lines.append(f"  `{cmd}` — {info.get('description', '')}")
+                if info.get("usage"):
+                    lines.append(f"    Usage: {info['usage']}")
+                if info.get("note"):
+                    lines.append(f"    _{info['note']}_")
+            lines.append(
+                "\nYou can also ask me questions in plain language — I'll detect "
+                "what you need and run the right tool automatically."
+            )
+            return "\n".join(lines)
+
         # ── Background research task — spawn instead of running inline ──
         if tool == "spawn_research_task":
             task_type = intent.get("task_type", "investigate")
@@ -7586,6 +7642,57 @@ _CODER_CMD_RE = __import__("re").compile(
     r"^\s*/(?:code|coder)\b[\s:]*(.*)$",
     __import__("re").IGNORECASE | __import__("re").DOTALL,
 )
+
+
+def _build_command_catalogue() -> dict[str, dict]:
+    """R-F1759 — return the authoritative catalogue of all slash commands
+    and their descriptions. Single source of truth so /help, the web UI
+    command palette, and the capability card all read from the same dict.
+    Every new slash command MUST be registered here."""
+    return {
+        "/help [topic]": {
+            "description": "Show this command catalogue, or filter by topic",
+            "usage": "/help, /help screen, /help code, /help dd",
+        },
+        "/code <description>": {
+            "description": "Queue an ARIA-Coder fix (operator-only)",
+            "usage": "/code add retry logic to researcher.py",
+            "note": "Operator-only. Results are staged for human review.",
+        },
+        "/screen <entity>": {
+            "description": "Fast sanctions & compliance screen on a named entity",
+            "usage": "/screen Acme Corp, /sanctions Rosoboronexport",
+            "note": "Checks OFAC, EU, UN, UK sanctions lists. Returns match/no-match in seconds.",
+        },
+        "/sanctions <entity>": {
+            "description": "Alias for /screen",
+            "usage": "/sanctions Acme Corp",
+        },
+        "/dd <entity>": {
+            "description": "Full due-diligence report (7-layer orchestrator)",
+            "usage": "/dd Acme Corp, /diligence Acme Corp, /due-diligence Acme Corp",
+            "note": "Runs identity, sanctions, adverse media, financial, ownership, network, and ecosystem layers.",
+        },
+        "/ticket <description>": {
+            "description": "File a ticket or bug report",
+            "usage": "/ticket The export screen is returning 500 errors",
+            "note": "Severity auto-detected from keywords (critical, high, minor).",
+        },
+        "/pipeline": {
+            "description": "Show the BD pipeline summary",
+            "usage": "/pipeline, show pipeline",
+        },
+        "/docverify <id>": {
+            "description": "Verify a document extraction is correct",
+            "usage": "/docverify ext_abc123",
+            "note": "Only needed when ARIA asks you to verify a draft extraction.",
+        },
+        "/docfix <id> <field>: <value>": {
+            "description": "Correct a field in a document extraction",
+            "usage": "/docfix ext_abc123 registration_number: 12345678",
+            "note": "Only needed when ARIA asks you to correct a field.",
+        },
+    }
 
 
 def _coder_operator_user_id() -> str:
@@ -20656,6 +20763,111 @@ async def capability_card_ep(format: str = "markdown"):
 
 
 # ── Consistency suite (2026-04-18) ───────────────────────────────────────
+
+
+
+
+@router.get("/commands")
+async def commands_ep():
+    """R-F1759 — return the authoritative command catalogue. Used by the
+    web chat UI to render the command palette and by /help to build the
+    response. Every slash command registered in _build_command_catalogue()
+    appears here."""
+    return _build_command_catalogue()
+
+
+
+
+
+@router.get("/tools")
+async def tools_ep():
+    """R-F1759 — return the live tool registry. Lists every tool type
+    that _detect_tool_intent can recognise and _execute_tool can run.
+    Used by the web chat UI to render the tool palette and by the
+    capability card to document what ARIA can do."""
+    return {
+        "tools": [
+            {
+                "id": "help",
+                "name": "Command help",
+                "description": "Show the command catalogue",
+                "trigger": "/help [topic]",
+            },
+            {
+                "id": "self_introspect",
+                "name": "Self-introspection",
+                "description": "Answer questions about ARIA's own capabilities, inventory, and retention policy",
+                "trigger": "Natural language: 'what can you do?', 'how big is your knowledge base?'",
+            },
+            {
+                "id": "screen",
+                "name": "Sanctions & compliance screen",
+                "description": "Fast sanctions check against OFAC, EU, UN, UK sanctions lists",
+                "trigger": "/screen <entity>, /sanctions <entity>, or 'check compliance for <entity>'",
+            },
+            {
+                "id": "dd_orchestrate",
+                "name": "Due diligence report",
+                "description": "Full 7-layer due diligence orchestrator (identity, sanctions, adverse media, financial, ownership, network, ecosystem)",
+                "trigger": "/dd <entity>, /diligence <entity>, or 'run DD on <entity>'",
+            },
+            {
+                "id": "deep_research",
+                "name": "Deep research",
+                "description": "Multi-source deep research on a topic, entity, or question",
+                "trigger": "Natural language: 'research X', 'investigate Y', 'tell me about Z'",
+            },
+            {
+                "id": "crawl_website",
+                "name": "Website crawl",
+                "description": "Crawl and extract content from a website",
+                "trigger": "Natural language with a URL: 'crawl example.com'",
+            },
+            {
+                "id": "investigate",
+                "name": "Entity investigation",
+                "description": "Structured investigation of a person or company",
+                "trigger": "Natural language: 'investigate X', 'profile Y'",
+            },
+            {
+                "id": "portal_register",
+                "name": "Portal registration",
+                "description": "Register for a defence procurement portal",
+                "trigger": "Natural language: 'register for X portal'",
+            },
+            {
+                "id": "pipeline_summary",
+                "name": "BD pipeline",
+                "description": "Show the business development pipeline",
+                "trigger": "/pipeline, 'show pipeline'",
+            },
+            {
+                "id": "raise_ticket",
+                "name": "File ticket",
+                "description": "File a ticket, bug report, or issue",
+                "trigger": "/ticket <description>, 'file a ticket for X'",
+            },
+            {
+                "id": "list_tickets",
+                "name": "List tickets",
+                "description": "Show open tickets",
+                "trigger": "/tickets, 'show tickets'",
+            },
+            {
+                "id": "spawn_research_task",
+                "name": "Background research",
+                "description": "Spawn a background research task for complex multi-source investigation",
+                "trigger": "Natural language: 'research X in the background'",
+            },
+            {
+                "id": "coder_command",
+                "name": "ARIA-Coder",
+                "description": "Queue an autonomous code fix (operator-only)",
+                "trigger": "/code <description>",
+            },
+        ],
+    }
+
 
 @router.get("/consistency/scores")
 async def consistency_scores_ep():
