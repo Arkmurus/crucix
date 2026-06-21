@@ -139,6 +139,14 @@ class EagleEyeGuardian:
         self._seen_issues: set[str] = set()
         logger.debug("[EagleEye] Cross-scan dedup set initialized (empty on restart)")
 
+        # R-F1754: files whose CodingRAG index was DEFERRED because interactive
+        # traffic was active (encode would GIL-starve the user's stream). While a
+        # file is in this set we deliberately do NOT advance its persisted hash,
+        # so the next scan still sees is_changed=True and retries the index once
+        # traffic is quiet. Without this, the deferred file would be silently
+        # dropped from the index forever (hash advanced → looks unchanged).
+        self._deferred_index: set[str] = set()
+
         self.metrics: dict[str, Any] = {
             "files_watched": 0,
             "trouble_spotted": 0,
@@ -196,7 +204,12 @@ class EagleEyeGuardian:
                 # expensive operations (like ChromaDB re-indexing) for files
                 # whose content hasn't changed since the last scan.
                 self._scan_for_issues(file_path, content, is_changed=is_changed)
-                self.file_hashes[str(file_path)] = file_hash
+                # R-F1754: only advance the persisted hash if the index was NOT
+                # deferred. A deferred file keeps its OLD hash so the next (quiet)
+                # scan re-detects is_changed=True and actually indexes it — never
+                # silently dropped.
+                if str(file_path) not in self._deferred_index:
+                    self.file_hashes[str(file_path)] = file_hash
 
             except Exception as e:
                 logger.debug("[EagleEye] Could not scan %s: %s", file_path, e)
@@ -318,12 +331,17 @@ class EagleEyeGuardian:
                     "interactive traffic active (avoids GIL starvation of user stream)",
                     file_path,
                 )
+                # Mark deferred so _scan_files_sync leaves the hash unchanged and
+                # the next quiet scan retries this exact file.
+                self._deferred_index.add(str(file_path))
                 return
         except Exception:
             pass
         try:
             from aria_service.intel.coding_rag_indexer import index_codebase_structure
             index_codebase_structure(file_path)
+            # Indexed successfully — clear any prior deferral so the hash advances.
+            self._deferred_index.discard(str(file_path))
         except Exception as e:
             logger.debug("[EagleEye] CodingRAG index failed for %s: %s", file_path, e)
 
