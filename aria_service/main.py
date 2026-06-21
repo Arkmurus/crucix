@@ -38,6 +38,11 @@ _BG_TASKS: set[asyncio.Task] = set()
 _BG_RESPAWN: dict[str, "callable"] = {}
 _BG_RESPAWN_COUNT: dict[str, int] = {}
 _BG_MAX_RESPAWNS = 5
+# R-F1769 — act+verify self-heal: loops re-spawned LAST tick, awaiting survival
+# confirmation. The supervisor only wires the truthful "re-spawn VERIFIED alive"
+# success once a re-spawned loop is still live a full supervisor interval later —
+# not the instant it's created (which proves nothing).
+_BG_RESPAWN_PENDING: set[str] = set()
 
 
 def _bg_task(task: asyncio.Task, name: str = "", factory=None) -> asyncio.Task:
@@ -83,6 +88,24 @@ async def _bg_supervisor_tick() -> list[str]:
     sleeping is `not done()` → 'live' → left alone."""
     respawned: list[str] = []
     live = {t.get_name() for t in _BG_TASKS if not t.done()}
+    # R-F1769 — VERIFY last tick's re-spawns: a re-spawned loop still live a full
+    # supervisor interval later has genuinely recovered → wire the TRUTHFUL
+    # success. One that died again is NOT verified (it gets re-spawned below, and
+    # the bounded counter escalates to operator if it keeps crashing). This is
+    # act+VERIFY — we never claim a heal worked until it provably survived.
+    for _pn in list(_BG_RESPAWN_PENDING):
+        if _pn in live:
+            _BG_RESPAWN_PENDING.discard(_pn)
+            try:
+                from .intel import brain_hook as _bh
+                _BG_TASKS.add(asyncio.create_task(_bh.absorb(
+                    module="bg_supervisor",
+                    summary=f"self-heal VERIFIED: re-spawned loop {_pn} survived an interval (alive)",
+                    success=True, confidence="CONFIRMED",
+                )))
+            except Exception:
+                pass
+        # else: still dead — leave in pending; the re-spawn loop below re-acts.
     for _nm, _factory in list(_BG_RESPAWN.items()):
         if _nm in live:
             continue
@@ -95,12 +118,15 @@ async def _bg_supervisor_tick() -> list[str]:
             )
             _bg_task(asyncio.create_task(_factory(), name=_nm), factory=_factory)
             respawned.append(_nm)
+            _BG_RESPAWN_PENDING.add(_nm)  # R-F1769: verify survival next tick
             try:
+                # R-F1769 — HONEST: re-spawn ATTEMPTED, not yet verified alive.
                 from .intel import brain_hook as _bh
                 _BG_TASKS.add(asyncio.create_task(_bh.absorb(
                     module="bg_supervisor",
-                    summary=f"self-heal: re-spawned dead loop {_nm} ({n + 1}/{_BG_MAX_RESPAWNS})",
-                    success=True, confidence="CONFIRMED",
+                    summary=f"self-heal: re-spawn ATTEMPTED for dead loop {_nm} "
+                            f"({n + 1}/{_BG_MAX_RESPAWNS}) — verifying survival next tick",
+                    success=True, confidence="PROBABLE",
                 )))
             except Exception:
                 pass

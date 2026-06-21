@@ -12053,18 +12053,19 @@
       "claimed_at": "2026-06-21T11:29:39Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "e9c68843",
+      "commit_sha": "e4508dbb",
       "notes": null,
-      "shipped_at": "2026-06-21T11:31:34Z"
+      "shipped_at": "2026-06-21T11:34:58Z"
     },
     {
       "r_number": "R-F1769",
       "title": "Self-heal act+verify: bg_supervisor confirms re-spawn survived before claiming success",
       "claimed_at": "2026-06-21T11:34:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1de582d5",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:35:43Z"
     }
   ]
 }
