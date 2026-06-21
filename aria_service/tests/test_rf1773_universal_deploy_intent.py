@@ -122,3 +122,43 @@ def test_endpoint_rejects_missing_sha(monkeypatch):
         assert False, "should have raised"
     except HTTPException as e:
         assert e.status_code == 400
+
+
+def test_reconcile_via_store_drives_whole_glue():
+    # Catches the dead-loop bug: the proprioception loop's glue (read store →
+    # reconcile → persist → record gaps) is exercised end-to-end with a fake store.
+    # A landed intent flips verified; an un-landed one past grace records a gap.
+    store = _FakeRS()
+    landed = dv.add_deploy_intent([], "1a939896c0ffee", "pre_push_hook")
+    stale = dv.add_deploy_intent(landed, "deadbeef1234", "pre_push_hook", at=1.0)
+    asyncio.run(store.set_json(dv.DEPLOY_INTENTS_KEY, stale))
+
+    recorded = []
+
+    async def gap_recorder(g):
+        recorded.append(g)
+
+    res = asyncio.run(dv.reconcile_intents_via_store(
+        store, fetcher=_fetcher("R-F1773 · sha 1a939896"),
+        grace_s=1200.0, gap_recorder=gap_recorder))
+    # 1a93… is "live" → verified; deadbeef never lived + past grace → failure gap
+    assert res["verified"] == 1
+    assert res["failed"] == 1
+    assert len(recorded) == 1 and recorded[0]["commit_sha"] == "deadbeef1234"
+    # ledger persisted back through the store
+    persisted = asyncio.run(store.get_json(dv.DEPLOY_INTENTS_KEY))
+    assert any(i["commit_sha"] == "1a939896c0ffee" and i["verified_live"] for i in persisted)
+
+
+def test_loop_glue_imports_resolve():
+    # Regression guard for the exact dead-loop cause: the loop imports the store as
+    # `from .intel import redis_store` (NOT the nonexistent `.state_store`) and that
+    # module must expose the async get_json/set_json the glue calls.
+    from aria_service.intel import redis_store as rs_module
+    assert hasattr(rs_module, "get_json") and hasattr(rs_module, "set_json")
+    import importlib
+    try:
+        importlib.import_module("aria_service.state_store")
+        raise AssertionError("aria_service.state_store should NOT exist (was the bad import)")
+    except ModuleNotFoundError:
+        pass  # correct — the bad path is genuinely absent

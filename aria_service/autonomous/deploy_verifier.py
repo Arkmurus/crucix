@@ -277,3 +277,42 @@ async def reconcile_deploy_intents(
                 })
         updated.append(rec)
     return updated, gaps
+
+
+async def reconcile_intents_via_store(
+    rs_module,
+    *,
+    app: str = "aria-intel",
+    fetcher: Optional[Fetcher] = None,
+    grace_s: float = DEFAULT_INTENT_GRACE_S,
+    gap_recorder: Optional[Callable[[dict], Awaitable[None]]] = None,
+) -> dict:
+    """The proprioception loop's GLUE, module-level so it is actually TESTABLE.
+
+    Reads the intent ledger from `rs_module` (must expose async get_json(key) /
+    set_json(key, val, ex=...)), reconciles each intent against the live build_rev,
+    persists the updated ledger, and feeds any failure gaps to `gap_recorder`.
+
+    This exists because the first cut inlined this glue in main.py with a WRONG
+    store import (`from .state_store import rs` — no such module; the real one is
+    intel.redis_store) which raised every tick, caught+logged, so the verification
+    loop was SILENTLY dead (checks stayed 0). A module-level function with an
+    injected store + gap_recorder lets a capability test prove the whole path runs.
+
+    Returns {"verified", "failed", "pending"}.
+    """
+    intents = await rs_module.get_json(DEPLOY_INTENTS_KEY) or []
+    if not intents:
+        return {"verified": 0, "failed": 0, "pending": 0}
+    updated, gaps = await reconcile_deploy_intents(
+        intents, app=app, fetcher=fetcher, grace_s=grace_s)
+    await rs_module.set_json(DEPLOY_INTENTS_KEY, updated, ex=30 * 86400)
+    if gap_recorder:
+        for g in gaps:
+            try:
+                await gap_recorder(g)
+            except Exception as exc:  # a gap-record failure never breaks reconcile
+                logger.warning("[deploy_verifier] gap_recorder failed: %s", exc)
+    verified = sum(1 for i in updated if isinstance(i, dict) and i.get("verified_live"))
+    pending = sum(1 for i in updated if isinstance(i, dict) and not i.get("verified_live"))
+    return {"verified": verified, "failed": len(gaps), "pending": pending}

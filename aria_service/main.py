@@ -2078,32 +2078,28 @@ async def lifespan(app: FastAPI):
             # ci_deploy + self_improve) actually went live, not just self_improve items.
             try:
                 from .autonomous import deploy_verifier as _dv1773
-                from .state_store import rs as _rs1773
-                intents = await _rs1773.get_json(_dv1773.DEPLOY_INTENTS_KEY) or []
-                if intents:
-                    updated, gaps = await _dv1773.reconcile_deploy_intents(intents)
-                    await _rs1773.set_json(_dv1773.DEPLOY_INTENTS_KEY, updated, ex=30 * 86400)
-                    for g in gaps:
-                        try:
-                            from .intel import capability_gaps as _cg1773
-                            detail = (
-                                f"Pushed commit {g['commit_sha'][:8]} (source={g.get('source')}) "
-                                f"never went live after {g.get('age_s')}s — deploy did NOT land. "
-                                f"live build_rev={g.get('live_build_rev')}. A push claimed done "
-                                "but the live build_rev never advanced; deploy must be retried."
-                            )
-                            await _cg1773.record_gap(
-                                gap_type="deploy_verification_failure",
-                                detail=detail[:600],
-                                source="deploy_verifier:intent_ledger")
-                            logger.warning("[R-F1773] deploy NOT live: %s (source=%s) → gap recorded",
-                                           g["commit_sha"][:8], g.get("source"))
-                        except Exception as ge:
-                            logger.warning("[R-F1773] gap record failed: %s", ge)
-                    verified = sum(1 for i in updated if isinstance(i, dict) and i.get("verified_live"))
-                    if gaps or verified:
-                        logger.info("[R-F1773] intent ledger: %d verified live, %d failed",
-                                    verified, len(gaps))
+                from .intel import redis_store as _rs1773
+
+                async def _rec_gap_1773(g):
+                    from .intel import capability_gaps as _cg1773
+                    detail = (
+                        f"Pushed commit {g['commit_sha'][:8]} (source={g.get('source')}) "
+                        f"never went live after {g.get('age_s')}s — deploy did NOT land. "
+                        f"live build_rev={g.get('live_build_rev')}. A push claimed done "
+                        "but the live build_rev never advanced; deploy must be retried."
+                    )
+                    await _cg1773.record_gap(
+                        gap_type="deploy_verification_failure",
+                        detail=detail[:600],
+                        source="deploy_verifier:intent_ledger")
+                    logger.warning("[R-F1773] deploy NOT live: %s (source=%s) → gap recorded",
+                                   g["commit_sha"][:8], g.get("source"))
+
+                res1773 = await _dv1773.reconcile_intents_via_store(
+                    _rs1773, gap_recorder=_rec_gap_1773)
+                if res1773.get("verified") or res1773.get("failed"):
+                    logger.info("[R-F1773] intent ledger: %d verified live, %d failed",
+                                res1773["verified"], res1773["failed"])
             except Exception as e:
                 logger.warning("[R-F1773] intent reconcile error: %s", e)
             await asyncio.sleep(300)
