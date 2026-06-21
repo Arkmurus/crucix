@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1763,
+  "next_available": 1764,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11997,6 +11997,15 @@
       "commit_sha": "5c3d459e",
       "notes": null,
       "shipped_at": "2026-06-21T10:50:05Z"
+    },
+    {
+      "r_number": "R-F1763",
+      "title": "Gate brain_hook.absorb expensive encodes behind interactive backoff",
+      "claimed_at": "2026-06-21T10:52:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

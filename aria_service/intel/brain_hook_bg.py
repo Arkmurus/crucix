@@ -206,18 +206,39 @@ async def absorb_tiers_bg(
                 )
         if nsem is None or n_acquired:
             try:
-                from . import neural_memory
-                ok, err = await _run_tier(
-                    neural_memory.learn_from_text(
-                        text=text_for_neural[:5000],
-                        source=source,
-                        confidence=confidence,
-                    ),
-                    "neural",
-                )
-                result["neural_ok"] = ok
-                if err:
-                    result["errors"].append(err)
+                # R-F1763: defer neural encode when a user is actively
+                # chatting. neural_memory.learn_from_text() runs expensive
+                # GIL-bound sentence-transformer encodes that starve the
+                # event loop — same pattern as R-F1754's interactive backoff
+                # in eagle_eye._index_codebase. When _interactive_active()
+                # is True, skip the neural tier this cycle (the durable
+                # knowledge fact was already persisted above, so no data
+                # loss). The neural tier will re-trigger on the next
+                # non-interactive absorb.
+                from .brain_hook import _interactive_active
+                if _interactive_active():
+                    logger.debug(
+                        "brain_hook bg: interactive active — skipping "
+                        "neural encode for module=%s (deferred)",
+                        module,
+                    )
+                    result["neural_ok"] = False
+                    result["errors"].append(
+                        "neural: deferred (interactive active)"
+                    )
+                else:
+                    from . import neural_memory
+                    ok, err = await _run_tier(
+                        neural_memory.learn_from_text(
+                            text=text_for_neural[:5000],
+                            source=source,
+                            confidence=confidence,
+                        ),
+                        "neural",
+                    )
+                    result["neural_ok"] = ok
+                    if err:
+                        result["errors"].append(err)
             finally:
                 if n_acquired and nsem is not None:
                     nsem.release()
