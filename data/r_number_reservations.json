@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1759,
+  "next_available": 1761,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -11954,9 +11954,27 @@
       "claimed_at": "2026-06-21T09:23:10Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "0c20ae65",
+      "commit_sha": "0a9cd08c",
       "notes": null,
-      "shipped_at": "2026-06-21T09:24:31Z"
+      "shipped_at": "2026-06-21T09:31:31Z"
+    },
+    {
+      "r_number": "R-F1759",
+      "title": "Add /help command + command discovery system to web chat",
+      "claimed_at": "2026-06-21T09:51:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1760",
+      "title": "Self-healing conversation manager for WhatsApp listener",
+      "claimed_at": "2026-06-21T09:56:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

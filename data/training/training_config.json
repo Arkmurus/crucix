@@ -6,9 +6,8 @@
   "lora_dropout": 0.05,
   "learning_rate": 0.0002,
   "batch_size": 4,
-  "num_epochs": 5,
+  "num_epochs": 3,
   "max_seq_length": 2048,
   "output_dir": "C:\\code\\crucix\\data\\training\\checkpoints",
-  "dataset_format": "instruction_response",
-  "num_training_samples": 100
+  "dataset_format": "instruction_response"
 }

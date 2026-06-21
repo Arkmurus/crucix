@@ -1052,7 +1052,8 @@ def _read_docx(filepath: str) -> ExtractionResult:
                 if "word/document.xml" in _z.namelist():
                     _raw = _z.read("word/document.xml").decode("utf-8", errors="ignore")
                     _clean_xml = _re.sub(
-                        r"<w:del\b[^>]*>.*?</w:del>", "", _raw, flags=_re.DOTALL,
+                        # R-F1757: safe [^<]* pattern (no catastrophic backtracking)
+                        r"<w:del\b[^>]*>[^<]*(?:<(?!/w:del>)[^<]*)*</w:del>", "", _raw,
                     )
             if _clean_xml:
                 # Re-parse with python-docx from the clean XML
