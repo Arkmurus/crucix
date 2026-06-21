@@ -21,9 +21,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger("aria.deploy_verifier")
+
+# R-F1773 — UNIVERSAL deploy-intent ledger key. reconcile_committed_deploys (above)
+# only covers self_improve items that carry a commit_sha; a RAW `git push` (as ARIA
+# did for R-F1770) bypasses it entirely and can confabulate "deployed". This ledger
+# closes that hole: a git pre-push hook POSTs EVERY push's HEAD sha here, and the
+# proprioception loop verifies each one actually went live — no push escapes.
+DEPLOY_INTENTS_KEY = "crucix:aria:deploy:intents"
+MAX_INTENTS = 50
+# CI/rolling-restart grace before an unlanded intent is declared a failure. Mirrors
+# ARIA_DEPLOY_VERIFY_GRACE_S used by self_improve.reconcile_live_deploys.
+DEFAULT_INTENT_GRACE_S = 1200.0
 
 # App → public health endpoint. build_rev only meaningful for the Python brain.
 _APP_HEALTH = {
@@ -181,3 +193,87 @@ async def reconcile_committed_deploys(
             "live_build_rev": v["live_build_rev"],
         })
     return verdicts
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F1773 — UNIVERSAL deploy-intent ledger (catches RAW push + ci_deploy +
+# self_improve). Pure functions; the rs persistence + gap-recording live in the
+# endpoint (routes/aria.py) and the proprioception loop (main.py).
+# ──────────────────────────────────────────────────────────────────────────
+
+def add_deploy_intent(
+    intents: Optional[list],
+    commit_sha: str,
+    source: str,
+    *,
+    at: Optional[float] = None,
+    max_keep: int = MAX_INTENTS,
+) -> list[dict]:
+    """Append a deploy-intent record (pure). Dedups by sha (a re-push of the same
+    commit resets its verification clock), caps to the last `max_keep`.
+
+    Each record: {commit_sha, source, at (epoch), verified_live, checks,
+    failure_recorded}. Empty sha is a no-op (returns the list unchanged).
+    """
+    sha = (commit_sha or "").strip().lower()
+    base = [i for i in (intents or []) if isinstance(i, dict)]
+    if not sha:
+        return base[-max_keep:]
+    out = [i for i in base if str(i.get("commit_sha") or "").strip().lower() != sha]
+    out.append({
+        "commit_sha": sha,
+        "source": source or "unknown",
+        "at": float(at if at is not None else time.time()),
+        "verified_live": False,
+        "checks": 0,
+        "failure_recorded": False,
+    })
+    return out[-max_keep:]
+
+
+async def reconcile_deploy_intents(
+    intents: Optional[list],
+    *,
+    app: str = "aria-intel",
+    fetcher: Optional[Fetcher] = None,
+    grace_s: float = DEFAULT_INTENT_GRACE_S,
+    now: Optional[float] = None,
+) -> tuple[list[dict], list[dict]]:
+    """Reconcile the universal intent ledger against the live build_rev (pure-ish;
+    network is injectable). For each not-yet-verified intent:
+      • live build_rev now serves its SHA → mark verified_live=True.
+      • else still within grace → leave pending (a fly rolling restart takes time).
+      • else past grace and not yet flagged → emit a failure gap ONCE
+        (failure_recorded=True so it isn't re-emitted every tick).
+
+    Returns (updated_intents, gaps). gaps feed capability_gaps.record_gap so the
+    self-heal/coder loop retries a push that silently never went live.
+    """
+    _now = float(now if now is not None else time.time())
+    updated: list[dict] = []
+    gaps: list[dict] = []
+    for it in intents or []:
+        if not isinstance(it, dict):
+            continue
+        rec = dict(it)
+        sha = str(rec.get("commit_sha") or "").strip()
+        if not sha or rec.get("verified_live") is True:
+            updated.append(rec)
+            continue
+        v = await verify_deploy_landed(sha, app, fetcher=fetcher)
+        rec["checks"] = int(rec.get("checks") or 0) + 1
+        if v["landed"]:
+            rec["verified_live"] = True
+            rec["live_build_rev"] = v["live_build_rev"]
+        else:
+            age = _now - float(rec.get("at") or _now)
+            if age >= grace_s and not rec.get("failure_recorded"):
+                rec["failure_recorded"] = True
+                gaps.append({
+                    "commit_sha": sha,
+                    "source": rec.get("source"),
+                    "live_build_rev": v["live_build_rev"],
+                    "age_s": round(age, 1),
+                })
+        updated.append(rec)
+    return updated, gaps

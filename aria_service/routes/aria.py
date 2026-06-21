@@ -2068,6 +2068,52 @@ async def eval_external_result_get_ep():
     return {"result": rec, "present": rec is not None}
 
 
+# ── R-F1773 — UNIVERSAL deploy-intent ledger sink ───────────────────────
+# A git pre-push hook POSTs every push's HEAD sha here BEFORE the deploy can be
+# claimed done. The proprioception loop (main.py) then verifies each intent
+# actually went live → deploy_verification_failure gap if it never did. Closes
+# the confabulation hole that a RAW `git push` (R-F1770) slipped through — no
+# deploy path can claim "deployed" without machine proof anymore.
+@router.post("/deploy/intent")
+async def deploy_intent_post_ep(request: Request):
+    """Record a deploy-intent (commit_sha + source) for live verification."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    sha = str(body.get("commit_sha") or body.get("sha") or "").strip()
+    if not sha:
+        raise HTTPException(status_code=400, detail="commit_sha required")
+    source = str(body.get("source") or "pre_push_hook")[:60]
+    from ..autonomous import deploy_verifier as _dv1773
+    try:
+        intents = await rs.get_json(_dv1773.DEPLOY_INTENTS_KEY) or []
+    except Exception:
+        intents = []
+    updated = _dv1773.add_deploy_intent(intents, sha, source)
+    try:
+        await rs.set_json(_dv1773.DEPLOY_INTENTS_KEY, updated, ex=30 * 86400)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"store failed: {e}")
+    return {"ok": True, "recorded": sha[:8], "source": source, "pending": len(updated)}
+
+
+@router.get("/deploy/intents")
+async def deploy_intents_get_ep():
+    """List the deploy-intent ledger (verified + pending) for proprioception."""
+    from ..autonomous import deploy_verifier as _dv1773
+    try:
+        intents = await rs.get_json(_dv1773.DEPLOY_INTENTS_KEY) or []
+    except Exception:
+        intents = []
+    if not isinstance(intents, list):
+        intents = []
+    pending = [i for i in intents if isinstance(i, dict) and not i.get("verified_live")]
+    return {"intents": intents, "total": len(intents), "pending": len(pending)}
+
+
 # ── Source verification: deterministic citation grounding check ──────────
 @router.get("/verify/list")
 async def verify_list_ep(limit: int = 30, verdict: str | None = None):

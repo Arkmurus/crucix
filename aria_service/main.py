@@ -2074,6 +2074,38 @@ async def lifespan(app: FastAPI):
                     logger.info("[R-F1766] deploy proprioception: %s", res)
             except Exception as e:
                 logger.warning("[R-F1766] deploy proprioception error: %s", e)
+            # R-F1773 — UNIVERSAL intent ledger: verify EVERY push (raw git push +
+            # ci_deploy + self_improve) actually went live, not just self_improve items.
+            try:
+                from .autonomous import deploy_verifier as _dv1773
+                from .state_store import rs as _rs1773
+                intents = await _rs1773.get_json(_dv1773.DEPLOY_INTENTS_KEY) or []
+                if intents:
+                    updated, gaps = await _dv1773.reconcile_deploy_intents(intents)
+                    await _rs1773.set_json(_dv1773.DEPLOY_INTENTS_KEY, updated, ex=30 * 86400)
+                    for g in gaps:
+                        try:
+                            from .intel import capability_gaps as _cg1773
+                            detail = (
+                                f"Pushed commit {g['commit_sha'][:8]} (source={g.get('source')}) "
+                                f"never went live after {g.get('age_s')}s — deploy did NOT land. "
+                                f"live build_rev={g.get('live_build_rev')}. A push claimed done "
+                                "but the live build_rev never advanced; deploy must be retried."
+                            )
+                            await _cg1773.record_gap(
+                                gap_type="deploy_verification_failure",
+                                detail=detail[:600],
+                                source="deploy_verifier:intent_ledger")
+                            logger.warning("[R-F1773] deploy NOT live: %s (source=%s) → gap recorded",
+                                           g["commit_sha"][:8], g.get("source"))
+                        except Exception as ge:
+                            logger.warning("[R-F1773] gap record failed: %s", ge)
+                    verified = sum(1 for i in updated if isinstance(i, dict) and i.get("verified_live"))
+                    if gaps or verified:
+                        logger.info("[R-F1773] intent ledger: %d verified live, %d failed",
+                                    verified, len(gaps))
+            except Exception as e:
+                logger.warning("[R-F1773] intent reconcile error: %s", e)
             await asyncio.sleep(300)
 
     deploy_proprio_task = _bg_task(asyncio.create_task(_deploy_proprioception_loop(), name="deploy_proprioception"), factory=_deploy_proprioception_loop)
