@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1766,
+  "next_available": 1767,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12026,6 +12026,16 @@
       "commit_sha": "d22d6158",
       "notes": null,
       "shipped_at": "2026-06-21T11:18:27Z"
+    },
+    {
+      "r_number": "R-F1766",
+      "title": "Wire self-verifying deploy: honest deploy_improvement + reconcile_live_deploys proprioception",
+      "claimed_at": "2026-06-21T11:22:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "11fdfb2d",
+      "notes": null,
+      "shipped_at": "2026-06-21T11:25:47Z"
     }
   ]
 }

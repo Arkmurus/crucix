@@ -2028,6 +2028,31 @@ async def lifespan(app: FastAPI):
     memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"), factory=_memory_wal_drain_loop)
     logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
 
+    # R-F1766 — DEPLOY PROPRIOCEPTION loop: confirm ARIA's autonomous self-improve
+    # commits ACTUALLY reached the live server (build_rev), turning a confabulated
+    # "deployed" into a verified one. Every 5 min: flips committed items to
+    # verified_live once is_sha_live confirms; else (past CI grace) records a
+    # deploy_verification_failure so self-heal/coder retries. This is the
+    # machine-verification that makes no-human-gate autonomy safe.
+    async def _deploy_proprioception_loop():
+        await asyncio.sleep(240)  # let boot + any in-flight deploy settle
+        from .intel import self_improve as _si1766
+        while True:
+            from .autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                await asyncio.sleep(300)
+                continue
+            try:
+                res = await _si1766.reconcile_live_deploys()
+                if res.get("verified") or res.get("failed"):
+                    logger.info("[R-F1766] deploy proprioception: %s", res)
+            except Exception as e:
+                logger.warning("[R-F1766] deploy proprioception error: %s", e)
+            await asyncio.sleep(300)
+
+    deploy_proprio_task = _bg_task(asyncio.create_task(_deploy_proprioception_loop(), name="deploy_proprioception"), factory=_deploy_proprioception_loop)
+    logger.info("[R-F1766] deploy proprioception loop started (verify changes actually land)")
+
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
     # Hourly background loop that:
     #   - Checks if a daily morning briefing should fire

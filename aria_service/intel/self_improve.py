@@ -781,16 +781,38 @@ async def deploy_improvement(improvement_id: str) -> dict:
     except Exception as e:
         logger.warning("Git commit failed (change still applied): %s", e)
 
-    # Update status
+    # R-F1766: capture the commit SHA so the deploy-proprioception loop can
+    # later CONFIRM the change actually reached the live server (build_rev).
+    _commit_sha = ""
+    try:
+        from ..utils.git_utils import get_current_commit as _gcc1766
+        _commit_sha, _ = _gcc1766()
+    except Exception as _she:
+        logger.debug("[self_improve] could not capture commit sha: %s", _she)
+
+    # Update status. R-F1766: a local commit is NOT a verified live deploy —
+    # the fly deploy is async (ci_deploy/CI build). status="deployed" is kept
+    # for backward-compat (rollback finder + auto_deployed counter), but
+    # verified_live=False marks the truth: not yet PROVEN on the live server.
+    # reconcile_live_deploys() flips verified_live True ONLY once is_sha_live
+    # confirms the live build_rev advanced to this SHA — else it records a
+    # deploy_verification_failure gap so self-heal/coder retries the deploy.
     target["status"] = "deployed"
     target["deployed_at"] = time.time()
+    target["commit_sha"] = _commit_sha
+    target["verified_live"] = False
     await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
 
     await _log_improvement("deployed", target)
     _SI_DEPLOYED += 1
 
+    # R-F1766: HONEST signal — committed, NOT yet proven live. The truthful
+    # "verified live" success (or the failure) is wired by the proprioception
+    # reconcile, never confabulated here. No more "Deployed" claim at commit time.
     wire_success(module="self_improve",
-                 summary=f"Deployed {target['change_type']} to {file_path}: {target['description'][:80]}",
+                 summary=f"Committed {target['change_type']} to {file_path} "
+                         f"(commit {_commit_sha or '?'}; live verification pending): "
+                         f"{target['description'][:60]}",
                  source_id=f"self_improve:deploy:{improvement_id}")
 
     # Record a coding lesson for the metacognitive pattern library.
@@ -846,6 +868,89 @@ async def deploy_improvement(improvement_id: str) -> dict:
         "backup": str(backup_path) if backup_path else None,
         "description": target["description"],
     }
+
+
+# ── R-F1766 — DEPLOY PROPRIOCEPTION: did the change ACTUALLY land live? ──
+# Turns the confabulated "deployed" (which really meant "committed locally")
+# into a VERIFIED one. The fly deploy is async (ci_deploy/CI), so we reconcile
+# committed-but-unverified changes against the live build_rev on a loop.
+# See aria_service/autonomous/deploy_verifier.
+
+async def reconcile_live_deploys() -> dict:
+    """Confirm committed self-improve changes reached the live server.
+
+    For each item with a commit_sha that isn't yet verified_live:
+      - live now  → verified_live=True + TRUTHFUL "verified live" wire_success.
+      - not live AND older than the CI grace → wire_failure(
+        deploy_verification_failure) + record a gap so self-heal/coder retries
+        (mark verify_failed so we don't re-alert every cycle).
+      - not live within grace → leave pending (CI still building).
+    Idempotent; safe on a loop. NEVER claims live without proof (deploy_verifier).
+    """
+    import os as _os1766
+    grace_s = int(_os1766.getenv("ARIA_DEPLOY_VERIFY_GRACE_S", "1200"))  # 20 min
+    try:
+        from ..autonomous import deploy_verifier as _dv
+    except Exception as _de:
+        return {"reconciled": 0, "error": f"deploy_verifier unavailable: {_de}"}
+
+    staged = await rs.get_json(STAGED_KEY) or []
+    pending = [s for s in staged
+               if isinstance(s, dict) and s.get("commit_sha")
+               and s.get("verified_live") is not True
+               and not s.get("verify_failed")]
+    if not pending:
+        return {"reconciled": 0, "verified": 0, "failed": 0, "pending": 0}
+
+    verdicts = await _dv.reconcile_committed_deploys(pending)
+    vmap = {v["commit_sha"]: v for v in verdicts}
+    now = time.time()
+    verified = failed = still_pending = 0
+    dirty = False
+    for s in staged:
+        if not isinstance(s, dict):
+            continue
+        sha = str(s.get("commit_sha") or "")
+        if not sha or s.get("verified_live") is True or s.get("verify_failed"):
+            continue
+        v = vmap.get(sha)
+        if v and v.get("verified_live"):
+            s["verified_live"] = True
+            s["verified_live_at"] = now
+            dirty = True
+            verified += 1
+            wire_success(
+                module="self_improve",
+                summary=(f"Deploy VERIFIED LIVE: {sha} is serving on aria-intel "
+                         f"({s.get('change_type','')} {s.get('file','')})"),
+                source_id=f"self_improve:deploy_verified:{s.get('id')}")
+        else:
+            age = now - float(s.get("deployed_at") or now)
+            if age > grace_s:
+                s["verify_failed"] = True
+                dirty = True
+                failed += 1
+                detail = (f"Deploy NOT live after {int(age)}s: commit {sha} "
+                          f"({s.get('file','')}) never advanced the live build_rev "
+                          f"(live={(v or {}).get('live_build_rev')}). Change is "
+                          f"committed but NOT running — deploy must be retried.")
+                wire_failure(module="self_improve", detail=detail,
+                             gap_type="deploy_verification_failure",
+                             source="self_improve:reconcile_live_deploys")
+                try:
+                    from . import capability_gaps as _cg1766
+                    await _cg1766.record_gap(
+                        gap_type="deploy_verification_failure",
+                        detail=detail[:600],
+                        source="self_improve:reconcile_live_deploys")
+                except Exception:
+                    pass
+            else:
+                still_pending += 1
+    if dirty:
+        await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
+    return {"reconciled": len(verdicts), "verified": verified,
+            "failed": failed, "pending": still_pending}
 
 
 # ── R-F574 (2026-05-16) — discard staged improvements ─────────────────
