@@ -119,7 +119,9 @@ def test_builder_strips_context_when_small_model(monkeypatch):
     assert "What is ITAR?" in up
     assert "SANCTIONS LIVE CHECK" in up   # compliance verdict survives
     assert "PMESII" not in up             # the exact derailer is gone
-    assert "UNDERSTOOD AS" not in up
+    # R-F1775: comprehension prefix IS present for small-model mode too
+    # (lightweight regex-only, helps the small model understand the question)
+    assert "UNDERSTOOD AS" in up
     assert "DAILY SUBSCRIPTION STATUS" not in up
 
 
