@@ -33,6 +33,18 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger("aria.wire")
 
+# R-F1776: strong references to background wire_failure tasks. Prevents GC
+# from collecting the task before it records the gap (same bug class as
+# R-F1363 — weak create_task refs are silently dropped under GC pressure).
+_BG_TASKS: set = set()
+
+
+async def _record_gap(gap_type: str, detail: str, source: str) -> None:
+    """Record a capability gap. Wrapped so tests can patch it easily."""
+    from ..intel import capability_gaps as _cg
+
+    await _cg.record_gap(gap_type=gap_type, detail=detail, source=source)
+
 
 def fail_wire(
     module: str,
@@ -106,9 +118,7 @@ def _wire_failure(
 
     async def _record():
         try:
-            from ..intel import capability_gaps as _cg
-
-            await _cg.record_gap(
+            await _record_gap(
                 gap_type=gap_type,
                 detail=full_detail,
                 source=source,
@@ -121,4 +131,10 @@ def _wire_failure(
             # The wire itself must NEVER raise — would mask the original error
             logger.debug("[fail_wire] record_gap failed (non-fatal): %s", _e)
 
-    loop.create_task(_record())
+    # R-F1776: hold a STRONG reference to prevent GC from collecting the
+    # task before it records the gap (same bug class as R-F1363 — weak
+    # create_task refs are collected under GC pressure, silently losing
+    # the exact failure signals this system exists to capture).
+    _t = loop.create_task(_record())
+    _BG_TASKS.add(_t)
+    _t.add_done_callback(_BG_TASKS.discard)

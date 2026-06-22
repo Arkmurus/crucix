@@ -50,7 +50,7 @@ except Exception as e:
 
 # 3. HTML check
 print("\n=== HTML ===")
-html_path = 'aria_service/static/aria_client/aria.html'
+html_path = 'public/dd-reports.html'
 if os.path.exists(html_path):
     with open(html_path, encoding='utf-8', errors='ignore') as f:
         html = f.read()
@@ -78,18 +78,25 @@ if os.path.exists(html_path):
 else:
     print('  SKIP HTML (file not found)')
 
-# 4. Test check
+# 4. Test check — run a fast subset of tests via pytest.main()
 print("\n=== TESTS ===")
-test_files = [
+import pytest as _pytest
+_test_files = [
     'aria_service/tests/test_cap_vault_auto_populate_on_startup.py',
     'aria_service/tests/test_dd_extensions_rf584_587.py',
     'aria_service/tests/test_rf1140_dd_trigger_pipeline.py',
 ]
-for tf in test_files:
-    if os.path.exists(tf):
-        print(f'  OK {tf} exists')
+for _tf in _test_files:
+    if os.path.exists(_tf):
+        # Run each test file with a per-file timeout via pytest
+        _exitcode = _pytest.main([_tf, '-x', '--timeout=30', '-q'])
+        if _exitcode != 0:
+            print(f'  FAIL {_tf} (exit code {_exitcode})')
+            errors.append(_tf)
+        else:
+            print(f'  OK {_tf}')
     else:
-        print(f'  SKIP {tf} not found')
+        print(f'  SKIP {_tf} not found')
 
 # 4b. R-F1776 — dark-path check: new public async functions must have fail_wire
 print("\n=== DARK PATH CHECK ===")

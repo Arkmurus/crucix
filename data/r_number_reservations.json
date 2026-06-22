@@ -12132,9 +12132,10 @@
       "title": "Failure-wire decorator + non-blocking sink via capability_gaps",
       "claimed_at": "2026-06-22T11:39:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "04389fdd",
+      "notes": null,
+      "shipped_at": "2026-06-22T11:43:42Z"
     }
   ]
 }
