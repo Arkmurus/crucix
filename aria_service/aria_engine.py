@@ -35,6 +35,7 @@ from .intel import reasoning_library
 from .intel import student
 from .intel import proactive
 from .intel import conversation_store
+from .intel import comprehension as _comprehension  # R-F1775
 
 logger = logging.getLogger("aria.engine")
 
@@ -2387,14 +2388,34 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
     # message (the last thing it reads), not recalled context material.
     # All three return branches follow this order. The comprehension prefix
     # is appended right before [Current message] as a final directive.
-    _comprehension_prefix = (
-        "\n\n[COMPREHENSION DIRECTIVE]\n"
-        "Answer ONLY the question in [Current message]. "
-        "Do NOT answer earlier questions from history or recalled context; "
-        "if an earlier request appears unfinished, note that in one line "
-        "at the end instead of answering it.\n"
-        "[/COMPREHENSION DIRECTIVE]"
-    )
+    # R-F1775: dynamic comprehension prefix from comprehension.analyse()
+    # Replaces the static directive with a structured 'UNDERSTOOD AS:' block
+    # that forces the LLM to restate what the user asked before answering.
+    # Falls back to the static directive if comprehension analysis fails.
+    try:
+        _ca = _comprehension.analyse(message)
+        _cp = _comprehension.build_prefix(_ca)
+        _comprehension_prefix = (
+            "\n\n" + _cp + "\n\n"
+            if _cp
+            else (
+                "\n\n[COMPREHENSION DIRECTIVE]\n"
+                "Answer ONLY the question in [Current message]. "
+                "Do NOT answer earlier questions from history or recalled context; "
+                "if an earlier request appears unfinished, note that in one line "
+                "at the end instead of answering it.\n"
+                "[/COMPREHENSION DIRECTIVE]"
+            )
+        )
+    except Exception:
+        _comprehension_prefix = (
+            "\n\n[COMPREHENSION DIRECTIVE]\n"
+            "Answer ONLY the question in [Current message]. "
+            "Do NOT answer earlier questions from history or recalled context; "
+            "if an earlier request appears unfinished, note that in one line "
+            "at the end instead of answering it.\n"
+            "[/COMPREHENSION DIRECTIVE]"
+        )
     if not history:
         return f"{lang_hint}{context}{_comprehension_prefix}\n\n[Current message]\nUser: {message}"
     recent_cutoff = 10 * 2  # last 10 exchanges in full (after compaction)

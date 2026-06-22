@@ -59,9 +59,13 @@ def test_empty_history_context_before_current():
         f"Context (at {ctx_pos}) must appear before [Current message] (at {cur_pos})"
     )
 
-    # Comprehension directive must be present
-    assert "COMPREHENSION DIRECTIVE" in result
-    assert "Answer ONLY the question in [Current message]" in result
+    # Comprehension prefix must be present (R-F1775: dynamic 'UNDERSTOOD AS' block)
+    assert "COMPREHENSION PASS" in result or "COMPREHENSION DIRECTIVE" in result, (
+        "Comprehension prefix missing from user prompt"
+    )
+    assert "UNDERSTOOD AS" in result or "Answer ONLY the question" in result, (
+        "Comprehension directive missing from user prompt"
+    )
 
     # The NDA question must be the last user-facing text
     last_user = result.rfind("User: review this NDA")
@@ -101,8 +105,13 @@ def test_short_history_context_before_current():
         f"Context (at {ctx_pos}) must appear before [Current message] (at {cur_pos})"
     )
 
-    assert "COMPREHENSION DIRECTIVE" in result
-    assert "Answer ONLY the question in [Current message]" in result
+    # Comprehension prefix must be present (R-F1775: dynamic 'UNDERSTOOD AS' block)
+    assert "COMPREHENSION PASS" in result or "COMPREHENSION DIRECTIVE" in result, (
+        "Comprehension prefix missing from user prompt"
+    )
+    assert "UNDERSTOOD AS" in result or "Answer ONLY the question" in result, (
+        "Comprehension directive missing from user prompt"
+    )
 
     # History must still be present
     assert "what do you know about DO-228?" in result
@@ -129,7 +138,10 @@ def test_long_history_context_before_current():
         f"Context (at {ctx_pos}) must appear before [Current message] (at {cur_pos})"
     )
 
-    assert "COMPREHENSION DIRECTIVE" in result
+    # Comprehension prefix must be present (R-F1775: dynamic 'UNDERSTOOD AS' block)
+    assert "COMPREHENSION PASS" in result or "COMPREHENSION DIRECTIVE" in result, (
+        "Comprehension prefix missing from user prompt"
+    )
 
 
 def test_very_long_history_triggers_summary():
@@ -150,7 +162,10 @@ def test_very_long_history_triggers_summary():
         f"Context (at {ctx_pos}) must appear before [Current message] (at {cur_pos})"
     )
 
-    assert "COMPREHENSION DIRECTIVE" in result
+    # Comprehension prefix must be present (R-F1775: dynamic 'UNDERSTOOD AS' block)
+    assert "COMPREHENSION PASS" in result or "COMPREHENSION DIRECTIVE" in result, (
+        "Comprehension prefix missing from user prompt"
+    )
 
 
 # ── Context with no history (the exact NDA incident shape) ──────────────
@@ -170,10 +185,14 @@ def test_nda_context_hijack_prevented():
         f"(at {last_do228_idx})"
     )
 
-    # The comprehension directive must be between context and current message
-    directive_pos = result.find("COMPREHENSION DIRECTIVE")
+    # The comprehension prefix must be between context and current message
+    # (R-F1775: now uses 'COMPREHENSION PASS' from comprehension.build_prefix())
+    directive_pos = result.find("COMPREHENSION PASS")
+    if directive_pos == -1:
+        directive_pos = result.find("COMPREHENSION DIRECTIVE")
     cur_pos = result.find("[Current message]")
+    assert directive_pos >= 0, "Comprehension prefix not found"
     assert directive_pos < cur_pos, (
-        f"Comprehension directive (at {directive_pos}) must be before "
+        f"Comprehension prefix (at {directive_pos}) must be before "
         f"[Current message] (at {cur_pos})"
     )
