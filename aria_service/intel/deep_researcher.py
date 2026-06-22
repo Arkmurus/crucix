@@ -24,6 +24,7 @@ from urllib.parse import urljoin, urlparse, quote_plus
 import httpx
 
 from ..llm.provider import LLMProvider, LLMResult
+from .wire import fail_wire
 from . import redis_store as rs
 from .knowledge import store_fact, search_knowledge
 from .llm_json import parse_llm_json
@@ -253,6 +254,7 @@ async def _publish_crawl_progress(domain: str, status: dict) -> None:
         logger.debug("crawl progress publish failed: %s", e)
 
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def crawl_website(
     llm: LLMProvider,
     start_url: str,
@@ -500,6 +502,7 @@ async def crawl_website(
     return _crawl_result
 
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def get_crawl_progress(domain: str) -> dict:
     """Public API: query the live crawl progress for a domain."""
     try:
@@ -685,6 +688,7 @@ def _extract_search_anchor(topic: str) -> str:
 
 # ── Public: Deep investigation on a topic ────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate(
     llm: LLMProvider,
     topic: str,
@@ -1101,6 +1105,7 @@ Return JSON:
 
 # ── Public: Scenario analysis ────────────────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def analyse_scenarios(
     llm: LLMProvider,
     situation: str,
@@ -1212,6 +1217,7 @@ Return JSON:
 
 # ── Public: Entity/country/OEM profiler ──────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def build_profile(
     llm: LLMProvider,
     entity: str,
@@ -1339,6 +1345,7 @@ Return JSON:
 
 # ── Public: Person investigation ────────────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate_person(llm: LLMProvider, name: str, context: str = "") -> dict:
     """Deep investigation of a person — maps professional network, flags risks."""
     if not llm or not llm.is_configured:
@@ -1465,6 +1472,7 @@ Return JSON:
 
 # ── Public: Company investigation ───────────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate_company(llm: LLMProvider, company: str, country: str = "") -> dict:
     """Deep company investigation — ownership, sanctions, compliance history."""
     if not llm or not llm.is_configured:
@@ -1600,6 +1608,7 @@ Return JSON:
 
 # ── Public: Network mapping ─────────────────────────────────────────────────
 
+@fail_wire(module="deep_researcher", gap_type="source_failure")
 async def map_network(llm: LLMProvider, entities: list, context: str = "") -> dict:
     """Map relationships between multiple entities — find hidden connections."""
     if not llm or not llm.is_configured:
