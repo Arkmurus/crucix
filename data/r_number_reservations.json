@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1773,
+  "next_available": 1777,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12096,6 +12096,45 @@
       "commit_sha": "9ff01f77",
       "notes": null,
       "shipped_at": "2026-06-21T12:30:19Z"
+    },
+    {
+      "r_number": "R-F1773",
+      "title": "Universal deploy-verification: pre-push intent ledger + loop verifies ALL push paths land live",
+      "claimed_at": "2026-06-21T13:05:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "24e35cfe",
+      "notes": null,
+      "shipped_at": "2026-06-21T13:55:53Z"
+    },
+    {
+      "r_number": "R-F1774",
+      "title": "Brain-served openbook eval set: PUT/GET endpoint so compute pods fetch the 500-Q set (no SCP/git transport)",
+      "claimed_at": "2026-06-22T10:20:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a66ac2aa",
+      "notes": null,
+      "shipped_at": "2026-06-22T10:43:07Z"
+    },
+    {
+      "r_number": "R-F1775",
+      "title": "Wire comprehension.analyse() into chat pipeline to fix hallucination of non-existent PDF/NDA",
+      "claimed_at": "2026-06-22T10:29:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5cd79b8e",
+      "notes": null,
+      "shipped_at": "2026-06-22T10:39:33Z"
+    },
+    {
+      "r_number": "R-F1776",
+      "title": "Failure-wire decorator + non-blocking sink via capability_gaps",
+      "claimed_at": "2026-06-22T11:39:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
