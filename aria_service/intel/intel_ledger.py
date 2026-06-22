@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from . import redis_store as rs
+from .wire import fail_wire
 
 logger = logging.getLogger("aria.intel.ledger")
 
@@ -436,12 +437,14 @@ async def _save() -> None:
     _ensure_flusher()
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def flush() -> None:
     """Force an immediate disk flush. Call from shutdown hooks or tests
     that need to assert on-disk state without waiting for the debounce."""
     await _flush_to_disk()
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def shutdown() -> None:
     """Stop the background flusher and write any pending changes. Wired
     into main.py lifespan teardown next to knowledge.shutdown()."""
@@ -459,11 +462,13 @@ async def shutdown() -> None:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def init() -> None:
     await _load()
     logger.info(f"Intel ledger loaded: {len((_cache or {}).get('signals', []))} signals")
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def add_signal(payload: dict) -> str:
     """Add a single signal to the ledger.
 
@@ -591,6 +596,7 @@ def _domain_for_signal(payload: dict, source: str, entities: dict) -> str | None
     return None
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def purge_signals_by_keyword(keywords: list[str], dry_run: bool = False) -> dict:
     """Remove signals from the ledger whose text contains ANY of the given
     keywords (case-insensitive). Designed for surgical cleanup of polluted
@@ -681,6 +687,7 @@ def _is_propaganda_source(source: str) -> bool:
     return any(p in s for p in _PROPAGANDA_SOURCES if len(p) > 3)
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def ingest_sweep_signals(current_data: dict) -> int:
     """Parse sweep data, extract entities, dedup, store. Returns count added.
 
@@ -847,6 +854,7 @@ def query_ledger(query: str) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def get_country_situation(country: str) -> dict:
     db = await _load()
     signals = [s for s in db["signals"] if country.lower() in [c.lower() for c in s.get("countries", [])]]
@@ -857,6 +865,7 @@ async def get_country_situation(country: str) -> dict:
     }
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def get_stats() -> dict:
     db = await _load()
     by_type: dict[str, int] = {}
@@ -873,6 +882,7 @@ async def get_stats() -> dict:
     }
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def get_recent(limit: int = 1000) -> list[dict]:
     """Return the most-recent N signals as a list — newest first.
 
@@ -894,12 +904,14 @@ async def get_recent(limit: int = 1000) -> list[dict]:
     return sigs[: max(1, int(limit or 1000))]
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def all_signals() -> list[dict]:
     """Alias for get_recent(limit=10000) — kept because callers in
     coverage_heatmap and counter_intelligence probe both names."""
     return await get_recent(limit=10000)
 
 
+@fail_wire(module="intel_ledger", gap_type="source_failure")
 async def recent_signals(limit: int = 1000) -> list[dict]:
     """Alias for get_recent — same defensive reason as all_signals."""
     return await get_recent(limit=limit)
