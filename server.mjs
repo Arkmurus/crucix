@@ -3412,8 +3412,22 @@ app.get('/api/aria/conversations', requireAuth, async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   const offset = parseInt(req.query.offset) || 0;
   const limit = parseInt(req.query.limit) || 30;
+  // R-F1778: `fallback` MUST be a function — ariaProxy invokes it as
+  // `fallback({lastStatus,lastErr})`. R-F1687 mistakenly passed a plain OBJECT
+  // here, so on EVERY aria-intel non-2xx/throw/timeout (cold-start, brain
+  // wedge, transient 5xx) ariaProxy threw `TypeError: fallback is not a
+  // function` → Express 5 default handler → HTTP 500 → the sidebar painted
+  // "Failed to load conversations: HTTP 500" instead of degrading gracefully.
+  // Now we emit a clean 503 carrying an empty list + the fly diagnostics so the
+  // FE can tell "backend briefly down, retry" apart from "genuinely no chats".
   await ariaProxy(req, res, `/api/aria/conversations?user_id=${userId}&offset=${offset}&limit=${limit}`, {
-    fallback: { conversations: [], user_id: userId },
+    fallback: async ({ lastStatus, lastErr } = {}) => res.status(503).json({
+      error: 'ARIA service unavailable',
+      conversations: [],
+      user_id: userId,
+      fly_status: lastStatus,
+      fly_error: lastErr,
+    }),
   });
 });
 

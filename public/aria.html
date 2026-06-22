@@ -1861,6 +1861,11 @@ function showUndoToast(msg, onUndo, onCommit, duration) {
 // pings the brain (/api/aria/outcome) so ARIA FEELS that her web limb had a gap.
 var ConnectionMonitor = (function() {
   var banner = null, polling = false, downSince = 0;
+  // R-F1778 — recovery subscribers. After /healthz comes back, anything that
+  // failed during the outage (e.g. the conversation sidebar) re-loads itself
+  // instead of staying stuck in a failed state until a manual reload.
+  var recoverCbs = [];
+  function onRecover(fn) { if (typeof fn === 'function') recoverCbs.push(fn); }
   function show() {
     if (banner) return;
     banner = document.createElement('div');
@@ -1892,6 +1897,8 @@ var ConnectionMonitor = (function() {
     polling = false; hide();
     var gapMs = Date.now() - downSince;
     try { Toast.show('Reconnected', 'success', 2000); } catch (_) {}
+    // R-F1778 — notify recovery subscribers (sidebar reload, etc.).
+    recoverCbs.forEach(function(fn) { try { fn(); } catch (_) {} });
     // §25 — report the connection gap so the brain feels the web limb recovered.
     try {
       var token = localStorage.getItem('crucix_token') || '';
@@ -1906,7 +1913,7 @@ var ConnectionMonitor = (function() {
       }).catch(function() {});
     } catch (_) {}
   }
-  return { lost: lost, isConnErr: isConnErr, isConnReason: isConnReason };
+  return { lost: lost, isConnErr: isConnErr, isConnReason: isConnReason, onRecover: onRecover };
 })();
 
 // R-F1748 — wait for the brain to come back (ConnectionMonitor is already
@@ -2226,8 +2233,25 @@ var Convos = (function() {
     listEl.appendChild(btn);
   }
 
+  // R-F1778 — sidebar robustness. A single transient aria-intel hiccup
+  // (cold-start, brain wedge, 5xx/timeout) must NOT paint a terminal error;
+  // the sidebar retries with backoff and only shows a non-scary, manually
+  // retryable state once the backend is durably unreachable. `_refreshSeq`
+  // guards against overlapping/stale refresh runs (a newer call wins).
+  var _refreshSeq = 0;
+  function _sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+  // Retryable = transient backend/network conditions. Auth/ownership/permanent
+  // statuses (401/403/400/404) are NOT retried — retrying can't fix them.
+  function _isRetryable(err) {
+    if (!err) return false;
+    if (err._isTimeout) return true;
+    try { if (ConnectionMonitor.isConnErr(err)) return true; } catch (e) {}
+    return /HTTP (5\d\d|408|429)/.test(err.message || '');
+  }
+
   async function refresh() {
     if (!CURRENT_USER) return;
+    var mySeq = ++_refreshSeq;
     loadedOffset = 0;
     allLoaded = false;
     rows = [];
@@ -2237,28 +2261,58 @@ var Convos = (function() {
     skel.className = 'convos-empty';
     skel.textContent = 'Loading…';
     listEl.appendChild(skel);
-    try {
-      var data = await authedJson(
-        'GET',
-        '/api/aria/conversations?user_id=' + encodeURIComponent(USER_ID_SLUG) + '&offset=0&limit=' + pageSize,
-      );
-      var convos = (data && data.conversations) || [];
-      rows = convos.slice();
-      loadedOffset = convos.length;
-      if (convos.length < pageSize) allLoaded = true;
-      render();
-    } catch (err) {
-      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
-      var fail = document.createElement('div');
-      fail.className = 'convos-empty';
-      // R-F739 (2026-05-20) — surface the real error so the operator
-      // can debug. Pre-R-F739 the message was always the generic
-      // "Failed to load." with no signal whether it's auth, HTTP
-      // status, or a network drop.
-      fail.textContent = 'Failed to load conversations: ' + (err && err.message ? err.message : 'unknown error');
-      listEl.appendChild(fail);
-      console.error('[Convos] refresh', err);
+
+    // Backoff schedule: up to 4 attempts over ~7s. Covers an aria-intel
+    // cold-start / wedge window without making a real outage drag forever.
+    var delays = [0, 800, 2000, 4000];
+    var lastErr = null;
+    for (var attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt]) {
+        if (skel && skel.parentNode === listEl) skel.textContent = 'Reconnecting…';
+        await _sleep(delays[attempt]);
+      }
+      if (mySeq !== _refreshSeq) return;  // a newer refresh superseded us
+      try {
+        var data = await authedJson(
+          'GET',
+          '/api/aria/conversations?user_id=' + encodeURIComponent(USER_ID_SLUG) + '&offset=0&limit=' + pageSize,
+        );
+        if (mySeq !== _refreshSeq) return;
+        var convos = (data && data.conversations) || [];
+        rows = convos.slice();
+        loadedOffset = convos.length;
+        if (convos.length < pageSize) allLoaded = true;
+        render();
+        return;
+      } catch (err) {
+        lastErr = err;
+        console.warn('[Convos] refresh attempt ' + (attempt + 1) + '/' + delays.length, err && err.message);
+        if (!_isRetryable(err)) break;  // permanent error → stop retrying
+      }
     }
+
+    // All attempts exhausted (or a permanent error). Show a calm, RETRYABLE
+    // state — never a raw "HTTP 500". R-F739's diagnostic detail is preserved
+    // in the console + the tooltip for debugging, not shouted at the user.
+    if (mySeq !== _refreshSeq) return;
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+    var fail = document.createElement('div');
+    fail.className = 'convos-empty';
+    var detail = (lastErr && lastErr.message) ? lastErr.message : 'unknown error';
+    var span = document.createElement('div');
+    span.textContent = 'Couldn’t reach the server — your conversations are safe.';
+    span.title = 'Failed to load conversations: ' + detail;
+    var retryBtn = document.createElement('button');
+    retryBtn.className = 'convos-load-older';
+    retryBtn.style.marginTop = '8px';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', function() { refresh(); });
+    fail.appendChild(span);
+    fail.appendChild(retryBtn);
+    listEl.appendChild(fail);
+    console.error('[Convos] refresh failed after retries', lastErr);
+    // R-F1697 — if it was a connectivity drop, the ConnectionMonitor banner is
+    // already up; recovery there will re-trigger a refresh.
   }
 
   async function loadOlder() {
@@ -2489,6 +2543,9 @@ var Convos = (function() {
 AUTH_READY.then(function(user) {
   if (!user) return;
   Convos.refresh();
+  // R-F1778 — when a connectivity drop recovers, reload the sidebar so it
+  // never stays stuck on the "couldn't reach the server" state.
+  try { ConnectionMonitor.onRecover(function() { if (CURRENT_USER) Convos.refresh(); }); } catch (_) {}
 });
 
 // After every successful send, bump the conversation to the top.
