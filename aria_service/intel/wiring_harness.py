@@ -1,0 +1,514 @@
+"""R-F1782 — MODULE_GAP_TYPES registry + HARD EXEMPT registry + Gates A-E.
+
+Single file containing ALL enforcement harness components for the wiring backfill.
+Claude reviews this ONCE — that single review is where 100% is guaranteed.
+
+Components:
+  1. MODULE_GAP_TYPES — accurate gap_type per module (Claude-approved)
+  2. HARD_EXEMPT — functions that must NEVER be wired (generators, streams, lifespan)
+  3. GATE A — coverage completeness (every public fn wired or exempt)
+  4. GATE B — gap_type accuracy (wired modules use their registered type)
+  5. GATE C — parametrized capability test (generic, one per module)
+  6. GATE D — control-flow raise scan (flag gap-spam risk)
+  7. GATE E — live wedge monitor (auto-pause on regression)
+"""
+from __future__ import annotations
+
+import ast
+import os
+import re
+from typing import Any
+
+# ── MODULE_GAP_TYPES registry ─────────────────────────────────────────────
+# Each module maps to its accurate VALID_GAP_TYPE.
+# Claude approves this once — the judgment artifact.
+# Rule: gap_type must describe THAT module's failure domain.
+#   source_failure     — fetch/source failed (deep_researcher, brave_answers)
+#   engine_failure     — internal processing failed (intel_ledger, dd_orchestrator)
+#   file_parse         — document/file parsing failed (document_reader, ocr)
+#   api_missing        — external API unavailable (companies_house, github_search)
+#   timeout            — operation timed out
+#   knowledge_gap      — missing knowledge
+#   embedder_failure   — embedding/encoding failed (semantic_search, neural_memory)
+#   registry_lookup    — registry lookup failed (portal_registry, oem_registry)
+#   format_unsupported — unsupported format
+#   agent_cycle_failure — generic agent loop failure
+MODULE_GAP_TYPES: dict[str, str] = {
+    # Already wired (R-F1777, R-F1779)
+    "deep_researcher": "source_failure",
+    "intel_ledger": "engine_failure",
+    # Core engines
+    "aria_engine": "engine_failure",
+    "reasoning_router": "engine_failure",
+    "reasoning_library": "engine_failure",
+    "symbolic_reasoner": "engine_failure",
+    "grounded_reasoner": "engine_failure",
+    "local_brain": "engine_failure",
+    # Document processing
+    "document_reader": "file_parse",
+    "document_intelligence": "file_parse",
+    "ocr": "file_parse",
+    "file_type_detector": "file_parse",
+    "content_scanner": "file_parse",
+    "pdf_deep_ingest": "file_parse",
+    # External data sources
+    "companies_house": "api_missing",
+    "github_search": "api_missing",
+    "brave_answers": "source_failure",
+    "web_search": "source_failure",
+    "search_searxng": "source_failure",
+    "news_monitor": "source_failure",
+    "sipri_ingest": "source_failure",
+    "sipri_knowledge": "source_failure",
+    # DD pipeline
+    "dd_orchestrator": "engine_failure",
+    "dd_disciplines": "engine_failure",
+    "dd_schema": "engine_failure",
+    "dd_trigger_pipeline": "engine_failure",
+    "dd_vault": "engine_failure",
+    "dd_case_library": "engine_failure",
+    "dd_layer_extensions": "engine_failure",
+    "dd_versioning": "engine_failure",
+    # Knowledge & memory
+    "knowledge": "engine_failure",
+    "neural_memory": "embedder_failure",
+    "rag_store": "embedder_failure",
+    "semantic_search": "embedder_failure",
+    "memory_wal": "engine_failure",
+    "mistake_ledger": "engine_failure",
+    # Brain hook
+    "brain_hook": "engine_failure",
+    "brain_hook_bg": "engine_failure",
+    "capability_gaps": "engine_failure",
+    # Compliance & sanctions
+    "sanctions": "source_failure",
+    "country_sanctions": "source_failure",
+    "compliance_watch": "engine_failure",
+    "compliance_workflow": "engine_failure",
+    # Research
+    "researcher": "source_failure",
+    "research_tasks": "source_failure",
+    "deep_researcher": "source_failure",
+    # Portal registry
+    "portal_registry": "registry_lookup",
+    "portal_coverage_audit": "registry_lookup",
+    "agent_signup_vault": "registry_lookup",
+    "registration_check": "registry_lookup",
+    # Student & learning
+    "student": "engine_failure",
+    "learning_progress": "engine_failure",
+    "correction_learner": "engine_failure",
+    "continuous_learner": "engine_failure",
+    # Cost tracking
+    "cost_tracker": "engine_failure",
+    "cost_free_learning": "engine_failure",
+    # Default for unregistered modules
+    "_default": "agent_cycle_failure",
+}
+
+
+def get_gap_type(module: str) -> str:
+    """Get the registered gap_type for a module, or the default."""
+    return MODULE_GAP_TYPES.get(module, MODULE_GAP_TYPES["_default"])
+
+
+# ── HARD EXEMPT registry ──────────────────────────────────────────────────
+# Functions that must NEVER be wired, each with a reason.
+# GATE A treats these as legitimately-not-dark.
+# Format: {module: {function_name: "reason"}}
+# Use "*" for function_name to exempt ALL functions in a module.
+HARD_EXEMPT: dict[str, dict[str, str]] = {
+    # ASYNC GENERATORS — wrapping breaks them (F28 boot outage risk)
+    "routes/aria.py": {
+        "chat_stream_ep": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
+    },
+    "aria_engine.py": {
+        "aria_chat_stream": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
+    },
+    "main.py": {
+        "lifespan": "ASYNC GENERATOR — wrapping breaks boot (F28 class, §9)",
+    },
+    # SYNC GENERATORS — wrapping breaks them
+    "cost_tracker.py": {
+        "feature": "SYNC GENERATOR — context manager with yield",
+    },
+    # STREAM/SSE-like functions — §13 response-body risk
+    "routes/aria.py": {
+        "chat_ep": "STREAM endpoint — §13 body risk",
+        "chat_stream_ep": "ASYNC GENERATOR — already exempted above",
+    },
+    "aria_engine.py": {
+        "aria_chat": "STREAM-like — §13 body risk",
+        "aria_chat_stream": "ASYNC GENERATOR — already exempted above",
+    },
+}
+
+
+def is_exempt(module_path: str, func_name: str) -> tuple[bool, str]:
+    """Check if a function is in the HARD EXEMPT registry.
+    
+    Returns (is_exempt, reason).
+    """
+    # Check module-level exemption
+    mod_exempts = HARD_EXEMPT.get(module_path, {})
+    if func_name in mod_exempts:
+        return True, mod_exempts[func_name]
+    if "*" in mod_exempts:
+        return True, mod_exempts["*"]
+    return False, ""
+
+
+# ── GATE A: Coverage completeness ─────────────────────────────────────────
+# Scans target dirs for public functions (sync+async).
+# For every module in WIRED_MODULES, every public fn must have @fail_wire
+# or be in HARD_EXEMPT. A dark public fn = BLOCK (not WARN).
+
+# Directories to scan for wiring coverage
+TARGET_DIRS = [
+    "aria_service/intel",
+    "aria_service/routes",
+    "aria_service/autonomous",
+    "aria_service/engines",
+]
+
+# Modules that have been wired (start with R-F1777, R-F1779)
+WIRED_MODULES: set[str] = set()
+
+# Modules that are fully reviewed and exempt from wiring
+FULLY_EXEMPT_MODULES: set[str] = {
+    "engine_wiring.py",  # The wiring module itself
+    "wire.py",           # The wiring module itself
+}
+
+
+def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
+    """Scan a Python file for public functions (sync + async, not private).
+    
+    Uses AST to detect generators and other special forms.
+    
+    Returns list of {name, type, is_generator, has_raise, lineno}.
+    """
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
+        try:
+            tree = ast.parse(f.read())
+        except SyntaxError:
+            return []
+
+    fns = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = node.name
+            if name.startswith("_"):
+                continue  # private — skip
+            is_async = isinstance(node, ast.AsyncFunctionDef)
+            is_generator = any(
+                isinstance(n, (ast.Yield, ast.YieldFrom))
+                for n in ast.walk(node)
+            )
+            has_raise = any(
+                isinstance(n, ast.Raise)
+                for n in ast.walk(node)
+            )
+            fns.append({
+                "name": name,
+                "type": "async" if is_async else "sync",
+                "is_generator": is_generator,
+                "has_raise": has_raise,
+                "lineno": node.lineno,
+            })
+    return fns
+
+
+def check_gate_a(module_path: str, filename: str) -> list[str]:
+    """GATE A: every public fn must be wired or exempt.
+    
+    Returns list of violations (empty = pass).
+    """
+    violations = []
+    if filename in FULLY_EXEMPT_MODULES:
+        return violations
+
+    fns = scan_public_functions(module_path)
+    with open(module_path, encoding="utf-8", errors="ignore") as f:
+        src = f.read()
+
+    for fn in fns:
+        name = fn["name"]
+        # Check if exempt
+        exempt, _ = is_exempt(filename, name)
+        if exempt:
+            continue
+
+        # Check if wired (has @fail_wire decorator)
+        fn_idx = src.find(f"def {name}(")
+        if fn_idx < 0:
+            fn_idx = src.find(f"async def {name}(")
+        if fn_idx >= 0:
+            before = src[max(0, fn_idx - 200):fn_idx]
+            if "@fail_wire" in before or "fail_wire" in before:
+                continue  # wired — ok
+
+        # Not wired and not exempt — violation
+        violations.append(
+            f"{filename}:{fn['lineno']} public {fn['type']} function "
+            f"'{name}()' has no @fail_wire and is not in HARD_EXEMPT"
+        )
+
+    return violations
+
+
+def check_gate_b(module_path: str, filename: str) -> list[str]:
+    """GATE B: each wired module must use its registered gap_type.
+    
+    Returns list of violations (empty = pass).
+    """
+    violations = []
+    module_name = filename.replace(".py", "")
+    expected_type = get_gap_type(module_name)
+
+    with open(module_path, encoding="utf-8", errors="ignore") as f:
+        src = f.read()
+
+    # Find all @fail_wire decorators and check their gap_type
+    for m in re.finditer(r'@fail_wire\([^)]+\)', src):
+        decorator = m.group()
+        if "gap_type=" not in decorator:
+            violations.append(
+                f"{filename}:{src[:m.start()].count(chr(10)) + 1} "
+                f"@fail_wire missing gap_type (expected '{expected_type}')"
+            )
+        else:
+            # Extract the gap_type value
+            gt_match = re.search(r'gap_type="([^"]+)"', decorator)
+            if gt_match:
+                actual = gt_match.group(1)
+                if actual != expected_type:
+                    violations.append(
+                        f"{filename}:{src[:m.start()].count(chr(10)) + 1} "
+                        f"@fail_wire gap_type='{actual}' but module "
+                        f"'{module_name}' requires '{expected_type}'"
+                    )
+
+    return violations
+
+
+def check_gate_d(module_path: str, filename: str) -> list[str]:
+    """GATE D: flag fail_wire'd functions that contain 'raise' (gap-spam risk).
+    
+    Returns list of warnings (not blocks — requires judgment).
+    """
+    warnings = []
+    fns = scan_public_functions(module_path)
+
+    with open(module_path, encoding="utf-8", errors="ignore") as f:
+        src = f.read()
+
+    for fn in fns:
+        if not fn["has_raise"]:
+            continue
+        name = fn["name"]
+        fn_idx = src.find(f"def {name}(")
+        if fn_idx < 0:
+            fn_idx = src.find(f"async def {name}(")
+        if fn_idx >= 0:
+            before = src[max(0, fn_idx - 200):fn_idx]
+            if "@fail_wire" in before:
+                warnings.append(
+                    f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
+                    f"'{name}()' contains 'raise' — potential gap-spam. "
+                    f"Review: is this control-flow or a real failure?"
+                )
+
+    return warnings
+
+
+def run_all_gates(target_dirs: list[str] | None = None) -> dict[str, list[str]]:
+    """Run all gates across target directories.
+    
+    Returns {gate_name: [violations]}.
+    """
+    if target_dirs is None:
+        target_dirs = TARGET_DIRS
+
+    results: dict[str, list[str]] = {
+        "gate_a": [],
+        "gate_b": [],
+        "gate_d": [],
+    }
+
+    for target_dir in target_dirs:
+        if not os.path.isdir(target_dir):
+            continue
+        for fname in sorted(os.listdir(target_dir)):
+            if not fname.endswith(".py"):
+                continue
+            fpath = os.path.join(target_dir, fname)
+            results["gate_a"].extend(check_gate_a(fpath, fname))
+            results["gate_b"].extend(check_gate_b(fpath, fname))
+            results["gate_d"].extend(check_gate_d(fpath, fname))
+
+    return results
+
+
+# ── GATE C: Parametrized capability test ─────────────────────────────────
+# One parametrized pytest over WIRED_MODULES: for each fail_wire'd function,
+# force it to raise and assert a gap of the registered type lands.
+# Generic — no hand-written test per module, but every module is proven.
+#
+# Usage in test file:
+#   @pytest.mark.parametrize("module_name", WIRED_MODULES)
+#   def test_module_fail_wire(module_name):
+#       run_gate_c(module_name)
+
+# Functions that are known to be safe to call with no args (will raise
+# TypeError that the decorator catches). Modules not in this list need
+# manual testing.
+SAFE_NO_ARGS: set[str] = {
+    "deep_researcher",
+    "intel_ledger",
+}
+
+
+def get_fail_wired_functions(module_path: str) -> list[dict[str, Any]]:
+    """Get all @fail_wire'd public functions in a module."""
+    fns = scan_public_functions(module_path)
+    with open(module_path, encoding="utf-8", errors="ignore") as f:
+        src = f.read()
+
+    wired = []
+    for fn in fns:
+        name = fn["name"]
+        fn_idx = src.find(f"def {name}(")
+        if fn_idx < 0:
+            fn_idx = src.find(f"async def {name}(")
+        if fn_idx >= 0:
+            before = src[max(0, fn_idx - 200):fn_idx]
+            if "@fail_wire" in before:
+                wired.append(fn)
+    return wired
+
+
+def run_gate_c(module_name: str) -> None:
+    """GATE C: force each fail_wire'd function to raise, assert gap lands.
+    
+    Must be called from a pytest test with the wire._record_gap patched.
+    """
+    import importlib
+    import aria_service.intel.wire as _wire
+
+    try:
+        mod = importlib.import_module(f"aria_service.intel.{module_name}")
+    except ImportError:
+        # Module might be in a different package
+        try:
+            mod = importlib.import_module(f"aria_service.routes.{module_name}")
+        except ImportError:
+            raise ImportError(f"Cannot import module '{module_name}'")
+
+    fns = get_fail_wired_functions(mod.__file__)
+    if not fns:
+        return  # No wired functions — nothing to test
+
+    recorded = []
+
+    async def _mock(gap_type, detail, source):
+        recorded.append({"gap_type": gap_type, "detail": detail, "source": source})
+
+    original = _wire._record_gap
+    _wire._record_gap = _mock
+    try:
+        for fn_info in fns:
+            fn = getattr(mod, fn_info["name"], None)
+            if fn is None:
+                continue
+            try:
+                if fn_info["type"] == "async":
+                    import asyncio
+                    asyncio.run(fn())
+                else:
+                    fn()
+            except Exception:
+                pass  # Expected — the decorator caught it
+
+            # Wait for bg task
+            import time
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                if any(g["gap_type"] == get_gap_type(module_name) for g in recorded):
+                    break
+                import asyncio
+                try:
+                    asyncio.run(asyncio.sleep(0.01))
+                except RuntimeError:
+                    import time as _t
+                    _t.sleep(0.01)
+
+    finally:
+        _wire._record_gap = original
+
+    expected = get_gap_type(module_name)
+    landed = [g for g in recorded if g["gap_type"] == expected]
+    assert len(landed) >= 1, (
+        f"GATE C FAIL: module '{module_name}' expected gap_type='{expected}' "
+        f"but no gap landed. Recorded: {recorded}"
+    )
+
+
+# ── GATE E: Live wedge monitor ────────────────────────────────────────────
+# Periodic probe that checks wedge_stacks + p95 and auto-pauses if regression.
+# To be wired into main.py as a background loop during Phase 1.
+
+import httpx
+
+
+async def probe_wedge_stacks(brain_url: str = "https://aria-intel.fly.dev") -> dict:
+    """Probe wedge_stacks count and endpoint latency.
+    
+    Returns {wedge_count, p50_ms, p95_ms, ok}.
+    """
+    import time
+
+    # Measure latency
+    latencies = []
+    async with httpx.AsyncClient(timeout=10) as c:
+        for _ in range(10):
+            t0 = time.monotonic()
+            try:
+                r = await c.get(f"{brain_url}/health/live")
+                if r.status_code == 200:
+                    latencies.append((time.monotonic() - t0) * 1000)
+            except Exception:
+                pass
+
+    latencies.sort()
+    p50 = latencies[len(latencies) // 2] if latencies else 0
+    p95 = latencies[int(len(latencies) * 0.95)] if latencies else 0
+
+    return {
+        "wedge_count": 0,  # TODO: read from /data/wedge_stacks when available
+        "p50_ms": round(p50, 1),
+        "p95_ms": round(p95, 1),
+        "ok": len(latencies) >= 5,
+    }
+
+
+# ── Print results ─────────────────────────────────────────────────────────
+
+def print_gate_results(results: dict[str, list[str]]) -> None:
+    """Print gate results in a readable format."""
+    all_clear = True
+    for gate, violations in results.items():
+        print(f"\n=== {gate.upper()} ===")
+        if violations:
+            all_clear = False
+            for v in violations:
+                print(f"  BLOCK: {v}")
+        else:
+            print("  PASS")
+
+    print(f"\n{'=' * 60}")
+    if all_clear:
+        print("  ALL GATES PASS — harness is clean")
+    else:
+        print("  GATES FAILED — fix violations before proceeding")
+    print(f"{'=' * 60}")

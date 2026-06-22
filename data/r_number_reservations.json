@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1781,
+  "next_available": 1783,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12143,9 +12143,9 @@
       "claimed_at": "2026-06-22T12:01:44Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "61f314e8",
+      "commit_sha": "0f6d5e87",
       "notes": null,
-      "shipped_at": "2026-06-22T12:19:58Z"
+      "shipped_at": "2026-06-22T12:48:06Z"
     },
     {
       "r_number": "R-F1778",
@@ -12162,9 +12162,10 @@
       "title": "Apply fail_wire to intel_ledger with capability test",
       "claimed_at": "2026-06-22T12:44:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1efc4c0b",
+      "notes": null,
+      "shipped_at": "2026-06-22T12:47:42Z"
     },
     {
       "r_number": "R-F1780",
@@ -12176,6 +12177,26 @@
       "notes": null,
       "abandoned_at": "2026-06-22T12:47:10Z",
       "abandon_reason": "No change needed — SESSION_TTL already removed and live via R-F1688 (e672ddda, ancestor of live 7b6bc172)"
+    },
+    {
+      "r_number": "R-F1781",
+      "title": "Autonomous wiring-backfill plan + enforcement-harness spec (gates-as-code so ARIA self-drives 269 modules)",
+      "claimed_at": "2026-06-22T12:55:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "388664cc",
+      "notes": null,
+      "shipped_at": "2026-06-22T12:55:49Z"
+    },
+    {
+      "r_number": "R-F1782",
+      "title": "AST wiring probe — full surface audit (async-gens/control-flow/streams) to eradicate defect class",
+      "claimed_at": "2026-06-22T12:58:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "78339542",
+      "notes": null,
+      "shipped_at": "2026-06-22T13:01:55Z"
     }
   ]
 }

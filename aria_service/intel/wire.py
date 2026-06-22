@@ -26,7 +26,9 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import functools
+import inspect
 import logging
 import time
 from typing import Any, Callable, Optional
@@ -72,21 +74,55 @@ def fail_wire(
         source = f"fail_wire:{module}"
 
     def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                _wire_failure(
-                    module=module,
-                    gap_type=gap_type,
-                    source=source,
-                    detail=str(e)[:max_detail_len],
-                    func_name=func.__name__,
-                )
-                raise  # Re-raise — the caller still sees the exception
+        # R-F1782: GENERATOR GUARD — fail_wire can NEVER wrap a generator.
+        # Wrapping lifespan (async generator) = boot outage (F28 class, §9).
+        # Wrapping chat_stream_ep (async generator) = broken streaming chat.
+        # Detect at DECORATION TIME so misapplication is impossible.
+        if inspect.isasyncgenfunction(func):
+            raise TypeError(
+                f"fail_wire cannot wrap async generator '{func.__name__}'. "
+                f"Async generators (async def ... yield) must be added to the "
+                f"HARD EXEMPT registry with a reason. This prevents boot outages."
+            )
+        if inspect.isgeneratorfunction(func):
+            raise TypeError(
+                f"fail_wire cannot wrap sync generator '{func.__name__}'. "
+                f"Generators (def ... yield) must be added to the HARD EXEMPT "
+                f"registry with a reason."
+            )
 
-        return wrapper
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    _wire_failure(
+                        module=module,
+                        gap_type=gap_type,
+                        source=source,
+                        detail=str(e)[:max_detail_len],
+                        func_name=func.__name__,
+                    )
+                    raise
+
+            return async_wrapper
+        else:
+            @functools.wraps(func)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    _wire_failure(
+                        module=module,
+                        gap_type=gap_type,
+                        source=source,
+                        detail=str(e)[:max_detail_len],
+                        func_name=func.__name__,
+                    )
+                    raise
+
+            return sync_wrapper
 
     return decorator
 

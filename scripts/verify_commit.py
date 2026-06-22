@@ -108,7 +108,8 @@ try:
         fp = os.path.join(intel_dir, f)
         with open(fp, encoding='utf-8', errors='ignore') as fh:
             src = fh.read()
-        pub_fns = re.findall(r'^async def ([a-z]\w+)\(', src, re.MULTILINE)
+        # R-F1779: scan BOTH async and sync public functions (not private)
+        pub_fns = re.findall(r'^(?:async )?def ([a-z]\w+)\(', src, re.MULTILINE)
         for fn in pub_fns:
             if fn.startswith('_'):
                 continue

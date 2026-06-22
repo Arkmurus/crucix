@@ -1,21 +1,20 @@
-"""R-F1779 — Capability test: intel_ledger fail_wire wiring.
+"""R-F1779 — Capability test: intel_ledger fail_wire wiring (async + sync).
 
 FAIL→PASS pattern (§3c):
-  BEFORE: intel_ledger.add_signal() raises but NO gap reaches the brain.
-  AFTER: intel_ledger.add_signal() raises AND a 'source_failure' gap for
+  BEFORE: intel_ledger functions raise but NO gap reaches the brain.
+  AFTER: intel_ledger functions raise AND an 'engine_failure' gap for
          module=intel_ledger lands in the capability_gaps ledger.
 
-Proves the @fail_wire decorator works end-to-end on intel_ledger.
+Tests BOTH async (add_signal) and sync (query_ledger) paths.
 """
 import pytest
 
-from aria_service.intel.intel_ledger import add_signal
+from aria_service.intel.intel_ledger import add_signal, query_ledger
 
 
 @pytest.mark.asyncio
-async def test_intel_ledger_fail_wire_records_gap():
-    """When intel_ledger.add_signal() raises, a 'source_failure' gap
-    for module=intel_ledger must land in the capability_gaps ledger."""
+async def test_intel_ledger_async_fail_wire_records_gap():
+    """When async add_signal() raises, an 'engine_failure' gap must land."""
     recorded_gaps = []
 
     async def mock_record_gap(gap_type, detail, source):
@@ -25,7 +24,6 @@ async def test_intel_ledger_fail_wire_records_gap():
     _original = _wire._record_gap
     _wire._record_gap = mock_record_gap
     try:
-        # add_signal requires a dict payload — call with invalid args to trigger raise
         with pytest.raises(Exception):
             await add_signal(None)
 
@@ -37,10 +35,47 @@ async def test_intel_ledger_fail_wire_records_gap():
     finally:
         _wire._record_gap = _original
 
-    assert len(recorded_gaps) >= 1, (
-        "No gap recorded — @fail_wire on add_signal() did not fire"
+    assert len(recorded_gaps) >= 1, "No gap recorded — @fail_wire on add_signal() did not fire"
+    assert "engine_failure" in [g["gap_type"] for g in recorded_gaps], (
+        "Expected gap_type='engine_failure' but got %s" % [g["gap_type"] for g in recorded_gaps]
     )
-    gap_types = [g["gap_type"] for g in recorded_gaps]
-    assert "source_failure" in gap_types, (
-        "Expected gap_type='source_failure' but got %s" % gap_types
+
+
+def test_intel_ledger_sync_fail_wire_records_gap():
+    """When SYNC query_ledger() raises, an 'engine_failure' gap must land.
+
+    This proves the sync wrapper in fail_wire works correctly — sync
+    functions are wrapped with a sync try/except that calls the same
+    _wire_failure non-blocking sink.
+    """
+    recorded_gaps = []
+
+    async def mock_record_gap(gap_type, detail, source):
+        recorded_gaps.append({"gap_type": gap_type, "detail": detail, "source": source})
+
+    import aria_service.intel.wire as _wire
+    _original = _wire._record_gap
+    _wire._record_gap = mock_record_gap
+    try:
+        # query_ledger handles None gracefully — patch _cache to be empty
+        # and force an AttributeError by accessing a non-existent key
+        from unittest.mock import patch
+        with patch('aria_service.intel.intel_ledger._cache', None):
+            with pytest.raises(Exception):
+                query_ledger("test")
+
+        # Wait for the background task to complete
+        import asyncio
+        import time
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if recorded_gaps:
+                break
+            asyncio.run(asyncio.sleep(0.01))
+    finally:
+        _wire._record_gap = _original
+
+    assert len(recorded_gaps) >= 1, "No gap recorded — @fail_wire on query_ledger() did not fire"
+    assert "engine_failure" in [g["gap_type"] for g in recorded_gaps], (
+        "Expected gap_type='engine_failure' but got %s" % [g["gap_type"] for g in recorded_gaps]
     )
