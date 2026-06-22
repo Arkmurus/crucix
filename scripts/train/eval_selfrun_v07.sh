@@ -32,9 +32,32 @@ cd /workspace
 pip install -q "transformers==4.46.3" "peft==0.13.2" "accelerate>=0.34" bitsandbytes sentencepiece protobuf fastapi uvicorn httpx 2>&1 | tail -3
 export HF_HOME=/workspace/.cache/huggingface
 export BASE_MODEL=unsloth/mistral-7b-instruct-v0.3
-SFT=/workspace/checkpoints/aria_llm_v0_4_sft
 EVALSET=/workspace/datasets/aria_eval_openbook.jsonl
 SCR=/workspace/crucix/scripts/train
+GIT_NOTE=""
+discover_evalset(){
+  [ -s "$EVALSET" ] && return 0
+  echo "[selfrun] expected eval set empty — auto-discovering openbook eval jsonl…"
+  C=$(find /workspace -maxdepth 5 -iname '*openbook*.jsonl' 2>/dev/null)
+  echo "$C" | sed 's/^/[selfrun]   cand /'
+  P=$(echo "$C" | grep -iE 'eval.*openbook|openbook.*eval|500.*openbook' | grep -vi train | head -1)
+  [ -z "$P" ] && P=$(echo "$C" | grep -vi train | head -1)
+  if [ -n "$P" ]; then EVALSET="$P"; echo "[selfrun] using eval set: $EVALSET"; return 0; fi
+  # Not on volume — fetch it from the brain (R-F1774), the reliable transport.
+  echo "[selfrun] no eval set on volume — fetching from brain /eval/openbook-set"
+  mkdir -p /workspace/datasets
+  HTTP=$(curl -s -w '%{http_code}' --max-time 60 -H "Authorization: Bearer ${ARIA_TOKEN}" \
+    "${ARIA_BRAIN_URL}/api/aria/eval/openbook-set" -o /workspace/datasets/aria_eval_openbook.jsonl 2>/dev/null)
+  if [ "$HTTP" = "200" ] && [ -s /workspace/datasets/aria_eval_openbook.jsonl ]; then
+    EVALSET=/workspace/datasets/aria_eval_openbook.jsonl
+    GIT_NOTE="brain-fetch http=$HTTP $(wc -l < "$EVALSET")L"
+    echo "[selfrun] brain-fetched eval set: $EVALSET ($(wc -l < "$EVALSET") lines)"
+    return 0
+  fi
+  GIT_NOTE="brain-fetch http=$HTTP"
+  echo "[selfrun] brain fetch failed: $GIT_NOTE"
+}
+discover_evalset
 PORT=8888; NAME=aria-llm-v0.7
 post_result(){ # post_result <json>
   python - "$1" <<'PY'
@@ -46,8 +69,26 @@ try: print('[selfrun] POSTed result:', urllib.request.urlopen(req,timeout=30).re
 except Exception as e: print('[selfrun] POST failed:', e)
 PY
 }
-if [ ! -f "$SFT/adapter_config.json" ]; then post_result '{"model":"aria-llm-v0.7","accuracy":null,"label":"FAIL: no adapter on volume","source":"runpod_selfrun"}'; exit 1; fi
-if [ ! -s "$EVALSET" ]; then post_result '{"model":"aria-llm-v0.7","accuracy":null,"label":"FAIL: no eval set on volume","source":"runpod_selfrun"}'; exit 1; fi
+# AUTO-DISCOVER the v0.4 SFT adapter (the hardcoded path had no adapter_config.json).
+# Prefer a path containing v0_4/v04/sft; else the most recently modified adapter dir.
+SFT=/workspace/checkpoints/aria_llm_v0_4_sft
+if [ ! -f "$SFT/adapter_config.json" ]; then
+  echo "[selfrun] expected adapter path empty — auto-discovering on /workspace…"
+  CANDS=$(find /workspace -maxdepth 5 -name adapter_config.json 2>/dev/null)
+  echo "[selfrun] adapter_config.json found at:"; echo "$CANDS" | sed 's/^/[selfrun]   /'
+  PICK=$(echo "$CANDS" | grep -iE 'v0_?4|sft' | head -1)
+  [ -z "$PICK" ] && PICK=$(echo "$CANDS" | xargs -r ls -t 2>/dev/null | head -1)
+  [ -n "$PICK" ] && SFT=$(dirname "$PICK")
+  echo "[selfrun] using adapter dir: $SFT"
+fi
+if [ ! -f "$SFT/adapter_config.json" ]; then
+  LIST=$(find /workspace -maxdepth 5 -name adapter_config.json 2>/dev/null | head -10 | tr '\n' ';')
+  post_result "{\"model\":\"aria-llm-v0.7\",\"accuracy\":null,\"label\":\"FAIL: no adapter on volume (found: ${LIST:-none})\",\"source\":\"runpod_selfrun\"}"; exit 1
+fi
+if [ ! -s "$EVALSET" ]; then
+  post_result "{\"model\":\"aria-llm-v0.7\",\"accuracy\":null,\"label\":\"FAIL: no eval set (git: ${GIT_NOTE:-n/a})\",\"source\":\"runpod_selfrun\"}"; exit 1
+fi
+echo "[selfrun] eval set ready: $EVALSET ($(wc -l < "$EVALSET") lines)"
 # serve the EXISTING adapter (no train)
 ADAPTER=$SFT MODEL_NAME=$NAME PORT=$PORT BASE_MODEL=$BASE_MODEL HF_HOME=$HF_HOME setsid nohup python "$SCR/serve_eval_shim.py" >/workspace/logs/shim.log 2>&1 &
 served=0; for i in $(seq 1 90); do curl -s --max-time 5 "localhost:$PORT/v1/models" | grep -q "$NAME" && { served=1; echo "[selfrun] serving (try $i)"; break; }; sleep 10; done

@@ -2114,6 +2114,40 @@ async def deploy_intents_get_ep():
     return {"intents": intents, "total": len(intents), "pending": len(pending)}
 
 
+# ── R-F1774 — brain-served openbook eval set (compute-pod transport) ─────
+# The 500-Q openbook eval set lives in the repo (data/eval_reports/), which is NOT
+# in the deployed image and NOT reliably on the RunPod volume — and Windows RunPod
+# SCP/SSH drops, so we can't push it pod-side. Instead: PUT it here once (from any
+# box) and the self-run eval pod GETs it over the SAME authenticated channel it
+# already uses. No SCP, no git-auth dependency on the pod.
+_EVAL_OPENBOOK_KEY = "crucix:aria:eval:openbook:set"
+
+
+@router.post("/eval/openbook-set")
+async def eval_openbook_set_post_ep(request: Request):
+    """Store the openbook eval set (raw JSONL body) for compute pods to fetch."""
+    body = await request.body()
+    text = body.decode("utf-8", "replace")
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        raise HTTPException(status_code=400, detail="empty body")
+    try:
+        await rs.set(_EVAL_OPENBOOK_KEY, "\n".join(lines), ex=30 * 86400)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"store failed: {e}")
+    return {"ok": True, "lines": len(lines), "bytes": len(text)}
+
+
+@router.get("/eval/openbook-set")
+async def eval_openbook_set_get_ep():
+    """Return the stored openbook eval set as JSONL (the pod writes it to disk)."""
+    from fastapi.responses import PlainTextResponse
+    text = await rs.get(_EVAL_OPENBOOK_KEY)
+    if not text:
+        raise HTTPException(status_code=404, detail="no eval set stored")
+    return PlainTextResponse(content=text, media_type="application/x-ndjson")
+
+
 # ── Source verification: deterministic citation grounding check ──────────
 @router.get("/verify/list")
 async def verify_list_ep(limit: int = 30, verdict: str | None = None):
