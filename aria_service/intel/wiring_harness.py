@@ -118,28 +118,23 @@ def get_gap_type(module: str) -> str:
 # Format: {module: {function_name: "reason"}}
 # Use "*" for function_name to exempt ALL functions in a module.
 HARD_EXEMPT: dict[str, dict[str, str]] = {
-    # ASYNC GENERATORS — wrapping breaks them (F28 boot outage risk)
+    # routes/aria.py — ASYNC GENERATORS + STREAM endpoints
     "routes/aria.py": {
         "chat_stream_ep": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
+        "chat_ep": "STREAM endpoint — §13 body risk",
     },
+    # aria_engine.py — ASYNC GENERATORS + STREAM-like endpoints
     "aria_engine.py": {
         "aria_chat_stream": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
+        "aria_chat": "STREAM-like — §13 body risk",
     },
+    # main.py — ASYNC GENERATOR (boot critical)
     "main.py": {
         "lifespan": "ASYNC GENERATOR — wrapping breaks boot (F28 class, §9)",
     },
-    # SYNC GENERATORS — wrapping breaks them
+    # cost_tracker.py — SYNC GENERATOR
     "cost_tracker.py": {
         "feature": "SYNC GENERATOR — context manager with yield",
-    },
-    # STREAM/SSE-like functions — §13 response-body risk
-    "routes/aria.py": {
-        "chat_ep": "STREAM endpoint — §13 body risk",
-        "chat_stream_ep": "ASYNC GENERATOR — already exempted above",
-    },
-    "aria_engine.py": {
-        "aria_chat": "STREAM-like — §13 body risk",
-        "aria_chat_stream": "ASYNC GENERATOR — already exempted above",
     },
 }
 
@@ -172,7 +167,11 @@ TARGET_DIRS = [
 ]
 
 # Modules that have been wired (start with R-F1777, R-F1779)
-WIRED_MODULES: set[str] = set()
+# GATE A enforces: every public fn in a WIRED_MODULE must be wired or exempt.
+WIRED_MODULES: set[str] = {
+    "deep_researcher",
+    "intel_ledger",
+}
 
 # Modules that are fully reviewed and exempt from wiring
 FULLY_EXEMPT_MODULES: set[str] = {
@@ -220,11 +219,17 @@ def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
 
 
 def check_gate_a(module_path: str, filename: str) -> list[str]:
-    """GATE A: every public fn must be wired or exempt.
+    """GATE A: every public fn in a WIRED_MODULE must be wired or exempt.
+    
+    Only enforces modules in WIRED_MODULES — unwired modules are not checked
+    (they will be checked when added to WIRED_MODULES during Phase 1).
     
     Returns list of violations (empty = pass).
     """
     violations = []
+    module_name = filename.replace(".py", "")
+    if module_name not in WIRED_MODULES:
+        return violations  # Not yet wired — skip
     if filename in FULLY_EXEMPT_MODULES:
         return violations
 
@@ -360,9 +365,12 @@ def run_all_gates(target_dirs: list[str] | None = None) -> dict[str, list[str]]:
 #   def test_module_fail_wire(module_name):
 #       run_gate_c(module_name)
 
-# Functions that are known to be safe to call with no args (will raise
-# TypeError that the decorator catches). Modules not in this list need
-# manual testing.
+# Modules that can be tested with the generic GATE C parametrized test
+# (calling with no args raises TypeError that the decorator catches).
+# Modules NOT in this list need a hand-written §3c capability test that
+# forces a real failure path. This is honest: GATE C is NOT a generic
+# 'proves every module' gate — it proves modules whose functions raise
+# on no-args. For the rest, Phase 1 must write a per-module test.
 SAFE_NO_ARGS: set[str] = {
     "deep_researcher",
     "intel_ledger",
