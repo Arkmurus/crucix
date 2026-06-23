@@ -105,6 +105,7 @@ _SYNONYMS = {
 #   4. `is_embedder_ready()` — non-blocking check used by callers that
 #      can fall back to TF-IDF if the model isn't warm yet.
 import threading as _threading
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 _embedder = None
 _embedder_checked = False  # avoid repeated ImportError attempts
@@ -212,6 +213,7 @@ def _report_encode_failure(where: str, exc: Exception) -> None:
             pass
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def is_embedder_ready() -> bool:
     """R-F459 — non-blocking check. True iff the model is fully loaded.
     Use this from hot paths where you'd rather fall back to TF-IDF
@@ -276,6 +278,7 @@ def _get_embedder():
         return _embedder
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 async def aget_embedder():
     """R-F459 — async accessor. Wraps the sync load in asyncio.to_thread
     so the cold-load (~32s) does NOT block the asyncio event loop.
@@ -299,6 +302,7 @@ async def aget_embedder():
     return await _aio.to_thread(_get_embedder)
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 async def prewarm_embedder() -> None:
     """R-F459 — lifespan-friendly prewarm. Call this from FastAPI
     lifespan startup BEFORE accepting traffic. Loads the model in a
@@ -403,6 +407,7 @@ class SemanticIndex:
 
     # ── Document management ─────────────────────────────────────────────
 
+    @fail_wire(module="semantic_search", gap_type="embedder_failure")
     def add(self, doc_id: str, text: str, metadata: dict = None) -> None:
         """Add or update a document in both TF-IDF and embedding indices."""
         tokens = _tokenise(text)
@@ -426,6 +431,7 @@ class SemanticIndex:
             except Exception as exc:
                 _report_encode_failure("add", exc)  # R-F895
 
+    @fail_wire(module="semantic_search", gap_type="embedder_failure")
     def add_batch(self, items: list[tuple[str, str, dict | None]]) -> None:
         """Add many docs in a single model.encode() pass.
 
@@ -474,6 +480,7 @@ class SemanticIndex:
         except Exception as exc:
             _report_encode_failure("add_batch", exc)  # R-F895
 
+    @fail_wire(module="semantic_search", gap_type="embedder_failure")
     def remove(self, doc_id: str) -> None:
         if doc_id in self._docs:
             del self._docs[doc_id]
@@ -628,6 +635,7 @@ class SemanticIndex:
 
     # ── Public search ───────────────────────────────────────────────────
 
+    @fail_wire(module="semantic_search", gap_type="embedder_failure")
     def search(self, query: str, top_k: int = 10, min_score: float = 0.1) -> list[dict]:
         """Search the index semantically.
 
@@ -658,11 +666,13 @@ class SemanticIndex:
 _index = SemanticIndex()
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def index_fact(fact_id: str, text: str, metadata: dict = None) -> None:
     """Add a fact to the semantic index."""
     _index.add(fact_id, text, metadata)
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def index_facts_batch(items: list[tuple[str, str, dict | None]]) -> None:
     """Add many facts to the semantic index in one model.encode pass.
 
@@ -676,16 +686,19 @@ def index_facts_batch(items: list[tuple[str, str, dict | None]]) -> None:
     _index.add_batch(items)
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def index_neuron(neuron_id: str, concept: str, category: str = "") -> None:
     """Add a neural concept to the semantic index."""
     _index.add(f"neuron:{neuron_id}", f"{concept} {category}", {"type": "neuron"})
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def semantic_search(query: str, top_k: int = 10) -> list[dict]:
     """Search across all indexed knowledge semantically."""
     return _index.search(query, top_k)
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def get_semantic_context(query: str, max_chars: int = 1500) -> str:
     """Build context string from semantic search for ARIA prompt injection."""
     results = _index.search(query, top_k=8, min_score=0.15)
@@ -704,6 +717,7 @@ def get_semantic_context(query: str, max_chars: int = 1500) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def rebuild_index_from_knowledge(facts: list[dict]) -> int:
     """Rebuild the semantic index from the knowledge base."""
     count = 0
@@ -720,6 +734,7 @@ def rebuild_index_from_knowledge(facts: list[dict]) -> int:
     return count
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def get_index_stats() -> dict:
     """Return index size, model status, and backend info."""
     model = _get_embedder()
@@ -732,6 +747,7 @@ def get_index_stats() -> dict:
     }
 
 
+@fail_wire(module="semantic_search", gap_type="embedder_failure")
 def get_stats() -> dict:
     """Alias for get_index_stats (used by status endpoints)."""
     return get_index_stats()

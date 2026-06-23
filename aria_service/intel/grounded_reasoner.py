@@ -59,6 +59,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.grounded_reasoner")
 
@@ -130,6 +131,7 @@ class GroundedReasoner:
         self._reasoning_library = None
         self._honesty_judge = None
 
+    @fail_wire(module="grounded_reasoner", gap_type="engine_failure")
     async def reason(
         self,
         message: str,
@@ -802,6 +804,7 @@ class GroundedReasoner:
 _reasoner_instance: GroundedReasoner | None = None
 
 
+@fail_wire(module="grounded_reasoner", gap_type="engine_failure")
 async def reason(message: str, context: Optional[dict] = None) -> ReasonResult:
     """Convenience function — uses a module-level singleton."""
     global _reasoner_instance

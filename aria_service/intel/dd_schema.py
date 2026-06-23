@@ -31,6 +31,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
 # =============================================================================
@@ -504,11 +505,13 @@ class ARKDDReport:
 
     # ── Serialisation helpers ────────────────────────────────────────────
 
+    @fail_wire(module="dd_schema", gap_type="engine_failure")
     def as_dict(self) -> dict:
         """Return a JSON-serialisable dict. Dataclasses.asdict recursively
         handles every nested dataclass including Finding and SectionMeta."""
         return asdict(self)
 
+    @fail_wire(module="dd_schema", gap_type="engine_failure")
     def render_markdown(self, *, concise: bool = False) -> str:
         """Render the report as Markdown for chat / WhatsApp delivery.
 
@@ -827,6 +830,7 @@ _CONFIDENCE_RANK = {
 }
 
 
+@fail_wire(module="dd_schema", gap_type="engine_failure")
 def weakest_confidence(tags: list[str]) -> str:
     """Return the weakest confidence tag from a list. Mirrors
     confidence_footer._dominant_tag — the headline never oversells."""

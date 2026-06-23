@@ -44,6 +44,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.rag")
 
@@ -157,6 +158,7 @@ class _SharedSentenceTransformerEmbeddingFn:
         # serialises against the semantic_search path's encode calls.
         return _safe_encode(model, list(input), convert_to_numpy=True).tolist()
 
+    @fail_wire(module="rag_store", gap_type="embedder_failure")
     def embed_query(self, input: str | list[str]) -> list[list[float]]:
         """chromadb 1.5+ query protocol — delegates to __call__.
 
@@ -170,6 +172,7 @@ class _SharedSentenceTransformerEmbeddingFn:
             input = [input]
         return self.__call__(input)
 
+    @fail_wire(module="rag_store", gap_type="embedder_failure")
     def name(self) -> str:
         # MUST match chromadb's built-in SentenceTransformerEmbedding-
         # Function.name() ("sentence_transformer") — chromadb 0.5+
@@ -470,6 +473,7 @@ def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
     return text.strip(), meta
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def ingest_document(
     text: str,
     *,
@@ -790,6 +794,7 @@ async def _offload_oldest_to_cold(current_total: int) -> dict:
     }
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def ingest_fact(
     fact_id: str,
     topic: str,
@@ -833,6 +838,7 @@ async def ingest_fact(
         return False
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def add_facts_batch(facts: list[dict]) -> int:
     """Batched variant of add_fact — collapses N encode calls into 1.
 
@@ -888,6 +894,7 @@ async def add_facts_batch(facts: list[dict]) -> int:
         return 0
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def add_search_results_batch(items: list[dict]) -> int:
     """R-F859 (2026-05-24) — batched ingest for short search-result docs.
 
@@ -967,6 +974,7 @@ def _recency_boost(ts_epoch: float | None) -> float:
     return 0.90
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def search(
     query: str,
     *,
@@ -1179,6 +1187,7 @@ def _hybrid_rerank(results: list[dict], query: str) -> list[dict]:
     return results
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def get_rag_context_with_sources(
     query: str,
     max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
@@ -1259,6 +1268,7 @@ def _format_rag_context(results: list[dict], max_chars: int) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def get_rag_context(
     query: str,
     max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
@@ -1279,6 +1289,7 @@ async def get_rag_context(
 
 # ── Public API: stats + maintenance ────────────────────────────────────────
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def get_stats() -> dict:
     """Report on the RAG store state."""
     if not await _ensure_async():
@@ -1306,6 +1317,7 @@ async def get_stats() -> dict:
         return {"available": False, "error": str(e), "path": RAG_PATH}
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def add_chunk(
     text: str,
     *,
@@ -1338,6 +1350,7 @@ async def add_chunk(
     )
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def recent_chunks(limit: int = 200) -> list[dict]:
     """Return recently-ingested chunks, newest first, as
     [{"text", "metadata"}] dicts.
@@ -1382,6 +1395,7 @@ async def recent_chunks(limit: int = 200) -> list[dict]:
         return []
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def list_sources(limit: int = 50) -> dict:
     """Return a summary of unique sources in the RAG store grouped by type."""
     if not await _ensure_async():
@@ -1426,6 +1440,7 @@ async def list_sources(limit: int = 50) -> dict:
 
 # ── Surgical purge by keyword ──────────────────────────────────────────────
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def purge_by_keywords(
     keywords: list[str],
     *,
@@ -1559,6 +1574,7 @@ async def purge_by_keywords(
 
 # ── Backfill from existing knowledge base + ledger ─────────────────────────
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def backfill_from_existing() -> dict:
     """One-shot backfill: pull every existing fact + ledger signal into the
     RAG store so we have a useful baseline from minute one of the first deploy.

@@ -25,6 +25,7 @@ logger = logging.getLogger("aria.dd_vault")
 
 # R-F1166 — wire to brain on vault operations
 from .engine_wiring import wire_success, wire_failure
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 _VAULT_DIR = Path("/data")
 _VAULT_DB = _VAULT_DIR / "dd_vault.db"
@@ -94,6 +95,7 @@ class DDVault:
         self._conn.executescript(_CREATE_SQL)
         self._conn.commit()
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def close(self):
         if self._conn:
             self._conn.close()
@@ -101,6 +103,7 @@ class DDVault:
 
     # ── CRUD ─────────────────────────────────────────────────────────────
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def record_case(
         self,
         canonical_entity_id: str,
@@ -188,6 +191,7 @@ class DDVault:
             "is_new": existing is None,
         }
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def get_case(self, canonical_entity_id: str) -> dict[str, Any] | None:
         """Get a single DD case by canonical_entity_id."""
         conn = self._get_conn()
@@ -199,6 +203,7 @@ class DDVault:
             return None
         return dict(row)
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Search cases by entity name, jurisdiction, or tags."""
         conn = self._get_conn()
@@ -211,6 +216,7 @@ class DDVault:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def list_by_status(self, status: str = "active", limit: int = 100) -> list[dict[str, Any]]:
         """List cases by status."""
         conn = self._get_conn()
@@ -220,6 +226,7 @@ class DDVault:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def list_all(self, limit: int = 100) -> list[dict[str, Any]]:
         """List all cases, newest first."""
         conn = self._get_conn()
@@ -229,6 +236,7 @@ class DDVault:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def update_status(self, canonical_entity_id: str, status: str) -> None:
         """Update case status (active/dormant/archived)."""
         conn = self._get_conn()
@@ -238,6 +246,7 @@ class DDVault:
         )
         conn.commit()
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def delete_case(self, canonical_entity_id: str) -> bool:
         """Delete a case and its cross-references."""
         conn = self._get_conn()
@@ -251,6 +260,7 @@ class DDVault:
 
     # ── Cross-references ─────────────────────────────────────────────────
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def add_cross_reference(
         self,
         source_entity: str,
@@ -276,6 +286,7 @@ class DDVault:
         except Exception as e:
             logger.debug("[dd_vault] cross-reference failed: %s", e)
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def get_cross_references(self, canonical_entity_id: str) -> list[dict[str, Any]]:
         """Get all cross-references for an entity (both directions)."""
         conn = self._get_conn()
@@ -287,6 +298,7 @@ class DDVault:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def get_related_cases(self, canonical_entity_id: str) -> list[dict[str, Any]]:
         """Get all DD cases related to this entity via cross-references."""
         refs = self.get_cross_references(canonical_entity_id)
@@ -306,6 +318,7 @@ class DDVault:
 
     # ── Stats ────────────────────────────────────────────────────────────
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def stats(self) -> dict[str, Any]:
         """Get aggregate statistics about the DD vault."""
         conn = self._get_conn()
@@ -336,6 +349,7 @@ class DDVault:
 _vault_instance: DDVault | None = None
 
 
+@fail_wire(module="dd_vault", gap_type="engine_failure")
 def get_vault() -> DDVault:
     """Get or create the DD vault singleton."""
     global _vault_instance

@@ -35,6 +35,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 if TYPE_CHECKING:
     from ..llm.provider import LLMProvider
@@ -87,6 +88,7 @@ VISION_CHUNK_SIZE = 10  # pages per chunk
 
 # ── Feature flag ────────────────────────────────────────────────────────────
 
+@fail_wire(module="document_reader", gap_type="file_parse")
 def is_enabled() -> bool:
     val = os.getenv("ARIA_DOCUMENT_READER_ENABLED", "1") or "1"
     return val.strip().lower() not in ("0", "false", "no", "off")
@@ -128,6 +130,7 @@ class ExtractionResult:
 
 # ── Main reader ─────────────────────────────────────────────────────────────
 
+@fail_wire(module="document_reader", gap_type="file_parse")
 async def read_document(
     source: str,
     llm: "LLMProvider | None" = None,
@@ -1220,6 +1223,7 @@ REQUIRED_CONTRACT_CLAUSES = [
 ]
 
 
+@fail_wire(module="document_reader", gap_type="file_parse")
 async def analyse_contract(
     source: str,
     llm: "LLMProvider | None" = None,

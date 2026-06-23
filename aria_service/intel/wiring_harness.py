@@ -152,6 +152,18 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         "stream": "ASYNC GENERATOR — LLM token stream (§13)",
         "wrap": "SYNC GENERATOR — resilience context manager",
     },
+    # R-F1792 — @property accessors. Wrapping a property changes its semantics
+    # and these are trivial computed accessors, not failure paths (reasoned
+    # exemption §21a). The method-aware applicator skips them; GATE A needs this.
+    "document_reader.py": {
+        "is_usable": "@property — trivial accessor, not a failure path",
+        "summary": "@property — trivial accessor, not a failure path",
+    },
+    "semantic_search.py": {
+        "size": "@property — trivial accessor, not a failure path",
+        "embedding_count": "@property — trivial accessor, not a failure path",
+        "has_embeddings": "@property — trivial accessor, not a failure path",
+    },
 }
 
 
@@ -215,6 +227,9 @@ WIRED_MODULES: set[str] = {
     "portal_coverage_audit", "portal_registry", "reasoning_library",
     "registration_check", "research_tasks", "researcher", "sanctions",
     "search_searxng", "sipri_ingest", "sipri_knowledge", "student",
+    # R-F1792 — Phase 1 batch 3 (mixed modules: module-level fns + class methods)
+    "grounded_reasoner", "dd_schema", "document_reader", "content_scanner",
+    "web_search", "rag_store", "semantic_search", "dd_vault",
 }
 
 # Modules that are fully reviewed and exempt from wiring

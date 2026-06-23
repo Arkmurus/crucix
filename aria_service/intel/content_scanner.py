@@ -45,6 +45,7 @@ logger = logging.getLogger("aria.content_scanner")
 # Kaspersky (and ALL antivirus) detects + deletes any file containing the
 # literal EICAR string. This is the standing fix for that class of bug.
 import base64
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 _EICAR_B64 = "WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo="
 EICAR_STRING = base64.b64decode(_EICAR_B64)
 
@@ -123,6 +124,7 @@ class ScanResult:
         self.threats = threats or []
         self.file_path = file_path
 
+    @fail_wire(module="content_scanner", gap_type="file_parse")
     async def quarantine(self) -> Optional[Path]:
         """Move the file to quarantine. Returns the quarantine path or None."""
         if not self.file_path or not self.file_path.exists():
@@ -140,6 +142,7 @@ class ScanResult:
             logger.error("[content_scanner] Quarantine failed: %s", e)
             return None
 
+    @fail_wire(module="content_scanner", gap_type="file_parse")
     def to_dict(self) -> dict[str, Any]:
         return {
             "safe": self.safe,
@@ -150,6 +153,7 @@ class ScanResult:
 
 # ── Scanning functions ──────────────────────────────────────────────────────
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 def check_eicar(data: bytes) -> Optional[dict[str, Any]]:
     """Check for EICAR test string."""
     if EICAR_STRING in data:
@@ -157,6 +161,7 @@ def check_eicar(data: bytes) -> Optional[dict[str, Any]]:
     return None
 
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 def check_compression_bomb(file_path: Path) -> Optional[dict[str, Any]]:
     """Check for compression/decompression bomb.
 
@@ -206,6 +211,7 @@ def check_compression_bomb(file_path: Path) -> Optional[dict[str, Any]]:
     return None
 
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]]:
     """Validate file magic bytes match the claimed type."""
     expected_magic = MAGIC_BYTES.get(claimed_type.lower(), [])
@@ -237,6 +243,7 @@ def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]
     }
 
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 def check_embedded_scripts(data: bytes) -> list[dict[str, Any]]:
     """Check for embedded scripts in documents."""
     threats = []
@@ -250,6 +257,7 @@ def check_embedded_scripts(data: bytes) -> list[dict[str, Any]]:
     return threats
 
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 def check_suspicious_content(data: bytes) -> list[dict[str, Any]]:
     """Check for suspicious content patterns."""
     threats = []
@@ -301,6 +309,7 @@ async def _scan_with_clamav(file_path: Path) -> Optional[dict[str, Any]]:
 
 # ── Main scan entry point ───────────────────────────────────────────────────
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 async def scan_file(
     file_path: Path,
     claimed_type: str = "",
@@ -393,6 +402,7 @@ async def scan_file(
     return ScanResult(safe=True, file_path=file_path)
 
 
+@fail_wire(module="content_scanner", gap_type="file_parse")
 async def scan_bytes(
     data: bytes,
     claimed_type: str = "",

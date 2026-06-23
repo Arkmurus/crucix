@@ -38,6 +38,7 @@ from typing import Any, Optional
 import httpx
 
 from .ua_rotation import random_ua
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.web_search")
 
@@ -49,6 +50,7 @@ logger = logging.getLogger("aria.web_search")
 _LAST_SEARCH_ECOSYSTEM: dict = {}
 
 
+@fail_wire(module="web_search", gap_type="source_failure")
 def get_last_search_ecosystem() -> dict:
     """R-W5: read the per-backend ecosystem snapshot of the most-recent
     search() call. Returns:
@@ -152,6 +154,7 @@ class SearchResult:
     timestamp: str = ""
     relevance_score: float = 0.0
 
+    @fail_wire(module="web_search", gap_type="source_failure")
     def to_dict(self) -> dict:
         return {
             "title": self.title,
@@ -890,6 +893,7 @@ async def _search_defence_event(query: str, max_results: int = 10) -> list[Searc
     return out
 
 
+@fail_wire(module="web_search", gap_type="source_failure")
 async def search(
     query: str,
     *,
@@ -1286,6 +1290,7 @@ async def search(
     return final
 
 
+@fail_wire(module="web_search", gap_type="source_failure")
 async def search_news(query: str, *, max_results: int = 10, language: str = "en") -> list[SearchResult]:
     """News-specific search — Google News + Bing News in parallel."""
     tasks = [
@@ -1324,6 +1329,7 @@ async def search_news(query: str, *, max_results: int = 10, language: str = "en"
     return final
 
 
+@fail_wire(module="web_search", gap_type="source_failure")
 async def search_entity(
     entity: str,
     *,
@@ -1481,6 +1487,7 @@ def _translate_query(query: str, lang: str) -> str:
     return q
 
 
+@fail_wire(module="web_search", gap_type="source_failure")
 async def search_multilingual(
     query: str,
     languages: list[str] | None = None,
@@ -1619,6 +1626,7 @@ async def search_multilingual(
 
 # ── Stats and health ────────────────────────────────────────────────────────
 
+@fail_wire(module="web_search", gap_type="source_failure")
 async def get_search_health() -> dict:
     """Check which search backends are available.
 
