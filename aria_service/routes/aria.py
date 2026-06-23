@@ -655,10 +655,12 @@ async def dd_orchestrate_ep(req: Request):
         pass
 
     if output_format == "markdown":
+        # R-F1786: offload sync CPU render off the event loop.
+        _md = await asyncio.to_thread(report.render_markdown, concise=False)
         return {
             "run_id": report.run_id,
             "risk": report.risk_classification,
-            "markdown": report.render_markdown(concise=False),
+            "markdown": _md,
         }
     return report.as_dict()
 
@@ -673,7 +675,8 @@ async def dd_report_ep(run_id: str, format: str = "json"):
         from ..intel import dd_schema
         try:
             rebuilt = _rebuild_report_from_dict(report, dd_schema)
-            return {"run_id": run_id, "markdown": rebuilt.render_markdown(concise=False)}
+            _md = await asyncio.to_thread(rebuilt.render_markdown, concise=False)  # R-F1786
+            return {"run_id": run_id, "markdown": _md}
         except Exception as e:
             _log.debug("dd report markdown rebuild failed (falling back to raw): %s", e)
     if format == "download":
@@ -681,7 +684,7 @@ async def dd_report_ep(run_id: str, format: str = "json"):
         from starlette.responses import Response as _Resp
         try:
             rebuilt = _rebuild_report_from_dict(report, dd_schema)
-            md = rebuilt.render_markdown(concise=False)
+            md = await asyncio.to_thread(rebuilt.render_markdown, concise=False)  # R-F1786
             entity = report.get("identity", {}).get("entity_name", run_id)
             filename = f"dd_report_{entity}_{run_id[:8]}.md".replace(" ", "_").lower()
             return _Resp(
@@ -6091,7 +6094,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                 )
             # Render as markdown and return as tool_context so the LLM
             # writes its final answer grounded in the structured report.
-            md = report.render_markdown(concise=False)
+            md = await asyncio.to_thread(report.render_markdown, concise=False)  # R-F1786
 
             # R-F304: GROUNDING_CHECK block. The LLM faithfully echoes
             # whatever the report says — so if the report is empty
@@ -9168,7 +9171,8 @@ async def chat_ep(req: ChatRequest, request: Request):
                 _build_rev_for_footer = _br
             except Exception:
                 pass
-            footer = confidence_footer.build_footer(
+            footer = await asyncio.to_thread(  # R-F1786: build_footer is cx ~92 sync
+                confidence_footer.build_footer,
                 response_text=response_text,
                 verification=result.get("verification"),
                 rag_sources_count=0,  # RAG count not currently surfaced from aria_chat
@@ -9678,7 +9682,8 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         _build_rev_for_footer = _br_s
                     except Exception:
                         pass
-                    _footer = confidence_footer.build_footer(
+                    _footer = await asyncio.to_thread(  # R-F1786: build_footer is cx ~92 sync
+                        confidence_footer.build_footer,
                         response_text=_full_text,
                         verification=_r412_verification,
                         rag_sources_count=0,

@@ -234,8 +234,10 @@ def test_rf403_chat_handler_passes_tools_used_to_footer():
     src = pathlib.Path(
         "C:/code/crucix/aria_service/routes/aria.py"
     ).read_text(encoding="utf-8", errors="ignore")
-    # Find the build_footer call
-    idx = src.find("confidence_footer.build_footer(")
+    # Find the build_footer call. R-F1786 wraps it in asyncio.to_thread, so the
+    # invocation is `confidence_footer.build_footer,` (passed as a callable),
+    # not `...build_footer(` — match the bare name to cover both forms.
+    idx = src.find("confidence_footer.build_footer")
     assert idx > 0, "build_footer call not found in routes/aria.py"
     # Read the call args (until matching close paren — naive but enough)
     end = src.find(")\n", idx)

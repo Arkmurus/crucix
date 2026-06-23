@@ -5566,7 +5566,12 @@ async def _persist_report(report: ARKDDReport) -> None:
         # on the read side.
         _body = report.as_dict()
         try:
-            _body["rendered"] = report.render_markdown(concise=False)
+            # R-F1786: render_markdown is sync CPU-heavy (cx ~132, full report
+            # build). Run it off the event loop so the persist hook never
+            # starves the single-process loop (cf. GIL-wedge class R-F1621/1747).
+            _body["rendered"] = await asyncio.to_thread(
+                report.render_markdown, concise=False
+            )
         except Exception as _rm_err:
             logger.debug("render_markdown failed during persist: %s", _rm_err)
 
