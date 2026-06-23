@@ -19,12 +19,17 @@ _BASELINE_FILE = Path(__file__).resolve().parent.parent / "data" / "dd_quality_b
 _SCORE_DROP_THRESHOLD = 0.05  # 5 percentage points
 
 
-async def score_dd_quality(llm: Any, label: str = "ci-dd-quality") -> dict[str, Any]:
+async def score_dd_quality(llm: Any, label: str = "ci-dd-quality",
+                           update_baseline: bool = False) -> dict[str, Any]:
     """Run the golden DD eval set and return quality scores.
 
     Args:
         llm: An LLMProvider instance (or None to skip LLM-dependent tests).
         label: Label for this eval run.
+        update_baseline: R-F1840 — whether this run is allowed to LOWER the
+            committed baseline. Default False: a regression must NOT silently
+            move the bar (see below). The baseline is still SEEDED on the first
+            run (no baseline yet) and RATCHETED UP automatically on improvement.
 
     Returns:
         Dict with keys: score, previous_score, delta, total, passed, failed.
@@ -47,8 +52,21 @@ async def score_dd_quality(llm: Any, label: str = "ci-dd-quality") -> dict[str, 
     previous_score = _load_baseline()
     delta = round(score - previous_score, 4) if previous_score is not None else None
 
-    # Save new baseline
-    _save_baseline(score, label)
+    # R-F1840 — baseline-ratchet fix. The old code ALWAYS overwrote the baseline
+    # with the current score, so a regressed run moved the bar down to its own
+    # level and the SAME regression never tripped again (--fail-on-regression
+    # was a no-op across runs, and the baseline silently ratcheted toward 0).
+    # Now: seed if absent, ratchet UP on improvement, and only LOWER the
+    # baseline when explicitly told to (deliberate re-baselining), never on a
+    # CI/regression-check run.
+    if previous_score is None:
+        _save_baseline(score, label)          # seed the first baseline
+    elif score > previous_score:
+        _save_baseline(score, label)          # ratchet up — new high-water mark
+    elif update_baseline:
+        _save_baseline(score, label)          # deliberate re-baseline (operator)
+    # else: regression/equal → leave the committed baseline untouched so the
+    # drop stays detectable on every subsequent run.
 
     return {
         "score": score,
@@ -95,9 +113,13 @@ async def main():
     parser.add_argument("--label", default="ci-dd-quality", help="Label for this run")
     parser.add_argument("--fail-on-regression", action="store_true",
                         help="Exit with code 1 if score dropped below threshold")
+    parser.add_argument("--update-baseline", action="store_true",
+                        help="Deliberately re-baseline to this run's score (the only "
+                             "way to LOWER the committed baseline; R-F1840)")
     args = parser.parse_args()
 
-    result = await score_dd_quality(llm=None, label=args.label)
+    result = await score_dd_quality(llm=None, label=args.label,
+                                    update_baseline=args.update_baseline)
 
     print(f"DD Quality Score: {result.get('score', 'N/A')}")
     print(f"Previous: {result.get('previous_score', 'N/A')}")

@@ -140,14 +140,31 @@ print('All files pass syntax check.')
         continue-on-error: true
         run: node --test test/
 
-      # R-F1835: DD quality scorer
-      - name: DD quality score
+      # R-F1835: DD quality scorer.  R-F1840: dropped the `|| true` that hid the
+      # exit code entirely — a real regression (or "no golden entries" because
+      # CI has no LLM) now surfaces as a visible CI warning instead of being
+      # silently swallowed. Kept continue-on-error until the gate can hard-block,
+      # which needs BOTH: (1) a populated golden set with verified ground truth
+      # (20-50 entities — a data task, NOT auto-generatable), and (2) an LLM
+      # reachable in CI or a deterministic LLM-free golden subset. Flip
+      # continue-on-error→false (blocking) only when both hold.
+      - name: DD quality score (visibility; regression surfaces as warning)
         continue-on-error: true
-        run: python -m scripts.dd_quality_scorer --fail-on-regression || true
+        run: python -m scripts.dd_quality_scorer --fail-on-regression
 
       # R-F1835: API surface validation
       - name: API surface validation
         run: python scripts/api_surface_validator.py
+
+      # R-F1832: AST-aware SAST security scan (canonical scanner).
+      # R-F1840: the prior invocation passed `--min-severity HIGH`, a flag this
+      # scanner doesn't define (argparse exit 2), and `|| true` hid it — so the
+      # SAST gate never actually ran. The scanner already exits nonzero ONLY on
+      # real production findings (eval/exec/secrets/shell-injection); clean = 0.
+      # Run it for real; surface findings as a CI warning (continue-on-error).
+      - name: SAST security scan
+        continue-on-error: true
+        run: python scripts/admin/sast_scan.py
 
       # R-F1835: Type check (mypy)
       - name: Type check (mypy)
