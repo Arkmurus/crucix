@@ -144,12 +144,13 @@ async def _fetch_text(url: str, *, timeout: float = 15.0) -> tuple[str, str]:
     except ImportError:
         return ("fetch_error", "")
     try:
+        from . import url_safety as _us
         async with httpx.AsyncClient(
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,  # R-F1825: safe_get revalidates each hop
             headers={"User-Agent": "AriaCitationAudit/1.0 (defence-DD; aria@arkmurus.com)"},
         ) as client:
-            resp = await client.get(url)
+            resp = await _us.safe_get(client, url)  # R-F1825 (C2-broaden): SSRF guard on cited URL
     except Exception as e:
         kind = "timeout" if "timeout" in str(e).lower() else "fetch_error"
         logger.debug("citation audit fetch %s: %s", url, e)

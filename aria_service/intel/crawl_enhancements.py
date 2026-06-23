@@ -249,10 +249,11 @@ async def fetch_pdf(url: str, timeout: float = 30.0) -> dict:
         "error": None, "source": "pdf_fetch",
     }
     try:
+        from . import url_safety as _us
         async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True,
+            timeout=timeout, follow_redirects=False,  # R-F1825: safe_get revalidates each hop
         ) as client:
-            r = await client.get(url, headers={"User-Agent": _UA})
+            r = await _us.safe_get(client, url, headers={"User-Agent": _UA})  # R-F1825 (C2-broaden): SSRF guard on user/discovery PDF URL
             if r.status_code != 200:
                 out["error"] = f"HTTP {r.status_code}"
                 return out

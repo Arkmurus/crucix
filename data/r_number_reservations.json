@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1825,
+  "next_available": 1826,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12574,18 +12574,20 @@
       "title": "SEC H3/H7 — ownership on dd/report/:run_id (GET+DELETE) + document/extraction/:id",
       "claimed_at": "2026-06-23T13:41:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3873825f",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:01:35Z"
     },
     {
       "r_number": "R-F1821",
       "title": "SEC H6 — WA sender allow-list + Telegram webhook allow-list enforcement",
       "claimed_at": "2026-06-23T13:41:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3873825f",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:01:35Z"
     },
     {
       "r_number": "R-F1822",
@@ -12601,14 +12603,25 @@
       "title": "DD people robustness — seed person drill-down with registry/contact-known directors + taint-sanitize untrusted names",
       "claimed_at": "2026-06-23T13:42:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "74dd57ed",
+      "notes": null,
+      "shipped_at": "2026-06-23T13:59:06Z"
     },
     {
       "r_number": "R-F1824",
       "title": "SEC Phase4 — prevention guards: no-token-default + ssrf-fetch-boundary + route-authz pre-commit checks",
       "claimed_at": "2026-06-23T13:52:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "24847bda",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:01:35Z"
+    },
+    {
+      "r_number": "R-F1825",
+      "title": "SEC C2-broaden — route user/discovery-controlled URL fetchers through url_safety.safe_get (crawler/researcher/citation)",
+      "claimed_at": "2026-06-23T14:05:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

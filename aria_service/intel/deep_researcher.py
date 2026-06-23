@@ -114,8 +114,9 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
     html = ""
     for attempt in range(max_attempts):
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                resp = await client.get(url, headers={
+            from . import url_safety as _us
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:  # R-F1825: safe_get revalidates each hop
+                resp = await _us.safe_get(client, url, headers={  # R-F1825 (C2-broaden): SSRF guard on researched/discovered URL
                     "User-Agent": _random_ua(),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",

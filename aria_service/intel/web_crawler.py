@@ -96,16 +96,17 @@ class UniversalWebCrawler:
     async def _fetch_page(self, url: str, depth: int) -> Optional[CrawledPage]:
         """Fetch a single page using the best available method."""
         import httpx
-        
+        from . import url_safety as _us
+
         page = CrawledPage(url=url, depth=depth)
-        
+
         try:
             async with httpx.AsyncClient(
                 timeout=30,
-                follow_redirects=True,
+                follow_redirects=False,  # R-F1825 (audit C2-broaden): safe_get revalidates each hop
                 headers={"User-Agent": "ARIA-Intel/1.0 (research crawler)"},
             ) as client:
-                r = await client.get(url)
+                r = await _us.safe_get(client, url)  # R-F1825: SSRF guard — crawls user/discovery URLs
                 page.status_code = r.status_code
                 page.crawl_time = time.time()
                 
