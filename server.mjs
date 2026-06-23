@@ -37,6 +37,7 @@ import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage,
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
+import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
@@ -1403,13 +1404,29 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
 // ── Deep intelligence search — SSE streaming ──────────────────────────────────
 // EventSource cannot set headers — accept token via query param for this endpoint only
+// R-F1793 — issue a short-lived single-use SSE ticket. EventSource cannot send
+// an Authorization header, so an authenticated client (header) calls this and
+// passes the returned ticket as ?ticket= to /api/search/deep, instead of the
+// long-lived JWT (which leaked to logs/history/Referer — aria-web audit #9).
+app.post('/api/sse/ticket', requireAuth, (req, res) => {
+  res.json({ ticket: issueSseTicket(req.user), expiresInMs: 60000 });
+});
+
 app.get('/api/search/deep', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
-  if (!token) return res.status(401).json({ error: 'Authentication required' });
-  try {
-    const payload = verifyToken(token);
+  // R-F1793 — Authorization header (preferred) OR a short-lived single-use SSE
+  // ticket via ?ticket=. The long-lived JWT is NO LONGER accepted in the query
+  // string (credential leak to access logs / browser history / Referer).
+  const header = req.headers.authorization?.replace('Bearer ', '');
+  if (header) {
+    try { req.user = verifyToken(header); }
+    catch { return res.status(401).json({ error: 'Invalid token' }); }
+  } else {
+    const payload = redeemSseTicket(req.query.ticket);
+    if (!payload) return res.status(401).json({ error: 'Authentication required (SSE ticket invalid or expired)' });
     req.user = payload;
-  } catch { return res.status(401).json({ error: 'Invalid token' }); }
+  }
+  // Defense-in-depth: never emit a Referer carrying any query string from this page.
+  res.setHeader('Referrer-Policy', 'no-referrer');
 
   const query = req.query.q?.trim();
   if (!query || query.length < 2) return res.status(400).json({ error: 'Query required' });
