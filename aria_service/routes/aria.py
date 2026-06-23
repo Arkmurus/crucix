@@ -6155,8 +6155,17 @@ def _classify_tool_outcome(tool_context: str) -> str:
     return "completed"
 
 
-async def _execute_tool(intent: dict, llm) -> str:
-    """Run the detected tool and return a compact context string for the LLM."""
+async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) -> str:
+    """Run the detected tool and return a compact context string for the LLM.
+
+    R-F1829: ``dd_budget_s`` lets the CALLER cap the DD wall-clock to its own
+    transport window. The web streaming path (``chat_stream_ep``) passes a
+    budget derived from the SSE proxy deadline so the DD ALWAYS returns a
+    (partial) report inline before the proxy cuts the connection — the
+    "no reply on the web for the DD" failure class. When None (eval + the
+    non-stream / WhatsApp async-push path, which has a 15-min poll window) the
+    env default ``ARIA_DD_CHAT_BUDGET_S`` applies, unchanged.
+    """
     tool = intent.get("tool")
     try:
         # ── DD Orchestrator — full 7-layer due diligence on a named entity ──
@@ -6247,7 +6256,13 @@ async def _execute_tool(intent: dict, llm) -> str:
                 # re-run) to a budget that fits inside the WhatsApp async-push
                 # poll window (15 min), so the result always lands via poll/
                 # callback instead of timing out into a dead-end "try again".
-                _dd_chat_budget_s = float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "720")))
+                # R-F1829: a caller-supplied budget (web stream → fits the SSE
+                # proxy window) overrides the env default (720s = WhatsApp
+                # async-push window). Guarantees inline delivery on web.
+                _dd_chat_budget_s = (
+                    float(dd_budget_s) if dd_budget_s is not None
+                    else float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "720")))
+                )
                 _dd_chat_t0 = time.time()
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,
@@ -9702,7 +9717,18 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 # fast tools (screen/profile return before the first tick).
                 try:
                     _hb_interval = float(os.getenv("ARIA_STREAM_HEARTBEAT_S", "4"))
-                    _tool_task = _aio.create_task(_execute_tool(intent, llm))
+                    # R-F1829 — the SSE proxy (server.mjs ARIA_STREAM_PROXY_TIMEOUT_MS,
+                    # default 600s) aborts the connection at its deadline. The DD
+                    # orchestrator's hard stop is budget + ARIA_DD_HARD_MARGIN_S(150);
+                    # we must leave room AFTER the DD returns for the LLM to compose
+                    # + stream the final answer. So cap the DD budget here at a value
+                    # that keeps (budget + 150 + compose) safely inside the proxy
+                    # window. Default 300s → hard ≈ 450s → ~150s compose/stream slack
+                    # within 600s. Guarantees a (partial) report ALWAYS lands inline.
+                    _dd_stream_budget_s = float(int(os.getenv("ARIA_DD_STREAM_BUDGET_S", "300")))
+                    _tool_task = _aio.create_task(
+                        _execute_tool(intent, llm, dd_budget_s=_dd_stream_budget_s)
+                    )
                     await _aio.sleep(0)   # yield once so the "Running…" event flushes
                     _hb_t0 = time.monotonic()
                     try:
