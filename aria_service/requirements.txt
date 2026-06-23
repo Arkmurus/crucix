@@ -15,7 +15,7 @@ pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 sentence-transformers>=3.0.0
 numpy>=1.26.0
-PyMuPDF>=1.24.0
+PyMuPDF>=1.27.2.3
 # R-F715 (2026-05-19) — primary PDF text extractor (Strategy 1 in
 # document_reader.py). PyMuPDF/fitz handles OCR + vision strategies,
 # but the fast text-extraction path uses pdfplumber. Without it, every
