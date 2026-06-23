@@ -60,6 +60,30 @@ def test_lifespan_wires_the_prewarm():
     assert "asyncio.create_task(_prewarm_heavy_imports())" in body_src, "pre-warm must be scheduled at boot"
 
 
+def test_lifespan_warms_sanctions_source_caches():
+    """R-F1846 — the boot pre-warm must also warm the four list-based sanctions
+    sources, whose synchronous XML parse on the first DD starved the loop."""
+    src = (REPO / "aria_service" / "main.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    lifespan = next((n for n in ast.walk(tree)
+                     if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan"), None)
+    body_src = ast.get_source_segment(src, lifespan) or ""
+    for s in ("ofac_sdn", "fcdo_sanctions", "un_sc_sanctions", "worldbank_debarred"):
+        assert s in body_src, f"pre-warm must warm sanctions source {s}"
+    assert "_load_records()" in body_src, "pre-warm must call _load_records to populate the cache"
+
+
+def test_warmed_sanctions_sources_expose_load_records():
+    """Guard: the four warmed sources must actually have the async _load_records
+    the pre-warm calls (else the warm-up silently no-ops on every boot)."""
+    import importlib, inspect
+    for s in ("ofac_sdn", "fcdo_sanctions", "un_sc_sanctions", "worldbank_debarred"):
+        mod = importlib.import_module(f"aria_service.intel.sources.{s}")
+        fn = getattr(mod, "_load_records", None)
+        assert fn is not None and inspect.iscoroutinefunction(fn), \
+            f"{s}._load_records must be an async function"
+
+
 def test_offset_claims_still_imports_from_the_warmed_module():
     """Guard: the DD path's import target hasn't drifted away from what we warm.
     If _assess_offset_claims changes its import source, the warm-up would miss."""

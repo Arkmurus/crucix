@@ -450,6 +450,21 @@ async def lifespan(app: FastAPI):
                 logger.info("[R-F1845] pre-warmed %s off the event loop", _mod)
             except Exception as _pw_e:
                 logger.warning("[R-F1845] pre-warm %s failed (non-fatal): %s", _mod, _pw_e)
+        # R-F1846 — warm the sanctions-list source caches at boot. LIVE WEDGE
+        # 2026-06-23: the first DD's identity layer fires 6 primary sources in
+        # parallel; the four list-based ones download + SYNCHRONOUSLY PARSE large
+        # XML datasets (fcdo/ofac/un/wb _parse_xml) — CPU/GIL-bound work that
+        # starved the event loop so the DD's async per-layer timeouts could not
+        # fire and the DD never completed. Each _load_records() caches for 6h, so
+        # paying it here (off the request path) makes the first user DD a cache
+        # hit. Sequential + guarded; never affects boot success.
+        for _src_name in ("ofac_sdn", "fcdo_sanctions", "un_sc_sanctions", "worldbank_debarred"):
+            try:
+                _src = importlib.import_module(f"aria_service.intel.sources.{_src_name}")
+                await _src._load_records()
+                logger.info("[R-F1846] pre-warmed sanctions cache off the request path: %s", _src_name)
+            except Exception as _sw_e:
+                logger.warning("[R-F1846] pre-warm sanctions %s failed (non-fatal): %s", _src_name, _sw_e)
     asyncio.create_task(_prewarm_heavy_imports())
 
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
