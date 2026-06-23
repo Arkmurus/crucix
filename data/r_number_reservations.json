@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1801,
+  "next_available": 1802,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12334,27 +12334,30 @@
       "title": "SEC #3/#6: wire CircuitBreaker around Node->brain calls + gate brainAbsorb on bridge verdict (brain-down no longer hangs callers 8s)",
       "claimed_at": "2026-06-23T09:53:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "af6af78f",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:12:13Z"
     },
     {
       "r_number": "R-F1797",
       "title": "SEC #18: graceful SIGTERM shutdown — drain in-flight requests on Fly deploy",
       "claimed_at": "2026-06-23T09:53:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "af6af78f",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:12:13Z"
     },
     {
       "r_number": "R-F1798",
       "title": "SEC #7/#8: Telegram hardening — per-user rate limit + input length cap + update_id dedup",
       "claimed_at": "2026-06-23T09:53:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "af6af78f",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:12:13Z"
     },
     {
       "r_number": "R-F1799",
@@ -12369,6 +12372,16 @@
       "r_number": "R-F1800",
       "title": "Phase 1 routes-readiness — applicator innermost+skip-exempt, GATE D HTTPException-aware",
       "claimed_at": "2026-06-23T10:02:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d3bf73a7",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:09:38Z"
+    },
+    {
+      "r_number": "R-F1801",
+      "title": "Phase 1 batch 4 — wire routes/aria.py (629 handlers) to brain",
+      "claimed_at": "2026-06-23T10:09:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

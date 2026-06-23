@@ -12,48 +12,59 @@
 #   - frontend/dist/         → dead Angular SPA (audit W10 — deleted in R-F832)
 #   - data/wedge_stacks/, runs/  → ephemeral / build artefacts
 #
-# Build: `flyctl deploy --config fly.web.toml`
-# Run:   `flyctl machine run` with the build output
+# R-F1799 (2026-06-23, aria-web audit #14) — MULTI-STAGE build. The build
+# toolchain (python3/make/g++/git) is only needed to compile native npm
+# modules; keeping it in the deployed image bloats the attack surface. Stage 1
+# (builder) compiles node_modules; stage 2 (runtime) ships ONLY the node
+# runtime + cert bundle + built modules + app code. No compilers in production.
 #
-# Per audit W10 + W11 + W22-23 + W27: this Dockerfile is the natural
-# place to NOT-COPY dead code paths so they decay out of the deployed
-# artefact even before we delete them from the repo.
+# Build: `flyctl deploy --config fly.web.toml`
 
-FROM node:22-slim
+# ── Stage 1: builder (has the toolchain; compiles native modules) ────────────
+FROM node:22-slim AS builder
 
-# R-F846 (2026-05-23) — build-time identity. Passed in via
-# `--build-arg` from .github/workflows/deploy-fly.yml (CI) or by a
-# manual `flyctl deploy --build-arg ...` invocation. Mirrors the
-# aria-intel pattern (R-F513). server.mjs reads ARIA_BUILD_GIT_SHA
-# at boot so /api/health.build_rev reports the actual SHA running,
-# not UNKNOWN-BUILD. Falls back to .git/HEAD at runtime (R-F589).
+WORKDIR /app
+
+# Build deps for native modules (baileys + transitive native code).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 make g++ git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the manifest first so npm install is cached across code-only commits.
+COPY package.json package-lock.json* ./
+
+# Production install — drop devDependencies, install optionals so the
+# pdf/excel/imap/whatsapp paths work.
+RUN npm install --include=optional --omit=dev
+
+# ── Stage 2: runtime (NO toolchain — just node + certs + built modules) ───────
+FROM node:22-slim AS runtime
+
+# R-F846 (2026-05-23) — build-time identity (mirrors aria-intel R-F513).
+# server.mjs reads ARIA_BUILD_GIT_SHA at boot so /api/health.build_rev reports
+# the real SHA. Falls back to .git/HEAD at runtime (R-F589).
 ARG ARIA_BUILD_GIT_SHA=unknown
 ARG ARIA_BUILD_R_TAG=
 ENV ARIA_BUILD_GIT_SHA=$ARIA_BUILD_GIT_SHA
 ENV ARIA_BUILD_R_TAG=$ARIA_BUILD_R_TAG
 
-# Build deps for native modules (bcrypt is gone but baileys uses native
-# code, kept defensively in case a transitive needs it).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 make g++ git ca-certificates \
+# Runtime keeps the CA cert bundle (outbound HTTPS) and git — server.mjs and
+# lib/self/updater.mjs shell out to `git` at runtime (build_rev fallback +
+# self-updater). It DROPS the compiler toolchain (python3/make/g++), which is
+# the real attack-surface concern and is only needed to compile native modules
+# in the builder stage.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the package manifest first so npm install is cached across
-# code-only commits. server.mjs lists `pdf-parse`, `mammoth`, `imap`,
-# `xlsx` etc. as optionalDependencies — install them all on web (the
-# WA-listener container doesn't need them).
+# Built node_modules from the builder (native modules compiled against the
+# identical node:22-slim base → ABI/glibc-compatible).
+COPY --from=builder /app/node_modules ./node_modules
+
+# Manifests + application code. EXPLICIT copies (not COPY . .) so the
+# Dockerfile documents the deployed surface — anything not listed is NOT shipped.
 COPY package.json package-lock.json* ./
-
-# Production install — drop devDependencies, install optionals so
-# pdf/excel/imap/whatsapp paths work. `npm ci` would be stricter but
-# the repo doesn't always carry a package-lock.json.
-RUN npm install --include=optional --omit=dev
-
-# Application code. EXPLICIT copies (not COPY . .) so the Dockerfile
-# documents the deployed surface — anything not listed below is NOT
-# in the image. Audit-friendly + faster builds.
 COPY server.mjs ./
 COPY crucix.config.mjs ./
 COPY lib/ ./lib/
@@ -63,28 +74,20 @@ COPY dashboard/inject.mjs ./dashboard/
 COPY dashboard/public/ ./dashboard/public/
 COPY public/ ./public/
 
-# R-F589 — same SHA-resolution pattern aria-intel's Dockerfile uses.
-# Lets server.mjs report which commit it's running even when
-# --build-arg ARIA_BUILD_GIT_SHA was omitted by a manual deploy.
+# R-F589 — SHA-resolution from .git files (read, not shelled to `git`), so
+# server.mjs reports the running commit even when --build-arg was omitted.
 COPY .git/HEAD .git/HEAD
 COPY .git/refs .git/refs
 COPY .git/packed-refs* .git/
 
-# Persistent data volume mount-point. Fly volume `aria_web_data` will be
-# mounted at /data per fly.web.toml — users.json + sessions.json + audit
-# logs land here. Pre-create the dir so lib/persist/store.mjs writes
-# work cleanly on first boot before the volume is initialised by Fly.
+# Persistent data volume mount-point (Fly mounts aria_web_data at /data).
 RUN mkdir -p /data
 
-# Operator-overridable runtime port (crucix.config.mjs defaults to 3117
-# when PORT is unset).
 ENV PORT=3117 \
     NODE_ENV=production \
     PERSIST_DIR=/data
 
 EXPOSE 3117
 
-# Note: server.mjs runs cron jobs + opens socket.io + the Express
-# server in one process. There's no separate worker — a single node
-# process is the right shape.
+# Single node process: Express + socket.io + cron jobs (no separate worker).
 CMD ["node", "server.mjs"]
