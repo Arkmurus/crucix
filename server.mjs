@@ -5566,6 +5566,31 @@ async function start() {
   // routes/aria.py:5812) post-Seenode→Fly cutover.
   server.listen(port, '::');
 
+  // R-F1797 (audit #18): graceful shutdown. Fly sends SIGTERM on every deploy;
+  // without this, in-flight requests are killed mid-response (502s). Stop
+  // accepting new connections, let in-flight requests finish (bounded by
+  // SHUTDOWN_GRACE_MS, which must be < fly.web.toml kill_timeout), then exit.
+  let _shuttingDown = false;
+  const _gracefulShutdown = (signal) => {
+    if (_shuttingDown) return;
+    _shuttingDown = true;
+    console.log(`[Crucix] ${signal} received — draining connections (graceful shutdown)…`);
+    const graceMs = Number(process.env.SHUTDOWN_GRACE_MS || 25000);
+    const forceTimer = setTimeout(() => {
+      console.warn('[Crucix] drain timeout — forcing exit');
+      process.exit(0);
+    }, graceMs);
+    forceTimer.unref?.();
+    server.close((err) => {
+      clearTimeout(forceTimer);
+      if (err) { console.error('[Crucix] server.close error:', err.message); process.exit(1); }
+      console.log('[Crucix] all connections drained — exiting cleanly');
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => _gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => _gracefulShutdown('SIGINT'));
+
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`\n[Crucix] FATAL: Port ${port} is already in use!`);

@@ -29,6 +29,11 @@
 app            = "aria-web"
 primary_region = "lhr"
 
+# R-F1797 (audit #18) — give SIGTERM time to drain in-flight requests on deploy
+# before Fly sends SIGKILL (default is 5s). Must be >= SHUTDOWN_GRACE_MS in
+# server.mjs's graceful-shutdown handler.
+kill_timeout = "30s"
+
 [build]
   dockerfile = "Dockerfile.web"
 
