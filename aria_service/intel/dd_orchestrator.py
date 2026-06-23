@@ -3692,8 +3692,21 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 _dd_people = int(os.getenv("ARIA_DD_PEOPLE", "2"))
             except (ValueError, TypeError):
                 _dd_people = 2
+            # R-F1823 — seed the drill-down with people the DD ALREADY knows
+            # (registry-listed directors), so a director with no web footprint is
+            # still PEP/sanctions-investigated, not just listed. Names are
+            # taint-sanitized inside investigate().
+            _seed = []
+            try:
+                for _d in (report.identity.directors or []):
+                    _nm = _d.get("name") if isinstance(_d, dict) else (_d if isinstance(_d, str) else None)
+                    if _nm:
+                        _seed.append(_nm)
+            except Exception:
+                _seed = []
             dr = await deep_researcher.investigate(
-                llm, name, depth=dr_depth, investigate_people=_dd_people)
+                llm, name, depth=dr_depth, investigate_people=_dd_people,
+                seed_people=_seed or None)
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {

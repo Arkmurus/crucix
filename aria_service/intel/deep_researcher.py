@@ -706,42 +706,85 @@ def _dd_targeted_queries(entity: str) -> list[str]:
     ]
 
 
+# R-F1823 — TAINT MITIGATION. Person names reach this engine from UNTRUSTED web
+# content (website crawl, search snippets, LLM extraction) and flow into
+# investigate_person's LLM synthesis prompt (deep_researcher.py ~1540:
+# `...PERSON: "{name}"...`) — a prompt-injection sink. Sanitize at the boundary.
+_NAME_INJECTION_MARKERS = (
+    "ignore previous", "ignore all", "ignore the", "instruction", "system prompt",
+    "disregard", "```", "{{", "}}", "<script", "</", "http://", "https://", "\n",
+)
+
+
+def _sanitize_person_name(raw) -> str | None:
+    """Return a safe person name (unicode letters + space/.'-, only, <=80 chars)
+    or None to reject. Neutralises prompt injection: no braces/quotes/newlines/
+    URLs/marker phrases survive, and over-long blobs are rejected outright."""
+    if isinstance(raw, dict):
+        raw = raw.get("name")
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not (3 <= len(s) <= 80):          # real names fit this; longer = likely injection blob
+        return None
+    low = s.lower()
+    if any(m in low for m in _NAME_INJECTION_MARKERS):
+        return None
+    cleaned = " ".join("".join(ch for ch in s if ch.isalpha() or ch in " .'-,").split())
+    return cleaned if len(cleaned) >= 3 else None
+
+
 async def _discover_and_investigate_people(
     llm: LLMProvider, topic: str, all_facts: list[dict],
     *, max_people: int, t_start: float, budget_s: float,
+    seed_people: list | None = None,
 ) -> list[dict]:
-    """R-F1812 — extract NAMED INDIVIDUALS from the gathered facts and run a
-    bounded, time-guarded recursive investigate_person on the top ones. Closes
-    the 'Zero named individuals' gap: a director who surfaces (site/LinkedIn/
-    registry) gets investigated (PEP/sanctions-proximity/adverse-media), not just
-    listed. Each person costs ~7 searches, so it is capped and skipped once the
-    overall budget is spent."""
-    if max_people <= 0 or not all_facts:
+    """R-F1812/R-F1823 — investigate NAMED INDIVIDUALS (PEP/sanctions/adverse-media)
+    via a bounded, time-guarded recursive investigate_person. Candidates come from
+    (1) seed_people the caller already KNOWS — registry directors + contact names
+    (R-F1823: these get investigated even when web search/LLM extraction miss them,
+    e.g. a registry-listed director with no web footprint), then (2) names the LLM
+    extracts from the gathered facts. ALL names are taint-sanitized before use.
+    Each person costs ~7 searches, so it is capped + budget-skipped."""
+    if max_people <= 0:
         return []
-    facts_blob = "\n".join(f"- {f.get('content', '')[:200]}" for f in all_facts[:30])
-    extract_prompt = (
-        f'From the research facts below about "{topic}", list the NAMED INDIVIDUALS '
-        f'(real people) explicitly associated with the entity — directors, officers, '
-        f'owners, executives, founders, beneficial owners. Only people actually named '
-        f'in the facts; do NOT invent. Return JSON: '
-        f'{{"people": [{{"name": str, "role": str}}]}}\n\nFACTS:\n{facts_blob}'
-    )
-    try:
-        r = await llm.complete("ARIA — entity-person extractor.", extract_prompt,
-                               max_tokens=400, timeout=30.0)
-        parsed = parse_llm_json(r.text, default={}, source="deep_researcher")
-        people = parsed.get("people", []) if isinstance(parsed, dict) else []
-    except Exception as _e:
-        logger.debug("person-extraction failed: %s", _e)
-        return []
+
+    candidates: list[dict] = []
+    # (1) Seed names the caller already knows (registry/contacts) — high priority.
+    for s in (seed_people or []):
+        nm = _sanitize_person_name(s)
+        if nm:
+            candidates.append({"name": nm, "role": "known (registry/contact)"})
+
+    # (2) LLM-extract additional named individuals from the facts.
+    if all_facts:
+        facts_blob = "\n".join(f"- {f.get('content', '')[:200]}" for f in all_facts[:30])
+        extract_prompt = (
+            f'From the research facts below about "{topic}", list the NAMED INDIVIDUALS '
+            f'(real people) explicitly associated with the entity — directors, officers, '
+            f'owners, executives, founders, beneficial owners. Only people actually named '
+            f'in the facts; do NOT invent. Return JSON: '
+            f'{{"people": [{{"name": str, "role": str}}]}}\n\nFACTS:\n{facts_blob}'
+        )
+        try:
+            r = await llm.complete("ARIA — entity-person extractor.", extract_prompt,
+                                   max_tokens=400, timeout=30.0)
+            parsed = parse_llm_json(r.text, default={}, source="deep_researcher")
+            for p in (parsed.get("people", []) if isinstance(parsed, dict) else []):
+                nm = _sanitize_person_name(p)
+                if nm:
+                    candidates.append({"name": nm,
+                                       "role": (p.get("role") or "") if isinstance(p, dict) else ""})
+        except Exception as _e:
+            logger.debug("person-extraction failed: %s", _e)
 
     seen_names: set[str] = set()
     out: list[dict] = []
-    for p in people:
+    for p in candidates:
         if len(out) >= max_people:
             break
-        name = (p.get("name") or "").strip() if isinstance(p, dict) else ""
-        if len(name) < 3 or name.lower() in seen_names:
+        name = p["name"]  # already sanitized
+        if name.lower() in seen_names:
             continue
         if time.time() - t_start > budget_s:
             logger.info("R-F1812: person drill-down budget (%.0fs) hit — %d/%d investigated",
@@ -753,8 +796,7 @@ async def _discover_and_investigate_people(
         except Exception as _e:
             logger.debug("investigate_person(%s) failed: %s", name, _e)
             continue
-        out.append({"name": name, "role": (p.get("role") or "") if isinstance(p, dict) else "",
-                    "dossier": dossier})
+        out.append({"name": name, "role": p.get("role", ""), "dossier": dossier})
     return out
 
 
@@ -764,6 +806,7 @@ async def investigate(
     topic: str,
     depth: str = "thorough",  # quick (5), thorough (15), exhaustive (30)
     investigate_people: int | None = None,  # R-F1812: recursive person drill-down cap
+    seed_people: list | None = None,  # R-F1823: caller-known names (registry/contacts) to investigate
 ) -> dict:
     """
     Deep multi-source investigation on a topic.
@@ -1045,10 +1088,11 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     # R-F1812 — recursive person drill-down (before synthesis so the people
     # appear IN the assessment). Bounded by investigate_people + time-guarded.
     people: list[dict] = []
-    if _is_entity_dd and investigate_people > 0 and (time.time() - t_start) < _person_budget_s:
+    if (_is_entity_dd or seed_people) and investigate_people > 0 and (time.time() - t_start) < _person_budget_s:
         people = await _discover_and_investigate_people(
             llm, topic, all_facts,
             max_people=investigate_people, t_start=t_start, budget_s=_person_budget_s,
+            seed_people=seed_people,
         )
         if people:
             logger.info("R-F1812: investigated %d named individual(s) for '%s'", len(people), topic[:60])
