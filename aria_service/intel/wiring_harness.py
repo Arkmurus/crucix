@@ -230,6 +230,8 @@ WIRED_MODULES: set[str] = {
     # R-F1792 — Phase 1 batch 3 (mixed modules: module-level fns + class methods)
     "grounded_reasoner", "dd_schema", "document_reader", "content_scanner",
     "web_search", "rag_store", "semantic_search", "dd_vault",
+    # R-F1795 — batch 3b (validation methods carry control_flow_exempt=ValueError)
+    "agent_signup_vault",
 }
 
 # Modules that are fully reviewed and exempt from wiring
@@ -274,11 +276,18 @@ def fail_wire_decorators(filepath: str) -> dict[str, dict[str, Any]]:
             if dec_name != "fail_wire":
                 continue
             gap_type = None
+            control_flow_exempt = False
             if isinstance(dec, ast.Call):
                 for kw in dec.keywords:
                     if kw.arg == "gap_type" and isinstance(kw.value, ast.Constant):
                         gap_type = kw.value.value
-            wired[node.name] = {"gap_type": gap_type, "lineno": node.lineno}
+                    if kw.arg == "control_flow_exempt":
+                        control_flow_exempt = True
+            wired[node.name] = {
+                "gap_type": gap_type,
+                "lineno": node.lineno,
+                "control_flow_exempt": control_flow_exempt,
+            }
     return wired
 
 
@@ -389,8 +398,10 @@ def check_gate_b(module_path: str, filename: str) -> list[str]:
 
 def check_gate_d(module_path: str, filename: str) -> list[str]:
     """GATE D: flag fail_wire'd functions that contain 'raise' (gap-spam risk).
-    
-    Returns list of warnings (not blocks — requires judgment).
+
+    Returns list of warnings (not blocks — requires judgment). A function whose
+    @fail_wire carries control_flow_exempt=(...) is NOT flagged: that keyword IS
+    the encoded judgment (R-F1784) — the gap-spam concern has been addressed.
     """
     warnings = []
     if filename in FULLY_EXEMPT_MODULES:
@@ -401,12 +412,16 @@ def check_gate_d(module_path: str, filename: str) -> list[str]:
     for fn in fns:
         if not fn["has_raise"]:
             continue
-        if fn["name"] in wired:
-            warnings.append(
-                f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
-                f"'{fn['name']}()' contains 'raise' — potential gap-spam. "
-                f"Review: is this control-flow or a real failure?"
-            )
+        info = wired.get(fn["name"])
+        if info is None:
+            continue  # not wired
+        if info.get("control_flow_exempt"):
+            continue  # judgment encoded — control-flow raises won't gap
+        warnings.append(
+            f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
+            f"'{fn['name']}()' contains 'raise' — potential gap-spam. "
+            f"Review: is this control-flow or a real failure?"
+        )
 
     return warnings
 

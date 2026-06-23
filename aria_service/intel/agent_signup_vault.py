@@ -32,6 +32,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.agent_signup_vault")
 
@@ -270,6 +271,7 @@ class AgentSignupVault:
         except Exception as _e1753:
             _log1753.warning("[R-F1753] Migration v2 failed (non-fatal): %s", _e1753)
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def close(self):
         """Close the database connection."""
         if self._conn:
@@ -278,6 +280,7 @@ class AgentSignupVault:
 
     # ── CRUD operations ────────────────────────────────────────────────
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def list(self, **filters: Any) -> list[dict[str, Any]]:
         """List signups with optional filters.
 
@@ -325,6 +328,7 @@ class AgentSignupVault:
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def get(self, site_id: str) -> dict[str, Any] | None:
         """Get a single signup entry by site_id."""
         conn = self._get_conn()
@@ -339,6 +343,8 @@ class AgentSignupVault:
             result["metadata"] = {}
         return result
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup",
+               control_flow_exempt=("ValueError",))  # validation raises are control flow
     def record(
         self,
         site_id: str,
@@ -406,6 +412,8 @@ class AgentSignupVault:
 
         return self.get(site_id)  # type: ignore[return-value]
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup",
+               control_flow_exempt=("ValueError",))  # validation raises are control flow
     def update_status(
         self,
         site_id: str,
@@ -472,6 +480,7 @@ class AgentSignupVault:
 
         return self.get(site_id)
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def delete(self, site_id: str) -> bool:
         """Delete a signup entry. Returns True if deleted, False if not found."""
         conn = self._get_conn()
@@ -489,6 +498,7 @@ class AgentSignupVault:
 
     # ── Statistics ─────────────────────────────────────────────────────
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def stats(self) -> dict[str, Any]:
         """Get aggregate statistics about the vault."""
         conn = self._get_conn()
@@ -527,6 +537,7 @@ class AgentSignupVault:
 
     # ── R-F1684: Test-data cleanup ──────────────────────────────────────
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def cleanup_test_data(self, max_age_hours: int = 24) -> int:
         """Delete test entries older than `max_age_hours`.
 
@@ -558,6 +569,7 @@ class AgentSignupVault:
 
     # ── Bulk import from portal_registry ───────────────────────────────
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
     def import_open_portals(self, portals: list, agent_id: str = "system") -> int:
         """Import portals from portal_registry into the vault.
 
@@ -730,6 +742,7 @@ def _notify_agents(event: str, site_id: str, agent_id: str = "system"):
 _VAULT_INSTANCE: AgentSignupVault | None = None
 
 
+@fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
 def get_vault() -> AgentSignupVault:
     """Get or create the singleton vault instance."""
     global _VAULT_INSTANCE
