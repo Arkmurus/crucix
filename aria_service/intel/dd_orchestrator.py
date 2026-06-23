@@ -6643,6 +6643,10 @@ async def orchestrate_dd(
             rep = ARKDDReport(target=target, orchestrator_mode=mode, trace_id=trace_id)
             rep.identity.entity_name = _name
             rep.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
+        # R-F1830: flag the hard-deadline path as time-boxed too (the _clamp
+        # path already does, dd_orchestrator.py ~7454). Callers use this to
+        # decide whether to launch a full-depth background completion.
+        rep.time_boxed = True  # type: ignore[attr-defined]
         rep.risk_classification = RiskClassification.AMBER_LIGHT.value
         rep.bottom_line = (
             f"⏱ TIME-BUDGET REACHED — the DD on {_name} was stopped at ~{int(hard)}s to "

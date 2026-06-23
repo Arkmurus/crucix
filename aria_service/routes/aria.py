@@ -6155,7 +6155,74 @@ def _classify_tool_outcome(tool_context: str) -> str:
     return "completed"
 
 
-async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) -> str:
+# ── R-F1830 — async-complete-and-push for DEEP DD ───────────────────────────
+# When an inline (budget-capped, R-F1829) chat DD time-boxes, the user got only
+# a partial within the proxy window. To honour a "full and deep" request without
+# blocking the stream, launch ONE full-depth DD as a tracked background task.
+# orchestrate_dd persists the completed report (crucix:dd:report:{run_id} + DD
+# vault) keyed to user_id, so it surfaces in the user's DD Reports panel a few
+# minutes later — no callback needed. Strong refs are held so the GC can't kill
+# the task mid-run (same defect class as R-F1363/_CODER_BG_TASKS). De-duped per
+# (entity, user) so a resend / auto-deep re-run can't spawn a duplicate ~14-min
+# job (the recurring duplicate-job pain, CLAUDE.md §25).
+_DD_DEEP_BG_TASKS: set = set()
+_DD_DEEP_BG_INFLIGHT: set = set()
+
+
+def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | None) -> bool:
+    """Fire-and-forget a full-depth DD that persists to the user's panel.
+    Returns True if a job was launched, False if not eligible / de-duped."""
+    if not user_id:
+        return False
+    try:
+        from ..intel.dd_versioning import canonical_entity_id as _canon
+        _ent = _canon(target.get("name") or target.get("entity") or "")
+    except Exception:
+        _ent = (target.get("name") or target.get("entity") or "").strip().lower()
+    if not _ent:
+        return False
+    _key = (_ent, user_id)
+    if _key in _DD_DEEP_BG_INFLIGHT:
+        return False
+    _DD_DEEP_BG_INFLIGHT.add(_key)
+    _budget = float(int(os.getenv("ARIA_DD_DEEP_BG_BUDGET_S", "840")))
+
+    async def _runner():
+        try:
+            from ..intel import dd_orchestrator as _ddo
+            _deep_target = {**target, "_deep_bg": True}
+            await _ddo.orchestrate_dd(
+                target=_deep_target, llm=llm, mode="deep",
+                total_budget_s=_budget, user_id=user_id, user_email=user_email,
+            )
+            _log.info("R-F1830 deep-bg DD complete for %r (user=%s)", _ent, user_id)
+        except Exception as _e:  # §21/§25 — a failed background limb must reach the brain
+            _log.warning("R-F1830 deep-bg DD failed for %r: %s", _ent, _e)
+            try:
+                from ..intel import brain_hook as _bh
+                await _bh.absorb(
+                    module="dd_orchestrator",
+                    summary=f"deep-bg DD failed for {_ent}: {str(_e)[:120]}",
+                    success=False, confidence="ASSESSED",
+                )
+            except Exception:
+                pass
+        finally:
+            _DD_DEEP_BG_INFLIGHT.discard(_key)
+
+    _t = asyncio.create_task(_runner())
+    _DD_DEEP_BG_TASKS.add(_t)
+    _t.add_done_callback(_DD_DEEP_BG_TASKS.discard)
+    _log.info("R-F1830 launched deep-bg DD for %r (user=%s, budget=%ss)", _ent, user_id, int(_budget))
+    return True
+
+
+async def _execute_tool(
+    intent: dict, llm, *,
+    dd_budget_s: float | None = None,
+    user_id: str | None = None,
+    user_email: str | None = None,
+) -> str:
     """Run the detected tool and return a compact context string for the LLM.
 
     R-F1829: ``dd_budget_s`` lets the CALLER cap the DD wall-clock to its own
@@ -6269,6 +6336,11 @@ async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) 
                     llm=llm,
                     mode=mode,
                     total_budget_s=_dd_chat_budget_s,
+                    # R-F1830: own the persisted report so it (and any
+                    # background full-depth completion) surfaces in the
+                    # caller's DD Reports panel.
+                    user_id=user_id,
+                    user_email=user_email,
                 )
                 # R-F409 auto-escalation
                 # R-F1572: only escalate if enough budget remains for a deep run
@@ -6300,6 +6372,8 @@ async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) 
                             llm=llm,
                             mode="deep",
                             total_budget_s=_dd_remaining_s,
+                            user_id=user_id,
+                            user_email=user_email,
                         )
                         # Prefer the deep report if it produced more
                         # evidence (any layer firing). If deep also
@@ -6329,6 +6403,25 @@ async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) 
             # Render as markdown and return as tool_context so the LLM
             # writes its final answer grounded in the structured report.
             md = await asyncio.to_thread(report.render_markdown, concise=False)  # R-F1786
+
+            # R-F1830 — async-complete-and-push. The inline run is budget-capped
+            # (R-F1829); if it time-boxed, the user only got a partial within the
+            # proxy window. Launch the full-depth DD in the background — it lands
+            # in the user's DD Reports panel. Gated to callers that supplied a
+            # user_id (the web stream) + de-duped inside the launcher.
+            _deep_bg_note = ""
+            if user_id and getattr(report, "time_boxed", False):
+                if _launch_deep_dd_bg(target, llm, user_id=user_id, user_email=user_email):
+                    _deep_bg_note = (
+                        "\n[DEEP-DD BACKGROUND JOB STARTED — R-F1830]\n"
+                        "The report above is a time-boxed PARTIAL (the inline run hit "
+                        "the response deadline). A FULL-DEPTH DD is now running in the "
+                        "background and will appear in the user's DD Reports panel in a "
+                        "few minutes. You MUST tell the user this, verbatim, at the end "
+                        "of your answer: \"⏳ I've started a full-depth DD in the "
+                        "background — the complete report will appear in your DD Reports "
+                        "panel in a few minutes.\"\n"
+                    )
 
             # R-F304: GROUNDING_CHECK block. The LLM faithfully echoes
             # whatever the report says — so if the report is empty
@@ -6422,6 +6515,7 @@ async def _execute_tool(intent: dict, llm, *, dd_budget_s: float | None = None) 
                 f"Do NOT invent additional findings — every material claim must "
                 f"come from the report. Honour the GROUNDING_CHECK block above: "
                 f"if the hard counts say zero, do not claim non-zero.\n"
+                f"{_deep_bg_note}"
                 f"\n"
                 f"{md}"
             )
@@ -9729,7 +9823,13 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     # preliminary report chunk) lands inline before the proxy cuts.
                     _dd_stream_budget_s = float(int(os.getenv("ARIA_DD_STREAM_BUDGET_S", "240")))
                     _tool_task = _aio.create_task(
-                        _execute_tool(intent, llm, dd_budget_s=_dd_stream_budget_s)
+                        _execute_tool(
+                            intent, llm,
+                            dd_budget_s=_dd_stream_budget_s,
+                            # R-F1830: own the report + enable the background
+                            # full-depth completion → user's DD Reports panel.
+                            user_id=getattr(req, "user_id", "") or "",
+                        )
                     )
                     await _aio.sleep(0)   # yield once so the "Running…" event flushes
                     _hb_t0 = time.monotonic()

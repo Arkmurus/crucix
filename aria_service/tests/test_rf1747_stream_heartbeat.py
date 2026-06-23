@@ -71,7 +71,7 @@ async def test_heartbeat_emitted_during_slow_tool(monkeypatch):
     )
 
     # the slow tool: ~0.45s of awaiting → expect ~4 heartbeats at 0.1s
-    async def _slow_tool(intent, llm, *, dd_budget_s=None):  # R-F1829: accept the new kwarg
+    async def _slow_tool(intent, llm, **kwargs):  # R-F1829/R-F1830: tolerate dd_budget_s/user_id kwargs
         await asyncio.sleep(0.45)
         return "[TOOL: deep_research] " + ("x" * 200)
     monkeypatch.setattr(A, "_execute_tool", _slow_tool)
