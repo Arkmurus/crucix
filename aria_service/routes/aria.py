@@ -4186,7 +4186,7 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
     # must start with a capital letter to disambiguate from DD followed
     # by a lowercase instruction word.
     r"(?:full\s+|comprehensive\s+|deep\s+|ark[\-_]?)?p?dd\s+(?=[A-Z])|"
-    r"due\s+diligence\s+(?:on|for|about)\s+|"
+    r"due\s+diligence\s+(?:report\s+)?(?:on|for|about)\s+|"
     r"ark[\-_]?(?:p)?dd\s+(?:on|for|about)\s+|"
     r"orchestrate\s+(?:p)?dd\s+(?:on|for|about)\s+|"
     r"person\s+(?:dd|due\s+diligence)\s+(?:on|for|about)\s+|"
