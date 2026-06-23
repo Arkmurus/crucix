@@ -446,7 +446,106 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
             # Default to SK for ambiguous 6-8 digit IDs (most common in our deal flow)
             return "SK"
 
+    # 5. R-F1815: legal-form suffix in entity name → jurisdiction hint.
+    # Many jurisdictions have unique legal-form suffixes that are strong
+    # jurisdiction indicators even when no address/phone/email is available.
+    # Order matters: more specific suffixes checked before generic ones.
+    _legal_form_to_iso2: list[tuple[str, str]] = [
+        # Portuguese-speaking
+        (r"\bUnipessoal\s+Lda\b", "PT"),   # Portuguese sole-member Lda
+        (r"\bLda\b", "PT"),                 # Portuguese/Spanish limited (also used in BR/AO/MZ)
+        (r"\bS\.?A\.?\b", "PT"),            # Portuguese Sociedade Anónima
+        # Brazilian
+        (r"\bLTDA\b", "BR"),                # Brazilian Limitada
+        (r"\bS\.?A\.?\b", "BR"),            # Brazilian Sociedade Anônima
+        # UK
+        (r"\bLtd\b", "GB"),
+        (r"\bLimited\b", "GB"),
+        (r"\bplc\b", "GB"),
+        (r"\bLLP\b", "GB"),
+        # German-speaking
+        (r"\bGmbH\b", "DE"),
+        (r"\bAG\b", "DE"),
+        (r"\bKG\b", "DE"),
+        # French-speaking
+        (r"\bSAS\b", "FR"),
+        (r"\bSARL\b", "FR"),
+        (r"\bEURL\b", "FR"),
+        # Italian
+        (r"\bS\.?r\.?l\.?\b", "IT"),
+        (r"\bS\.?p\.?A\.?\b", "IT"),
+        # Spanish
+        (r"\bS\.?L\.?\b", "ES"),
+        # Dutch
+        (r"\bBV\b", "NL"),
+        (r"\bNV\b", "NL"),
+        # Polish
+        (r"\bSp\.\s*z\s*\.?\s*o\.?o\.?\b", "PL"),
+        # Czech/Slovak
+        (r"\bs\.?r\.?o\.?\b", "CZ"),
+        # Romanian
+        (r"\bS\.?R\.?L\.?\b", "RO"),
+        # Bulgarian
+        (r"\bEOOD\b", "BG"),
+        (r"\bAD\b", "BG"),
+        # Turkish
+        (r"\bA\.?Ş\.?\b", "TR"),
+        (r"\bLtd\.? Şti\.?\b", "TR"),
+        # UAE
+        (r"\bLLC\b", "AE"),
+    ]
+    _name_upper = name.upper()
+    for _pattern, _iso2 in _legal_form_to_iso2:
+        if re.search(_pattern, _name_upper):
+            return _iso2
+
     return None
+
+
+# R-F1815: jurisdiction fallback chains. When the primary jurisdiction's
+# registry adapter returns None, try related jurisdictions before giving up.
+# Keyed by ISO2; value is an ordered list of fallback ISO2 codes to try.
+# Language/cultural clusters: Portuguese-speaking, Spanish-speaking, etc.
+_JURISDICTION_FALLBACK_CHAINS: dict[str, list[str]] = {
+    # Portuguese-speaking: PT -> BR -> AO -> MZ -> CV -> GW -> ST -> TL
+    "PT": ["BR", "AO", "MZ"],
+    "BR": ["PT", "AO", "MZ"],
+    "AO": ["PT", "BR", "MZ"],
+    "MZ": ["PT", "BR", "AO"],
+    # Spanish-speaking: ES -> AR -> CL -> CO -> MX -> PE -> UY
+    "ES": ["AR", "CL", "CO", "MX"],
+    "AR": ["ES", "CL", "CO", "MX"],
+    "CL": ["ES", "AR", "CO", "MX"],
+    "CO": ["ES", "AR", "CL", "MX"],
+    "MX": ["ES", "AR", "CL", "CO"],
+    # French-speaking: FR -> BE -> CH -> LU -> MC
+    "FR": ["BE", "CH"],
+    "BE": ["FR", "CH"],
+    "CH": ["FR", "BE"],
+    # German-speaking: DE -> AT -> CH
+    "DE": ["AT", "CH"],
+    "AT": ["DE", "CH"],
+    # Nordic: FI -> SE -> NO -> DK
+    "FI": ["SE", "NO", "DK"],
+    # Baltic: EE -> LV -> LT
+    # Eastern Europe: PL -> CZ -> SK -> HU -> RO
+    "PL": ["CZ", "SK", "HU", "RO"],
+    "CZ": ["SK", "PL", "HU", "RO"],
+    "SK": ["CZ", "PL", "HU", "RO"],
+    "HU": ["RO", "SK", "CZ", "PL"],
+    "RO": ["HU", "SK", "CZ", "PL"],
+    # English-speaking: GB -> US -> CA -> AU -> NZ -> IE
+    "GB": ["US", "IE", "AU"],
+    "US": ["GB", "CA", "AU"],
+    # Middle East: AE -> SA -> IL
+    "AE": ["SA"],
+    "SA": ["AE"],
+    # Africa: NG -> GH -> KE -> ZA
+    "NG": ["GH", "KE", "ZA"],
+    "GH": ["NG", "KE", "ZA"],
+    "KE": ["NG", "GH", "ZA"],
+    "ZA": ["NG", "GH", "KE"],
+}
 
 
 # R-F295: UK-entity detector for post-link-tree CH backfill. The DD identity
@@ -2373,12 +2472,47 @@ async def _run_identity(
                 or report.identity.registered_address
                 or ""
             )
+            # R-F1815: try primary jurisdiction, then fallback chain
             reg_result = await registry_adapters.lookup_entity(
                 name=name,
                 jurisdiction_iso2=jurisdiction_iso2,
                 registration_number=registration_number,
                 address=_addr_for_adapter,
             )
+            # If primary returned None, try fallback jurisdictions
+            if not reg_result and jurisdiction_iso2:
+                _fallbacks = _JURISDICTION_FALLBACK_CHAINS.get(jurisdiction_iso2, [])
+                for _fb_iso2 in _fallbacks:
+                    if _fb_iso2 == jurisdiction_iso2:
+                        continue
+                    logger.info(
+                        "R-F1815: primary jurisdiction %s returned no result, "
+                        "trying fallback %s", jurisdiction_iso2, _fb_iso2,
+                    )
+                    reg_result = await registry_adapters.lookup_entity(
+                        name=name,
+                        jurisdiction_iso2=_fb_iso2,
+                        registration_number=registration_number,
+                        address=_addr_for_adapter,
+                    )
+                    if reg_result:
+                        logger.info(
+                            "R-F1815: fallback jurisdiction %s returned result for %s",
+                            _fb_iso2, name,
+                        )
+                        # Record the fallback as a finding so the DD report
+                        # shows which jurisdiction actually had the data
+                        report.identity.findings.append(Finding(
+                            severity="info",
+                            title=f"Registry lookup via fallback jurisdiction: {_fb_iso2}",
+                            detail=(
+                                f"Primary jurisdiction {jurisdiction_iso2} had no adapter "
+                                f"or returned no result. Found data in {_fb_iso2}."
+                            ),
+                            source="dd_orchestrator.jurisdiction_fallback",
+                            confidence="CONFIRMED",
+                        ))
+                        break
             if reg_result:
                 profile = reg_result.get("profile", {})
                 report.identity.registration_number = profile.get("company_number") or registration_number
