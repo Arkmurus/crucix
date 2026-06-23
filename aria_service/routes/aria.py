@@ -9757,6 +9757,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         # in the "uncategorized" bucket.
         _cost_token = cost_tracker.set_feature("chat")
 
+        # R-F1838 — request-level clock for the compose-deadline safety net.
+        # The SSE proxy (server.mjs ARIA_STREAM_PROXY_TIMEOUT_MS, 600s) hard-cuts
+        # at its deadline. R-F1829 bounds the DD tool, but the POST-tool compose
+        # (aria_chat_stream's 9-layer context build + LLM) can still overrun and
+        # leave the stream open with no `done` — the user gets the preliminary
+        # report (R-F1176) but the spinner never closes. This clock lets the
+        # compose loop force-close (emit buffered text + done) before the proxy
+        # cut, so the stream ALWAYS terminates cleanly.
+        _stream_req_t0 = time.monotonic()
+
         # R-F737 (2026-05-20) — tool detection + execution INSIDE generator
         # with progress events fired between substeps. See note above the
         # generator definition for the why.
@@ -9931,7 +9941,34 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 _r412_response_buf: list[str] = []
                 _r412_verification = None
                 _r412_deferred_done = None
-                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or "", keep_history=getattr(req, "keep_history", None)):
+                # R-F1838 — drive aria_chat_stream under an ABSOLUTE deadline so
+                # the post-tool compose can never hold the stream past the proxy
+                # window. Bounded per-`__anext__` (stall guard) AND overall
+                # (_stream_req_t0 + ARIA_STREAM_TOTAL_HARD_S, default 560s < 600s
+                # proxy). On deadline/stall we break → the existing post-loop code
+                # (footer + line ~10080) emits `done`, so the stream always
+                # closes. The user already has the R-F1176 preliminary report.
+                # Two bounds: an ABSOLUTE cap from request start (must beat the
+                # proxy's 600s) and a per-event STALL timeout (cut a compose that
+                # goes silent — e.g. the 9-layer context build wedging — without
+                # ever cutting one that is actively streaming, since each event
+                # resets the stall window).
+                _compose_hard_s = float(os.getenv("ARIA_STREAM_TOTAL_HARD_S", "560"))
+                _compose_stall_s = float(os.getenv("ARIA_STREAM_STALL_S", "90"))
+                _agen = aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or "", keep_history=getattr(req, "keep_history", None)).__aiter__()
+                _compose_cut = False
+                while True:
+                    _to_cap = _compose_hard_s - (time.monotonic() - _stream_req_t0)
+                    if _to_cap <= 0:
+                        _compose_cut = True
+                        break
+                    try:
+                        event = await asyncio.wait_for(_agen.__anext__(), timeout=min(_to_cap, _compose_stall_s))
+                    except StopAsyncIteration:
+                        break
+                    except (asyncio.TimeoutError, TimeoutError):
+                        _compose_cut = True
+                        break
                     if event.get("type") == "chunk":
                         _t = event.get("text") or ""
                         if _t:
@@ -9948,6 +9985,25 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         continue
                     # All non-chunk, non-done events flow through immediately
                     yield f'data: {json.dumps(event)}\n\n'
+
+                # R-F1838 — compose hit the deadline. Tell the user the narrative
+                # was cut to guarantee delivery; the report (R-F1176 preliminary)
+                # is already above and the full-depth version (R-F1830) is landing
+                # in the DD Reports panel. Then fall through to footer + `done`.
+                if _compose_cut:
+                    _log.warning(
+                        "R-F1838: compose deadline (%.0fs) hit for session %s — "
+                        "closing stream with partial (buf_chunks=%d)",
+                        _compose_hard_s, session_id, len(_r412_response_buf),
+                    )
+                    _cut_note = (
+                        "\n\n_(I cut the written narrative to guarantee a response. "
+                        "The structured findings are above"
+                        + (" and a full-depth report is landing in your DD Reports panel"
+                           if tool_used == "dd_orchestrate" else "")
+                        + ".)_"
+                    )
+                    yield f'data: {json.dumps({"type":"chunk","text":_cut_note})}\n\n'
 
                 # If tool was used, send a supplementary metadata event
                 if tool_used:
