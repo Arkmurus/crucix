@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1827,
+  "next_available": 1828,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12623,14 +12623,24 @@
       "title": "SEC C2-broaden — route user/discovery-controlled URL fetchers through url_safety.safe_get (crawler/researcher/citation)",
       "claimed_at": "2026-06-23T14:05:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5bd6d265",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:17:49Z"
     },
     {
       "r_number": "R-F1826",
       "title": "SEC H7 — owner field on document extraction records + ownership check on get-by-id",
       "claimed_at": "2026-06-23T14:10:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1827",
+      "title": "SEC Phase3 (staged) — token tiers (operator vs service) + operator-only path gate, flag-gated off by default",
+      "claimed_at": "2026-06-23T14:18:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

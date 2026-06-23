@@ -233,6 +233,27 @@ def _aria_internal_token() -> str:
     return (_os.getenv("ARIA_INTERNAL_TOKEN") or "").strip()
 
 
+def _aria_operator_token() -> str:
+    """R-F1827 (Phase 3, staged) — full-privilege OPERATOR token."""
+    return (_os.getenv("ARIA_OPERATOR_TOKEN") or "").strip()
+
+
+def _aria_service_token() -> str:
+    """R-F1827 (Phase 3, staged) — scoped SERVICE token (WA/web): chat/read/telemetry,
+    NOT the control plane."""
+    return (_os.getenv("ARIA_SERVICE_TOKEN") or "").strip()
+
+
+# R-F1827 (Phase 3, staged) — control/destructive endpoints that require the OPERATOR
+# tier when ARIA_TOKEN_SCOPING=1. Chat/read/telemetry are deliberately NOT here.
+_OPERATOR_ONLY_RE = re.compile(
+    r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code)|self/improvements/"
+    r"|coder/|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
+    r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
+    r"|eval/|operating-mode/set|knowledge/fact)"
+)
+
+
 def _accepted_tokens() -> list[str]:
     """All tokens accepted by the router auth dependency. Either the
     user-facing API token OR the internal-service token is valid.
@@ -245,7 +266,8 @@ def _accepted_tokens() -> list[str]:
     invisible until ARIA's meta_query surfaced it. Accepting both
     closes the gap without an operator env-var change.
     """
-    return [t for t in (_aria_token(), _aria_internal_token()) if t]
+    return [t for t in (_aria_token(), _aria_internal_token(),
+                        _aria_operator_token(), _aria_service_token()) if t]
 
 
 # R-F254 (2026-05-11) — public-path allowlist. model-card.html is
@@ -353,6 +375,23 @@ def require_aria_token(request: Request) -> None:
     import hmac as _hmac
     if not any(_hmac.compare_digest(presented, t) for t in accepted):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
+
+    # R-F1827 (audit Phase 3, STAGED — OFF by default). Per-service token scoping:
+    # when ARIA_TOKEN_SCOPING=1 AND ARIA_OPERATOR_TOKEN is set, control/destructive
+    # routes require the OPERATOR token — the shared service token (held by the WA
+    # listener + web tier) can chat/read/telemetry but cannot drive the control
+    # plane (autonomous, self-deploy, cost-cap, purge, credentials, restore). Until
+    # the flag + operator secret are set, all accepted tokens keep full access (no
+    # behavior change). Cutover runbook: docs/phase3_token_split_runbook.md.
+    import os as _os_p3  # local alias — require_aria_token rebinds _os later (UnboundLocal otherwise)
+    if (_os_p3.getenv("ARIA_TOKEN_SCOPING") or "").strip() == "1":
+        _op = _aria_operator_token()
+        if _op and _OPERATOR_ONLY_RE.search(request.url.path or ""):
+            if not _hmac.compare_digest(presented, _op):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Operator-tier token required for this control/destructive endpoint.",
+                )
 
 
 # ── Input sanitisation ──────────────────────────────────────────────────────
