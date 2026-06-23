@@ -538,9 +538,12 @@ def check_no_token_default(files: list[Path]) -> list[str]:
 
 # Only DYNAMIC-URL fetches (a variable named like user input) — constant/f-string
 # API calls are not an SSRF risk and must not false-positive.
+# Require an http-client receiver (httpx / client / session / a one-letter client
+# var like `c`) AND a genuinely-URL argument name — so dict `.get(loc)` / `.get(source)`
+# do NOT false-match, and constant API-base fetches assigned to non-URL vars are skipped.
 _DYNAMIC_FETCH_RE = re.compile(
-    r"\.(get|post|request|stream)\(\s*(url|source|target|link|uri|endpoint|href|loc)\b"
-    r"|httpx\.(get|post|request|stream)\(\s*(url|source|target|link|uri|endpoint|href|loc)\b"
+    r"(?:httpx|[A-Za-z_]*client|session|\bc)\.(?:get|post|request|stream)\("
+    r"\s*(?:url|uri|endpoint|href|target_url|page_url|seed_url|fetch_url)\b"
 )
 _SSRF_GUARD_TOKENS = ("url_safety", "safe_get", "is_safe_url", "assert_safe_url", "_ssrf_safe_url")
 
