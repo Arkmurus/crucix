@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1828,
+  "next_available": 1833,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12633,14 +12633,62 @@
       "title": "SEC H7 — owner field on document extraction records + ownership check on get-by-id",
       "claimed_at": "2026-06-23T14:10:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "136dac67",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:33:12Z"
     },
     {
       "r_number": "R-F1827",
       "title": "SEC Phase3 (staged) — token tiers (operator vs service) + operator-only path gate, flag-gated off by default",
       "claimed_at": "2026-06-23T14:18:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "136dac67",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:32:11Z"
+    },
+    {
+      "r_number": "R-F1828",
+      "title": "Maigret username enumeration + HIBP email breach check for DD pipeline",
+      "claimed_at": "2026-06-23T14:27:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "caae05f1",
+      "notes": null,
+      "shipped_at": "2026-06-23T14:32:26Z"
+    },
+    {
+      "r_number": "R-F1829",
+      "title": "web DD budget fits proxy window — always deliver partial inline",
+      "claimed_at": "2026-06-23T17:50:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1830",
+      "title": "web DD async-complete-and-push — deep DD delivered out-of-band to reports panel",
+      "claimed_at": "2026-06-23T17:50:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1831",
+      "title": "DD entity resolution — bare-domain name treated as website, resolve real org",
+      "claimed_at": "2026-06-23T18:47:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1832",
+      "title": "AST-aware SAST scanner — kills substring-grep false positives",
+      "claimed_at": "2026-06-23T18:52:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
