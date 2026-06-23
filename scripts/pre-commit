@@ -31,6 +31,7 @@ from pre_commit_checks import (
     ARIA_SERVICE,
     REPO_ROOT,
     check_capability_tests,
+    check_circuit_breaker,
     check_false_success,
     check_windows_compat,
     check_wiring_present,
@@ -191,6 +192,10 @@ def main():
     # Check 7: Built-in shadowing (R-F1518)
     shadow_issues = check_builtin_shadowing(files)
     issues.extend(shadow_issues)
+
+    # Check 8: Circuit-breaker presence on outbound HTTP backends (R-F1791)
+    cb_issues = check_circuit_breaker(files)
+    issues.extend(cb_issues)
 
     if issues:
         print("[pre-commit] VERIFICATION FAILED:")

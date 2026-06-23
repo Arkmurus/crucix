@@ -254,6 +254,83 @@ def check_wiring_present(files: list[Path]) -> list[str]:
     return issues
 
 
+# R-F1791 (cross-check #40, 2026-06-23) — outbound HTTP client constructions.
+# Any new external backend must be guarded by a circuit breaker, else a
+# rate-limiting/dead backend gets hammered every call (the cascade breakers
+# exist to stop — see R-F1790 which fixed three such unguarded paths).
+HTTP_CLIENT_RE = re.compile(
+    r"httpx\.(AsyncClient|Client)\s*\("
+    r"|httpx\.(get|post|put|patch|delete|head)\s*\("
+    r"|aiohttp\.ClientSession\s*\("
+    r"|requests\.(get|post|put|patch|delete|head|Session)\s*\("
+)
+# A module is considered breaker-aware if it references any of these.
+BREAKER_TOKENS = ("get_breaker(", "CircuitBreaker", "circuit_breaker", ".is_open(")
+# Modules exempt from the breaker check (the breaker infra itself, etc.).
+CB_EXEMPT_MODULES = {"circuit_breaker", "self_healing"}
+
+
+def find_http_client_calls(lines: list[str]) -> list[dict]:
+    """Find outbound HTTP-client constructions. Lines carrying the documented
+    opt-out marker ``# no-breaker`` are skipped (e.g. an internal-only call)."""
+    out: list[dict] = []
+    for i, ln in enumerate(lines):
+        if "# no-breaker" in ln:
+            continue
+        if HTTP_CLIENT_RE.search(ln):
+            out.append({"line_num": i + 1, "code": ln.strip()[:120]})
+    return out
+
+
+def module_has_breaker(content: str) -> bool:
+    return any(tok in content for tok in BREAKER_TOKENS)
+
+
+def check_circuit_breaker(files: list[Path]) -> list[str]:
+    """R-F1791 — every changed intel module that makes outbound HTTP calls must
+    reference a circuit breaker (CLAUDE.md §1 root-cause-not-symptom; closes the
+    breaker-gap class confirmed by the 2026-06-23 cross-check, item #40).
+
+    Whole-file heuristic, mirroring check_wiring_present. Documented exception:
+    put ``# no-breaker: <reason>`` on the HTTP-client line (e.g. <app>.internal
+    cross-app calls that never hit a rate-limiting public backend).
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+    for file_path in files:
+        if file_path.suffix != ".py":
+            continue
+        if "intel" not in file_path.parts:
+            continue
+        if "tests" in file_path.parts:
+            continue
+        if file_path.stem in CB_EXEMPT_MODULES:
+            continue
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        http_calls = find_http_client_calls(content.splitlines())
+        if not http_calls:
+            continue
+        if module_has_breaker(content):
+            continue
+
+        issues.append(
+            f"  {file_path.name}: makes outbound HTTP calls but has NO circuit breaker.\n"
+            f"    e.g. line {http_calls[0]['line_num']}: {http_calls[0]['code']}\n"
+            f"    Every external HTTP backend must be guarded (CLAUDE.md §1; cross-check #40):\n"
+            f"      from .circuit_breaker import get_breaker\n"
+            f"      cb = get_breaker('backend:name')\n"
+            f"      if cb.is_open(): return ...      # then cb.record_success()/record_failure()\n"
+            f"    Documented exception: add '# no-breaker: <reason>' to the HTTP-client line."
+        )
+
+    return issues
+
+
 def check_windows_compat(files: list[Path]) -> list[str]:
     """R-F1268 — Check changed files for known Windows-incompatible patterns.
 

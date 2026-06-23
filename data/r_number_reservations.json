@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1783,
+  "next_available": 1792,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12197,6 +12197,95 @@
       "commit_sha": "958a4a58",
       "notes": null,
       "shipped_at": "2026-06-22T13:16:49Z"
+    },
+    {
+      "r_number": "R-F1783",
+      "title": "Wiring gates AST-based decorator detection — kill docstring false-positives that jam Phase 1",
+      "claimed_at": "2026-06-23T07:47:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8db25b47",
+      "notes": null,
+      "shipped_at": "2026-06-23T07:51:47Z"
+    },
+    {
+      "r_number": "R-F1784",
+      "title": "fail_wire control-flow exception allowlist (HTTPException) — stop gap-spam before routes backfill",
+      "claimed_at": "2026-06-23T08:09:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "db4abad7",
+      "notes": null,
+      "shipped_at": "2026-06-23T08:18:34Z"
+    },
+    {
+      "r_number": "R-F1785",
+      "title": "wiring harness scope fix — drop phantom engines, add llm/search_engine/aria_engine/main, hard-error missing target, exempt-key normalize, probe script",
+      "claimed_at": "2026-06-23T08:09:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8500aaca",
+      "notes": null,
+      "shipped_at": "2026-06-23T08:18:34Z"
+    },
+    {
+      "r_number": "R-F1786",
+      "title": "WS3: offload sync CPU in DD orchestrator to threads (render_markdown/classify_matches/build_footer)",
+      "claimed_at": "2026-06-23T08:12:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aed768c0",
+      "notes": null,
+      "shipped_at": "2026-06-23T08:53:29Z"
+    },
+    {
+      "r_number": "R-F1787",
+      "title": "WS3: DD per-layer deadline + partial-report emission on stall",
+      "claimed_at": "2026-06-23T08:12:29Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-06-23T08:25:08Z",
+      "abandon_reason": "redundant — per-layer DD deadline + partial-report emission already implemented by R-F1628 (_clamp + wait_for + partial marking); remaining brain-emit-on-layer-timeout folded into WS2 wiring"
+    },
+    {
+      "r_number": "R-F1788",
+      "title": "Phase 1 batch 1 — wire reasoning_router + symbolic_reasoner + local_brain to brain (engine_failure)",
+      "claimed_at": "2026-06-23T08:41:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aed768c0",
+      "notes": null,
+      "shipped_at": "2026-06-23T08:54:06Z"
+    },
+    {
+      "r_number": "R-F1789",
+      "title": "Phase 1 batch 2 — wiring applicator + wire 35 clean pure-fn intel modules",
+      "claimed_at": "2026-06-23T08:55:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f9cfbc61",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:15:24Z"
+    },
+    {
+      "r_number": "R-F1790",
+      "title": "WS-CB: wire circuit breakers into 3 unprotected HTTP search paths (researcher DDG fallback, self-host SearXNG, wayback page-fetch)",
+      "claimed_at": "2026-06-23T09:02:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1791",
+      "title": "WS-CB: pre-commit guard — flag new HTTP backends lacking a circuit breaker (root-cause for the breaker-gap class)",
+      "claimed_at": "2026-06-23T09:02:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
