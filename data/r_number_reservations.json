@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1796,
+  "next_available": 1801,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12304,23 +12304,71 @@
       "title": "SEC #9: SSE deep-search short-lived ticket auth — stop accepting long-lived JWT in ?token= URL (leak to logs/referer)",
       "claimed_at": "2026-06-23T09:42:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ed22a91",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:52:14Z"
     },
     {
       "r_number": "R-F1794",
       "title": "SEC #13: supply-chain — npm audit + Dependabot for aria-web (+ Node test job in CI)",
       "claimed_at": "2026-06-23T09:42:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ed22a91",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:48:03Z"
     },
     {
       "r_number": "R-F1795",
       "title": "Phase 1 batch 3b — wire agent_signup_vault (ValueError control_flow_exempt on validation methods)",
       "claimed_at": "2026-06-23T09:44:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e8ebdbd9",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:56:44Z"
+    },
+    {
+      "r_number": "R-F1796",
+      "title": "SEC #3/#6: wire CircuitBreaker around Node->brain calls + gate brainAbsorb on bridge verdict (brain-down no longer hangs callers 8s)",
+      "claimed_at": "2026-06-23T09:53:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1797",
+      "title": "SEC #18: graceful SIGTERM shutdown — drain in-flight requests on Fly deploy",
+      "claimed_at": "2026-06-23T09:53:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1798",
+      "title": "SEC #7/#8: Telegram hardening — per-user rate limit + input length cap + update_id dedup",
+      "claimed_at": "2026-06-23T09:53:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1799",
+      "title": "SEC #14: multi-stage Dockerfile.web — drop build tools from runtime image",
+      "claimed_at": "2026-06-23T09:53:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1800",
+      "title": "Phase 1 routes-readiness — applicator innermost+skip-exempt, GATE D HTTPException-aware",
+      "claimed_at": "2026-06-23T10:02:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
