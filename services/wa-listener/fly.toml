@@ -1,6 +1,10 @@
 app = 'aria-wa'
 primary_region = 'lhr'
 
+# R-F1803 (audit #2) — let SIGTERM drain in-flight work on deploy before Fly
+# sends SIGKILL (default 5s). Must be >= SHUTDOWN_GRACE_MS in the listener.
+kill_timeout = '25s'
+
 [build]
   dockerfile = 'Dockerfile'
 

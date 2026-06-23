@@ -96,6 +96,7 @@ import express  from 'express';
 import fs       from 'fs';
 import { createClient } from 'redis';
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
+import { errorTracker } from '../../lib/observability/errorTracker.mjs'; // R-F1802 (audit #1/#3)
 
 // ── Config — all from Seenode env vars ───────────────────────────────────────
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
@@ -132,6 +133,12 @@ const _BRAIN_MAX_RETRIES = 2;
 const _BRAIN_RETRY_DELAY_MS = 1000;
 async function brainFetch(path, options = {}) {
   const lastErr = null;
+  // R-F1802 (audit #1): circuit breaker — when the brain is down, fail fast
+  // instead of 3 retries × 30s on EVERY message. The breaker auto-probes
+  // (HALF_OPEN) after a cooldown, so it recovers on its own.
+  if (!errorTracker.shouldAttempt('wa_brain')) {
+    throw new Error('brain circuit OPEN — skipping fetch (recent consecutive failures)');
+  }
   // R-F1515: try .internal as a fast-path optimization with a short timeout.
   // If it succeeds, great — we got the speed benefit. If it fails (DNS flapping
   // or timeout), fall through to the reliable public URL path.
@@ -139,7 +146,7 @@ async function brainFetch(path, options = {}) {
     try {
       const fastTimeout = options.signal || AbortSignal.timeout(2000);
       const r = await fetch(`${BRAIN_FAST_PATH}${path}`, { ...options, signal: fastTimeout });
-      if (r.ok) return r;
+      if (r.ok) { errorTracker.recordSuccess('wa_brain'); return r; } // R-F1802
       // Non-OK response from .internal — fall through to public URL
     } catch { /* .internal failed — fall through to public URL */ }
   }
@@ -160,6 +167,7 @@ async function brainFetch(path, options = {}) {
           }
         } catch { /* .internal still down — stay on public URL */ }
       }
+      errorTracker.recordSuccess('wa_brain'); // R-F1802: brain reachable → close breaker
       return r;
     } catch (err) {
       if (attempt < _BRAIN_MAX_RETRIES) {
@@ -167,6 +175,7 @@ async function brainFetch(path, options = {}) {
         await new Promise(r => setTimeout(r, _BRAIN_RETRY_DELAY_MS));
         continue;
       }
+      errorTracker.record('wa_brain', 'brain_fetch_failed', err); // R-F1802: trip breaker
       console.error(`[R-F1515] brain fetch FAILED after ${_BRAIN_MAX_RETRIES + 1} attempts: ${err.message}`);
       throw err;
     }
@@ -182,11 +191,12 @@ async function brainFetchHealth(path, timeoutMs = 8000) {
   if (BRAIN_FAST_PATH) {
     try {
       const r = await fetch(`${BRAIN_FAST_PATH}${path}`, { signal: AbortSignal.timeout(2000) });
-      if (r.ok) return r;
+      if (r.ok) { errorTracker.recordSuccess('wa_brain'); return r; } // R-F1802 (#3): healthy probe closes breaker
     } catch { /* fall through to public URL */ }
   }
   // Single attempt on public URL — no retries
   const r = await fetch(`${BRAIN_URL}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+  if (r.ok) errorTracker.recordSuccess('wa_brain'); // R-F1802 (#3): health probe feeds breaker recovery
   return r;
 }
 
@@ -1115,8 +1125,30 @@ async function sendReply(chatId, text, requestId) {
   }
 }
 
+// ── R-F1804 (audit #4) — per-user, per-command rate limit ─────────────────────
+// Compliance commands (/screen /classify /sanctions /risk) are LLM-backed; throttle
+// per user so one sender can't spam them and burn the LLM budget. Same logic as the
+// tested checkTelegramRateLimit helper (R-F1798) — kept local so this standalone app
+// doesn't import the Telegram poller module.
+const _waCmdRateLimits = new Map();
+function _waCmdRateLimited(userId, cmd, now = Date.now()) {
+  const windowMs = 8000;
+  const key = `${userId}:${cmd}`;
+  const last = _waCmdRateLimits.get(key) || 0;
+  if (now - last < windowMs) return true;
+  _waCmdRateLimits.set(key, now);
+  if (_waCmdRateLimits.size > 2000) {
+    for (const [k, v] of _waCmdRateLimits) if (now - v > 60000) _waCmdRateLimits.delete(k);
+  }
+  return false;
+}
+
 // ── Compliance command handlers ─────────────────────────────────────────────
 async function handleCommand(cmd, args, senderJid) {
+  // R-F1804 (audit #4): rate-limit per user before any LLM-backed work.
+  if (_waCmdRateLimited(String(senderJid || 'unknown'), String(cmd || '').toLowerCase())) {
+    return '⏳ Rate limit — please wait a moment before sending that command again.';
+  }
   const a = (args || '').trim().slice(0, 500);
 
   switch (cmd.toLowerCase()) {
@@ -2247,7 +2279,7 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const _httpServer = app.listen(PORT, () => {
   console.log(`[ARIA Listener] API on port ${PORT}`);
   console.log(`[ARIA Listener] GET  /health               — health check (no auth)`);
   console.log(`[ARIA Listener] GET  /status               — connection status`);
@@ -2256,6 +2288,32 @@ app.listen(PORT, () => {
   console.log(`[ARIA Listener] POST /api/wa-listener/send     — outbound (brain proactive sends)`);
   console.log(`[ARIA Listener] POST /api/wa-listener/callback — async job callback (R-F1413)`);
 });
+
+// ── R-F1803 (audit #2) — graceful shutdown ────────────────────────────────────
+// Fly sends SIGTERM on every deploy; without this the HTTP server + any
+// in-flight message processing are killed abruptly. Stop accepting new
+// connections, let in-flight finish (bounded by SHUTDOWN_GRACE_MS < the wa
+// fly kill_timeout), then exit cleanly. Baileys' socket closes on process exit.
+let _waShuttingDown = false;
+function _waGracefulShutdown(signal) {
+  if (_waShuttingDown) return;
+  _waShuttingDown = true;
+  console.log(`[ARIA Listener] ${signal} received — draining (graceful shutdown)…`);
+  try { if (_watchdogTimer) clearInterval(_watchdogTimer); } catch { /* noop */ }
+  const graceMs = Number(process.env.SHUTDOWN_GRACE_MS || 20000);
+  const forceTimer = setTimeout(() => {
+    console.warn('[ARIA Listener] drain timeout — forcing exit');
+    process.exit(0);
+  }, graceMs);
+  forceTimer.unref?.();
+  _httpServer.close(() => {
+    clearTimeout(forceTimer);
+    console.log('[ARIA Listener] HTTP drained — exiting cleanly');
+    process.exit(0);
+  });
+}
+process.on('SIGTERM', () => _waGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => _waGracefulShutdown('SIGINT'));
 
 // ── R-F1551 — connection watchdog ─────────────────────────────────────────────
 // Periodically checks that the WhatsApp connection is alive. If the listener
