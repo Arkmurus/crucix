@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1816,
+  "next_available": 1819,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12504,18 +12504,20 @@
       "title": "SEC C1 — ownership check on conversations export/search + admin/brain (cross-tenant chat disclosure)",
       "claimed_at": "2026-06-23T11:48:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "308d7e8d",
+      "notes": null,
+      "shipped_at": "2026-06-23T13:20:08Z"
     },
     {
       "r_number": "R-F1814",
       "title": "SEC C2 — SSRF-safe fetch wrapper applied to document_reader._resolve_source + link_investigator._fetch_page (internal read-back + local-file read)",
       "claimed_at": "2026-06-23T11:48:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "308d7e8d",
+      "notes": null,
+      "shipped_at": "2026-06-23T13:20:08Z"
     },
     {
       "r_number": "R-F1815",
@@ -12526,6 +12528,34 @@
       "commit_sha": "51df89b0",
       "notes": null,
       "shipped_at": "2026-06-23T13:02:37Z"
+    },
+    {
+      "r_number": "R-F1816",
+      "title": "Wire+render R-F1812 people dossiers + per-fact citations into DD report (web+wa delivery); flag web proxy timeout<brain deadline",
+      "claimed_at": "2026-06-23T13:14:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a54b2868",
+      "notes": null,
+      "shipped_at": "2026-06-23T13:20:48Z"
+    },
+    {
+      "r_number": "R-F1817",
+      "title": "SEC H2 — sweep hardcoded 'aria-internal' token defaults to fail-closed (||'' + warn)",
+      "claimed_at": "2026-06-23T13:20:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1818",
+      "title": "SEC H4 — admin-gate destructive/control proxy routes (self/code, operating-mode, knowledge/fact, purge-*)",
+      "claimed_at": "2026-06-23T13:20:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -133,7 +133,11 @@ const BRAIN_URL       = BRAIN_PUBLIC;
 const BRAIN_FAST_PATH = BRAIN_INTERNAL;
 let _brainFallbackActive = false;  // tracks whether we're currently using the fallback
 let _lastProbeTime = 0;
-const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
+const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || '';
+// R-F1817 (audit H2): fail-closed — no hardcoded 'aria-internal' fallback (it was
+// public in the repo). requireAuth rejects when INT_TOKEN is empty (token && …).
+// Warn loudly so an unset secret is visible rather than silently auth-disabled.
+if (!INT_TOKEN) console.error('[wa] SECURITY: ARIA_INTERNAL_TOKEN unset - endpoints are auth-DISABLED (fail-closed: all requests 401). Set the secret.');
 
 // R-F1515: resilient fetch with dual-path strategy.
 // Primary: public URL (reliable, through Fly proxy).
