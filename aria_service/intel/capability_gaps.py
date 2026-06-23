@@ -212,6 +212,7 @@ async def record_gap(
     source: str = "",
     user_id: str = "",
     sector: str = "",
+    severity: "int | str" = 0,
 ) -> dict:
     """Record a capability gap to Redis.
 
@@ -226,6 +227,12 @@ async def record_gap(
                  banking_insurance / journalist / government_acquisition).
                  Carried on every gap entry so per-sector reports can
                  surface "compliance officers have hit X gap N times".
+        severity: R-F1843 — optional severity tag (int 1-5 or a string like
+                 "HIGH"). The self-monitoring agents (continuous_profiler,
+                 deadlock_detector, memory_leak_detector, web_integrity_agent)
+                 already pass this; before R-F1843 record_gap rejected it with
+                 TypeError, so those monitors' gaps were SILENTLY DROPPED (dark
+                 §21 wiring). Accepted + stored now; default 0 = unspecified.
 
     Returns:
         The stored gap entry dict.
@@ -261,6 +268,8 @@ async def record_gap(
         # sweep-driven gaps preserve the existing shape.
         "user_id": (user_id or "").strip()[:64],
         "sector": (sector or "").strip()[:64],
+        # R-F1843: severity tag from the self-monitoring agents (int or str).
+        "severity": severity,
     }
 
     # R-F1351: persist the gap as a CRITICAL write. Pre-R-F1351 a dropped
