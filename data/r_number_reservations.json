@@ -12793,18 +12793,20 @@
       "title": "P0 fix: /dd/orchestrate 500s on every call (keyword-only canonical_entity_id + wrong logger name)",
       "claimed_at": "2026-06-23T20:23:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89578c38",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:42:23Z"
     },
     {
       "r_number": "R-F1843",
       "title": "record_gap accept optional severity — unblock 4 dark self-monitors",
       "claimed_at": "2026-06-23T20:27:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89578c38",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:42:23Z"
     }
   ]
 }
