@@ -13676,7 +13676,7 @@ async def semantic_stats_ep():
 # to grep across 6 different stats endpoints.
 @router.get("/admin/brain/{session_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def admin_brain_ep(session_id: str, query: str = ""):
+async def admin_brain_ep(session_id: str, query: str = "", user_id: str = ""):
     """Returns a unified snapshot of what each brain layer holds for
     a given session. Optional `query` param scopes RAG / neural recall
     to a specific topic for relevance-style debugging.
@@ -13684,7 +13684,16 @@ async def admin_brain_ep(session_id: str, query: str = ""):
     Each layer is wrapped in its own try/except so a failure in one
     layer doesn't kill the rest of the snapshot — partial visibility
     beats no visibility.
+
+    R-F1813 (audit C1): require user_id + session ownership — pre-fix this exposed
+    ANY session's full brain state (history/RAG/neural) by id. Operator
+    cross-session debug moves to the operator-scoped token in Phase 3.
     """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    from ..intel import conversation_store as _cs1813
+    if not await _cs1813.get_conversation(session_id, user_id=user_id):
+        raise HTTPException(status_code=404, detail="Session not found")
     import inspect as _inspect
     out: dict = {"session_id": session_id, "query": query or None}
 
@@ -15541,25 +15550,34 @@ async def validate_hypotheses_batch_ep(request: Request):
 
 @router.get("/conversations/search")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def search_conversations(q: str = "", limit: int = 50):
-    """Full-text search across ARIA conversation history."""
-    keys = await rs.scan_keys("crucix:aria:session:*", count=500)
-    if not keys:
-        return {"results": [], "total": 0, "query": q}
+async def search_conversations(q: str = "", limit: int = 50, user_id: str = ""):
+    """Full-text search across the CALLER'S OWN conversation history.
+
+    R-F1813 (audit C1): previously scanned crucix:aria:session:* across ALL users
+    and returned previews + matching message bodies of any session — a cross-tenant
+    chat disclosure. Now requires user_id and searches ONLY that user's
+    conversations (ownership enforced by conversation_store on every fetch). Node
+    pins user_id from the JWT, so the client cannot search another user's history.
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    from ..intel import conversation_store
+    convos = await conversation_store.list_conversations(user_id, offset=0, limit=500)
 
     results = []
     query_lower = q.lower().strip()
 
-    for key in keys:
+    for _c in convos:
         try:
-            session = await rs.get_json(key)
+            session_id = _c.get("session_id") or ""
+            if not session_id:
+                continue
+            session = await conversation_store.get_conversation(session_id, user_id=user_id)
             if not session or not isinstance(session, dict):
                 continue
             messages = session.get("messages", [])
             if not messages:
                 continue
-
-            session_id = key.replace("crucix:aria:session:", "")
 
             # If no query, return all sessions with metadata
             if not query_lower:
@@ -15603,10 +15621,18 @@ async def search_conversations(q: str = "", limit: int = 50):
 
 @router.get("/conversations/export")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def export_conversation(session_id: str, format: str = "json"):
-    """Export a conversation transcript."""
-    key = f"crucix:aria:session:{session_id}"
-    session = await rs.get_json(key)
+async def export_conversation(session_id: str, format: str = "json", user_id: str = ""):
+    """Export a conversation transcript.
+
+    R-F1813 (audit C1): require user_id + ownership. Pre-fix this read
+    crucix:aria:session:{id} directly with NO ownership check — any token holder
+    could export any user's full transcript by id. conversation_store.get_conversation
+    enforces meta.userId == user_id; Node pins user_id from the JWT (not client input).
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    from ..intel import conversation_store
+    session = await conversation_store.get_conversation(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 

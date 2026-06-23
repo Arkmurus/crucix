@@ -3448,6 +3448,35 @@ app.get('/api/aria/conversations', requireAuth, async (req, res) => {
   });
 });
 
+// R-F1813 (audit C1): explicit pinned routes for conversation export/search +
+// admin/brain. Without these, export/search are shadowed by /:sessionId and
+// admin/brain falls to the catch-all (which forwards the client query string),
+// letting an attacker pass ?user_id=<victim> and defeat the brain ownership check.
+// Pin user_id from the JWT and STRIP any client-supplied user_id.
+app.get('/api/aria/conversations/export', requireAuth, async (req, res) => {
+  const userId = stableUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const sid = encodeURIComponent(req.query.session_id || '');
+  const fmt = encodeURIComponent(req.query.format || 'json');
+  await ariaProxy(req, res, `/api/aria/conversations/export?session_id=${sid}&format=${fmt}&user_id=${encodeURIComponent(userId)}`, { fallback: null });
+});
+
+app.get('/api/aria/conversations/search', requireAuth, async (req, res) => {
+  const userId = stableUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const q = encodeURIComponent(req.query.q || '');
+  const limit = encodeURIComponent(req.query.limit || '50');
+  await ariaProxy(req, res, `/api/aria/conversations/search?q=${q}&limit=${limit}&user_id=${encodeURIComponent(userId)}`, { fallback: null });
+});
+
+app.get('/api/aria/admin/brain/:sessionId', requireAuth, async (req, res) => {
+  const userId = stableUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const sid = encodeURIComponent(req.params.sessionId);
+  const query = encodeURIComponent(req.query.query || '');
+  await ariaProxy(req, res, `/api/aria/admin/brain/${sid}?query=${query}&user_id=${encodeURIComponent(userId)}`, { fallback: null });
+});
+
 app.get('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
   // R-F606 (2026-05-16): forward the JWT-derived user_id to the Python
   // backend so it can enforce ownership. Pre-R-F606 we proxied only the

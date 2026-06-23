@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1812,
+  "next_available": 1816,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12455,18 +12455,20 @@
       "title": "IAST-lite sensor harness — instrument dangerous sinks during QA run, correlate runtime sink-hits to source, confirmed-exploitable-only report",
       "claimed_at": "2026-06-23T10:53:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "667aa4de",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:27:44Z"
     },
     {
       "r_number": "R-F1809",
       "title": "Phase 1 batch 6 — wire autonomous/ + llm/ + search_engine/ (ProviderError/cost-breaker/validation exempts)",
       "claimed_at": "2026-06-23T11:04:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "667aa4de",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:27:54Z"
     },
     {
       "r_number": "R-F1810",
@@ -12483,9 +12485,47 @@
       "title": "SEC SSRF — _extract_entity_from_url fetches user-controlled DD url with no guard; block private/loopback/link-local/.internal + validate redirect hops",
       "claimed_at": "2026-06-23T11:15:49Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "667aa4de",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:27:44Z"
+    },
+    {
+      "r_number": "R-F1812",
+      "title": "DD depth — targeted person/procurement/native-lang fan-out + per-fact citations + bounded recursive investigate_person",
+      "claimed_at": "2026-06-23T11:48:05Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F1813",
+      "title": "SEC C1 — ownership check on conversations export/search + admin/brain (cross-tenant chat disclosure)",
+      "claimed_at": "2026-06-23T11:48:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1814",
+      "title": "SEC C2 — SSRF-safe fetch wrapper applied to document_reader._resolve_source + link_investigator._fetch_page (internal read-back + local-file read)",
+      "claimed_at": "2026-06-23T11:48:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1815",
+      "title": "DD jurisdiction fallback chain",
+      "claimed_at": "2026-06-23T12:31:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "51df89b0",
+      "notes": null,
+      "shipped_at": "2026-06-23T13:02:37Z"
     }
   ]
 }
