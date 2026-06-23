@@ -2745,11 +2745,18 @@ app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) => {
   req.body = req.body || {};
   req.body.user_id = userId;
   if (userEmail) req.body.user_email = userEmail;
+  const t0 = Date.now();
+  const requestId = req.body.request_id || `web_dd_${userId.replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`;
   return ariaProxy(req, res, '/api/aria/dd/orchestrate', {
     method: 'POST',
-    timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '600000', 10),
-    fallback: async () => res.status(503).json(_brainFallback()),
-  });
+    timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '810000', 10),
+    fallback: async ({ lastStatus, lastErr } = {}) => {
+      reportOutcome('web', requestId, 'dd_report', 'timeout', Date.now() - t0, lastErr || 'brain timeout');
+      res.status(503).json(_brainFallback());
+    },
+  }).then(() => {
+    reportOutcome('web', requestId, 'dd_report', 'delivered', Date.now() - t0);
+  }).catch(() => {});
 });
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));

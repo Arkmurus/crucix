@@ -745,6 +745,10 @@ async def dd_report_ep(run_id: str, format: str = "json", user_id: str = ""):
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     if format == "markdown":
         from ..intel import dd_schema
+        # R-F1847: if the stored report already has a rendered markdown, use it
+        _rendered = report.get("rendered") or report.get("synthesis", {}).get("rendered_markdown", "")
+        if _rendered:
+            return {"run_id": run_id, "markdown": _rendered}
         try:
             rebuilt = _rebuild_report_from_dict(report, dd_schema)
             _md = await asyncio.to_thread(rebuilt.render_markdown, concise=False)  # R-F1786
