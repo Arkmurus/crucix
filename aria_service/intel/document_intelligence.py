@@ -32,6 +32,7 @@ from typing import Any, Optional
 from . import document_corrections as _corr
 from .knowledge import store_fact
 from .llm_json import parse_llm_json
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.doc_intel")
 
@@ -477,6 +478,7 @@ _FORM_HINTS: list[tuple[str, str]] = [
 ]
 
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 def classify_document(text: str, filename: str = "") -> str:
     """Return a form code from FORM_CATALOGUE, or 'GEN_DOCUMENT' as fallback.
 
@@ -535,6 +537,7 @@ def _strip_fences(s: str) -> str:
     return _JSON_FENCE_RE.sub("", s.strip())
 
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 async def extract_structured(
     text: str,
     form_code: str,
@@ -612,6 +615,7 @@ def _addr_normalise(a: Optional[str]) -> str:
     return re.sub(r"[\s,.\-/]+", " ", a.strip().lower())
 
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 def analyse_redflags(structured: dict, form_code: str) -> list[dict]:
     """Apply form-specific + universal red-flag rules to the extracted JSON.
 
@@ -730,6 +734,7 @@ def analyse_redflags(structured: dict, form_code: str) -> list[dict]:
 _SEVERITY_BADGE = {"high": "🔴", "medium": "🟠", "low": "🟡"}
 
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 def render_overview(form_code: str, structured: dict, redflags: list[dict]) -> str:
     """Build a WhatsApp-friendly markdown overview from the extracted JSON.
 
@@ -856,6 +861,7 @@ def render_overview(form_code: str, structured: dict, redflags: list[dict]) -> s
 
 # ── PERSISTENCE ─────────────────────────────────────────────────────────────
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 async def persist_filing(structured: dict, form_code: str, source: str) -> None:
     """Write the most useful facts from a registry filing into the knowledge
     base. Each entity / officer / shareholder becomes a Tier-1 fact when
@@ -996,6 +1002,7 @@ async def persist_filing(structured: dict, form_code: str, source: str) -> None:
 
 # ── ORCHESTRATOR ────────────────────────────────────────────────────────────
 
+@fail_wire(module="document_intelligence", gap_type="file_parse")
 async def process_document(
     *,
     text: str,

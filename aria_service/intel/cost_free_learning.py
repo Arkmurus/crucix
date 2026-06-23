@@ -60,6 +60,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.cost_free_learning")
 
@@ -91,6 +92,7 @@ def _decay_factor(seconds_since_touch: float, *,
     return max(MASTERY_DECAY_FLOOR, factor)
 
 
+@fail_wire(module="cost_free_learning", gap_type="engine_failure")
 def compute_mastery_decay(
     mastery: dict[str, dict[str, Any]],
     *,
@@ -151,6 +153,7 @@ _CONSTITUTION_ANCHORS: list[tuple[str, str]] = [
 ]
 
 
+@fail_wire(module="cost_free_learning", gap_type="engine_failure")
 def replay_mistakes_against_constitution(
     mistakes: list[dict],
     *,
@@ -235,6 +238,7 @@ class CorroborationCandidate:
     first_seen: float = 0.0
 
 
+@fail_wire(module="cost_free_learning", gap_type="engine_failure")
 def find_corroboration_candidates(
     signals: list[dict],
     *,
@@ -281,6 +285,7 @@ def find_corroboration_candidates(
 _CITATION_RX = re.compile(r"\[(?:from\s+|cite[:\s]+)([^\]]+)\]", re.I)
 
 
+@fail_wire(module="cost_free_learning", gap_type="engine_failure")
 def distill_qa_candidates(
     audit_entries: list[dict],
     *,
@@ -331,6 +336,7 @@ def _write_enabled() -> bool:
     return os.environ.get("ARIA_COST_FREE_LEARN_WRITE", "").strip() == "1"
 
 
+@fail_wire(module="cost_free_learning", gap_type="engine_failure")
 async def run_preview() -> dict[str, Any]:
     """Run all four loops in dry-run mode. Returns a summary panel.
 

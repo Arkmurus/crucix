@@ -63,6 +63,7 @@ import uuid
 from typing import Any, Optional
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.reasoning_library")
 
@@ -114,6 +115,7 @@ def _is_trivial_question(q: str) -> bool:
     return bool(_TRIVIAL_QUESTION_RE.match(q.strip()))
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 def trivial_reply(q: str) -> str | None:
     """Return a fixed reply for a trivial question (greeting / liveness /
     identity probe), or None if the question isn't trivial. Used by the
@@ -622,6 +624,7 @@ def _looks_like_periodic_brief(q_lower: str) -> bool:
     return bool(_PERIODIC_BRIEF_RE.search(q_lower))
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def record_response(
     question: str,
     response: str,
@@ -776,6 +779,7 @@ def _index_cache_set(new_index: list[dict]) -> None:
 
 # ── Public API: looking up cases ────────────────────────────────────────────
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOLD) -> dict:
     """Find the best matching case for a new question.
 
@@ -957,6 +961,7 @@ def _recency_multiplier(ts_last_used: float) -> float:
 
 # ── Public API: purge polluted cases ───────────────────────────────────────
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
     """Scan the case library and remove entries whose stored response is a
     correction acknowledgement, an apology, or otherwise context-bound to
@@ -1048,6 +1053,7 @@ async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
     }
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def purge_by_keywords(
     keywords: list[str],
     *,
@@ -1187,6 +1193,7 @@ _CAPABILITY_HALLUCINATION_NEEDLES: tuple[str, ...] = (
 )
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def purge_capability_hallucinations(*, dry_run: bool = False) -> dict:
     """R-F605: remove cached responses containing the 2026-05-16
     capability-overview hallucinations + the 2026-04-24 OpenClaw
@@ -1203,6 +1210,7 @@ async def purge_capability_hallucinations(*, dry_run: bool = False) -> dict:
 
 # ── Public API: outcome feedback ────────────────────────────────────────────
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def record_outcome(case_id: str, positive: bool) -> dict:
     """Mark a case as having a positive (user accepted) or negative (user
     corrected) outcome. Used by the learning loop to upweight good cases
@@ -1231,6 +1239,7 @@ async def record_outcome(case_id: str, positive: bool) -> dict:
 
 # ── Public API: stats and consolidation ─────────────────────────────────────
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def get_stats() -> dict:
     meta = await _load_meta()
     index = await _load_index()
@@ -1263,6 +1272,7 @@ async def get_stats() -> dict:
     }
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def purge_unsafe_cases() -> dict:
     """One-shot cleanup: remove cached cases whose normalised question has
     fewer than MIN_SALIENT_TOKENS tokens. These are the entries that caused
@@ -1302,6 +1312,7 @@ async def purge_unsafe_cases() -> dict:
     return {"purged": purged, "remaining": len(new_index)}
 
 
+@fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def consolidate() -> dict:
     """Periodic maintenance: prune stale low-quality cases, promote high-quality."""
     index = await _load_index()

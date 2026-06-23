@@ -38,6 +38,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.memory_wal")
 
@@ -65,6 +66,7 @@ def _ensure_dir() -> bool:
             return False
 
 
+@fail_wire(module="memory_wal", gap_type="engine_failure")
 def record_pending_fact(topic: str, content: str, source: str,
                         confidence: str) -> bool:
     """Append one fact to the durable WAL. Never raises. Returns True on write.
@@ -95,6 +97,7 @@ def record_pending_fact(topic: str, content: str, source: str,
         return False
 
 
+@fail_wire(module="memory_wal", gap_type="engine_failure")
 def pending_count() -> int:
     try:
         if not _WAL_PATH.exists():
@@ -105,10 +108,12 @@ def pending_count() -> int:
         return 0
 
 
+@fail_wire(module="memory_wal", gap_type="engine_failure")
 def get_stats() -> dict:
     return {**_stats, "pending": pending_count(), "path": str(_WAL_PATH)}
 
 
+@fail_wire(module="memory_wal", gap_type="engine_failure")
 async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
     """Re-attempt queued facts; keep only the ones that still fail.
 

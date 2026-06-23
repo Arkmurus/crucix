@@ -31,6 +31,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.country_sanctions")
 
@@ -657,6 +658,7 @@ def _normalise_country(name: str) -> str | None:
     return None
 
 
+@fail_wire(module="country_sanctions", gap_type="source_failure")
 def lookup_country(country: str, source: str | None = None) -> list[SanctionsRegime]:
     """Look up sanctions regimes for a country.
 
@@ -678,6 +680,7 @@ def lookup_country(country: str, source: str | None = None) -> list[SanctionsReg
     return regimes
 
 
+@fail_wire(module="country_sanctions", gap_type="source_failure")
 def format_regime_answer(country: str, source: str | None = None) -> dict:
     """Format a human-readable sanctions regime answer for a country.
 

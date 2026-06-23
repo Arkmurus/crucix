@@ -15,6 +15,7 @@ import os
 from typing import Any, Optional
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.github_search")
 
@@ -36,6 +37,7 @@ def _headers() -> dict[str, str]:
     return h
 
 
+@fail_wire(module="github_search", gap_type="api_missing")
 async def search_code(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Search GitHub code for a query.
 
@@ -81,6 +83,7 @@ async def search_code(query: str, max_results: int = 5) -> list[dict[str, Any]]:
         return []
 
 
+@fail_wire(module="github_search", gap_type="api_missing")
 async def search_repositories(
     query: str,
     max_results: int = 5,
@@ -135,6 +138,7 @@ async def search_repositories(
         return []
 
 
+@fail_wire(module="github_search", gap_type="api_missing")
 async def search_organization(org_name: str) -> Optional[dict[str, Any]]:
     """Get GitHub organization profile.
 
@@ -178,6 +182,7 @@ async def search_organization(org_name: str) -> Optional[dict[str, Any]]:
         return None
 
 
+@fail_wire(module="github_search", gap_type="api_missing")
 async def search_company(company_name: str) -> dict[str, Any]:
     """Comprehensive GitHub search for a company.
 

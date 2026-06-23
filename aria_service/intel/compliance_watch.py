@@ -36,6 +36,7 @@ logger = logging.getLogger("aria.intel.compliance_watch")
 # R-F1165 — wire to brain on capture success/failure so ARIA learns
 # from compliance evidentiary capture health.
 from .engine_wiring import wire_success, wire_failure
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 _LOG_KEY = "crucix:aria:compliance_watch:log"      # lpush → newest at index 0
 _SEQ_KEY = "crucix:aria:compliance_watch:seq"
@@ -69,6 +70,7 @@ async def _head_hash() -> str:
     return _GENESIS
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def capture_message(*, group: str, sender: str, text: str,
                           timestamp: str = "", channel: str = "whatsapp") -> dict:
     """Append one attributed, hash-chained message to the evidentiary store.
@@ -111,6 +113,7 @@ async def capture_message(*, group: str, sender: str, text: str,
         return {"captured": False, "error": str(e)[:200]}
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def get_captured(*, since_epoch: Optional[float] = None,
                        group: Optional[str] = None, limit: int = 500) -> list[dict]:
     """Return captured messages newest-first, optionally filtered by group and/or
@@ -138,6 +141,7 @@ async def get_captured(*, since_epoch: Optional[float] = None,
     return out
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def verify_chain(limit: int = 1000) -> dict:
     """Walk the recent chain newest→oldest, confirming each record's own hash
     AND its linkage to the next-older record. Returns
@@ -175,6 +179,7 @@ async def verify_chain(limit: int = 1000) -> dict:
         return {"ok": False, "checked": 0, "error": str(e)[:200]}
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def stats() -> dict:
     """Coverage stats for the capture store."""
     try:
@@ -289,6 +294,7 @@ def _finding(*, category: str, severity: str, rec: dict, read: str, action: str,
     return f
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 def analyse_message(rec: dict) -> list[dict]:
     """Per-message deterministic analysis: risk lexicon + linguistic deception.
     Cheap (no LLM). Returns zero or more grounded findings."""
@@ -353,6 +359,7 @@ def analyse_message(rec: dict) -> list[dict]:
     return findings
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 def detect_blind_spots(records: list[dict]) -> list[dict]:
     """Flag clear asks/deadlines that went UNANSWERED in the window — things
     the principal/team may have missed. Conservative: only fires on an explicit
@@ -388,6 +395,7 @@ def detect_blind_spots(records: list[dict]) -> list[dict]:
     return findings
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 def detect_contradictions(records: list[dict]) -> list[dict]:
     """Conservative same-sender reversal detector (deterministic, no LLM): a
     sender who later explicitly reverses/corrects an earlier statement. Low
@@ -413,6 +421,7 @@ def detect_contradictions(records: list[dict]) -> list[dict]:
     return findings
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def analyse_window(*, window_hours: float = 24.0, group: Optional[str] = None,
                          limit: int = 2000) -> dict:
     """Pull the recent capture window and run every analysis lane. Returns
@@ -444,6 +453,7 @@ async def analyse_window(*, window_hours: float = 24.0, group: Optional[str] = N
 # SLICE 4 — FEEDBACK LOOP + coverage ledger (R-F936)
 # ═════════════════════════════════════════════════════════════════════════════
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def record_findings_to_brain(findings: list[dict]) -> None:
     """Feed findings into ARIA's brain so she learns patterns + the operator
     dashboard/coder can see them. Best-effort; never raises."""
@@ -464,6 +474,7 @@ async def record_findings_to_brain(findings: list[dict]) -> None:
         logger.debug("record_findings_to_brain failed (non-fatal): %s", e)
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def mark_analysed(seq: int) -> None:
     try:
         from . import redis_store as rs
@@ -474,6 +485,7 @@ async def mark_analysed(seq: int) -> None:
         pass
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def coverage_report() -> dict:
     """The 'nothing missed' proof: total captured vs highest seq analysed.
     A positive gap = messages captured but not yet analysed."""
@@ -505,6 +517,7 @@ async def coverage_report() -> dict:
 # SLICE 3 — PRIVATE DELIVERY: structured digest emailed to the principal (R-F935)
 # ═════════════════════════════════════════════════════════════════════════════
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 def format_digest(findings: list[dict], *, period_label: str, coverage: Optional[dict] = None) -> tuple[str, str]:
     """Render (subject, body) — structured exactly per the spec:
     Subject · Group · Person · Time · verbatim quote · ARIA's read · action · confidence."""
@@ -541,6 +554,7 @@ def format_digest(findings: list[dict], *, period_label: str, coverage: Optional
     return subject, "\n".join(lines)
 
 
+@fail_wire(module="compliance_watch", gap_type="engine_failure")
 async def run_compliance_watch(*, window_hours: float = 24.0, urgent_only: bool = False,
                                period_label: str = "") -> dict:
     """End-to-end: analyse the window → (feedback to brain + coverage) → email the

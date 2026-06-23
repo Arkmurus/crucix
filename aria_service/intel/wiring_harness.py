@@ -204,6 +204,17 @@ WIRED_MODULES: set[str] = {
     "reasoning_router",
     "symbolic_reasoner",
     "local_brain",
+    # R-F1789 — Phase 1 batch 2 (35 clean pure-fn intel modules, applicator-wired)
+    "brain_hook", "brain_hook_bg", "brave_answers", "capability_gaps",
+    "companies_house", "compliance_watch", "compliance_workflow",
+    "continuous_learner", "cost_free_learning", "country_sanctions",
+    "dd_case_library", "dd_layer_extensions", "dd_trigger_pipeline",
+    "dd_versioning", "document_intelligence", "file_type_detector",
+    "github_search", "knowledge", "learning_progress", "memory_wal",
+    "neural_memory", "news_monitor", "ocr", "pdf_deep_ingest",
+    "portal_coverage_audit", "portal_registry", "reasoning_library",
+    "registration_check", "research_tasks", "researcher", "sanctions",
+    "search_searxng", "sipri_ingest", "sipri_knowledge", "student",
 }
 
 # Modules that are fully reviewed and exempt from wiring

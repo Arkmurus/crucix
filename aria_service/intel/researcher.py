@@ -33,6 +33,7 @@ from .ua_rotation import random_ua
 from .knowledge import store_fact, search_knowledge
 from . import knowledge as _kb_mod
 from . import intel_ledger as _ledger_mod
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.researcher")
 
@@ -2017,6 +2018,7 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
 
 # ── Public: Web search (Brave API preferred, DuckDuckGo HTML fallback) ──────
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) -> dict:
     """Perform a web search and return structured results.
 
@@ -2297,6 +2299,7 @@ def _score_url_by_domain_tier(url: str) -> int:
     return 10
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def deep_research(
     entity: str,
     *,
@@ -2974,6 +2977,7 @@ def _collect_internal_dd_links(homepage_html: str, base_url: str, max_links: int
     return [url for url, _ in sorted_links[:max_links]]
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) -> dict:
     """Multi-page DD extraction. Fetches the URL plus N high-value internal
     links (about / team / contact / products / leadership / etc.), aggregates
@@ -3169,6 +3173,7 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
 
 # ── Public: Fast URL text extraction (no LLM, no RAG) ────────────────────────
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     """Fetch a URL and return STRUCTURED extracted text. NO LLM call, NO RAG ingest.
 
@@ -3393,6 +3398,7 @@ def _is_static_asset_url(url: str) -> bool:
     return False
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     """
     Read a specific article URL and extract intelligence.
@@ -3495,6 +3501,7 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
 
 # ── Public: Read a document (PDF, DOCX, text — already extracted) ────────────
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def read_document(
     llm: LLMProvider,
     content: str,
@@ -3709,6 +3716,7 @@ async def read_document(
 
 # ── Public: Autonomous research cycle ────────────────────────────────────────
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     """
     ARIA's autonomous research cycle:
@@ -3908,6 +3916,7 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
 
 # ── Public: Validate a hypothesis ────────────────────────────────────────────
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     """Search for evidence to validate or refute a specific hypothesis.
 
@@ -4030,10 +4039,12 @@ Return JSON:
     return await _exit({"hypothesis": target["hypothesis"], "status": "EVALUATION_FAILED"})
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def get_hypotheses() -> list[dict]:
     return await _load_hypotheses()
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def get_research_summary(llm: LLMProvider) -> dict:
     hypotheses = await _load_hypotheses()
     kb_size = len((_kb_mod._cache or {}).get("facts", []))
@@ -4089,6 +4100,7 @@ async def get_research_summary(llm: LLMProvider) -> dict:
 # + cost expectations (each entity = 20-50 new searches; circuit breakers
 # in place per R-F150 for backends that 202/429).
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def run_adverse_media_deep_search(
     entity_name: str,
     *,

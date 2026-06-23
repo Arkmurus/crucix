@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.knowledge")
 
@@ -708,6 +709,7 @@ async def _save() -> None:
     _ensure_flusher()
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def flush() -> None:
     """Force an immediate disk flush. Call from shutdown hooks or tests
     that need to assert on-disk state without waiting for the debounced
@@ -715,6 +717,7 @@ async def flush() -> None:
     await _flush_to_disk()
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def shutdown() -> None:
     """Stop the background flusher and write any pending changes."""
     global _flusher_stop, _flush_task
@@ -731,6 +734,7 @@ async def shutdown() -> None:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def get_all_facts() -> list[dict]:
     """Return all facts in the knowledge base (for security audit scanning)."""
     cache = await _load()
@@ -745,6 +749,7 @@ async def get_all_facts() -> list[dict]:
     return cache.get("facts", [])
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def init() -> None:
     await _load()
     facts = (_cache or {}).get("facts", [])
@@ -1043,6 +1048,7 @@ async def _do_verify(
         pass
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def store_fact(topic: str, content: str, source: str = "user",
                      confidence: str = "CONFIRMED",
                      *,
@@ -1366,6 +1372,7 @@ async def store_fact(topic: str, content: str, source: str = "user",
     return {"action": "created", "fact_id": new_id, "contradictions": contradictions}
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def get_contradictions(limit: int = 50) -> list[dict]:
     """Return facts that have detected contradictions or version history.
 
@@ -1391,6 +1398,7 @@ async def get_contradictions(limit: int = 50) -> list[dict]:
     return result
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def record_query(query: str, summary: str, market: str = "", category: str = "") -> None:
     db = await _load()
     db["queries"].insert(0, {
@@ -1406,6 +1414,7 @@ async def record_query(query: str, summary: str, market: str = "", category: str
     await _save()
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def store_learning(correction: str, context: str = "") -> None:
     db = await _load()
     db["learnings"].insert(0, {
@@ -1419,6 +1428,7 @@ async def store_learning(correction: str, context: str = "") -> None:
     await _save()
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 def all_facts() -> list[dict]:
     """R-F164 (2026-05-11): expose the raw fact list to callers that need
     structured access. coverage_heatmap._count_facts_for_cell was using
@@ -1438,6 +1448,7 @@ def all_facts() -> list[dict]:
     return list(facts) if isinstance(facts, list) else []
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
     """R-F245 (2026-05-11): tag-aware fact retrieval.
 
@@ -1515,6 +1526,7 @@ def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
     return matches[: max(1, min(limit, 200))]
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 def search_knowledge(query: str) -> str:
     """Synchronous search for prompt injection. Returns formatted string."""
     if not _cache:
@@ -1583,6 +1595,7 @@ def search_knowledge(query: str) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def auto_extract_facts(
     user_query: str,
     aria_response: str,
@@ -1630,6 +1643,7 @@ async def auto_extract_facts(
                 asyncio.create_task(store_fact(topic, text, "aria_auto_verified", conf))
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def extract_facts_from_reading(
     article_text: str,
     *,
@@ -1691,6 +1705,7 @@ async def extract_facts_from_reading(
     return n
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def consolidate_facts() -> dict:
     """Merge near-duplicate facts and prune stale ones."""
     from datetime import datetime, timezone
@@ -1780,6 +1795,7 @@ async def consolidate_facts() -> dict:
     }
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def get_stats() -> dict:
     db = await _load()
     return {
@@ -1789,6 +1805,7 @@ async def get_stats() -> dict:
     }
 
 
+@fail_wire(module="knowledge", gap_type="engine_failure")
 async def purge_by_keywords(
     keywords: list[str],
     *,

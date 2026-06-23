@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.companies_house")
 
@@ -38,6 +39,7 @@ _API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
 _TIMEOUT = 15.0
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 def is_enabled() -> bool:
     val = os.getenv("ARIA_COMPANIES_HOUSE_ENABLED", "1") or "1"
     return val.strip().lower() not in ("0", "false", "no", "off")
@@ -58,6 +60,7 @@ def _headers() -> dict:
 _UK_COMPANY_NUMBER_RE = re.compile(r"\b(?:SC|NI|OC|SO|NC|R0|IP|AC|FC|GE|LP|SL|NP|CE|CS|PC|RS)?(\d{6,8})\b")
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 def extract_company_number(text: str) -> str | None:
     """Try to extract a UK company number from text."""
     m = _UK_COMPANY_NUMBER_RE.search(text)
@@ -94,6 +97,7 @@ async def _get(path: str) -> dict | None:
         return None
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def search_companies(query: str, limit: int = 5) -> list[dict]:
     """Search for companies by name."""
     data = await _get(f"/search/companies?q={query}&items_per_page={limit}")
@@ -121,6 +125,7 @@ async def search_companies(query: str, limit: int = 5) -> list[dict]:
     ]
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_company_profile(company_number: str) -> dict | None:
     """Get full company profile."""
     data = await _get(f"/company/{company_number}")
@@ -151,6 +156,7 @@ async def get_company_profile(company_number: str) -> dict | None:
     }
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_officers(company_number: str) -> list[dict]:
     """Get current and past officers (directors)."""
     data = await _get(f"/company/{company_number}/officers")
@@ -172,6 +178,7 @@ async def get_officers(company_number: str) -> list[dict]:
     ]
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_psc(company_number: str) -> list[dict]:
     """Get Persons of Significant Control (beneficial ownership)."""
     data = await _get(f"/company/{company_number}/persons-with-significant-control")
@@ -193,6 +200,7 @@ async def get_psc(company_number: str) -> list[dict]:
     ]
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def search_officers(name: str, limit: int = 20) -> list[dict]:
     """Search for officers (directors / PSCs) by name.
 
@@ -229,6 +237,7 @@ async def search_officers(name: str, limit: int = 20) -> list[dict]:
     return out
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_officer_appointments(officer_id: str, limit: int = 50) -> list[dict]:
     """List every company appointment for a given officer.
 
@@ -259,6 +268,7 @@ async def get_officer_appointments(officer_id: str, limit: int = 50) -> list[dic
     return out
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def psc_reverse_lookup(name: str, max_officers: int = 5, max_apts_per_officer: int = 30) -> dict:
     """One-call answer to "which UK companies is this person tied to?"
 
@@ -322,6 +332,7 @@ async def psc_reverse_lookup(name: str, max_officers: int = 5, max_apts_per_offi
     }
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_filing_history(company_number: str, limit: int = 10) -> list[dict]:
     """Get recent filing history."""
     data = await _get(f"/company/{company_number}/filing-history?items_per_page={limit}")
@@ -342,6 +353,7 @@ async def get_filing_history(company_number: str, limit: int = 10) -> list[dict]
 
 # ── High-level investigation helper ────────────────────────────────────────
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def investigate_uk_entity(
     company_number: str | None = None,
     company_name: str | None = None,
@@ -488,6 +500,7 @@ async def investigate_uk_entity(
     return investigation
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 def format_for_prompt(investigation: dict) -> str:
     """Format a CH investigation result as a context block for the LLM prompt."""
     if not investigation.get("found"):

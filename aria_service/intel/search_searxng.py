@@ -28,6 +28,7 @@ from .engine_wiring import wire_success
 import logging
 import os
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.search_searxng")
 
@@ -35,6 +36,7 @@ _DEFAULT_TIMEOUT = 15.0
 _USER_AGENT = "AriaIntelligence/1.0 (defence-DD; aria@arkmurus.com)"
 
 
+@fail_wire(module="search_searxng", gap_type="source_failure")
 def is_configured() -> bool:
     """SearXNG URL set in env."""
     return bool((os.getenv("SEARXNG_URL") or "").strip())
@@ -48,6 +50,7 @@ def _base_url() -> str | None:
     return raw.rstrip("/")
 
 
+@fail_wire(module="search_searxng", gap_type="source_failure")
 async def search(
     query: str,
     *,
@@ -158,6 +161,7 @@ async def search(
     }
 
 
+@fail_wire(module="search_searxng", gap_type="source_failure")
 def summary() -> dict[str, Any]:
 
     # R-F996 — wire to brain

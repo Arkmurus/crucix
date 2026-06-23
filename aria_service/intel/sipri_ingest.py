@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.sipri_ingest")
 
@@ -106,6 +107,7 @@ def _cplp_relevant(recipient: str) -> bool:
     ))
 
 
+@fail_wire(module="sipri_ingest", gap_type="source_failure")
 async def ingest_csv_bytes(raw: bytes, *, since_year: Optional[int] = None,
                            max_rows: int = MAX_ROWS_DEFAULT) -> dict:
     """Parse a SIPRI CSV and push each transfer as a RAG chunk.
@@ -214,6 +216,7 @@ async def ingest_csv_bytes(raw: bytes, *, since_year: Optional[int] = None,
     return summary
 
 
+@fail_wire(module="sipri_ingest", gap_type="source_failure")
 async def fetch_and_ingest_sipri() -> dict:
     """Best-effort fetch + ingest. Expected to 404 in most deployments —
     SIPRI requires a form download. Returns a stub result instructing the
@@ -243,6 +246,7 @@ async def fetch_and_ingest_sipri() -> dict:
     }
 
 
+@fail_wire(module="sipri_ingest", gap_type="source_failure")
 async def stats() -> dict:
     snap = await rs.get_json(STATS_KEY)
     if not snap:

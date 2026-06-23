@@ -12,10 +12,12 @@ import logging
 import re
 import time
 from typing import Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.brain_hook_bg")
 
 
+@fail_wire(module="brain_hook_bg", gap_type="engine_failure")
 async def absorb_tiers_bg(
     *,
     module: str,
@@ -257,6 +259,7 @@ _AUTO_GAP_PATTERNS: list[tuple[str, str, str]] = [
 ]
 
 
+@fail_wire(module="brain_hook_bg", gap_type="engine_failure")
 async def auto_record_gap_from_text(text: str, source: str = "chat_response") -> Optional[str]:
     """R-F1150: scan text for improvement patterns and auto-record a gap.
 

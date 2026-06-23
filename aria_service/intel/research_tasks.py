@@ -48,6 +48,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.research_tasks")
 
@@ -98,6 +99,7 @@ async def _update_task(task_id: str, **updates) -> dict | None:
     return task
 
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def get_task(task_id: str) -> dict | None:
     if not task_id:
         return None
@@ -110,6 +112,7 @@ async def get_task(task_id: str) -> dict | None:
         return None
 
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def list_tasks(limit: int = 30, status_filter: str | None = None) -> list[dict]:
     try:
         index = await rs.get_json(TASKS_INDEX_KEY) or []
@@ -137,6 +140,7 @@ def _eta_for_type(task_type: str, params: dict) -> int:
     return 90
 
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def spawn_research_task(
     task_type: str,
     params: dict,
@@ -516,6 +520,7 @@ async def _push_failure_alert(task_id: str, task: dict, err: Exception) -> None:
 
 # ── Cancel + cleanup ──────────────────────────────────────────────────────
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def cancel_task(task_id: str) -> dict:
     """Cancel a running research task. Marks it as failed + cancelled."""
     job = _running_tasks.get(task_id)
@@ -544,6 +549,7 @@ async def cancel_task(task_id: str) -> dict:
     return {"ok": False, "error": f"Task {task_id} not found or not running"}
 
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def cleanup_stale_tasks(max_age_seconds: int = 900) -> dict:
     """Find tasks stuck in 'running' status beyond max_age and mark them failed.
 
@@ -573,6 +579,7 @@ async def cleanup_stale_tasks(max_age_seconds: int = 900) -> dict:
 
 # ── Stats ───────────────────────────────────────────────────────────────────
 
+@fail_wire(module="research_tasks", gap_type="source_failure")
 async def get_stats() -> dict:
     """Return overview of the research task system."""
     try:

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.portal_registry")
 
@@ -795,6 +796,7 @@ async def _save_credentials(creds: dict[str, dict]) -> None:
         logger.debug("[portal_registry] failed to save credentials: %s", e)
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def get_credential(portal_id: str) -> Optional[dict]:
     """Get stored credential for a portal. Encrypted fields are decrypted."""
     creds = await _get_credentials()
@@ -809,6 +811,7 @@ async def get_credential(portal_id: str) -> Optional[dict]:
     return result
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def store_credential(portal_id: str, credential: dict) -> None:
     """Store a credential for a portal. Sensitive fields (password, token,
     api_key, cookie) are encrypted at rest if ARIA_CREDENTIAL_VAULT_KEY is set."""
@@ -835,6 +838,7 @@ _ARIA_IDENTITY_NAME = "Arkmurus Group Ltd"
 _ARIA_IDENTITY_EMAIL = "aria@arkmurus.com"
 _ARIA_IDENTITY_DOMAIN = "arkmurus.com"
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 def assert_real_identity(email: str, name: str) -> tuple[bool, str]:
     """Verify that the given identity is a real Arkmurus identity.
 
@@ -1029,6 +1033,7 @@ async def _audit_registered(
         logger.debug("[portal_registry] vault record failed (non-fatal)")
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def is_registered(portal_id: str) -> bool:
     """Check if ARIA has registered for a portal.
 
@@ -1050,6 +1055,7 @@ async def is_registered(portal_id: str) -> bool:
     return False
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def get_registered_portals() -> list[dict]:
     """Get list of portals ARIA has registered for."""
     creds = await _get_credentials()
@@ -1072,6 +1078,7 @@ async def get_registered_portals() -> list[dict]:
 # ── Registration workflows ─────────────────────────────────────────────
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, Any]:
     """Register ARIA for a portal account.
 
@@ -2381,6 +2388,7 @@ async def _register_for_api_key(portal: PortalDef, purpose: str = "") -> dict[st
     }
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def store_operator_provided_credential(
     portal_id: str,
     credential: dict,
@@ -2423,6 +2431,7 @@ async def store_operator_provided_credential(
 # ── Authenticated data access ──────────────────────────────────────────
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def fetch_with_auth(
     portal_id: str,
     url: str,
@@ -2491,6 +2500,7 @@ async def fetch_with_auth(
 # ── USASpending.gov specific integration ───────────────────────────────
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def lookup_contracts_by_uei(uei: str) -> Optional[dict]:
     """Look up contract awards by UEI via USASpending.gov API.
 
@@ -2530,6 +2540,7 @@ async def lookup_contracts_by_uei(uei: str) -> Optional[dict]:
         return None
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def lookup_entity_by_uei(uei: str) -> Optional[dict]:
     """Look up entity details by UEI via SAM.gov API.
 
@@ -2558,6 +2569,7 @@ async def lookup_entity_by_uei(uei: str) -> Optional[dict]:
 
 # ── Auto-register all pending portals ──────────────────────────────────
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def auto_register_all() -> dict[str, Any]:
     """Attempt registration for every unregistered portal.
 
@@ -2647,6 +2659,7 @@ async def auto_register_all() -> dict[str, Any]:
 
 # ── Env var check for pending sources ──────────────────────────────────
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 def get_pending_source_requirements() -> list[dict]:
     """Return a list of pending sources and what env vars they need.
 
@@ -2686,6 +2699,7 @@ _DECLINED_PORTAL_IDS = {"crunchbase", "pitchbook", "opencorporates", "duns_brads
 _DEFERRED_PORTAL_IDS = {"acled"}
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def determine_and_drive(portal_id: str) -> dict[str, Any]:
     """R-F1502: For ONE portal, determine its honest status and drive the outcome.
 
@@ -2833,6 +2847,7 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
         }
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[dict]:
     """R-F1502: Run determine_and_drive for multiple portals.
 
@@ -2939,6 +2954,7 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
 _PAID_PORTAL_IDS = {"crunchbase", "pitchbook", "opencorporates", "duns_bradstreet", "opensanctions"}
 
 
+@fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def email_portal_requirements_to_operator() -> dict[str, Any]:
     """R-F1498/R-F1502 — email the operator the HONEST state of each portal.
 

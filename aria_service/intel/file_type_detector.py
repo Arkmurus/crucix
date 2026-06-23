@@ -27,6 +27,7 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ def _is_probably_text(b: bytes, sample_len: int = 1024) -> bool:
     return (printable / len(decoded)) >= 0.95
 
 
+@fail_wire(module="file_type_detector", gap_type="file_parse")
 def detect_file_type(raw_bytes: bytes) -> str:
     """Return the canonical file type by magic bytes.
 
@@ -154,6 +156,7 @@ _TYPE_TO_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 
+@fail_wire(module="file_type_detector", gap_type="file_parse")
 def file_type_matches_claim(
     detected: str,
     claimed_mime: str = "",

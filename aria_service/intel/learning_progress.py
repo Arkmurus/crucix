@@ -49,6 +49,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.learning_progress")
 
@@ -125,6 +126,7 @@ async def _redis():
     return rs
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def record_refresh(
     domain: str,
     *,
@@ -178,6 +180,7 @@ async def record_refresh(
         logger.debug("learning_progress record_refresh failed (non-fatal): %s", e)
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def get_freshness(domain: str) -> dict[str, Any]:
     """Return the freshness record for one domain (with computed
     is_stale / hours_since_refresh fields)."""
@@ -242,6 +245,7 @@ def _compute_staleness(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def get_all_domains() -> list[dict[str, Any]]:
     """Return all tracked domains with computed staleness fields."""
     try:
@@ -256,6 +260,7 @@ async def get_all_domains() -> list[dict[str, Any]]:
     return out
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def stale_domains() -> list[dict[str, Any]]:
     """Return only the domains currently STALE — drives R-F90's
     continuous-update orchestrator."""
@@ -263,6 +268,7 @@ async def stale_domains() -> list[dict[str, Any]]:
     return [d for d in all_d if d.get("is_stale")]
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def stats() -> dict[str, Any]:
     """Aggregate dashboard view: tracked, stale, fresh, top-stale."""
     all_d = await get_all_domains()
@@ -287,6 +293,7 @@ async def stats() -> dict[str, Any]:
     }
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 def summary() -> dict[str, Any]:
     return {
         "module":              "learning_progress",

@@ -26,6 +26,7 @@ logger = logging.getLogger("aria.brain_hook")
 
 # ── Feature gate ────────────────────────────────────────────────────────────
 import os
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 BRAIN_HOOK_ENABLED = os.environ.get("ARIA_BRAIN_HOOK_ENABLED", "1") == "1"
 
 # R-F1316: wire brain_hook's own health to the brain
@@ -434,6 +435,7 @@ _last_interactive_at: float = 0.0
 _INTERACTIVE_YIELD_WINDOW_S = float(os.environ.get("ARIA_BRAIN_INTERACTIVE_YIELD_S", "8"))
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 def mark_interactive() -> None:
     """Record that a user-facing request (chat / document read) just arrived,
     so autonomous absorbs yield the encoder to it for the next
@@ -543,6 +545,7 @@ async def _wait_for_absorb_slot() -> None:
         _last_absorb_monotonic = time.monotonic()
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def absorb(
     *,
     module: str,
@@ -893,6 +896,7 @@ async def absorb(
     return result
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def absorb_silent(**kwargs) -> None:
     """Fire-and-forget wrapper — logs errors but never raises."""
     try:
@@ -901,6 +905,7 @@ async def absorb_silent(**kwargs) -> None:
         logger.debug("brain_hook.absorb_silent failed entirely: %s", e)
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def record_signal(
     module: str,
     *,
@@ -931,6 +936,7 @@ async def record_signal(
     return {"recorded": True, "module": module, "success": success}
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def observe_self_event(
     event: str,
     detail: Any = "",
@@ -1395,6 +1401,7 @@ def _maybe_close_breaker() -> None:
     # one open brain_hook ticket exists per wedge episode.
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 def get_breaker_state() -> dict:
     """Return the current circuit breaker state — exposed via /api/aria/brain/stats."""
     return {
@@ -1518,6 +1525,7 @@ _chat_user_ctx: _cv.ContextVar[tuple[str, str]] = _cv.ContextVar(
 )
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 def set_chat_context(user_id: str, sector: str) -> _cv.Token:
     """Set the per-turn (user_id, sector) context. Call at chat entry;
     pair with `reset_chat_context(token)` in a finally block.
@@ -1525,6 +1533,7 @@ def set_chat_context(user_id: str, sector: str) -> _cv.Token:
     return _chat_user_ctx.set((user_id or "", sector or ""))
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 def reset_chat_context(token: _cv.Token) -> None:
     try:
         _chat_user_ctx.reset(token)
@@ -1532,6 +1541,7 @@ def reset_chat_context(token: _cv.Token) -> None:
         pass
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 def get_chat_context() -> tuple[str, str]:
     """Return the current chat (user_id, sector) — ('', '') when no
     chat-turn context is active (autonomous / sweep / dev calls)."""
@@ -1550,6 +1560,7 @@ _stats_cache_at: float = 0
 _stats_cache_ttl: float = 30.0
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def get_stats() -> dict:
     """Return brain hook stats — per-module signal counts + health.
 
@@ -1701,6 +1712,7 @@ def _never_seen_severity(module: str) -> str:
     return "critical" if module in _LOAD_BEARING_MODULES else "info"
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def get_stale_alerts() -> list[dict]:
     """Return alert dicts for modules that haven't sent a signal in 24h.
 

@@ -17,6 +17,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.portal_coverage_audit")
 
@@ -60,6 +61,7 @@ INTEL_TIERS: dict[str, int] = {
 DEFAULT_TIER = 4
 
 
+@fail_wire(module="portal_coverage_audit", gap_type="registry_lookup")
 async def audit_portal_coverage() -> dict[str, Any]:
     """Audit all portals in PORTALS against the credential vault.
 
@@ -179,6 +181,7 @@ _DISCOVERY_QUERIES = [
 ]
 
 
+@fail_wire(module="portal_coverage_audit", gap_type="registry_lookup")
 async def discover_new_portals(max_results: int = 5) -> list[dict[str, Any]]:
     """Search for new government/OSINT portals that ARIA could register on.
 
@@ -229,6 +232,7 @@ async def discover_new_portals(max_results: int = 5) -> list[dict[str, Any]]:
     return discovered
 
 
+@fail_wire(module="portal_coverage_audit", gap_type="registry_lookup")
 async def auto_register_gaps(max_portals: int = 3) -> list[dict[str, Any]]:
     """Automatically register for missing high-value portals.
 

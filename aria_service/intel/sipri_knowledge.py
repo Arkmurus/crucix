@@ -19,6 +19,7 @@ Last updated: 2026-04-13
 from __future__ import annotations
 
 import logging
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.sipri_knowledge")
 
@@ -397,6 +398,7 @@ ALL_SECTIONS = {
 }
 
 
+@fail_wire(module="sipri_knowledge", gap_type="source_failure")
 async def ingest_all_sections() -> dict:
     """Ingest SIPRI + equipment specs into RAG store."""
     from . import rag_store

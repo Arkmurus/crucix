@@ -36,6 +36,7 @@ import logging
 import os
 import time
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.registration_check")
 
@@ -159,6 +160,7 @@ PORTALS: list[dict] = [
 ]
 
 
+@fail_wire(module="registration_check", gap_type="registry_lookup")
 def list_portals() -> list[dict]:
     """Return portal metadata (no network). Useful for UI listings."""
     return [
@@ -274,6 +276,7 @@ async def _check_via_search(portal: dict, company_name: str) -> dict:
     return result
 
 
+@fail_wire(module="registration_check", gap_type="registry_lookup")
 async def check_portal(portal_id: str, company_name: str | None = None) -> dict:
     """Run the check for a single portal."""
     portal = next((p for p in PORTALS if p["id"] == portal_id), None)
@@ -326,6 +329,7 @@ async def check_portal(portal_id: str, company_name: str | None = None) -> dict:
     return base
 
 
+@fail_wire(module="registration_check", gap_type="registry_lookup")
 async def check_all(
     company_name: str | None = None,
     *,
@@ -420,6 +424,7 @@ async def check_all(
     return payload
 
 
+@fail_wire(module="registration_check", gap_type="registry_lookup")
 def render_markdown(payload: dict) -> str:
     """Operator-facing Markdown summary of check_all() result."""
     if not payload.get("ok"):

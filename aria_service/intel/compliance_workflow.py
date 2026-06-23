@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.compliance_workflow")
 
@@ -89,6 +90,7 @@ class ComplianceCase:
 
 # ── Core Functions ───────────────────────────────────────────────────────────
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def create_case(
     entity_name: str,
     entity_type: str = "company",
@@ -119,6 +121,7 @@ async def create_case(
     return asdict(case)
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def update_state(
     case_id: str,
     new_state: str,
@@ -191,12 +194,14 @@ async def update_state(
     return case
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def get_case(case_id: str) -> Optional[dict]:
     """Retrieve a single case by ID."""
     cases = await _load_cases()
     return next((c for c in cases if c.get("case_id") == case_id), None)
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def find_case(entity_name: str) -> Optional[dict]:
     """Find a case by entity name (case-insensitive)."""
     cases = await _load_cases()
@@ -204,6 +209,7 @@ async def find_case(entity_name: str) -> Optional[dict]:
     return next((c for c in cases if c.get("entity_name", "").lower().strip() == name_lower), None)
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def list_cases(
     state: str = "",
     risk_level: str = "",
@@ -221,6 +227,7 @@ async def list_cases(
     return filtered[:limit]
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def get_overdue_rescreens() -> list[dict]:
     """Return cases where re-screening is overdue."""
     cases = await _load_cases()
@@ -233,6 +240,7 @@ async def get_overdue_rescreens() -> list[dict]:
     return overdue
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def mark_expired() -> int:
     """Mark overdue cases as EXPIRED. Returns count of newly expired cases."""
     cases = await _load_cases()
@@ -257,6 +265,7 @@ async def mark_expired() -> int:
     return count
 
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def get_stats() -> dict:
     """Return compliance workflow statistics."""
     cases = await _load_cases()
@@ -280,6 +289,7 @@ async def get_stats() -> dict:
 
 # ── Auto-create from DD ─────────────────────────────────────────────────────
 
+@fail_wire(module="compliance_workflow", gap_type="engine_failure")
 async def auto_create_from_dd(
     entity_name: str,
     entity_type: str,

@@ -34,6 +34,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.dd_trigger_pipeline")
 
@@ -172,6 +173,7 @@ async def _match_signals_to_watchlist(
 
 # ── DD triggering ───────────────────────────────────────────────────────────
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def trigger_dd_for_entity(
     entity_name: str,
     reason: str,
@@ -278,6 +280,7 @@ async def _log_trigger(
 
 # ── Portal scouting ─────────────────────────────────────────────────────────
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def scout_portals_for_dd(
     target: dict,
     report: Any,
@@ -370,6 +373,7 @@ async def scout_portals_for_dd(
 
 # ── Main monitor ────────────────────────────────────────────────────────────
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def monitor_and_trigger() -> dict[str, Any]:
     """Main monitor loop — check for new signals and trigger DD.
 
@@ -444,6 +448,7 @@ async def monitor_and_trigger() -> dict[str, Any]:
     return result
 
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def get_trigger_log(limit: int = 20) -> list[dict[str, Any]]:
     """Get recent DD trigger log entries."""
     try:

@@ -35,6 +35,7 @@ from collections import defaultdict
 from typing import Any, Optional
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.neural")
 
@@ -378,6 +379,7 @@ async def _peek_neurons_disk_count() -> int:
 
 
 # ── Init ─────────────────────────────────────────────────────────────────────
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def init() -> None:
     global _neurons, _edges, _meta, _loaded, _edges_dirty
     try:
@@ -912,6 +914,7 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
         return []
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 def extract_concepts(text: str) -> list[tuple[str, str]]:
     """Extract (concept, category) pairs from text."""
     if not text:
@@ -966,6 +969,7 @@ def _offload_sweep_all() -> int:
     return total
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def learn_from_text(text: str, source: str = "conversation",
                           confidence: str = "ASSESSED",
                           llm=None) -> dict:
@@ -1039,6 +1043,7 @@ async def learn_from_text(text: str, source: str = "conversation",
     }
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def learn_explicit(concept: str, category: str, related_to: list[str] = None,
                          source: str = "user", confidence: str = "CONFIRMED",
                          metadata: dict = None) -> dict:
@@ -1061,6 +1066,7 @@ async def learn_explicit(concept: str, category: str, related_to: list[str] = No
     return {"neuron_id": neuron["id"], "concept": concept, "connections": connections}
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def recall(
     query: str,
     depth: int = 2,
@@ -1185,6 +1191,7 @@ async def recall(
     }
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def get_neural_context(message: str) -> str:
     """Build context string from neural recall for injection into ARIA prompts."""
     result = await recall(message, depth=2, max_results=15)
@@ -1202,6 +1209,7 @@ async def get_neural_context(message: str) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def consolidate() -> dict:
     """Nightly memory consolidation — strengthen strong, abstract schemas.
 
@@ -1302,6 +1310,7 @@ async def consolidate() -> dict:
     return report
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def get_stats() -> dict:
     """Return neural network statistics."""
     _apply_decay()
@@ -1344,6 +1353,7 @@ async def get_stats() -> dict:
     }
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def get_cluster(concept: str, depth: int = 1) -> dict:
     """Get a concept and its immediate neighborhood."""
     neuron = _find_neuron(concept)
@@ -1423,6 +1433,7 @@ _NOISY_SOURCE_PREFIXES = (
 )
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 def detect_conflict(entity: str, new_text: str, source: str = "") -> dict | None:
     """Check if new intelligence about an entity contradicts stored knowledge.
 
@@ -1508,6 +1519,7 @@ def detect_conflict(entity: str, new_text: str, source: str = "") -> dict | None
     return conflict
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def log_conflict(conflict: dict) -> None:
     """Store a detected conflict for human review."""
     try:
@@ -1525,12 +1537,14 @@ async def log_conflict(conflict: dict) -> None:
         logger.debug("Conflict logging failed: %s", e)
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def get_conflicts(limit: int = 20) -> list[dict]:
     """Retrieve recent conflicts for review."""
     conflicts = await rs.get_json(CONFLICT_KEY) or []
     return conflicts[-limit:]
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def resolve_conflict(entity: str) -> bool:
     """Remove resolved conflicts for an entity."""
     try:
@@ -1545,6 +1559,7 @@ async def resolve_conflict(entity: str) -> bool:
         return False
 
 
+@fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def clear_all_conflicts() -> int:
     """R-F771 (2026-05-21) — drop the entire conflict list and return the
     count removed. Surfaced because the 2026-05-21 forensic dump showed

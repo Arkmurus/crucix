@@ -25,6 +25,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.pdf_deep_ingest")
 
@@ -36,6 +37,7 @@ _MIN_IMAGE_AREA_PIXELS  = 40_000    # skip tiny icons / bullets
 _MAX_OCR_TIMEOUT_SEC    = 20.0
 
 
+@fail_wire(module="pdf_deep_ingest", gap_type="file_parse")
 async def ingest_pdf_multi_page(
     pdf_bytes: bytes,
     filename: str,
@@ -224,6 +226,7 @@ async def _ingest_chunk(text: str, source: str, metadata: dict[str, Any]) -> Non
         logger.debug("rag add_chunk failed for %s: %s", source, exc)
 
 
+@fail_wire(module="pdf_deep_ingest", gap_type="file_parse")
 def summary() -> dict[str, Any]:
     """Capability manifest summary."""
     return {

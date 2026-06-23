@@ -40,6 +40,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.dd_versioning")
 
@@ -86,6 +87,7 @@ _LEGAL_SUFFIXES: set[str] = {
 }
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def normalize_name(name: str) -> str:
     """Lowercase, strip diacritics + punctuation + legal suffixes.
 
@@ -145,6 +147,7 @@ def _scrub_regnum(regnum: str) -> str:
 # ── Canonical entity ID ─────────────────────────────────────────────────────
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def canonical_entity_id(
     *,
     entity_type: str | None,
@@ -219,6 +222,7 @@ def canonical_entity_id(
     return None
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def canonical_entity_id_from_report(report: Any) -> str | None:
     """Convenience wrapper — pull the relevant fields off an
     ARKDDReport.identity section. Safe to call before
@@ -240,6 +244,7 @@ def canonical_entity_id_from_report(report: Any) -> str | None:
 # ── Version chain resolver ──────────────────────────────────────────────────
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def resolve_version_chain(
     canonical_id: str | None,
     index_entries: list[dict],
@@ -292,6 +297,7 @@ def _finding_signature(f: dict | Any) -> str:
     return "|".join(str(d.get(k) or "") for k in _FINDING_KEY_FIELDS)
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def compute_version_diff(
     *,
     previous_report: dict | None,
@@ -393,6 +399,7 @@ def compute_version_diff(
 # ── Case-file fetcher ───────────────────────────────────────────────────────
 
 
+@fail_wire(module="dd_versioning", gap_type="engine_failure")
 def filter_index_by_canonical_id(
     canonical_id: str,
     index_entries: list[dict],

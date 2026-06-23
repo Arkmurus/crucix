@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.intel.capability_gaps")
 
@@ -203,6 +204,7 @@ VALID_GAP_TYPES = frozenset({
 })
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def record_gap(
     gap_type: str,
     detail: str,
@@ -296,6 +298,7 @@ def _get_resolve_lock():
     return _RESOLVE_LOCK
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def resolve_gap(gap_id: str, resolution: str) -> dict:
     """Mark a gap as resolved with the fix description.
 
@@ -325,6 +328,7 @@ async def _resolve_gap_inner(gap_id: str, resolution: str) -> dict:
     return {"error": f"Gap {gap_id} not found"}
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def purge_resolved_type(gap_type: str) -> dict:
     """Bulk-resolve all gaps of a given type. Used after fixing the
     root cause (e.g., mastery scores reset after broken EWMA).
@@ -351,6 +355,7 @@ async def purge_resolved_type(gap_type: str) -> dict:
         return {"purged": count, "gap_type": gap_type}
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def get_gaps(resolved: bool = False, limit: int = 50) -> list[dict]:
     """Retrieve gaps, filtered by resolved status.
 
@@ -364,6 +369,7 @@ async def get_gaps(resolved: bool = False, limit: int = 50) -> list[dict]:
     return filtered[:limit]
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def recent_gaps(limit: int = 50) -> list[dict]:
     """Thin alias for `get_gaps(resolved=False, limit=limit)` —
     metacognitive_journal gates on `hasattr(cg, "recent_gaps")` and
@@ -372,12 +378,14 @@ async def recent_gaps(limit: int = 50) -> list[dict]:
     return await get_gaps(resolved=False, limit=limit)
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def recent(limit: int = 50) -> list[dict]:
     """Same as `recent_gaps` — ecosystem_reassess uses the shorter
     name. Added 2026-04-20 to close the same silent-skip gap."""
     return await get_gaps(resolved=False, limit=limit)
 
 
+@fail_wire(module="capability_gaps", gap_type="engine_failure")
 async def get_gap_summary() -> dict:
     """Return counts by type, most common unresolved, and latest gaps."""
     raw_entries = await rs.lrange(KEY, 0, MAX_GAPS - 1)

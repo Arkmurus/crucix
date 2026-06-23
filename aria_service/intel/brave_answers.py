@@ -21,6 +21,7 @@ Replacement path:
 from __future__ import annotations
 
 import logging
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.brave_answers")
 
@@ -39,17 +40,20 @@ _REMOVED_RESULT: dict = {
 }
 
 
+@fail_wire(module="brave_answers", gap_type="source_failure")
 async def ask(query: str, **_kwargs) -> dict:
     """R-F320 stub. Returns the removed sentinel."""
     logger.debug("brave_answers.ask called (R-F320 stub): %r", query[:80])
     return dict(_REMOVED_RESULT)
 
 
+@fail_wire(module="brave_answers", gap_type="source_failure")
 async def fetch_answer(*_args, **_kwargs) -> dict:
     """R-F320 stub. Returns the removed sentinel."""
     return dict(_REMOVED_RESULT)
 
 
+@fail_wire(module="brave_answers", gap_type="source_failure")
 async def get_month_spend() -> dict:
     """R-F320 stub. Brave spend is $0 by definition now."""
     # R-F996 — wire to brain
@@ -70,6 +74,7 @@ async def get_month_spend() -> dict:
     }
 
 
+@fail_wire(module="brave_answers", gap_type="source_failure")
 def is_enabled() -> bool:
     """R-F320: Brave is permanently disabled."""
     return False

@@ -62,6 +62,7 @@ from . import reasoning_library
 from . import reasoning_router
 from . import knowledge as kb
 from . import neural_memory
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.student")
 
@@ -275,6 +276,7 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 def detect_topics(text: str) -> list[str]:
     """Tag a question/response with one or more topic categories.
 
@@ -387,6 +389,7 @@ async def _save_mastery() -> None:
     _mastery_dirty = False
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def seed_baseline_mastery() -> int:
     """R-F1512: inject baseline mastery for topics that are stuck at
     INITIAL_MASTERY (0.5) due to insufficient training signals.
@@ -447,6 +450,7 @@ async def seed_baseline_mastery() -> int:
     return seeded
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) -> None:
     """Update mastery scores for the topics touched by an interaction.
 
@@ -591,6 +595,7 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             pass
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def reset_mastery_scores() -> dict:
     """Reset all mastery scores to a fair baseline. Use after fixing a
     bug that corrupted the scores (e.g., the weight=0.7 divergence
@@ -613,6 +618,7 @@ async def reset_mastery_scores() -> dict:
     return {t: round(mastery[t]["score"], 3) for t in mastery}
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_due_topics(limit: int = 20) -> list[dict]:
     """R-F664 (2026-05-17): topics whose FSRS card is due for review NOW.
 
@@ -648,6 +654,7 @@ async def get_due_topics(limit: int = 20) -> list[dict]:
     return out[: max(1, min(limit, 100))]
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_topic_retention(topic: str) -> dict:
     """R-F664: FSRS-predicted retention probability for one topic right now."""
     from ..learning import fsrs_scheduler as _fsrs
@@ -666,6 +673,7 @@ async def get_topic_retention(topic: str) -> dict:
     }
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_mastery_report() -> dict:
     mastery = await _load_mastery()
     total_samples = sum(m.get("samples", 0) for m in mastery.values())
@@ -716,6 +724,7 @@ async def get_mastery_report() -> dict:
 
 # ── Curriculum: what to study next ──────────────────────────────────────────
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_curriculum() -> dict:
     """Build a study plan: which topics need attention + suggested actions."""
     mastery = await _load_mastery()
@@ -806,6 +815,7 @@ LEARNING_MODE_COST_FREE_INVARIANT: dict = {
 
 # ── Self-quiz ──────────────────────────────────────────────────────────────
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def self_quiz(num_questions: int = 5) -> dict:
     """Pick stale library cases, try answering them with the LOCAL stack,
     compare to the original answer, and update mastery accordingly.
@@ -1005,6 +1015,7 @@ def _quick_similarity(a: str, b: str) -> float:
 
 # ── Reading session: deep-read authoritative sources ───────────────────────
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def reading_session(llm=None, num_articles: int = 3) -> dict:
     """Run a focused reading session — pick high-priority articles, read them,
     extract facts AND the reasoning method, and update mastery on topics
@@ -1401,6 +1412,7 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
 
 # ── Compare-and-learn (silent local attempt during cloud calls) ────────────
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def record_divergence(
     question: str,
     cloud_response: str,
@@ -1501,6 +1513,7 @@ async def record_divergence(
             logger.debug("R-F179 streak update failed: %s", _rfe)
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def compare_local_silently(question: str, cloud_response: str) -> dict:
     """After a cloud LLM responds, run the local stack on the SAME question
     and compare. The cloud's answer is treated as the teacher's; the local
@@ -1643,6 +1656,7 @@ def _mark_regional_dirty() -> None:
     _regional_dirty = True
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 def detect_regions(text: str) -> list[str]:
     """Detect which regions a text relates to."""
     if not text:
@@ -1678,6 +1692,7 @@ async def _save_regional_mastery() -> None:
     _regional_dirty = False
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def update_regional_mastery(
     topics: list[str], regions: list[str], correct: bool, weight: float = 1.0,
 ) -> None:
@@ -1702,6 +1717,7 @@ async def update_regional_mastery(
     await _save_regional_mastery()
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_regional_heatmap() -> dict:
     """Return mastery heat map: topic × region scores.
 
@@ -1770,6 +1786,7 @@ async def get_regional_heatmap() -> dict:
 
 # ── Stats and reporting ────────────────────────────────────────────────────
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def get_student_stats() -> dict:
     mastery_report = await get_mastery_report()
     curriculum = await get_curriculum()
@@ -1795,6 +1812,7 @@ async def get_student_stats() -> dict:
     }
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def mastery_to_prompt_addendum(message: str) -> str:
     """Generate a system-prompt addendum that surfaces weak topics relevant
     to the current query. Closes the feedback loop: student tracks mastery
@@ -1944,6 +1962,7 @@ async def mastery_to_prompt_addendum(message: str) -> str:
     return "\n".join(lines)
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def lift_all_topics(bump: float) -> dict[str, float]:
     """Adjust every topic's mastery score by `bump`. Positive = lift up,
     negative = pull down (R-F166, 2026-05-11).

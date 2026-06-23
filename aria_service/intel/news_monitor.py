@@ -43,6 +43,7 @@ import httpx
 
 from . import redis_store as rs
 from .engine_wiring import wire_success, wire_failure
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.news_monitor")
 
@@ -472,6 +473,7 @@ async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
 # ── Main polling function ─────────────────────────────────────────────────────
 
 
+@fail_wire(module="news_monitor", gap_type="source_failure")
 async def poll_feeds(
     categories: Optional[list[str]] = None,
     max_articles_per_feed: int = 10,
@@ -569,6 +571,7 @@ async def poll_feeds(
 # ── Dashboard data ────────────────────────────────────────────────────────────
 
 
+@fail_wire(module="news_monitor", gap_type="source_failure")
 async def get_recent_articles(limit: int = 50) -> list[dict]:
     """Get most recent articles for dashboard display."""
     raw = await rs.lrange(_ARTICLES_KEY, 0, limit - 1)
@@ -581,6 +584,7 @@ async def get_recent_articles(limit: int = 50) -> list[dict]:
     return articles
 
 
+@fail_wire(module="news_monitor", gap_type="source_failure")
 async def get_stats() -> dict:
     """Get news monitor statistics (cached 30s to avoid cold-start flaps)."""
     global _stats_cache, _stats_cache_ts

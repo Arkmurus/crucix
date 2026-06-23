@@ -31,6 +31,7 @@ import re
 from typing import Any, NamedTuple
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.sanctions")
 
@@ -700,6 +701,7 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
     }
 
 
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     """Comprehensive fuzzy sanctions screen for a single entity name.
 
@@ -839,6 +841,7 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     return result
 
 
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def enrich_with_relationships(screen_result: dict, *, max_targets: int = 3,
                                     target_threshold: float = 0.78) -> dict:
     """Extend a fuzzy_screen() result with relationship-risk enrichment.
@@ -921,6 +924,7 @@ async def enrich_with_relationships(screen_result: dict, *, max_targets: int = 3
     return out
 
 
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def screen_with_relationships(name: str, *, threshold: float = 0.78,
                                     max_rel_targets: int = 3) -> dict:
     """Convenience wrapper: fuzzy_screen() + enrich_with_relationships().
@@ -1046,6 +1050,7 @@ def _looks_like_entity_name(s: str) -> bool:
     return True
 
 
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def screen_with_aliases(name: str, known_aliases: list[str] | None = None) -> dict:
     """Screen a primary name plus user-provided aliases. Combines results.
 

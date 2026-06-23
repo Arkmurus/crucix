@@ -61,10 +61,12 @@ import re
 from typing import Any, Optional
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.ocr")
 
 
+@fail_wire(module="ocr", gap_type="file_parse")
 async def extract_text_from_image(
     image_data: bytes,
     filename: str = "image.jpg",
@@ -440,6 +442,7 @@ def _trigger_auto_install() -> bool:
     return True
 
 
+@fail_wire(module="ocr", gap_type="file_parse")
 def get_auto_install_status() -> dict:
     """Report on the auto-install state."""
     # R-F996 — wire to brain
@@ -584,6 +587,7 @@ def _unwrap_provider(llm) -> Any:
     return best[1]
 
 
+@fail_wire(module="ocr", gap_type="file_parse")
 def get_vision_config() -> dict:
     """Return the active vision configuration. Used by /vision-status endpoint."""
     dedicated_provider = (os.getenv("ARIA_VISION_PROVIDER", "") or "").strip().lower()
@@ -816,6 +820,7 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
 # against sentence-transformers / chromadb / inflight LLM calls for memory.
 # Past incident: a 200MB EasyOCR cold-load on the first user image OOM-killed
 # the fly.io worker. Pre-warming makes the memory cost predictable.
+@fail_wire(module="ocr", gap_type="file_parse")
 async def prewarm_ocr() -> dict:
     """Eager-load OCR backends so the first user image doesn't pay the cold-start
     cost (and doesn't OOM mid-request). Safe to call from a background task —

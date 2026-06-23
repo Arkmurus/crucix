@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.continuous_learner")
 
@@ -75,6 +76,7 @@ _RESEARCH_TOPICS = [
 ]
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def poll_rss_feeds() -> list[dict]:
     """Poll RSS feeds for new articles. Returns list of article dicts."""
     articles = []
@@ -133,6 +135,7 @@ async def poll_rss_feeds() -> list[dict]:
     return articles
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def research_topic(topic: str) -> Optional[dict]:
     """Research a topic using free open APIs.
 
@@ -183,6 +186,7 @@ async def research_topic(topic: str) -> Optional[dict]:
     return result if (result["papers"] or result["summary"]) else None
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def self_study() -> list[dict]:
     """Self-study: re-read knowledge base to find connections.
 
@@ -233,6 +237,7 @@ async def self_study() -> list[dict]:
     return insights
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def learn_from_articles(articles: list[dict]) -> int:
     """Feed articles into ARIA's knowledge base.
 
@@ -265,6 +270,7 @@ async def learn_from_articles(articles: list[dict]) -> int:
     return learned
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def learn_from_research(research_result: dict) -> int:
     """Feed research results into knowledge base."""
     learned = 0
@@ -289,6 +295,7 @@ async def learn_from_research(research_result: dict) -> int:
     return learned
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 async def run_learning_cycle() -> dict:
     """Run one complete learning cycle.
 
@@ -381,6 +388,7 @@ async def _research_loop() -> None:
         await asyncio.sleep(_RESEARCH_INTERVAL_S)
 
 
+@fail_wire(module="continuous_learner", gap_type="engine_failure")
 def start_learning_loops() -> list[asyncio.Task]:
     """Start all background learning loops."""
     tasks = [

@@ -23,6 +23,7 @@ case.
 from __future__ import annotations
 
 import logging
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.dd_case_library")
 
@@ -188,6 +189,7 @@ ALL_CASES: dict[str, dict] = {
 # INGESTION — store every case as a permanent CONFIRMED knowledge fact
 # =============================================================================
 
+@fail_wire(module="dd_case_library", gap_type="engine_failure")
 async def ingest_all_cases() -> dict:
     """Store every case in the library via knowledge.store_fact.
 

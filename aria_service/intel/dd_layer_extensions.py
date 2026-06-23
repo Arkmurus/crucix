@@ -38,11 +38,13 @@ logger = logging.getLogger("aria.intel.dd_layer_extensions")
 
 # R-F1166 — wire to brain on layer extension operations
 from .engine_wiring import wire_success, wire_failure
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
 # ── R-F584: court_records → Layer 4 (compliance) ──────────────────────
 
 
+@fail_wire(module="dd_layer_extensions", gap_type="engine_failure")
 async def run_court_records_check(
     target: dict[str, Any],
     report: Any,
@@ -143,6 +145,7 @@ def _extract_domain(target: dict[str, Any], report: Any) -> str:
     return m.group(1) if m else ""
 
 
+@fail_wire(module="dd_layer_extensions", gap_type="engine_failure")
 async def run_cert_transparency_check(
     target: dict[str, Any],
     report: Any,
@@ -226,6 +229,7 @@ def _gather_equipment_text(target: dict[str, Any], report: Any) -> str:
     return blob[:8000]  # cap
 
 
+@fail_wire(module="dd_layer_extensions", gap_type="engine_failure")
 async def run_eccn_indicator_check(
     target: dict[str, Any],
     report: Any,
@@ -274,6 +278,7 @@ async def run_eccn_indicator_check(
 # ── R-F587: ais_gap_detector → vessel sub-layer ───────────────────────
 
 
+@fail_wire(module="dd_layer_extensions", gap_type="engine_failure")
 async def run_ais_gap_check(
     target: dict[str, Any],
     report: Any,
@@ -336,6 +341,7 @@ async def run_ais_gap_check(
 # ── Bundle entrypoint dd_orchestrator calls once ──────────────────────
 
 
+@fail_wire(module="dd_layer_extensions", gap_type="engine_failure")
 async def run_all_extensions(
     target: dict[str, Any],
     report: Any,
