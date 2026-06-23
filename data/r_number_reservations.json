@@ -12740,9 +12740,10 @@
       "title": "aria-wa structured pino logging",
       "claimed_at": "2026-06-23T19:46:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "55776b87",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:59:17Z"
     },
     {
       "r_number": "R-F1838",
@@ -12758,27 +12759,30 @@
       "title": "cross-service WA-brain contract test",
       "claimed_at": "2026-06-23T19:48:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "55776b87",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:59:18Z"
     },
     {
       "r_number": "R-F1840",
       "title": "fix dd_quality_scorer baseline-ratchet + sound regression gate",
       "claimed_at": "2026-06-23T19:51:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "55776b87",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:59:18Z"
     },
     {
       "r_number": "R-F1841",
       "title": "Grafana dashboard + Prometheus scrape config for /metrics",
       "claimed_at": "2026-06-23T19:53:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "55776b87",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:59:18Z"
     }
   ]
 }
