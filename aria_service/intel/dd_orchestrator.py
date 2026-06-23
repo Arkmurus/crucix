@@ -1152,6 +1152,10 @@ async def _run_identity_person(
     if not role and not organisation:
         report.identity.data_gaps.append("role/employer not supplied — weakens variant disambiguation")
 
+    # R-F1836 — domain-ownership (RDAP) as a Layer 1 signal, also for persons
+    # who claim a personal/company website. Guarded no-op when no domain given.
+    await _check_domain_ownership(target, report)
+
     report.identity.meta.duration_ms = int((time.time() - t0) * 1000)
     report.identity.meta.status = LayerStatus.OK.value
     return hard_stop
@@ -1619,6 +1623,90 @@ def _emit_eccn_findings(eccn_block: Any) -> list[Finding]:
         ))
 
     return out
+
+
+async def _check_domain_ownership(target: dict, report: ARKDDReport) -> None:
+    """R-F1836 — Domain-ownership (RDAP) verification, run as a Layer 1
+    (identity) signal.
+
+    Moved here from the digital layer (was section 5e-bis in _run_digital):
+      * Domain ownership is an IDENTITY question — who really owns the website an
+        entity claims to operate is a who-are-they signal, best surfaced up front.
+      * The digital layer is SKIPPED ENTIRELY in quick mode and whenever the
+        identity layer hard-stops, so the check (whose own note said it was
+        "worth having in quick mode too") never actually ran in those paths.
+        Layer 1 always runs and runs BEFORE the hard-stop short-circuit, so the
+        RDAP signal now fires in every mode.
+
+    Cheap (one HTTPS call) and guarded — a no-op when the target carries no
+    URL/domain. Reads the claimed jurisdiction from report.identity (already set
+    earlier in the identity layer), so there is no cross-layer dependency/race
+    (the old placement read report.identity.jurisdiction from a different layer).
+    """
+    name = (
+        report.identity.entity_name
+        or target.get("name") or target.get("entity")
+        or target.get("query") or ""
+    )
+    _dom_candidate = (
+        target.get("website")
+        or target.get("domain")
+        or target.get("url")
+        or ""
+    )
+    # If the DD target itself looks like a URL (operator typed "run dd on
+    # https://f3ir.com/"), pick it up here.
+    if not _dom_candidate:
+        for fld in ("name", "entity", "query"):
+            v = target.get(fld) or ""
+            if isinstance(v, str) and ("://" in v or (v.count(".") >= 1 and " " not in v and len(v) < 120)):
+                if "://" in v or v.endswith((".com", ".net", ".org", ".io", ".co",
+                                             ".ai", ".uk", ".de", ".fr", ".eu",
+                                             ".ae", ".sa", ".qa", ".ru", ".cn",
+                                             ".tr", ".br", ".ng", ".ma", ".za",
+                                             ".ir")):
+                    _dom_candidate = v
+                    break
+    if not _dom_candidate:
+        return
+    try:
+        from . import domain_ownership_verifier as dov
+        dom_result = await dov.verify_domain(
+            _dom_candidate,
+            claimed_entity_name=name,
+            claimed_jurisdiction=(
+                report.identity.jurisdiction_iso2
+                or report.identity.jurisdiction
+                or target.get("jurisdiction_iso2")
+                or target.get("jurisdiction")
+            ),
+        )
+        if dom_result.get("verified"):
+            flags = dom_result.get("flags") or []
+            sev = dov.severity_for(dom_result)
+            # Preserve the original escalation intent: an entity mismatch, an
+            # unregistered domain, or a brand-new registration are hard-stop-
+            # worthy identity signals → red (severity_for maps the last to amber).
+            if any(f in flags for f in (
+                "REGISTRANT_ENTITY_MISMATCH",
+                "DOMAIN_NOT_REGISTERED",
+                "VERY_RECENTLY_REGISTERED",
+            )):
+                sev = "red"
+            body = dov.render_finding(dom_result)
+            report.identity.findings.append(Finding(
+                severity=sev,
+                title=f"Domain ownership (RDAP): {dom_result['domain']} — flags: {', '.join(flags) or 'none'}",
+                detail=body + ("\n" + "\n".join(dom_result.get("signals") or []) if dom_result.get("signals") else ""),
+                source="dd_orchestrator.domain_ownership_verifier",
+                confidence="CONFIRMED",
+            ))
+        elif dom_result.get("reason"):
+            report.identity.data_gaps.append(
+                f"Domain RDAP check inconclusive for {dom_result.get('domain') or _dom_candidate}: {dom_result['reason']}"
+            )
+    except Exception as e:
+        logger.debug("domain_ownership_verifier failed (non-fatal): %s", e)
 
 
 async def _run_identity(
@@ -2703,6 +2791,10 @@ async def _run_identity(
     except Exception as e:
         logger.warning("Identity: ghost scoring failed: %s", e)
         report.identity.data_gaps.append(f"ghost score failed: {str(e)[:120]}")
+
+    # R-F1836 — domain-ownership (RDAP) as a Layer 1 signal (moved from digital,
+    # which is skipped in quick mode / on hard-stop). Non-fatal, guarded.
+    await _check_domain_ownership(target, report)
 
     report.identity.meta.duration_ms = int((time.time() - t0) * 1000)
     report.identity.meta.status = LayerStatus.OK.value
@@ -3791,75 +3883,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
 
     # ── 5e-bis. Domain ownership verification (RDAP) ──
-    # Any DD with a URL / website / domain field runs an RDAP check. This
-    # catches the specific failure mode from 2026-04-17: SERBAN cited
-    # f3ir.com as F3 International Resources' site but RDAP would have
-    # shown the domain belongs to someone else / was recently registered.
-    # Independent of _mode_is_deep — cheap (one HTTPS call) and the
-    # signal is worth having in quick mode too.
-    _dom_candidate = (
-        target.get("website")
-        or target.get("domain")
-        or target.get("url")
-        or ""
-    )
-    # If the DD target name itself looks like a URL (e.g. the operator
-    # typed "run dd on https://f3ir.com/"), pick it up here.
-    if not _dom_candidate:
-        for fld in ("name", "entity", "query"):
-            v = target.get(fld) or ""
-            if isinstance(v, str) and ("://" in v or v.count(".") >= 1 and " " not in v and len(v) < 120):
-                if "://" in v or v.endswith((".com", ".net", ".org", ".io", ".co",
-                                               ".ai", ".uk", ".de", ".fr", ".eu",
-                                               ".ae", ".sa", ".qa", ".ru", ".cn",
-                                               ".tr", ".br", ".ng", ".ma", ".za",
-                                               ".ir")):
-                    _dom_candidate = v
-                    break
-    if _dom_candidate:
-        try:
-            from . import domain_ownership_verifier as dov
-            dom_result = await dov.verify_domain(
-                _dom_candidate,
-                claimed_entity_name=name,
-                claimed_jurisdiction=(
-                    report.identity.jurisdiction_iso2
-                    or report.identity.jurisdiction
-                    or target.get("jurisdiction_iso2")
-                    or target.get("jurisdiction")
-                ),
-            )
-            if dom_result.get("verified"):
-                sev = dov.severity_for(dom_result)
-                body = dov.render_finding(dom_result)
-                # Emit one finding with the flags summary
-                report.digital.findings.append(Finding(
-                    severity=sev,
-                    title=f"Domain ownership (RDAP): {dom_result['domain']} — flags: {', '.join(dom_result.get('flags') or []) or 'none'}",
-                    detail=body + ("\n" + "\n".join(dom_result.get("signals") or []) if dom_result.get("signals") else ""),
-                    source="dd_orchestrator.domain_ownership_verifier",
-                    confidence="CONFIRMED",
-                ))
-                # If there's an entity mismatch or a not-registered flag,
-                # escalate to the identity section as a hard-stop-worthy signal.
-                if any(f in (dom_result.get("flags") or []) for f in (
-                    "REGISTRANT_ENTITY_MISMATCH",
-                    "DOMAIN_NOT_REGISTERED",
-                    "VERY_RECENTLY_REGISTERED",
-                )):
-                    report.identity.findings.append(Finding(
-                        severity="red",
-                        title=f"Domain ownership flag: {', '.join(dom_result['flags'])}",
-                        detail=body,
-                        source="dd_orchestrator.domain_ownership_verifier",
-                        confidence="CONFIRMED",
-                    ))
-            elif dom_result.get("reason"):
-                report.digital.data_gaps.append(
-                    f"Domain RDAP check inconclusive for {dom_result.get('domain') or _dom_candidate}: {dom_result['reason']}"
-                )
-        except Exception as e:
-            logger.debug("domain_ownership_verifier failed (non-fatal): %s", e)
+    # MOVED to Layer 1 / identity as of R-F1836 (see _check_domain_ownership):
+    # domain ownership is an identity signal, and the digital layer is skipped
+    # in quick mode / on hard-stop, so the check never ran there in those modes.
+    # It now runs unconditionally inside _run_identity / _run_identity_person.
 
     # ── 5f. Link-investigator (deep mode only) ──
     # Recursive URL-tree walk seeded from the target's own website (if

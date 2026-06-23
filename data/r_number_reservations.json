@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1835,
+  "next_available": 1837,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12709,6 +12709,26 @@
       "r_number": "R-F1834",
       "title": "exponential-backoff circuit breaker — eliminate hand-tuned cooldowns",
       "claimed_at": "2026-06-23T18:59:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1ae3d6e9",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:19:04Z"
+    },
+    {
+      "r_number": "R-F1835",
+      "title": "DD quality scorer, metrics endpoint, type checker, API validator, cross-service tests",
+      "claimed_at": "2026-06-23T19:18:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b1df5f2",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:22:53Z"
+    },
+    {
+      "r_number": "R-F1836",
+      "title": "move RDAP domain-ownership check to Layer 1 identity (runs in all modes)",
+      "claimed_at": "2026-06-23T19:23:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
