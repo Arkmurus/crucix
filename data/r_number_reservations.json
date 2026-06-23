@@ -12663,27 +12663,30 @@
       "title": "web DD budget fits proxy window — always deliver partial inline",
       "claimed_at": "2026-06-23T17:50:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fe092440",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:35:04Z"
     },
     {
       "r_number": "R-F1830",
       "title": "web DD async-complete-and-push — deep DD delivered out-of-band to reports panel",
       "claimed_at": "2026-06-23T17:50:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "115e0ec5",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:35:04Z"
     },
     {
       "r_number": "R-F1831",
       "title": "DD entity resolution — bare-domain name treated as website, resolve real org",
       "claimed_at": "2026-06-23T18:47:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a30236c2",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:35:04Z"
     },
     {
       "r_number": "R-F1832",
@@ -12750,9 +12753,10 @@
       "title": "web DD compose-deadline safety net — stream always closes within proxy window",
       "claimed_at": "2026-06-23T19:48:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89a3f6b8",
+      "notes": null,
+      "shipped_at": "2026-06-23T20:35:04Z"
     },
     {
       "r_number": "R-F1839",
