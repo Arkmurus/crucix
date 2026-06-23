@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Tuple
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.prompt_budget")
 
@@ -76,6 +77,7 @@ _RESERVED_OUTPUT_TOKENS = 4096
 _FALLBACK_MODEL = "llama-3.3-70b-versatile"
 
 
+@fail_wire(module="prompt_budget", gap_type="engine_failure")
 def get_context_window(model: str) -> int:
     """Get the context window size for a given model.
 
@@ -98,6 +100,7 @@ def get_context_window(model: str) -> int:
     return _DEFAULT_CONTEXT_WINDOW
 
 
+@fail_wire(module="prompt_budget", gap_type="engine_failure")
 def estimate_tokens(text: str) -> int:
     """Estimate the number of tokens in a text string.
 
@@ -129,6 +132,7 @@ def estimate_tokens(text: str) -> int:
     return max(1, estimated)
 
 
+@fail_wire(module="prompt_budget", gap_type="engine_failure")
 def estimate_prompt_tokens(system_prompt: str, user_message: str) -> int:
     """Estimate total tokens for a prompt (system + user).
 
@@ -144,6 +148,7 @@ def estimate_prompt_tokens(system_prompt: str, user_message: str) -> int:
     return estimate_tokens(system_prompt) + estimate_tokens(user_message) + 8
 
 
+@fail_wire(module="prompt_budget", gap_type="engine_failure")
 def enforce_budget(
     system_prompt: str,
     user_message: str,

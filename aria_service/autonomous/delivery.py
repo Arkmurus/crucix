@@ -33,6 +33,7 @@ import time
 from typing import Any
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.delivery")
 
@@ -191,6 +192,7 @@ async def _deliver_whatsapp(task, response_text: str, triggered_flags: list[str]
 
 # ── Public entry point ─────────────────────────────────────────────────────
 
+@fail_wire(module="delivery", gap_type="agent_cycle_failure")
 async def deliver(
     *,
     task,

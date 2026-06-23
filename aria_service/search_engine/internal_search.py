@@ -36,6 +36,7 @@ import time
 from typing import Any
 
 from aria_service.search_index import db
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.search_engine.internal_search")
 
@@ -66,6 +67,7 @@ def _adjusted_score(row: dict) -> float:
         row.get("fetched_at"))
 
 
+@fail_wire(module="internal_search", gap_type="source_failure")
 async def search(
     query: str,
     *,
@@ -157,6 +159,7 @@ def _to_dict(r: dict) -> dict:
 # Coverage report
 # ─────────────────────────────────────────────────────────────────
 
+@fail_wire(module="internal_search", gap_type="source_failure")
 async def coverage_report(query: str | None = None) -> dict:
     """Structured trace for operator + UI. Aiming to replace the silent
     "0 results" failure mode with: 'we searched N docs across M domains

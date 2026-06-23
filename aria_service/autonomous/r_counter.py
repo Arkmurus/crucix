@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.r_counter")
 
@@ -39,10 +40,12 @@ class RNumberCounter:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="r_counter", gap_type="agent_cycle_failure")
     async def next(self) -> int:
         """Atomically increment and return the next R-number."""
         return int(await self.redis.incr(R_COUNTER_KEY))
 
+    @fail_wire(module="r_counter", gap_type="agent_cycle_failure")
     async def current(self) -> int:
         """Read the current R-number without incrementing."""
         val = await self.redis.get(R_COUNTER_KEY)
@@ -50,6 +53,7 @@ class RNumberCounter:
             return 0
         return int(val.decode("utf-8") if isinstance(val, bytes) else val)
 
+    @fail_wire(module="r_counter", gap_type="agent_cycle_failure")
     async def seed(self, value: int) -> None:
         """One-time seed — only call when reconciling with file log."""
         await self.redis.set(R_COUNTER_KEY, str(value))

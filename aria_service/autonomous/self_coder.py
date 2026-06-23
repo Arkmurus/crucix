@@ -60,6 +60,7 @@ from .sovereign_llm import (  # R-F1025: real LLM-backed coder (the contract sel
     LARGE_FILE_LINES,
 )
 from .test_runner import TestResult, TestRunner
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.self_coder")
 
@@ -126,11 +127,13 @@ GAP_TYPE_TO_CHANGE_TYPE: dict[str, str] = {
 }
 
 
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
 def gap_type_to_change_type(gap_type: str) -> str:
     """Map a Gap.gap_type to a self_improve.CHANGE_TYPES key."""
     return GAP_TYPE_TO_CHANGE_TYPE.get(gap_type, "enhancement")
 
 
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
 def resolve_staging_decision(
     *,
     is_flagged: bool,
@@ -156,6 +159,7 @@ def resolve_staging_decision(
     return (force_stage, force_deploy)
 
 
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
 def apply_capability_test_gate(
     *,
     reproduce_fail_to_pass: bool,
@@ -198,6 +202,7 @@ class FixResult:
     )
 
 
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
 def build_coder_reward_record(
     *, instruction: str, approach: str, code_changes: dict, r_number,
     test_result, stage_ok: bool, auto_deployed: bool, tests_enabled: bool,
@@ -306,6 +311,7 @@ class ARIACoder:
 
     # ── MAIN LOOP ────────────────────────────────────────────────────────────
 
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def run_forever(self) -> None:
         """Continuous loop: detect gaps every 15min, fix the top N."""
         logger.info("[aria_coder] starting autonomous loop")
@@ -469,6 +475,7 @@ class ARIACoder:
         code_raw = await self.llm.write_code(plan_raw, existing, target)
         return (code_raw or {}).get("code", "") or ""
 
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def fix_gap(
         self, gap: Gap, operator_initiated: bool = False,
         force_stage_only: bool = False,
@@ -1354,6 +1361,7 @@ class ARIACoder:
         except Exception as e:
             logger.debug("[aria_coder] _publish_progress redis error: %s", e)
 
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def get_progress(self, fix_id: str) -> dict:
         """R-F824: return latest event + full history for fix_id."""
         try:
@@ -1721,6 +1729,7 @@ class ARIACoder:
 
     # ── OPERATOR-REQUESTED FIXES (entry points from WhatsApp/Telegram) ───────
 
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def operator_fix_request(
         self,
         description: str,
@@ -1751,6 +1760,7 @@ class ARIACoder:
             gap, operator_initiated=True, force_stage_only=force_stage,
         )
 
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def operator_add_source(self, source_spec: str) -> FixResult:
         """Operator: 'Add <source> to the intel sweep' → new source module."""
         gap = Gap(

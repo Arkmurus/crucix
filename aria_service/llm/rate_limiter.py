@@ -39,6 +39,7 @@ from enum import IntEnum
 from typing import Optional
 
 from .provider import LLMProvider, LLMResult
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.rate_limiter")
 
@@ -53,17 +54,20 @@ class Priority(IntEnum):
 _current_priority: ContextVar[Priority] = ContextVar("llm_priority", default=Priority.INTERACTIVE)
 
 
+@fail_wire(module="rate_limiter", gap_type="engine_failure")
 def set_priority(p: Priority) -> object:
     """Set the LLM request priority for the current async context.
     Returns a token to reset with reset_priority()."""
     return _current_priority.set(p)
 
 
+@fail_wire(module="rate_limiter", gap_type="engine_failure")
 def reset_priority(token) -> None:
     """Reset priority to the previous value."""
     _current_priority.reset(token)
 
 
+@fail_wire(module="rate_limiter", gap_type="engine_failure")
 def get_priority() -> Priority:
     return _current_priority.get()
 
@@ -139,6 +143,7 @@ class RateLimitedProvider(LLMProvider):
         # MeteredProvider.__getattr__ pattern.
         return getattr(self._inner, item)
 
+    @fail_wire(module="rate_limiter", gap_type="engine_failure")
     def priority(self, p: Priority) -> _PriorityContext:
         """Context manager: `with llm.priority(Priority.BACKGROUND):`"""
         return _PriorityContext(self, p)
@@ -168,6 +173,7 @@ class RateLimitedProvider(LLMProvider):
             await self._wait_for_slot(priority)
         self._request_times.append(time.monotonic())
 
+    @fail_wire(module="rate_limiter", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,
@@ -281,6 +287,7 @@ class RateLimitedProvider(LLMProvider):
         except Exception:
             pass
 
+    @fail_wire(module="rate_limiter", gap_type="engine_failure")
     def get_stats(self) -> dict:
         """Return rate limiter stats."""
         inner_stats = {}
@@ -297,6 +304,7 @@ class RateLimitedProvider(LLMProvider):
             },
         }
 
+    @fail_wire(module="rate_limiter", gap_type="engine_failure")
     def get_health(self) -> dict:
         """Delegate to the wrapped provider's chain health.
 

@@ -23,6 +23,7 @@ import logging
 import re
 import time
 from typing import Awaitable, Callable, Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.deploy_verifier")
 
@@ -58,6 +59,7 @@ def _short(sha: str) -> str:
     return (sha or "").strip().lower()[:8]
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 def build_rev_matches(build_rev: Optional[str], expected_sha: str) -> bool:
     """True iff the expected commit's short-SHA appears in the live build_rev.
 
@@ -69,6 +71,7 @@ def build_rev_matches(build_rev: Optional[str], expected_sha: str) -> bool:
     return _short(expected_sha) in build_rev.strip().lower()
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 def extract_live_sha(build_rev: Optional[str]) -> Optional[str]:
     """Pull the trailing/last hex SHA out of a build_rev string, for logging."""
     if not build_rev:
@@ -100,6 +103,7 @@ async def _http_fetch_build_rev(app: str, timeout: float = 15.0) -> Optional[str
     return None
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def verify_deploy_landed(
     expected_sha: str,
     app: str = "aria-intel",
@@ -124,6 +128,7 @@ async def verify_deploy_landed(
     }
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def is_sha_live(
     expected_sha: str,
     app: str = "aria-intel",
@@ -160,6 +165,7 @@ async def is_sha_live(
     return False
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def reconcile_committed_deploys(
     items: list[dict],
     *,
@@ -201,6 +207,7 @@ async def reconcile_committed_deploys(
 # endpoint (routes/aria.py) and the proprioception loop (main.py).
 # ──────────────────────────────────────────────────────────────────────────
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 def add_deploy_intent(
     intents: Optional[list],
     commit_sha: str,
@@ -231,6 +238,7 @@ def add_deploy_intent(
     return out[-max_keep:]
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def reconcile_deploy_intents(
     intents: Optional[list],
     *,
@@ -307,6 +315,7 @@ async def reconcile_deploy_intents(
     return updated, gaps
 
 
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def reconcile_intents_via_store(
     rs_module,
     *,

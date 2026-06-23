@@ -26,6 +26,7 @@ import logging
 import time
 
 from .provider import LLMProvider, LLMResult
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.metered")
 
@@ -210,6 +211,7 @@ class MeteredProvider(LLMProvider):
         MeteredProvider._paused_cache = (paused, now)
         return paused
 
+    @fail_wire(module="metered", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,

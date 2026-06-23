@@ -45,6 +45,7 @@ from typing import Any, Optional
 _GIT_TIMEOUT_S = float(os.getenv("ARIA_GIT_TIMEOUT_S", "120"))
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.fly_deployer")
 
@@ -104,12 +105,14 @@ class FlyDeployer:
         )
         self._owns_client = http_client is None
 
+    @fail_wire(module="fly_deployer", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
 
     # ── DEPLOY ───────────────────────────────────────────────────────────────
 
+    @fail_wire(module="fly_deployer", gap_type="agent_cycle_failure")
     async def deploy(
         self,
         workspace: Path,
@@ -193,6 +196,7 @@ class FlyDeployer:
                 success=False, app=app, r_number=r_number, error=str(e),
             )
 
+    @fail_wire(module="fly_deployer", gap_type="agent_cycle_failure")
     async def rollback(self, r_number: int, app: str) -> bool:
         """Roll back by redeploying the image that preceded `r_number`."""
         record = await self.redis.get(f"{DEPLOY_KEY_PREFIX}{r_number - 1}")

@@ -9,10 +9,12 @@ from .openai_compat import OpenAICompatProvider
 from .anthropic import AnthropicProvider
 from .gemini import GeminiProvider
 from .hybrid import HybridProvider
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.factory")
 
 
+@fail_wire(module="factory", gap_type="engine_failure")
 def create_llm_provider(
     provider: str,
     api_key: str = "",

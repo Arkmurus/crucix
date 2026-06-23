@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.codebase_reader")
 
@@ -45,6 +46,7 @@ class CodebaseReader:
         self.aria_url = aria_service_url
         self.repo_path = repo_path or DEFAULT_REPO_PATH
 
+    @fail_wire(module="codebase_reader", gap_type="agent_cycle_failure")
     async def get_context(
         self,
         module: str,
@@ -87,6 +89,7 @@ class CodebaseReader:
 
         return "\n\n".join(parts)
 
+    @fail_wire(module="codebase_reader", gap_type="agent_cycle_failure")
     def read(self, filepath: str) -> str:
         """Read a file relative to the repo root. Returns '' on missing.
 
@@ -110,6 +113,7 @@ class CodebaseReader:
             logger.warning("[codebase_reader] read %s failed: %s", filepath, e)
         return ""
 
+    @fail_wire(module="codebase_reader", gap_type="agent_cycle_failure", control_flow_exempt=("ValueError",))
     def write_to_workspace(
         self, workspace: Path, filepath: str, content: str,
     ) -> Path:

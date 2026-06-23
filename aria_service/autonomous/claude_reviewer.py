@@ -59,6 +59,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.claude_reviewer")
 
@@ -134,6 +135,7 @@ class ReviewVerdict:
         return self.verdict == Verdict.FLAGGED
 
 
+@fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
 def is_enabled() -> bool:
     """R-F923: a reviewer is ALWAYS available.
 
@@ -148,6 +150,7 @@ def is_enabled() -> bool:
     return True
 
 
+@fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
 def anthropic_review_enabled() -> bool:
     """The Anthropic (Claude) tier fires only when BOTH its opt-in flag is
     set AND a key is present. Kept distinct from is_enabled() so the chain
@@ -160,6 +163,7 @@ def anthropic_review_enabled() -> bool:
 
 
 # Back-compat alias — historical name some call sites/tests used.
+@fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
 def claude_review_enabled() -> bool:  # pragma: no cover - thin alias
     return anthropic_review_enabled()
 
@@ -193,10 +197,12 @@ class ClaudeReviewer:
         self._owns_client = False
         self._injected_providers = providers
 
+    @fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         if self._owns_client and self._http_client is not None:
             await self._http_client.aclose()
 
+    @fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
     async def review(
         self,
         *,
@@ -592,6 +598,7 @@ Be specific in "reasons" — line references or function names help."""
         )
 
 
+@fail_wire(module="claude_reviewer", gap_type="agent_cycle_failure")
 def build_unified_diff(
     code_changes: dict[str, str],
     read_existing: Any,

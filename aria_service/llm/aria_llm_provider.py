@@ -36,6 +36,7 @@ import logging
 import os
 import time
 from typing import Any, AsyncIterator
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.aria_llm")
 
@@ -49,6 +50,7 @@ except ImportError:
 _DEFAULT_TIMEOUT = 120.0   # vLLM 70B can take 5-15s for a long completion
 
 
+@fail_wire(module="aria_llm_provider", gap_type="engine_failure")
 def is_configured() -> bool:
     return bool((os.getenv("ARIA_LLM_URL") or "").strip())
 
@@ -80,6 +82,7 @@ def _max_model_len() -> int:
         return 32768
 
 
+@fail_wire(module="aria_llm_provider", gap_type="engine_failure")
 async def complete(
     prompt: str,
     *,
@@ -314,6 +317,7 @@ async def stream(
         )
 
 
+@fail_wire(module="aria_llm_provider", gap_type="engine_failure")
 def summary() -> dict[str, Any]:
     return {
         "module":     "aria_llm_provider",

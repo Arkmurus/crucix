@@ -104,6 +104,19 @@ MODULE_GAP_TYPES: dict[str, str] = {
     # Routes (R-F1800) — routes/aria.py handler internal failures. HTTPException
     # 4xx is control flow (R-F1784 allowlist), so only real handler failures gap.
     "aria": "engine_failure",
+    # R-F1808 — llm/ provider layer (per-provider failures; streams HARD_EXEMPT;
+    # ProviderError is per-provider control flow handled by fallback)
+    "anthropic": "engine_failure", "gemini": "engine_failure",
+    "openai_compat": "engine_failure", "local_llm": "engine_failure",
+    "fallback": "engine_failure", "metered": "engine_failure",
+    "provider": "engine_failure", "resilience": "engine_failure",
+    "rate_limiter": "engine_failure", "tier_router": "engine_failure",
+    "hybrid": "engine_failure", "prompt_budget": "engine_failure",
+    "factory": "engine_failure", "aria_llm_provider": "engine_failure",
+    # R-F1808 — search_engine/
+    "internal_search": "source_failure",
+    # autonomous/ modules use the _default (agent_cycle_failure) — semantically
+    # correct (they ARE the agent loop); no per-module override needed.
     # Default for unregistered modules
     "_default": "agent_cycle_failure",
 }
@@ -144,17 +157,61 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # Wrapping an LLM token-stream generator breaks streaming (§13). The
     # decoration-time guard already forbids it; these entries keep GATE A
     # coherent (a stream() is legitimately-not-dark, not an unwired path).
-    "anthropic.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    # R-F1785 streams + R-F1809 @property/@classmethod accessors (merged — one
+    # key per file; duplicate dict keys would silently overwrite each other).
+    "anthropic.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                     "is_configured": "@property — config check"},
     "aria_llm_provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
-    "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                    "is_configured": "@property — config check"},
     "local_llm.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
-    "metered.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
-    "provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
-    "rate_limiter.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "metered.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                   "name": "@property accessor",
+                   "is_configured": "@property — config check"},
+    "provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                    "from_http_status": "@classmethod error builder — not a failure path",
+                    "is_configured": "@property — config check"},
+    "rate_limiter.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                        "name": "@property accessor",
+                        "is_configured": "@property — config check"},
     "resilience.py": {
         "stream": "ASYNC GENERATOR — LLM token stream (§13)",
         "wrap": "SYNC GENERATOR — resilience context manager",
+        "name": "@property — provider name accessor",
+        "is_configured": "@property — config check, not a failure path",
     },
+    # R-F1809 — @property/@staticmethod/@classmethod accessors across the
+    # autonomous/ + llm/ modules. Wrapping a descriptor changes its semantics;
+    # these are accessors/constructors/formatters, not failure paths (§21a).
+    "autonomous_deploy.py": {"from_env": "@classmethod constructor — not a failure path"},
+    "claude_reviewer.py": {
+        "is_approved": "@property verdict accessor",
+        "is_blocked": "@property verdict accessor",
+        "is_flagged": "@property verdict accessor",
+    },
+    "cost_monitor.py": {
+        "total_tokens": "@property metric",
+        "remaining_usd": "@property metric",
+        "utilisation": "@property metric",
+    },
+    "gap_detector.py": {
+        "auto_fixable": "@property gap classification",
+        "requires_wa_approval": "@property gap classification",
+        "requires_hard_gate": "@property gap classification",
+    },
+    "wa_notifier.py": {
+        "is_configured": "@property — config check",
+        "msg_request_queued": "@staticmethod string formatter",
+        "msg_stage_progress": "@staticmethod string formatter",
+        "msg_shipped": "@staticmethod string formatter",
+        "msg_failed": "@staticmethod string formatter",
+    },
+    # anthropic/fallback/metered/provider/rate_limiter accessors merged into
+    # their R-F1785 stream entries above (avoid duplicate dict keys). Only the
+    # llm modules with NO prior HARD_EXEMPT entry are new here:
+    "gemini.py": {"is_configured": "@property — config check"},
+    "hybrid.py": {"is_configured": "@property — config check"},
+    "openai_compat.py": {"is_configured": "@property — config check"},
     # R-F1792 — @property accessors. Wrapping a property changes its semantics
     # and these are trivial computed accessors, not failure paths (reasoned
     # exemption §21a). The method-aware applicator skips them; GATE A needs this.
@@ -241,6 +298,16 @@ WIRED_MODULES: set[str] = {
     # cost_tracker MonthlyCostCapExceeded exempt; correction_learner closure-fix)
     "dd_disciplines", "dd_orchestrator", "mistake_ledger",
     "correction_learner", "cost_tracker",
+    # R-F1809 — Phase 1 batch 6 (autonomous/ + llm/ + search_engine/)
+    "autonomous_deploy", "claude_reviewer", "codebase_reader", "coder_entrypoint",
+    "constitutional_validator", "cost_monitor", "delivery", "deploy_verifier",
+    "dryrun_history", "engine", "fly_deployer", "gap_detector",
+    "machines_deployer", "r_counter", "review_ticket", "safety", "self_coder",
+    "sovereign_llm", "tasks", "test_runner", "wa_notifier",
+    "anthropic", "aria_llm_provider", "factory", "fallback", "gemini", "hybrid",
+    "local_llm", "metered", "openai_compat", "prompt_budget", "provider",
+    "rate_limiter", "resilience", "tier_router",
+    "internal_search",
 }
 
 # Modules that are fully reviewed and exempt from wiring

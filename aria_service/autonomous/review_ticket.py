@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.review_ticket")
 
@@ -94,6 +95,7 @@ class ReviewTicket:
     aria_service_url: str = "https://aria-intel.fly.dev"
 
 
+@fail_wire(module="review_ticket", gap_type="agent_cycle_failure")
 def is_enabled() -> bool:
     """Both env var + token must be present."""
     if os.environ.get(ENABLE_VAR, "0").strip() != "1":
@@ -103,11 +105,13 @@ def is_enabled() -> bool:
     return True
 
 
+@fail_wire(module="review_ticket", gap_type="agent_cycle_failure")
 def format_issue_title(ticket: ReviewTicket) -> str:
     """Short title for the GitHub Issue."""
     return f"[aria-self-coded] R-F{ticket.r_number}: {ticket.gap_title[:80]}"
 
 
+@fail_wire(module="review_ticket", gap_type="agent_cycle_failure")
 def format_issue_body(ticket: ReviewTicket) -> str:
     """Markdown body for the GitHub Issue.
 
@@ -204,6 +208,7 @@ def format_issue_body(ticket: ReviewTicket) -> str:
     return body
 
 
+@fail_wire(module="review_ticket", gap_type="agent_cycle_failure")
 async def open_review_ticket(
     ticket: ReviewTicket,
     repo: Optional[str] = None,

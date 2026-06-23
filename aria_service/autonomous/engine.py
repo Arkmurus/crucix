@@ -52,6 +52,7 @@ import time
 from typing import Any
 
 from . import safety, tasks as tasks_mod
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.engine")
 
@@ -96,6 +97,7 @@ _RUNTIME_ENABLE_TTL_S = 5.0  # cache Redis read so is_enabled() stays cheap
 AUTONOMY_LEVELS = {0: "OFF", 1: "RESEARCH", 2: "INTERNAL", 3: "FULL"}
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 def get_autonomy_level() -> int:
     """Current autonomy level. Default: inferred from ENABLED + DRY_RUN."""
     explicit = os.getenv(_AUTONOMY_LEVEL_VAR, "").strip()
@@ -109,6 +111,7 @@ def get_autonomy_level() -> int:
     return 3  # enabled + not dry_run = full
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 def is_enabled() -> bool:
     """Master engine kill switch. Env var default OFF, with a runtime
     override that lets /autonomous/enable flip the switch without a
@@ -130,6 +133,7 @@ def is_enabled() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def refresh_runtime_override() -> str | None:
     """Read the Redis override into the in-process cache. Called at
     lifespan startup (before start_engine) and once per engine tick so
@@ -149,6 +153,7 @@ async def refresh_runtime_override() -> str | None:
     return _RUNTIME_ENABLE_CACHE.get("val")
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def set_runtime_override(enabled: bool | None) -> dict[str, Any]:
     """Flip the master switch at runtime via Redis. Also updates the
     in-process cache immediately so the next is_enabled() call (including
@@ -180,6 +185,7 @@ async def set_runtime_override(enabled: bool | None) -> dict[str, Any]:
     }
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 def is_dry_run() -> bool:
     """Default ON. Set ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery."""
     val = (os.getenv(_DRY_RUN_VAR, "1") or "1").strip().lower()
@@ -195,6 +201,7 @@ _tick_count: int = 0
 _fire_count: int = 0
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 def get_engine_status() -> dict[str, Any]:
     """One-shot snapshot of the engine's in-process state. Used by the
     /api/aria/autonomous/status admin endpoint together with the
@@ -445,6 +452,7 @@ async def _engine_loop(llm) -> None:
 
 # ── Lifecycle: start and stop ──────────────────────────────────────────────
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 def start_engine(llm) -> bool:
     """Spawn the engine loop as an asyncio task. Idempotent — calling
     twice is a no-op. Returns True if the engine started (or was
@@ -522,6 +530,7 @@ def _on_engine_done(t: asyncio.Task) -> None:
         logger.warning("[autonomous engine] task ended without exception (unexpected)")
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def stop_engine() -> None:
     """Cancel the engine task. Used by the lifespan shutdown hook."""
     global _engine_task
@@ -543,6 +552,7 @@ async def stop_engine() -> None:
 
 # ── Manual run-now (admin endpoint) ────────────────────────────────────────
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def run_task_now(task_id: str, llm) -> dict[str, Any]:
     """Manually fire a single task immediately, regardless of cron or
     enabled flag. Used by the /api/aria/autonomous/run-now/<task_id>

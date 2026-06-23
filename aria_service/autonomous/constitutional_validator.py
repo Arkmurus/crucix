@@ -45,6 +45,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.constitutional_validator")
 
@@ -85,6 +86,7 @@ def _load_learned_attacks() -> list[dict]:
     return []
 
 
+@fail_wire(module="constitutional_validator", gap_type="agent_cycle_failure")
 def record_learned_attack(
     content: str,
     violations: list[str],
@@ -222,11 +224,13 @@ class ValidationResult:
     warnings: list[str] = field(default_factory=list)
     risk_score: float = 0.0   # 0.0 safe → 1.0 critical
 
+    @fail_wire(module="constitutional_validator", gap_type="agent_cycle_failure")
     def add_violation(self, msg: str, score_delta: float = 0.3) -> None:
         self.violations.append(msg)
         self.passed = False
         self.risk_score = min(1.0, self.risk_score + score_delta)
 
+    @fail_wire(module="constitutional_validator", gap_type="agent_cycle_failure")
     def add_warning(self, msg: str, score_delta: float = 0.1) -> None:
         self.warnings.append(msg)
         self.risk_score = min(1.0, self.risk_score + score_delta)
@@ -241,6 +245,7 @@ class ConstitutionalValidator:
     ARIA-Coder autonomously — this file is in PROTECTED_FILES.
     """
 
+    @fail_wire(module="constitutional_validator", gap_type="agent_cycle_failure")
     def validate(
         self,
         code: str,
@@ -438,6 +443,7 @@ class DiffValidator:
         r"_R462_AUTO_DEPLOY_DEFAULT",
     ]
 
+    @fail_wire(module="constitutional_validator", gap_type="agent_cycle_failure")
     def validate_diff(self, unified_diff: str) -> ValidationResult:
         result = ValidationResult(passed=True)
         removed_lines = [

@@ -7,6 +7,7 @@ from __future__ import annotations
 import httpx
 import logging
 from .provider import LLMProvider, LLMResult, ProviderError
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.gemini")
 
@@ -24,6 +25,7 @@ class GeminiProvider(LLMProvider):
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
+    @fail_wire(module="gemini", gap_type="engine_failure", control_flow_exempt=("ProviderError",))
     async def complete(
         self,
         system_prompt: str,

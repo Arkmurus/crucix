@@ -45,6 +45,7 @@ from typing import Any, Optional
 import httpx
 
 from .machines_deployer import MachinesDeployer
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.autonomous_deploy")
 
@@ -194,6 +195,7 @@ class DeploymentDatabase:
             """)
             conn.commit()
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def save_deployment(self, record: DeploymentRecord) -> None:
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(
@@ -221,6 +223,7 @@ class DeploymentDatabase:
             )
             conn.commit()
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def get_deployment(
         self, deploy_id: str,
     ) -> Optional[DeploymentRecord]:
@@ -249,6 +252,7 @@ class DeploymentDatabase:
                 )
             return None
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def save_version_history(
         self, live: LiveVersion, verified: bool = True,
     ) -> None:
@@ -271,6 +275,7 @@ class DeploymentDatabase:
             )
             conn.commit()
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def get_deployment_history(
         self, limit: int = 20,
     ) -> list[dict[str, Any]]:
@@ -296,9 +301,11 @@ class WebhookNotifier:
         self.webhook_url = webhook_url
         self._client = httpx.AsyncClient(timeout=5)
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def send(
         self, event: str, data: dict[str, Any],
     ) -> None:
@@ -355,6 +362,7 @@ class BlockchainAnchoring:
                     "blockchain anchoring disabled",
                 )
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def anchor_deployment(
         self,
         commit_hash: str,
@@ -411,6 +419,7 @@ class HealthChecker:
         self.health_path = health_path
         self.full_url = f"{self.app_url}{health_path}"
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def check(
         self, timeout: int = 30,
     ) -> tuple[bool, dict[str, Any]]:
@@ -447,6 +456,7 @@ class HealthChecker:
                 "error": str(e),
             }
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def wait_for_health(
         self, timeout: int = 60, interval: int = 5,
     ) -> tuple[bool, dict[str, Any]]:
@@ -527,6 +537,7 @@ class AutonomousDeployEngine:
             # the package context is not fully initialized
             return None
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         """Close all HTTP clients and release resources."""
         await self._machines.aclose()
@@ -534,6 +545,7 @@ class AutonomousDeployEngine:
 
     # ── Git helpers (pure Python, no subprocess) ───────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     def get_current_commit(self) -> tuple[str, str]:
         """Get current git commit hash and message.
 
@@ -545,6 +557,7 @@ class AutonomousDeployEngine:
 
     # ── Live version ───────────────────────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def get_live_version(self) -> LiveVersion:
         """Get what's actually running on Fly.io."""
         try:
@@ -600,6 +613,7 @@ class AutonomousDeployEngine:
 
     # ── Verification ───────────────────────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def verify_deployment(
         self, expected_commit: str, timeout: int = 120,
     ) -> tuple[bool, dict[str, Any]]:
@@ -639,6 +653,7 @@ class AutonomousDeployEngine:
 
     # ── Deploy ─────────────────────────────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def deploy(
         self,
         commit_hash: Optional[str] = None,
@@ -811,6 +826,7 @@ class AutonomousDeployEngine:
 
     # ── Rollback ───────────────────────────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def rollback(
         self, target_version: Optional[int] = None,
     ) -> bool:
@@ -886,6 +902,7 @@ class AutonomousDeployEngine:
 
     # ── Status ─────────────────────────────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def get_status(self) -> dict[str, Any]:
         """Get complete deployment status."""
         live = await self.get_live_version()
@@ -906,6 +923,7 @@ class AutonomousDeployEngine:
 
     # ── Health monitoring loop (async) ─────────────────────────────────────
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def health_loop_async(
         self, interval: int = DEFAULT_HEALTH_INTERVAL_S,
     ) -> None:
@@ -949,6 +967,7 @@ class AutonomousDeployEngine:
 
 # ── FastAPI Integration Endpoints ──────────────────────────────────────────
 
+@fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
 def add_deployment_endpoints(
     app: Any,
     engine: Optional[AutonomousDeployEngine] = None,

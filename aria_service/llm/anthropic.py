@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.anthropic")
 
@@ -70,6 +71,7 @@ class AnthropicProvider(LLMProvider):
 
     # ── Non-streaming (unchanged behaviour) ──────────────────────────
 
+    @fail_wire(module="anthropic", gap_type="engine_failure", control_flow_exempt=("ProviderError",))
     async def complete(
         self,
         system_prompt: str,

@@ -19,6 +19,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.coder_entrypoint")
 
@@ -48,6 +49,7 @@ class _HarvestShim:
     CLAUDE.md §21a). Lifted to module level so it is unit-testable.
     """
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def capture(self, pair: dict) -> None:
         try:
             from ..learning.output_harvester import harvest as _harvest_fn
@@ -150,32 +152,41 @@ class _RedisStoreAdapter:
     def __init__(self, rs_module: Any) -> None:
         self._rs = rs_module
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def get(self, key: str) -> Any:
         return await self._rs.get(key)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def set(self, key: str, value: str) -> None:
         await self._rs.set(key, value)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def setex(self, key: str, ttl_seconds: int, value: str) -> None:
         # redis.asyncio: setex(name, time, value)
         # redis_store:   set(key, value, ex=time)
         await self._rs.set(key, value, ex=ttl_seconds)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def incr(self, key: str) -> int:
         return await self._rs.incr(key)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def expire(self, key: str, seconds: int) -> bool:
         return await self._rs.expire(key, seconds)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def lrange(self, key: str, start: int, end: int) -> list:
         return await self._rs.lrange(key, start, end)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def lpush(self, key: str, value: str) -> None:
         await self._rs.lpush(key, value)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def ltrim(self, key: str, start: int, end: int) -> None:
         await self._rs.ltrim(key, start, end)
 
+    @fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
     async def delete(self, key: str) -> bool:
         return await self._rs.delete(key)
 
@@ -223,6 +234,7 @@ async def _heartbeat_ticker() -> None:
         pass
 
 
+@fail_wire(module="coder_entrypoint", gap_type="agent_cycle_failure")
 async def start_aria_coder(
     app_state: Any,
     aria_service_url: Optional[str] = None,

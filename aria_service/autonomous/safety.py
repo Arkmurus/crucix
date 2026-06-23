@@ -31,6 +31,7 @@ from typing import Any
 
 from ..intel import redis_store as rs
 from ..intel.engine_wiring import wire_success, wire_failure
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.safety")
 
@@ -151,6 +152,7 @@ def _memory_rate_incr() -> int:
 
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_increment_rate(*, key_fmt: str | None = None,
                                    cap: int | None = None) -> tuple[bool, int]:
     """Token-bucket rate limit with hourly buckets.
@@ -243,6 +245,7 @@ async def check_and_increment_rate(*, key_fmt: str | None = None,
 
 # ── Public: cost cap ───────────────────────────────────────────────────────
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_cost_cap() -> tuple[bool, float]:
     """Circuit breaker on daily LLM cost.
 
@@ -292,6 +295,7 @@ async def check_cost_cap() -> tuple[bool, float]:
     return within, spent
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def record_task_cost(usd: float) -> None:
     """Record the cost of a single task run against today's budget.
 
@@ -335,6 +339,7 @@ def _entity_hash(entity: str) -> str:
     return hashlib.sha1((entity or "").strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
     """Return True if this task+entity is allowed to run, False if it
     duplicates a recent run.
@@ -367,6 +372,7 @@ async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
         return True
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def clear_dedupe(task_id: str, entity: str = "") -> None:
     """Drop the dedupe marker for a task+entity. Called after a failed
     or invalid run so the next scheduled fire can retry — without this
@@ -404,6 +410,7 @@ _paused_inproc: bool = False
 _task_paused_inproc: dict[str, bool] = {}
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def is_engine_paused() -> bool:
     """Global engine kill switch. When True, NO tasks fire.
 
@@ -424,6 +431,7 @@ async def is_engine_paused() -> bool:
         return _paused_inproc  # R-F1693: hold last-known, never default to "run"
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def pause_engine(reason: str = "") -> None:
     global _paused_inproc
     _paused_inproc = True  # R-F1693: set intent FIRST so pause holds even if the Redis write fails
@@ -448,6 +456,7 @@ async def pause_engine(reason: str = "") -> None:
         )
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def resume_engine() -> None:
     global _paused_inproc
     _paused_inproc = False  # R-F1693: clear intent FIRST (mirror stays consistent with operator action)
@@ -473,6 +482,7 @@ async def resume_engine() -> None:
         )
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def is_task_paused(task_id: str) -> bool:
     """Per-task pause flag (independent of the global engine pause).
 
@@ -488,6 +498,7 @@ async def is_task_paused(task_id: str) -> bool:
         return _task_paused_inproc.get(task_id, False)  # hold last-known
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def pause_task(task_id: str) -> None:
     try:
         await rs.set(_PAUSE_TASK_FMT.format(task_id=task_id), "1")
@@ -496,6 +507,7 @@ async def pause_task(task_id: str) -> None:
         logger.error("[autonomous safety] failed to pause task %s: %s", task_id, e)
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def resume_task(task_id: str) -> None:
     try:
         if hasattr(rs, "delete"):
@@ -509,6 +521,7 @@ async def resume_task(task_id: str) -> None:
 
 # ── Public: composite check (one call) ─────────────────────────────────────
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def can_task_run(task_id: str, entity: str, *, coder: bool = False) -> tuple[bool, str]:
     """Run all five guardrails. Returns (allowed, reason_if_blocked).
 
@@ -551,6 +564,7 @@ async def can_task_run(task_id: str, entity: str, *, coder: bool = False) -> tup
 
 # ── Public: snapshot for /status admin endpoint ────────────────────────────
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def get_safety_state() -> dict[str, Any]:
     """One-shot view of every safety counter for the admin /status endpoint."""
     today = time.strftime("%Y-%m-%d", time.gmtime())

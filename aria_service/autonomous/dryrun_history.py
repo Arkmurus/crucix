@@ -24,6 +24,7 @@ import time
 from typing import Any
 
 from ..intel import redis_store as rs
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.dryrun_history")
 
@@ -42,6 +43,7 @@ _KEY = "crucix:autonomous:dryrun_history"
 _MAX_HOT = 500  # entries kept in the hot list before the head is trimmed
 
 
+@fail_wire(module="dryrun_history", gap_type="agent_cycle_failure")
 async def record(
     *,
     task_id: str,
@@ -79,6 +81,7 @@ async def record(
         logger.warning("dryrun_history.record failed (non-fatal): %s", e)
 
 
+@fail_wire(module="dryrun_history", gap_type="agent_cycle_failure")
 async def recent(limit: int = 20) -> list[dict[str, Any]]:
     """Most-recent N dry-run entries, newest first."""
     limit = max(1, min(int(limit), _MAX_HOT))

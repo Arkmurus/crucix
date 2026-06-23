@@ -29,6 +29,7 @@ import re
 from typing import Optional
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.wa_notifier")
 
@@ -98,6 +99,7 @@ _PII_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
 )
 
 
+@fail_wire(module="wa_notifier", gap_type="agent_cycle_failure")
 def scrub_pii(text: str) -> str:
     """Apply the conservative R-F826 PII pattern set. Returns the same
     string if no patterns matched (idempotent + cheap)."""
@@ -147,6 +149,7 @@ class WANotifier:
         self._client = http_client
         self._owns_client = http_client is None
 
+    @fail_wire(module="wa_notifier", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         if self._owns_client and self._client is not None:
             await self._client.aclose()
@@ -156,6 +159,7 @@ class WANotifier:
     def is_configured(self) -> bool:
         return bool(self.base_url and self.token and self.default_group_id)
 
+    @fail_wire(module="wa_notifier", gap_type="agent_cycle_failure")
     async def notify(
         self, text: str, group_id: Optional[str] = None,
         scrub: bool = True,

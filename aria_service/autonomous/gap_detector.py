@@ -49,6 +49,7 @@ from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.gap_detector")
 
@@ -127,6 +128,7 @@ class Gap:
     def requires_hard_gate(self) -> bool:
         return AUTONOMY_LEVEL.get(self.gap_type, (False, False, False))[2]
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -175,6 +177,7 @@ class ErrorLedgerExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         since_ts = since.timestamp()
@@ -316,6 +319,7 @@ class ChatAuditExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         since_ts = since.timestamp()
@@ -392,6 +396,7 @@ class HealthPerfExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         try:
@@ -461,6 +466,7 @@ class AdversarialStalenessExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         try:
@@ -539,6 +545,7 @@ class GroundedRateExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         try:
@@ -623,6 +630,7 @@ class FileIntegrityExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         import os as _os
@@ -705,6 +713,7 @@ class SourceHealthExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         try:
@@ -771,6 +780,7 @@ class OpportunityExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         try:
@@ -885,6 +895,7 @@ class CapabilityGapExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         since_ts = since.timestamp()
@@ -945,6 +956,7 @@ class MistakeLedgerExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         gaps: list[Gap] = []
         since_ts = since.timestamp()
@@ -1022,6 +1034,7 @@ class StaticAnalysisExtractor:
         # Resolve repo root relative to this file
         self._repo_root = Path(__file__).resolve().parent.parent.parent
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         """Run static analysis on the codebase.
 
@@ -1362,6 +1375,7 @@ class PortalCoverageExtractor:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         """Check portal registration status and return gaps for unregistered portals."""
         if since is not None:
@@ -1579,6 +1593,7 @@ class TestFailureExtractor:
         self.redis = redis_client
         self._repo_root = Path(__file__).resolve().parent.parent.parent
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def extract(self, since: datetime) -> list[Gap]:
         """Read pytest lastfailed cache and surface failing tests as gaps."""
         # R-F1686: OPT-IN gate (default OFF). The operator chose a CURATED,
@@ -1785,6 +1800,7 @@ class GapDetector:
         ]
         self._active_gaps: dict[str, Gap] = {}
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def scan(self) -> list[Gap]:
         """Run all extractors, dedupe, return prioritised list."""
         since = datetime.now(timezone.utc) - self.LOOKBACK_WINDOW
@@ -1861,6 +1877,7 @@ class GapDetector:
             pass
         return False
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def mark_attempted(self, gap_id: str, failed: bool = False) -> None:
         """Mark a gap as attempted.
 
@@ -1891,6 +1908,7 @@ class GapDetector:
         except Exception:
             pass
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def mark_fixed(self, gap_id: str, r_number: int) -> None:
         try:
             await self.redis.setex(
@@ -2057,6 +2075,7 @@ class GapDetector:
         else:
             return (False, f"auto-written reproduce test failed for unrelated reason (exit={_proc.returncode}) — unverifiable")
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def reproduce_symptom(self, gap: Gap) -> tuple[bool, str]:
         """R-F1460: attempt to reproduce the gap's symptom via an existing test.
 
@@ -2142,6 +2161,7 @@ class GapDetector:
         # Test PASSED — the code works, this is a false positive
         return (False, f"test {test_path} PASSES — code works, false positive gap")
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def verify_reproduce_test_passes(self, reproduce_test_path: str) -> tuple[bool, str]:
         """R-F1681: re-run the auto-written reproduce test after the fix is applied.
 
@@ -2175,6 +2195,7 @@ class GapDetector:
         _combined = (_output + _errors)[:500]
         return (False, f"reproduce test still FAILS on fixed code (exit={_proc.returncode}): {_combined}")
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def verify_fixed(self, gap: Gap) -> bool:
         """R-F1155: post-fix verification — re-run the relevant extractor
         to confirm the gap is no longer present.
@@ -2193,6 +2214,7 @@ class GapDetector:
                 continue
         return True
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def publish_latest(self, gaps: list[Gap]) -> None:
         try:
             await self.redis.setex(
@@ -2203,6 +2225,7 @@ class GapDetector:
         except Exception as e:
             logger.warning("[gap_detector] publish_latest failed: %s", e)
 
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def run_forever(self) -> None:
         """Main loop. Cancellable via asyncio.Task.cancel()."""
         logger.info(

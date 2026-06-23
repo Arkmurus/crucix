@@ -54,6 +54,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.tier_router")
 
@@ -170,6 +171,7 @@ def _provider_available(provider_name: str, available_providers: set[str]) -> bo
     return provider_name in available_providers
 
 
+@fail_wire(module="tier_router", gap_type="engine_failure")
 def route_for_intent(
     intent: str,
     available_providers: set[str] | None = None,
@@ -216,6 +218,7 @@ def route_for_intent(
     return "anthropic"
 
 
+@fail_wire(module="tier_router", gap_type="engine_failure")
 def explain_routing(
     intent: str,
     available_providers: set[str] | None = None,
@@ -241,6 +244,7 @@ def explain_routing(
     }
 
 
+@fail_wire(module="tier_router", gap_type="engine_failure")
 def summary() -> dict[str, Any]:
     """Capability-manifest entry."""
     return {

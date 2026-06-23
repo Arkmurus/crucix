@@ -16,6 +16,7 @@ from typing import Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.fallback")
 
@@ -306,6 +307,7 @@ class FallbackProvider(LLMProvider):
         except RuntimeError:
             pass
 
+    @fail_wire(module="fallback", gap_type="engine_failure")
     async def hydrate_from_redis(self) -> int:
         """Read mirrored HARD cooldowns from Redis and apply them to the
         in-memory _stats. Called once during lifespan startup. Returns
@@ -346,6 +348,7 @@ class FallbackProvider(LLMProvider):
                 )
         return count
 
+    @fail_wire(module="fallback", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,
@@ -495,6 +498,7 @@ class FallbackProvider(LLMProvider):
             kind="other", retryable=True, cause=last_error,
         )
 
+    @fail_wire(module="fallback", gap_type="engine_failure")
     def get_stats(self) -> dict:
         """Get reliability stats for all providers."""
         return {
@@ -511,6 +515,7 @@ class FallbackProvider(LLMProvider):
             for name, s in self._stats.items()
         }
 
+    @fail_wire(module="fallback", gap_type="engine_failure")
     def get_health(self) -> dict:
         """Chain-level health summary.
 
@@ -544,6 +549,7 @@ class FallbackProvider(LLMProvider):
         }
 
 
+@fail_wire(module="fallback", gap_type="engine_failure")
 def create_fallback_chain(
     primary_provider: str,
     primary_key: str,

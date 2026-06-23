@@ -44,6 +44,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.test_runner")
 
@@ -107,6 +108,7 @@ class TestRunner:
         # Default timeout depends on mode
         self.timeout_s = timeout_s
 
+    @fail_wire(module="test_runner", gap_type="agent_cycle_failure")
     async def run_isolated(
         self,
         workspace: Path,

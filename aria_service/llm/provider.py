@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import Optional
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm")
 
@@ -93,6 +94,7 @@ class LLMProvider(ABC):
     def is_configured(self) -> bool: ...
 
     @abstractmethod
+    @fail_wire(module="provider", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,

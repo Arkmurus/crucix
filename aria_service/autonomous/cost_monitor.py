@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 from functools import wraps
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("ARIA.CostMonitor")
 
@@ -90,6 +91,7 @@ PRICING = {
 }
 
 
+@fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
 def compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Compute USD cost for a single API call."""
     pricing = PRICING.get(model, PRICING["_default"])
@@ -124,6 +126,7 @@ class CostRecord:
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def to_dict(self) -> dict:
         return {
             "request_id": self.request_id,
@@ -171,10 +174,12 @@ class DailyBudgetState:
     def utilisation(self) -> float:
         return self.total_spent_usd / self.total_cap_usd if self.total_cap_usd > 0 else 0.0
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def task_remaining(self, task_id: str) -> float:
         spent = self.task_spent.get(task_id, 0.0)
         return max(0.0, self.task_cap_usd - spent)
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def task_utilisation(self, task_id: str) -> float:
         spent = self.task_spent.get(task_id, 0.0)
         return spent / self.task_cap_usd if self.task_cap_usd > 0 else 0.0
@@ -233,6 +238,7 @@ class ARIACostMonitor:
         self._today_state: Optional[DailyBudgetState] = None
         self._today_key: str = ""
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def pre_call_check(self, task_id: str) -> tuple[bool, str]:
         """
         Check if a task is allowed to make an API call.
@@ -265,6 +271,7 @@ class ARIACostMonitor:
 
         return True, "OK"
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def record_call(
         self,
         task_id: str,
@@ -323,6 +330,7 @@ class ARIACostMonitor:
         )
         return record
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def get_daily_summary(self, target_date: str = "") -> dict:
         """Get cost summary for today or a specific date."""
         state = self._get_today_state()
@@ -346,6 +354,7 @@ class ARIACostMonitor:
             "suspended_tasks": state.suspended_tasks,
         }
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def get_cost_leaderboard(self, days: int = 7) -> list[dict]:
         """
         Return per-task cost leaderboard for the past N days.
@@ -384,6 +393,7 @@ class ARIACostMonitor:
             for tid, total in task_totals.items()
         ], key=lambda x: x["total_cost_usd"], reverse=True)
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def reset_task(self, task_id: str) -> None:
         """Re-enable a suspended task (admin action)."""
         state = self._get_today_state()
@@ -393,6 +403,7 @@ class ARIACostMonitor:
             self._save_today_state(state)
             logger.info(f"Task {task_id} re-enabled by admin")
 
+    @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
     def set_daily_cap(self, cap_usd: float) -> None:
         """Adjust daily cap at runtime."""
         self.daily_cap = cap_usd
@@ -553,6 +564,7 @@ class ARIACostMonitor:
 # DECORATOR FOR ARIA ENGINE
 # =============================================================================
 
+@fail_wire(module="cost_monitor", gap_type="agent_cycle_failure", control_flow_exempt=("RuntimeError",))
 def track_cost(task_id: str, task_name: str, purpose: str = ""):
     """
     Decorator to automatically track costs for any function that

@@ -22,6 +22,7 @@ from typing import Any, Optional
 import httpx
 
 from .gap_detector import Gap
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.sovereign_llm")
 
@@ -60,6 +61,7 @@ DEFAULT_MAX_TOKENS = 8192
 LARGE_FILE_LINES = int(os.getenv("ARIA_CODER_LARGE_FILE_LINES", "500"))
 
 
+@fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
 def apply_search_replace(content: str, edits: list[dict]) -> tuple[str, list[str], list[str]]:
     """R-F1295 — apply surgical search/replace edits to ``content``.
 
@@ -106,12 +108,14 @@ class SovereignLLM:
         self._client = client or httpx.AsyncClient(timeout=timeout_s)
         self._owns_client = client is None
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
 
     # ── PUBLIC TASK METHODS ──────────────────────────────────────────────────
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def generate_fix_plan(
         self, gap: Gap, codebase_context: str,
     ) -> dict[str, Any]:
@@ -142,6 +146,7 @@ class SovereignLLM:
             prefer_model=PREFER_MODEL,
         )
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def write_code(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> dict[str, Any]:
@@ -152,6 +157,7 @@ class SovereignLLM:
             prefer_model=PREFER_MODEL,
         )
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def write_edit(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> dict[str, Any]:
@@ -164,6 +170,7 @@ class SovereignLLM:
             prefer_model=PREFER_MODEL,
         )
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def write_tests(
         self, plan: dict, new_code: str, r_number: int,
     ) -> dict[str, Any]:
@@ -174,6 +181,7 @@ class SovereignLLM:
             prefer_model=PREFER_MODEL,
         )
 
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def analyse_failure(
         self, error: str, code: str, attempt: int,
     ) -> dict[str, Any]:

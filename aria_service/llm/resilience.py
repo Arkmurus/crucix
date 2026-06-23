@@ -41,6 +41,7 @@ from collections import OrderedDict
 from typing import Any, Optional
 
 from .provider import LLMProvider, LLMResult
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.resilience")
 
@@ -114,6 +115,7 @@ class LLMHealthChecker:
         self.consecutive_failures: int = 0
         self.probe_status: str = "unknown"  # healthy / degraded / unhealthy / unknown
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     async def start(self) -> None:
         """Start the background health probe loop.
 
@@ -131,6 +133,7 @@ class LLMHealthChecker:
             self._check_interval, self._endpoint,
         )
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     async def stop(self) -> None:
         """Stop the health probe loop."""
         if self._task:
@@ -269,6 +272,7 @@ class LLMHealthChecker:
         except Exception:
             pass
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def is_available(self) -> bool:
         """Is ARIA-LLM currently considered available?"""
         if not self._enabled:
@@ -277,6 +281,7 @@ class LLMHealthChecker:
             return True  # haven't probed yet — assume available
         return not self._breaker.is_open()
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def get_status(self) -> dict:
         """Return health-checker status for /health endpoints."""
         return {
@@ -415,6 +420,7 @@ class LLMRequestQueue(LLMProvider):
     def __getattr__(self, item):
         return getattr(self._inner, item)
 
+    @fail_wire(module="resilience", gap_type="engine_failure", control_flow_exempt=("ProviderError",))
     async def complete(
         self,
         system_prompt: str,
@@ -485,6 +491,7 @@ class LLMRequestQueue(LLMProvider):
         finally:
             self._active_count -= 1
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def get_stats(self) -> dict:
         """Return queue stats for /health endpoints."""
         return {
@@ -603,6 +610,7 @@ class LLMResponseCache(LLMProvider):
         while len(self._cache) > self._max_size:
             self._cache.popitem(last=False)
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,
@@ -656,6 +664,7 @@ class LLMResponseCache(LLMProvider):
         ):
             yield chunk
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def get_stats(self) -> dict:
         """Return cache stats for /health endpoints."""
         return {
@@ -667,6 +676,7 @@ class LLMResponseCache(LLMProvider):
             "ttl_seconds": self._ttl,
         }
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def clear(self) -> int:
         """Clear the cache. Returns number of entries evicted."""
         n = len(self._cache)

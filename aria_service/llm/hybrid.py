@@ -8,6 +8,7 @@ import logging
 import time
 from .provider import LLMProvider, LLMResult
 from .openai_compat import OpenAICompatProvider
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.hybrid")
 
@@ -81,6 +82,7 @@ class HybridProvider(LLMProvider):
             return True
         return False
 
+    @fail_wire(module="hybrid", gap_type="engine_failure")
     async def complete(
         self,
         system_prompt: str,
@@ -118,6 +120,7 @@ class HybridProvider(LLMProvider):
         r.routed_via = "deepseek-fallback"
         return r
 
+    @fail_wire(module="hybrid", gap_type="engine_failure")
     def get_stats(self) -> dict:
         return {
             **self.stats,

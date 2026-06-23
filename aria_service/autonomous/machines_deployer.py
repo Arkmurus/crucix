@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.machines_deployer")
 
@@ -142,6 +143,7 @@ class MachinesDeployer:
         # Resolve the git root by looking for .git/HEAD
         self._git_root = self._resolve_git_root()
 
+    @fail_wire(module="machines_deployer", gap_type="agent_cycle_failure")
     async def aclose(self) -> None:
         """Close the HTTP client if we own it."""
         if self._owns_client:
@@ -149,6 +151,7 @@ class MachinesDeployer:
 
     # ── PUBLIC API ──────────────────────────────────────────────────────────
 
+    @fail_wire(module="machines_deployer", gap_type="agent_cycle_failure")
     async def deploy(
         self,
         app: str,
@@ -303,6 +306,7 @@ class MachinesDeployer:
                 commit_sha=commit_sha, error=error_msg,
             )
 
+    @fail_wire(module="machines_deployer", gap_type="agent_cycle_failure")
     async def rollback(
         self,
         app: str,
@@ -627,6 +631,7 @@ class MachinesDeployer:
 
     # ── FLEET UPDATE ────────────────────────────────────────────────────────
 
+    @fail_wire(module="machines_deployer", gap_type="agent_cycle_failure")
     async def update_fleet(self, app: str, image: str) -> bool:
         """Update all existing machines to a new image. Public API.
 

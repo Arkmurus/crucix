@@ -37,6 +37,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.tasks")
 
@@ -81,6 +82,7 @@ class Task:
     # Notes / docs — informational only
     description: str = ""
 
+    @fail_wire(module="tasks", gap_type="agent_cycle_failure")
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
@@ -91,6 +93,7 @@ _TASKS_FILE = Path(__file__).parent / "tasks.yaml"
 _loaded_tasks: dict[str, Task] = {}
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 def load_tasks(path: Path | None = None) -> dict[str, Task]:
     """Read tasks.yaml from disk and return a dict mapping task_id → Task.
 
@@ -172,6 +175,7 @@ def load_tasks(path: Path | None = None) -> dict[str, Task]:
     return _loaded_tasks
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 def get_loaded_tasks() -> dict[str, Task]:
     """Return the in-process task cache. Caller must call load_tasks()
     once at engine startup or via the /reload-tasks admin endpoint."""
@@ -255,6 +259,7 @@ def _parse_cron_field(field_value: str, lo: int, hi: int, names: dict[str, int] 
     return out
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 def cron_matches(cron_expr: str, when: time.struct_time | None = None) -> bool:
     """Return True if the cron expression matches the given UTC moment.
 
@@ -311,6 +316,7 @@ _RUNS_KEY = "crucix:autonomous:runs"
 _MAX_RUNS_RETAINED = 50
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 async def record_run(record: dict[str, Any]) -> None:
     """Push one run record onto the head of the runs list, trim the tail."""
     from ..intel import redis_store as rs
@@ -322,6 +328,7 @@ async def record_run(record: dict[str, Any]) -> None:
         logger.warning("[autonomous runs] failed to persist run record: %s", e)
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 async def get_recent_runs(limit: int = 20) -> list[dict[str, Any]]:
     """Return the last N task run records (most recent first)."""
     from ..intel import redis_store as rs
@@ -1334,6 +1341,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
 
 # ── Task execution wrapper ─────────────────────────────────────────────────
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, Any]:
     """Run a task through the constitutional pipeline.
 

@@ -39,6 +39,7 @@ import logging
 import os
 import time
 from typing import Any, AsyncIterator
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.local_llm")
 
@@ -46,6 +47,7 @@ _DEFAULT_MODEL = "llama3.1:8b-instruct"
 _DEFAULT_TIMEOUT = 60.0  # local LLM should be fast (<10s typically)
 
 
+@fail_wire(module="local_llm", gap_type="engine_failure")
 def is_configured() -> bool:
     """OLLAMA_URL set in env."""
     return bool((os.getenv("OLLAMA_URL") or "").strip())
@@ -62,6 +64,7 @@ def _model_name() -> str:
     return (os.getenv("OLLAMA_MODEL") or _DEFAULT_MODEL).strip()
 
 
+@fail_wire(module="local_llm", gap_type="engine_failure")
 async def complete(
     prompt: str,
     *,
@@ -206,6 +209,7 @@ async def stream(
         logger.warning("local_llm stream error: %s", e)
 
 
+@fail_wire(module="local_llm", gap_type="engine_failure")
 def summary() -> dict[str, Any]:
     return {
         "module":     "local_llm",
