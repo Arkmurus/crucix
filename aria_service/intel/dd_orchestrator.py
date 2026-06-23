@@ -3572,7 +3572,17 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # rate limits before chat synthesis could run (New Akord
             # Security 2026-04-12 — 3 consecutive timeouts).
             dr_depth = "quick"
-            dr = await deep_researcher.investigate(llm, name, depth=dr_depth)
+            # R-F1812 — base research stays "quick" (cost), but DO run the
+            # bounded recursive person drill-down: it's the highest-value DD
+            # signal ("who is behind it") and often the ONLY way to name people
+            # when the corporate registry is missing/stubbed (e.g. Portugal).
+            # Time-guarded inside investigate(); count env-tunable for cost.
+            try:
+                _dd_people = int(os.getenv("ARIA_DD_PEOPLE", "2"))
+            except (ValueError, TypeError):
+                _dd_people = 2
+            dr = await deep_researcher.investigate(
+                llm, name, depth=dr_depth, investigate_people=_dd_people)
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {

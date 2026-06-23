@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -688,16 +689,93 @@ def _extract_search_anchor(topic: str) -> str:
 
 # ── Public: Deep investigation on a topic ────────────────────────────────────
 
+def _dd_targeted_queries(entity: str) -> list[str]:
+    """R-F1812 — targeted person + procurement + native-language role queries for
+    entity DD. A generic web search misses the people behind a company and its
+    tender footprint; these surface them. LinkedIn result SNIPPETS name people +
+    roles even when the profile page itself can't be fetched. Role/procurement
+    nouns are multilingual (PT/FR/IT/ES) so a Portuguese-registered company's
+    directors and 'adjudicação' awards are reachable, not English-only."""
+    e = (entity or "").strip().strip('"').strip()
+    if len(e) < 3:
+        return []
+    return [
+        f'"{e}" (director OR CEO OR founder OR owner OR partner OR administrador OR gerente OR sócio OR proprietário OR directeur OR amministratore)',
+        f'"{e}" site:linkedin.com',
+        f'"{e}" (contract OR tender OR procurement OR award OR concurso OR adjudicação OR licitação OR appalto OR marché)',
+    ]
+
+
+async def _discover_and_investigate_people(
+    llm: LLMProvider, topic: str, all_facts: list[dict],
+    *, max_people: int, t_start: float, budget_s: float,
+) -> list[dict]:
+    """R-F1812 — extract NAMED INDIVIDUALS from the gathered facts and run a
+    bounded, time-guarded recursive investigate_person on the top ones. Closes
+    the 'Zero named individuals' gap: a director who surfaces (site/LinkedIn/
+    registry) gets investigated (PEP/sanctions-proximity/adverse-media), not just
+    listed. Each person costs ~7 searches, so it is capped and skipped once the
+    overall budget is spent."""
+    if max_people <= 0 or not all_facts:
+        return []
+    facts_blob = "\n".join(f"- {f.get('content', '')[:200]}" for f in all_facts[:30])
+    extract_prompt = (
+        f'From the research facts below about "{topic}", list the NAMED INDIVIDUALS '
+        f'(real people) explicitly associated with the entity — directors, officers, '
+        f'owners, executives, founders, beneficial owners. Only people actually named '
+        f'in the facts; do NOT invent. Return JSON: '
+        f'{{"people": [{{"name": str, "role": str}}]}}\n\nFACTS:\n{facts_blob}'
+    )
+    try:
+        r = await llm.complete("ARIA — entity-person extractor.", extract_prompt,
+                               max_tokens=400, timeout=30.0)
+        parsed = parse_llm_json(r.text, default={}, source="deep_researcher")
+        people = parsed.get("people", []) if isinstance(parsed, dict) else []
+    except Exception as _e:
+        logger.debug("person-extraction failed: %s", _e)
+        return []
+
+    seen_names: set[str] = set()
+    out: list[dict] = []
+    for p in people:
+        if len(out) >= max_people:
+            break
+        name = (p.get("name") or "").strip() if isinstance(p, dict) else ""
+        if len(name) < 3 or name.lower() in seen_names:
+            continue
+        if time.time() - t_start > budget_s:
+            logger.info("R-F1812: person drill-down budget (%.0fs) hit — %d/%d investigated",
+                        budget_s, len(out), max_people)
+            break
+        seen_names.add(name.lower())
+        try:
+            dossier = await investigate_person(llm, name, context=topic)
+        except Exception as _e:
+            logger.debug("investigate_person(%s) failed: %s", name, _e)
+            continue
+        out.append({"name": name, "role": (p.get("role") or "") if isinstance(p, dict) else "",
+                    "dossier": dossier})
+    return out
+
+
 @fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate(
     llm: LLMProvider,
     topic: str,
     depth: str = "thorough",  # quick (5), thorough (15), exhaustive (30)
+    investigate_people: int | None = None,  # R-F1812: recursive person drill-down cap
 ) -> dict:
     """
     Deep multi-source investigation on a topic.
     ARIA searches multiple angles, reads articles, cross-references,
     builds and validates hypotheses, and produces a complete intelligence picture.
+
+    R-F1812 — DD depth: for entity/company DD the query fan-out adds targeted
+    person, procurement, and native-language role queries; facts carry their
+    source URL; and (bounded + time-guarded) each NAMED INDIVIDUAL discovered is
+    run through investigate_person so "directors found" become "directors
+    investigated". investigate_people caps how many people to drill into
+    (default by depth: quick=0, thorough=2, exhaustive=3); 0 disables it.
     """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
@@ -705,6 +783,14 @@ async def investigate(
     t_start = time.time()
     max_searches = {"quick": 3, "thorough": 8, "exhaustive": 15}.get(depth, 8)
     max_articles_per_search = {"quick": 2, "thorough": 3, "exhaustive": 5}.get(depth, 3)
+    if investigate_people is None:
+        investigate_people = {"quick": 0, "thorough": 2, "exhaustive": 3}.get(depth, 2)
+    # Time guard: never let the (expensive ~7-search-each) person drill-down blow
+    # the DD budget — skip it if the investigation has already run long.
+    try:
+        _person_budget_s = float(os.getenv("ARIA_DD_PERSON_BUDGET_S", "200"))
+    except (ValueError, TypeError):
+        _person_budget_s = 200.0
 
     logger.info(f"ARIA investigating: '{topic}' (depth={depth}, {max_searches} search angles)")
 
@@ -713,9 +799,13 @@ async def investigate(
     # domain-aware templates produce better queries than the LLM would,
     # AND we skip one LLM round-trip entirely.
     queries: list[str] = []
+    _is_entity_dd = False        # R-F1812: gates targeted DD fan-out + person drill-down
+    _dd_entity = ""
     try:
         from . import query_decomposer as _qd
         intent = _qd.classify(topic)
+        _is_entity_dd = intent.intent.value in ("DD", "COMPANY_RESEARCH")
+        _dd_entity = (intent.entities[0] if intent.entities else "") or _extract_search_anchor(topic)
         if not _qd.should_fallback_to_llm(intent):
             decomposed = _qd.decompose(intent, max_queries=max_searches)
             if decomposed:
@@ -855,6 +945,12 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     expanded_queries: list[str] = []
     for q in queries[:max_searches]:
         expanded_queries.extend(_chunk_long_query(q))
+    # R-F1812 — for entity/company DD, inject targeted person + procurement +
+    # native-language role queries HERE (after the max_searches clip) so they
+    # always survive into queries_to_run (the max_searches*2 cap below covers
+    # them) — the gap behind "Zero named individuals" on shallow DDs.
+    if _is_entity_dd and _dd_entity:
+        expanded_queries.extend(_dd_targeted_queries(_dd_entity))
     # Dedupe while preserving order
     seen: set[str] = set()
     dedup: list[str] = []
@@ -932,23 +1028,61 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
             total_facts += fl
             total_hyp += hg
-            all_facts.extend(parsed.get("facts", []))
+            # R-F1812 — attach the source URL to each fact so findings are
+            # auditable back to their article (fixes citation collapse).
+            _src = article.get("link", "")
+            _facts = parsed.get("facts", []) or []
+            for _f in _facts:
+                if isinstance(_f, dict) and _src and not _f.get("source_url"):
+                    _f["source_url"] = _src
+            all_facts.extend(_facts)
         if article.get("link"):
             await _mark_read(article["link"])
         articles_read += 1
 
     await _save_hypotheses(hypotheses)
 
+    # R-F1812 — recursive person drill-down (before synthesis so the people
+    # appear IN the assessment). Bounded by investigate_people + time-guarded.
+    people: list[dict] = []
+    if _is_entity_dd and investigate_people > 0 and (time.time() - t_start) < _person_budget_s:
+        people = await _discover_and_investigate_people(
+            llm, topic, all_facts,
+            max_people=investigate_people, t_start=t_start, budget_s=_person_budget_s,
+        )
+        if people:
+            logger.info("R-F1812: investigated %d named individual(s) for '%s'", len(people), topic[:60])
+
     # Step 3: Synthesise findings into an assessment
     synthesis = None
     if all_facts:
-        facts_block = "\n".join(f"- [{f['confidence']}] {f['topic']}: {f['content'][:150]}" for f in all_facts[:20])
+        # R-F1812 — facts carry their source URL so the assessment can cite them.
+        def _fact_line(f: dict) -> str:
+            src = f.get("source_url")
+            cite = f" [src: {src}]" if src else ""
+            return f"- [{f['confidence']}] {f['topic']}: {f['content'][:150]}{cite}"
+        facts_block = "\n".join(_fact_line(f) for f in all_facts[:20])
         hyp_block = "\n".join(f"- {h['hypothesis']}" for h in hypotheses[:5] if topic.lower().split()[0] in h.get("hypothesis", "").lower()) or "None specific to this topic."
+        # R-F1812 — fold investigated people into the assessment.
+        if people:
+            def _person_line(p: dict) -> str:
+                d = p.get("dossier") or {}
+                risk = d.get("risk_assessment", "?")
+                pep = d.get("pep_status", "")
+                flags = "; ".join((d.get("red_flags") or [])[:2])
+                return (f"- {p['name']} ({p.get('role') or 'role unknown'}) — risk={risk}"
+                        f"{', PEP: ' + pep if pep else ''}{', flags: ' + flags if flags else ''}")
+            people_block = "\n".join(_person_line(p) for p in people)
+        else:
+            people_block = "None investigated (no named individuals surfaced)." if _is_entity_dd else "N/A"
 
         synth_prompt = f"""ARIA has completed a deep investigation on: "{topic}"
 
 FACTS DISCOVERED ({len(all_facts)} total):
 {facts_block}
+
+NAMED INDIVIDUALS INVESTIGATED:
+{people_block}
 
 RELEVANT HYPOTHESES:
 {hyp_block}
@@ -958,8 +1092,9 @@ Synthesise these findings into a senior-level intelligence assessment:
 2. STRATEGIC IMPLICATIONS — what this means for Arkmurus
 3. OPPORTUNITIES — specific actionable opportunities identified
 4. RISKS — what could go wrong, compliance flags
-5. INTELLIGENCE GAPS — what we still don't know
-6. RECOMMENDED ACTIONS — specific next steps, who does what
+5. PEOPLE — named individuals, their roles, and any risk/PEP/sanctions proximity
+6. INTELLIGENCE GAPS — what we still don't know
+7. RECOMMENDED ACTIONS — specific next steps, who does what
 
 Return JSON:
 {{
@@ -967,6 +1102,7 @@ Return JSON:
   "strategic_implications": str,
   "opportunities": [str],
   "risks": [str],
+  "people": [{{"name": str, "role": str, "risk": str}}],
   "intelligence_gaps": [str],
   "recommended_actions": [str],
   "confidence": int,
@@ -1098,6 +1234,7 @@ Return JSON:
         "hypotheses_generated": total_hyp,
         "facts": all_facts,
         "synthesis": synthesis,
+        "people": people,  # R-F1812: structured per-person dossiers (recursive DD)
         "verification_summary": verification_summary,
         "duration_ms": duration,
     }
