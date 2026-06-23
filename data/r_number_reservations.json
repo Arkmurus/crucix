@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1837,
+  "next_available": 1842,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12729,6 +12729,52 @@
       "r_number": "R-F1836",
       "title": "move RDAP domain-ownership check to Layer 1 identity (runs in all modes)",
       "claimed_at": "2026-06-23T19:23:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "839781ce",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:36:01Z"
+    },
+    {
+      "r_number": "R-F1837",
+      "title": "aria-wa structured pino logging",
+      "claimed_at": "2026-06-23T19:46:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1838",
+      "title": "web DD compose-deadline safety net — stream always closes within proxy window",
+      "claimed_at": "2026-06-23T19:48:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1839",
+      "title": "cross-service WA-brain contract test",
+      "claimed_at": "2026-06-23T19:48:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1840",
+      "title": "fix dd_quality_scorer baseline-ratchet + sound regression gate",
+      "claimed_at": "2026-06-23T19:51:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1841",
+      "title": "Grafana dashboard + Prometheus scrape config for /metrics",
+      "claimed_at": "2026-06-23T19:53:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

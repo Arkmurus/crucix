@@ -236,8 +236,46 @@ const TARGET_GROUPS = GROUP_IDS_RAW
   ? GROUP_IDS_RAW.split(',').map(g => g.trim()).filter(Boolean)
   : [];   // empty = listen to ALL groups the number is in
 
-// ── Logging — silent by default, errors only ──────────────────────────────────
+// ── Logging ────────────────────────────────────────────────────────────────
+// Baileys keeps its OWN silent logger (its internal chatter is noise); the
+// listener itself logs through a real structured pino logger.
 const logger = pino({ level: 'silent' });
+
+// R-F1837 — structured app logger. Emits one JSON object per line with a
+// service tag + ISO timestamp + level, so aria-wa logs are queryable/parseable
+// like the rest of the ecosystem (was 85 unstructured console.* calls). Level
+// is env-tunable (WA_LOG_LEVEL, default info). pino is already a wa dependency,
+// so this adds no new package and no Dockerfile change (the wa tier is fragile
+// about copied libs — see R-F1819).
+const log = pino({
+  level: process.env.WA_LOG_LEVEL || 'info',
+  base: { service: 'aria-wa' },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
+// Route the listener's existing console.* calls through pino so EVERY line of
+// output is structured JSON — one shim instead of 85 risky per-site rewrites.
+// error→error, warn→warn, the rest→info/debug. A single object arg is passed
+// through verbatim (its fields become structured); everything else is folded
+// into {msg}. The QR code is printed via qrcode.generate() straight to stdout,
+// not console.*, so it stays raw and scannable.
+function _waLogFields(args) {
+  if (args.length === 1 && args[0] !== null && typeof args[0] === 'object' && !(args[0] instanceof Error)) {
+    return args[0];
+  }
+  return {
+    msg: args.map((a) => (
+      a instanceof Error ? (a.stack || a.message)
+        : (a !== null && typeof a === 'object' ? (() => { try { return JSON.stringify(a); } catch { return String(a); } })()
+          : String(a))
+    )).join(' '),
+  };
+}
+console.log = (...a) => log.info(_waLogFields(a));
+console.info = (...a) => log.info(_waLogFields(a));
+console.warn = (...a) => log.warn(_waLogFields(a));
+console.error = (...a) => log.error(_waLogFields(a));
+console.debug = (...a) => log.debug(_waLogFields(a));
 
 // ── Redis (optional — for persistent memory) ─────────────────────────────────
 let redis = null;
