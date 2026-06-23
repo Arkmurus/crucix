@@ -2370,7 +2370,7 @@ app.get('/api/aria/knowledge', requireAuth, async (req, res) => {
   }});
 });
 
-app.post('/api/aria/knowledge/fact', requireAuth, async (req, res) => {
+app.post('/api/aria/knowledge/fact', requireAdmin, async (req, res) => {  // R-F1818 (audit H4): writes CONFIRMED facts — admin only
   ariaProxy(req, res, '/api/aria/knowledge/fact', { method: 'POST', fallback: async () => {
     try {
       const { topic, content, confidence } = req.body || {};
@@ -2564,7 +2564,7 @@ app.post('/api/aria/proactive/lead-hunt', requireAuth, (req, res) =>
   }}));
 
 // ── ARIA self-coding (proxy) ───────────────────────────────────────────────
-app.post('/api/aria/self/code', requireAuth, (req, res) =>
+app.post('/api/aria/self/code', requireAdmin, (req, res) =>  // R-F1818 (audit H4): self-coding trigger — admin only
   ariaProxy(req, res, '/api/aria/self/code', { method: 'POST', fallback: async () => {
     res.status(503).json({ ok: false, error: 'Self-coding unavailable — ARIA service offline' });
   }}));
@@ -2602,7 +2602,7 @@ app.get('/api/aria/health', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/health', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/operating-mode', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/operating-mode', { fallback: async () => res.status(503).json(_brainFallback()) }));
-app.post('/api/aria/operating-mode/set', requireAuth, (req, res) =>
+app.post('/api/aria/operating-mode/set', requireAdmin, (req, res) =>  // R-F1818 (audit H4): global mode change — admin only
   ariaProxy(req, res, '/api/aria/operating-mode/set', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/circuit-breakers', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/circuit-breakers', { fallback: async () => res.status(503).json(_brainFallback()) }));
@@ -4711,7 +4711,7 @@ app.post('/api/aria/session/forget',
 
 app.post('/api/aria/admin/purge-cases',
   express.json({ limit: '8kb' }),
-  requireAuth,
+  requireAdmin,  // R-F1818 (audit H4): destructive purge — admin only (was requireAuth)
   (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-cases', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
     res.status(503).json({
       error: 'purge-cases unavailable',
@@ -4722,7 +4722,7 @@ app.post('/api/aria/admin/purge-cases',
 
 app.post('/api/aria/admin/purge-signals',
   express.json({ limit: '16kb' }),
-  requireAuth,
+  requireAdmin,  // R-F1818 (audit H4): destructive purge — admin only (was requireAuth)
   (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-signals', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
     res.status(503).json({
       error: 'purge-signals unavailable',
