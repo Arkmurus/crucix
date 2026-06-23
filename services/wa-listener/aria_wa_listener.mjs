@@ -1158,8 +1158,33 @@ function _waCmdRateLimited(userId, cmd, now = Date.now()) {
   return false;
 }
 
+// R-F1821 (audit H6): optional per-sender allow-list for WA compliance commands.
+// When WA_ALLOWED_SENDERS is set (comma-sep JIDs or bare numbers) only those
+// senders may run /screen,/classify,/sanctions,/risk. Unset = open (current
+// behavior) + a one-time warning so the gap is visible (least-privilege opt-in;
+// set the env to restrict on this compliance product).
+const WA_ALLOWED_SENDERS = (process.env.WA_ALLOWED_SENDERS || '').split(',').map(s => s.trim()).filter(Boolean);
+let _waAllowWarned = false;
+function _waSenderAllowed(senderJid) {
+  if (!WA_ALLOWED_SENDERS.length) {
+    if (!_waAllowWarned) {
+      _waAllowWarned = true;
+      console.warn('[wa] WA_ALLOWED_SENDERS unset - compliance commands open to ALL senders. Set it (comma-sep numbers) to restrict.');
+    }
+    return true;
+  }
+  const jid = String(senderJid || '');
+  const num = jid.split('@')[0].split(':')[0];
+  return WA_ALLOWED_SENDERS.includes(jid) || WA_ALLOWED_SENDERS.includes(num);
+}
+
 // ── Compliance command handlers ─────────────────────────────────────────────
 async function handleCommand(cmd, args, senderJid) {
+  // R-F1821 (audit H6): per-sender allow-list (opt-in via WA_ALLOWED_SENDERS).
+  if (!_waSenderAllowed(senderJid)) {
+    console.warn(`[wa] dropped command '${cmd}' from non-allowed sender ${String(senderJid || '').slice(0, 30)}`);
+    return '⛔ Not authorized to run this command.';
+  }
   // R-F1804 (audit #4): rate-limit per user before any LLM-backed work.
   if (_waCmdRateLimited(String(senderJid || 'unknown'), String(cmd || '').toLowerCase())) {
     return '⏳ Rate limit — please wait a moment before sending that command again.';
