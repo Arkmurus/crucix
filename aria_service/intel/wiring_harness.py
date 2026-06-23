@@ -114,11 +114,13 @@ def get_gap_type(module: str) -> str:
 # ── HARD EXEMPT registry ──────────────────────────────────────────────────
 # Functions that must NEVER be wired, each with a reason.
 # GATE A treats these as legitimately-not-dark.
-# Format: {module: {function_name: "reason"}}
+# Format: {module: {function_name: "reason"}}, keyed by BASENAME (matches the
+# `filename` arg the gates pass — a path key like "routes/aria.py" would never
+# match basename "aria.py", silently defeating the exemption once routes wire).
 # Use "*" for function_name to exempt ALL functions in a module.
 HARD_EXEMPT: dict[str, dict[str, str]] = {
     # routes/aria.py — ASYNC GENERATORS + STREAM endpoints
-    "routes/aria.py": {
+    "aria.py": {
         "chat_stream_ep": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
         "chat_ep": "STREAM endpoint — §13 body risk",
     },
@@ -134,6 +136,21 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # cost_tracker.py — SYNC GENERATOR
     "cost_tracker.py": {
         "feature": "SYNC GENERATOR — context manager with yield",
+    },
+    # llm/ provider layer — ASYNC GENERATOR stream()s (R-F1785: now in scope).
+    # Wrapping an LLM token-stream generator breaks streaming (§13). The
+    # decoration-time guard already forbids it; these entries keep GATE A
+    # coherent (a stream() is legitimately-not-dark, not an unwired path).
+    "anthropic.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "aria_llm_provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "local_llm.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "metered.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "rate_limiter.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "resilience.py": {
+        "stream": "ASYNC GENERATOR — LLM token stream (§13)",
+        "wrap": "SYNC GENERATOR — resilience context manager",
     },
 }
 
@@ -157,12 +174,25 @@ def is_exempt(module_path: str, func_name: str) -> tuple[bool, str]:
 # For every module in WIRED_MODULES, every public fn must have @fail_wire
 # or be in HARD_EXEMPT. A dark public fn = BLOCK (not WARN).
 
-# Directories to scan for wiring coverage
+# Directories to scan for wiring coverage.
+# R-F1785: dropped the phantom "aria_service/engines" (never existed — the scan
+# silently skipped it, giving false "engines covered" confidence). Real engine
+# code is aria_engine.py (a file, see TARGET_FILES) + search_engine/ + the LLM
+# provider layer (llm/, which holds 11 async-gen stream() landmines).
 TARGET_DIRS = [
     "aria_service/intel",
     "aria_service/routes",
     "aria_service/autonomous",
-    "aria_service/engines",
+    "aria_service/llm",
+    "aria_service/search_engine",
+]
+
+# Top-level engine/boot files (not in any package dir, so scanned explicitly).
+# main.py + aria_engine.py are referenced by HARD_EXEMPT (lifespan,
+# aria_chat_stream); scanning them makes those exemptions real, not dead.
+TARGET_FILES = [
+    "aria_service/aria_engine.py",
+    "aria_service/main.py",
 ]
 
 # Modules that have been wired (start with R-F1777, R-F1779)
@@ -351,30 +381,53 @@ def check_gate_d(module_path: str, filename: str) -> list[str]:
     return warnings
 
 
-def run_all_gates(target_dirs: list[str] | None = None) -> dict[str, list[str]]:
-    """Run all gates across target directories.
-    
-    Returns {gate_name: [violations]}.
+def run_all_gates(
+    target_dirs: list[str] | None = None,
+    target_files: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Run all gates across target directories and explicit files.
+
+    Returns {gate_name: [violations]}. gate_scope is a HARD BLOCK: a configured
+    target that does not exist on disk is a violation, NOT a silent skip — a
+    scan that can't see a path is the worst failure mode (plan criterion #6).
     """
     if target_dirs is None:
         target_dirs = TARGET_DIRS
+    if target_files is None:
+        target_files = TARGET_FILES
 
     results: dict[str, list[str]] = {
+        "gate_scope": [],
         "gate_a": [],
         "gate_b": [],
         "gate_d": [],
     }
 
+    def _scan(fpath: str, fname: str) -> None:
+        results["gate_a"].extend(check_gate_a(fpath, fname))
+        results["gate_b"].extend(check_gate_b(fpath, fname))
+        results["gate_d"].extend(check_gate_d(fpath, fname))
+
     for target_dir in target_dirs:
         if not os.path.isdir(target_dir):
+            results["gate_scope"].append(
+                f"configured TARGET_DIR does not exist: {target_dir} "
+                f"(false-coverage risk — fix TARGET_DIRS)"
+            )
             continue
         for fname in sorted(os.listdir(target_dir)):
             if not fname.endswith(".py"):
                 continue
-            fpath = os.path.join(target_dir, fname)
-            results["gate_a"].extend(check_gate_a(fpath, fname))
-            results["gate_b"].extend(check_gate_b(fpath, fname))
-            results["gate_d"].extend(check_gate_d(fpath, fname))
+            _scan(os.path.join(target_dir, fname), fname)
+
+    for target_file in target_files:
+        if not os.path.isfile(target_file):
+            results["gate_scope"].append(
+                f"configured TARGET_FILE does not exist: {target_file} "
+                f"(false-coverage risk — fix TARGET_FILES)"
+            )
+            continue
+        _scan(target_file, os.path.basename(target_file))
 
     return results
 
