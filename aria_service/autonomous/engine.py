@@ -331,6 +331,15 @@ async def _engine_loop(llm) -> None:
 
             ordered_tasks = sorted(loaded.items(), key=_task_priority_score)
 
+            # R-F1849: per-tick task concurrency cap with boot ramp-up.
+            # Under autonomous load (97 tasks), the absorb storm from firing
+            # all matching tasks in one tick overwhelms the event loop even
+            # with individual asyncio.to_thread offloads. Cap tasks per tick
+            # and ramp up over the first 10 ticks after startup.
+            _boot_ticks = max(0, 10 - _tick_count)
+            _per_tick_cap = max(3, 20 - _boot_ticks * 2)  # 3 -> 5 -> 7 -> ... -> 20
+            _fired_this_tick = 0
+
             for task_id, task in ordered_tasks:
                 # Cheap filters first
                 if not task.enabled:
@@ -363,6 +372,16 @@ async def _engine_loop(llm) -> None:
                         task_id, reason,
                     )
                     continue
+
+                # R-F1849: per-tick concurrency cap with boot ramp-up
+                _fired_this_tick += 1
+                if _fired_this_tick > _per_tick_cap:
+                    logger.debug(
+                        "[autonomous engine] per-tick cap %d reached "
+                        "- deferring remaining tasks",
+                        _per_tick_cap,
+                    )
+                    break
 
                 logger.info(
                     "[autonomous engine] firing task %s (cron=%r dry_run=%s)",
