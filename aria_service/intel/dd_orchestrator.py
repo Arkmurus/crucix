@@ -447,61 +447,52 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
             return "SK"
 
     # 5. R-F1815: legal-form suffix in entity name → jurisdiction hint.
-    # All patterns are applied to name.upper() so they must be written in
-    # UPPERCASE. Order matters: more specific patterns before generic ones.
-    # IMPORTANT: no ISO2 appears more than once — the first match wins.
+    return _infer_jurisdiction_from_legal_form(name)
+
+
+def _infer_jurisdiction_from_legal_form(name: str) -> str | None:
+    """Infer jurisdiction from legal-form suffix in entity name.
+
+    Many jurisdictions have unique legal-form suffixes that are strong
+    jurisdiction indicators even when no address/phone/email is available.
+    All patterns are applied to name.upper(). Order matters: more specific
+    patterns before generic ones. No ISO2 appears more than once.
+
+    Returns ISO2 code or None if no legal form is recognised.
+    """
     _legal_form_to_iso2: list[tuple[str, str]] = [
-        # Portuguese-speaking (specific before generic)
         (r"\bUNIPESSOAL\s+LDA\b", "PT"),
         (r"\bLDA\b", "PT"),
-        # Brazilian
         (r"\bLTDA\b", "BR"),
-        # Turkish (before generic LTD to avoid LTD matching GB first)
         (r"\bLTD\.?\s*STI\.?\b", "TR"),
         (r"\bA\.?S\.?\b", "TR"),
-        # UK
         (r"\bLIMITED\b", "GB"),
         (r"\bLTD\b", "GB"),
         (r"\bPLC\b", "GB"),
         (r"\bLLP\b", "GB"),
-        # German-speaking
         (r"\bGMBH\b", "DE"),
         (r"\bAG\b", "DE"),
         (r"\bKG\b", "DE"),
-        # French-speaking
         (r"\bSAS\b", "FR"),
         (r"\bSARL\b", "FR"),
         (r"\bEURL\b", "FR"),
-        # Italian (before Romanian SRL to avoid S.r.l. matching S.R.L.)
-        (r"\bS\.?R\.?L\.?\b", "IT"),  # S.r.l. — Italian
-        (r"\bS\.?P\.?A\.?\b", "IT"),  # S.p.A. — Italian
-        # Romanian (after Italian SRL)
-        (r"\bS\.?\.?R\.?\.?L\.?\b", "RO"),  # S.R.L. — Romanian (different dot pattern)
-        # Spanish
+        (r"\bS\.?R\.?L\.?\b", "IT"),
+        (r"\bS\.?P\.?A\.?\b", "IT"),
+        (r"\bS\.?\.?R\.?\.?L\.?\b", "RO"),
         (r"\bS\.?L\.?\b", "ES"),
-        # Dutch
         (r"\bBV\b", "NL"),
         (r"\bNV\b", "NL"),
-        # Polish
         (r"\bSP\b.*\bZ\b.*\bO\b.*\bO\b", "PL"),
-        # Czech/Slovak
         (r"\bS\.?R\.?O\.?\b", "CZ"),
-        # Bulgarian
         (r"\bEOOD\b", "BG"),
         (r"\bAD\b", "BG"),
-        # Turkish
-        (r"\bA\.?S\.?\b", "TR"),
-        (r"\bLTD\.?\s*STI\.?\b", "TR"),
-        # UAE
         (r"\bLLC\b", "AE"),
-        # Generic S.A. / SA — lowest priority, most ambiguous
         (r"\bS\.?A\.?\b", "PT"),
     ]
-    _name_upper = name.upper()
-    for _pattern, _iso2 in _legal_form_to_iso2:
-        if re.search(_pattern, _name_upper):
-            return _iso2
-
+    name_upper = name.upper()
+    for pattern, iso2 in _legal_form_to_iso2:
+        if re.search(pattern, name_upper):
+            return iso2
     return None
 
 
