@@ -101,6 +101,9 @@ MODULE_GAP_TYPES: dict[str, str] = {
     # Cost tracking
     "cost_tracker": "engine_failure",
     "cost_free_learning": "engine_failure",
+    # Routes (R-F1800) — routes/aria.py handler internal failures. HTTPException
+    # 4xx is control flow (R-F1784 allowlist), so only real handler failures gap.
+    "aria": "engine_failure",
     # Default for unregistered modules
     "_default": "agent_cycle_failure",
 }
@@ -296,7 +299,9 @@ def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
     
     Uses AST to detect generators and other special forms.
     
-    Returns list of {name, type, is_generator, has_raise, lineno}.
+    Returns list of {name, type, is_generator, has_raise, raise_types, lineno}.
+    raise_types is the set of exception class names the function raises (bare
+    re-raise -> "reraise"); GATE D uses it to ignore control-flow-only raises.
     """
     with open(filepath, encoding="utf-8", errors="ignore") as f:
         try:
@@ -315,15 +320,21 @@ def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
                 isinstance(n, (ast.Yield, ast.YieldFrom))
                 for n in ast.walk(node)
             )
-            has_raise = any(
-                isinstance(n, ast.Raise)
-                for n in ast.walk(node)
-            )
+            raise_types: set[str] = set()
+            for n in ast.walk(node):
+                if isinstance(n, ast.Raise):
+                    exc = n.exc
+                    if exc is None:
+                        raise_types.add("reraise")
+                    else:
+                        t = exc.func if isinstance(exc, ast.Call) else exc
+                        raise_types.add(getattr(t, "id", getattr(t, "attr", "?")))
             fns.append({
                 "name": name,
                 "type": "async" if is_async else "sync",
                 "is_generator": is_generator,
-                "has_raise": has_raise,
+                "has_raise": bool(raise_types),
+                "raise_types": raise_types,
                 "lineno": node.lineno,
             })
     return fns
@@ -409,6 +420,16 @@ def check_gate_d(module_path: str, filename: str) -> list[str]:
     fns = scan_public_functions(module_path)
     wired = fail_wire_decorators(module_path)
 
+    # Exceptions fail_wire skips by default (R-F1784) are NOT gap-spam risks —
+    # HTTPException etc. never reach record_gap. Bare re-raise ("reraise")
+    # propagates an already-caught exception and is ambiguous statically, so it
+    # alone doesn't warrant a warning.
+    try:
+        from .wire import _CONTROL_FLOW_EXC_NAMES as _DEFAULT_CF
+    except Exception:
+        _DEFAULT_CF = frozenset()
+    benign = set(_DEFAULT_CF) | {"reraise"}
+
     for fn in fns:
         if not fn["has_raise"]:
             continue
@@ -417,10 +438,13 @@ def check_gate_d(module_path: str, filename: str) -> list[str]:
             continue  # not wired
         if info.get("control_flow_exempt"):
             continue  # judgment encoded — control-flow raises won't gap
+        uncovered = fn.get("raise_types", set()) - benign
+        if not uncovered:
+            continue  # only control-flow / re-raise — no gap-spam risk
         warnings.append(
             f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
-            f"'{fn['name']}()' contains 'raise' — potential gap-spam. "
-            f"Review: is this control-flow or a real failure?"
+            f"'{fn['name']}()' raises {sorted(uncovered)} — potential gap-spam. "
+            f"Review: control-flow (add control_flow_exempt) or a real failure?"
         )
 
     return warnings

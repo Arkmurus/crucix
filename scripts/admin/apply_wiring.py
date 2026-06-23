@@ -30,8 +30,6 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from aria_service.intel import wiring_harness as wh  # noqa: E402
 
-IMPORT_STMT = "from .wire import fail_wire  # R-F1789 §21 brain-wiring"
-
 
 def _decorator_name(dec: ast.expr) -> str | None:
     target = dec.func if isinstance(dec, ast.Call) else dec
@@ -42,10 +40,30 @@ def _decorator_name(dec: ast.expr) -> str | None:
     return None
 
 
+def _locate(module: str):
+    """Find {module}.py across the harness's scan scope and return
+    (filepath, import_stmt). The import is relative to the file's package:
+    intel/ is wire's package (from .wire); sibling packages (routes/ etc.) use
+    from ..intel.wire; top-level files use from .intel.wire."""
+    candidates = [os.path.join(d, f"{module}.py") for d in wh.TARGET_DIRS]
+    candidates += [f for f in wh.TARGET_FILES if os.path.basename(f) == f"{module}.py"]
+    for fp in candidates:
+        if os.path.isfile(fp):
+            parent = os.path.basename(os.path.dirname(fp))
+            if parent == "intel":
+                stmt = "from .wire import fail_wire"
+            elif parent == "aria_service":  # top-level file (aria_engine.py, main.py)
+                stmt = "from .intel.wire import fail_wire"
+            else:                            # sibling package (routes/, autonomous/, ...)
+                stmt = "from ..intel.wire import fail_wire"
+            return fp, stmt + "  # R-F1789 §21 brain-wiring"
+    return None, None
+
+
 def apply_module(module: str, dry_run: bool = False) -> dict:
-    fp = os.path.join("aria_service", "intel", f"{module}.py")
-    if not os.path.isfile(fp):
-        return {"module": module, "error": "file not found"}
+    fp, import_stmt = _locate(module)
+    if fp is None:
+        return {"module": module, "error": "file not found in scan scope"}
     with open(fp, encoding="utf-8") as f:
         src = f.read()
     tree = ast.parse(src)
@@ -75,8 +93,15 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
         if bad:
             skipped.append(f"{node.name} ({'/'.join(sorted(bad))} — exempt, not wired)")
             return
-        first_line = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-        targets.append((first_line, indent))
+        if wh.is_exempt(f"{module}.py", node.name)[0]:
+            skipped.append(f"{node.name} (HARD_EXEMPT)")
+            return
+        # INNERMOST placement: directly above `def`, BELOW any existing decorators
+        # (node.lineno is the def line in py3.8+). Required for routes — @fail_wire
+        # must be inside @router.get so FastAPI registers the wrapped handler;
+        # fail_wire is signature-transparent (functools.wraps __wrapped__) so DI
+        # still works. Harmless for undecorated fns (same line as before).
+        targets.append((node.lineno, indent))
 
     def walk_classes(body) -> None:
         for n in body:
@@ -109,8 +134,8 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
     # below import_anchor, so the import insertion index is unaffected.
     for ln, indent in sorted(targets, key=lambda t: t[0], reverse=True):
         lines.insert(ln - 1, f'{indent}@fail_wire(module="{module}", gap_type="{gap_type}")\n')
-    if IMPORT_STMT not in src and "from .wire import fail_wire" not in src:
-        lines.insert(import_anchor, IMPORT_STMT + "\n")
+    if "import fail_wire" not in src:
+        lines.insert(import_anchor, import_stmt + "\n")
 
     new_src = "".join(lines)
     # Validate the result parses before writing.
