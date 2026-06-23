@@ -9720,12 +9720,14 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     # R-F1829 — the SSE proxy (server.mjs ARIA_STREAM_PROXY_TIMEOUT_MS,
                     # default 600s) aborts the connection at its deadline. The DD
                     # orchestrator's hard stop is budget + ARIA_DD_HARD_MARGIN_S(150);
-                    # we must leave room AFTER the DD returns for the LLM to compose
-                    # + stream the final answer. So cap the DD budget here at a value
-                    # that keeps (budget + 150 + compose) safely inside the proxy
-                    # window. Default 300s → hard ≈ 450s → ~150s compose/stream slack
-                    # within 600s. Guarantees a (partial) report ALWAYS lands inline.
-                    _dd_stream_budget_s = float(int(os.getenv("ARIA_DD_STREAM_BUDGET_S", "300")))
+                    # AFTER the DD returns the post-tool path still runs aria_engine's
+                    # 9-layer context build + LLM compose + stream — measured live at
+                    # >110s for a heavy entity. So cap the DD budget so that
+                    # (budget + 150 hard-margin + ~210 compose reserve) stays inside
+                    # the 600s proxy. Default 240s → hard ≈ 390s → ~210s reserve.
+                    # Guarantees the FULL composed answer (not just the R-F1176
+                    # preliminary report chunk) lands inline before the proxy cuts.
+                    _dd_stream_budget_s = float(int(os.getenv("ARIA_DD_STREAM_BUDGET_S", "240")))
                     _tool_task = _aio.create_task(
                         _execute_tool(intent, llm, dd_budget_s=_dd_stream_budget_s)
                     )

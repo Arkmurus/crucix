@@ -116,14 +116,18 @@ def test_rf1829_stream_passes_budget_and_fits_proxy_window():
         "R-F1829: chat_stream_ep no longer passes the fit budget into "
         "_execute_tool — the web DD is unbounded again."
     )
-    # Defaults: stream budget 300 + hard margin 150 = 450 hard deadline; the
-    # web proxy is 600s. Require margin >= 120s for LLM compose + streaming.
-    STREAM_DEFAULT = 300
+    # Defaults: stream budget 240 + hard margin 150 = 390 hard deadline; the
+    # web proxy is 600s. The post-tool path (aria_engine 9-layer context build +
+    # LLM compose + stream) was measured live at >110s for a heavy entity, so
+    # require a >=180s reserve — the live-calibrated floor (R-F1829 re-probe
+    # 2026-06-23: budget=300 left the final answer being cut at the boundary).
+    STREAM_DEFAULT = 240
     HARD_MARGIN_DEFAULT = 150
     PROXY_WINDOW = 600
+    COMPOSE_RESERVE_MIN = 180
     hard = STREAM_DEFAULT + HARD_MARGIN_DEFAULT
-    assert hard + 120 <= PROXY_WINDOW, (
-        f"R-F1829: stream hard deadline {hard}s leaves < 120s to compose "
-        f"inside the {PROXY_WINDOW}s proxy window — defaults drifted; the "
-        f"'no reply' failure class can return."
+    assert hard + COMPOSE_RESERVE_MIN <= PROXY_WINDOW, (
+        f"R-F1829: stream hard deadline {hard}s leaves < {COMPOSE_RESERVE_MIN}s "
+        f"to build context + compose inside the {PROXY_WINDOW}s proxy window — "
+        f"defaults drifted; the 'no reply' failure class can return."
     )
