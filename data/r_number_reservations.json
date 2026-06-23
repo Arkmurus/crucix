@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1833,
+  "next_available": 1835,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12689,6 +12689,26 @@
       "r_number": "R-F1832",
       "title": "AST-aware SAST scanner — kills substring-grep false positives",
       "claimed_at": "2026-06-23T18:52:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "496fd25d",
+      "notes": null,
+      "shipped_at": "2026-06-23T18:53:40Z"
+    },
+    {
+      "r_number": "R-F1833",
+      "title": "AST-aware SAST security scanner",
+      "claimed_at": "2026-06-23T18:59:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "05d4ce5f",
+      "notes": null,
+      "shipped_at": "2026-06-23T19:04:44Z"
+    },
+    {
+      "r_number": "R-F1834",
+      "title": "exponential-backoff circuit breaker — eliminate hand-tuned cooldowns",
+      "claimed_at": "2026-06-23T18:59:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

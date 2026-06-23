@@ -691,7 +691,7 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
     15 minutes; we skip that mirror and fall through to the next.
     """
     from urllib.parse import quote_plus as _q
-    from .circuit_breaker import get_breaker
+    from .circuit_breaker import get_breaker, classify_status
 
     # 1. archive.is
     # F78a 2026-04-29: bumped cooldown 900→3600 because archive.is
@@ -710,9 +710,11 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
                 if resp.status_code == 200 and len(resp.text) > 2000:
                     cb_archive.record_success()
                     return resp.text
-                cb_archive.record_failure()
+                # R-F1834: classify (archive.is 429s every probe from the DC IP →
+                # rate_limit, so the backoff escalates instead of flapping at 3600s)
+                cb_archive.record_failure(reason=classify_status(resp.status_code))
         except httpx.HTTPError:
-            cb_archive.record_failure()
+            cb_archive.record_failure(reason="timeout")
 
     # 2. Wayback Machine — get the most recent snapshot URL via the availability API
     # F78b 2026-04-29: cooldown 900→3600 (same reason as archive.is)
@@ -739,9 +741,9 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
                         if snap_resp.status_code == 200 and len(snap_resp.text) > 2000:
                             return snap_resp.text
                 else:
-                    cb_wayback.record_failure()
+                    cb_wayback.record_failure(reason=classify_status(avail.status_code))
         except (httpx.HTTPError, ValueError, KeyError):
-            cb_wayback.record_failure()
+            cb_wayback.record_failure(reason="timeout")
 
     return ""
 
