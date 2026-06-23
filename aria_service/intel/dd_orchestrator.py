@@ -6765,7 +6765,14 @@ async def _orchestrate_dd_impl(
     # no valid name, fetch the website and extract the company name from the
     # <title> tag before falling through to name validation. This handles the
     # common case where a user says "do a DD on https://myskyegroove.com".
-    if not (target.get("name") or target.get("entity")):
+    # R-F1831: also enrich when the "name" is itself a URL/bare domain (the
+    # chat intent passes "modirumgespi.com" through as the name). Without this
+    # the guard short-circuits on the URL-shaped name and the org is never
+    # resolved → every layer runs against a dead domain string. (The resolution
+    # logic lives in _enrich_target_from_url; this is the call-site gate that
+    # was suppressing it.)
+    _existing_name_g = (target.get("name") or target.get("entity") or "").strip()
+    if not _existing_name_g or _looks_like_url_or_domain(_existing_name_g):
         target = await _enrich_target_from_url(target)
 
     # Original: rejected URL scheme fragments ("https") that came from the

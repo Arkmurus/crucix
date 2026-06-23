@@ -79,6 +79,54 @@ async def test_rf1831_url_name_with_scheme_and_path_is_resolved(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rf1831_orchestrator_callsite_invokes_enrich_for_url_name(monkeypatch):
+    """THE REAL BUG (live 2026-06-23): orchestrate_dd's call-site guard only
+    invoked _enrich_target_from_url when the name was EMPTY, so a URL-shaped
+    name ('modirumgespi.com') short-circuited it and the org was never resolved.
+    Unit-testing _enrich directly missed this — this drives the gated call path.
+    """
+    called = {"n": 0}
+
+    async def _rec_enrich(target):
+        called["n"] += 1
+        target["name"] = "Modirum Resolved"
+        return target
+    monkeypatch.setattr(ddo, "_enrich_target_from_url", _rec_enrich)
+
+    # Stub the heavy layers so orchestrate_dd returns fast & offline.
+    async def _identity(target, report):
+        report.identity.entity_name = target.get("name", "")
+        return False
+    async def _noop(*a, **k):
+        return None
+    async def _noop_dict(*a, **k):
+        return {}
+    async def _ext(*a, **k):
+        return {"ran": False}
+    for fn in ("_run_network", "_run_compliance", "_run_digital",
+               "_run_sweep_intelligence", "_run_verification", "_run_synthesis",
+               "_assemble_bluf"):
+        monkeypatch.setattr(ddo, fn, _noop, raising=False)
+    monkeypatch.setattr(ddo, "_run_identity", _identity, raising=False)
+    monkeypatch.setenv("ARIA_LAYER_5C_ENABLED", "0")
+    try:
+        from aria_service.intel import dd_layer_extensions as _dlx
+        monkeypatch.setattr(_dlx, "run_all_extensions", _ext, raising=False)
+    except Exception:
+        pass
+
+    report = await ddo.orchestrate_dd(
+        target={"name": "modirumgespi.com", "type": "company"},
+        llm=None, total_budget_s=5.0,
+    )
+    assert called["n"] >= 1, (
+        "orchestrate_dd's call-site guard did NOT invoke _enrich_target_from_url "
+        "for a URL-shaped name — the live bug (entity ran as the dead domain)."
+    )
+    assert report is not None
+
+
+@pytest.mark.asyncio
 async def test_rf1831_real_org_name_is_left_untouched(monkeypatch):
     """Guard against over-reach: a real org name must NOT trigger a fetch or be
     overwritten — only URL/domain-shaped names get re-routed."""
