@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1824,
+  "next_available": 1825,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12600,6 +12600,15 @@
       "r_number": "R-F1823",
       "title": "DD people robustness — seed person drill-down with registry/contact-known directors + taint-sanitize untrusted names",
       "claimed_at": "2026-06-23T13:42:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1824",
+      "title": "SEC Phase4 — prevention guards: no-token-default + ssrf-fetch-boundary + route-authz pre-commit checks",
+      "claimed_at": "2026-06-23T13:52:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

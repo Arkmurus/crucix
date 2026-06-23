@@ -32,6 +32,8 @@ from pre_commit_checks import (
     REPO_ROOT,
     check_capability_tests,
     check_circuit_breaker,
+    check_no_token_default,
+    check_ssrf_fetch_boundary,
     check_false_success,
     check_windows_compat,
     check_wiring_present,
@@ -196,6 +198,12 @@ def main():
     # Check 8: Circuit-breaker presence on outbound HTTP backends (R-F1791)
     cb_issues = check_circuit_breaker(files)
     issues.extend(cb_issues)
+
+    # Check 9: No hardcoded auth-token default — fail closed (R-F1824, audit H2)
+    issues.extend(check_no_token_default(files))
+
+    # Check 10: SSRF fetch-boundary on user-controlled URLs (R-F1824, audit C2)
+    issues.extend(check_ssrf_fetch_boundary(files))
 
     if issues:
         print("[pre-commit] VERIFICATION FAILED:")

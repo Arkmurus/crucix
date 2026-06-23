@@ -501,3 +501,74 @@ def check_capability_tests(files: list[Path]) -> list[str]:
                 )
 
     return issues
+
+
+# ── R-F1824 (Phase-4 prevention guards) ───────────────────────────────────────
+# Make the authz-review vuln classes un-reintroducible at commit time.
+
+_TOKEN_DEFAULT_PATTERNS = (
+    "|| 'aria-internal'", '|| "aria-internal"',
+    'ARIA_INTERNAL_TOKEN", "aria-internal"',
+    "ARIA_INTERNAL_TOKEN', 'aria-internal'",
+)
+
+
+def check_no_token_default(files: list[Path]) -> list[str]:
+    """R-F1824 (audit H2) — no hardcoded 'aria-internal' auth-token fallback. An
+    unset secret must fail closed, never fall back to a repo-public string."""
+    issues = []
+    for fp in files:
+        if fp.suffix not in (".mjs", ".js", ".cjs", ".py"):
+            continue
+        if "tests" in fp.parts:
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        norm = re.sub(r'",\s+"', '", "', content)  # collapse spaced getenv defaults
+        if any(pat in content or pat in norm for pat in _TOKEN_DEFAULT_PATTERNS):
+            issues.append(
+                f"  {fp.name}: hardcoded 'aria-internal' auth-token default.\n"
+                f"    Use `|| ''` / getenv(name, '') so an unset secret FAILS CLOSED\n"
+                f"    (CLAUDE.md §1; audit H2 — 'aria-internal' is public in the repo)."
+            )
+    return issues
+
+
+# Only DYNAMIC-URL fetches (a variable named like user input) — constant/f-string
+# API calls are not an SSRF risk and must not false-positive.
+_DYNAMIC_FETCH_RE = re.compile(
+    r"\.(get|post|request|stream)\(\s*(url|source|target|link|uri|endpoint|href|loc)\b"
+    r"|httpx\.(get|post|request|stream)\(\s*(url|source|target|link|uri|endpoint|href|loc)\b"
+)
+_SSRF_GUARD_TOKENS = ("url_safety", "safe_get", "is_safe_url", "assert_safe_url", "_ssrf_safe_url")
+
+
+def check_ssrf_fetch_boundary(files: list[Path]) -> list[str]:
+    """R-F1824 (audit C2) — an intel module that fetches a user-controlled URL
+    variable must go through the SSRF boundary (url_safety.safe_get / is_safe_url),
+    not a raw httpx call. Whole-file heuristic, dynamic-URL only; opt-out:
+    '# no-ssrf-check' on the fetch line."""
+    issues = []
+    exempt = {"url_safety", "web_search", "dd_orchestrator", "researcher"}  # canonical guard / already-guarded
+    for fp in files:
+        if fp.suffix != ".py" or "intel" not in fp.parts or "tests" in fp.parts:
+            continue
+        if fp.stem in exempt:
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        hits = [ln for ln in content.splitlines()
+                if _DYNAMIC_FETCH_RE.search(ln) and "# no-ssrf-check" not in ln]
+        if not hits or any(tok in content for tok in _SSRF_GUARD_TOKENS):
+            continue
+        issues.append(
+            f"  {fp.name}: outbound fetch of a user-controlled URL with NO SSRF guard.\n"
+            f"    e.g.: {hits[0].strip()[:100]}\n"
+            f"    Route it through url_safety.safe_get (audit C2). Documented exception:\n"
+            f"    add '# no-ssrf-check' to the fetch line."
+        )
+    return issues
