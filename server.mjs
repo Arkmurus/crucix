@@ -1069,6 +1069,78 @@ app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 //
 // Other /api/aria/* endpoints continue through ariaProxy + express.json —
 // only the multipart route diverges.
+
+
+// R-F1848: Proxy WA listener accounts API for web UI access
+const WA_LISTENER_URL = process.env.WA_LISTENER_URL || 'http://aria-wa.internal:5070';
+
+app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
+      headers: { 'Authorization': req.headers.authorization || '' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
+  }
+});
+
+app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': req.headers.authorization || '' },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
+  }
+});
+
+app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
+      headers: { 'Authorization': req.headers.authorization || '' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
+  }
+});
+
+app.get('/api/wa-listener/accounts/:id/qr', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id + '/qr', {
+      headers: { 'Authorization': req.headers.authorization || '' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const text = await r.text();
+    res.status(r.status).type(r.headers.get('content-type') || 'text/html').send(text);
+  } catch (e) {
+    res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
+  }
+});
+
+app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
+      method: 'DELETE',
+      headers: { 'Authorization': req.headers.authorization || '' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
+  }
+});
 app.post('/api/aria/extract-document', async (req, res) => {
   const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
   if (!ARIA_URL) {

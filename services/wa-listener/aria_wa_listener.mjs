@@ -2630,31 +2630,17 @@ function _renderQrSvg(qrData, size) {
   // QR data is a string from Baileys; render as SVG using qrcode package
   if (!qrData) return '';
   try {
-    // Try to use the 'qrcode' npm package for proper SVG generation
     const qr = require('qrcode');
     // qrcode.toString with svg type returns an SVG string
-    return '';
+    // We extract just the path data from the SVG
+    const svgStr = qr.toString(qrData, { type: 'svg', width: size, margin: 1 });
+    // Remove XML declaration and wrapper, keep just the SVG tag
+    return svgStr.replace(/^<\?xml.*?\?>/, '').trim();
   } catch (e) {
-    // qrcode package not installed - render as simple matrix
-    return _renderQrMatrix(qrData, size);
+    // qrcode package not installed - render fallback text
+    return `<text x="${size/2}" y="${size/2}" text-anchor="middle" font-size="14" fill="#666">QR Code Available</text>
+<text x="${size/2}" y="${size/2 + 20}" text-anchor="middle" font-size="11" fill="#999">Install qrcode package for SVG rendering</text>`;
   }
-}
-
-function _renderQrMatrix(qrData, size) {
-  // Fallback: render QR as a simple matrix of black/white squares
-  // Baileys QR is a string like '1-0-1-1-0-...' or a raw string
-  if (!qrData || qrData.length < 10) return '';
-  
-  // Simple visual representation - render the QR data as-is
-  // The Baileys QR string is already a scannable format
-  // For a proper QR code, install: npm install qrcode
-  const cellSize = Math.max(2, Math.floor(size / 25));
-  const cells = [];
-  
-  // Create a simple visual indicator that QR data exists
-  // In production, install 'qrcode' package and use qr.toString({ type: 'svg' })
-  return `<text x="128" y="128" text-anchor="middle" font-size="14" fill="#666">QR Code Available</text>
-<text x="128" y="148" text-anchor="middle" font-size="11" fill="#999">Install qrcode package for SVG rendering</text>`;
 }
 
 const _httpServer = app.listen(PORT, () => {
