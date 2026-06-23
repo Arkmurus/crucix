@@ -20918,6 +20918,17 @@ def health_live_ep():
     return {"status": "alive", "build_rev": _build_rev}
 
 
+
+@router.get("/metrics")
+async def metrics_ep():
+    """Prometheus metrics endpoint."""
+    from ..intel import metrics as _metrics
+    from starlette.responses import Response
+    return Response(
+        content=_metrics.generate_metrics(),
+        media_type="text/plain; charset=utf-8",
+    )
+
 @router.get("/learning/cost-free/preview")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def learning_cost_free_preview_ep():

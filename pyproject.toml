@@ -1,24 +1,22 @@
-# R-F988 — packaging for the ARIA Coder CLI only.
-#
-# This pyproject is intentionally scoped to the `aria_cli` package so that
-# `pip install -e .` installs the `aria` command on PATH WITHOUT trying to
-# repackage the whole crucix monolith (aria_service is run directly, not
-# installed). The heavy aria_service deps live in aria_service/requirements.txt.
 [build-system]
-requires = ["setuptools>=68"]
+requires = ['setuptools>=68']
 build-backend = "setuptools.build_meta"
-
-[project]
 name = "aria-coder-cli"
 version = "0.1.0"
 description = "ARIA Coder — a local Claude-Code-style coding agent powered by ARIA's brain (DeepSeek)."
 requires-python = ">=3.10"
-dependencies = [
-    "httpx>=0.27",
-]
-
+dependencies = ['httpx>=0.27']
 [project.scripts]
 aria = "aria_cli.cli:main"
-
 [tool.setuptools]
-packages = ["aria_cli"]
+packages = ['aria_cli']
+[tool.mypy]
+python_version = "3.13"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_optional = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_imports = "skip"

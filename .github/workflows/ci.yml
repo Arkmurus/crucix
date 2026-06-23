@@ -140,6 +140,22 @@ print('All files pass syntax check.')
         continue-on-error: true
         run: node --test test/
 
+      # R-F1835: DD quality scorer
+      - name: DD quality score
+        continue-on-error: true
+        run: python -m scripts.dd_quality_scorer --fail-on-regression || true
+
+      # R-F1835: API surface validation
+      - name: API surface validation
+        run: python scripts/api_surface_validator.py
+
+      # R-F1835: Type check (mypy)
+      - name: Type check (mypy)
+        continue-on-error: true
+        run: |
+          pip install mypy 2>/dev/null || true
+          python -m mypy aria_service/ --ignore-missing-imports || true
+
       # R-F1806 (2026-06-23) — aria-wa (WhatsApp listener) was entirely outside
       # CI (audit #10). Install + audit + run its tests. Informational
       # (continue-on-error): baileys carries known upstream advisories and the
