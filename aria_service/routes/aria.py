@@ -10046,9 +10046,11 @@ async def document_correct_ep(request: Request):
 
 @router.get("/document/extraction/{extraction_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def document_extraction_get_ep(extraction_id: str):
+async def document_extraction_get_ep(extraction_id: str, user_id: str = ""):
+    # R-F1826 (audit H7): ownership — pass user_id (Node pins it from the JWT) so
+    # get_extraction returns the record only to its owner. user_id='' = admin/no-filter.
     from ..intel import document_corrections as _dc
-    rec = await _dc.get_extraction(extraction_id)
+    rec = await _dc.get_extraction(extraction_id, user_id=user_id or None)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"extraction {extraction_id} not found")
     return rec
@@ -11060,6 +11062,7 @@ async def _read_document_ep_impl(request: Request):
                 await _di.process_document(
                     text=content, filename=filename, source=source,
                     llm=get_llm(request),
+                    user_id=(body.get("user_id") or ""),  # R-F1826 (audit H7)
                 )
             except Exception as _e:
                 _log.debug("R-F880 deferred doc_intelligence failed (non-fatal): %s", _e)
@@ -11072,6 +11075,7 @@ async def _read_document_ep_impl(request: Request):
             from ..intel import document_intelligence as _di
             di = await _di.process_document(
                 text=content, filename=filename, source=source, llm=llm,
+                user_id=(body.get("user_id") or ""),  # R-F1826 (audit H7)
             )
             if di and isinstance(result, dict):
                 result["doc_intel"] = di

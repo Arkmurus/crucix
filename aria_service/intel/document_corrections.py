@@ -190,13 +190,18 @@ async def save_extraction(
     source: str,
     structured: dict,
     overview_markdown: str,
+    user_id: str = "",
 ) -> None:
-    """Persist a freshly produced extraction. Idempotent on extraction_id."""
+    """Persist a freshly produced extraction. Idempotent on extraction_id.
+
+    R-F1826 (audit H7): store the owning user_id so get_extraction can enforce
+    ownership (extractions hold uploaded document content — PII/contracts)."""
     async with _LOCK:
         store = await _load()
         now = _now()
         store["extractions"][extraction_id] = {
             "id": extraction_id,
+            "user_id": user_id or "",
             "form_code": form_code,
             "filename": filename,
             "source": source,
@@ -226,9 +231,19 @@ async def save_extraction(
         await _save(store)
 
 
-async def get_extraction(extraction_id: str) -> Optional[dict]:
+async def get_extraction(extraction_id: str, user_id: Optional[str] = None) -> Optional[dict]:
+    """R-F1826 (audit H7): when user_id is passed, return the record only if it
+    belongs to that user (or is a legacy/admin record with no owner). Pass None
+    for trusted internal/admin paths."""
     store = await _load()
-    return store["extractions"].get(extraction_id)
+    rec = store["extractions"].get(extraction_id)
+    if rec is None:
+        return None
+    if user_id is not None:
+        owner = (rec.get("user_id") or "").strip()
+        if owner and owner != user_id:
+            return None  # ownership mismatch — treat as not found (no existence leak)
+    return rec
 
 
 async def recent_extractions(limit: int = 20, form_code: Optional[str] = None) -> list[dict]:

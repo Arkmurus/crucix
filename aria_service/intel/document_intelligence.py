@@ -1009,6 +1009,7 @@ async def process_document(
     filename: str,
     source: str,
     llm: Any,
+    user_id: str = "",  # R-F1826 (audit H7): owner, threaded to save_extraction
 ) -> Optional[dict]:
     """Full pipeline: classify → extract → analyse → render → persist.
 
@@ -1065,6 +1066,7 @@ async def process_document(
             extraction_id=extraction_id, form_code=form_code,
             filename=filename, source=source,
             structured=structured, overview_markdown=overview,
+            user_id=user_id,  # R-F1826 (audit H7)
         )
     except Exception as e:
         logger.debug("doc_intel corrections-store save failed: %s", e)

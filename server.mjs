@@ -2479,10 +2479,14 @@ app.post('/api/aria/document/correct', requireAuth, (req, res) =>
     res.status(503).json({ error: 'Document correct unavailable — backend offline' });
   }}));
 
-app.get('/api/aria/document/extraction/:id', requireAuth, (req, res) =>
-  ariaProxy(req, res, `/api/aria/document/extraction/${encodeURIComponent(req.params.id)}`, { fallback: async () => {
+app.get('/api/aria/document/extraction/:id', requireAuth, (req, res) => {
+  // R-F1826 (audit H7): pin user_id from the JWT so the brain enforces extraction
+  // ownership (records hold uploaded document content — PII/contracts).
+  const userId = req.user?.userId || '';
+  return ariaProxy(req, res, `/api/aria/document/extraction/${encodeURIComponent(req.params.id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => {
     res.status(503).json({ error: 'Document extraction lookup unavailable' });
-  }}));
+  }});
+});
 
 app.get('/api/aria/document/extractions/recent', requireAuth, (req, res) => {
   const qs = new URLSearchParams(req.query || {}).toString();
