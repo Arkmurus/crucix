@@ -2085,6 +2085,14 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
     # Free, no key required. The HTML endpoint at html.duckduckgo.com
     # returns standard HTML with anchor tags we can parse out. Fragile
     # against DDG layout changes but works as of 2026-04-09.
+    # R-F1790: this raw DDG path had NO circuit breaker — only
+    # web_search._search_duckduckgo was protected. Share the SAME breaker
+    # name so both DDG paths back off together when DDG rate-limits (202/429).
+    from .circuit_breaker import get_breaker as _get_breaker
+    _ddg_cb = _get_breaker("search:duckduckgo", failure_threshold=5, cooldown_seconds=600)
+    if _ddg_cb.is_open():
+        logger.info("web_search DDG breaker OPEN — skipping to multi-backend for %r", query[:80])
+        return await _multi_backend_fallback(query, max_results, t0, reason="ddg_breaker_open")
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.post(
@@ -2097,14 +2105,18 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
                 },
             )
             if resp.status_code != 200:
+                # R-F1790: record the failure so the shared DDG breaker trips.
+                _ddg_cb.record_failure(reason="rate_limit" if resp.status_code in (202, 429) else "server")
                 logger.warning(
                     "web_search DDG returned HTTP %d for %r — falling through to multi-backend",
                     resp.status_code, query[:80],
                 )
                 return await _multi_backend_fallback(query, max_results, t0,
                                                     reason=f"ddg_http_{resp.status_code}")
+            _ddg_cb.record_success()  # R-F1790: 200 = backend healthy
             html = resp.text
     except Exception as e:
+        _ddg_cb.record_failure(reason="timeout")  # R-F1790
         logger.warning(
             "web_search DDG fetch failed for %r: %s — falling through to multi-backend",
             query[:80], e,

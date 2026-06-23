@@ -262,11 +262,17 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
     SearXNG container and setting SEARXNG_URL.
     """
     # R-F183: prefer the self-host adapter when configured.
+    # R-F1790: guard the self-host path with a circuit breaker — it is the
+    # PRIMARY backend (aria-searxng) and had none (the breaker further down
+    # only guards the dead public-instance loop).
+    from .circuit_breaker import get_breaker as _get_cb
+    _sx_cb = _get_cb("search:searxng-selfhost", failure_threshold=5, cooldown_seconds=300)
     try:
         from . import search_searxng as _sx
-        if _sx.is_configured():
+        if _sx.is_configured() and not _sx_cb.is_open():
             res = await _sx.search(query, count=max_results, lang=language or "en")
             if res.get("ok") and res.get("results"):
+                _sx_cb.record_success()  # R-F1790
                 out: list[SearchResult] = []
                 for item in res["results"]:
                     url = (item.get("url") or "").strip()
@@ -288,6 +294,7 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
             # upstream engines CAPTCHA/rate-limited), not that the world
             # has no answer. Wire a failure so the brain knows.
             if res.get("ok") and res.get("configured") and not res.get("results"):
+                _sx_cb.record_failure(reason="rate_limit")  # R-F1790: 0 results = upstream blocked
                 logger.warning(
                     "SearXNG returned 0 results — all upstream engines likely blocked "
                     "(query=%r, backend=%s)",
@@ -308,6 +315,7 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
             # the legacy public-instance loop (currently empty); the path
             # is harmless and lets us add public instances later.
     except Exception as _sx_e:
+        _sx_cb.record_failure(reason="timeout")  # R-F1790
         logger.debug("R-F183 searxng self-host probe failed: %s", _sx_e)
     if not SEARXNG_INSTANCES:
         return []

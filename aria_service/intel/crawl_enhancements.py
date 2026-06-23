@@ -327,12 +327,19 @@ async def fetch_via_wayback(
     missing from the current site (rebrand / shell-flip detection).
     """
     import httpx
+    from .circuit_breaker import get_breaker
     out: dict[str, Any] = {
         "ok": False, "url": url, "snapshot_url": "",
         "snapshot_timestamp": "", "html": "", "error": None,
         "source": "wayback",
         "requested_timestamp": timestamp or "",
     }
+    # R-F1790: circuit breaker for archive.org — this page-fetch wayback
+    # fallback had none, so archive.org rate-limits could cascade across DD ops.
+    _wb_cb = get_breaker("fetch:wayback", failure_threshold=3, cooldown_seconds=600)
+    if _wb_cb.is_open():
+        out["error"] = "wayback circuit OPEN (recent archive.org failures) — skipping"
+        return out
     availability_url = f"https://archive.org/wayback/available?url={url}"
     if timestamp:
         availability_url += f"&timestamp={timestamp}"
@@ -344,6 +351,7 @@ async def fetch_via_wayback(
             r.raise_for_status()
             data = r.json()
     except Exception as e:
+        _wb_cb.record_failure(reason="timeout")  # R-F1790
         out["error"] = f"availability lookup failed: {str(e)[:200]}"
         return out
 
@@ -362,11 +370,14 @@ async def fetch_via_wayback(
         ) as client:
             r = await client.get(snap_url, headers={"User-Agent": _UA})
             if r.status_code != 200:
+                _wb_cb.record_failure(reason="server")  # R-F1790
                 out["error"] = f"snapshot fetch HTTP {r.status_code}"
                 return out
             out["html"] = r.text
             out["ok"] = True
+            _wb_cb.record_success()  # R-F1790
     except Exception as e:
+        _wb_cb.record_failure(reason="timeout")  # R-F1790
         out["error"] = f"snapshot fetch failed: {str(e)[:200]}"
 
     return out
