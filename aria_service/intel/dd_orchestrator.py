@@ -6611,6 +6611,32 @@ async def _run_sweep_intelligence(target: dict, report: ARKDDReport) -> None:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
+async def _dd_interactive_keepalive() -> None:
+    """R-F1855 — refresh brain_hook.mark_interactive() every few seconds for the
+    whole lifetime of a DD.
+
+    A lot of heavy background CPU work already DEFERS while a user request is in
+    flight (R-F1754 encode-absorb backoff, the semantic-index queue, eagle_eye
+    codebase indexing, brain_hook_bg) — but only for the ~8s `_interactive_active`
+    window after the triggering chat request. A DD runs for minutes, so that
+    window expired mid-DD and the autonomous encode/index work resumed, GIL-
+    starving the event loop (live wedge 2026-06-23/24: 6-10s R-F703 stalls, DD
+    blew its budget → 'DD produces nothing'). Keeping the window alive for the
+    DD's duration lets the EXISTING backoff actually cover long DDs, so the DD
+    wins the loop. Bounded: cancelled in orchestrate_dd's finally and by the DD's
+    own hard deadline; the deferrals it triggers have their own max-defer caps."""
+    try:
+        from . import brain_hook as _bh1855
+    except Exception:
+        return
+    while True:
+        try:
+            _bh1855.mark_interactive()
+        except Exception:
+            pass
+        await asyncio.sleep(4)
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -6642,6 +6668,10 @@ async def orchestrate_dd(
     )
     hard = budget + float(_env_int("ARIA_DD_HARD_MARGIN_S", 150))
     holder: dict = {}
+    # R-F1855: keep the interactive-yield window alive for the whole DD so the
+    # existing _interactive_active()-gated background work stays deferred and the
+    # DD wins the event loop (cancelled in finally; bounded by the hard deadline).
+    _ka_task = asyncio.create_task(_dd_interactive_keepalive())
     try:
         return await asyncio.wait_for(
             _orchestrate_dd_impl(
@@ -6702,6 +6732,8 @@ async def orchestrate_dd(
         except Exception:
             pass
         return rep
+    finally:
+        _ka_task.cancel()  # R-F1855 — stop the interactive keepalive
 
 
 async def _orchestrate_dd_impl(

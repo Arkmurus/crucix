@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1847,
+  "next_available": 1856,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12830,6 +12830,90 @@
       "r_number": "R-F1846",
       "title": "pre-warm sanctions-source caches at boot off the request loop (DD wedge cont.)",
       "claimed_at": "2026-06-23T22:14:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1847",
+      "title": "Fix DD delivery: proxy timeout, outcome callback, markdown render, NL routing",
+      "claimed_at": "2026-06-23T22:40:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ccc8e680",
+      "notes": null,
+      "shipped_at": "2026-06-23T23:08:51Z"
+    },
+    {
+      "r_number": "R-F1848",
+      "title": "Multi-account WhatsApp QR code management",
+      "claimed_at": "2026-06-23T22:57:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "58c2c5a9",
+      "notes": null,
+      "shipped_at": "2026-06-23T23:26:33Z"
+    },
+    {
+      "r_number": "R-F1849",
+      "title": "Autonomous task startup ramp-up to prevent boot-time wedge",
+      "claimed_at": "2026-06-23T23:13:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7bdbcd10",
+      "notes": null,
+      "shipped_at": "2026-06-23T23:16:06Z"
+    },
+    {
+      "r_number": "R-F1850",
+      "title": "Remove dead PowerShell RCE endpoint (DD stage1)",
+      "claimed_at": "2026-06-23T23:19:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1851",
+      "title": "Route 3 SSRF fetchers through safe_get (DD stage2)",
+      "claimed_at": "2026-06-23T23:20:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1852",
+      "title": "Bind owner to 5 job/trace result IDOR endpoints (DD stage4)",
+      "claimed_at": "2026-06-23T23:20:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1853",
+      "title": "Body-size cap middleware + wire zip-bomb scanner (DD stage3)",
+      "claimed_at": "2026-06-23T23:20:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1854",
+      "title": "Optional-chain WA messages.upsert loop (DD stage3)",
+      "claimed_at": "2026-06-23T23:20:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1855",
+      "title": "keep interactive-yield window alive for whole DD so background CPU work defers (wedge)",
+      "claimed_at": "2026-06-23T23:39:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
