@@ -1803,6 +1803,13 @@ async function startListener() {
     if (type !== 'notify') return;
 
     for (const msg of messages) {
+      // R-F1854 (audit, DD stage 3) — shape guard. A malformed messages.upsert
+      // entry (null msg, or missing `key`) previously threw a TypeError on the
+      // `msg.key.fromMe` access below; that escaped this async handler →
+      // unhandledRejection → process.exit(1) (self-DoS / Fly restart loop). Skip
+      // anything without the minimal shape so a single bad inbound packet can't
+      // kill the listener. Every msg.key.* read after this point is then safe.
+      if (!msg || !msg.key) continue;
       // Skip messages sent by ARIA herself
       if (msg.key.fromMe) continue;
 

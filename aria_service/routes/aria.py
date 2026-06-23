@@ -5808,16 +5808,23 @@ def _detect_tool_intent(message: str) -> dict | None:
                 import httpx as _httpx_e
                 import re as _re_e
                 _title_text = ""
+                # R-F1851 (DD stage 2) — SSRF guard. `url` is a raw user-supplied
+                # URL from the chat/WA/TG message; validate it (DNS-resolved; blocks
+                # loopback/RFC1918/fly-private/internal-TLD/metadata) and disable
+                # redirect-following so an open redirect cannot bounce to an internal
+                # host. Best-effort: on block we fall through to brandify(host).
+                from ..intel.url_safety import is_safe_url as _is_safe_url_e
+                _url_ok_e, _ = _is_safe_url_e(url)
                 try:
                     # _detect_tool_intent is sync — use sync Client.
                     with _httpx_e.Client(
-                        timeout=4.0, follow_redirects=True,
+                        timeout=4.0, follow_redirects=False,
                     ) as _cl_e:
                         _r_e = _cl_e.get(url, headers={
                             "User-Agent": "Mozilla/5.0 (compatible; "
                                           "ARIA-DD/1.0)",
-                        })
-                        if _r_e.status_code == 200 and _r_e.text:
+                        }) if _url_ok_e else None
+                        if _r_e is not None and _r_e.status_code == 200 and _r_e.text:
                             _m_e = _re_e.search(
                                 r"<title[^>]*>(.*?)</title>",
                                 _r_e.text,
@@ -8249,11 +8256,16 @@ async def chat_ep(req: ChatRequest, request: Request):
     # R-F1377: the job task is held in _ASYNC_JOB_TASKS — see that comment.
     if getattr(req, "async_mode", False):
         _cjob_id = str(uuid.uuid4())[:12]
+        # R-F1852 (audit, DD stage 4): stamp the owner onto the job so
+        # /chat/result/{job_id} can enforce ownership (the result carries the full
+        # answer + sources). Node pins req.user_id from the JWT. _chat_job_set
+        # REPLACES the record on each write, so owner must be re-stamped every write.
+        _job_owner = (getattr(req, "user_id", "") or "").strip()
         # R-F1380: if the job-store write fails, return 503 immediately so the
         # WA listener falls back to sync mode instead of polling forever for a
         # job that was never persisted (the 'chat job expired' / 'not_found'
         # class the operator reported).
-        if not await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id}):
+        if not await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id, "user_id": _job_owner}):
             raise HTTPException(
                 status_code=503,
                 detail="Async job store unavailable — try again or use sync mode",
@@ -8278,18 +8290,18 @@ async def chat_ep(req: ChatRequest, request: Request):
                 if isinstance(_res, dict):
                     _result_data = _res
                     await _chat_job_set(_cjob_id, {"status": "done", "result": _res,
-                                                   "session_id": session_id})
+                                                   "session_id": session_id, "user_id": _job_owner})
                 else:
                     _sc = getattr(_res, "status_code", "?")
                     _error_msg = f"chat returned HTTP {_sc}"
                     await _chat_job_set(_cjob_id, {"status": "failed",
                                                    "error": _error_msg,
-                                                   "session_id": session_id})
+                                                   "session_id": session_id, "user_id": _job_owner})
             except Exception as _e:
                 _log.warning("R-F916 async chat job %s failed: %s", _cjob_id, _e)
                 _error_msg = str(_e)[:300]
                 await _chat_job_set(_cjob_id, {"status": "failed", "error": _error_msg,
-                                               "session_id": session_id})
+                                               "session_id": session_id, "user_id": _job_owner})
                 try:  # R-F921 — wire the failure to ARIA's brain so she SEES it.
                     from ..intel import brain_hook as _bh916
                     await _bh916.observe_self_event(
@@ -10408,14 +10420,21 @@ async def _readdoc_job_get(job_id: str):
 
 @router.get("/read-document/result/{job_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def read_document_result_ep(job_id: str):
+async def read_document_result_ep(job_id: str, user_id: str = ""):
     """R-F873 — poll an async read-document job. status: processing|done|failed|not_found.
-    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found."""
+    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found.
+    R-F1852 (audit, DD stage 4) — `user_id` (Node pins it from the JWT) enforces
+    ownership: the extracted document text is confidential to its owner."""
     job = await _readdoc_job_get(job_id)
     if job == _JOB_STORE_ERROR:
         raise HTTPException(status_code=503,
                             detail="job store temporarily unavailable — keep polling")
     if not job:
+        return {"status": "not_found", "job_id": job_id}
+    # R-F1852: ownership — 404 on mismatch to avoid leaking job existence. Legacy
+    # jobs / admin path have user_id=''; guard fires only when both are present.
+    _owner = (job.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         return {"status": "not_found", "job_id": job_id}
     return {"job_id": job_id, **job}
 
@@ -10542,16 +10561,24 @@ async def _chat_job_get(job_id: str):
 
 @router.get("/chat/result/{job_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def chat_result_ep(job_id: str):
+async def chat_result_ep(job_id: str, user_id: str = ""):
     """R-F916 — poll an async /chat job. status: processing|done|failed|not_found.
     On 'done', `result` carries the full chat response dict (response, session_id,
     sources, confidence, …) exactly as the sync /chat path returns it.
-    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found."""
+    R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found.
+    R-F1852 (audit, DD stage 4) — `user_id` (Node pins it from the JWT) enforces
+    ownership: the answer is confidential to its owner."""
     job = await _chat_job_get(job_id)
     if job == _JOB_STORE_ERROR:
         raise HTTPException(status_code=503,
                             detail="job store temporarily unavailable — keep polling")
     if not job:
+        return {"status": "not_found", "job_id": job_id}
+    # R-F1852: ownership — 404 (not 403) on mismatch to avoid leaking job existence.
+    # Legacy jobs / the admin path have user_id=''; the guard only fires when BOTH a
+    # caller identity and a stored owner are present and differ.
+    _owner = (job.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         return {"status": "not_found", "job_id": job_id}
     return {"job_id": job_id, **job}
 
@@ -10656,9 +10683,14 @@ async def read_document_ep(request: Request):
         _r873_body["defer_intel"] = True
         _job_id = _uuid873.uuid4().hex[:12]
         _fname = _r873_body.get("filename", "")
+        # R-F1852 (audit, DD stage 4): stamp owner so /read-document/result/{id}
+        # can enforce ownership (the result carries the full extracted text). Node
+        # pins user_id from the JWT. _readdoc_job_set REPLACES on each write, so the
+        # owner is re-stamped into every job_data dict below.
+        _owner873 = (_r873_body.get("user_id") or "").strip()
         # R-F1380: if the job-store write fails, return 503 immediately so the
         # WA listener falls back to sync mode instead of polling forever.
-        if not await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname}):
+        if not await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname, "user_id": _owner873}):
             raise HTTPException(
                 status_code=503,
                 detail="Async job store unavailable — try again or use sync mode",
@@ -10668,14 +10700,14 @@ async def read_document_ep(request: Request):
             try:
                 _res = await _read_document_ep_impl(_r873_shim)
                 if isinstance(_res, dict):
-                    _job_data = {"status": "done", "result": _res, "filename": _fname}
+                    _job_data = {"status": "done", "result": _res, "filename": _fname, "user_id": _owner873}
                 else:
                     _sc = getattr(_res, "status_code", "?")
                     _job_data = {"status": "failed",
-                                 "error": f"extraction returned HTTP {_sc}", "filename": _fname}
+                                 "error": f"extraction returned HTTP {_sc}", "filename": _fname, "user_id": _owner873}
             except Exception as _e:
                 _log.warning("R-F873 async read-document job %s failed: %s", _job_id, _e)
-                _job_data = {"status": "failed", "error": str(_e)[:300], "filename": _fname}
+                _job_data = {"status": "failed", "error": str(_e)[:300], "filename": _fname, "user_id": _owner873}
 
             # R-F1678 — retry the job-store write up to 3x with backoff so a
             # transient state_store blip (write queue full / reconnect window)
@@ -10801,6 +10833,39 @@ async def _read_document_ep_impl(request: Request):
             raw_bytes = _b64.b64decode(content)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid base64 content")
+
+        # R-F1853 (audit, DD stage 3) — scan decoded bytes for archive/zip bombs and
+        # embedded scripts BEFORE any parser unzips them. content_scanner.scan_bytes
+        # was dead code (no caller); the DOCX/XLSX branches below unzip with no
+        # decompressed-size bound, so a small file inflating to multi-GB could OOM the
+        # single-process brain. scan_bytes' compression-bomb check opens zip-based
+        # docs and rejects pathological ratios. Fail-CLOSED (422) on a threat verdict;
+        # fail-open only if the scanner itself errors (don't lose ingestion to a
+        # scanner bug — logged). str()-coerce inputs so a non-string filename/mimetype
+        # can't crash this guard.
+        try:
+            from ..intel import content_scanner as _cs1853
+            _mt1853 = str(mimetype or "")
+            _fn1853 = str(filename or "")
+            _ctype1853 = (
+                _mt1853.split("/")[-1] if "/" in _mt1853
+                else (_fn1853.rsplit(".", 1)[-1] if "." in _fn1853 else "")
+            )
+            _scan1853 = await _cs1853.scan_bytes(
+                raw_bytes, claimed_type=_ctype1853, source_name=str(source or "upload")[:80],
+            )
+            if not _scan1853.safe:
+                _log.warning("R-F1853 read-document blocked unsafe upload (%s): %s",
+                             _fn1853, _scan1853.reason)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"document blocked by content scan: {_scan1853.reason}",
+                )
+        except HTTPException:
+            raise
+        except Exception as _cs1853_e:
+            _log.error("R-F1853 content scan failed (FAILING OPEN — fix asap): %s",
+                       _cs1853_e, exc_info=True)
 
         extracted = ""
         fname_lower = filename.lower()
@@ -16277,12 +16342,28 @@ async def compliance_expire_ep():
 
 @router.get("/entity-graph/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def entity_graph_ep(run_id: str):
-    """Load a previously saved entity relationship graph from a DD run."""
+async def entity_graph_ep(run_id: str, user_id: str = ""):
+    """Load a previously saved entity relationship graph from a DD run.
+    R-F1852 (audit, DD stage 4) — `user_id` (Node pins it from the JWT) enforces
+    ownership; the graph is DD-derived and confidential to the run's owner."""
     from ..intel import entity_graph
     graph = await entity_graph.ERGraph.load(run_id)
     if not graph:
         raise HTTPException(status_code=404, detail=f"No entity graph for run_id {run_id}")
+    # R-F1852: the entity-graph store carries no owner, but it shares run_id with the
+    # DD report (which DOES store the owner — R-F1820). Authorize via that report.
+    # 404 on mismatch to avoid leaking existence. user_id='' = admin/no-filter path.
+    if user_id:
+        try:
+            from ..intel import dd_orchestrator as _ddo852
+            _rep852 = await _ddo852.get_report(run_id)
+            _owner852 = (_rep852.get("user_id") or "").strip() if _rep852 else ""
+            if _owner852 and _owner852 != user_id:
+                raise HTTPException(status_code=404, detail=f"No entity graph for run_id {run_id}")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     return {
         "run_id": run_id,
         "nodes": len(graph.nodes),

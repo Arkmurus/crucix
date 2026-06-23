@@ -2597,10 +2597,20 @@ app.post('/api/aria/brain/absorb', requireAuth, (req, res) =>
 // post here for body ingest, but seenode had no proxy → 404 → emails
 // never indexed in ChromaDB. The `read` endpoint was proxied (see
 // line ~2397) but `read-document` was missed.
-app.post('/api/aria/read-document', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/read-document', { method: 'POST', fallback: async () => {
+app.post('/api/aria/read-document', requireAuth, (req, res) => {
+  // R-F1852 (audit, DD stage 4): stamp the owner onto the body so an async
+  // read-document job persists user_id and /read-document/result/{id} can enforce
+  // ownership. Pinned from the JWT (same scheme as /dd/orchestrate) so it can't be
+  // forged on the wire. Async (large/scanned) docs are the case that returns the
+  // full extracted text via the polled result endpoint.
+  try {
+    req.body = req.body || {};
+    req.body.user_id = req.user?.userId || '';
+  } catch {}
+  return ariaProxy(req, res, '/api/aria/read-document', { method: 'POST', fallback: async () => {
     res.status(503).json({ error: 'Document ingest unavailable — Python aria_service offline' });
-  }}));
+  }});
+});
 
 app.get('/api/aria/student/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/stats', { fallback: async () => {
@@ -2800,6 +2810,26 @@ app.delete('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
+});
+// R-F1852 (audit, DD stage 4) — explicit ownership-pinned poll routes for async
+// job results + the DD entity-graph. These MUST sit before the catch-all proxy,
+// which forwards the client query string verbatim (so ?user_id=victim would defeat
+// the brain's ownership check). Each strips any client value and pins user_id from
+// the JWT, exactly like /dd/report (R-F1820). 404s leak nothing on cross-tenant access.
+app.get('/api/aria/chat/result/:job_id', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/chat/result/${encodeURIComponent(req.params.job_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/read-document/result/:job_id', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/read-document/result/${encodeURIComponent(req.params.job_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/entity-graph/:run_id', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/entity-graph/${encodeURIComponent(req.params.run_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
 // R-F607 (2026-05-16) — stamp originating user identity onto the
 // orchestrate request body so the persisted report carries `user_id`

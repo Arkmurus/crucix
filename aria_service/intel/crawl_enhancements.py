@@ -66,9 +66,17 @@ async def detect_content_type(url: str, timeout: float = 8.0) -> dict:
         "final_url": url,
         "error": None,
     }
+    # R-F1851 (DD stage 2) — SSRF guard. `url` is user/discovery-supplied; validate
+    # it (DNS-resolved) and disable redirect-following so a HEAD/stream probe cannot
+    # reach an internal host. This mirrors the safe_get posture used by fetch_pdf.
+    from . import url_safety as _us
+    _ok_ct, _reason_ct = _us.is_safe_url(url)
+    if not _ok_ct:
+        out["error"] = f"ssrf_blocked:{_reason_ct}"
+        return out
     try:
         async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True,
+            timeout=timeout, follow_redirects=False,
         ) as client:
             try:
                 r = await client.head(url, headers={"User-Agent": _UA})
@@ -138,10 +146,14 @@ async def check_robots(url: str) -> dict:
             # (Location header points back to same URL) — we can't fix
             # imo.org but we can cap our patience. Same pattern observed
             # earlier on email.net.
+            from . import url_safety as _us  # R-F1851 (DD stage 2): SSRF guard
             async with httpx.AsyncClient(
-                timeout=8.0, follow_redirects=True, max_redirects=5,
+                timeout=8.0, follow_redirects=False,
             ) as client:
-                r = await client.get(robots_url, headers={"User-Agent": _UA})
+                # safe_get revalidates every redirect hop (cap 5, matching the
+                # historical max_redirects) so a robots.txt fetch on a
+                # user-derived base host cannot reach an internal service.
+                r = await _us.safe_get(client, robots_url, headers={"User-Agent": _UA}, max_redirects=5)
                 if r.status_code == 200 and len(r.text) < 200_000:
                     text = r.text
         except Exception as e:
@@ -541,6 +553,19 @@ async def fetch_with_fallbacks(
         "wayback_timestamp": "",
     }
 
+    # R-F1851 (DD stage 2) — single upfront SSRF guard. `url` is user/discovery-
+    # supplied; one entry check (DNS-resolved) covers every downstream path here:
+    # robots.txt, content-type probe, primary fetch, Wayback, and the Playwright
+    # headless fallback (which would otherwise navigate to an internal host).
+    # Per-hop redirect revalidation is additionally enforced by safe_get below.
+    from . import url_safety as _us_entry
+    _ok_entry, _reason_entry = _us_entry.is_safe_url(url)
+    if not _ok_entry:
+        result["error"] = f"ssrf_blocked:{_reason_entry}"
+        result["source"] = "blocked_unsafe_url"
+        _emit_crawl_signal(result)
+        return result
+
     # 1. robots.txt
     if respect_robots:
         try:
@@ -584,13 +609,14 @@ async def fetch_with_fallbacks(
 
     # 4. Primary HTML fetch
     import httpx
+    from . import url_safety as _us  # R-F1851 (DD stage 2): SSRF guard
     primary_failed = False
     primary_error = ""
     try:
         async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True,
+            timeout=timeout, follow_redirects=False,  # R-F1851: safe_get revalidates each hop
         ) as client:
-            r = await client.get(url, headers={"User-Agent": _UA})
+            r = await _us.safe_get(client, url, headers={"User-Agent": _UA})  # R-F1851: SSRF guard on primary HTML fetch
             result["status"] = r.status_code
             result["final_url"] = str(r.url)
             if r.status_code == 200:

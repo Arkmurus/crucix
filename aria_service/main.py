@@ -2722,20 +2722,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("[R-F1146] Self-restart start failed (non-fatal)")
 
-    # R-F1225 -- start PowerShell Master
-    try:
-        from .utils.powershell_master import PowerShellMaster, add_powershell_endpoints
-        ps_master = PowerShellMaster()
-        # Test if PowerShell is available (non-fatal if not)
-        ps_available = await ps_master.test_powershell()
-        if ps_available:
-            add_powershell_endpoints(router, ps_master)
-            logger.info("[R-F1225] PowerShell Master started — endpoints registered")
-        else:
-            logger.info("[R-F1225] PowerShell not available on this platform — skipping")
-        app.state.ps_master = ps_master
-    except Exception as _ps_e:
-        logger.debug("[R-F1225] PowerShell Master init failed (non-fatal): %s", _ps_e)
+    # R-F1850 (DD stage 1) — REMOVED the R-F1225 PowerShell Master boot block.
+    # It registered an unauthenticated POST /powershell/execute (arbitrary command
+    # execution) and was dead in every environment (`router` is undefined here —
+    # only `aria_router` is imported — so `add_powershell_endpoints(router, ...)`
+    # raised NameError, swallowed by the except; pwsh is also absent on Linux prod).
+    # `ps_master`/`app.state.ps_master` were never read anywhere and no caller hits
+    # the route. Removed outright to eliminate the latent-RCE tripwire (a one-line
+    # `router`→`aria_router` "fix" would have exposed it). The PowerShellMaster
+    # class remains in utils/powershell_master.py for the local dev CLI; it is just
+    # no longer auto-wired into the HTTP surface.
 
     # R-F1550: start Eagle Eye codebase guardian
     try:
@@ -2931,6 +2927,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# R-F1853 (audit, DD stage 3) — global request-body size cap. Before this, ~150
+# endpoints called `await request.json()` with no upper bound, so a single multi-GB
+# or deeply-nested body could OOM the single-process brain. Header-only guard (no
+# buffering): reject by Content-Length before any parsing. The cap is generous
+# (default 50MB) so legitimate base64 documents pass; tune via ARIA_MAX_BODY_BYTES.
+# Chunked requests with no Content-Length aren't caught here — the per-endpoint
+# caps (read-document, etc.) backstop those.
+import os as _bodylim_os
+_MAX_BODY_BYTES = int(_bodylim_os.getenv("ARIA_MAX_BODY_BYTES", str(50 * 1024 * 1024)))
+
+
+@app.middleware("http")
+async def _limit_body_size(request, call_next):
+    _cl = request.headers.get("content-length")
+    if _cl:
+        try:
+            if int(_cl) > _MAX_BODY_BYTES:
+                from starlette.responses import JSONResponse
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"request body too large (> {_MAX_BODY_BYTES} bytes)"},
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
 
 # Routes
 app.include_router(aria_router)

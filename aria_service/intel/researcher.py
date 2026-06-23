@@ -1076,8 +1076,13 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
 
     html = ""
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
+        # R-F1851 (DD stage 2) — SSRF guard. `url` is a discovered/user-supplied page
+        # URL; sanitise_url is parse-time only (no DNS), so route through safe_get
+        # which DNS-resolves the host and revalidates every redirect hop (raw
+        # follow_redirects=True could open-redirect to an internal service).
+        from . import url_safety as _us
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            resp = await _us.safe_get(client, url, headers={
                 "User-Agent": random_ua(),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
@@ -3043,8 +3048,13 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
     raw_html = ""
     if sanitised:
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                resp = await client.get(sanitised, headers={
+            # R-F1851 (DD stage 2) — the seed `url` was SSRF-checked at entry
+            # (line ~3021), but this re-fetch previously followed redirects with no
+            # revalidation, so an open redirect on the seed could reach an internal
+            # host. Route through safe_get (per-hop revalidation, redirects off).
+            from . import url_safety as _us
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                resp = await _us.safe_get(client, sanitised, headers={
                     "User-Agent": random_ua(),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 })
@@ -3228,8 +3238,13 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     t0 = time.time()
     html = ""
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
+        # R-F1851 (DD stage 2) — SSRF guard. `url` is a discovered/user-supplied page
+        # URL; sanitise_url is parse-time only (no DNS), so route through safe_get
+        # which DNS-resolves the host and revalidates every redirect hop (raw
+        # follow_redirects=True could open-redirect to an internal service).
+        from . import url_safety as _us
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            resp = await _us.safe_get(client, url, headers={
                 "User-Agent": random_ua(),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
