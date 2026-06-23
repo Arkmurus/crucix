@@ -110,3 +110,32 @@ if errors:
     sys.exit(1)
 print('All files pass syntax check.')
 "
+
+  # R-F1794 (2026-06-23) — aria-web supply-chain + Node-test gate (audit #13/#1).
+  # The Node tier was entirely outside CI: no npm audit, and 77 test/*.test.mjs
+  # never ran. This job adds both. Audit blocks the build only on CRITICAL prod
+  # vulns (Dependabot PRs handle high/moderate); the Node suite runs for
+  # visibility (continue-on-error) until triaged green, then flip to blocking.
+  web-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps (clean, from lockfile)
+        run: npm ci
+
+      - name: npm audit — supply-chain (block on CRITICAL prod vulns)
+        run: |
+          echo "Auditing production dependencies for CRITICAL vulnerabilities..."
+          npm audit --omit=dev --audit-level=critical
+          echo "--- high+ (informational; Dependabot raises PRs) ---"
+          npm audit --omit=dev --audit-level=high || true
+
+      - name: Node tests (aria-web)
+        continue-on-error: true
+        run: node --test test/

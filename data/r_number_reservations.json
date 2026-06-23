@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1792,
+  "next_available": 1796,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12274,14 +12274,53 @@
       "title": "WS-CB: wire circuit breakers into 3 unprotected HTTP search paths (researcher DDG fallback, self-host SearXNG, wayback page-fetch)",
       "claimed_at": "2026-06-23T09:02:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0e9829bd",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:20:58Z"
     },
     {
       "r_number": "R-F1791",
       "title": "WS-CB: pre-commit guard — flag new HTTP backends lacking a circuit breaker (root-cause for the breaker-gap class)",
       "claimed_at": "2026-06-23T09:02:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0e9829bd",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:21:01Z"
+    },
+    {
+      "r_number": "R-F1792",
+      "title": "Phase 1 batch 3 — method-aware applicator + wire 8 mixed intel modules (methods); property exemptions",
+      "claimed_at": "2026-06-23T09:22:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7dc3258c",
+      "notes": null,
+      "shipped_at": "2026-06-23T09:44:01Z"
+    },
+    {
+      "r_number": "R-F1793",
+      "title": "SEC #9: SSE deep-search short-lived ticket auth — stop accepting long-lived JWT in ?token= URL (leak to logs/referer)",
+      "claimed_at": "2026-06-23T09:42:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1794",
+      "title": "SEC #13: supply-chain — npm audit + Dependabot for aria-web (+ Node test job in CI)",
+      "claimed_at": "2026-06-23T09:42:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1795",
+      "title": "Phase 1 batch 3b — wire agent_signup_vault (ValueError control_flow_exempt on validation methods)",
+      "claimed_at": "2026-06-23T09:44:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
