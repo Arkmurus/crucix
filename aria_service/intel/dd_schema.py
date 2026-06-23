@@ -297,6 +297,7 @@ class DigitalSection:
     """Layer 5 — what does the open web say about this entity?"""
     meta: SectionMeta = field(default_factory=SectionMeta)
     web_footprint: dict = field(default_factory=dict)            # from search_multilingual
+    people: list[dict] = field(default_factory=list)             # R-F1816: investigated named individuals (deep_researcher recursive person drill-down)
     press_coverage: list[Evidence] = field(default_factory=list)
     procurement_history: list[dict] = field(default_factory=list)
     exhibition_presence: list[dict] = field(default_factory=list)
@@ -667,6 +668,28 @@ class ARKDDReport:
                     )
                     if _lt.get('tree_id'):
                         lines.append(f"  → full tree: /api/aria/research/link-tree/{_lt['tree_id']}")
+            # R-F1816 — NAMED INDIVIDUALS investigated (deep_researcher recursive
+            # person drill-down). Without this the people we now investigate
+            # (PEP/sanctions-proximity/adverse-media) never reached WA or web —
+            # the operator's "Zero named individuals" complaint.
+            if self.digital.people:
+                lines.append(f"People investigated: {len(self.digital.people)}")
+                for _pp in self.digital.people[:3 if concise else 10]:
+                    if not isinstance(_pp, dict):
+                        continue
+                    _name = _pp.get("name", "?")
+                    _role = _pp.get("role") or ""
+                    _dos = _pp.get("dossier") or {}
+                    _risk = _dos.get("risk_assessment", "?") if isinstance(_dos, dict) else "?"
+                    _pep = _dos.get("pep_status", "") if isinstance(_dos, dict) else ""
+                    _flags = "; ".join((_dos.get("red_flags") or [])[:2]) if isinstance(_dos, dict) else ""
+                    _bits = [b for b in (
+                        f"role: {_role}" if _role else "",
+                        f"risk={_risk}",
+                        f"PEP: {_pep}" if _pep else "",
+                        f"flags: {_flags}" if _flags else "",
+                    ) if b]
+                    lines.append(f"  • {_name} — {', '.join(_bits)}")
             for f in self.digital.findings[:5 if concise else 20]:
                 lines.append(f"  • [{f.severity}] {f.title}")
             lines.append("")

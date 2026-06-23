@@ -3708,6 +3708,24 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                     "depth": dr_depth,
                 }
                 report.digital.meta.subcalls += 1
+                # R-F1816 — carry the recursive person drill-down (R-F1812) into
+                # the report so named individuals reach WA + web. Without this the
+                # dossiers were computed then dropped ("Zero named individuals").
+                _people = dr.get("people") or []
+                if isinstance(_people, list) and _people:
+                    report.digital.people = _people
+                    # Surface a HIGH/CRITICAL person as a network-level finding so
+                    # it drives the verdict, not just the digital section.
+                    for _pp in _people:
+                        _dos = _pp.get("dossier") or {} if isinstance(_pp, dict) else {}
+                        _risk = (_dos.get("risk_assessment") or "").upper() if isinstance(_dos, dict) else ""
+                        if _risk in ("HIGH", "CRITICAL"):
+                            report.digital.findings.append(Finding(
+                                severity="high" if _risk == "HIGH" else "critical",
+                                title=f"Named individual {_pp.get('name','?')} ({_pp.get('role') or 'role unknown'}) — risk {_risk}",
+                                source="deep_researcher.investigate_person",
+                                confidence="ASSESSED",
+                            ))
                 # If investigate surfaced its own findings, merge them in.
                 for f in (synth.get("key_findings") or [])[:5]:
                     if isinstance(f, str):
