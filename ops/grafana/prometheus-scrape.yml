@@ -1,0 +1,30 @@
+# R-F1841 — Prometheus scrape config for aria-intel.
+#
+# IMPORTANT: /api/aria/metrics is AUTH-GATED (the aria router has a global auth
+# dependency; /metrics is NOT in the public-bypass allowlist). So Prometheus
+# must send the ARIA internal bearer token — an unauthenticated scrape gets 401.
+#
+# Provide the token to Prometheus via a file (do NOT inline the secret here):
+#   echo -n "$ARIA_INTERNAL_TOKEN" > /etc/prometheus/aria_token   # 0600, root-only
+#
+# The endpoint emits standard Prometheus text (see aria_service/intel/metrics.py).
+# Internal target uses fly's private networking (aria-intel.internal:8000); use
+# the public host only if Prometheus runs outside the fly org.
+
+scrape_configs:
+  - job_name: aria-intel
+    scrape_interval: 30s
+    metrics_path: /api/aria/metrics
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/aria_token
+    static_configs:
+      - targets: ["aria-intel.fly.dev"]
+        labels:
+          app: aria-intel
+          env: prod
+    # If Prometheus runs inside the fly org, prefer private networking + http:
+    # scheme: http
+    # static_configs:
+    #   - targets: ["aria-intel.internal:8000"]

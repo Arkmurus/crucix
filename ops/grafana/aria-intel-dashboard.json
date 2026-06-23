@@ -1,0 +1,117 @@
+{
+  "__doc__": "R-F1841 — Grafana dashboard for aria-intel /api/aria/metrics. Import via Grafana → Dashboards → Import → Upload JSON, then pick your Prometheus datasource. Metric names match aria_service/intel/metrics.py exactly; if you add a metric there, add a panel here.",
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "ARIA Intel — Latency / Memory / Cost",
+  "tags": ["aria", "aria-intel"],
+  "timezone": "",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate (req/s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "rate(aria_requests_total[5m])", "legendFormat": "requests/s" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active in-flight requests",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "aria_requests_active", "legendFormat": "active" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Avg request latency (ms)",
+      "type": "timeseries",
+      "description": "rate(latency_sum)/rate(count). The /metrics endpoint exposes a latency sum + count, not buckets, so this is the mean, not a true percentile. Use the brain_hook p95 panel for tail latency.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "rate(aria_latency_ms_sum[5m]) / clamp_min(rate(aria_requests_total[5m]), 1)", "legendFormat": "avg latency ms" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "brain_hook p95 latency (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "aria_brain_hook_p95_latency_ms", "legendFormat": "brain_hook p95" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "brain_hook breaker trips / dropped signals (rate)",
+      "type": "timeseries",
+      "description": "Non-zero trips/drops mean the brain sink is degraded — signals are being shed (see CLAUDE.md §21 wiring).",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "rate(aria_brain_hook_trips_total[5m])", "legendFormat": "trips/s" },
+        { "refId": "B", "expr": "rate(aria_brain_hook_drops_total[5m])", "legendFormat": "drops/s" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Process RSS (MB)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "decmbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "aria_process_rss_bytes / 1024 / 1024", "legendFormat": "RSS MB" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "LLM monthly cost (USD) vs $300 cap",
+      "type": "gauge",
+      "description": "CLAUDE.md §17 hard cap is $300/mo. Red at the cap.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "max": 300,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 200 },
+              { "color": "red", "value": 285 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "aria_llm_monthly_cost_usd", "legendFormat": "USD this month" }
+      ]
+    }
+  ]
+}
