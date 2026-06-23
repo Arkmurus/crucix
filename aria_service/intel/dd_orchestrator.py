@@ -447,52 +447,55 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
             return "SK"
 
     # 5. R-F1815: legal-form suffix in entity name → jurisdiction hint.
-    # Many jurisdictions have unique legal-form suffixes that are strong
-    # jurisdiction indicators even when no address/phone/email is available.
-    # Order matters: more specific suffixes checked before generic ones.
+    # All patterns are applied to name.upper() so they must be written in
+    # UPPERCASE. Order matters: more specific patterns before generic ones.
+    # IMPORTANT: no ISO2 appears more than once — the first match wins.
     _legal_form_to_iso2: list[tuple[str, str]] = [
-        # Portuguese-speaking
-        (r"\bUnipessoal\s+Lda\b", "PT"),   # Portuguese sole-member Lda
-        (r"\bLda\b", "PT"),                 # Portuguese/Spanish limited (also used in BR/AO/MZ)
-        (r"\bS\.?A\.?\b", "PT"),            # Portuguese Sociedade Anónima
+        # Portuguese-speaking (specific before generic)
+        (r"\bUNIPESSOAL\s+LDA\b", "PT"),
+        (r"\bLDA\b", "PT"),
         # Brazilian
-        (r"\bLTDA\b", "BR"),                # Brazilian Limitada
-        (r"\bS\.?A\.?\b", "BR"),            # Brazilian Sociedade Anônima
+        (r"\bLTDA\b", "BR"),
+        # Turkish (before generic LTD to avoid LTD matching GB first)
+        (r"\bLTD\.?\s*STI\.?\b", "TR"),
+        (r"\bA\.?S\.?\b", "TR"),
         # UK
-        (r"\bLtd\b", "GB"),
-        (r"\bLimited\b", "GB"),
-        (r"\bplc\b", "GB"),
+        (r"\bLIMITED\b", "GB"),
+        (r"\bLTD\b", "GB"),
+        (r"\bPLC\b", "GB"),
         (r"\bLLP\b", "GB"),
         # German-speaking
-        (r"\bGmbH\b", "DE"),
+        (r"\bGMBH\b", "DE"),
         (r"\bAG\b", "DE"),
         (r"\bKG\b", "DE"),
         # French-speaking
         (r"\bSAS\b", "FR"),
         (r"\bSARL\b", "FR"),
         (r"\bEURL\b", "FR"),
-        # Italian
-        (r"\bS\.?r\.?l\.?\b", "IT"),
-        (r"\bS\.?p\.?A\.?\b", "IT"),
+        # Italian (before Romanian SRL to avoid S.r.l. matching S.R.L.)
+        (r"\bS\.?R\.?L\.?\b", "IT"),  # S.r.l. — Italian
+        (r"\bS\.?P\.?A\.?\b", "IT"),  # S.p.A. — Italian
+        # Romanian (after Italian SRL)
+        (r"\bS\.?\.?R\.?\.?L\.?\b", "RO"),  # S.R.L. — Romanian (different dot pattern)
         # Spanish
         (r"\bS\.?L\.?\b", "ES"),
         # Dutch
         (r"\bBV\b", "NL"),
         (r"\bNV\b", "NL"),
         # Polish
-        (r"\bSp\.\s*z\s*\.?\s*o\.?o\.?\b", "PL"),
+        (r"\bSP\b.*\bZ\b.*\bO\b.*\bO\b", "PL"),
         # Czech/Slovak
-        (r"\bs\.?r\.?o\.?\b", "CZ"),
-        # Romanian
-        (r"\bS\.?R\.?L\.?\b", "RO"),
+        (r"\bS\.?R\.?O\.?\b", "CZ"),
         # Bulgarian
         (r"\bEOOD\b", "BG"),
         (r"\bAD\b", "BG"),
         # Turkish
-        (r"\bA\.?Ş\.?\b", "TR"),
-        (r"\bLtd\.? Şti\.?\b", "TR"),
+        (r"\bA\.?S\.?\b", "TR"),
+        (r"\bLTD\.?\s*STI\.?\b", "TR"),
         # UAE
         (r"\bLLC\b", "AE"),
+        # Generic S.A. / SA — lowest priority, most ambiguous
+        (r"\bS\.?A\.?\b", "PT"),
     ]
     _name_upper = name.upper()
     for _pattern, _iso2 in _legal_form_to_iso2:
@@ -507,37 +510,20 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
 # Keyed by ISO2; value is an ordered list of fallback ISO2 codes to try.
 # Language/cultural clusters: Portuguese-speaking, Spanish-speaking, etc.
 _JURISDICTION_FALLBACK_CHAINS: dict[str, list[str]] = {
-    # Portuguese-speaking: PT -> BR -> AO -> MZ -> CV -> GW -> ST -> TL
-    "PT": ["BR", "AO", "MZ"],
-    "BR": ["PT", "AO", "MZ"],
-    "AO": ["PT", "BR", "MZ"],
-    "MZ": ["PT", "BR", "AO"],
-    # Spanish-speaking: ES -> AR -> CL -> CO -> MX -> PE -> UY
-    "ES": ["AR", "CL", "CO", "MX"],
-    "AR": ["ES", "CL", "CO", "MX"],
-    "CL": ["ES", "AR", "CO", "MX"],
-    "CO": ["ES", "AR", "CL", "MX"],
-    "MX": ["ES", "AR", "CL", "CO"],
-    # French-speaking: FR -> BE -> CH -> LU -> MC
-    "FR": ["BE", "CH"],
-    "BE": ["FR", "CH"],
-    "CH": ["FR", "BE"],
-    # German-speaking: DE -> AT -> CH
-    "DE": ["AT", "CH"],
-    "AT": ["DE", "CH"],
-    # Nordic: FI -> SE -> NO -> DK
-    "FI": ["SE", "NO", "DK"],
-    # Baltic: EE -> LV -> LT
+    # Portuguese-speaking: PT -> BR -> AO
+    "PT": ["BR", "AO"],
+    "BR": ["PT", "AO"],
+    "AO": ["PT", "BR"],
     # Eastern Europe: PL -> CZ -> SK -> HU -> RO
     "PL": ["CZ", "SK", "HU", "RO"],
     "CZ": ["SK", "PL", "HU", "RO"],
     "SK": ["CZ", "PL", "HU", "RO"],
     "HU": ["RO", "SK", "CZ", "PL"],
     "RO": ["HU", "SK", "CZ", "PL"],
-    # English-speaking: GB -> US -> CA -> AU -> NZ -> IE
-    "GB": ["US", "IE", "AU"],
-    "US": ["GB", "CA", "AU"],
-    # Middle East: AE -> SA -> IL
+    # English-speaking: GB -> US
+    "GB": ["US"],
+    "US": ["GB"],
+    # Middle East: AE -> SA
     "AE": ["SA"],
     "SA": ["AE"],
     # Africa: NG -> GH -> KE -> ZA
