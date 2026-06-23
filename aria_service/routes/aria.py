@@ -620,7 +620,17 @@ async def dd_orchestrate_ep(req: Request):
         from ..intel.dd_vault import get_vault as _get_dd_vault
         from ..intel.dd_versioning import canonical_entity_id as _canonical_id
         _entity_name = body.get("name") or body.get("entity") or ""
-        _canonical = _canonical_id(_entity_name)
+        # R-F1842 — canonical_entity_id is keyword-only (def …(*, entity_type,
+        # name, …)); the old positional call _canonical_id(_entity_name) raised
+        # TypeError on EVERY request, which the except below then escalated to a
+        # 500 (see the logger fix). Pass the same identifying fields the persist
+        # path uses so the vault key matches a previously-stored case.
+        _canonical = _canonical_id(
+            entity_type=body.get("type") or "company",
+            name=_entity_name,
+            jurisdiction_iso2=body.get("jurisdiction_iso2"),
+            registration_number=body.get("registration_number"),
+        )
         if _canonical and not body.get("force"):
             _vault = _get_dd_vault()
             _existing = _vault.get_case(_canonical)
@@ -641,7 +651,9 @@ async def dd_orchestrate_ep(req: Request):
                     ),
                 }
     except Exception as _vault_check_err:
-        logger.debug("dd_vault check failed (non-fatal): %s", _vault_check_err)
+        # R-F1842 — was `logger.debug`, but the module logger is `_log`; the
+        # NameError turned this "non-fatal" guard into a guaranteed 500.
+        _log.debug("dd_vault check failed (non-fatal): %s", _vault_check_err)
 
     mode = (body.get("mode") or "standard").lower()
     if mode not in ("quick", "standard", "deep"):
