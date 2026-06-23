@@ -48,11 +48,34 @@ async def _record_gap(gap_type: str, detail: str, source: str) -> None:
     await _cg.record_gap(gap_type=gap_type, detail=detail, source=source)
 
 
+# R-F1784: exceptions that are NORMAL control flow, not failures.
+# fail_wire catches `except Exception`, which includes FastAPI/Starlette
+# HTTPException (raised for every 4xx) and request-/response-validation errors.
+# Recording a brain gap on those would flood the ledger with normal HTTP control
+# flow (277 HTTPException raise-sites across routes/ alone). Matched by class
+# NAME up the MRO so both fastapi.HTTPException and starlette.exceptions.
+# HTTPException are covered WITHOUT importing either (keeps wire.py dependency-free).
+# NOTE: asyncio.CancelledError derives from BaseException (not Exception) since
+# Py3.8, so `except Exception` already never catches it — no entry needed.
+_CONTROL_FLOW_EXC_NAMES: frozenset = frozenset({
+    "HTTPException",
+    "RequestValidationError",
+    "ResponseValidationError",
+})
+
+
+def _is_control_flow(exc: BaseException, extra: tuple = ()) -> bool:
+    """True if exc is normal control flow (by class name, up the MRO)."""
+    names = _CONTROL_FLOW_EXC_NAMES.union(extra)
+    return any(klass.__name__ in names for klass in type(exc).__mro__)
+
+
 def fail_wire(
     module: str,
     gap_type: str = "agent_cycle_failure",
     source: str = "",
     max_detail_len: int = 500,
+    control_flow_exempt: tuple = (),
 ) -> Callable:
     """Decorator: auto-wire_failure on any unhandled exception.
 
@@ -61,6 +84,8 @@ def fail_wire(
         gap_type: Gap type for record_gap (default "agent_cycle_failure").
         source: Source string (default "fail_wire:{module}").
         max_detail_len: Max chars for the error detail (default 500).
+        control_flow_exempt: extra exception class names (beyond HTTPException /
+            validation errors) this module treats as control flow, not failures.
 
     Returns:
         Decorated async function that auto-records failures to the brain.
@@ -97,13 +122,14 @@ def fail_wire(
                 try:
                     return await func(*args, **kwargs)
                 except Exception as e:
-                    _wire_failure(
-                        module=module,
-                        gap_type=gap_type,
-                        source=source,
-                        detail=str(e)[:max_detail_len],
-                        func_name=func.__name__,
-                    )
+                    if not _is_control_flow(e, control_flow_exempt):
+                        _wire_failure(
+                            module=module,
+                            gap_type=gap_type,
+                            source=source,
+                            detail=str(e)[:max_detail_len],
+                            func_name=func.__name__,
+                        )
                     raise
 
             return async_wrapper
@@ -113,13 +139,14 @@ def fail_wire(
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    _wire_failure(
-                        module=module,
-                        gap_type=gap_type,
-                        source=source,
-                        detail=str(e)[:max_detail_len],
-                        func_name=func.__name__,
-                    )
+                    if not _is_control_flow(e, control_flow_exempt):
+                        _wire_failure(
+                            module=module,
+                            gap_type=gap_type,
+                            source=source,
+                            detail=str(e)[:max_detail_len],
+                            func_name=func.__name__,
+                        )
                     raise
 
             return sync_wrapper
