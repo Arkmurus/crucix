@@ -194,6 +194,47 @@ _URL_FETCH_TIMEOUT_S = 15  # max seconds to wait for a single website fetch
 _URL_FETCH_MAX_BYTES = 200_000  # cap response body to avoid OOM on huge pages
 
 
+def _ssrf_safe_url(url: str) -> tuple[bool, str]:
+    """R-F1811 — SSRF guard for user-supplied DD URLs. Returns (ok, reason).
+
+    Rejects non-http(s) schemes and any host that resolves to a private,
+    loopback, link-local, reserved, multicast or unspecified IP — or a fly
+    ``.internal`` / ``localhost`` name — so an attacker-controlled DD website
+    cannot make the brain fetch internal services, localhost-trusted endpoints,
+    or cloud-metadata. Confirmed exploitable by the R-F1808 IAST run
+    (_extract_entity_from_url firing on target.url with no guard).
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse as _up
+    try:
+        p = _up(url)
+    except Exception:
+        return (False, "unparseable url")
+    if p.scheme not in ("http", "https"):
+        return (False, f"scheme {p.scheme!r} not allowed")
+    host = (p.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return (False, "no host")
+    if host == "localhost" or host.endswith(".internal") or host.endswith(".local"):
+        return (False, f"internal host {host!r}")
+    try:
+        infos = socket.getaddrinfo(host, p.port or (443 if p.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except Exception as e:
+        return (False, f"dns resolution failed: {str(e)[:80]}")
+    for _info in infos:
+        ip = _info[4][0]
+        try:
+            ipobj = ipaddress.ip_address(ip)
+        except ValueError:
+            return (False, f"unparseable resolved ip {ip}")
+        if (ipobj.is_private or ipobj.is_loopback or ipobj.is_link_local
+                or ipobj.is_reserved or ipobj.is_multicast or ipobj.is_unspecified):
+            return (False, f"host resolves to non-public ip {ip}")
+    return (True, "ok")
+
+
 async def _extract_entity_from_url(url: str) -> dict:
     """Fetch a URL and extract the most likely company/entity name from its
     HTML <title> tag and visible text. Returns a dict with keys:
@@ -235,15 +276,39 @@ async def _extract_entity_from_url(url: str) -> dict:
         "_fallback_name": _fallback_name,
     }
 
-    # 2. Fetch the page with a tight timeout
+    # R-F1811 — SSRF guard: the DD `url` is attacker-controlled (target.url /
+    # target.website). Never fetch a URL pointing at an internal/loopback/
+    # private/link-local host. Blocked → return the domain-derived fallback.
+    _ok, _why = _ssrf_safe_url(url)
+    if not _ok:
+        logger.warning("_extract_entity_from_url: blocked SSRF-unsafe url %r (%s)", url[:120], _why)
+        result["name"] = _fallback_name
+        return result
+
+    # 2. Fetch the page with a tight timeout. follow_redirects is OFF so we can
+    # re-validate every redirect hop (an open redirect to an internal host would
+    # otherwise bypass the guard above).
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient(
             timeout=_httpx.Timeout(_URL_FETCH_TIMEOUT_S),
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)"},
         ) as _client:
-            _resp = await _client.get(url)
+            _cur = url
+            _resp = None
+            for _hop in range(4):  # initial request + up to 3 validated redirects
+                _resp = await _client.get(_cur)
+                if _resp.status_code in (301, 302, 303, 307, 308) and _resp.headers.get("location"):
+                    _next = str(_httpx.URL(_resp.url).join(_resp.headers["location"]))
+                    _rok, _rwhy = _ssrf_safe_url(_next)
+                    if not _rok:
+                        logger.warning("_extract_entity_from_url: blocked SSRF-unsafe redirect %r (%s)", _next[:120], _rwhy)
+                        result["name"] = _fallback_name
+                        return result
+                    _cur = _next
+                    continue
+                break
             _resp.raise_for_status()
             _body = _resp.text[:_URL_FETCH_MAX_BYTES]
     except Exception as _fetch_err:
