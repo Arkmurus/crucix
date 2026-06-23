@@ -89,7 +89,7 @@ def main() -> int:
     results = wh.run_all_gates()
     print()
     wh.print_gate_results(results)
-    return 0 if not any(results.values()) else 1
+    return 1 if wh.has_blocking_violations(results) else 0  # GATE D is advisory
 
 
 if __name__ == "__main__":

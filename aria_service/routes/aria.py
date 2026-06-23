@@ -216,6 +216,7 @@ router = APIRouter(prefix="/api/aria", tags=["aria"], dependencies=[Depends(_rou
 # set the secret in a separate step, then update server.mjs and the CLIs
 # to send the token, all without a coordinated big-bang.
 import os as _os
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 _AUTH_WARNING_LOGGED = False
 
@@ -304,6 +305,7 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
 })
 
 
+@fail_wire(module="aria", gap_type="engine_failure")
 def require_aria_token(request: Request) -> None:
     """FastAPI dependency that enforces a bearer-token check when
     either ARIA_API_TOKEN or ARIA_INTERNAL_TOKEN is set. No-op when both
@@ -437,9 +439,11 @@ class LearningRequest(BaseModel):
 
 # ── Dependency: get app state ────────────────────────────────────────────────
 
+@fail_wire(module="aria", gap_type="engine_failure")
 def get_llm(request: Request):
     return request.app.state.llm_provider
 
+@fail_wire(module="aria", gap_type="engine_failure")
 def get_intel_data(request: Request):
     return getattr(request.app.state, "current_data", None)
 
@@ -455,6 +459,7 @@ def get_intel_data(request: Request):
 # marker (default is force=true since the usual reason to call this
 # endpoint is to override the marker).
 @router.post("/knowledge/reseed")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_reseed_ep(request: Request, force: bool = True):
     fn = getattr(request.app.state, "run_knowledge_seed", None)
     if fn is None:
@@ -464,6 +469,7 @@ async def knowledge_reseed_ep(request: Request, force: bool = True):
 
 
 @router.post("/mastery/seed")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def mastery_seed_ep():
     """R-F1512: seed baseline mastery for topics stuck at scaffold.
     Gives zero-sample topics gentle correct signals to lift them above
@@ -477,6 +483,7 @@ async def mastery_seed_ep():
 # Lifts LatAm-non-Lusophone (51%) + Asia-Pacific (52% on compliance/finance)
 # from the heatmap floor by injecting curated, source-cited facts.
 @router.post("/knowledge/seed-latam-asia")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_seed_latam_asia_ep(
     force: bool = False, mastery_weight: float = 0.05,
 ):
@@ -497,6 +504,7 @@ async def knowledge_seed_latam_asia_ep(
 
 
 @router.post("/knowledge/seed-balkans")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_seed_balkans_ep(
     force: bool = False, mastery_weight: float = 0.3,
 ):
@@ -521,6 +529,7 @@ async def knowledge_seed_balkans_ep(
 
 
 @router.get("/knowledge/seed-balkans/catalogue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_seed_balkans_catalogue_ep():
     """R-F697 — read-only catalogue of the Balkans pack."""
     from ..intel.knowledge_packs import balkans_seed as _pack
@@ -528,6 +537,7 @@ async def knowledge_seed_balkans_catalogue_ep():
 
 
 @router.get("/knowledge/seed-latam-asia/catalogue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_seed_latam_asia_catalogue_ep():
     """Return the read-only catalogue of facts in the LatAm+APAC pack."""
     from ..intel.knowledge_packs import latam_asia_pac_seed as _pack
@@ -543,6 +553,7 @@ async def knowledge_seed_latam_asia_catalogue_ep():
 # caller wants a full structured report instead of ad-hoc chat reasoning.
 
 @router.post("/dd/orchestrate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_orchestrate_ep(req: Request):
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -666,6 +677,7 @@ async def dd_orchestrate_ep(req: Request):
 
 
 @router.get("/dd/report/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_report_ep(run_id: str, format: str = "json"):
     from ..intel import dd_orchestrator
     report = await dd_orchestrator.get_report(run_id)
@@ -703,6 +715,7 @@ async def dd_report_ep(run_id: str, format: str = "json"):
 
 
 @router.get("/dd/reports")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_reports_index_ep(
     limit: int = 50,
     user_id: str = "",
@@ -742,6 +755,7 @@ async def dd_reports_index_ep(
 
 
 @router.post("/dd/case/{canonical_entity_id:path}/split")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_case_split_ep(canonical_entity_id: str, req: Request):
     """R-F575 (2026-05-16) — operator override: extract a subset of
     runs from a canonical case file into a new sibling.
@@ -769,6 +783,7 @@ async def dd_case_split_ep(canonical_entity_id: str, req: Request):
 
 
 @router.post("/dd/case/merge")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_case_merge_ep(req: Request):
     """R-F575 (2026-05-16) — operator override: merge one case file
     into another, reparenting every run.
@@ -797,6 +812,7 @@ async def dd_case_merge_ep(req: Request):
 
 
 @router.get("/dd/case-archive/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_case_archive_stats_ep():
     """R-F575 (2026-05-16) — diagnostic: SQLite cold-tier stats
     (row count, oldest/newest archive timestamps, retention window)."""
@@ -805,6 +821,7 @@ async def dd_case_archive_stats_ep():
 
 
 @router.get("/dd/case/{canonical_entity_id:path}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
     """R-F573 (2026-05-16) — return the full version chain for a single
     DD case file. canonical_entity_id is the deterministic key
@@ -840,6 +857,7 @@ async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
 
 
 @router.delete("/dd/report/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_report_delete_ep(run_id: str):
     """R-F162 (2026-05-11): drop a single DD report + its index entry.
     Needed so operators can clean up bad reports (the 2026-05-10 12:39
@@ -852,6 +870,7 @@ async def dd_report_delete_ep(run_id: str):
 
 
 @router.get("/dd/layer-5c/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_layer_5c_stats_ep(limit: int = 200):
     """Layer 5c (commercial coherence) tier distribution + most-flagged
     jurisdictions. Dashboard panel reads this; no new persistence path."""
@@ -860,12 +879,14 @@ async def dd_layer_5c_stats_ep(limit: int = 200):
 
 
 @router.get("/dd/watchlist")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_get_ep():
     from ..intel import dd_orchestrator
     return {"watchlist": await dd_orchestrator.get_watchlist()}
 
 
 @router.post("/dd/watchlist")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_add_ep(req: Request):
     body = await req.json()
     if not isinstance(body, dict):
@@ -878,12 +899,14 @@ async def dd_watchlist_add_ep(req: Request):
 
 
 @router.delete("/dd/watchlist/{name}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_delete_ep(name: str):
     from ..intel import dd_orchestrator
     return await dd_orchestrator.remove_from_watchlist(name)
 
 
 @router.post("/dd/watchlist/rescreen")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_rescreen_ep(request: Request):
     """Trigger manual watchlist re-screen (sanctions + PEP only, no LLM)."""
     from ..intel import dd_orchestrator
@@ -892,6 +915,7 @@ async def dd_watchlist_rescreen_ep(request: Request):
 
 
 @router.get("/dd/watchlist/alerts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_alerts_ep(since_hours: int = 24, user_id: str = ""):
     """Retrieve recent watchlist re-screen alerts.
 
@@ -913,6 +937,7 @@ class WatchlistAlertsReadRequest(BaseModel):
 
 
 @router.post("/dd/watchlist/alerts/read")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_alerts_read_ep(req: WatchlistAlertsReadRequest):
     """R-F51: mark all currently visible alerts as read for this user.
     Idempotent — calling twice resets the read-until timestamp to now."""
@@ -922,6 +947,7 @@ async def dd_watchlist_alerts_read_ep(req: WatchlistAlertsReadRequest):
 
 
 @router.get("/dd/watchlist/alerts/unread-count")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: int = 168):
     """R-F51: light-weight badge probe — unread count for the last 7d."""
     from ..intel import dd_orchestrator
@@ -930,6 +956,7 @@ async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: in
 
 
 @router.get("/dd/layer-5c/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_layer_5c_stats_ep(limit: int = 200):
     """R-F1506: Layer 5C (digital footprint) stats for the brain command center.
 
@@ -966,6 +993,7 @@ async def dd_layer_5c_stats_ep(limit: int = 200):
 
 
 @router.get("/dd/vls/proof/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vls_proof_ep(run_id: str):
     """R-F1182 — retrieve the VLS cryptographic proof for a DD report.
 
@@ -980,6 +1008,7 @@ async def dd_vls_proof_ep(run_id: str):
 
 
 @router.get("/dd/vls/verify/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vls_verify_single_ep(run_id: str):
     """R-F1182 — verify a single DD report's VLS integrity.
 
@@ -991,6 +1020,7 @@ async def dd_vls_verify_single_ep(run_id: str):
 
 
 @router.get("/dd/vls/chain/{canonical_entity_id:path}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vls_chain_ep(canonical_entity_id: str):
     """R-F1182 — verify the entire VLS chain for a canonical entity.
 
@@ -1002,6 +1032,7 @@ async def dd_vls_chain_ep(canonical_entity_id: str):
 
 
 @router.get("/dd/vls/key")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vls_public_key_ep():
     """R-F1182 — export the VLS public key in PEM format.
 
@@ -1064,6 +1095,7 @@ def _rebuild_report_from_dict(d: dict, dd_schema):
 
 # M7: memory tier diagnostics — visibility for cross-tier drift.
 @router.get("/memory/tiers")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_tiers_ep():
     """Snapshot of every memory tier (knowledge, mem0, neural, rag) so
     ops can spot drift before it causes user-visible contradictions."""
@@ -1072,6 +1104,7 @@ async def memory_tiers_ep():
 
 
 @router.get("/memory/diagnose")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_diagnose_ep(topic: str = ""):
     """Walk every memory tier for a topic and return what each says.
     Use when ARIA appears to contradict herself across sessions."""
@@ -1080,6 +1113,7 @@ async def memory_diagnose_ep(topic: str = ""):
 
 
 @router.get("/quota")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def user_quota_ep(user: str = ""):
     """Per-user quota state (H3) — see user_quota.py for field meanings."""
     from ..intel import user_quota as _uq
@@ -1087,6 +1121,7 @@ async def user_quota_ep(user: str = ""):
 
 
 @router.get("/identity")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def identity_ep():
     idn = await get_identity()
     return {
@@ -1103,6 +1138,7 @@ async def identity_ep():
 
 # 2. GET /api/aria/thoughts
 @router.get("/thoughts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def thoughts_ep():
     thought_ids = await rs.lrange("crucix:brain:aria:thoughts", 0, 9)
     thoughts = []
@@ -1115,6 +1151,7 @@ async def thoughts_ep():
 
 # 3. GET /api/aria/curiosity
 @router.get("/curiosity")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def curiosity_ep():
     idn = await get_identity()
     threads = [t for t in idn.get("curiosity_threads", []) if not t.get("resolved")]
@@ -1123,12 +1160,14 @@ async def curiosity_ep():
 
 # 4. GET /api/aria/knowledge
 @router.get("/knowledge")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_ep():
     return await knowledge.get_stats()
 
 
 # 5. POST /api/aria/knowledge/fact
 @router.post("/knowledge/fact")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def store_fact_ep(req: FactRequest):
     result = await knowledge.store_fact(req.topic, req.content, req.source, req.confidence)
     return {"ok": True, "message": "Fact stored", "action": result.get("action", "unknown")}
@@ -1141,6 +1180,7 @@ class TeachRequest(BaseModel):
 
 
 @router.post("/knowledge/teach")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def teach_url_ep(req: TeachRequest):
     """Fetch a URL, extract content, verify extraction succeeded, then store facts.
 
@@ -1219,6 +1259,7 @@ async def teach_url_ep(req: TeachRequest):
 
 # 5b. POST /api/aria/knowledge/inject-regional — bulk inject regional navigation
 @router.post("/knowledge/inject-regional")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def inject_regional_ep(force: bool = False):
     """Seed ARIA's knowledge base and RAG store with regional navigation intelligence.
 
@@ -1255,12 +1296,14 @@ async def inject_regional_ep(force: bool = False):
 
 # 6. GET /api/aria/ledger
 @router.get("/ledger")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ledger_ep():
     return await intel_ledger.get_stats()
 
 
 # 7. GET /api/aria/ledger/country/{country}
 @router.get("/ledger/country/{country}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ledger_country_ep(country: str):
     country = _validate_country(country)
     return await intel_ledger.get_country_situation(country)
@@ -1268,6 +1311,7 @@ async def ledger_country_ep(country: str):
 
 # 9. GET /api/aria/contacts/country/{country}
 @router.get("/contacts/country/{country}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_country_ep(country: str):
     country = _validate_country(country)
     cs = await contacts.get_by_country(country)
@@ -1276,6 +1320,7 @@ async def contacts_country_ep(country: str):
 
 # 11. POST /api/aria/approach
 @router.post("/approach")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def approach_ep(req: ApproachRequest):
     result = approach.generate_approach(req.market, req.product, req.context)
     return result
@@ -1283,6 +1328,7 @@ async def approach_ep(req: ApproachRequest):
 
 # 12. POST /api/aria/correct
 @router.post("/correct")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def correct_ep(req: CorrectionRequest):
     await training_data.record_correction(
         req.originalQuery, req.originalResponse, req.correction, req.correctAnswer,
@@ -1353,12 +1399,14 @@ async def correct_ep(req: CorrectionRequest):
 # 13. GET /api/aria/training-data/stats
 # ── Student mode: active learning ──────────────────────────────────────────
 @router.get("/student/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_stats_ep():
     """Full student dashboard — mastery + curriculum + quizzes + reading."""
     return await student.get_student_stats()
 
 
 @router.get("/student/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_health_ep():
     """Verify the student loops are actually running and producing output.
 
@@ -1442,6 +1490,7 @@ class SpawnTaskRequest(BaseModel):
 
 
 @router.post("/research/spawn")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_spawn_ep(req: SpawnTaskRequest, request: Request):
     """Spawn a long-running research task. Returns immediately with the
     task_id so the caller can acknowledge the user. Actual work runs in
@@ -1461,6 +1510,7 @@ async def research_spawn_ep(req: SpawnTaskRequest, request: Request):
 
 
 @router.get("/research/task/{task_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_task_ep(task_id: str):
     """Get the current state of a research task — status, progress, result."""
     task = await research_tasks.get_task(task_id)
@@ -1470,6 +1520,7 @@ async def research_task_ep(task_id: str):
 
 
 @router.get("/research/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_list_ep(limit: int = 30, status: str | None = None):
     """List recent research tasks, optionally filtered by status."""
     limit = max(1, min(limit, 200))
@@ -1479,18 +1530,21 @@ async def research_list_ep(limit: int = 30, status: str | None = None):
 
 
 @router.get("/research/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_stats_ep():
     """Overview of the research task system."""
     return await research_tasks.get_stats()
 
 
 @router.post("/research/task/{task_id}/cancel")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_cancel_ep(task_id: str):
     """Cancel a running or stale research task."""
     return await research_tasks.cancel_task(task_id)
 
 
 @router.post("/research/cleanup-stale")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_cleanup_stale_ep(max_age_seconds: int = 900):
     """Clean up research tasks stuck in 'running' status (default: 15 min)."""
     return await research_tasks.cleanup_stale_tasks(max_age_seconds)
@@ -1512,6 +1566,7 @@ class AdverseMediaRequest(BaseModel):
 
 
 @router.post("/dd/adverse-media-search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
     """Run structured adverse-media deep search on an entity.
 
@@ -1557,6 +1612,7 @@ async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
 # _log.debug only. This endpoint surfaces live reachability + table
 # resolution + auth scope so "fix the airtable" triages in 1 call.
 @router.get("/airtable/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def airtable_health_ep():
     """Live Airtable reachability + table-name resolution probe."""
     from ..integrations import airtable_sync as _as
@@ -1576,6 +1632,7 @@ class LinkInvestigateRequest(BaseModel):
 
 
 @router.post("/research/link-investigate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_link_investigate_ep(req: LinkInvestigateRequest, request: Request):
     """Walk the link tree from seed_url out to max_depth levels, extracting
     and fusing facts at every node. Rule-based by default (zero cost);
@@ -1596,6 +1653,7 @@ async def research_link_investigate_ep(req: LinkInvestigateRequest, request: Req
 
 
 @router.get("/research/link-tree/{tree_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_link_tree_get_ep(tree_id: str):
     """Retrieve a persisted link tree by tree_id."""
     from ..intel import link_investigator
@@ -1611,6 +1669,7 @@ async def research_link_tree_get_ep(tree_id: str):
 # Consolidates web_search + researcher + link_investigator + deep_researcher
 # behind one entry point with ecosystem awareness baked in.
 @router.post("/explore")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def explore_ep(req: Request):
     """Powerful unified web exploration. Memory-first, cost-free by
     default, language fan-out, same-host bias, ecosystem snapshot.
@@ -1646,6 +1705,7 @@ async def explore_ep(req: Request):
 
 # ── R-F308: explore-deep endpoint — auto-runs all suggested-action modules
 @router.post("/explore-deep")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def explore_deep_ep(req: Request):
     """R-F308 (2026-05-11): the /explorer.html page showed shallow
     Google-News results and presented 9 "Suggested actions" (dd, R-F68
@@ -1788,6 +1848,7 @@ class FeedbackReactionRequest(BaseModel):
 
 
 @router.post("/feedback/snapshot")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def feedback_snapshot_ep(req: FeedbackSnapshotRequest):
     """Persist the Q→A pair for an ARIA reply so a later WhatsApp reaction
     can retrieve the context. Called by the WA listener after sending.
@@ -1806,6 +1867,7 @@ async def feedback_snapshot_ep(req: FeedbackSnapshotRequest):
 
 
 @router.post("/feedback")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def feedback_record_ep(req: FeedbackReactionRequest):
     """Record a WhatsApp reaction emoji as feedback on an ARIA reply.
     Looks up the snapshot if present, classifies sentiment from the emoji,
@@ -1822,6 +1884,7 @@ async def feedback_record_ep(req: FeedbackReactionRequest):
 
 
 @router.get("/feedback/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def feedback_list_ep(limit: int = 30, sentiment: str | None = None):
     """List recent feedback. sentiment ∈ {positive, negative, uncertain, neutral}."""
     return {
@@ -1832,12 +1895,14 @@ async def feedback_list_ep(limit: int = 30, sentiment: str | None = None):
 
 
 @router.get("/feedback/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def feedback_stats_ep():
     """Aggregate feedback counts + rough quality score."""
     return await feedback_store.get_feedback_stats()
 
 
 @router.get("/feedback/{feedback_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def feedback_get_ep(feedback_id: str):
     """Full record for one feedback item, including original Q&A snapshot."""
     rec = await feedback_store.get_feedback(feedback_id)
@@ -1891,6 +1956,7 @@ class RunEvalRequest(BaseModel):
 
 
 @router.get("/eval/golden")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_golden_list_ep():
     """List all golden Q&A entries."""
     items = await eval_runner.get_golden_set()
@@ -1898,6 +1964,7 @@ async def eval_golden_list_ep():
 
 
 @router.post("/eval/golden")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_golden_add_ep(req: GoldenAddRequest):
     """Manually add a golden Q&A entry."""
     return await eval_runner.add_golden_entry(
@@ -1911,6 +1978,7 @@ async def eval_golden_add_ep(req: GoldenAddRequest):
 
 
 @router.post("/eval/golden/promote")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_golden_promote_ep(req: PromoteFeedbackRequest):
     """Promote a feedback record into the golden set. Use this for 👍-rated
     answers — the answer ARIA gave becomes the expected answer. For 👎
@@ -1924,11 +1992,13 @@ async def eval_golden_promote_ep(req: PromoteFeedbackRequest):
 
 
 @router.delete("/eval/golden/{entry_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_golden_remove_ep(entry_id: str):
     return await eval_runner.remove_golden_entry(entry_id)
 
 
 @router.post("/eval/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_run_ep(req: RunEvalRequest, request: Request):
     """Execute the golden set against the current ARIA chat path. Returns
     a run record with per-entry scores, summary, and delta vs the previous run."""
@@ -1939,12 +2009,14 @@ async def eval_run_ep(req: RunEvalRequest, request: Request):
 
 
 @router.get("/eval/runs")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_runs_ep(limit: int = 10):
     """Recent eval run summaries (lightweight — no per-entry detail)."""
     return {"runs": await eval_runner.get_recent_runs(limit=limit)}
 
 
 @router.get("/eval/runs/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_run_get_ep(run_id: str):
     """Full eval run record including per-entry scores."""
     run = await eval_runner.get_run(run_id)
@@ -1954,6 +2026,7 @@ async def eval_run_get_ep(run_id: str):
 
 
 @router.post("/eval/seed/load")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_seed_load_ep(
     background_tasks: _BackgroundTasks, force: bool = False,
 ):
@@ -2001,6 +2074,7 @@ async def eval_seed_load_ep(
 
 
 @router.get("/eval/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_coverage_ep():
     """Per-category counts vs the 500-Q taxonomy targets. Surfaces what
     the operator still owes to close Phase A gate #6."""
@@ -2009,6 +2083,7 @@ async def eval_coverage_ep():
 
 
 @router.get("/eval/count")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_count_ep():
     """R-F677 (2026-05-18): Phase A exit-gate #6 indicator.
 
@@ -2038,6 +2113,7 @@ _EVAL_EXTERNAL_KEY = "crucix:aria:eval:external:latest"
 
 
 @router.post("/eval/external-result")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_external_result_post_ep(request: Request):
     """Receive a judge-DD eval result POSTed by a self-running eval pod."""
     try:
@@ -2065,6 +2141,7 @@ async def eval_external_result_post_ep(request: Request):
 
 
 @router.get("/eval/external-result")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_external_result_get_ep():
     """Read the latest external eval result (what the self-run pod POSTed)."""
     rec = await rs.get_json(_EVAL_EXTERNAL_KEY)
@@ -2078,6 +2155,7 @@ async def eval_external_result_get_ep():
 # the confabulation hole that a RAW `git push` (R-F1770) slipped through — no
 # deploy path can claim "deployed" without machine proof anymore.
 @router.post("/deploy/intent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def deploy_intent_post_ep(request: Request):
     """Record a deploy-intent (commit_sha + source) for live verification."""
     try:
@@ -2104,6 +2182,7 @@ async def deploy_intent_post_ep(request: Request):
 
 
 @router.get("/deploy/intents")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def deploy_intents_get_ep():
     """List the deploy-intent ledger (verified + pending) for proprioception."""
     from ..autonomous import deploy_verifier as _dv1773
@@ -2127,6 +2206,7 @@ _EVAL_OPENBOOK_KEY = "crucix:aria:eval:openbook:set"
 
 
 @router.post("/eval/openbook-set")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_openbook_set_post_ep(request: Request):
     """Store the openbook eval set (raw JSONL body) for compute pods to fetch."""
     body = await request.body()
@@ -2142,6 +2222,7 @@ async def eval_openbook_set_post_ep(request: Request):
 
 
 @router.get("/eval/openbook-set")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def eval_openbook_set_get_ep():
     """Return the stored openbook eval set as JSONL (the pod writes it to disk)."""
     from fastapi.responses import PlainTextResponse
@@ -2153,6 +2234,7 @@ async def eval_openbook_set_get_ep():
 
 # ── Source verification: deterministic citation grounding check ──────────
 @router.get("/verify/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verify_list_ep(limit: int = 30, verdict: str | None = None):
     """List recent verification records.
     verdict ∈ {grounded, partial, ungrounded, no_citations, no_tool}"""
@@ -2164,12 +2246,14 @@ async def verify_list_ep(limit: int = 30, verdict: str | None = None):
 
 
 @router.get("/verify/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verify_stats_ep():
     """Aggregate verification counts + rolling grounded rate."""
     return await source_verifier.get_verification_stats()
 
 
 @router.get("/verify/{verification_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verify_get_ep(verification_id: str):
     """Full verification record including the actual cited and fetched URL lists."""
     rec = await source_verifier.get_verification(verification_id)
@@ -2180,18 +2264,21 @@ async def verify_get_ep(verification_id: str):
 
 # ── Cost tracking: tokens + USD per LLM call, per feature ────────────────
 @router.get("/cost/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_summary_ep(window_hours: int = 24):
     """Rolling cost over the last N hours, broken down by feature + model."""
     return await cost_tracker.get_cost_summary(window_hours=window_hours)
 
 
 @router.get("/cost/cumulative")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_cumulative_ep():
     """All-time per-feature totals (survives index rotation)."""
     return await cost_tracker.get_cumulative_aggregate()
 
 
 @router.get("/cost/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_recent_ep(
     limit: int = 30,
     feature: str | None = None,
@@ -2206,6 +2293,7 @@ async def cost_recent_ep(
 
 
 @router.get("/cost/call/{call_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_call_get_ep(call_id: str):
     """Full record for one LLM call including latency + error details."""
     rec = await cost_tracker.get_call_record(call_id)
@@ -2215,6 +2303,7 @@ async def cost_call_get_ep(call_id: str):
 
 
 @router.get("/cost/monthly")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_monthly_ep(month: str | None = None):
     """Month-to-date LLM spend + full breakdown.
 
@@ -2228,6 +2317,7 @@ async def cost_monthly_ep(month: str | None = None):
 
 
 @router.get("/cost/monthly/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_monthly_status_ep():
     """Quick gauge: how much of the monthly LLM cap is used."""
     return await cost_tracker.get_month_spend()
@@ -2239,6 +2329,7 @@ async def cost_monthly_status_ep():
 # spend; the operator's true cost-of-operation includes both. This
 # endpoint returns per-service breakdown for the dashboard panel.
 @router.get("/cost/external")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_external_ep():
     """Per-service external-spend summary (Brave / Upstash / future)."""
     summary = await cost_tracker.get_external_summary()
@@ -2318,6 +2409,7 @@ async def _upstash_usage_probe() -> dict:
 # answers WHY: is the metered provider wrapped? did record_call fire
 # at all? what's in Redis right now? where would calls be going?
 @router.get("/cost/diagnostic")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_diagnostic_ep():
     """Diagnose silent NO DATA on the cost panel."""
     from ..main import app as _app
@@ -2401,6 +2493,7 @@ async def cost_diagnostic_ep():
 #   - rolling 14-day counter (total scored / passed / written / dry-skipped)
 #   - today's harvest file path + existence
 @router.get("/harvest/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def harvest_stats_ep():
     """Output harvester rolling stats — see learning/output_harvester.py.
 
@@ -2431,6 +2524,7 @@ async def harvest_stats_ep():
 # digit). Returns inapplicable=true with reason if n<50 or value range
 # spans <10× (test isn't meaningful in those cases).
 @router.post("/forensic/benford")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def forensic_benford_ep(request: Request):
     """Run Benford's Law first-digit chi-squared test on a number set.
 
@@ -2465,6 +2559,7 @@ async def forensic_benford_ep(request: Request):
 # Recursive screening through OpenSanctions relationships array. Surfaces
 # inherited risk: subject not directly listed, but spouse/child/sibling is.
 @router.get("/sanctions/rca")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_rca_ep(name: str, depth: int = 1, threshold: float = 0.78):
     """Run primary fuzzy_screen + walk relationships to depth N.
 
@@ -2487,6 +2582,7 @@ async def sanctions_rca_ep(name: str, depth: int = 1, threshold: float = 0.78):
 # Real entities with fictitious capacity claims (2-employee shop claiming
 # £50M turnover). OECD BEPS Action 5 + EU ATAD + FATF substance criteria.
 @router.post("/dd/substance")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_substance_ep(request: Request):
     """Score a counterparty profile against six substance criteria.
 
@@ -2517,6 +2613,7 @@ async def dd_substance_ep(request: Request):
 # typology signals. Cross-reference with R-F73 TBML detection for trade-
 # corridor anomalies.
 @router.get("/fatf/typologies")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def fatf_typology_list_ep():
     """List the encoded FATF typology library (for the operator UI)."""
     try:
@@ -2527,6 +2624,7 @@ async def fatf_typology_list_ep():
 
 
 @router.post("/fatf/match")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def fatf_match_ep(request: Request):
     """Score a counterparty profile against the FATF typology library.
 
@@ -2552,6 +2650,7 @@ async def fatf_match_ep(request: Request):
 # the key (pure math); analyze_transaction returns INDETERMINATE when
 # the key is unset.
 @router.post("/tbml/analyze")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tbml_analyze_ep(request: Request):
     """Analyse a trade transaction for TBML price-anomaly.
 
@@ -2592,6 +2691,7 @@ async def tbml_analyze_ep(request: Request):
 
 
 @router.post("/tbml/classify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tbml_classify_ep(request: Request):
     """Pure classifier — no COMTRADE call. Caller supplies declared
     + benchmark range. Useful when the operator already has a
@@ -2618,6 +2718,7 @@ async def tbml_classify_ep(request: Request):
 # OR on-demand via /api/aria/crypto/refresh. screen_wallet returns
 # matches in O(1) Redis lookup.
 @router.get("/crypto/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crypto_status_ep():
     """Index status — last refresh timestamp + indexed count."""
     try:
@@ -2628,6 +2729,7 @@ async def crypto_status_ep():
 
 
 @router.post("/crypto/refresh")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crypto_refresh_ep(force: bool = False):
     """Refresh the wallet index from OpenSanctions. Daily TTL applies
     unless force=true."""
@@ -2639,6 +2741,7 @@ async def crypto_refresh_ep(force: bool = False):
 
 
 @router.get("/crypto/screen")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crypto_screen_one_ep(address: str):
     """Screen a single wallet address against the indexed sanctioned-wallet table."""
     if not address or not address.strip():
@@ -2657,6 +2760,7 @@ async def crypto_screen_one_ep(address: str):
 
 
 @router.post("/crypto/screen")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crypto_screen_batch_ep(request: Request):
     """Batch screen — POST body: {"addresses": ["0x...", "bc1...", ...]}"""
     try:
@@ -2677,6 +2781,7 @@ async def crypto_screen_batch_ep(request: Request):
 # conclusions. Complements the chat narrative — adds a machine-readable
 # JSON sidecar with hypotheses + signals + considered alternatives.
 @router.post("/ach/build")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ach_build_ep(request: Request):
     """Assemble a canonical ACH output dict from caller-supplied data.
 
@@ -2708,6 +2813,7 @@ async def ach_build_ep(request: Request):
 
 
 @router.post("/ach/from-dd")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ach_from_dd_ep(request: Request):
     """Convert a DD orchestrator output bundle into ACH signals.
 
@@ -2732,6 +2838,7 @@ async def ach_from_dd_ep(request: Request):
 # DAG of source → fact → conclusion. When a source is later flagged
 # disinformation, downstream conclusions auto-invalidate.
 @router.post("/provenance/source")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def provenance_register_source_ep(request: Request):
     """Register a source. Body: {source_id, url?, trust?, source_type?, notes?}."""
     try:
@@ -2757,6 +2864,7 @@ async def provenance_register_source_ep(request: Request):
 
 
 @router.post("/provenance/derivation")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def provenance_register_derivation_ep(request: Request):
     """Record an edge. Body: {src_id, dst_id, edge_type?, weight?, via_module?}."""
     try:
@@ -2779,6 +2887,7 @@ async def provenance_register_derivation_ep(request: Request):
 
 
 @router.post("/provenance/invalidate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def provenance_invalidate_ep(request: Request):
     """Mark a source invalid + cascade. Body: {source_id, reason}."""
     try:
@@ -2797,6 +2906,7 @@ async def provenance_invalidate_ep(request: Request):
 
 
 @router.get("/provenance/lineage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def provenance_lineage_ep(node_id: str, max_depth: int = 10):
     """Walk backwards from a node to find contributing sources/facts."""
     if not node_id:
@@ -2811,6 +2921,7 @@ async def provenance_lineage_ep(node_id: str, max_depth: int = 10):
 
 
 @router.get("/provenance/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def provenance_stats_ep():
     """Provenance graph stats."""
     try:
@@ -2829,6 +2940,7 @@ async def provenance_stats_ep():
 # system-prompt extraction, role confusion, instruction override, etc.
 # Should run before ENABLE_PUBLIC_API=1 ships to validate hardening.
 @router.get("/security/prompt-injection/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def prompt_injection_list_ep():
     """List the encoded prompt-injection attack library (10 attacks)."""
     try:
@@ -2843,6 +2955,7 @@ async def prompt_injection_list_ep():
 # refusal mining. The seenode public-API gate (lib/api_keys/routes.mjs)
 # records into Redis; this fly-side analyser reads + scores.
 @router.post("/security/api-monitor/record")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def api_monitor_record_ep(request: Request):
     """Record one query event from the public-API gate.
 
@@ -2870,6 +2983,7 @@ async def api_monitor_record_ep(request: Request):
 
 
 @router.get("/security/api-monitor/key/{key_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def api_monitor_key_ep(key_id: str, window_hours: int = 24):
     """Score one API key for the three patterns over a window."""
     try:
@@ -2880,6 +2994,7 @@ async def api_monitor_key_ep(key_id: str, window_hours: int = 24):
 
 
 @router.get("/security/api-monitor/high-risk")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def api_monitor_high_risk_ep(window_hours: int = 24, threshold: float = 0.6):
     """Operator dashboard: which keys are scoring above threshold?"""
     try:
@@ -2893,6 +3008,7 @@ async def api_monitor_high_risk_ep(window_hours: int = 24, threshold: float = 0.
 # Surfaces freshness picture across ARIA's domains so the operator
 # (and the autonomous engine via R-F90) can target stale domains.
 @router.get("/learning/freshness/{domain}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_freshness_one_ep(domain: str):
     try:
         from ..intel import learning_progress as _lp
@@ -2902,6 +3018,7 @@ async def learning_freshness_one_ep(domain: str):
 
 
 @router.get("/learning/freshness")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_freshness_all_ep():
     try:
         from ..intel import learning_progress as _lp
@@ -2956,6 +3073,7 @@ async def _write_heatmap_redis_cache(out) -> None:
 
 
 @router.get("/learning/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_coverage_ep():
     try:
         from ..intel import coverage_heatmap as _ch
@@ -2972,6 +3090,7 @@ async def learning_coverage_ep():
 
 
 @router.get("/learning/coverage/gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_coverage_gaps_ep(max_targets: int = 20):
     try:
         from ..intel import coverage_heatmap as _ch
@@ -2989,6 +3108,7 @@ async def learning_coverage_gaps_ep(max_targets: int = 20):
 # Reads R-F88 freshness + R-F89 coverage gaps, writes a priority list
 # the autonomous engine can read on every poll cycle.
 @router.post("/learning/recompute-priorities")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_recompute_priorities_ep(max_priorities: int = 30):
     try:
         from ..intel import continuous_update as _cu
@@ -2998,6 +3118,7 @@ async def learning_recompute_priorities_ep(max_priorities: int = 30):
 
 
 @router.get("/learning/priorities")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_priorities_ep():
     try:
         from ..intel import continuous_update as _cu
@@ -3009,6 +3130,7 @@ async def learning_priorities_ep():
 # R-F87a (2026-05-09): tier-router diagnostic — explain what tier each
 # intent maps to, which provider is chosen, whether degraded.
 @router.get("/llm/tier-router/explain")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def llm_tier_router_explain_ep(intent: str = "default"):
     try:
         from ..llm import tier_router as _tr
@@ -3028,6 +3150,7 @@ async def llm_tier_router_explain_ep(intent: str = "default"):
 # R-F84 (2026-05-09): counter-intelligence — detect corpus poisoning
 # via reputation washing, credibility anomaly, new-outlet burst.
 @router.get("/security/counter-intel/scan")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def counter_intel_scan_ep(entity: str, window_days: int = 14):
     """Run the three counter-intelligence patterns against one entity."""
     if not entity or not entity.strip():
@@ -3044,6 +3167,7 @@ async def counter_intel_scan_ep(entity: str, window_days: int = 14):
 
 
 @router.post("/security/prompt-injection/grade")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def prompt_injection_grade_ep(request: Request):
     """Grade a single attack/response pair offline.
 
@@ -3067,6 +3191,7 @@ async def prompt_injection_grade_ep(request: Request):
 
 
 @router.post("/citations/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def citations_verify_ep(request: Request):
     """Audit a response's citations.
 
@@ -3094,6 +3219,7 @@ async def citations_verify_ep(request: Request):
 
 
 @router.post("/dd/save-tool-result")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_save_tool_result_ep(request: Request):
     """Save a pipeline tool result as a lightweight DD report entry.
 
@@ -3168,6 +3294,7 @@ async def dd_save_tool_result_ep(request: Request):
 
 
 @router.get("/sanctions/divergence")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
     """Cross-list divergence analysis for a single entity name.
 
@@ -3192,6 +3319,7 @@ async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
 
 # ── Trace stream: joined view across cost / verification / feedback ──────
 @router.get("/trace/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def trace_recent_ep(
     limit: int = 30,
     status: str | None = None,
@@ -3212,12 +3340,14 @@ async def trace_recent_ep(
 
 
 @router.get("/trace/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def trace_stats_ep():
     """Aggregate trace counts + averages."""
     return await trace_stream.get_trace_stats()
 
 
 @router.get("/trace/{trace_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def trace_get_ep(trace_id: str):
     """Full trace record — question, response, every LLM call with cost,
     verification verdict, feedback (if any). The complete lifecycle of
@@ -3230,6 +3360,7 @@ async def trace_get_ep(trace_id: str):
 
 # ── Honesty judge: confidence-tag verification ───────────────────────────
 @router.get("/honesty/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def honesty_list_ep(limit: int = 30, status: str | None = None, bad_only: bool = False):
     """List recent honesty judgments. bad_only=true returns only judgments
     where the score fell below the suspicious threshold (0.7)."""
@@ -3241,12 +3372,14 @@ async def honesty_list_ep(limit: int = 30, status: str | None = None, bad_only: 
 
 
 @router.get("/honesty/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def honesty_stats_ep():
     """Aggregate counts + rolling honesty score across all judgments."""
     return await honesty_judge.get_honesty_stats()
 
 
 @router.get("/honesty/{judgment_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def honesty_get_ep(judgment_id: str):
     """Full judgment record including each [CONFIRMED] claim, the per-claim
     supported/unsupported verdict, and the judge's reason for each."""
@@ -3258,12 +3391,14 @@ async def honesty_get_ep(judgment_id: str):
 
 # ── RAG store: persistent retrieval-augmented generation ──────────────────
 @router.get("/rag/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rag_stats_ep():
     """Report on the persistent RAG store: documents indexed, path, model."""
     return await rag_store.get_stats()
 
 
 @router.get("/rag/sources")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rag_sources_ep(limit: int = 50):
     """List all unique sources in the RAG store grouped by type."""
     limit = max(1, min(limit, 500))
@@ -3278,6 +3413,7 @@ class RagSearchRequest(BaseModel):
 
 
 @router.post("/rag/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rag_search_ep(req: RagSearchRequest):
     """Hybrid retrieval over the RAG store. Returns ranked chunks with metadata."""
     if not req.query or len(req.query.strip()) < 3:
@@ -3301,6 +3437,7 @@ class RagIngestRequest(BaseModel):
 
 
 @router.post("/rag/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rag_ingest_ep(req: RagIngestRequest):
     """Manually ingest a document into the RAG store. Used for backfill,
     customer document drops, and any text the team wants ARIA to remember.
@@ -3318,6 +3455,7 @@ async def rag_ingest_ep(req: RagIngestRequest):
 
 
 @router.post("/rag/backfill")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rag_backfill_ep():
     """One-shot backfill: index every existing fact + ledger signal into RAG.
     Idempotent — chromadb upserts so re-running is safe.
@@ -3327,12 +3465,14 @@ async def rag_backfill_ep():
 
 # ── Proactive watch ────────────────────────────────────────────────────────
 @router.get("/proactive/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_stats_ep():
     """Stats for the proactive watch system — how many alerts queued, etc."""
     return await proactive.get_proactive_stats()
 
 
 @router.get("/proactive/alerts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_alerts_ep(mark_seen: bool = False):
     """Drain the proactive alert queue. Used by the WhatsApp listener to
     poll for new alerts to push to the team.
@@ -3345,6 +3485,7 @@ async def proactive_alerts_ep(mark_seen: bool = False):
 
 
 @router.get("/proactive/alerts/history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_alerts_history_ep(
     limit: int = 50,
     alert_type: str = "",
@@ -3364,6 +3505,7 @@ async def proactive_alerts_history_ep(
 
 
 @router.get("/proactive/alerts/{alert_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_alert_detail_ep(alert_id: str):
     """Return a single alert by its ID with full metadata."""
     alert = await proactive.get_alert_by_id(alert_id)
@@ -3373,6 +3515,7 @@ async def proactive_alert_detail_ep(alert_id: str):
 
 
 @router.get("/proactive/alerts/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_alerts_stats_ep():
     """Return alert statistics for the dashboard: counts by type and
     severity, plus the most recent alert of each type.
@@ -3381,6 +3524,7 @@ async def proactive_alerts_stats_ep():
 
 
 @router.get("/student/mastery")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_mastery_ep():
     """Per-topic competence scores."""
     return await student.get_mastery_report()
@@ -3391,6 +3535,7 @@ async def student_mastery_ep():
 # Phase B controller (R-F662) will drain. The enqueue path is wired
 # into student.self_quiz automatically — no manual POST needed.
 @router.get("/learning/reading-queue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_reading_queue_ep(limit: int = 50):
     from ..learning import reading_queue as _rq
     items = await _rq.list_pending(limit=max(1, min(int(limit), 200)))
@@ -3405,6 +3550,7 @@ async def learning_reading_queue_ep(limit: int = 50):
 # the measurement endpoint so operator can observe completion progress
 # now.
 @router.get("/mastery/topic-completion")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def mastery_topic_completion_ep(
     topic: str,
     verified_facts_min: int = 5,
@@ -3434,6 +3580,7 @@ async def mastery_topic_completion_ep(
 
 
 @router.post("/student/mastery/reset")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_mastery_reset_ep():
     """Reset mastery scores to accuracy-based baseline. Use after fixing
     bugs that corrupted the EWMA scores."""
@@ -3441,12 +3588,14 @@ async def student_mastery_reset_ep():
 
 
 @router.get("/student/curriculum")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_curriculum_ep():
     """What ARIA should study next, prioritised by weakness + staleness."""
     return await student.get_curriculum()
 
 
 @router.post("/student/quiz")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_quiz_ep(request: Request):
     """Trigger an immediate self-quiz. Picks N stale library cases, attempts
     them locally, scores divergence vs the original cloud answer, updates mastery.
@@ -3461,6 +3610,7 @@ async def student_quiz_ep(request: Request):
 
 
 @router.post("/student/study")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def student_study_ep(request: Request):
     """Trigger an immediate reading session — focus on weak topics, deep-read
     authoritative sources, extract facts + index into knowledge + neural memory.
@@ -3477,6 +3627,7 @@ async def student_study_ep(request: Request):
 
 # ── Independence + reasoning ratio ─────────────────────────────────────────
 @router.get("/independence")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def independence_ep():
     """Report ARIA's reasoning independence ratio.
 
@@ -3491,6 +3642,7 @@ async def independence_ep():
 
 
 @router.post("/reasoning-library/find")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_library_find_ep(request: Request):
     """Look up a question in ARIA's reasoning library. Pure local — no LLM call.
 
@@ -3505,17 +3657,20 @@ async def reasoning_library_find_ep(request: Request):
 
 
 @router.get("/reasoning-library/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_library_stats_ep():
     return await reasoning_library.get_stats()
 
 
 @router.post("/reasoning-library/consolidate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_library_consolidate_ep():
     """Trigger maintenance — prune stale cases, promote high-quality."""
     return await reasoning_library.consolidate()
 
 
 @router.post("/reasoning-library/feedback")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_library_feedback_ep(request: Request):
     """Record a positive/negative outcome for a library case.
 
@@ -3531,6 +3686,7 @@ async def reasoning_library_feedback_ep(request: Request):
 
 
 @router.post("/reasoning/test")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_test_ep(request: Request):
     """Run a question through the FULL local reasoning pipeline without
     falling through to a cloud LLM. Useful for testing what ARIA can answer
@@ -3544,6 +3700,7 @@ async def reasoning_test_ep(request: Request):
 
 
 @router.get("/training-data/library-export")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def training_data_library_export_ep():
     """Export the reasoning library as JSONL training data.
 
@@ -3599,6 +3756,7 @@ async def training_data_library_export_ep():
 
 
 @router.get("/training-data/calibration")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def training_calibration_ep():
     """ARIA's confidence calibration report.
 
@@ -3610,12 +3768,14 @@ async def training_calibration_ep():
 
 
 @router.get("/training-data/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def training_stats_ep():
     return await training_data.get_stats()
 
 
 # 14. GET /api/aria/training-data/export
 @router.get("/training-data/export")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def training_export_ep(request: Request):
     data = await training_data.export_training_data()
     fmt = request.query_params.get("format", "json")
@@ -3631,6 +3791,7 @@ async def training_export_ep(request: Request):
 
 # 15. GET /api/aria/gtm/{market}
 @router.get("/gtm/{market}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def gtm_ep(market: str):
     result = gtm_strategy.generate_gtm_strategy(market)
     if not result:
@@ -3640,6 +3801,7 @@ async def gtm_ep(market: str):
 
 # 16. POST /api/aria/research
 @router.post("/research")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_ep(request: Request):
     body = await request.json()
     topic = body.get("topic", "")
@@ -3658,6 +3820,7 @@ async def research_ep(request: Request):
 
 # 17. POST /api/aria/knowledge/learn
 @router.post("/knowledge/learn")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learn_ep(req: LearningRequest):
     await knowledge.store_learning(req.correction, req.context)
     return {"ok": True, "message": "Learning stored"}
@@ -9785,6 +9948,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
 
 # 19. POST /api/aria/think
 @router.post("/think")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def think_ep(req: ThinkRequest, request: Request):
     if not req.question:
         raise HTTPException(status_code=400, detail="question required")
@@ -9800,6 +9964,7 @@ async def think_ep(req: ThinkRequest, request: Request):
 
 # 20. POST /api/aria/research/auto — Run autonomous research cycle
 @router.post("/research/auto")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_auto_ep(request: Request):
     llm = get_llm(request)
     result = await research_and_learn(llm)
@@ -9808,6 +9973,7 @@ async def research_auto_ep(request: Request):
 
 # 24. POST /api/aria/read — Read a specific article URL
 @router.post("/read")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def read_article_ep(request: Request):
     body = await request.json()
     url = body.get("url", "")
@@ -9825,6 +9991,7 @@ async def read_article_ep(request: Request):
 # form type — ARIA gets sharper with every team check.
 
 @router.post("/document/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def document_verify_ep(request: Request):
     body = await request.json()
     eid = (body.get("extraction_id") or "").strip()
@@ -9839,6 +10006,7 @@ async def document_verify_ep(request: Request):
 
 
 @router.post("/document/correct")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def document_correct_ep(request: Request):
     body = await request.json()
     eid = (body.get("extraction_id") or "").strip()
@@ -9860,6 +10028,7 @@ async def document_correct_ep(request: Request):
 
 
 @router.get("/document/extraction/{extraction_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def document_extraction_get_ep(extraction_id: str):
     from ..intel import document_corrections as _dc
     rec = await _dc.get_extraction(extraction_id)
@@ -9869,6 +10038,7 @@ async def document_extraction_get_ep(extraction_id: str):
 
 
 @router.get("/document/extractions/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def document_extractions_recent_ep(limit: int = 20, form_code: str = ""):
     from ..intel import document_corrections as _dc
     items = await _dc.recent_extractions(limit=max(1, min(limit, 100)), form_code=form_code or None)
@@ -9934,6 +10104,7 @@ class _ReadDocBodyRequest:
         self.app = app
         self._body = body
 
+    @fail_wire(module="aria", gap_type="engine_failure")
     async def json(self) -> dict:
         return self._body
 
@@ -9978,6 +10149,7 @@ async def _readdoc_job_get(job_id: str):
 
 
 @router.get("/read-document/result/{job_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def read_document_result_ep(job_id: str):
     """R-F873 — poll an async read-document job. status: processing|done|failed|not_found.
     R-F1392 — a store-layer read failure answers 503 (poller retries), NOT not_found."""
@@ -10111,6 +10283,7 @@ async def _chat_job_get(job_id: str):
 
 
 @router.get("/chat/result/{job_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def chat_result_ep(job_id: str):
     """R-F916 — poll an async /chat job. status: processing|done|failed|not_found.
     On 'done', `result` carries the full chat response dict (response, session_id,
@@ -10126,6 +10299,7 @@ async def chat_result_ep(job_id: str):
 
 
 @router.post("/transcribe")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def transcribe_ep(request: Request):
     """R-F956 (2026-05-28) — transcribe a WhatsApp voice note (OSS faster-whisper,
     local). Body: {"audio_b64": "<base64 opus/ogg/mp3/wav>", "mime": "audio/ogg"}.
@@ -10153,6 +10327,7 @@ async def transcribe_ep(request: Request):
 
 
 @router.post("/read-document")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def read_document_ep(request: Request):
     """R-F725 (2026-05-19) — hard 45s wall-clock cap.
 
@@ -10904,12 +11079,14 @@ async def _read_document_ep_impl(request: Request):
 
 # 21. GET /api/aria/hypotheses — ARIA's current hypotheses
 @router.get("/hypotheses")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def hypotheses_ep():
     return {"hypotheses": await get_hypotheses()}
 
 
 # 22. POST /api/aria/hypotheses/validate — Validate a specific hypothesis
 @router.post("/hypotheses/validate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def validate_hypothesis_ep(request: Request):
     body = await request.json()
     hypothesis = body.get("hypothesis", "")
@@ -10922,6 +11099,7 @@ async def validate_hypothesis_ep(request: Request):
 
 # 23. GET /api/aria/research/summary — What ARIA has learned
 @router.get("/research/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def research_summary_ep(request: Request):
     llm = get_llm(request)
     return await get_research_summary(llm)
@@ -10934,6 +11112,7 @@ async def research_summary_ep(request: Request):
 # Both are safe-by-default: purge supports dry_run, forget only touches the
 # specified session.
 @router.post("/admin/purge-cases")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def purge_cases_ep(request: Request):
     """One-shot purge of correction-acknowledgement / feedback / investigation
     entries from the reasoning_library case index. Use after deploying the
@@ -10953,6 +11132,7 @@ async def purge_cases_ep(request: Request):
 
 
 @router.post("/admin/purge-memory")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def purge_memory_ep(request: Request):
     """Surgical keyword-purge across the absorbed-knowledge stores —
     knowledge facts (Redis), reasoning library cases (Redis), and RAG
@@ -11053,6 +11233,7 @@ async def purge_memory_ep(request: Request):
 
 
 @router.post("/admin/purge-signals")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def purge_signals_ep(request: Request):
     """Surgical purge of intel-ledger signals matching one or more keywords.
 
@@ -11098,6 +11279,7 @@ async def purge_signals_ep(request: Request):
 # ──────────────────────────────────────────────────────────────────
 
 @router.get("/admin/sanctions/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_cache_status_ep():
     """Per-source freshness + row counts for the canonical sanctions cache.
 
@@ -11115,6 +11297,7 @@ async def sanctions_cache_status_ep():
 
 
 @router.post("/admin/sanctions/refresh")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_refresh_ep(request: Request):
     """Operator-triggered refresh of one or all canonical sanctions sources.
 
@@ -11140,6 +11323,7 @@ async def sanctions_refresh_ep(request: Request):
 
 
 @router.post("/admin/sanctions/check")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_check_ep(request: Request):
     """Canonical sanctions check with R-F518 entity-overlap gate.
 
@@ -11173,6 +11357,7 @@ async def sanctions_check_ep(request: Request):
 # ──────────────────────────────────────────────────────────────────
 
 @router.get("/admin/airtable-buffer/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def airtable_buffer_status_ep():
     """How many pending-action syncs are buffered for retry?
     Operator-facing diagnostic. Empty buffer = healthy state."""
@@ -11181,6 +11366,7 @@ async def airtable_buffer_status_ep():
 
 
 @router.get("/admin/airtable-buffer/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def airtable_buffer_list_ep(limit: int = 50):
     """List buffered pending-action entries, oldest first.
     Returns action_id + first_failed_at + attempts + last_reason +
@@ -11190,6 +11376,7 @@ async def airtable_buffer_list_ep(limit: int = 50):
 
 
 @router.post("/admin/airtable-buffer/drain")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def airtable_buffer_drain_ep(request: Request):
     """Re-attempt Airtable sync for up to `max_items` queued entries.
     Removes each on success. Body (optional):
@@ -11206,6 +11393,7 @@ async def airtable_buffer_drain_ep(request: Request):
 
 
 @router.post("/admin/purge-gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def purge_gaps_ep(request: Request):
     """Purge stale capability gaps from the proactive gap tracker.
 
@@ -11276,6 +11464,7 @@ def _get_migration_lock() -> asyncio.Lock:
 
 
 @router.post("/admin/migrate-state")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_migrate_state_ep(request: Request):
     """Migrate every key from Upstash Redis to the SQLite state_store.
 
@@ -11382,6 +11571,7 @@ _WA_LAST_BACKUP: dict = {"hash": None, "at": 0.0, "result": None}
 
 
 @router.post("/wa-auth/backup")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def wa_auth_backup_ep(request: Request):
     """Persist the WhatsApp Baileys auth bundle.
 
@@ -11459,6 +11649,7 @@ async def wa_auth_backup_ep(request: Request):
 
 
 @router.get("/wa-auth/restore")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def wa_auth_restore_ep():
     """Retrieve the WhatsApp Baileys auth bundle for restore on cold boot.
 
@@ -11482,6 +11673,7 @@ async def wa_auth_restore_ep():
 
 
 @router.delete("/wa-auth/backup")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def wa_auth_delete_ep():
     """Drop the stored auth bundle.
 
@@ -11515,12 +11707,14 @@ async def wa_auth_delete_ep():
 # Auth: inherits the router-wide require_aria_token dependency
 # (routes/aria.py:130).
 @router.get("/admin/wedge-stacks/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_wedge_stacks_recent_ep(limit: int = 50):
     from ..intel import wedge_introspect as _wi
     return _wi.list_recent_wedges(limit=limit)
 
 
 @router.get("/admin/wedge-stacks/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_wedge_stacks_summary_ep(hours: int = 24, max_files: int = 100):
     """Aggregate top culprits across the recent wedge stacks. Reads
     each file's parsed top frame and groups by (func, file). Useful
@@ -11530,6 +11724,7 @@ async def admin_wedge_stacks_summary_ep(hours: int = 24, max_files: int = 100):
 
 
 @router.get("/admin/wedge-stacks/{name}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_wedge_stacks_read_ep(name: str, max_bytes: int = 200_000):
     """Return the raw content + parsed top culprit for one wedge file.
     `name` is path-traversal guarded — only `wedge_<pid>_<epoch>.log`
@@ -11542,6 +11737,7 @@ async def admin_wedge_stacks_read_ep(name: str, max_bytes: int = 200_000):
 
 
 @router.get("/admin/logs/error-summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_logs_error_summary_ep(hours: int = 168):
     """Aggregate the error-ledger into a gate-checkable summary.
 
@@ -11594,6 +11790,7 @@ async def admin_logs_error_summary_ep(hours: int = 168):
 
 
 @router.get("/admin/absorption-quarantine/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def absorption_quarantine_list_ep(limit: int = 100):
     """List pending absorption attempts in the quarantine queue.
 
@@ -11618,6 +11815,7 @@ async def absorption_quarantine_list_ep(limit: int = 100):
 
 
 @router.post("/admin/absorption-quarantine/promote")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def absorption_quarantine_promote_ep(request: Request):
     """Promote a quarantined absorption — operator-asserted-clean.
 
@@ -11686,6 +11884,7 @@ async def absorption_quarantine_promote_ep(request: Request):
 
 
 @router.post("/admin/absorption-quarantine/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def absorption_quarantine_reject_ep(request: Request):
     """Reject a quarantined absorption — content discarded, audit row kept.
 
@@ -11719,6 +11918,7 @@ async def absorption_quarantine_reject_ep(request: Request):
 # directly without writing to Redis by hand.
 
 @router.get("/oem/contacts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def oem_contacts_list_ep(
     oem: str | None = None,
     role: str | None = None,
@@ -11739,6 +11939,7 @@ async def oem_contacts_list_ep(
 
 
 @router.get("/oem/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def oem_coverage_ep():
     """Coverage report: how many of each OEM's slots are filled vs
     placeholder. Dashboard-friendly summary so operator can see at a
@@ -11766,6 +11967,7 @@ async def oem_coverage_ep():
 
 
 @router.post("/oem/contacts/import")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def oem_contacts_import_ep(request: Request):
     """Bulk-upsert OEM contacts. Each entry is dedup'd by
     (oem, role_slot, name) — re-importing the same person is idempotent.
@@ -11840,6 +12042,7 @@ async def oem_contacts_import_ep(request: Request):
 
 
 @router.post("/session/forget")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def session_forget_ep(request: Request):
     """Wipe the conversation history for one session_id.
 
@@ -11873,6 +12076,7 @@ async def session_forget_ep(request: Request):
 # Independent of /read-document which is the opportunistic-ingest path
 # for whatever gets shared in chat.
 @router.post("/corpus/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_ingest_ep(request: Request):
     """Ingest a single corpus document with tier metadata.
 
@@ -11944,6 +12148,7 @@ async def corpus_ingest_ep(request: Request):
 # investigate() + Tier D template retrieval + LLM template fill. Independent
 # of the chat path — has its own endpoint and its own slash command.
 @router.post("/report")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def report_ep(request: Request):
     """Build a branded Arkmurus report.
 
@@ -11978,6 +12183,7 @@ async def report_ep(request: Request):
 
 # 26. POST /api/aria/crawl — Crawl a website, follow links, read everything
 @router.post("/crawl")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crawl_ep(request: Request):
     body = await request.json()
     url = body.get("url", "")
@@ -11991,6 +12197,7 @@ async def crawl_ep(request: Request):
 
 # GET /api/aria/crawl/progress/{domain} — Live crawl status
 @router.get("/crawl/progress/{domain}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def crawl_progress_ep(domain: str):
     """Query live crawl progress for a domain currently being crawled."""
     return await get_crawl_progress(domain)
@@ -11998,6 +12205,7 @@ async def crawl_progress_ep(domain: str):
 
 # 27. POST /api/aria/investigate — Deep multi-source investigation
 @router.post("/investigate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def investigate_ep(request: Request):
     body = await request.json()
     topic = body.get("topic", "")
@@ -12010,6 +12218,7 @@ async def investigate_ep(request: Request):
 
 # 28. POST /api/aria/scenarios — Strategic scenario analysis
 @router.post("/scenarios")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def scenarios_ep(request: Request):
     body = await request.json()
     situation = body.get("situation", "")
@@ -12022,6 +12231,7 @@ async def scenarios_ep(request: Request):
 
 # 29. POST /api/aria/profile — Build intelligence profile on entity
 @router.post("/profile")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def profile_ep(request: Request):
     body = await request.json()
     entity = body.get("entity", "")
@@ -12034,6 +12244,7 @@ async def profile_ep(request: Request):
 
 # 29b. POST /api/aria/investigate/person — Deep person investigation
 @router.post("/investigate/person")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def investigate_person_ep(request: Request):
     body = await request.json()
     name = body.get("name", "")
@@ -12046,6 +12257,7 @@ async def investigate_person_ep(request: Request):
 
 # 29c. POST /api/aria/investigate/company — Deep company investigation
 @router.post("/investigate/company")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def investigate_company_ep(request: Request):
     body = await request.json()
     company = body.get("company", "")
@@ -12058,6 +12270,7 @@ async def investigate_company_ep(request: Request):
 
 # 29d. POST /api/aria/network — Map relationships between entities
 @router.post("/network")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def network_ep(request: Request):
     body = await request.json()
     entities = body.get("entities", [])
@@ -12072,12 +12285,14 @@ async def network_ep(request: Request):
 
 # 30. GET /api/aria/neural/stats — Neural network statistics
 @router.get("/neural/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_stats_ep():
     return await neural_memory.get_stats()
 
 
 # 31. POST /api/aria/neural/recall — Associative recall
 @router.post("/neural/recall")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_recall_ep(request: Request):
     body = await request.json()
     query = body.get("query", "")
@@ -12089,6 +12304,7 @@ async def neural_recall_ep(request: Request):
 
 # 32. POST /api/aria/neural/learn — Teach ARIA a concept
 @router.post("/neural/learn")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_learn_ep(request: Request):
     body = await request.json()
     concept = body.get("concept", "")
@@ -12105,6 +12321,7 @@ async def neural_learn_ep(request: Request):
 
 # 33. GET /api/aria/neural/cluster/{concept} — Get concept neighborhood
 @router.get("/neural/cluster/{concept}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_cluster_ep(concept: str):
     return await neural_memory.get_cluster(concept)
 
@@ -12118,6 +12335,7 @@ async def neural_cluster_ep(concept: str):
 # Function name kept distinct from the legacy `neural_conflicts_ep` at
 # /corpus/conflicts to avoid Python module-level shadowing.
 @router.get("/neural/conflicts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_conflicts_list_ep(limit: int = 50):
     capped = max(1, min(limit, 500))
     conflicts = await neural_memory.get_conflicts(limit=capped)
@@ -12132,6 +12350,7 @@ async def neural_conflicts_list_ep(limit: int = 50):
 # absorbing ARIA's own scaffolding; the filters added in R-F771 stop
 # new noise but do not retroactively clean the existing pile.
 @router.post("/neural/conflicts/clear")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_conflicts_clear_ep():
     cleared = await neural_memory.clear_all_conflicts()
     return {"cleared": cleared}
@@ -12139,6 +12358,7 @@ async def neural_conflicts_clear_ep():
 
 # 33a. GET /api/aria/neural/graph — Knowledge graph visualization
 @router.get("/neural/graph")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_graph_ep(limit: int = 200):
     """Returns ARIA's neural network as a graph structure for D3/Cytoscape visualization.
     Format: {nodes: [{id, label, category, activation, size}], edges: [{source, target, weight}]}
@@ -12196,6 +12416,7 @@ async def neural_graph_ep(limit: int = 200):
 
 # 33b. POST /api/aria/neural/consolidate — Nightly memory consolidation cycle
 @router.post("/neural/consolidate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_consolidate_ep(request: Request):
     """Memory consolidation — prune weak neurons, strengthen strong, merge facts, validate hypotheses."""
     import logging as _logging
@@ -12242,12 +12463,14 @@ async def neural_consolidate_ep(request: Request):
 
 # 34. GET /api/aria/self/files — List ARIA's own source files
 @router.get("/self/files")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_files_ep():
     return {"files": await self_improve.list_own_files()}
 
 
 # 35. POST /api/aria/self/read — Read ARIA's own source code
 @router.post("/self/read")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_read_ep(request: Request):
     body = await request.json()
     file_path = body.get("file", "")
@@ -12258,6 +12481,7 @@ async def self_read_ep(request: Request):
 
 # 36. POST /api/aria/self/improve — Stage a code improvement
 @router.post("/self/improve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_improve_ep(request: Request):
     body = await request.json()
     file_path = body.get("file", "")
@@ -12274,6 +12498,7 @@ async def self_improve_ep(request: Request):
 
 # Self-diagnostic: receive a failure report from any downstream component
 @router.post("/self/diagnose")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_diagnose_ep(request: Request):
     """Receive a failure report and have ARIA classify + decide an action.
 
@@ -12297,6 +12522,7 @@ async def self_diagnose_ep(request: Request):
 
 # Self-coding: scaffold a brand-new module from a free-text request
 @router.post("/self/code")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_code_ep(request: Request):
     """ARIA writes code from a natural-language directive.
 
@@ -12391,24 +12617,28 @@ async def self_code_ep(request: Request):
 
 # 37. GET /api/aria/self/staged — List staged improvements
 @router.get("/self/staged")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_staged_ep():
     return {"staged": await self_improve.get_staged()}
 
 
 # 38. GET /api/aria/self/staged/{id} — Get diff for a staged improvement
 @router.get("/self/staged/{improvement_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_staged_diff_ep(improvement_id: str):
     return await self_improve.get_staged_diff(improvement_id)
 
 
 # 39. POST /api/aria/self/deploy/{id} — Deploy a staged improvement
 @router.post("/self/deploy/{improvement_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_deploy_ep(improvement_id: str):
     return await self_improve.deploy_improvement(improvement_id)
 
 
 # 40. POST /api/aria/self/rollback/{id} — Rollback a deployed improvement
 @router.post("/self/rollback/{improvement_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_rollback_ep(improvement_id: str):
     return await self_improve.rollback_improvement(improvement_id)
 
@@ -12420,6 +12650,7 @@ async def self_rollback_ep(improvement_id: str):
 # the 039bf8be (P_BANKING_1, duplicate of Clause 27/R-F534) class of
 # staged-but-shouldn't-deploy entries.
 @router.post("/self/improvements/{improvement_id}/discard")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_improvement_discard_ep(improvement_id: str, request: Request):
     """Discard a staged improvement with an operator reason.
 
@@ -12448,6 +12679,7 @@ async def self_improvement_discard_ep(improvement_id: str, request: Request):
 
 
 @router.get("/self/improvements/discarded")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_improvements_discarded_ep(limit: int = 100):
     """List recently-discarded improvements for audit / dashboard
     panel. Read-only. Capped at 500 entries by underlying store."""
@@ -12457,6 +12689,7 @@ async def self_improvements_discarded_ep(limit: int = 100):
 
 # 41. POST /api/aria/self/evolve-prompt — Evolve system prompt
 @router.post("/self/evolve-prompt")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_evolve_prompt_ep(request: Request):
     body = await request.json()
     feedback = body.get("feedback", "")
@@ -12470,12 +12703,14 @@ async def self_evolve_prompt_ep(request: Request):
 
 # 42. GET /api/aria/self/log — Improvement history
 @router.get("/self/log")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_log_ep():
     return {"log": await self_improve.get_improvement_log()}
 
 
 # 43. GET /api/aria/self/code-knowledge — ARIA's learned coding patterns
 @router.get("/self/code-knowledge")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_code_knowledge_ep():
     return await self_improve.get_code_knowledge()
 
@@ -12486,6 +12721,7 @@ async def self_code_knowledge_ep():
 # the cycle actually saw. Pre-B1 the ledger was empty so the gap was
 # invisible; with B1 + the F54 cascade-killer it now collects real signal.
 @router.get("/self/recent-errors")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_recent_errors_ep(hours: int = 24):
     """Return the recent error ledger that the self-improve cycle reads.
     `hours` filters to the last N hours (default 24, max 168)."""
@@ -12529,6 +12765,7 @@ async def self_recent_errors_ep(hours: int = 24):
 # Returns: the parsed JSON dict (if response_format=json AND parse succeeds),
 # else {"text": str, "model": str, "task": str, "_parse_error": str|None}.
 @router.post("/coder/llm")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def coder_llm_ep(request: Request):
     body = await request.json()
     prompt = (body.get("prompt") or "").strip()
@@ -12804,6 +13041,7 @@ async def _queue_coder_request(
 
 
 @router.post("/coder/request")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def coder_request_ep(request: Request):
     """Queue a natural-language code-change request from the operator.
 
@@ -12855,6 +13093,7 @@ async def coder_request_ep(request: Request):
 
 
 @router.get("/coder/status/{fix_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def coder_status_ep(fix_id: str, request: Request):
     """Live progress for a fix run.
 
@@ -12882,6 +13121,7 @@ async def coder_status_ep(fix_id: str, request: Request):
 
 
 @router.get("/coder/gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def coder_gaps_ep(request: Request):
     """Surface the latest scan from the gap detector for operator visibility."""
     coder = getattr(request.app.state, "aria_coder", None)
@@ -12921,6 +13161,7 @@ from fastapi import BackgroundTasks as _BackgroundTasks  # local alias for clari
 
 
 @router.post("/brain/signal")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
     """R-F887 — cross-tier signal sink. The Node (aria-web) + WhatsApp (aria-wa)
     tiers POST here: WA group messages (signal_type=whatsapp_group_message),
@@ -13021,6 +13262,7 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
 
 
 @router.post("/outcome")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def outcome_record_ep(request: Request):
     """Record a delivery outcome from any surface (WA, web, TG, email, CLI, API).
 
@@ -13079,6 +13321,7 @@ async def outcome_record_ep(request: Request):
 
 
 @router.get("/outcome/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def outcome_health_ep(surface: str = "wa", hours: int = 24):
     """Get delivery health stats for a surface.
 
@@ -13098,6 +13341,7 @@ async def outcome_health_ep(surface: str = "wa", hours: int = 24):
 
 
 @router.get("/outcomes")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def outcome_list_ep(surface: str = "wa", hours: int = 24):
     """List delivery outcomes for a surface.
 
@@ -13122,6 +13366,7 @@ async def outcome_list_ep(surface: str = "wa", hours: int = 24):
 
 
 @router.post("/brain/absorb")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     """Central learning endpoint. Accepts output from any intel module and
     fans out to mastery, knowledge, neural memory, and capability gaps.
@@ -13223,6 +13468,7 @@ async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
 
 # 43c. GET /api/aria/brain/stats — Brain hook signal stats + per-module health
 @router.get("/brain/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def brain_stats_ep():
     """Per-module signal counts, success rates, and stale-module alerts."""
     from ..intel import brain_hook
@@ -13231,6 +13477,7 @@ async def brain_stats_ep():
 
 # 43d. GET /api/aria/brain/alerts — Stale/missing module alerts
 @router.get("/brain/alerts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def brain_alerts_ep():
     """Modules that haven't sent a signal in 24h or have never signalled."""
     from ..intel import brain_hook
@@ -13242,6 +13489,7 @@ async def brain_alerts_ep():
 # This is the "missing wires" diagnostic — answers "what exists in code but
 # isn't feeding the brain?" without waiting 24h for stale-signal detection.
 @router.get("/diagnostic/unwired")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def diagnostic_unwired_ep():
     """Walk aria_service/intel/*.py, classify each module as one of:
       - learner-wired:  imports brain_hook AND calls absorb()
@@ -13405,6 +13653,7 @@ async def diagnostic_unwired_ep():
 
 # 44. POST /api/aria/semantic/search — Search knowledge by meaning
 @router.post("/semantic/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def semantic_search_ep(request: Request):
     body = await request.json()
     query = body.get("query", "")
@@ -13416,6 +13665,7 @@ async def semantic_search_ep(request: Request):
 
 # 45. GET /api/aria/semantic/stats — Semantic index statistics
 @router.get("/semantic/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def semantic_stats_ep():
     return get_index_stats()
 
@@ -13425,6 +13675,7 @@ async def semantic_stats_ep():
 # "ARIA keeps saying X" / "she should remember Y" reports without having
 # to grep across 6 different stats endpoints.
 @router.get("/admin/brain/{session_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def admin_brain_ep(session_id: str, query: str = ""):
     """Returns a unified snapshot of what each brain layer holds for
     a given session. Optional `query` param scopes RAG / neural recall
@@ -13587,6 +13838,7 @@ _semantic_rebuild_state = {"running": False, "started_at": None, "facts_to_index
 
 
 @router.post("/admin/rebuild-semantic-index")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rebuild_semantic_index_ep():
     """Spawn a background rebuild of the semantic_search in-memory index
     from knowledge.facts. Returns immediately with a job marker. Safe
@@ -13657,6 +13909,7 @@ async def rebuild_semantic_index_ep():
 
 
 @router.get("/admin/rebuild-semantic-index/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rebuild_semantic_index_status_ep():
     """Returns the state of the most recent rebuild job (running, last
     result, current index size)."""
@@ -13682,6 +13935,7 @@ async def rebuild_semantic_index_status_ep():
 # See aria_service/autonomous/AUTONOMOUS_ENGINE.md for the full design.
 
 @router.get("/autonomous/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_status_ep():
     """One-shot view of the autonomous engine state: env-var flags,
     in-process loop state, safety counters (rate limit + cost cap),
@@ -13717,6 +13971,7 @@ async def autonomous_status_ep():
 
 
 @router.post("/autonomous/pause")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_pause_ep(request: Request):
     """Global pause switch — stops ALL tasks immediately. Resume with
     /autonomous/resume. Used as the emergency stop button when a task
@@ -13738,6 +13993,7 @@ async def autonomous_pause_ep(request: Request):
 
 
 @router.post("/autonomous/resume")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_resume_ep():
     """Lift the global pause and let the engine fire scheduled tasks again.
     Per-task pauses are unaffected — use /autonomous/resume-task/<id>
@@ -13751,6 +14007,7 @@ async def autonomous_resume_ep():
 
 
 @router.post("/autonomous/pause-task/{task_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_pause_task_ep(task_id: str):
     """Pause a single task without stopping the engine. Useful when
     one task is failing but the others are healthy."""
@@ -13763,6 +14020,7 @@ async def autonomous_pause_task_ep(task_id: str):
 
 
 @router.post("/autonomous/resume-task/{task_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_resume_task_ep(task_id: str):
     """Lift the per-task pause."""
     try:
@@ -13774,6 +14032,7 @@ async def autonomous_resume_task_ep(task_id: str):
 
 
 @router.post("/autonomous/run-now/{task_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_run_now_ep(task_id: str, request: Request):
     """Manually fire a single task immediately, bypassing the cron and
     the per-task enabled flag. Safety guardrails (rate limit, cost cap,
@@ -13797,6 +14056,7 @@ async def autonomous_run_now_ep(task_id: str, request: Request):
 
 
 @router.post("/autonomous/reload-tasks")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_reload_tasks_ep():
     """Re-read tasks.yaml from disk and replace the in-process task
     cache. Use this after editing tasks.yaml to apply changes without
@@ -13816,6 +14076,7 @@ async def autonomous_reload_tasks_ep():
 
 
 @router.post("/autonomous/enable")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_enable_ep(request: Request):
     """Turn the autonomous engine ON at runtime — no redeploy needed.
 
@@ -13882,6 +14143,7 @@ async def autonomous_enable_ep(request: Request):
 
 
 @router.post("/autonomous/disable")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_disable_ep(request: Request):
     """Turn the autonomous engine OFF at runtime — stops the poll loop
     cleanly and sets a Redis override so it stays off across redeploys.
@@ -13905,6 +14167,7 @@ async def autonomous_disable_ep(request: Request):
 
 
 @router.post("/autonomous/clear-override")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_clear_override_ep():
     """Clear the runtime override so the env var regains control.
 
@@ -13926,6 +14189,7 @@ async def autonomous_clear_override_ep():
 
 
 @router.get("/pending-actions")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pending_actions_list_ep():
     """List open pending actions (ARIA's 'I owe you' ledger).
 
@@ -13948,6 +14212,7 @@ async def pending_actions_list_ep():
 
 
 @router.post("/pending-actions/{action_id}/satisfy")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pending_actions_satisfy_ep(action_id: str, request: Request):
     """Mark a pending action as satisfied (resolver completed)."""
     try:
@@ -13965,6 +14230,7 @@ async def pending_actions_satisfy_ep(action_id: str, request: Request):
 
 
 @router.post("/pending-actions/{action_id}/cancel")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pending_actions_cancel_ep(action_id: str, request: Request):
     """Cancel a pending action (no longer needed / superseded)."""
     try:
@@ -13982,6 +14248,7 @@ async def pending_actions_cancel_ep(action_id: str, request: Request):
 
 
 @router.post("/predict/deal")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def predict_deal_ep(request: Request):
     """R-F780: structured deal-outcome forecast with traceable evidence.
 
@@ -14013,6 +14280,7 @@ async def predict_deal_ep(request: Request):
 
 
 @router.post("/predict/deal/{deal_id}/outcome")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def predict_deal_outcome_record_ep(deal_id: str, request: Request):
     """R-F780: post-mortem ingest. Closes the calibration loop by feeding
     the actual outcome back into the mastery heatmap + brain_hook.
@@ -14037,6 +14305,7 @@ async def predict_deal_outcome_record_ep(deal_id: str, request: Request):
 
 
 @router.get("/learning/brier-drift")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_brier_drift_ep(window_hours: int = 24):
     """R-F779: per-topic mastery drift over a rolling window.
 
@@ -14055,6 +14324,7 @@ async def learning_brier_drift_ep(window_hours: int = 24):
 
 
 @router.post("/learning/brier-drift/snapshot")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_brier_drift_snapshot_ep():
     """R-F779: capture a mastery snapshot to the drift ledger. Operator-
     runnable for ad-hoc snapshots; the scheduled daily snapshot fires
@@ -14065,6 +14335,7 @@ async def learning_brier_drift_snapshot_ep():
 
 
 @router.get("/autonomous/dryrun/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_dryrun_recent_ep(limit: int = 20):
     """R-F774: most-recent dry-run decisions made by the autonomous engine.
 
@@ -14086,6 +14357,7 @@ async def autonomous_dryrun_recent_ep(limit: int = 20):
 
 
 @router.get("/autonomous/cost-summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomous_cost_summary_ep():
     """Aggregate cost and run-count data for autonomous tasks.
 
@@ -14194,6 +14466,7 @@ async def autonomous_cost_summary_ep():
 
 # GET /api/aria/vision-status — Diagnostic for image OCR configuration
 @router.get("/vision-status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vision_status_ep(request: Request):
     """Report whether ARIA can do image OCR right now and which backend will run.
 
@@ -14323,6 +14596,7 @@ async def _ocr_job_get(job_id: str) -> Optional[dict]:
 
 
 @router.post("/ocr")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ocr_ep(request: Request):
     body = await request.json()
     image_b64 = body.get("image", "")
@@ -14380,6 +14654,7 @@ async def ocr_ep(request: Request):
 
 
 @router.get("/ocr/result/{job_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ocr_result_ep(job_id: str):
     """GET /api/aria/ocr/result/{job_id} — poll OCR job status.
     R-F1311: mirrors /read-document/result/{job_id} for the async OCR path."""
@@ -14397,6 +14672,7 @@ async def ocr_result_ep(job_id: str):
 
 # 48. POST /api/aria/reports/compliance-brief — Generate compliance intelligence brief
 @router.post("/reports/compliance-brief")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_brief_ep(request: Request):
     """Generate a compliance intelligence brief covering:
     - New sanctions updates (last 7 days)
@@ -14496,6 +14772,7 @@ If no data exists for a section, note it as "No updates — monitoring continues
 
 # 48d. GET/POST /api/aria/registrations/check — Arkmurus portal-registration status
 @router.get("/registrations/portals")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def registrations_portals_ep():
     """List portals the registration checker knows about (no network)."""
     from ..intel import registration_check as rc
@@ -14505,6 +14782,7 @@ async def registrations_portals_ep():
 # R-F1162 — Portal coverage dashboard. Shows registered vs total, tier breakdown,
 # and which portals are actively used for data collection.
 @router.get("/portal-coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_coverage_ep():
     """Return portal registration coverage status.
 
@@ -14551,6 +14829,7 @@ async def portal_coverage_ep():
 
 
 @router.get("/portal-registry/pending-sources")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_registry_pending_sources_ep():
     """R-F1312: List all pending source registrations and their requirements.
 
@@ -14574,6 +14853,7 @@ async def portal_registry_pending_sources_ep():
 
 
 @router.post("/portal-registry/auto-register")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_registry_auto_register_ep():
     """R-F1312: Attempt registration for all unregistered portals.
 
@@ -14589,6 +14869,7 @@ async def portal_registry_auto_register_ep():
 
 
 @router.post("/portal-registry/drive/{portal_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, background: bool = True):
     """R-F1722: trigger determine_and_drive for ONE portal IN-APP (faithful —
     state_store is initialised here, unlike an ad-hoc ssh `python -c`). For live
@@ -14681,6 +14962,7 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
 
 
 @router.post("/ingest/ofac-sdn")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
     """R-F1731: ingest the OFAC SDN open_api list as sanctions_screening knowledge
     facts and MEASURE the heatmap delta (gate #2). First proven template of the
@@ -14743,6 +15025,7 @@ async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
 
 
 @router.post("/ingest/run/{portal}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ingest_run_portal_ep(portal: str, domain: str = "sanctions_screening",
                                max_rows: int = 2000, background: bool = True):
     """R-F1737: generic open_api ingest runner + heatmap-delta verifier. Imports
@@ -14813,6 +15096,7 @@ async def ingest_run_portal_ep(portal: str, domain: str = "sanctions_screening",
 
 
 @router.post("/portal-registry/email-requirements")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_registry_email_requirements_ep():
     """R-F1498: email the operator exactly what each portal ARIA cannot
     autonomously sign up to needs (free API key / free signup / CAPTCHA / paid),
@@ -14823,6 +15107,7 @@ async def portal_registry_email_requirements_ep():
 
 
 @router.post("/registrations/check")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def registrations_check_ep(request: Request):
     """Run portal-registration checks for Arkmurus.
 
@@ -14869,6 +15154,7 @@ async def registrations_check_ep(request: Request):
 
 # 48c. POST /api/aria/meeting-notes/process — Extract structured actions from pasted notes
 @router.post("/meeting-notes/process")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def meeting_notes_process_ep(request: Request):
     """Extract structured actions + compliance flags from pasted meeting notes.
 
@@ -14922,6 +15208,7 @@ async def meeting_notes_process_ep(request: Request):
 
 # 48b. POST /api/aria/reports/precall-brief — Compact pre-call brief for a counterparty
 @router.post("/reports/precall-brief")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def precall_brief_ep(request: Request):
     """Produce a compact pre-call counterparty brief.
 
@@ -14968,6 +15255,7 @@ async def precall_brief_ep(request: Request):
 
 # 49. POST /api/aria/reports/entity-investigation — Deep investigation report on an entity
 @router.post("/reports/entity-investigation")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def entity_investigation_ep(request: Request):
     """Deep investigation report on an entity.
     Input: {entity_name, entity_type: "company"|"person"|"country"}
@@ -15083,6 +15371,7 @@ class ComplianceScreenRequest(BaseModel):
 
 # 50. POST /api/aria/compliance/screen — Combined compliance screening
 @router.post("/compliance/screen")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
     """
     Runs combined compliance assessment:
@@ -15225,6 +15514,7 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
 # ── Hypothesis Validation (batch) ──────────────────────────────────────────
 
 @router.post("/research/validate-hypotheses")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def validate_hypotheses_batch_ep(request: Request):
     llm = get_llm(request)
     hypotheses = await get_hypotheses()
@@ -15250,6 +15540,7 @@ async def validate_hypotheses_batch_ep(request: Request):
 # ── Conversation Search & Export ─────────────────────────────────────────────
 
 @router.get("/conversations/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_conversations(q: str = "", limit: int = 50):
     """Full-text search across ARIA conversation history."""
     keys = await rs.scan_keys("crucix:aria:session:*", count=500)
@@ -15311,6 +15602,7 @@ async def search_conversations(q: str = "", limit: int = 50):
 
 
 @router.get("/conversations/export")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def export_conversation(session_id: str, format: str = "json"):
     """Export a conversation transcript."""
     key = f"crucix:aria:session:{session_id}"
@@ -15356,6 +15648,7 @@ class ClassifyRequest(BaseModel):
     description: str
 
 @router.post("/compliance/classify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_classify_ep(req: ClassifyRequest):
     """Classify a product description against UK Military List categories."""
     desc = (req.description or "").strip()
@@ -15416,6 +15709,7 @@ class SanctionsRequest(BaseModel):
     name: str
 
 @router.post("/compliance/sanctions")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
     """Sanctions check — proxies to Node entityMatcher and falls back to knowledge base."""
     name = (req.name or "").strip()
@@ -15473,6 +15767,7 @@ class RiskRequest(BaseModel):
     country: str
 
 @router.post("/compliance/risk")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_risk_ep(req: RiskRequest):
     """Country risk assessment — sanctions regimes, embargoes, ML risk tier."""
     country_input = (req.country or "").strip()
@@ -15534,6 +15829,7 @@ async def compliance_risk_ep(req: RiskRequest):
 # ── Proactive endpoints (strategic ideas, lead hunting) ──────────────────────
 
 @router.post("/proactive/strategic-ideas")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_strategic_ideas_ep(request: Request):
     """Generate strategic ideas for Arkmurus based on current intel."""
     llm = get_llm(request)
@@ -15578,6 +15874,7 @@ Be bold, specific, and commercially realistic. Reference Arkmurus's relationship
 # ── NSN (NATO Stock Number) Decoder ────────────────────────────────────────
 
 @router.get("/nsn/decode/{nsn}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def nsn_decode_ep(nsn: str):
     """Decode a NATO Stock Number into its components.
 
@@ -15590,6 +15887,7 @@ async def nsn_decode_ep(nsn: str):
 
 
 @router.get("/nsn/fsc/{code}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def nsn_fsc_ep(code: str):
     """Look up an FSC (Federal Supply Classification) group or class."""
     from ..intel import nsn_knowledge
@@ -15600,6 +15898,7 @@ async def nsn_fsc_ep(code: str):
 
 
 @router.get("/nsn/structure")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def nsn_structure_ep():
     """Return the NSN structure explanation."""
     from ..intel import nsn_knowledge
@@ -15609,6 +15908,7 @@ async def nsn_structure_ep():
 # ── Compliance Workflow ────────────────────────────────────────────────────
 
 @router.get("/compliance/cases")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_list_ep(state: str = "", risk_level: str = "", limit: int = 50):
     """List compliance cases with optional state/risk filters."""
     from ..intel import compliance_workflow
@@ -15617,6 +15917,7 @@ async def compliance_list_ep(state: str = "", risk_level: str = "", limit: int =
 
 
 @router.get("/compliance/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_stats_ep():
     """Return compliance workflow statistics."""
     from ..intel import compliance_workflow
@@ -15624,6 +15925,7 @@ async def compliance_stats_ep():
 
 
 @router.get("/compliance/case/{case_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_case_ep(case_id: str):
     """Get a single compliance case with full audit trail."""
     from ..intel import compliance_workflow
@@ -15634,6 +15936,7 @@ async def compliance_case_ep(case_id: str):
 
 
 @router.post("/compliance/case/{case_id}/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_approve_ep(case_id: str, request: Request):
     """Approve a compliance case. Body: {by, reason}"""
     body = {}
@@ -15650,6 +15953,7 @@ async def compliance_approve_ep(case_id: str, request: Request):
 
 
 @router.post("/compliance/case/{case_id}/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_reject_ep(case_id: str, request: Request):
     """Reject a compliance case. Body: {by, reason}"""
     body = {}
@@ -15666,6 +15970,7 @@ async def compliance_reject_ep(case_id: str, request: Request):
 
 
 @router.get("/compliance/overdue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_overdue_ep():
     """List cases with overdue re-screening."""
     from ..intel import compliance_workflow
@@ -15674,6 +15979,7 @@ async def compliance_overdue_ep():
 
 
 @router.post("/compliance/expire-overdue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_expire_ep():
     """Mark all overdue cases as EXPIRED. Returns count expired."""
     from ..intel import compliance_workflow
@@ -15684,6 +15990,7 @@ async def compliance_expire_ep():
 # ── Entity Graph ──────────────────────────────────────────────────────────
 
 @router.get("/entity-graph/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def entity_graph_ep(run_id: str):
     """Load a previously saved entity relationship graph from a DD run."""
     from ..intel import entity_graph
@@ -15717,6 +16024,7 @@ class FuzzyScreenRequest(BaseModel):
     threshold: float = 0.78
 
 @router.post("/sanctions/fuzzy")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_fuzzy_ep(req: FuzzyScreenRequest):
     """Fuzzy entity sanctions screening with name-variant generation.
 
@@ -15733,6 +16041,7 @@ async def sanctions_fuzzy_ep(req: FuzzyScreenRequest):
 # ── Conflict / kinetic event tracking (ACLED + GDELT fallback) ──────────────
 
 @router.get("/conflict/events/{country}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def conflict_events_ep(country: str, days: int = 30, limit: int = 50):
     """Recent conflict / political-violence events for a country.
 
@@ -15745,6 +16054,7 @@ async def conflict_events_ep(country: str, days: int = 30, limit: int = 50):
 
 
 @router.get("/conflict/correlate/{country}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def conflict_correlate_ep(country: str, days: int = 60):
     """Cross-reference conflict escalation with projected procurement demand.
 
@@ -15761,6 +16071,7 @@ class TechClassifyRequest(BaseModel):
     text: str
 
 @router.post("/tech/classify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tech_classify_ep(req: TechClassifyRequest):
     """Extract structured defence items from free text — calibres, systems,
     ML categories, quantities, and embargo risks."""
@@ -15770,6 +16081,7 @@ async def tech_classify_ep(req: TechClassifyRequest):
 
 
 @router.get("/tech/explain/{designation}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tech_explain_ep(designation: str):
     """Look up a single weapon system designation in the technical database."""
     return tech_classifier.explain_item(designation)
@@ -15786,6 +16098,7 @@ class DualUseRequest(BaseModel):
 
 
 @router.post("/compliance/dual-use-check")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dual_use_check_ep(req: DualUseRequest):
     """Full jurisdictional dual-use assessment: item + origin + destination →
     licence required y/n, controlling authority, embargo check, next actions.
@@ -15816,12 +16129,14 @@ class EUCCheckRequest(BaseModel):
 
 
 @router.get("/compliance/euc/profiles")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def euc_profiles_ep():
     """List available EUC profiles (US DSP-83, UK, EU dual-use, GCC, Wassenaar)."""
     return {"profiles": euc_library.list_profiles()}
 
 
 @router.get("/compliance/euc/template/{profile}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def euc_template_ep(profile: str):
     """Return a drafting template for a given EUC profile."""
     tpl = euc_library.get_template(profile)
@@ -15834,6 +16149,7 @@ async def euc_template_ep(profile: str):
 
 
 @router.post("/compliance/euc/check")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def euc_check_ep(req: EUCCheckRequest):
     """Validate a submitted EUC text against a profile's required clauses.
 
@@ -15915,6 +16231,7 @@ class ExportAssessmentRequest(BaseModel):
 
 
 @router.post("/compliance/export-assessment")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def export_assessment_ep(req: ExportAssessmentRequest):
     """Compose the full broker workflow into one call.
 
@@ -16079,6 +16396,7 @@ async def export_assessment_ep(req: ExportAssessmentRequest):
 # assistant; with them she is a system of record.
 
 @router.get("/audit/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_recent_ep(limit: int = 50, offset: int = 0):
     """Return the most-recent N audit entries (newest first)."""
     if limit < 1 or limit > 500:
@@ -16088,6 +16406,7 @@ async def audit_recent_ep(limit: int = 50, offset: int = 0):
 
 
 @router.get("/audit/entry/{entry_hash}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_entry_ep(entry_hash: str):
     """Return a single audit entry by its hash."""
     entry = await audit_log_mod.get_entry(entry_hash)
@@ -16097,6 +16416,7 @@ async def audit_entry_ep(entry_hash: str):
 
 
 @router.get("/audit/deal/{deal_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_deal_ep(deal_id: str, limit: int = 200):
     """All audit entries linked to a deal, newest first."""
     entries = await audit_log_mod.get_by_deal(deal_id, limit=limit)
@@ -16104,6 +16424,7 @@ async def audit_deal_ep(deal_id: str, limit: int = 200):
 
 
 @router.get("/audit/entity/{entity_name}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_entity_ep(entity_name: str, limit: int = 200):
     """All audit entries about an entity (case-insensitive)."""
     entries = await audit_log_mod.get_by_entity(entity_name, limit=limit)
@@ -16111,6 +16432,7 @@ async def audit_entity_ep(entity_name: str, limit: int = 200):
 
 
 @router.get("/audit/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_verify_ep(start: int = 0, count: int = 100):
     """Walk the audit chain and verify hash-chain integrity. Returns broken
     entries if any are detected."""
@@ -16120,12 +16442,14 @@ async def audit_verify_ep(start: int = 0, count: int = 100):
 
 
 @router.get("/audit/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_stats_ep():
     """Audit log totals + head hash + last entry summary."""
     return await audit_log_mod.stats()
 
 
 @router.get("/audit/key-fingerprint")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def audit_key_fingerprint_ep():
     """Public fingerprint of the active HMAC signing key — first 16 hex
     chars of SHA-256(key). Safe to expose; does not reveal the key.
@@ -16148,6 +16472,7 @@ async def audit_key_fingerprint_ep():
 
 
 @router.get("/compliance/file/{deal_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_file_ep(deal_id: str, verify_chain: bool = True):
     """Compose the full regulator-grade compliance dossier for a deal.
 
@@ -16166,6 +16491,7 @@ async def compliance_file_ep(deal_id: str, verify_chain: bool = True):
 
 
 @router.get("/compliance/provenance/{entry_hash}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_provenance_ep(entry_hash: str):
     """Decision provenance: given an audit entry, surface the prior chain
     of compliance work on the same deal/entity that fed into this decision.
@@ -16179,6 +16505,7 @@ async def compliance_provenance_ep(entry_hash: str):
 # ── Knowledge contradictions (metacognitive self-correction) ────────────────
 
 @router.get("/knowledge/contradictions")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_contradictions_ep(limit: int = 50):
     """Return facts that have detected contradictions or version history.
 
@@ -16193,6 +16520,7 @@ _BD_BRAIN_LEADS_KEY = "crucix:aria:bd_brain_leads"   # R-F914
 
 
 @router.post("/proactive/lead-hunt")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def proactive_lead_hunt_ep(request: Request, structured: bool = False, refresh: bool = False):
     """Run a lead-hunting cycle — identify fresh procurement opportunities.
 
@@ -16341,6 +16669,7 @@ Prioritise: Lusophone Africa (incumbent advantage), then established markets whe
 # of the router.
 
 @router.get("/metacognitive/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_status():
     """GET /api/aria/metacognitive/status — full metacognitive engine state."""
     try:
@@ -16357,6 +16686,7 @@ async def metacognitive_status():
 
 
 @router.get("/metacognitive/calibration")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_calibration():
     """GET /api/aria/metacognitive/calibration — full Brier scoring report."""
     try:
@@ -16369,6 +16699,7 @@ async def metacognitive_calibration():
 
 
 @router.get("/metacognitive/assessments")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_assessments(limit: int = 20):
     """GET /api/aria/metacognitive/assessments — recent self-assessment records."""
     try:
@@ -16381,6 +16712,7 @@ async def metacognitive_assessments(limit: int = 20):
 
 
 @router.get("/metacognitive/gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_gaps(limit: int = 30):
     """GET /api/aria/metacognitive/gaps — detected knowledge + methodology gaps."""
     try:
@@ -16400,6 +16732,7 @@ async def metacognitive_gaps(limit: int = 30):
 
 
 @router.get("/metacognitive/consciousness")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_consciousness(limit: int = 3):
     """GET /api/aria/metacognitive/consciousness — recent consciousness reports."""
     try:
@@ -16418,6 +16751,7 @@ class ReadAndLearnRequest(BaseModel):
 
 
 @router.post("/metacognitive/read-and-learn")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_read_and_learn(
     req: ReadAndLearnRequest,
     llm=Depends(get_llm),
@@ -16446,6 +16780,7 @@ class RecordAssessmentRequest(BaseModel):
 
 
 @router.post("/metacognitive/record-assessment")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_record_assessment(req: RecordAssessmentRequest):
     """POST /api/aria/metacognitive/record-assessment — record a prediction
     for Brier scoring."""
@@ -16469,6 +16804,7 @@ class ResolveAssessmentRequest(BaseModel):
 
 
 @router.post("/metacognitive/resolve-assessment")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_resolve_assessment(req: ResolveAssessmentRequest):
     """POST /api/aria/metacognitive/resolve-assessment — resolve a prediction
     with its actual outcome for Brier scoring."""
@@ -16486,6 +16822,7 @@ async def metacognitive_resolve_assessment(req: ResolveAssessmentRequest):
 
 
 @router.post("/metacognitive/run-daily")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_run_daily(llm=Depends(get_llm)):
     """POST /api/aria/metacognitive/run-daily — manually trigger the daily
     self-check cycle."""
@@ -16498,6 +16835,7 @@ async def metacognitive_run_daily(llm=Depends(get_llm)):
 
 
 @router.post("/metacognitive/run-weekly")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_run_weekly(llm=Depends(get_llm)):
     """POST /api/aria/metacognitive/run-weekly — manually trigger the weekly
     consciousness review."""
@@ -16510,6 +16848,7 @@ async def metacognitive_run_weekly(llm=Depends(get_llm)):
 
 
 @router.post("/metacognitive/run-monthly")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_run_monthly(llm=Depends(get_llm)):
     """POST /api/aria/metacognitive/run-monthly — manually trigger the monthly
     gap-closure sprint."""
@@ -16522,6 +16861,7 @@ async def metacognitive_run_monthly(llm=Depends(get_llm)):
 
 
 @router.get("/metacognitive/codegen/pending")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_codegen_pending(limit: int = 10):
     """GET /api/aria/metacognitive/codegen/pending — pending self-improvement
     code proposals."""
@@ -16534,6 +16874,7 @@ async def metacognitive_codegen_pending(limit: int = 10):
 
 
 @router.get("/metacognitive/codegen/by-risk/{risk_level}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_codegen_by_risk(risk_level: str, limit: int = 10):
     """GET /api/aria/metacognitive/codegen/by-risk/{LOW|MEDIUM|HIGH|CRITICAL}"""
     try:
@@ -16545,6 +16886,7 @@ async def metacognitive_codegen_by_risk(risk_level: str, limit: int = 10):
 
 
 @router.get("/metacognitive/lessons")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_lessons(limit: int = 20):
     """GET /api/aria/metacognitive/lessons — coding pattern library."""
     try:
@@ -16569,6 +16911,7 @@ class RecordLessonRequest(BaseModel):
 
 
 @router.post("/metacognitive/lessons/record")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_record_lesson(req: RecordLessonRequest):
     """POST /api/aria/metacognitive/lessons/record — record a coding lesson."""
     try:
@@ -16589,6 +16932,7 @@ async def metacognitive_record_lesson(req: RecordLessonRequest):
 
 
 @router.get("/metacognitive/operational-gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metacognitive_operational_gaps(limit: int = 30):
     """GET /api/aria/metacognitive/operational-gaps — real-time gap signals."""
     try:
@@ -16611,6 +16955,7 @@ class CompaniesHouseRequest(BaseModel):
 
 
 @router.post("/companies-house/investigate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def companies_house_investigate_ep(req: CompaniesHouseRequest):
     """POST /api/aria/companies-house/investigate — full UK entity investigation
     via Companies House (profile + officers + PSC + filings + ghost signals)."""
@@ -16626,6 +16971,7 @@ async def companies_house_investigate_ep(req: CompaniesHouseRequest):
 
 
 @router.get("/companies-house/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def companies_house_search_ep(q: str, limit: int = 5):
     """GET /api/aria/companies-house/search?q=company+name — search UK registry."""
     try:
@@ -16639,6 +16985,7 @@ async def companies_house_search_ep(q: str, limit: int = 5):
 # ── ZOOM INTEGRATION ENDPOINTS ─────────────────────────────────────────────
 
 @router.get("/zoom/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_status_ep():
     """GET /api/aria/zoom/status — Zoom integration configuration status."""
     try:
@@ -16649,6 +16996,7 @@ async def zoom_status_ep():
 
 
 @router.get("/zoom/recordings")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_recordings_ep(days: int = 7, user_id: str = "me"):
     """GET /api/aria/zoom/recordings — list recent cloud recordings."""
     try:
@@ -16667,6 +17015,7 @@ class ProcessTranscriptRequest(BaseModel):
 
 
 @router.post("/zoom/process-transcript")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_process_transcript_ep(
     req: ProcessTranscriptRequest,
     llm=Depends(get_llm),
@@ -16693,6 +17042,7 @@ async def zoom_process_transcript_ep(
 
 
 @router.post("/zoom/process-all-recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_process_all_recent_ep(
     days: int = 7,
     llm=Depends(get_llm),
@@ -16729,6 +17079,7 @@ class CreateMeetingRequest(BaseModel):
 
 
 @router.post("/zoom/create-meeting")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_create_meeting_ep(req: CreateMeetingRequest):
     """POST /api/aria/zoom/create-meeting — create a Zoom meeting (ARIA's own link)."""
     try:
@@ -16747,6 +17098,7 @@ async def zoom_create_meeting_ep(req: CreateMeetingRequest):
 
 
 @router.get("/zoom/upcoming")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_upcoming_ep():
     """GET /api/aria/zoom/upcoming — list upcoming scheduled meetings."""
     try:
@@ -16758,6 +17110,7 @@ async def zoom_upcoming_ep():
 
 
 @router.get("/zoom/transcripts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def zoom_transcripts_ep(limit: int = 20):
     """GET /api/aria/zoom/transcripts — recently processed transcripts."""
     try:
@@ -16793,6 +17146,7 @@ class ReadDocumentRequest(BaseModel):
 # multipart endpoint too (frontend works). For programmatic JSON
 # callers there is `/extract-document-json` (the original behaviour).
 @router.post("/extract-document-json")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def extract_document_json_ep(
     req: ReadDocumentRequest,
     llm=Depends(get_llm),
@@ -16826,6 +17180,7 @@ async def extract_document_json_ep(
 
 
 @router.post("/extract-document")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def extract_document_ep(
     file: UploadFile = File(...),
     context: str = Form(""),
@@ -16900,6 +17255,7 @@ class ReadContractRequest(BaseModel):
 
 
 @router.post("/read-contract")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def read_contract_ep(
     req: ReadContractRequest,
     llm=Depends(get_llm),
@@ -16921,6 +17277,7 @@ async def read_contract_ep(
 # ── Conversation History CRUD ────────────────────────────────────────────────
 
 @router.get("/conversations")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def list_conversations_ep(user_id: str = "", offset: int = 0, limit: int = 30):
     """List conversations for a user, newest first."""
     if not user_id:
@@ -16931,6 +17288,7 @@ async def list_conversations_ep(user_id: str = "", offset: int = 0, limit: int =
 
 
 @router.get("/conversations/{session_id}/detail")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def get_conversation_detail_ep(session_id: str, user_id: str = ""):
     """Load a conversation with full message history.
 
@@ -16951,6 +17309,7 @@ async def get_conversation_detail_ep(session_id: str, user_id: str = ""):
 
 
 @router.delete("/conversations/{session_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def delete_conversation_ep(session_id: str, user_id: str = ""):
     """Delete a conversation.
 
@@ -16975,6 +17334,7 @@ class RenameConversationRequest(BaseModel):
 
 
 @router.put("/conversations/{session_id}/title")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rename_conversation_ep(session_id: str, req: RenameConversationRequest, user_id: str = ""):
     """Rename a conversation.
 
@@ -16995,6 +17355,7 @@ async def rename_conversation_ep(session_id: str, req: RenameConversationRequest
 # ── Corpus Manager ───────────────────────────────────────────────────────────
 
 @router.get("/corpus/registry")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_registry_ep():
     """Get corpus URL registry summary."""
     from ..intel import corpus_manager
@@ -17009,6 +17370,7 @@ class CorpusProposalRequest(BaseModel):
 
 
 @router.post("/corpus/propose")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_propose_ep(req: CorpusProposalRequest, request: Request):
     """Propose a new URL for the corpus. Auto-adds LOW risk, queues MEDIUM/HIGH."""
     from ..intel import corpus_manager
@@ -17023,6 +17385,7 @@ class CorpusAddRequest(BaseModel):
 
 
 @router.post("/corpus/add")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_add_ep(req: CorpusAddRequest):
     """Directly add a URL to a tier (human-directed, bypasses classification)."""
     from ..intel import corpus_manager
@@ -17031,6 +17394,7 @@ async def corpus_add_ep(req: CorpusAddRequest):
 
 
 @router.get("/corpus/proposals")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_proposals_ep():
     """Get pending proposals awaiting human review."""
     from ..intel import corpus_manager
@@ -17039,6 +17403,7 @@ async def corpus_proposals_ep():
 
 
 @router.post("/corpus/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_approve_ep(req: CorpusProposalRequest):
     """Approve a pending URL proposal."""
     from ..intel import corpus_manager
@@ -17047,6 +17412,7 @@ async def corpus_approve_ep(req: CorpusProposalRequest):
 
 
 @router.post("/corpus/crawl")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_crawl_ep():
     """Trigger a weekly corpus crawl (indexes new/changed content)."""
     from ..intel import corpus_manager
@@ -17055,6 +17421,7 @@ async def corpus_crawl_ep():
 
 
 @router.get("/corpus/gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def corpus_gaps_ep():
     """Identify regions with thin corpus coverage."""
     from ..intel import corpus_manager
@@ -17063,6 +17430,7 @@ async def corpus_gaps_ep():
 
 
 @router.get("/corpus/conflicts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_conflicts_ep():
     """Get detected memory conflicts for review."""
     from ..intel import neural_memory
@@ -17075,6 +17443,7 @@ class ConflictResolveRequest(BaseModel):
 
 
 @router.post("/corpus/conflicts/resolve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def neural_conflicts_resolve_ep(req: ConflictResolveRequest):
     """Resolve conflicts for an entity."""
     from ..intel import neural_memory
@@ -17085,6 +17454,7 @@ async def neural_conflicts_resolve_ep(req: ConflictResolveRequest):
 # ── International Law Module ─────────────────────────────────────────────────
 
 @router.post("/law/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def law_ingest_ep():
     """Ingest the international law library into RAG store."""
     from ..intel import international_law
@@ -17093,6 +17463,7 @@ async def law_ingest_ep():
 
 
 @router.post("/law/refresh")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def law_refresh_ep():
     """Full refresh: re-ingest static sections + crawl live legal sources."""
     from ..intel import international_law
@@ -17103,6 +17474,7 @@ async def law_refresh_ep():
 # ── Search Engine ─────────────────────────────────────────────────────────────
 
 @router.get("/search/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_health_ep():
     """Check which search backends are available."""
     from ..intel import web_search
@@ -17118,6 +17490,7 @@ class SearchRequest(BaseModel):
 
 
 @router.post("/search/web")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_web_ep(req: SearchRequest):
     """Run ARIA's independent multi-backend web search."""
     from ..intel import web_search
@@ -17143,6 +17516,7 @@ class ContractSelfReviewRequest(BaseModel):
 
 
 @router.post("/contract/self-review")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contract_self_review_ep(req: ContractSelfReviewRequest, request: Request):
     """Run a self-audit on ARIA's contract review draft against the document."""
     from ..intel import contract_intelligence
@@ -17163,6 +17537,7 @@ class ContractCorrectionRequest(BaseModel):
 
 
 @router.post("/contract/correction")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contract_correction_ep(req: ContractCorrectionRequest):
     """Record a contract review correction as a permanent lesson."""
     from ..intel import contract_intelligence
@@ -17173,6 +17548,7 @@ async def contract_correction_ep(req: ContractCorrectionRequest):
 
 
 @router.get("/contract/corrections")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contract_corrections_ep():
     """Get recent contract review corrections/lessons."""
     from ..intel import contract_intelligence
@@ -17181,6 +17557,7 @@ async def contract_corrections_ep():
 
 
 @router.post("/contract/clauses/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contract_clauses_ingest_ep():
     """Ingest the standard clause library into RAG store."""
     from ..intel import contract_intelligence
@@ -17189,6 +17566,7 @@ async def contract_clauses_ingest_ep():
 
 
 @router.get("/law/sections")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def law_sections_ep():
     """List available international law sections."""
     from ..intel import international_law
@@ -17217,6 +17595,7 @@ class CapabilityGapRequest(BaseModel):
 
 
 @router.post("/capability-gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def record_capability_gap_ep(req: CapabilityGapRequest):
     """Record a capability gap that ARIA encountered."""
     from ..intel import capability_gaps
@@ -17227,6 +17606,7 @@ async def record_capability_gap_ep(req: CapabilityGapRequest):
 
 
 @router.get("/capability-gaps/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def capability_gap_summary_ep():
     """Get a summary of all capability gaps by type."""
     from ..intel import capability_gaps
@@ -17234,6 +17614,7 @@ async def capability_gap_summary_ep():
 
 
 @router.post("/capability-gaps/purge")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def capability_gaps_purge_ep(request: Request):
     """Bulk-resolve all capability gaps of a given type.
 
@@ -17248,6 +17629,7 @@ async def capability_gaps_purge_ep(request: Request):
 
 
 @router.get("/capability-gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def list_capability_gaps_ep(resolved: bool = False, limit: int = 50):
     """List capability gaps filtered by resolved status."""
     from ..intel import capability_gaps
@@ -17258,6 +17640,7 @@ async def list_capability_gaps_ep(resolved: bool = False, limit: int = 50):
 # ── Weekly Learning Report ────────────────────────────────────────────────────
 
 @router.post("/weekly-report")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def generate_weekly_report_ep(request: Request):
     """Generate the weekly learning report now."""
     from ..intel import weekly_report
@@ -17267,6 +17650,7 @@ async def generate_weekly_report_ep(request: Request):
 
 
 @router.get("/weekly-report")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def get_weekly_report_ep():
     """Get the most recent weekly learning report."""
     from ..intel import weekly_report
@@ -17279,6 +17663,7 @@ async def get_weekly_report_ep():
 # ── Security ────────────────────────────────────────────────────────────────
 
 @router.post("/security/audit")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def security_audit_ep():
     """Run ARIA's security self-audit — scans knowledge base and reasoning
     library for leaked API keys, internal paths, system prompt fragments,
@@ -17288,6 +17673,7 @@ async def security_audit_ep():
 
 
 @router.post("/security/scan-input")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def security_scan_input_ep(req: Request):
     """Scan arbitrary text for prompt injection, command injection, data
     exfiltration attempts. Returns risk level + reasons."""
@@ -17302,6 +17688,7 @@ async def security_scan_input_ep(req: Request):
 # ── Tender Monitor ───────────────────────────────────────────────────────────
 
 @router.get("/tenders")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def get_tenders_ep(since_hours: int = 24, min_relevance: float = 0.3):
     """Get recent tender alerts, optionally filtered by relevance score."""
     from ..intel import tender_monitor
@@ -17317,6 +17704,7 @@ async def get_tenders_ep(since_hours: int = 24, min_relevance: float = 0.3):
 
 
 @router.post("/tenders/crawl")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def trigger_tender_crawl_ep():
     """Trigger a manual tender monitoring crawl cycle."""
     from ..intel import tender_monitor
@@ -17325,6 +17713,7 @@ async def trigger_tender_crawl_ep():
 
 
 @router.get("/tenders/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tender_stats_ep():
     """Get tender monitoring portal health and statistics."""
     from ..intel import tender_monitor
@@ -17336,6 +17725,7 @@ async def tender_stats_ep():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/pipeline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_list_ep(
     stage: str = "",
     country: str = "",
@@ -17353,12 +17743,14 @@ async def pipeline_list_ep(
 
 
 @router.get("/pipeline/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_stats_ep():
     from ..intel import deal_pipeline
     return await deal_pipeline.get_stats()
 
 
 @router.get("/pipeline/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_summary_ep():
     """Formatted pipeline summary (same as WhatsApp /pipeline)."""
     from ..intel import deal_pipeline
@@ -17366,18 +17758,21 @@ async def pipeline_summary_ep():
 
 
 @router.get("/pipeline/stale")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_stale_ep(days: int = 14):
     from ..intel import deal_pipeline
     return {"stale_leads": await deal_pipeline.get_stale_leads(days)}
 
 
 @router.get("/pipeline/deadlines")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_deadlines_ep(days: int = 30):
     from ..intel import deal_pipeline
     return {"upcoming_deadlines": await deal_pipeline.get_upcoming_deadlines(days)}
 
 
 @router.get("/pipeline/{lead_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_get_ep(lead_id: str):
     from ..intel import deal_pipeline
     lead = await deal_pipeline.get_lead(lead_id)
@@ -17387,6 +17782,7 @@ async def pipeline_get_ep(lead_id: str):
 
 
 @router.post("/pipeline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_create_ep(req: Request):
     """Create a new lead manually."""
     from ..intel import deal_pipeline
@@ -17409,6 +17805,7 @@ async def pipeline_create_ep(req: Request):
 
 
 @router.patch("/pipeline/{lead_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_update_ep(lead_id: str, req: Request):
     """Update a lead (stage, notes, next_action, etc)."""
     from ..intel import deal_pipeline
@@ -17420,6 +17817,7 @@ async def pipeline_update_ep(lead_id: str, req: Request):
 
 
 @router.delete("/pipeline/{lead_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def pipeline_delete_ep(lead_id: str):
     from ..intel import deal_pipeline
     deleted = await deal_pipeline.delete_lead(lead_id)
@@ -17433,6 +17831,7 @@ async def pipeline_delete_ep(lead_id: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/contacts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_list_ep(status: str = "", country: str = ""):
     from ..intel import contact_intelligence
     contacts = await contact_intelligence.get_contacts(
@@ -17443,18 +17842,21 @@ async def contacts_list_ep(status: str = "", country: str = ""):
 
 
 @router.get("/contacts/nudges")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_nudges_ep():
     from ..intel import contact_intelligence
     return {"nudges": await contact_intelligence.get_reengagement_nudges()}
 
 
 @router.get("/contacts/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_stats_ep():
     from ..intel import contact_intelligence
     return await contact_intelligence.get_stats()
 
 
 @router.post("/contacts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_add_ep(req: Request):
     from ..intel import contact_intelligence
     body = await req.json()
@@ -17474,6 +17876,7 @@ async def contacts_add_ep(req: Request):
 
 
 @router.post("/contacts/interaction")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contacts_interaction_ep(req: Request):
     from ..intel import contact_intelligence
     body = await req.json()
@@ -17492,30 +17895,35 @@ async def contacts_interaction_ep(req: Request):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/team/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def team_stats_ep():
     from ..intel import team_engagement
     return await team_engagement.get_stats()
 
 
 @router.get("/team/quiet")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def team_quiet_ep(days: int = 7):
     from ..intel import team_engagement
     return {"quiet_members": await team_engagement.get_quiet_members(days)}
 
 
 @router.get("/team/knowledge-requests")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def team_knowledge_requests_ep():
     from ..intel import team_engagement
     return {"requests": await team_engagement.generate_knowledge_requests()}
 
 
 @router.get("/team/source-recommendations")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def team_source_recs_ep():
     from ..intel import team_engagement
     return {"recommendations": await team_engagement.generate_source_recommendations()}
 
 
 @router.post("/team/interaction")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def team_interaction_ep(req: Request):
     """Record a team member's interaction (called by WA listener)."""
     from ..intel import team_engagement
@@ -17530,6 +17938,7 @@ async def team_interaction_ep(req: Request):
 # ── Self-awareness: capability manifest + metrics ──────────────────────────
 
 @router.get("/self/manifest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_manifest_ep():
     """Latest auto-derived capability manifest (modules, jurisdictions,
     autonomous tasks, corpus tiers, sanctions sources). Returns the last
@@ -17540,6 +17949,7 @@ async def self_manifest_ep():
 
 
 @router.post("/self/manifest/snapshot")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_manifest_snapshot_ep():
     """Force a fresh snapshot: derive from code, persist, diff vs prior,
     emit regression signals for anything that disappeared. Normally the
@@ -17550,6 +17960,7 @@ async def self_manifest_snapshot_ep():
 
 
 @router.get("/self/manifest/history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_manifest_history_ep(limit: int = 10):
     """Recent manifest snapshots, newest first. Use for drift inspection."""
     from ..intel import capability_manifest as cm
@@ -17557,6 +17968,7 @@ async def self_manifest_history_ep(limit: int = 10):
 
 
 @router.get("/self/metrics/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_metrics_stats_ep():
     """Totals + head hash + per-axis counts for the self-metrics chain."""
     from ..intel import self_metrics
@@ -17564,6 +17976,7 @@ async def self_metrics_stats_ep():
 
 
 @router.get("/self/metrics/rollup")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_metrics_rollup_ep(window_days: int = 7, axis: str | None = None, domain: str | None = None):
     """7-day (or custom window) rollup of self-metrics, grouped by
     (axis × domain), with trend vs prior window."""
@@ -17574,6 +17987,7 @@ async def self_metrics_rollup_ep(window_days: int = 7, axis: str | None = None, 
 
 
 @router.get("/self/metrics/strengths-weaknesses")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_strengths_weaknesses_ep(window_days: int = 7, top_n: int = 5):
     """What ARIA is good at and where she's regressing — feeds the
     State-of-ARIA section of the morning briefing (slice 2)."""
@@ -17585,6 +17999,7 @@ async def self_strengths_weaknesses_ep(window_days: int = 7, top_n: int = 5):
 
 
 @router.get("/self/metrics/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_metrics_verify_ep(start: int = 0, count: int = 500):
     """Verify the self-metrics hash-chain integrity. Tampering with any
     entry breaks the chain forward — she'll detect her own blind spots
@@ -17594,6 +18009,7 @@ async def self_metrics_verify_ep(start: int = 0, count: int = 500):
 
 
 @router.get("/self/peers")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_peers_ep():
     """Latest peer-landscape scan (ARIA's AI/compliance peers — NOT to be
     confused with /competitors, which is defence-industry OEMs). Returns
@@ -17608,6 +18024,7 @@ async def self_peers_ep():
 
 
 @router.post("/self/peers/scan")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_peers_scan_ep():
     """Force a fresh peer scan. Diffs seed + observations against the
     capability manifest, persists, emits regression signals, feeds brain."""
@@ -17616,6 +18033,7 @@ async def self_peers_scan_ep():
 
 
 @router.post("/self/peers/observation")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_peers_observation_ep(req: Request):
     """Record a new observation about a peer (e.g. research finds they
     added a new sanctions source or jurisdiction). Observations are
@@ -17641,6 +18059,7 @@ async def self_peers_observation_ep(req: Request):
 
 
 @router.get("/self/peers/history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_peers_history_ep(limit: int = 10):
     """Recent peer-scan snapshots, newest first."""
     from ..intel import aria_peers
@@ -17651,6 +18070,7 @@ async def self_peers_history_ep(limit: int = 10):
 
 # R-F1172 -- Multi-agent registry endpoints
 @router.get("/agents")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def agents_list_ep(include_stale: bool = False):
     """List all registered agents and their current state.
 
@@ -17668,6 +18088,7 @@ async def agents_list_ep(include_stale: bool = False):
 
 
 @router.get("/agents/{agent_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def agents_status_ep(agent_id: str):
     """Get the status of a specific agent."""
     from ..intel.agent_registry import AgentRegistry
@@ -17680,6 +18101,7 @@ async def agents_status_ep(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/message")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def agents_send_message_ep(agent_id: str, request: Request):
     """Send a message to another agent."""
     from ..intel.agent_registry import AgentRegistry
@@ -17696,6 +18118,7 @@ async def agents_send_message_ep(agent_id: str, request: Request):
 
 
 @router.get("/agents/{agent_id}/messages")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def agents_read_messages_ep(agent_id: str):
     """Read messages addressed to an agent."""
     from ..intel.agent_registry import AgentRegistry
@@ -17706,6 +18129,7 @@ async def agents_read_messages_ep(agent_id: str):
 
 # R-F1213: Portal credential health dashboard
 @router.get("/portal/credentials")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_credentials_ep():
     """Get credential health status for all portals.
 
@@ -17746,6 +18170,7 @@ async def portal_credentials_ep():
 
 
 @router.post("/portal/credentials/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_credentials_verify_ep():
     """Trigger an immediate credential verification cycle."""
     from ..intel.web_integrity_agent import WebIntegrityAgent
@@ -17755,6 +18180,7 @@ async def portal_credentials_verify_ep():
 
 
 @router.post("/portal/credentials/{portal_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def portal_credentials_store_ep(portal_id: str, request: Request):
     """Store credentials for a portal (operator-provided).
 
@@ -17798,6 +18224,7 @@ async def portal_credentials_store_ep(portal_id: str, request: Request):
 
 
 @router.get("/self/predict")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_predict_ep(task_type: str, domain: str,
                           entity_type: str | None = None):
     """Pre-task forecast: likely failure axes, past mistakes on similar
@@ -17810,6 +18237,7 @@ async def self_predict_ep(task_type: str, domain: str,
 
 
 @router.get("/self/mistakes/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_recent_ep(limit: int = 50, category: str | None = None):
     """Recent mistakes, newest first. Optional category filter."""
     from ..intel import mistake_ledger
@@ -17819,6 +18247,7 @@ async def self_mistakes_recent_ep(limit: int = 50, category: str | None = None):
 
 
 @router.get("/self/mistakes/similar")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_similar_ep(task_type: str, domain: str,
                                    what_class: str = "", limit: int = 5):
     """Look up past mistakes matching (task_type, domain[, what_class]).
@@ -17831,6 +18260,7 @@ async def self_mistakes_similar_ep(task_type: str, domain: str,
 
 
 @router.post("/self/mistakes/prevented")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_prevented_ep(req: Request):
     """Mark a mistake as prevented on a subsequent run. Body:
     {mistake_id, prevented_by, context?}. Emits self_metrics utility=1.0 —
@@ -17848,6 +18278,7 @@ async def self_mistakes_prevented_ep(req: Request):
 
 
 @router.get("/self/mistakes/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_stats_ep():
     """Totals by category + prevented_total. prevented_total is the
     single most important metric in the self-awareness stack — it's
@@ -17857,6 +18288,7 @@ async def self_mistakes_stats_ep():
 
 
 @router.get("/self/mistakes/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
     """Verify the mistake-ledger hash-chain integrity."""
     from ..intel import mistake_ledger
@@ -17866,6 +18298,7 @@ async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
 
 
 @router.post("/self/mistakes/reindex")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_reindex_ep():
     """Repair divergence between _KEY_LOG and _KEY_BY_ID on the mistake
     ledger. The existing heal-on-read in `mark_prevented` only fixes
@@ -17877,6 +18310,7 @@ async def self_mistakes_reindex_ep():
 
 
 @router.post("/self/mistakes/invalidate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_invalidate_ep(req: Request):
     """Soft-invalidate mistakes (predictor will skip them; chain stays
     intact for forensic audit). Body: {mistake_ids: [...], reason: "..."}.
@@ -17892,6 +18326,7 @@ async def self_mistakes_invalidate_ep(req: Request):
 
 
 @router.get("/self/mistakes/invalidated")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_mistakes_invalidated_ep():
     """List currently-invalidated mistakes with their reason."""
     from ..intel import mistake_ledger
@@ -17902,6 +18337,7 @@ async def self_mistakes_invalidated_ep():
 # ── State of ARIA — daily self-assessment ────────────────────────────────
 
 @router.get("/self/assess")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_assess_ep():
     """Latest State-of-ARIA report. Structured JSON combining metrics
     strengths/weaknesses, capability drift, peer gap highlight, open
@@ -17913,6 +18349,7 @@ async def self_assess_ep():
 
 
 @router.post("/self/assess/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_assess_run_ep():
     """Force a fresh self-assessment run (snapshots manifest, pulls
     metrics rollup, reads peer scan + mistake stats, feeds brain).
@@ -17923,6 +18360,7 @@ async def self_assess_run_ep():
 
 
 @router.get("/self/assess/briefing")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_assess_briefing_ep():
     """The markdown block as appended to the morning team briefing.
     Returns `briefing: ""` when there's no meaningful data yet."""
@@ -17956,6 +18394,7 @@ def _get_claim_ledger():
 
 
 @router.post("/claims/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def claims_ingest_ep(body: _ClaimIngestBody):
     """Extract material claims from a counterparty message, store them,
     and detect contradictions with prior claims by the same counterparty."""
@@ -17977,6 +18416,7 @@ async def claims_ingest_ep(body: _ClaimIngestBody):
 
 
 @router.get("/claims/{counterparty}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def claims_list_ep(counterparty: str, deal_id: str = ""):
     """Retrieve all logged claims for a counterparty."""
     ledger = _get_claim_ledger()
@@ -17990,6 +18430,7 @@ async def claims_list_ep(counterparty: str, deal_id: str = ""):
 
 
 @router.get("/claims/{counterparty}/summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def claims_summary_ep(counterparty: str, deal_id: str = ""):
     """Formatted claim ledger summary for DD reports."""
     ledger = _get_claim_ledger()
@@ -18030,6 +18471,7 @@ def _get_gt_loop():
 
 
 @router.post("/ground-truth/assessment")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ground_truth_assessment_ep(body: _AssessmentBody):
     """Record an ARIA prediction at the time it's made."""
     from ..intel.ground_truth_loop import AssessmentType
@@ -18050,6 +18492,7 @@ async def ground_truth_assessment_ep(body: _AssessmentBody):
 
 
 @router.post("/ground-truth/outcome")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ground_truth_outcome_ep(body: _OutcomeBody):
     """Record the real-world outcome for a prior assessment."""
     from ..intel.ground_truth_loop import OutcomeResult
@@ -18070,6 +18513,7 @@ async def ground_truth_outcome_ep(body: _OutcomeBody):
 
 
 @router.get("/ground-truth/calibration")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ground_truth_calibration_ep(period_days: int = 30):
     """Generate calibration report — accuracy by domain, overconfident misses."""
     loop = _get_gt_loop()
@@ -18090,6 +18534,7 @@ async def ground_truth_calibration_ep(period_days: int = 30):
 
 
 @router.get("/ground-truth/pending")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ground_truth_pending_ep(max_age_days: int = 90):
     """Assessments still awaiting outcome verification — surfaces in weekly briefing."""
     loop = _get_gt_loop()
@@ -18142,6 +18587,7 @@ def _get_constitution():
 
 
 @router.post("/constitution/incident")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_incident_ep(body: _IncidentBody):
     """Report a new incident. ARIA drafts a proposed clause for human review."""
     c = _get_constitution()
@@ -18161,6 +18607,7 @@ async def constitution_incident_ep(body: _IncidentBody):
 
 
 @router.post("/constitution/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_approve_ep(body: _ClauseReviewBody):
     """Human approves a drafted clause — activates it in ARIA's system prompt."""
     c = _get_constitution()
@@ -18176,6 +18623,7 @@ async def constitution_approve_ep(body: _ClauseReviewBody):
 
 
 @router.post("/constitution/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_reject_ep(body: _ClauseReviewBody):
     """Human rejects a drafted clause."""
     c = _get_constitution()
@@ -18186,6 +18634,7 @@ async def constitution_reject_ep(body: _ClauseReviewBody):
 
 
 @router.get("/constitution/pending")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_pending_ep():
     """Draft clauses awaiting human review."""
     c = _get_constitution()
@@ -18256,6 +18705,7 @@ def _consume_webhook_token(src: str) -> tuple[bool, float, float]:
 
 
 @router.post("/inbound/{source}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def inbound_webhook_ep(source: str, request: Request):
     """R-F249 (2026-05-11) — generic inbound webhook receiver.
 
@@ -18435,6 +18885,7 @@ async def inbound_webhook_ep(source: str, request: Request):
 
 
 @router.get("/knowledge/inventory")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def knowledge_inventory_ep(tag: str = "", limit: int = 50):
     """R-F245 (2026-05-11): operator-facing inventory endpoint.
 
@@ -18478,6 +18929,7 @@ async def knowledge_inventory_ep(tag: str = "", limit: int = 50):
 
 
 @router.get("/constitution/version")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_version_ep():
     """R-F221 (2026-05-11): publish the live ARIA_SYSTEM_PROMPT version
     + numbered-clause count so model-card.html stops hard-coding
@@ -18527,6 +18979,7 @@ async def constitution_version_ep():
 
 
 @router.get("/constitution/active")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_active_ep():
     """All approved living-constitution clauses currently active."""
     c = _get_constitution()
@@ -18558,6 +19011,7 @@ class _DeceptionBody(BaseModel):
 
 
 @router.post("/deception/analyse")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def deception_analyse_ep(body: _DeceptionBody):
     """Score a counterparty communication for deception risk indicators.
     Returns tier (LOW/MODERATE/ELEVATED/HIGH), signals detected, and
@@ -18589,6 +19043,7 @@ async def deception_analyse_ep(body: _DeceptionBody):
 
 # Alias so the WhatsApp channel-mirror's historical endpoint name works.
 @router.post("/deception/screen")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def deception_screen_alias_ep(body: _DeceptionBody):
     """Alias for /deception/analyse — kept for channel-mirror compatibility."""
     return await deception_analyse_ep(body)
@@ -18596,6 +19051,7 @@ async def deception_screen_alias_ep(body: _DeceptionBody):
 
 # Alias so the WhatsApp channel-mirror's historical endpoint name works.
 @router.post("/claim-ledger/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def claim_ledger_ingest_alias_ep(body: _ClaimIngestBody):
     """Alias for /claims/ingest — kept for channel-mirror compatibility."""
     return await claims_ingest_ep(body)
@@ -18618,6 +19074,7 @@ class _IngestBody(BaseModel):
 
 
 @router.post("/channel/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ingest_ep(body: _IngestBody):
     """Silent ingestion endpoint — appends to intel ledger, no reply.
     Used by the WhatsApp channel mirror for internal group messages.
@@ -18717,6 +19174,7 @@ def _get_memory_router():
 
 
 @router.post("/memory/query")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_query_ep(body: _MemoryQueryBody):
     """Classify a query and route it across ARIA's 5 memory stores."""
     from ..intel.memory_router import QueryType
@@ -18745,6 +19203,7 @@ async def memory_query_ep(body: _MemoryQueryBody):
 
 
 @router.get("/memory/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_health_ep():
     """Which memory stores are currently reachable and how large they are.
     Closes the perimeter-visibility gap — ARIA's self-awareness stack
@@ -18754,6 +19213,7 @@ async def memory_health_ep():
 
 
 @router.post("/memory/classify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_classify_ep(body: _MemoryQueryBody):
     """Preview — classify a query without running it. Useful for debugging
     the router's keyword patterns."""
@@ -18792,12 +19252,14 @@ def _get_cost_monitor():
 
 
 @router.get("/cost/daily")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_daily_ep():
     """Today's cost summary — total, remaining, utilisation, task breakdown."""
     return _get_cost_monitor().get_daily_summary()
 
 
 @router.get("/cost/leaderboard")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_leaderboard_ep(days: int = 7):
     """Per-task cost leaderboard for the past N days."""
     return {"days": days, "leaderboard": _get_cost_monitor().get_cost_leaderboard(days=days)}
@@ -18808,6 +19270,7 @@ class _CostResetBody(BaseModel):
 
 
 @router.post("/cost/reset-task")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_reset_task_ep(body: _CostResetBody):
     """Re-enable a suspended task (admin action)."""
     _get_cost_monitor().reset_task(body.task_id)
@@ -18819,6 +19282,7 @@ class _CostCapBody(BaseModel):
 
 
 @router.post("/cost/set-cap")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cost_set_cap_ep(body: _CostCapBody):
     """Adjust daily cap at runtime."""
     monitor = _get_cost_monitor()
@@ -18836,6 +19300,7 @@ class _ConstitutionRunBody(BaseModel):
 
 
 @router.post("/constitution/test/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_test_run_ep(body: _ConstitutionRunBody):
     """Run adversarial tests against each constitutional clause.
     Returns pass/fail per clause plus a structured report."""
@@ -18877,6 +19342,7 @@ async def constitution_test_run_ep(body: _ConstitutionRunBody):
 
 
 @router.get("/constitution/test/catalogue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_test_catalogue_ep():
     """List the clause tests defined in the suite — for dashboard / docs."""
     from ..tests.test_constitution import CLAUSE_TESTS
@@ -18895,6 +19361,7 @@ async def constitution_test_catalogue_ep():
 
 
 @router.get("/prediction/taxonomy")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def prediction_taxonomy_ep():
     """The 4-class prediction taxonomy that calibrates the ground truth loop.
     Returned here so dashboards and docs can render it consistently."""
@@ -18917,6 +19384,7 @@ class _VIClassifyBody(BaseModel):
 
 
 @router.post("/verified_intel/classify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_classify_ep(body: _VIClassifyBody):
     """Classify a source URL into Tier 1a..5 per Clause 17 policy."""
     from ..intel.verified_intel import SourceTierClassifier, TIER_SCORES
@@ -18938,6 +19406,7 @@ class _VIContradictionBody(BaseModel):
 
 
 @router.post("/verified_intel/contradiction_check")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_contradiction_ep(body: _VIContradictionBody):
     """Check whether two source claims materially contradict each other."""
     from ..intel.verified_intel import (
@@ -18979,6 +19448,7 @@ async def verified_intel_contradiction_ep(body: _VIContradictionBody):
 
 
 @router.get("/verified_intel/policy")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_policy_ep():
     """Return the Clause 17 verification policy — TTLs, tier scores, thresholds.
     Dashboards render this so operators can see the active policy without
@@ -19010,6 +19480,7 @@ class _VIVerifyBody(BaseModel):
 
 
 @router.post("/verified_intel/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_verify_ep(body: _VIVerifyBody):
     """Verify a claim end-to-end — classify source, seek corroboration,
     detect contradictions, persist (via async redis_store), audit-log,
@@ -19038,6 +19509,7 @@ async def verified_intel_verify_ep(body: _VIVerifyBody):
 
 
 @router.get("/verified_intel/get")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_get_ep(
     entity_name: str,
     fact_type: str,
@@ -19063,6 +19535,7 @@ class _VIRefreshBody(BaseModel):
 
 
 @router.post("/verified_intel/refresh")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verified_intel_refresh_ep(body: _VIRefreshBody):
     """Manually trigger the stale-fact refresh pass. Same code path as
     the scheduled DAILY-FACT-REFRESH autonomous task."""
@@ -19078,6 +19551,7 @@ async def verified_intel_refresh_ep(body: _VIRefreshBody):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/atlas/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_stats_ep():
     """Top-line atlas stats — families tracked, topics, coverage cells,
     gap counts. Dashboard + daily briefing render this."""
@@ -19086,6 +19560,7 @@ async def atlas_stats_ep():
 
 
 @router.get("/atlas/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_coverage_ep(region: str = ""):
     """Per-region × topic coverage map. Flags CRITICAL / HIGH / MEDIUM / OK
     so operators see where ARIA is blind before a brief goes out."""
@@ -19095,6 +19570,7 @@ async def atlas_coverage_ep(region: str = ""):
 
 
 @router.get("/atlas/gaps")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_gaps_ep(min_level: str = "HIGH", limit: int = 20):
     """Return coverage cells at the given gap level or worse.
     Feed for the source-scout pipeline."""
@@ -19103,6 +19579,7 @@ async def atlas_gaps_ep(min_level: str = "HIGH", limit: int = 20):
 
 
 @router.get("/atlas/rank")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_rank_ep(topic: str, limit: int = 10):
     """Top-N sources for a topic, ranked by reliability EMA."""
     from ..intel import web_atlas
@@ -19118,6 +19595,7 @@ class _AtlasAddBody(BaseModel):
 
 
 @router.post("/atlas/add")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_add_ep(body: _AtlasAddBody):
     """Manually add a source to the atlas — audit-logged."""
     from ..intel import web_atlas
@@ -19128,6 +19606,7 @@ async def atlas_add_ep(body: _AtlasAddBody):
 
 
 @router.post("/atlas/snapshot")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def atlas_snapshot_ep():
     """Write the YAML mirror of the atlas so self_improve can edit it
     through the whitelisted path."""
@@ -19140,6 +19619,7 @@ async def atlas_snapshot_ep():
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/ecosystem/reassess")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ecosystem_reassess_ep():
     """Manually trigger the hourly reassess pass. Same code path as
     the scheduled HOURLY-ECOSYSTEM-REASSESS task."""
@@ -19148,6 +19628,7 @@ async def ecosystem_reassess_ep():
 
 
 @router.get("/ecosystem/queue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def ecosystem_queue_ep(limit: int = 50):
     """Read the current priority queue — what ARIA plans to work on next."""
     from ..intel import ecosystem_reassess
@@ -19159,6 +19640,7 @@ class _CoreDevelopBody(BaseModel):
 
 
 @router.post("/core/develop")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def core_develop_ep(body: _CoreDevelopBody):
     """Manually trigger the daily core-develop pass. Same code path
     as DAILY-CORE-DEVELOP. Only auto-allowed actions per doctrine."""
@@ -19167,6 +19649,7 @@ async def core_develop_ep(body: _CoreDevelopBody):
 
 
 @router.post("/core/meta")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def core_meta_ep():
     """Weekly meta-review — capability diff, action summary, atlas stats."""
     from ..intel import core_develop
@@ -19181,6 +19664,7 @@ class _SourceScoutBody(BaseModel):
 
 
 @router.post("/source/scout")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_scout_ep(body: _SourceScoutBody):
     """Manually fire a scout pattern — citation / tld_probe / targeted."""
     from ..intel import source_scout
@@ -19201,6 +19685,7 @@ class _SVValidateBody(BaseModel):
 
 
 @router.post("/source_validator/validate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_validate_ep(body: _SVValidateBody):
     """Run the 10-signal quality validator on a candidate URL. Returns
     the SourceCandidate dict with tier proposal + signals + status.
@@ -19217,6 +19702,7 @@ async def source_validator_validate_ep(body: _SVValidateBody):
 
 
 @router.get("/source_validator/candidates")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_candidates_ep(status: str = "", limit: int = 50):
     """List pending candidates (status='' returns all, or filter by
     PENDING / APPROVED / REJECTED / AUTO_REJECTED / AUTO_APPROVED)."""
@@ -19231,6 +19717,7 @@ class _SVApproveBody(BaseModel):
 
 
 @router.post("/source_validator/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_approve_ep(body: _SVApproveBody):
     """Human approves a pending candidate — registers it with Web Atlas."""
     from ..intel import source_validator as _sv
@@ -19244,6 +19731,7 @@ class _SVRejectBody(BaseModel):
 
 
 @router.post("/source_validator/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_reject_ep(body: _SVRejectBody):
     """Human rejects a pending candidate — archived with reason."""
     from ..intel import source_validator as _sv
@@ -19253,6 +19741,7 @@ async def source_validator_reject_ep(body: _SVRejectBody):
 
 
 @router.get("/source_validator/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_coverage_ep():
     """Coverage-gap analysis against the 23 named domains (complementary
     to /atlas/gaps which is cell-level)."""
@@ -19261,6 +19750,7 @@ async def source_validator_coverage_ep():
 
 
 @router.get("/source_validator/coverage_report")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_coverage_report_ep():
     """Human-readable coverage summary for the daily briefing."""
     from ..intel import source_validator as _sv
@@ -19268,6 +19758,7 @@ async def source_validator_coverage_report_ep():
 
 
 @router.get("/source_validator/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_health_ep():
     """Registry health report — top performers / degraded / failing /
     dead. Fed into WEEKLY-CORE-META by default."""
@@ -19280,6 +19771,7 @@ class _SVSuspendBody(BaseModel):
 
 
 @router.post("/source_validator/suspend_failing")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def source_validator_suspend_ep(body: _SVSuspendBody):
     """Auto-suspend sources whose overall reliability falls below the
     threshold. Auto-allowed per doctrine. Also runs inside WEEKLY-CORE-META."""
@@ -19298,6 +19790,7 @@ class _SearchDoctrineBody(BaseModel):
 
 
 @router.post("/search_doctrine/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_doctrine_search_ep(body: _SearchDoctrineBody):
     """Run a disciplined search per Clause 19 — wrapper strip, decomposition,
     adaptive result count, 3-attempt reformulation with vocabulary swap,
@@ -19316,6 +19809,7 @@ class _SDParaphraseBody(BaseModel):
 
 
 @router.post("/search_doctrine/check_paraphrase")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_doctrine_paraphrase_ep(body: _SDParaphraseBody):
     """Post-generation paraphrase check — flags any verbatim reproduction
     ≥200 chars from the supplied source snippets."""
@@ -19326,6 +19820,7 @@ async def search_doctrine_paraphrase_ep(body: _SDParaphraseBody):
 
 
 @router.post("/search_doctrine/detect_conflicts")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def search_doctrine_conflicts_ep(results: list[dict]):
     """Heuristic numeric-mismatch detector over a result set. Returns
     a list of conflicts for inline [CONFLICT: ...] rendering."""
@@ -19367,6 +19862,7 @@ class _GoldenProposeBody(BaseModel):
 
 
 @router.post("/golden/propose_batch")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def golden_propose_batch_ep(body: _GoldenProposeBody):
     """Scan VERIFIED facts, auto-promote multi-source ones directly to
     the golden set, queue borderline ones for human review."""
@@ -19375,6 +19871,7 @@ async def golden_propose_batch_ep(body: _GoldenProposeBody):
 
 
 @router.get("/golden/candidates")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def golden_candidates_ep(status: str = "", limit: int = 50):
     """List pending golden-Q candidates (optional filter by status)."""
     from ..intel import golden_autogen
@@ -19388,6 +19885,7 @@ class _GoldenApproveBody(BaseModel):
 
 
 @router.post("/golden/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def golden_approve_ep(body: _GoldenApproveBody):
     """Human approves a pending Q → promotes to eval_runner golden set."""
     from ..intel import golden_autogen
@@ -19403,6 +19901,7 @@ class _GoldenRejectBody(BaseModel):
 
 
 @router.post("/golden/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def golden_reject_ep(body: _GoldenRejectBody):
     """Human rejects a pending Q → archived with reason."""
     from ..intel import golden_autogen
@@ -19412,6 +19911,7 @@ async def golden_reject_ep(body: _GoldenRejectBody):
 
 
 @router.get("/golden/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def golden_stats_ep():
     """Breakdown: pending / approved / rejected / per-market coverage."""
     from ..intel import golden_autogen
@@ -19480,6 +19980,7 @@ async def _adv_run_background(run_id: str, attack_ids: list[str] | None) -> None
 
 @router.post("/adversarial/run_weekly")
 @router.post("/adversarial/run-weekly")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
     """Execute the adversarial sweep. Same code path as the
     ADVERSARIAL-AUDIT autonomous task (Wed+Sun 06:00 UTC). Returns
@@ -19535,6 +20036,7 @@ async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
 
 
 @router.get("/adversarial/runs/{run_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_run_status_ep(run_id: str):
     """R-F592 (2026-05-16) — poll the state of a background adversarial
     run launched via POST /adversarial/run-weekly (without sync=true).
@@ -19559,6 +20061,7 @@ async def adversarial_run_status_ep(run_id: str):
 
 
 @router.get("/adversarial/runs")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_runs_index_ep():
     """R-F592 — list currently-tracked adversarial runs (in-flight +
     those completed in the last 1h). For the dashboard's "background
@@ -19577,6 +20080,7 @@ async def adversarial_runs_index_ep():
 
 @router.post("/adversarial/run_single")
 @router.post("/adversarial/run-single")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_run_single_ep(attack_id: str):
     """Run one attack on-demand. R-F253 (2026-05-11): added the
     hyphen alias for consistency with adversarial/run-weekly."""
@@ -19585,6 +20089,7 @@ async def adversarial_run_single_ep(attack_id: str):
 
 
 @router.post("/adversarial/regression_replay")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_regression_replay_ep(attack_id: str):
     """Re-run an attack after a clause amendment. Logs to regression log."""
     from ..intel import adversarial_challenge as _ac
@@ -19592,6 +20097,7 @@ async def adversarial_regression_replay_ep(attack_id: str):
 
 
 @router.get("/adversarial/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_stats_ep():
     """Last run + 4-week trend + pending amendment count."""
     from ..intel import adversarial_challenge as _ac
@@ -19599,6 +20105,7 @@ async def adversarial_stats_ep():
 
 
 @router.get("/adversarial/library")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_library_ep():
     """The versioned attack library — every attack cites a real public
     case (OFSI, SIPRI, FCA, OFAC, Interpol) so blocking decisions are
@@ -19625,6 +20132,7 @@ async def adversarial_library_ep():
 
 
 @router.post("/constitution/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_baseline_ep():
     """Run the adversarial constitution suite and persist the result as
     the CURRENT baseline. Returns {pass_rate, per_clause, prior_baseline}
@@ -19696,6 +20204,7 @@ async def constitution_baseline_ep():
 
 
 @router.get("/constitution/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def constitution_baseline_get_ep():
     """Read the current baseline without running a new sweep. Use this
     on the operator dashboard to see the last recorded pass rate."""
@@ -19710,6 +20219,7 @@ async def constitution_baseline_get_ep():
 
 
 @router.get("/adversarial/amendments")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_ep():
     """Pending clause-amendment candidates staged from failed attacks.
     Human approves via self_improve.deploy_improvement per doctrine.
@@ -19785,6 +20295,7 @@ async def adversarial_amendments_ep():
 
 
 @router.post("/adversarial/amendments/reject")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_reject_ep(req: Request):
     """Reject a single staged amendment by attack_id with an explicit
     reason. Moves it from aria:adversarial:amendments_queue to
@@ -19833,6 +20344,7 @@ async def adversarial_amendments_reject_ep(req: Request):
 
 
 @router.post("/adversarial/amendments/reject-bulk")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_reject_bulk_ep(req: Request):
     """Bulk-reject every pending amendment matching any of the provided
     attack_ids, all with the same rejection reason. Used for operator
@@ -19883,6 +20395,7 @@ async def adversarial_amendments_reject_bulk_ep(req: Request):
 
 
 @router.get("/adversarial/amendments/rejected")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_rejected_ep(limit: int = 100):
     """Audit surface: amendments the operator has rejected, with reason.
     Retained 365 days."""
@@ -19895,6 +20408,7 @@ async def adversarial_amendments_rejected_ep(limit: int = 100):
 
 
 @router.post("/adversarial/amendments/approve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_approve_ep(req: Request):
     """R-F168 (2026-05-11): bridge an amendment into staged_improvements
     so it can be applied via self_improve.deploy_improvement.
@@ -20027,6 +20541,7 @@ async def adversarial_amendments_approve_ep(req: Request):
 
 
 @router.get("/adversarial/amendments/approved")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_approved_ep(limit: int = 100):
     """R-F168: audit surface — amendments the operator has approved.
     Each entry carries staged_improvement_id so the operator can chase
@@ -20040,6 +20555,7 @@ async def adversarial_amendments_approved_ep(limit: int = 100):
 
 
 @router.post("/adversarial/amendments/clear")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_clear_ep(staged_within_seconds: int | None = None):
     """Drop pending amendments. Used to purge false amendments staged from
     LLM-degraded runs (the run_weekly invalid-run guard prevents new ones,
@@ -20070,6 +20586,7 @@ async def adversarial_amendments_clear_ep(staged_within_seconds: int | None = No
 
 
 @router.get("/metrics/grounded_rate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metrics_grounded_rate_ep(days: int = 14):
     """Return the grounded-rate baseline + a time-series over the last
     N days (default 14). Source: source_verifier.record_verification
@@ -20154,6 +20671,7 @@ async def metrics_grounded_rate_ep(days: int = 14):
 #   - GET /api/aria/health       — rich diagnostic (unchanged), used
 #     by operator + dashboard.
 @router.get("/health/live")
+@fail_wire(module="aria", gap_type="engine_failure")
 def health_live_ep():
     """R-F372: ultra-cheap liveness check for fly.io load balancer.
     No Redis. No stats. Returns instantly from in-process state.
@@ -20187,6 +20705,7 @@ def health_live_ep():
 
 
 @router.get("/learning/cost-free/preview")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_cost_free_preview_ep():
     """R-F562 (2026-05-16): preview the four cost-free self-learning
     loops (mastery decay, mistake replay, cross-source corroborate,
@@ -20198,6 +20717,7 @@ async def learning_cost_free_preview_ep():
 
 
 @router.get("/operator-pending")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def operator_pending_ep():
     """R-F561 (2026-05-16): single panel listing every outstanding
     operator-action item (env var unset, API top-up, manual UI click)
@@ -20208,6 +20728,7 @@ async def operator_pending_ep():
 
 
 @router.get("/health/error-streak")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def health_error_streak_ep():
     """R-F560 (2026-05-16): Phase A exit-gate #3 counter.
 
@@ -20222,6 +20743,7 @@ async def health_error_streak_ep():
 
 
 @router.get("/health/composite")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def health_composite_ep():
     """R-F677 (2026-05-18): Phase A exit-gate #1 indicator.
 
@@ -20239,6 +20761,7 @@ async def health_composite_ep():
 
 
 @router.get("/read-document/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def read_document_stats_ep():
     """R-F473 (2026-05-14): in-process latency stats for /read-document.
     Other-agent audit flagged 80s end-to-end; this surfaces the tallies
@@ -20258,6 +20781,7 @@ async def read_document_stats_ep():
 
 
 @router.get("/llm-json/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def llm_json_stats_ep():
     """R-F472 (2026-05-14): surface parse_llm_json failure tallies for
     attribution. Pre-R-F472 the "all 5 repair strategies failed" WARNING
@@ -20274,6 +20798,7 @@ async def llm_json_stats_ep():
 
 
 @router.get("/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def health_check_ep():
     """Self-diagnosing health check with quality metrics — not just infra.
     Single endpoint an operator checks to know if ARIA is healthy AND accurate.
@@ -20473,6 +20998,7 @@ async def health_check_ep():
 # numbers from the response, not produce a 50-message self-inference.
 
 @router.get("/health/perf")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def health_perf_ep():
     """R-F396 — ARIA self-introspection endpoint. Returns
     performance-focused signals ARIA can cite directly in chat.
@@ -20716,6 +21242,7 @@ async def health_perf_ep():
 # loud — if either server can't see the other, it shows up in /health/cross.
 
 @router.get("/health/cross")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def health_cross_ep():
     """Cross-server health: can Python reach Node, and vice versa?
 
@@ -20814,6 +21341,7 @@ async def health_cross_ep():
 
 
 @router.get("/dd/sources")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_sources_ep():
     """Full inventory of DD-side sources with runtime availability.
 
@@ -20831,6 +21359,7 @@ async def dd_sources_ep():
 
 
 @router.get("/vendors")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vendors_ep():
     """Full vendor list (cheap — no network calls, just the registry)."""
     try:
@@ -20870,6 +21399,7 @@ def _now_iso() -> str:
 # ── Capability card (2026-04-18) ─────────────────────────────────────────
 
 @router.get("/capability-card")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def capability_card_ep(format: str = "markdown"):
     """The public-facing capability card — what ARIA can, can't, and is
     uncertain about, with evidence. Regulated defence clients cite this
@@ -20895,6 +21425,7 @@ async def capability_card_ep(format: str = "markdown"):
 
 
 @router.get("/commands")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def commands_ep():
     """R-F1759 — return the authoritative command catalogue. Used by the
     web chat UI to render the command palette and by /help to build the
@@ -20907,6 +21438,7 @@ async def commands_ep():
 
 
 @router.get("/tools")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def tools_ep():
     """R-F1759 — return the live tool registry. Lists every tool type
     that _detect_tool_intent can recognise and _execute_tool can run.
@@ -20997,6 +21529,7 @@ async def tools_ep():
 
 
 @router.get("/consistency/scores")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def consistency_scores_ep():
     """Last consistency run summary — overall score, per-domain, weakest."""
     try:
@@ -21008,6 +21541,7 @@ async def consistency_scores_ep():
 
 
 @router.post("/consistency/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def consistency_run_ep(request: Request, limit: int | None = None):
     """Manually fire the consistency suite. Used for validation + ad-hoc
     checks. Also runs weekly via CONSISTENCY-WEEKLY autonomous task."""
@@ -21025,6 +21559,7 @@ async def consistency_run_ep(request: Request, limit: int | None = None):
 # ── Calibration auto-tune (2026-04-18) ───────────────────────────────────
 
 @router.get("/calibration/auto-tune")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def calibration_auto_tune_state_ep():
     """Current threshold deltas + recent adjustment history."""
     try:
@@ -21035,6 +21570,7 @@ async def calibration_auto_tune_state_ep():
 
 
 @router.post("/calibration/auto-tune/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def calibration_auto_tune_run_ep():
     """Manually trigger auto-tune evaluation. Respects the cooldown —
     returns the 'cooldown' reason if less than 6 days since last run."""
@@ -21048,6 +21584,7 @@ async def calibration_auto_tune_run_ep():
 # ── RLAIF — Reinforcement Learning from AI Feedback (2026-04-18) ─────────
 
 @router.get("/rlaif/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rlaif_stats_ep():
     """Rolling averages on the sampled-percentage quality evaluator."""
     try:
@@ -21058,6 +21595,7 @@ async def rlaif_stats_ep():
 
 
 @router.post("/rlaif/evaluate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def rlaif_evaluate_ep(request: Request):
     """Manually evaluate a (query, response) pair. Useful for validation
     or replaying a flagged chat turn through the grader."""
@@ -21096,6 +21634,7 @@ async def rlaif_evaluate_ep(request: Request):
 # ── Source uptime monitor (2026-04-18) ──────────────────────────────────
 
 @router.get("/sources/uptime")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_uptime_ep():
     """Last daily-ping sweep summary + currently suspended sources."""
     try:
@@ -21106,6 +21645,7 @@ async def sources_uptime_ep():
 
 
 @router.post("/sources/uptime/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_uptime_run_ep():
     """Manually trigger an uptime ping sweep (outside the daily cron)."""
     try:
@@ -21116,6 +21656,7 @@ async def sources_uptime_run_ep():
 
 
 @router.post("/sources/uptime/suspend")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_uptime_suspend_ep(request: Request):
     """Manually suspend a source. Body: {source, reason}."""
     try:
@@ -21131,6 +21672,7 @@ async def sources_uptime_suspend_ep(request: Request):
 
 
 @router.post("/sources/uptime/unsuspend")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_uptime_unsuspend_ep(request: Request):
     """Lift a source suspension. Body: {source}."""
     try:
@@ -21147,6 +21689,7 @@ async def sources_uptime_unsuspend_ep(request: Request):
 # ── Self-diagnostic (2026-04-18) ────────────────────────────────────────
 
 @router.get("/diagnostic/details")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def diagnostic_details_ep():
     """Full self-diagnostic report — per-module checks with notes.
     Auth required. Dashboard uses this to render the traffic-light
@@ -21175,6 +21718,7 @@ async def diagnostic_details_ep():
 
 
 @router.post("/diagnostic/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def diagnostic_run_ep():
     """Force a fresh diagnostic run (bypasses cache)."""
     try:
@@ -21187,6 +21731,7 @@ async def diagnostic_run_ep():
 # ── Defence source seed (2026-04-18) ────────────────────────────────────
 
 @router.get("/sources/seed/catalogue")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_seed_catalogue_ep():
     """Read-only view of the curated defence source catalogue."""
     try:
@@ -21200,6 +21745,7 @@ async def sources_seed_catalogue_ep():
 
 
 @router.post("/sources/seed/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_seed_run_ep(request: Request):
     """Manually fire the seed. Body: {force: bool}. By default skips
     when web_atlas is already populated."""
@@ -21219,6 +21765,7 @@ async def sources_seed_run_ep(request: Request):
 # ── Query decomposer + known publisher router (debug surfaces) ──────────
 
 @router.post("/query/decompose")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def query_decompose_ep(request: Request):
     """Inspect what query_decomposer would produce for a given query.
     Useful for debugging + for operators to preview search strategy."""
@@ -21246,6 +21793,7 @@ async def query_decompose_ep(request: Request):
 
 
 @router.post("/publisher/fetch")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def publisher_fetch_ep(request: Request):
     """Force a known-publisher API fetch for a URL. Body: {url}.
     Useful for /teach on nature.com / arxiv / pubmed / etc. when you
@@ -21271,6 +21819,7 @@ async def publisher_fetch_ep(request: Request):
 # ── Constitutional critique collector (2026-04-18) ──────────────────────
 
 @router.get("/critique/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def critique_stats_ep():
     """How much DPO training data have we accumulated? Per-clause
     violation counts, recent triples, 'ready for training' flag."""
@@ -21282,6 +21831,7 @@ async def critique_stats_ep():
 
 
 @router.get("/critique/export")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def critique_export_ep(
     since_ts: int = 0,
     limit: int = 1000,
@@ -21310,6 +21860,7 @@ async def critique_export_ep(
 # ── Scratchpad audit (2026-04-18) ────────────────────────────────────────
 
 @router.get("/scratchpad/{trace_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def scratchpad_for_trace_ep(trace_id: str):
     """Retrieve the Clause 22 scratchpad recorded for a trace_id. Used
     for post-hoc audit, training-data mining, operator debugging."""
@@ -21327,6 +21878,7 @@ async def scratchpad_for_trace_ep(trace_id: str):
 # ── Operating Modes (Week 1d) ────────────────────────────────────────────
 
 @router.get("/operating-mode")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def operating_mode_get_ep():
     """Current operating mode + transition history."""
     from ..intel import operating_modes as om
@@ -21337,6 +21889,7 @@ async def operating_mode_get_ep():
 
 
 @router.post("/operating-mode/set")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def operating_mode_set_ep(mode: str, reason: str = "manual"):
     """Manually set operating mode. Values: NORMAL, DEGRADED, SUPERVISED, EMERGENCY."""
     from ..intel import operating_modes as om
@@ -21350,6 +21903,7 @@ async def operating_mode_set_ep(mode: str, reason: str = "manual"):
 # ── Circuit Breakers (Week 1a) ───────────────────────────────────────────
 
 @router.get("/circuit-breakers")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def circuit_breakers_ep():
     """Status of all circuit breakers."""
     from ..intel import circuit_breaker as cb
@@ -21357,6 +21911,7 @@ async def circuit_breakers_ep():
 
 
 @router.post("/circuit-breakers/reset")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def circuit_breaker_reset_ep(name: str):
     """Manually reset a circuit breaker to CLOSED."""
     from ..intel import circuit_breaker as cb
@@ -21368,6 +21923,7 @@ async def circuit_breaker_reset_ep(name: str):
 # ── Dead Letter Queue (Week 1b) ──────────────────────────────────────────
 
 @router.get("/autonomous/dlq")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dlq_get_ep():
     """View dead letter queue — failed autonomous deliveries."""
     from ..intel import dead_letter_queue as dlq
@@ -21377,6 +21933,7 @@ async def dlq_get_ep():
 
 
 @router.post("/autonomous/dlq/resolve")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dlq_resolve_ep(index: int):
     """Mark a DLQ entry as resolved."""
     from ..intel import dead_letter_queue as dlq
@@ -21388,6 +21945,7 @@ async def dlq_resolve_ep(index: int):
 # ── Dashboard Metrics (Week 2a) ──────────────────────────────────────────
 
 @router.get("/metrics/contradiction_rate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def contradiction_rate_ep():
     """Contradiction rate — CONTRADICTED facts as % of total verified."""
     from ..intel import verified_intel as vi
@@ -21402,6 +21960,7 @@ async def contradiction_rate_ep():
 
 
 @router.get("/metrics/fact_decay")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def fact_decay_ep():
     """Fact decay — STALE facts as % of total verified."""
     from ..intel import verified_intel as vi
@@ -21418,6 +21977,7 @@ async def fact_decay_ep():
 # ── Predictor Block Rate (Week 2c) ───────────────────────────────────────
 
 @router.get("/predictor/block_rate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def predictor_block_rate_ep():
     """Per-domain predictor block counts (7d, 30d)."""
     from ..intel import redis_store as rs
@@ -21452,6 +22012,7 @@ async def predictor_block_rate_ep():
 # ── Mastery Heat Map (Week 2b) ────────────────────────────────────────────
 
 @router.get("/student/mastery/heatmap")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def mastery_heatmap_ep():
     """Mastery heat map — topic x region scores with weak cells."""
     from ..intel import student
@@ -21459,6 +22020,7 @@ async def mastery_heatmap_ep():
 
 
 @router.get("/mastery/heatmap")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def mastery_heatmap_alias_ep():
     """R-F677 (2026-05-18): Phase A exit-gate #2 indicator.
 
@@ -21474,6 +22036,7 @@ async def mastery_heatmap_alias_ep():
 # ── Chat Audit Trail (Week 4a) ───────────────────────────────────────────
 
 @router.get("/chat-audit/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def chat_audit_recent_ep(limit: int = 50):
     """Recent chat audit entries."""
     from ..intel import chat_audit_log as cal
@@ -21481,6 +22044,7 @@ async def chat_audit_recent_ep(limit: int = 50):
 
 
 @router.get("/chat-audit/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def chat_audit_stats_ep():
     """Chat audit trail aggregate stats."""
     from ..intel import chat_audit_log as cal
@@ -21488,6 +22052,7 @@ async def chat_audit_stats_ep():
 
 
 @router.get("/chat-audit/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def chat_audit_verify_ep(sample: int = 100):
     """Verify chat audit trail chain integrity."""
     from ..intel import chat_audit_log as cal
@@ -21495,6 +22060,7 @@ async def chat_audit_verify_ep(sample: int = 100):
 
 
 @router.get("/stream-guards/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def stream_guards_stats_ep():
     """Stream-guard violation stats.
 
@@ -21525,6 +22091,7 @@ async def stream_guards_stats_ep():
 # Single endpoint so the dashboard panel can render both side-by-side
 # without two roundtrips.
 @router.get("/hallucination/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def hallucination_stats_ep():
     """R-F407: combined hallucination + guard violation stats for the
     operator dashboard. Reads from self_claim_guard (R-F401, post-
@@ -21565,6 +22132,7 @@ async def hallucination_stats_ep():
 # ── Composite Autonomy Scorer (Week 4) ───────────────────────────────────
 
 @router.get("/autonomy/composite")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_composite_ep():
     """Compute and return the composite autonomy score."""
     from ..intel import autonomy_scorer as asc
@@ -21572,6 +22140,7 @@ async def autonomy_composite_ep():
 
 
 @router.get("/autonomy/history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_history_ep(limit: int = 168):
     """Composite score history (default 7 days hourly)."""
     from ..intel import autonomy_scorer as asc
@@ -21579,6 +22148,7 @@ async def autonomy_history_ep(limit: int = 168):
 
 
 @router.post("/autonomy/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_baseline_ep():
     """Save current composite as Week 4 baseline."""
     from ..intel import autonomy_scorer as asc
@@ -21586,6 +22156,7 @@ async def autonomy_baseline_ep():
 
 
 @router.get("/autonomy/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_baseline_get_ep():
     """Return saved baseline."""
     from ..intel import autonomy_scorer as asc
@@ -21598,6 +22169,7 @@ async def autonomy_baseline_get_ep():
 # ── Calibration Review (Week 4) ──────────────────────────────────────────
 
 @router.get("/calibration/review")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def calibration_review_ep():
     """Run calibration review — compare mastery to ground truth accuracy."""
     from ..intel import calibration_review as cr
@@ -21605,6 +22177,7 @@ async def calibration_review_ep():
 
 
 @router.post("/calibration/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def calibration_baseline_ep():
     """Save current calibration as Week 4 baseline."""
     from ..intel import calibration_review as cr
@@ -21620,6 +22193,7 @@ async def calibration_baseline_ep():
 # Memory reference: aria_autonomy_doctrine.md
 
 @router.get("/autonomy/surface")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_surface_ep():
     """Return the autonomy-surface payload: auto-allowed, drafts, operator queue."""
     from ..intel import autonomy_surface as asurf
@@ -21627,6 +22201,7 @@ async def autonomy_surface_ep():
 
 
 @router.get("/autonomy/surface/prompt")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def autonomy_surface_prompt_ep():
     """Return the WhatsApp-ready operator-prompt block (plain text)."""
     from ..intel import autonomy_surface as asurf
@@ -21639,6 +22214,7 @@ async def autonomy_surface_prompt_ep():
 # in future chats. These endpoints manage the quarantine list.
 
 @router.get("/dd/quarantine")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_quarantine_list_ep():
     """List all quarantined DD runs (seeded + operator-added)."""
     from ..intel import run_quarantine
@@ -21647,6 +22223,7 @@ async def dd_quarantine_list_ep():
 
 
 @router.post("/dd/quarantine")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_quarantine_add_ep(request: Request):
     """Add a DD run_id to the quarantine list.
 
@@ -21673,6 +22250,7 @@ async def dd_quarantine_add_ep(request: Request):
 
 
 @router.get("/dd/quarantine/closure-summary")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_quarantine_closure_summary_ep():
     """Closed vs open quarantine counts. Phase A gate #4 surface.
 
@@ -21688,6 +22266,7 @@ async def dd_quarantine_closure_summary_ep():
 # R-F1655: DD vault endpoints
 
 @router.get("/dd/vault/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vault_stats_ep():
     """Get DD vault statistics."""
     try:
@@ -21698,6 +22277,7 @@ async def dd_vault_stats_ep():
         return {"success": False, "error": str(e)}
 
 @router.get("/dd/vault/search")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50):
     """Search the DD vault."""
     try:
@@ -21714,6 +22294,7 @@ async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50):
         return {"success": False, "error": str(e)}
 
 @router.get("/dd/vault/case/{canonical_entity_id:path}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vault_case_ep(canonical_entity_id: str):
     """Get a single DD case with cross-references."""
     try:
@@ -21729,6 +22310,7 @@ async def dd_vault_case_ep(canonical_entity_id: str):
         return {"success": False, "error": str(e)}
 
 @router.delete("/dd/vault/case/{canonical_entity_id:path}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def dd_vault_delete_ep(canonical_entity_id: str):
     """Delete a DD case."""
     try:
@@ -21746,6 +22328,7 @@ async def dd_vault_delete_ep(canonical_entity_id: str):
 # The engineering path to 99.9% reliability.
 
 @router.post("/verification/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verification_verify_ep(request: Request):
     """Compare two independent responses on structured-verdict fields.
 
@@ -21773,6 +22356,7 @@ async def verification_verify_ep(request: Request):
 
 
 @router.get("/verification/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def verification_stats_ep():
     """24h rolling stats on verification-gate firings + recent list."""
     from ..learning import verification_gate as vg
@@ -21785,6 +22369,7 @@ async def verification_stats_ep():
 # becomes visible without 7 separate panel load calls.
 
 @router.get("/learning/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_stats_ep():
     """One-shot aggregator for the Learning & Verification dashboard panel."""
     out = {
@@ -21915,6 +22500,7 @@ async def learning_stats_ep():
 # ── Memory replication endpoints (2026-04-18) ─────────────────────────────
 
 @router.post("/memory/backup/run")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_backup_run_ep():
     """Run the daily backup on-demand. Same function the autonomous
     task calls at 04:00 UTC."""
@@ -21923,6 +22509,7 @@ async def memory_backup_run_ep():
 
 
 @router.get("/memory/backup/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_backup_list_ep():
     """List all backup files on disk, newest first."""
     from ..learning import memory_replication
@@ -21931,6 +22518,7 @@ async def memory_backup_list_ep():
 
 
 @router.post("/memory/backup/restore")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def memory_backup_restore_ep(request: Request):
     """Restore keys from a dated backup. dry_run=True by default —
     operator MUST explicitly pass dry_run=False to write to Redis.
@@ -21955,6 +22543,7 @@ async def memory_backup_restore_ep(request: Request):
 
 
 @router.get("/calibration/baseline")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def calibration_baseline_get_ep():
     """Return saved calibration baseline."""
     from ..intel import calibration_review as cr
@@ -22011,6 +22600,7 @@ def _get_writer_orchestrator():
 
 
 @router.post("/writers/produce")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def writers_produce_ep(body: _WriterProduceBody):
     """Produce a structured document via the writer orchestrator.
 
@@ -22076,6 +22666,7 @@ async def writers_produce_ep(body: _WriterProduceBody):
 
 
 @router.get("/writers/capabilities")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def writers_capabilities_ep():
     """Static capability manifest — what the writers can produce. Does NOT
     require ANTHROPIC_API_KEY so the dashboard can probe it safely."""
@@ -22123,6 +22714,7 @@ class RaiseTicketRequest(BaseModel):
 
 
 @router.post("/tickets/raise")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def raise_ticket_ep(req: RaiseTicketRequest) -> dict:
     """Raise a durable ticket. Returns authoritative ticket_id ARIA may cite."""
     from ..intel import tickets
@@ -22138,6 +22730,7 @@ async def raise_ticket_ep(req: RaiseTicketRequest) -> dict:
 
 
 @router.get("/tickets/list")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def list_tickets_ep(limit: int = 20) -> dict:
     """List open tickets (for ARIA's dedup + for operator inspection)."""
     from ..intel import tickets
@@ -22147,6 +22740,7 @@ async def list_tickets_ep(limit: int = 20) -> dict:
 # ===== News Monitor (R-F1050) =====
 
 @router.get("/news/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def news_recent_ep(limit: int = 50) -> dict:
     """Return recent news articles from the news monitor."""
     from ..intel import news_monitor
@@ -22155,6 +22749,7 @@ async def news_recent_ep(limit: int = 50) -> dict:
 
 
 @router.get("/news/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def news_stats_ep() -> dict:
     """Return news monitor statistics."""
     from ..intel import news_monitor
@@ -22162,6 +22757,7 @@ async def news_stats_ep() -> dict:
 
 
 @router.post("/news/poll")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def news_poll_ep(categories: str = "") -> dict:
     """Manually trigger a news feed poll. Optionally filter by comma-separated categories."""
     from ..intel import news_monitor
@@ -22172,6 +22768,7 @@ async def news_poll_ep(categories: str = "") -> dict:
 # ===== Self-Healing (R-F1051) =====
 
 @router.get("/self-healing/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_status_ep() -> dict:
     """Get the current status of all self-healing layers."""
     from ..intel.self_healing import get_status
@@ -22179,6 +22776,7 @@ async def self_healing_status_ep() -> dict:
 
 
 @router.post("/self-healing/diagnostic")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_diagnostic_ep() -> dict:
     """Run a full self-diagnostic."""
     from ..intel.self_healing import SelfDiagnostic
@@ -22187,6 +22785,7 @@ async def self_healing_diagnostic_ep() -> dict:
 
 
 @router.post("/self-healing/repair")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_repair_ep() -> dict:
     """Trigger ecosystem self-repair."""
     from ..intel.self_healing import get_orchestrator
@@ -22195,6 +22794,7 @@ async def self_healing_repair_ep() -> dict:
 
 
 @router.get("/self-healing/circuit-breakers")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_circuits_ep() -> dict:
     """Get all circuit breaker states."""
     from ..intel.self_healing import get_orchestrator
@@ -22203,6 +22803,7 @@ async def self_healing_circuits_ep() -> dict:
 
 
 @router.post("/self-healing/circuit-breakers/{subsystem}/reset")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_circuit_reset_ep(subsystem: str) -> dict:
     """Reset a circuit breaker."""
     from ..intel.self_healing import get_orchestrator
@@ -22212,6 +22813,7 @@ async def self_healing_circuit_reset_ep(subsystem: str) -> dict:
 
 
 @router.get("/self-healing/wal")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_wal_ep() -> dict:
     """Get write-ahead log statistics."""
     from ..intel.self_healing import get_orchestrator
@@ -22220,6 +22822,7 @@ async def self_healing_wal_ep() -> dict:
 
 
 @router.get("/self-healing/recovery-history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_healing_recovery_ep(limit: int = 20) -> dict:
     """Get recovery action history."""
     from ..intel.self_healing import get_orchestrator
@@ -22231,6 +22834,7 @@ async def self_healing_recovery_ep(limit: int = 20) -> dict:
 
 
 @router.get("/self-restart/status")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_status_ep() -> dict:
     """Get blackout/recovery status for all agents."""
     from ..intel.self_restart import get_blackout_status
@@ -22238,6 +22842,7 @@ async def self_restart_status_ep() -> dict:
 
 
 @router.post("/self-restart/checkpoint")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_checkpoint_ep(
     agent_id: str = "aria_main",
     current_task: str = "",
@@ -22253,6 +22858,7 @@ async def self_restart_checkpoint_ep(
 
 
 @router.post("/self-restart/trigger")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_trigger_ep(agent_id: str = "aria_main") -> dict:
     """Trigger a self-restart for the given agent."""
     from ..intel.self_restart import trigger_self_restart
@@ -22260,6 +22866,7 @@ async def self_restart_trigger_ep(agent_id: str = "aria_main") -> dict:
 
 
 @router.get("/self-restart/checkpoints")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_checkpoints_ep(agent_id: str = "aria_main", limit: int = 10) -> dict:
     """List recent checkpoints for an agent."""
     from ..intel.self_restart import list_checkpoints
@@ -22268,6 +22875,7 @@ async def self_restart_checkpoints_ep(agent_id: str = "aria_main", limit: int = 
 
 
 @router.get("/self-restart/latest-checkpoint")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_latest_ep(agent_id: str = "aria_main") -> dict:
     """Load the latest checkpoint for an agent."""
     from ..intel.self_restart import load_latest_checkpoint
@@ -22278,6 +22886,7 @@ async def self_restart_latest_ep(agent_id: str = "aria_main") -> dict:
 
 
 @router.post("/self-restart/heartbeat")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def self_restart_heartbeat_ep(agent_id: str = "aria_main") -> dict:
     """Tick the heartbeat for an agent."""
     from ..intel.self_restart import tick_heartbeat
@@ -22288,6 +22897,7 @@ async def self_restart_heartbeat_ep(agent_id: str = "aria_main") -> dict:
 # ===== BD Strategy (R-F1053) =====
 
 @router.get("/bd/strategy")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def bd_strategy_ep() -> dict:
     """Get the latest BD market intelligence strategy."""
     from ..intel import bd_strategy
@@ -22295,6 +22905,7 @@ async def bd_strategy_ep() -> dict:
 
 
 @router.post("/bd/strategy/generate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def bd_strategy_generate_ep() -> dict:
     """Generate fresh BD market intelligence."""
     from ..intel import bd_strategy
@@ -22302,6 +22913,7 @@ async def bd_strategy_generate_ep() -> dict:
 
 
 @router.get("/bd/strategy/history")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def bd_strategy_history_ep(limit: int = 20) -> dict:
     """Get BD strategy generation history."""
     from ..intel import bd_strategy
@@ -22310,6 +22922,7 @@ async def bd_strategy_history_ep(limit: int = 20) -> dict:
 
 
 @router.get("/bd/strategy/deal/{deal_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def bd_deal_strategy_ep(deal_id: str) -> dict:
     """Generate a specific deal strategy."""
     from ..intel import bd_strategy
@@ -22321,6 +22934,7 @@ async def bd_deal_strategy_ep(deal_id: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 
 @router.get("/phase/gates")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def phase_gates_ep() -> dict:
     """Phase A gate status — live verification of all 7 exit gates.
 
@@ -22516,6 +23130,7 @@ async def phase_gates_ep() -> dict:
 
 
 @router.get("/quality/grounded-rate")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def grounded_rate_ep() -> dict:
     """Grounded rate breakdown — citation verification quality.
 
@@ -22578,6 +23193,7 @@ async def grounded_rate_ep() -> dict:
 
 
 @router.get("/sources/health")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def sources_health_ep() -> dict:
     """Aggregate per-source health from brain_hook signals and error logs.
 
@@ -22655,6 +23271,7 @@ async def sources_health_ep() -> dict:
 
 
 @router.get("/vault/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_stats_ep() -> dict:
     """Get vault aggregate statistics."""
     from ..intel.agent_signup_vault import get_vault
@@ -22665,6 +23282,7 @@ async def vault_stats_ep() -> dict:
 
 
 @router.post("/vault/import")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_import_ep(request: Request) -> dict:
     """Import registrable portals from portal_registry into the vault."""
     from ..intel.agent_signup_vault import get_vault
@@ -22681,6 +23299,7 @@ async def vault_import_ep(request: Request) -> dict:
 
 
 @router.get("/vault")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_list_ep(
     request: Request,
     status: str = "",
@@ -22712,6 +23331,7 @@ async def vault_list_ep(
 
 
 @router.post("/vault")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_record_ep(request: Request) -> dict:
     """Record a new signup in the vault."""
     from ..intel.agent_signup_vault import get_vault
@@ -22737,6 +23357,7 @@ async def vault_record_ep(request: Request) -> dict:
 
 
 @router.get("/vault/{site_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_get_ep(site_id: str) -> dict:
     """Get a single vault entry by site_id."""
     from ..intel.agent_signup_vault import get_vault
@@ -22749,6 +23370,7 @@ async def vault_get_ep(site_id: str) -> dict:
 
 
 @router.put("/vault/{site_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_update_ep(site_id: str, request: Request) -> dict:
     """Update a vault entry's status, notes, or metadata."""
     from ..intel.agent_signup_vault import get_vault
@@ -22771,6 +23393,7 @@ async def vault_update_ep(site_id: str, request: Request) -> dict:
 
 
 @router.delete("/vault/{site_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def vault_delete_ep(site_id: str) -> dict:
     """Delete a vault entry."""
     from ..intel.agent_signup_vault import get_vault
@@ -22785,6 +23408,7 @@ async def vault_delete_ep(site_id: str) -> dict:
 # ── Client Learning Sync ─────────────────────────────────────────────────
 
 @router.post("/learning/sync", dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth brain WRITE
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_sync_ep(request: Request) -> dict:
     """Receive learning data from ARIA clients.
 
@@ -22838,6 +23462,7 @@ async def learning_sync_ep(request: Request) -> dict:
 
 
 @router.get("/learning/updates", dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth gap/mistake leak
+@fail_wire(module="aria", gap_type="engine_failure")
 async def learning_updates_ep(
     client_id: str = "",
     client_version: str = "",
@@ -22901,6 +23526,7 @@ async def learning_updates_ep(
 # explicit, audited control + the work-claim that protects an active run.
 
 @router.get("/runpod/status", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
 async def runpod_status_ep() -> dict:
     from ..intel import runpod_scheduler as _rps
     out = _rps.get_status()
@@ -22914,6 +23540,7 @@ async def runpod_status_ep() -> dict:
 
 
 @router.post("/runpod/claim", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
 async def runpod_claim_ep(ttl_s: float = 7200.0, reason: str = "") -> dict:
     """Hold the pod for ttl_s seconds — protects it from the stop-only sweep."""
     from ..intel import runpod_scheduler as _rps
@@ -22921,12 +23548,14 @@ async def runpod_claim_ep(ttl_s: float = 7200.0, reason: str = "") -> dict:
 
 
 @router.post("/runpod/release", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
 async def runpod_release_ep() -> dict:
     from ..intel import runpod_scheduler as _rps
     return {"ok": True, "released": _rps.release_pod()}
 
 
 @router.post("/runpod/start", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
 async def runpod_start_ep(ttl_s: float = 7200.0, reason: str = "manual start") -> dict:
     """Claim THEN start — so the scheduler protects the pod we just started."""
     from ..intel import runpod_scheduler as _rps
@@ -22941,6 +23570,7 @@ async def runpod_start_ep(ttl_s: float = 7200.0, reason: str = "manual start") -
 
 
 @router.post("/runpod/stop", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
 async def runpod_stop_ep() -> dict:
     """Stop THEN release the claim (cycle finished)."""
     from ..intel import runpod_scheduler as _rps

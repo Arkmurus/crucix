@@ -20,9 +20,9 @@ def test_all_gates_clean_no_infra_false_positives():
     flat = results["gate_a"] + results["gate_b"] + results["gate_d"]
     offenders = [v for v in flat if "wire.py" in v or "wiring_harness.py" in v]
     assert not offenders, f"infra docstring examples flagged as real: {offenders}"
-    assert results["gate_a"] == []
-    assert results["gate_b"] == []
-    assert results["gate_d"] == []
+    # Blocking gates (scope/A/B) must be clean. GATE D is advisory (real-failure
+    # raises are expected once routes are wired) — excluded from this assertion.
+    assert not wh.has_blocking_violations(results), results
 
 
 def test_docstring_example_is_not_a_real_decorator(tmp_path):

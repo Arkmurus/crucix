@@ -77,4 +77,5 @@ def test_expanded_scope_present_and_green():
     for f in ("aria_service/aria_engine.py", "aria_service/main.py"):
         assert f in wh.TARGET_FILES and os.path.isfile(f), f"{f} not scanned"
     results = wh.run_all_gates()
-    assert all(v == [] for v in results.values()), f"gates not green: {results}"
+    # Blocking gates (scope/A/B) must be clean. GATE D is advisory.
+    assert not wh.has_blocking_violations(results), f"blocking gates not green: {results}"

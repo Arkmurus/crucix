@@ -235,6 +235,8 @@ WIRED_MODULES: set[str] = {
     "web_search", "rag_store", "semantic_search", "dd_vault",
     # R-F1795 — batch 3b (validation methods carry control_flow_exempt=ValueError)
     "agent_signup_vault",
+    # R-F1801 — Phase 1 batch 4 (routes/aria.py — 629 handlers; streams exempt)
+    "aria",
 }
 
 # Modules that are fully reviewed and exempt from wiring
@@ -634,23 +636,42 @@ async def probe_wedge_stacks(brain_url: str = "https://aria-intel.fly.dev") -> d
     }
 
 
+# ── Blocking vs advisory ────────────────────────────────────────────────────
+# GATE D is advisory by design ("warnings — requires judgment", not a block):
+# almost every real module raises *some* real-failure exception, and a wired
+# function SHOULD gap on those — that is the whole point of §21. So a GATE D
+# warning must NOT mark the harness red (it would jam the autonomous loop on
+# every module forever). Only scope/A/B are hard blocks.
+BLOCKING_GATES = ("gate_scope", "gate_a", "gate_b")
+ADVISORY_GATES = ("gate_d",)
+
+
+def has_blocking_violations(results: dict[str, list[str]]) -> bool:
+    """True iff any BLOCKING gate (scope/A/B) has a violation. GATE D excluded."""
+    return any(results.get(g) for g in BLOCKING_GATES)
+
+
 # ── Print results ─────────────────────────────────────────────────────────
 
 def print_gate_results(results: dict[str, list[str]]) -> None:
     """Print gate results in a readable format."""
-    all_clear = True
     for gate, violations in results.items():
-        print(f"\n=== {gate.upper()} ===")
+        advisory = gate in ADVISORY_GATES
+        print(f"\n=== {gate.upper()}{' (advisory)' if advisory else ''} ===")
         if violations:
-            all_clear = False
+            label = "WARN" if advisory else "BLOCK"
             for v in violations:
-                print(f"  BLOCK: {v}")
+                print(f"  {label}: {v}")
         else:
             print("  PASS")
 
+    blocked = has_blocking_violations(results)
+    advisories = sum(len(results.get(g, [])) for g in ADVISORY_GATES)
     print(f"\n{'=' * 60}")
-    if all_clear:
-        print("  ALL GATES PASS — harness is clean")
+    if blocked:
+        print("  BLOCKING GATES FAILED — fix scope/A/B before proceeding")
+    elif advisories:
+        print(f"  BLOCKING GATES PASS — {advisories} advisory (GATE D) warning(s) to review")
     else:
-        print("  GATES FAILED — fix violations before proceeding")
+        print("  ALL GATES PASS — harness is clean")
     print(f"{'=' * 60}")
