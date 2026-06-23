@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1811,
+  "next_available": 1812,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12394,27 +12394,30 @@
       "title": "WA #1/#3: circuit breaker on brainFetch + brainFetchHealth (errorTracker) — dead brain no longer hammered every message",
       "claimed_at": "2026-06-23T10:21:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "734748bf",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:15:03Z"
     },
     {
       "r_number": "R-F1803",
       "title": "WA #2: graceful SIGTERM shutdown for aria-wa listener + kill_timeout",
       "claimed_at": "2026-06-23T10:21:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "734748bf",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:15:03Z"
     },
     {
       "r_number": "R-F1804",
       "title": "WA #4: rate-limit compliance commands (/screen /classify /sanctions /risk) in handleCommand",
       "claimed_at": "2026-06-23T10:21:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "734748bf",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:15:03Z"
     },
     {
       "r_number": "R-F1805",
@@ -12432,9 +12435,10 @@
       "title": "WA #10: add aria-wa to CI test/audit job",
       "claimed_at": "2026-06-23T10:21:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "734748bf",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:15:03Z"
     },
     {
       "r_number": "R-F1807",
@@ -12468,6 +12472,16 @@
       "r_number": "R-F1810",
       "title": "WA outage fix — revert multi-stage Dockerfile + guard errorTracker import (fail-open) so observability dep can't crash listener",
       "claimed_at": "2026-06-23T11:05:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "734748bf",
+      "notes": null,
+      "shipped_at": "2026-06-23T11:15:04Z"
+    },
+    {
+      "r_number": "R-F1811",
+      "title": "SEC SSRF — _extract_entity_from_url fetches user-controlled DD url with no guard; block private/loopback/link-local/.internal + validate redirect hops",
+      "claimed_at": "2026-06-23T11:15:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

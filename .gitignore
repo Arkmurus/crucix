@@ -119,3 +119,7 @@ data/_*.md
 # stray/scratch from ARIA sessions
 /exit
 /_*.py
+
+# R-F1808 IAST run artifacts
+scripts/iast/_*.jsonl
+scripts/iast/_*.log
