@@ -2708,8 +2708,23 @@ app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
     fallback: async () => res.status(503).json(_brainFallback()),
   });
 });
-app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) =>
-  ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
+  // R-F1820 (audit H3): pin user_id from the JWT (strip any client value) so the
+  // brain can enforce report ownership. Pre-fix this forwarded the client query
+  // verbatim → ?user_id=victim defeated the check. Mirrors /dd/reports (2692).
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.set('user_id', userId);
+  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.delete('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
+  // R-F1820 (audit H3): ownership-pinned delete (was unguarded via the catch-all).
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
+});
 // R-F607 (2026-05-16) — stamp originating user identity onto the
 // orchestrate request body so the persisted report carries `user_id`
 // (and user_email + derived domain for R-F608 same-company sharing).

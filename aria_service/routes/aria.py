@@ -678,10 +678,19 @@ async def dd_orchestrate_ep(req: Request):
 
 @router.get("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_report_ep(run_id: str, format: str = "json"):
+async def dd_report_ep(run_id: str, format: str = "json", user_id: str = ""):
     from ..intel import dd_orchestrator
     report = await dd_orchestrator.get_report(run_id)
     if not report:
+        raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
+    # R-F1820 (audit H3): ownership — a DD report is confidential to its owner.
+    # When the report has a stored owner and the caller is user-scoped, they must
+    # match (404 to avoid leaking existence). Legacy pre-R-F607 reports have
+    # user_id=''; the admin/no-filter path passes user_id=''. Node pins user_id
+    # from the JWT, so the client cannot forge it. The list view (R-F607) already
+    # scopes per user — this closes the by-id bypass.
+    _owner = (report.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     if format == "markdown":
         from ..intel import dd_schema
@@ -858,11 +867,19 @@ async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
 
 @router.delete("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_report_delete_ep(run_id: str):
+async def dd_report_delete_ep(run_id: str, user_id: str = ""):
     """R-F162 (2026-05-11): drop a single DD report + its index entry.
     Needed so operators can clean up bad reports (the 2026-05-10 12:39
-    'this company...' case) the validator couldn't catch retroactively."""
+    'this company...' case) the validator couldn't catch retroactively.
+
+    R-F1820 (audit H3): ownership check — pre-fix any authenticated user could
+    delete any other user's DD report by run_id."""
     from ..intel import dd_orchestrator
+    _report = await dd_orchestrator.get_report(run_id)
+    if _report is not None:
+        _owner = (_report.get("user_id") or "").strip()
+        if user_id and _owner and _owner != user_id:
+            raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     try:
         return await dd_orchestrator.delete_report(run_id)
     except ValueError as e:
