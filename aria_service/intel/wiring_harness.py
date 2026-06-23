@@ -200,6 +200,10 @@ TARGET_FILES = [
 WIRED_MODULES: set[str] = {
     "deep_researcher",
     "intel_ledger",
+    # R-F1788 — Phase 1 batch 1 (pure module-level-function reasoning modules)
+    "reasoning_router",
+    "symbolic_reasoner",
+    "local_brain",
 }
 
 # Modules that are fully reviewed and exempt from wiring

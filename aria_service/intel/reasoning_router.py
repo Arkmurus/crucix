@@ -74,6 +74,7 @@ OLLAMA_MIN_CONFIDENCE = 0.60
 # forces self-infra questions to escalate to cloud LLM, where the layer-
 # side quarantine in aria_engine._build_7_layer_context kicks in.
 from . import self_infra_detector as _sid
+from .wire import fail_wire  # R-F1788 §21 brain-wiring
 _SELF_INFRA_INTROSPECTION_RE = _sid.SELF_INFRA_INTROSPECTION_RE
 
 
@@ -143,6 +144,7 @@ async def _record_routing(source: str) -> None:
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
+@fail_wire(module="reasoning_router", gap_type="engine_failure")
 async def try_local_reasoning(question: str, *, silent: bool = False,
                               exclude_topic: str | None = None) -> dict:
     """Try every LOCAL reasoning source. Returns the first confident answer
@@ -566,6 +568,7 @@ async def _check_ollama_reasoning() -> str | None:
     return None
 
 
+@fail_wire(module="reasoning_router", gap_type="engine_failure")
 async def record_cloud_llm_response(
     question: str,
     response: str,
@@ -607,6 +610,7 @@ async def record_cloud_llm_response(
         return {"recorded": False, "error": str(e)}
 
 
+@fail_wire(module="reasoning_router", gap_type="engine_failure")
 async def get_independence_report() -> dict:
     """Compute the independence ratio: fraction of queries answered locally."""
     stats = await _load_stats()

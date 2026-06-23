@@ -41,6 +41,7 @@ Usage
     return await llm.complete(...)"""
 from __future__ import annotations
 from .engine_wiring import wire_success
+from .wire import fail_wire  # R-F1788 §21 brain-wiring
 
 import logging
 import re
@@ -581,6 +582,7 @@ _MULTIPARTY_RE = re.compile(
 _SYMBOLIC_MAX_INPUT_LEN = 600
 
 
+@fail_wire(module="symbolic_reasoner", gap_type="engine_failure")
 def reason(question: str, *, silent_brain_hook: bool = False) -> dict:
     """Try to answer a question using only symbolic rules.
 
@@ -673,6 +675,7 @@ def reason(question: str, *, silent_brain_hook: bool = False) -> dict:
     return final_result
 
 
+@fail_wire(module="symbolic_reasoner", gap_type="engine_failure")
 def get_capability_surface() -> dict:
 
     # R-F996 — wire to brain

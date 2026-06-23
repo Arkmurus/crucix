@@ -56,6 +56,7 @@ from . import neural_memory
 from . import tech_classifier
 from . import sanctions as fuzzy_sanctions
 from . import conflict_tracker
+from .wire import fail_wire  # R-F1788 §21 brain-wiring
 
 logger = logging.getLogger("aria.local_brain")
 
@@ -319,6 +320,7 @@ def _fmt_country_risk(country: str) -> str:
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
+@fail_wire(module="local_brain", gap_type="engine_failure")
 async def try_local_response(message: str, *,
                              exclude_topic: str | None = None) -> dict:
     """Attempt to answer a message using ONLY local data. No LLM call.
@@ -587,6 +589,7 @@ async def try_local_response(message: str, *,
     return {"answered": False, "response": None, "intent": None}
 
 
+@fail_wire(module="local_brain", gap_type="engine_failure")
 async def degraded_response(message: str, reason: str = "LLM unavailable") -> dict:
     """Build a degraded response when no LLM is available.
 
@@ -683,6 +686,7 @@ async def degraded_response(message: str, reason: str = "LLM unavailable") -> di
     }
 
 
+@fail_wire(module="local_brain", gap_type="engine_failure")
 def get_capability_surface() -> dict:
     """Report what local_brain can answer without any LLM call."""
     # R-F996 — wire to brain
