@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1802,
+  "next_available": 1808,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12364,9 +12364,10 @@
       "title": "SEC #14: multi-stage Dockerfile.web — drop build tools from runtime image",
       "claimed_at": "2026-06-23T09:53:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "57d9227e",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:15:01Z"
     },
     {
       "r_number": "R-F1800",
@@ -12382,6 +12383,61 @@
       "r_number": "R-F1801",
       "title": "Phase 1 batch 4 — wire routes/aria.py (629 handlers) to brain",
       "claimed_at": "2026-06-23T10:09:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7b96f7f",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:27:36Z"
+    },
+    {
+      "r_number": "R-F1802",
+      "title": "WA #1/#3: circuit breaker on brainFetch + brainFetchHealth (errorTracker) — dead brain no longer hammered every message",
+      "claimed_at": "2026-06-23T10:21:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1803",
+      "title": "WA #2: graceful SIGTERM shutdown for aria-wa listener + kill_timeout",
+      "claimed_at": "2026-06-23T10:21:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1804",
+      "title": "WA #4: rate-limit compliance commands (/screen /classify /sanctions /risk) in handleCommand",
+      "claimed_at": "2026-06-23T10:21:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1805",
+      "title": "WA #9: multi-stage services/wa-listener/Dockerfile — drop build tools from runtime image",
+      "claimed_at": "2026-06-23T10:21:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1806",
+      "title": "WA #10: add aria-wa to CI test/audit job",
+      "claimed_at": "2026-06-23T10:21:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1807",
+      "title": "Phase 1 batch 5 — intel stragglers (dd_disciplines/dd_orchestrator/mistake_ledger/correction_learner/cost_tracker) + closure-exclusion harness fix",
+      "claimed_at": "2026-06-23T10:28:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -139,3 +139,17 @@ print('All files pass syntax check.')
       - name: Node tests (aria-web)
         continue-on-error: true
         run: node --test test/
+
+      # R-F1806 (2026-06-23) — aria-wa (WhatsApp listener) was entirely outside
+      # CI (audit #10). Install + audit + run its tests. Informational
+      # (continue-on-error): baileys carries known upstream advisories and the
+      # listener tests aren't yet triaged green — surface, don't block.
+      - name: aria-wa — install + audit + tests
+        continue-on-error: true
+        run: |
+          cd services/wa-listener
+          npm install --omit=dev
+          echo "--- aria-wa npm audit (informational) ---"
+          npm audit --omit=dev --audit-level=critical || true
+          echo "--- aria-wa node tests ---"
+          node --test . 2>&1 | tail -40 || true
