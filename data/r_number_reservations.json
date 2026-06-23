@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1808,
+  "next_available": 1811,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12421,9 +12421,11 @@
       "title": "WA #9: multi-stage services/wa-listener/Dockerfile — drop build tools from runtime image",
       "claimed_at": "2026-06-23T10:21:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-06-23T11:05:47Z",
+      "abandon_reason": "multi-stage wa Dockerfile produced image missing lib/observability/errorTracker.mjs → boot crash-loop + WA outage; reverted to single-stage; audit #9 deferred until validatable with a real docker build"
     },
     {
       "r_number": "R-F1806",
@@ -12438,6 +12440,34 @@
       "r_number": "R-F1807",
       "title": "Phase 1 batch 5 — intel stragglers (dd_disciplines/dd_orchestrator/mistake_ledger/correction_learner/cost_tracker) + closure-exclusion harness fix",
       "claimed_at": "2026-06-23T10:28:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "967d5af7",
+      "notes": null,
+      "shipped_at": "2026-06-23T10:46:11Z"
+    },
+    {
+      "r_number": "R-F1808",
+      "title": "IAST-lite sensor harness — instrument dangerous sinks during QA run, correlate runtime sink-hits to source, confirmed-exploitable-only report",
+      "claimed_at": "2026-06-23T10:53:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1809",
+      "title": "Phase 1 batch 6 — wire autonomous/ + llm/ + search_engine/ (ProviderError/cost-breaker/validation exempts)",
+      "claimed_at": "2026-06-23T11:04:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1810",
+      "title": "WA outage fix — revert multi-stage Dockerfile + guard errorTracker import (fail-open) so observability dep can't crash listener",
+      "claimed_at": "2026-06-23T11:05:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

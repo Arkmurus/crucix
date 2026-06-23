@@ -96,7 +96,18 @@ import express  from 'express';
 import fs       from 'fs';
 import { createClient } from 'redis';
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
-import { errorTracker } from '../../lib/observability/errorTracker.mjs'; // R-F1802 (audit #1/#3)
+// R-F1802 (audit #1/#3) — observability circuit breaker. GUARDED import: an
+// observability dependency must NEVER crash the WA listener on boot (it did once
+// — a bad image omitted the module, crash-looping the app). Falls back to a no-op
+// breaker (fail-open) so the listener always starts; the breaker is a resilience
+// optimisation, not a hard dependency.
+let errorTracker;
+try {
+  ({ errorTracker } = await import('../../lib/observability/errorTracker.mjs'));
+} catch (e) {
+  console.warn('[wa] errorTracker unavailable — circuit breaker disabled (fail-open):', e?.message);
+  errorTracker = { shouldAttempt: () => true, recordSuccess: () => {}, record: () => {} };
+}
 
 // ── Config — all from Seenode env vars ───────────────────────────────────────
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
