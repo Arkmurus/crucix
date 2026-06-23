@@ -37,6 +37,15 @@ COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_li
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs
 
+# R-F1819: the listener also imports `../../lib/observability/errorTracker.mjs`
+# (R-F1802 circuit breaker). Like complianceAudit it is stdlib-only (crypto), so
+# copy just it. Without this the import falls to R-F1810's fail-open guard and the
+# breaker is silently DISABLED (the recurring "errorTracker unavailable" boot log).
+# NOTE: this Dockerfile cherry-picks lib files — any NEW ../../lib import added to
+# the listener must be added here too (a `COPY lib/ ./lib/` would avoid that, at
+# the cost of a larger image surface).
+COPY lib/observability/errorTracker.mjs ./lib/observability/errorTracker.mjs
+
 # Volume mount point — Baileys auth + session blobs (persists on the
 # aria_wa_data volume mounted at /data by fly.wa.toml).
 RUN mkdir -p /data/wa-auth
