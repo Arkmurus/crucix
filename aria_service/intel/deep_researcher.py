@@ -735,6 +735,42 @@ def _sanitize_person_name(raw) -> str | None:
     return cleaned if len(cleaned) >= 3 else None
 
 
+def _looks_like_person_name(text: str) -> bool:
+    """Heuristic: does the text look like a person name (not a company)?
+
+    Returns True if the text has 2-4 words, all start with capital letters,
+    and doesn't contain company suffixes (Ltd, GmbH, Inc, etc.) or URL patterns.
+    Used by R-F1828 to decide whether to run maigret username enumeration.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    s = text.strip()
+    if len(s) < 5 or len(s) > 80:
+        return False
+    # Reject if it looks like a URL
+    if "://" in s or "." in s.replace(" ", "") or s.startswith("www."):
+        return False
+    # Reject if it contains company suffixes
+    _company_suffixes = [
+        "ltd", "limited", "gmbh", "inc", "corp", "llc", "llp", "plc",
+        "sa", "sarl", "sas", "bv", "nv", "ag", "kg", "eood", "sp",
+        "lda", "ltda", "sl", "srl",
+    ]
+    s_lower = s.lower()
+    for suffix in _company_suffixes:
+        if s_lower.endswith(suffix) or s_lower.endswith(f" {suffix}"):
+            return False
+    # Count words — person names are typically 2-4 words
+    words = s.split()
+    if len(words) < 2 or len(words) > 5:
+        return False
+    # Check if all words start with capital letters (person name pattern)
+    capital_count = sum(1 for w in words if w and w[0].isupper())
+    if capital_count >= len(words) - 1:  # allow one lowercase (de, van, etc.)
+        return True
+    return False
+
+
 async def _discover_and_investigate_people(
     llm: LLMProvider, topic: str, all_facts: list[dict],
     *, max_people: int, t_start: float, budget_s: float,
@@ -1028,6 +1064,17 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         for article in unread[:max_articles_per_search]:
             article_jobs.append((query, article))
 
+    # R-F1828: parallel username enumeration via maigret.
+    # If the topic looks like a person name (not a company), run maigret
+    # in the background to find social/professional profiles.
+    _username_results: list[dict] = []
+    if _looks_like_person_name(topic):
+        try:
+            from .osint_username_enum import search_username as _maigret_search
+            _username_results = await _maigret_search(topic, timeout=10.0)
+        except Exception:
+            pass
+
     # Run fetch + analyse in parallel with a concurrency cap so we don't
     # blow up the deepseek API rate limit. Cap at 6 concurrent — empirically
     # the sweet spot for deepseek's per-key throughput.
@@ -1280,6 +1327,7 @@ Return JSON:
         "facts": all_facts,
         "synthesis": synthesis,
         "people": people,  # R-F1812: structured per-person dossiers (recursive DD)
+        "username_enumeration": _username_results,  # R-F1828: maigret social profile discovery
         "verification_summary": verification_summary,
         "duration_ms": duration,
     }
