@@ -432,6 +432,26 @@ async def lifespan(app: FastAPI):
             "or CI so build metadata is passed at build time."
         )
 
+    # R-F1845 — pre-warm heavy imports OFF the event loop. LIVE WEDGE 2026-06-23:
+    # the first DD per process stalled the event loop 6-10s (R-F703 watchdog) and
+    # "produced nothing". Main-thread wedge stack showed the cause: the
+    # commercial-coherence layer (Layer 5c) lazily ran
+    #   from ..writers.procurement_paper_writer import OFFSET_REGIMES
+    # purely to read a constant dict — but that triggers writers/__init__, which
+    # eager-imports the whole writers package incl. the anthropic SDK: a
+    # multi-second synchronous module load ON the request loop. Warming it once at
+    # boot, in a thread, makes the lazy import a cache hit so no DD ever blocks the
+    # loop on it again. Guarded + fire-and-forget: never affects boot success.
+    async def _prewarm_heavy_imports():
+        import importlib
+        for _mod in ("aria_service.writers.procurement_paper_writer",):
+            try:
+                await asyncio.to_thread(importlib.import_module, _mod)
+                logger.info("[R-F1845] pre-warmed %s off the event loop", _mod)
+            except Exception as _pw_e:
+                logger.warning("[R-F1845] pre-warm %s failed (non-fatal): %s", _mod, _pw_e)
+    asyncio.create_task(_prewarm_heavy_imports())
+
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
     # R-F762 (2026-05-20): capture the result so /health can flag the
     # backend as RED when connect fails. Pre-R-F762 a Redis-unreachable
