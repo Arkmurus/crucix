@@ -346,6 +346,26 @@ async def _extract_entity_from_url(url: str) -> dict:
     return result
 
 
+# R-F1831 — detect a "name" that is really a URL or bare domain (so it should
+# be resolved to an org, not used as the entity name). Matches "https://x.com",
+# "x.com", "sub.x.co.uk/path"; rejects real org names ("Modirum Gespi",
+# "Acme Corp Ltd") which contain spaces and no domain shape.
+_URL_OR_DOMAIN_NAME_RE = re.compile(
+    r"^\s*(?:https?://)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:/\S*)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_url_or_domain(text: str) -> bool:
+    """True if `text` is a URL or bare domain rather than an org name."""
+    if not text or not isinstance(text, str):
+        return False
+    s = text.strip()
+    if " " in s and not s.lower().startswith(("http://", "https://")):
+        return False  # multi-word → an org name, not a domain
+    return bool(_URL_OR_DOMAIN_NAME_RE.match(s))
+
+
 async def _enrich_target_from_url(target: dict) -> dict:
     """If the target dict has a website/URL but no name, fetch the URL and
     populate name, jurisdiction hints, and address from the page content.
@@ -356,9 +376,27 @@ async def _enrich_target_from_url(target: dict) -> dict:
 
     Returns the (possibly enriched) target dict. Never raises — on any
     error, returns the original target unchanged.
+
+    R-F1831: a "name" that is itself a bare URL / domain does NOT count as a
+    real org name. The chat intent detector passes a URL DD target through as
+    the entity ("modirumgespi.com"), which used to satisfy the early-return
+    below — so enrichment was skipped and EVERY registry / people / juris-
+    diction layer ran against a dead domain string (live 2026-06-23:
+    "modirumgespi.com → directors_found=0, registration=MISSING,
+    jurisdiction=MISSING" despite the org being trivially resolvable). Now a
+    URL-shaped name is moved into `website` and cleared so the resolver below
+    fetches the page <title> and recovers the real organisation name first.
     """
-    if target.get("name") or target.get("entity"):
-        return target  # already has a name — no enrichment needed
+    _existing = (target.get("name") or target.get("entity") or "").strip()
+    if _existing and not _looks_like_url_or_domain(_existing):
+        return target  # real org name — no enrichment needed
+    if _existing and _looks_like_url_or_domain(_existing):
+        # Re-route the URL-shaped name into the website slot, clear the name
+        # so _extract_entity_from_url resolves the real org from the page.
+        target.setdefault("website", _existing)
+        target["name"] = ""
+        target["entity"] = ""
+        logger.info("R-F1831: URL-shaped DD name %r → website (resolving org)", _existing)
 
     _url = (
         target.get("website")
