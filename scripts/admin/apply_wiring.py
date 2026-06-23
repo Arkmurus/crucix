@@ -60,7 +60,23 @@ def _locate(module: str):
     return None, None
 
 
-def apply_module(module: str, dry_run: bool = False) -> dict:
+def _raise_types(node) -> set:
+    rt = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Raise):
+            exc = n.exc
+            if exc is None:
+                rt.add("reraise")
+            else:
+                t = exc.func if isinstance(exc, ast.Call) else exc
+                rt.add(getattr(t, "id", getattr(t, "attr", "?")))
+    return rt
+
+
+def apply_module(module: str, dry_run: bool = False, cfe: tuple = ()) -> dict:
+    """cfe: exception type names to treat as control flow. A wired function that
+    raises any of them gets control_flow_exempt=(matching,) — applied ONLY to
+    functions that actually raise those types (precise, not blanket)."""
     fp, import_stmt = _locate(module)
     if fp is None:
         return {"module": module, "error": "file not found in scan scope"}
@@ -68,9 +84,10 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
         src = f.read()
     tree = ast.parse(src)
     gap_type = wh.get_gap_type(module)
+    cfe_set = set(cfe)
 
     import_end_lines: list[int] = []  # end line of every top-level import
-    targets: list[tuple[int, str]] = []  # (1-based line to insert before, indent)
+    targets: list[tuple[int, str, tuple]] = []  # (line, indent, exempt-types)
     skipped: list[str] = []
 
     # Decorators that mean "do NOT wrap" — wrapping a property/descriptor changes
@@ -101,7 +118,8 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
         # must be inside @router.get so FastAPI registers the wrapped handler;
         # fail_wire is signature-transparent (functools.wraps __wrapped__) so DI
         # still works. Harmless for undecorated fns (same line as before).
-        targets.append((node.lineno, indent))
+        matched = tuple(sorted(_raise_types(node) & cfe_set)) if cfe_set else ()
+        targets.append((node.lineno, indent, matched))
 
     def walk_classes(body) -> None:
         for n in body:
@@ -132,8 +150,14 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
     lines = src.splitlines(keepends=True)
     # Insert decorators bottom-up so earlier indices stay valid. All targets are
     # below import_anchor, so the import insertion index is unaffected.
-    for ln, indent in sorted(targets, key=lambda t: t[0], reverse=True):
-        lines.insert(ln - 1, f'{indent}@fail_wire(module="{module}", gap_type="{gap_type}")\n')
+    for ln, indent, matched in sorted(targets, key=lambda t: t[0], reverse=True):
+        if matched:
+            ex = ", ".join(f'"{m}"' for m in matched)
+            dec = (f'{indent}@fail_wire(module="{module}", gap_type="{gap_type}", '
+                   f'control_flow_exempt=({ex},))\n')
+        else:
+            dec = f'{indent}@fail_wire(module="{module}", gap_type="{gap_type}")\n'
+        lines.insert(ln - 1, dec)
     if "import fail_wire" not in src:
         lines.insert(import_anchor, import_stmt + "\n")
 
@@ -148,13 +172,19 @@ def apply_module(module: str, dry_run: bool = False) -> dict:
 
 def main(argv: list[str]) -> int:
     dry = "--dry-run" in argv
+    cfe: tuple = ()
+    for a in argv:
+        if a.startswith("--control-flow-exempt="):
+            cfe = tuple(x.strip() for x in a.split("=", 1)[1].split(",") if x.strip())
     mods = [a for a in argv if not a.startswith("-")]
     if not mods:
         print(__doc__)
         return 2
+    if cfe:
+        print(f"  control_flow_exempt (applied only to fns that raise these): {cfe}")
     total = 0
     for m in mods:
-        r = apply_module(m, dry_run=dry)
+        r = apply_module(m, dry_run=dry, cfe=cfe)
         if r.get("error"):
             print(f"  !! {m}: {r['error']}")
             continue

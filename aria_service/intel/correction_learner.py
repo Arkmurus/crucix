@@ -63,6 +63,7 @@ import time
 from typing import Any
 
 from .llm_json import parse_llm_json
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.correction_learner")
 
@@ -165,6 +166,7 @@ _CORRECTION_DETECTOR_RE = re.compile(
 )
 
 
+@fail_wire(module="correction_learner", gap_type="engine_failure")
 def looks_like_correction(message: str) -> bool:
     """True if the message looks like the user is correcting ARIA. More
     permissive than the reasoning_library guard because we WANT to extract
@@ -297,6 +299,7 @@ async def _persist_facts(facts: list[dict], sender_name: str) -> int:
 
 # ── Public write API ────────────────────────────────────────────────────────
 
+@fail_wire(module="correction_learner", gap_type="engine_failure")
 async def extract_and_persist(message: str, sender_name: str, llm: Any) -> dict:
     """Detect correction, extract facts via LLM, store in knowledge.py.
 
@@ -332,6 +335,7 @@ async def extract_and_persist(message: str, sender_name: str, llm: Any) -> dict:
 
 # ── Public read API: recent corrections addendum ────────────────────────────
 
+@fail_wire(module="correction_learner", gap_type="engine_failure")
 async def recent_corrections_addendum(message: str = "") -> str:
     """Build a system-prompt addendum surfacing recent user corrections.
 

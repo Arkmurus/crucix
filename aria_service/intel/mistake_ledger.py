@@ -51,6 +51,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.mistake_ledger")
 
@@ -111,6 +112,7 @@ async def _read_head() -> str:
         return _GENESIS
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def record(
     category: str,
     task_type: str,
@@ -211,6 +213,7 @@ async def record(
     return body
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def lookup_similar(
     task_type: str,
     domain: str,
@@ -278,6 +281,7 @@ async def lookup_similar(
     return results
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def recent(
     limit: int = 50,
     category: Optional[str] = None,
@@ -326,10 +330,12 @@ async def _invalidated_set() -> set[str]:
         return set()
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def is_invalidated(mistake_id: str) -> bool:
     return mistake_id in (await _invalidated_set())
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
     """Mark mistakes as invalidated. They remain in the hash chain
     (forensic record) but are filtered from lookup_similar / recent
@@ -381,6 +387,7 @@ async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
     return {"requested": requested, "invalidated": invalidated_count, "skipped": skipped}
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def list_invalidated() -> list[dict]:
     """Return invalidated entries with their reason. Forensic view.
     Falls back to scanning _KEY_LOG when _KEY_BY_ID is missing (older
@@ -457,6 +464,7 @@ async def _get_entry_healing(mistake_id: str) -> Optional[dict]:
     return None
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def mark_prevented(mistake_id: str, prevented_by: str, context: str = "") -> dict:
     """When the predictor surfaces a past mistake and the new task avoids
     it, increment the prevented_count. This is the single most important
@@ -494,6 +502,7 @@ async def mark_prevented(mistake_id: str, prevented_by: str, context: str = "") 
     return {"ok": True, "entry": entry}
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def stats() -> dict:
     from . import redis_store as rs
     sample = await rs.lrange(_KEY_LOG, 0, 9999)
@@ -518,6 +527,7 @@ async def stats() -> dict:
     }
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def verify_chain(start: int = 0, count: int = 500) -> dict:
     from . import redis_store as rs
     raw = await rs.lrange(_KEY_LOG, start, start + count - 1)
@@ -549,6 +559,7 @@ async def verify_chain(start: int = 0, count: int = 500) -> dict:
     return {"verified": not broken, "checked": len(entries), "broken": broken[:20]}
 
 
+@fail_wire(module="mistake_ledger", gap_type="engine_failure")
 async def reindex_all(batch_size: int = 1000) -> dict:
     """Scan `_KEY_LOG` and ensure every entry has a matching `_KEY_BY_ID`
     mirror. Heals Mode-A divergence (log has entry, by_id missing) that

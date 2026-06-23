@@ -57,6 +57,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import redis_store as rs
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.cost")
 
@@ -165,6 +166,7 @@ _current_feature: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def get_current_feature() -> str:
     # R-F1598: removed wire_success call — this is a high-frequency getter
     # called on every LLM call via record_call(). Each call triggered full
@@ -174,6 +176,7 @@ def get_current_feature() -> str:
     return _current_feature.get()
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def set_feature(name: str) -> contextvars.Token:
     """Set the active feature attribution. Returns a token the caller can
     use to reset later. Prefer the `feature()` context manager for paired
@@ -181,6 +184,7 @@ def set_feature(name: str) -> contextvars.Token:
     return _current_feature.set(name or "uncategorized")
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def reset_feature(token: contextvars.Token) -> None:
     try:
         _current_feature.reset(token)
@@ -224,6 +228,7 @@ def _get_price(model: str) -> tuple[float, float]:
     return DEFAULT_PRICING
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     in_rate, out_rate = _get_price(model)
     return round(
@@ -252,6 +257,7 @@ EXTERNAL_AGG_KEY = "crucix:cost:ext:agg"
 _BRAVE_DEFAULT_COST_PER_CALL = 0.005  # $5 / 1,000 queries
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def record_external_call(
     *,
     service: str,                  # "brave" | "upstash" | etc.
@@ -324,6 +330,7 @@ async def record_external_call(
     return record
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def record_brave_call(
     *,
     operation: str = "search",
@@ -351,6 +358,7 @@ async def record_brave_call(
     )
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_external_summary(month: str | None = None) -> dict:
     """Return per-service external spend summary for the dashboard."""
     agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
@@ -364,6 +372,7 @@ async def get_external_summary(month: str | None = None) -> dict:
     }
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def record_call(
     *,
     model: str,
@@ -554,6 +563,7 @@ async def _refresh_month_cache(force: bool = False) -> float:
     return total
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_month_spend() -> dict:
     """Month-to-date LLM spend + cap utilisation."""
     spent = await _refresh_month_cache()
@@ -568,6 +578,7 @@ async def get_month_spend() -> dict:
     }
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure", control_flow_exempt=("MonthlyCostCapExceeded",))
 async def assert_monthly_cap() -> None:
     """Raise MonthlyCostCapExceeded if month-to-date spend is at/over the cap.
     Called by MeteredProvider before every LLM request. Honours
@@ -680,6 +691,7 @@ async def _breakdown_from_index(target_month: str) -> dict:
     }
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_month_breakdown(month: str | None = None) -> dict:
     """Full breakdown for the requested month (defaults to current).
     Exposes per-provider, per-feature, per-model totals plus the 20 most
@@ -733,6 +745,7 @@ async def get_month_breakdown(month: str | None = None) -> dict:
 
 # ── Reporting ──────────────────────────────────────────────────────────────
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_cost_summary(window_hours: int = 24) -> dict:
     """Aggregate stats over a rolling window from the index. The cumulative
     aggregate (COST_AGG_KEY) covers all-time; this windowed view answers
@@ -785,6 +798,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
         return {"error": str(e)}
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_cumulative_aggregate() -> dict:
     """All-time per-feature totals. Survives index rotation since it's a
     separate key updated on every record_call."""
@@ -794,6 +808,7 @@ async def get_cumulative_aggregate() -> dict:
         return {}
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def list_recent_calls(
     limit: int = 30,
     feature_filter: str | None = None,
@@ -810,6 +825,7 @@ async def list_recent_calls(
         return []
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_call_record(call_id: str) -> dict | None:
     try:
         return await rs.get_json(f"{COST_RECORD_PREFIX}{call_id}")

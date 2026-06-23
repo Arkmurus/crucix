@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.dd_disciplines")
 
@@ -1148,6 +1149,7 @@ ENTITY_TYPE_DISCIPLINES = {
 # PUBLIC API
 # ══════════════════════════════════════════════════════════════════════
 
+@fail_wire(module="dd_disciplines", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 def required_disciplines(entity_type: str) -> list[str]:
     """Return the ordered list of DD disciplines required for a given
     entity type. Raises if entity_type unknown."""
@@ -1167,6 +1169,7 @@ def required_disciplines(entity_type: str) -> list[str]:
     return list(ENTITY_TYPE_DISCIPLINES[entity_type])
 
 
+@fail_wire(module="dd_disciplines", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 def discipline_definition(discipline_id: str) -> dict[str, Any]:
     """Return the full definition of a discipline. Raises if unknown."""
     if discipline_id not in DD_DISCIPLINES:
@@ -1174,6 +1177,7 @@ def discipline_definition(discipline_id: str) -> dict[str, Any]:
     return dict(DD_DISCIPLINES[discipline_id])
 
 
+@fail_wire(module="dd_disciplines", gap_type="engine_failure")
 def discipline_coverage_check(
     report_disciplines_covered: list[str],
     entity_type: str,
@@ -1216,6 +1220,7 @@ def discipline_coverage_check(
     }
 
 
+@fail_wire(module="dd_disciplines", gap_type="engine_failure")
 def adverse_media_query_templates(
     entity_name: str,
     director_names: list[str] | None = None,
@@ -1375,6 +1380,7 @@ def adverse_media_query_templates(
     return templates
 
 
+@fail_wire(module="dd_disciplines", gap_type="engine_failure")
 def discipline_summary_for_chat(entity_type: str = "defence_broker") -> str:
     """Render a chat-friendly summary of what disciplines ARIA will run
     for a given entity type. Use to answer 'what do you check?' questions

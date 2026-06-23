@@ -237,6 +237,10 @@ WIRED_MODULES: set[str] = {
     "agent_signup_vault",
     # R-F1801 — Phase 1 batch 4 (routes/aria.py — 629 handlers; streams exempt)
     "aria",
+    # R-F1807 — Phase 1 batch 5 (intel stragglers: validation=ValueError exempt;
+    # cost_tracker MonthlyCostCapExceeded exempt; correction_learner closure-fix)
+    "dd_disciplines", "dd_orchestrator", "mistake_ledger",
+    "correction_learner", "cost_tracker",
 }
 
 # Modules that are fully reviewed and exempt from wiring
@@ -311,34 +315,47 @@ def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
         except SyntaxError:
             return []
 
+    # Collect module-level functions + class methods, EXCLUDING nested closures.
+    # A function defined inside another function is an implementation detail,
+    # wrapped transitively by its enclosing function — wiring it is wrong and
+    # GATE A demanding it is a false positive (e.g. correction_learner.relevance).
+    wireable: list = []
+
+    def _collect(body) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not node.name.startswith("_"):
+                    wireable.append(node)
+                # do NOT descend into the function body — skip closures
+            elif isinstance(node, ast.ClassDef):
+                _collect(node.body)  # methods + nested classes
+
+    _collect(tree.body)
+
     fns = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            name = node.name
-            if name.startswith("_"):
-                continue  # private — skip
-            is_async = isinstance(node, ast.AsyncFunctionDef)
-            is_generator = any(
-                isinstance(n, (ast.Yield, ast.YieldFrom))
-                for n in ast.walk(node)
-            )
-            raise_types: set[str] = set()
-            for n in ast.walk(node):
-                if isinstance(n, ast.Raise):
-                    exc = n.exc
-                    if exc is None:
-                        raise_types.add("reraise")
-                    else:
-                        t = exc.func if isinstance(exc, ast.Call) else exc
-                        raise_types.add(getattr(t, "id", getattr(t, "attr", "?")))
-            fns.append({
-                "name": name,
-                "type": "async" if is_async else "sync",
-                "is_generator": is_generator,
-                "has_raise": bool(raise_types),
-                "raise_types": raise_types,
-                "lineno": node.lineno,
-            })
+    for node in wireable:
+        is_async = isinstance(node, ast.AsyncFunctionDef)
+        is_generator = any(
+            isinstance(n, (ast.Yield, ast.YieldFrom))
+            for n in ast.walk(node)
+        )
+        raise_types: set[str] = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Raise):
+                exc = n.exc
+                if exc is None:
+                    raise_types.add("reraise")
+                else:
+                    t = exc.func if isinstance(exc, ast.Call) else exc
+                    raise_types.add(getattr(t, "id", getattr(t, "attr", "?")))
+        fns.append({
+            "name": node.name,
+            "type": "async" if is_async else "sync",
+            "is_generator": is_generator,
+            "has_raise": bool(raise_types),
+            "raise_types": raise_types,
+            "lineno": node.lineno,
+        })
     return fns
 
 

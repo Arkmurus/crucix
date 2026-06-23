@@ -71,6 +71,7 @@ from .dd_schema import (
 logger = logging.getLogger("aria.dd_orchestrator")
 
 from .engine_wiring import wired  # R-F1121 — @wired decorator for brain sinks
+from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
 def _note_dd_screen_gap(report, who: str, exc: Exception) -> None:
@@ -6327,6 +6328,7 @@ async def _run_sweep_intelligence(target: dict, report: ARKDDReport) -> None:
     )
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def orchestrate_dd(
     target: dict,
     *,
@@ -7901,6 +7903,7 @@ def _build_ecosystem_status(report) -> dict:
 WATCHLIST_KEY = "crucix:dd:watchlist"
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def add_to_watchlist(target: dict) -> dict:
     """Add a target to the DD watchlist. Target must include at least
     a name. Idempotent — dedupes by name."""
@@ -7935,6 +7938,7 @@ async def add_to_watchlist(target: dict) -> dict:
     return {"ok": True, "added": target, "count": len(current)}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def remove_from_watchlist(name: str) -> dict:
     from . import redis_store as rs
     current = await rs.get_json(WATCHLIST_KEY) or []
@@ -7944,16 +7948,19 @@ async def remove_from_watchlist(name: str) -> dict:
     return {"ok": True, "removed": before - len(current), "count": len(current)}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_watchlist() -> list[dict]:
     from . import redis_store as rs
     return await rs.get_json(WATCHLIST_KEY) or []
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs
     return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_case_file(
     canonical_entity_id: str,
     *,
@@ -8037,6 +8044,7 @@ async def get_case_file(
     return out
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def list_reports(
     limit: int = 50,
     *,
@@ -8256,6 +8264,7 @@ async def list_reports(
 # R-F575 — CASE-FILE SPLIT / MERGE OPERATOR OVERRIDES
 # =============================================================================
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def split_case(
     canonical_entity_id: str,
     run_ids_to_extract: list[str],
@@ -8342,6 +8351,7 @@ async def split_case(
     }
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def merge_cases(
     from_canonical_id: str,
     into_canonical_id: str,
@@ -8411,6 +8421,7 @@ async def merge_cases(
     }
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def delete_report(run_id: str) -> dict:
     """Remove a single DD report + its index entry. R-F162 (2026-05-11) —
     the prior fix for the 'this company, which has nothing to do' case
@@ -8595,6 +8606,7 @@ async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
     return impacted
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def rescreen_watchlist(llm=None) -> dict:
     """Re-screen every watchlist entity (sanctions + PEP only, no LLM).
 
@@ -8846,6 +8858,7 @@ async def rescreen_watchlist(llm=None) -> dict:
     }
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list[dict]:
     """Retrieve recent watchlist re-screen alerts from Redis.
 
@@ -8895,6 +8908,7 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list
     return alerts
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def mark_watchlist_alerts_read(user_id: str) -> dict:
     """R-F51: mark all currently visible alerts as read for this user
     by stamping the per-user read-until timestamp. Idempotent — calling
@@ -8913,6 +8927,7 @@ async def mark_watchlist_alerts_read(user_id: str) -> dict:
     return {"ok": True, "read_until": ts}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_watchlist_unread_count(user_id: str, since_hours: int = 168) -> int:
     """R-F51: light-weight unread badge probe. Counts alerts in the last
     `since_hours` (default 7d) that arrived after the per-user read-until
