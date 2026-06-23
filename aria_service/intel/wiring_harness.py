@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import ast
 import os
-import re
 from typing import Any
 
 # ── MODULE_GAP_TYPES registry ─────────────────────────────────────────────
@@ -175,9 +174,52 @@ WIRED_MODULES: set[str] = {
 
 # Modules that are fully reviewed and exempt from wiring
 FULLY_EXEMPT_MODULES: set[str] = {
-    "engine_wiring.py",  # The wiring module itself
-    "wire.py",           # The wiring module itself
+    "engine_wiring.py",   # The wiring module itself
+    "wire.py",            # The wiring module itself (docstring @fail_wire example)
+    "wiring_harness.py",  # This enforcement harness (docstring @fail_wire examples)
 }
+
+
+def fail_wire_decorators(filepath: str) -> dict[str, dict[str, Any]]:
+    """AST-detect REAL @fail_wire decorators on public functions.
+
+    Critically, this ignores `@fail_wire(...)` text that appears inside
+    docstrings, comments, or string literals (e.g. usage examples in wire.py
+    and this harness) — only genuine entries in a function's decorator_list
+    count. String-proximity matching (the prior approach) flagged those
+    examples as real decorators, jamming GATES B/D on the harness's own files.
+
+    Returns {func_name: {"gap_type": str|None, "lineno": int}}.
+    """
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
+        try:
+            tree = ast.parse(f.read())
+        except SyntaxError:
+            return {}
+
+    wired: dict[str, dict[str, Any]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name.startswith("_"):
+            continue  # private — skip
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if isinstance(target, ast.Name):
+                dec_name = target.id
+            elif isinstance(target, ast.Attribute):
+                dec_name = target.attr
+            else:
+                dec_name = None
+            if dec_name != "fail_wire":
+                continue
+            gap_type = None
+            if isinstance(dec, ast.Call):
+                for kw in dec.keywords:
+                    if kw.arg == "gap_type" and isinstance(kw.value, ast.Constant):
+                        gap_type = kw.value.value
+            wired[node.name] = {"gap_type": gap_type, "lineno": node.lineno}
+    return wired
 
 
 def scan_public_functions(filepath: str) -> list[dict[str, Any]]:
@@ -234,8 +276,7 @@ def check_gate_a(module_path: str, filename: str) -> list[str]:
         return violations
 
     fns = scan_public_functions(module_path)
-    with open(module_path, encoding="utf-8", errors="ignore") as f:
-        src = f.read()
+    wired = fail_wire_decorators(module_path)
 
     for fn in fns:
         name = fn["name"]
@@ -244,14 +285,9 @@ def check_gate_a(module_path: str, filename: str) -> list[str]:
         if exempt:
             continue
 
-        # Check if wired (has @fail_wire decorator)
-        fn_idx = src.find(f"def {name}(")
-        if fn_idx < 0:
-            fn_idx = src.find(f"async def {name}(")
-        if fn_idx >= 0:
-            before = src[max(0, fn_idx - 200):fn_idx]
-            if "@fail_wire" in before or "fail_wire" in before:
-                continue  # wired — ok
+        # Check if wired (has a REAL @fail_wire decorator — AST, not string match)
+        if name in wired:
+            continue  # wired — ok
 
         # Not wired and not exempt — violation
         violations.append(
@@ -268,31 +304,25 @@ def check_gate_b(module_path: str, filename: str) -> list[str]:
     Returns list of violations (empty = pass).
     """
     violations = []
+    if filename in FULLY_EXEMPT_MODULES:
+        return violations  # wiring infrastructure (carries example decorators in docstrings)
     module_name = filename.replace(".py", "")
     expected_type = get_gap_type(module_name)
 
-    with open(module_path, encoding="utf-8", errors="ignore") as f:
-        src = f.read()
-
-    # Find all @fail_wire decorators and check their gap_type
-    for m in re.finditer(r'@fail_wire\([^)]+\)', src):
-        decorator = m.group()
-        if "gap_type=" not in decorator:
+    # Inspect REAL @fail_wire decorators only (AST — ignores docstring examples).
+    for name, info in fail_wire_decorators(module_path).items():
+        actual = info["gap_type"]
+        if actual is None:
             violations.append(
-                f"{filename}:{src[:m.start()].count(chr(10)) + 1} "
-                f"@fail_wire missing gap_type (expected '{expected_type}')"
+                f"{filename}:{info['lineno']} @fail_wire on '{name}()' "
+                f"missing gap_type (expected '{expected_type}')"
             )
-        else:
-            # Extract the gap_type value
-            gt_match = re.search(r'gap_type="([^"]+)"', decorator)
-            if gt_match:
-                actual = gt_match.group(1)
-                if actual != expected_type:
-                    violations.append(
-                        f"{filename}:{src[:m.start()].count(chr(10)) + 1} "
-                        f"@fail_wire gap_type='{actual}' but module "
-                        f"'{module_name}' requires '{expected_type}'"
-                    )
+        elif actual != expected_type:
+            violations.append(
+                f"{filename}:{info['lineno']} @fail_wire on '{name}()' "
+                f"gap_type='{actual}' but module '{module_name}' "
+                f"requires '{expected_type}'"
+            )
 
     return violations
 
@@ -303,26 +333,20 @@ def check_gate_d(module_path: str, filename: str) -> list[str]:
     Returns list of warnings (not blocks — requires judgment).
     """
     warnings = []
+    if filename in FULLY_EXEMPT_MODULES:
+        return warnings  # wiring infrastructure (carries example decorators in docstrings)
     fns = scan_public_functions(module_path)
-
-    with open(module_path, encoding="utf-8", errors="ignore") as f:
-        src = f.read()
+    wired = fail_wire_decorators(module_path)
 
     for fn in fns:
         if not fn["has_raise"]:
             continue
-        name = fn["name"]
-        fn_idx = src.find(f"def {name}(")
-        if fn_idx < 0:
-            fn_idx = src.find(f"async def {name}(")
-        if fn_idx >= 0:
-            before = src[max(0, fn_idx - 200):fn_idx]
-            if "@fail_wire" in before:
-                warnings.append(
-                    f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
-                    f"'{name}()' contains 'raise' — potential gap-spam. "
-                    f"Review: is this control-flow or a real failure?"
-                )
+        if fn["name"] in wired:
+            warnings.append(
+                f"{filename}:{fn['lineno']} FAIL_WIRE'd function "
+                f"'{fn['name']}()' contains 'raise' — potential gap-spam. "
+                f"Review: is this control-flow or a real failure?"
+            )
 
     return warnings
 
@@ -380,20 +404,8 @@ SAFE_NO_ARGS: set[str] = {
 def get_fail_wired_functions(module_path: str) -> list[dict[str, Any]]:
     """Get all @fail_wire'd public functions in a module."""
     fns = scan_public_functions(module_path)
-    with open(module_path, encoding="utf-8", errors="ignore") as f:
-        src = f.read()
-
-    wired = []
-    for fn in fns:
-        name = fn["name"]
-        fn_idx = src.find(f"def {name}(")
-        if fn_idx < 0:
-            fn_idx = src.find(f"async def {name}(")
-        if fn_idx >= 0:
-            before = src[max(0, fn_idx - 200):fn_idx]
-            if "@fail_wire" in before:
-                wired.append(fn)
-    return wired
+    wired_names = fail_wire_decorators(module_path)
+    return [fn for fn in fns if fn["name"] in wired_names]
 
 
 def run_gate_c(module_name: str) -> None:
