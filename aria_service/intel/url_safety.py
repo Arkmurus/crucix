@@ -225,3 +225,28 @@ def assert_safe_url(url: str) -> None:
     ok, reason = is_safe_url(url)
     if not ok:
         raise ValueError(f"URL failed SSRF safety check: {reason}")
+
+
+async def safe_get(client, url, *, max_redirects: int = 3, **kwargs):
+    """R-F1814 — SSRF-safe HTTP GET. Validates ``url`` AND every redirect hop with
+    is_safe_url, with ``follow_redirects`` forced OFF so an open redirect to an
+    internal host cannot bypass the guard. Raises ``ValueError('ssrf_blocked:<reason>')``
+    if any hop is unsafe. ``client`` is an httpx.AsyncClient (caller owns
+    timeout/headers). This is the single SSRF-checked fetch boundary every
+    user-URL fetcher should use instead of a raw ``client.get``.
+    """
+    import httpx as _httpx
+    cur = url
+    for _ in range(max_redirects + 1):
+        ok, reason = is_safe_url(cur)
+        if not ok:
+            raise ValueError(f"ssrf_blocked:{reason}")
+        kwargs["follow_redirects"] = False
+        resp = await client.get(cur, **kwargs)
+        if resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get("location")
+            if loc:
+                cur = str(_httpx.URL(resp.url).join(loc))
+                continue
+        return resp
+    raise ValueError("ssrf_blocked:too_many_redirects")

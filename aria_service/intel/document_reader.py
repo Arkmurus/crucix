@@ -1152,8 +1152,11 @@ async def _resolve_source(source: str) -> str | None:
     if source.startswith(("http://", "https://")):
         try:
             import httpx
+            from . import url_safety as _us
             async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
-                resp = await client.get(source, follow_redirects=True)
+                # R-F1814 (audit C2): SSRF-guarded fetch (validates url + every
+                # redirect hop; follow_redirects off). `source` is user-controlled.
+                resp = await _us.safe_get(client, source)
                 resp.raise_for_status()
                 ct = resp.headers.get("content-type", "")
                 suffix = ".pdf"
@@ -1166,12 +1169,21 @@ async def _resolve_source(source: str) -> str | None:
                 ) as f:
                     f.write(resp.content)
                     return f.name
+        except ValueError as _ssrf:  # ssrf_blocked:<reason> from safe_get
+            logger.warning("document_reader: blocked SSRF-unsafe source %r (%s)", str(source)[:80], _ssrf)
+            return None
         except Exception as e:
             logger.debug("URL download failed for %s: %s", source[:80], e)
             return None
 
-    if os.path.exists(source):
-        return source
+    # R-F1814 (audit C2): local-file branch — restrict to the system temp dir
+    # (where uploads land via NamedTemporaryFile) to prevent arbitrary-file read.
+    # `source` is user-controlled; '/etc/passwd', 'C:\\Windows\\...' must be rejected.
+    _abs = os.path.realpath(source)
+    _tmp_root = os.path.realpath(tempfile.gettempdir())
+    if _abs.startswith(_tmp_root + os.sep) and os.path.exists(_abs):
+        return _abs
+    logger.warning("document_reader: rejected non-tempdir local source %r", str(source)[:80])
     return None
 
 

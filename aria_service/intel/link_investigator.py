@@ -864,13 +864,19 @@ async def _fetch_page(url: str, timeout_s: float = DEFAULT_PAGE_TIMEOUT_S) -> tu
         "Accept-Language": "en;q=1.0, *;q=0.5",
     }
     try:
+        from . import url_safety as _us
         async with httpx.AsyncClient(
             timeout=timeout_s,
-            follow_redirects=True,
+            follow_redirects=False,  # R-F1814 (audit C2): safe_get revalidates each hop
             headers=headers,
             limits=httpx.Limits(max_connections=8, max_keepalive_connections=4),
         ) as client:
-            r = await client.get(url)
+            # R-F1814: SSRF-guarded fetch — `url` (incl. harvested/LLM-suggested
+            # links) is user-influenced; block internal/loopback/metadata targets.
+            try:
+                r = await _us.safe_get(client, url)
+            except ValueError:
+                return "", "", "ssrf_blocked"
             if r.status_code >= 400:
                 return "", "", f"http_{r.status_code}"
             html = r.text or ""
