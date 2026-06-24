@@ -226,11 +226,15 @@ async def stats() -> dict:
     """Queue depth + reconcile diagnostics for /api/aria/brain/stats."""
     from . import redis_store as rs
     try:
-        keys = await rs.scan_keys(_KEY_PREFIX + "*", count=500)
-        keys = [k for k in keys if k != _STATE_KEY]
+        # R-F1901 — one scan_json instead of scan_keys + up to 500 sequential
+        # get_json round-trips. This is the OTHER half of the get_stats
+        # /api/aria/health cost (brain_hook.get_stats calls both this and
+        # absorption_quarantine.stats, fixed in R-F1885 — same pattern).
+        items = await rs.scan_json(_KEY_PREFIX + "*", count=500)
         pending = upgraded = 0
-        for k in keys:
-            entry = await rs.get_json(k)
+        for k, entry in items:
+            if k == _STATE_KEY:
+                continue  # reconcile-state blob, not a verification entry
             if not isinstance(entry, dict):
                 continue
             if entry.get("current_status") == "grounded":
