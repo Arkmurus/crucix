@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1868,
+  "next_available": 1874,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13035,6 +13035,60 @@
       "r_number": "R-F1867",
       "title": "DD-11/12 command injection: gitCommit execSync->spawnSync arg-array + sanitize moduleName",
       "claimed_at": "2026-06-24T13:17:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1868",
+      "title": "DD/ARIA: wa-listener accounts POST req.body undefined (express.json mounts after route) - Add Account name lost",
+      "claimed_at": "2026-06-24T13:20:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1869",
+      "title": "DD-13/14/20/08: Node unhandled-async hangs + ReDoS regex + SSRF webhook guard",
+      "claimed_at": "2026-06-24T13:21:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1870",
+      "title": "DD-18/24/19/27/15 WA integrity: callback auth+one-time token, deliver-flag after send, real senderJid+allowlist on auto-response, cap media buffer",
+      "claimed_at": "2026-06-24T13:26:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1871",
+      "title": "event-loop wedge R-F703 root-cause — diagnose+fix main.py/brain CPU-path stall (215s /api/aria/health timeout)",
+      "claimed_at": "2026-06-24T13:28:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1872",
+      "title": "EagleEye evening-window gating + changed-files-only + de-flood logging (fix brain wedge)",
+      "claimed_at": "2026-06-24T13:44:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1873",
+      "title": "SearXNG timeout inversion: client 15s > gather 12s, never completes; clamp under gather",
+      "claimed_at": "2026-06-24T14:36:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

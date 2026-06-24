@@ -1693,15 +1693,45 @@ async def hdel(key: str, field: str) -> bool:
 # ── Glob scan ───────────────────────────────────────────────────────────
 
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
-    if _conn is None:
-        return []
-    # Convert Redis glob (* ? [abc]) to SQL LIKE wildcards; do a fnmatch
-    # filter on the result to handle [abc] correctly (LIKE doesn't).
+    # R-F1871 — read-after-write consistency + use the dedicated READ connection,
+    # mirroring _row(): flush the R-F1541 write queue (so set()->scan() sees its
+    # own writes) and read via _get_read_conn() (R-F1449) instead of the write
+    # `_conn`. The old scan_keys read `_conn` WITHOUT flushing, so it could miss
+    # freshly-queued writes (latent bug, masked in prod where writes are drained).
     try:
-        cur = await _conn.execute(
-            "SELECT key FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
-            (_now(),),
-        )
+        await _flush_write_queue()
+    except Exception:
+        pass
+    conn = _get_read_conn()
+    if conn is None:
+        return []
+    # R-F1871 — push the pattern's LITERAL PREFIX into SQL so we don't fetch the
+    # ENTIRE `state` keyspace on every call. The old query was
+    # `SELECT key FROM state` (no filter) + a Python fnmatch over EVERY row —
+    # O(all keys) on the event loop. absorption_quarantine.stats() runs scan_keys
+    # on every /api/aria/health hit, so on a large brain it stalled the loop for
+    # seconds (R-F703 wedge; web_integrity escalated /api/aria/health timing out
+    # >215s — the health endpoint wedging itself). Almost all 23 callers use a
+    # `prefix*` pattern; `key GLOB 'prefix*'` is a range scan on the `key` PRIMARY
+    # KEY index (GLOB is case-sensitive so the planner uses the index, unlike
+    # LIKE). The fnmatch below still runs for EXACT Redis-glob semantics
+    # (?, [abc], mid-pattern metachars) over the now-narrow result.
+    _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)
+    _prefix = pattern if _meta < 0 else pattern[:_meta]
+    try:
+        if _prefix:
+            cur = await conn.execute(
+                "SELECT key FROM state WHERE key GLOB ? "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (_prefix + "*", _now()),
+            )
+        else:
+            # Pattern starts with a metachar (e.g. "*foo") — no usable prefix;
+            # fall back to the full scan (rare).
+            cur = await conn.execute(
+                "SELECT key FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
+                (_now(),),
+            )
         rows = await cur.fetchall()
         await cur.close()
     except Exception as e:
