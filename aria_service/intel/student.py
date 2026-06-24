@@ -1739,9 +1739,18 @@ async def get_regional_heatmap() -> dict:
           The mastery EWMA for `general` stays near INITIAL_MASTERY
           (0.5) regardless of what ARIA actually knows in that region.
 
-    After A+B the floor reflects legitimate weak cells (real coverage
-    gaps), pointing the operator at work that would actually close
-    gate #2.
+      (C) Drop region=`global` from the heatmap entirely. `global` is
+          the detect_regions() no-match fallback — a region-LESS query
+          has no region, so it is a TOPIC-mastery datapoint (gate #1),
+          NOT a topic×REGION datapoint (gate #2). Putting it in
+          `global` double-counts + mis-categorizes. The existing
+          `general`-topic drop (B) is the same class of fix: a
+          catch-all fallback that classifies poorly, measuring
+          regional mastery against it is noise. R-F1893.
+
+    After A+B+C the floor reflects legitimate weak cells (real
+    coverage gaps over real regions), pointing the operator at work
+    that would actually close gate #2.
     """
     rm = await _load_regional_mastery()
     valid_regions = set(REGIONS)
@@ -1755,6 +1764,12 @@ async def get_regional_heatmap() -> dict:
             continue
         # R-F684 (B) — drop general-topic noise from heatmap floor.
         if topic == "general":
+            continue
+        # R-F1893 (C) — drop global-region noise from heatmap floor.
+        # 'global' is the detect_regions() no-match fallback; a region-less
+        # query is a topic-mastery datapoint (gate #1), not a topic×region
+        # datapoint (gate #2). Same rationale as the 'general'-topic drop.
+        if region == "global":
             continue
         if topic not in heatmap:
             heatmap[topic] = {}
