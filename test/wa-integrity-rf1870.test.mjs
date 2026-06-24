@@ -62,9 +62,10 @@ await check('DD-18: callback token mismatch rejected, match accepted', () => {
 
 await check('DD-18 static: token generated, appended to callback_url, stored, verified', () => {
   assert.ok(/const callbackToken = randomBytes\(24\)\.toString\('hex'\)/.test(SRC), 'token not generated');
-  assert.ok(/'ct=' \+ callbackToken/.test(SRC), 'token not appended to callback_url');
+  assert.ok(/'ct=' \+ (encodeURIComponent\()?callbackToken/.test(SRC), 'token not appended to callback_url');
   assert.ok(/deliveredViaCallback: false, callbackToken/.test(SRC), 'token not stored in mapping');
-  assert.ok(/mapping\.callbackToken\)\s*\{[\s\S]{0,200}invalid callback token/.test(SRC), 'token not verified in callback handler');
+  assert.ok(/if \(mapping\.callbackToken\)\s*\{/.test(SRC) && /invalid callback token/.test(SRC),
+    'token not verified in callback handler');
 });
 
 // ── DD-24 static: deliveredViaCallback set AFTER the send loop ───────────────

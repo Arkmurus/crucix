@@ -97,7 +97,20 @@ import express  from 'express';
 import fs       from 'fs';
 import path     from 'path';            // R-F1861: ESM has no require(); import node:path
 import { createClient } from 'redis';
-import { randomBytes } from 'node:crypto';   // R-F1870 (audit DD-18): per-job callback token
+import { randomBytes, timingSafeEqual } from 'node:crypto';   // R-F1870/R-F1884: per-job callback token (constant-time compare)
+
+// R-F1884 (review RV-04, timing-safe): constant-time token compare; false on
+// any length mismatch or error. Prevents both timing side-channels and the
+// length-mismatch throw from timingSafeEqual.
+function _callbackTokenEq(a, b) {
+  try {
+    const ba = Buffer.from(String(a || ''), 'utf8');
+    const bb = Buffer.from(String(b || ''), 'utf8');
+    return ba.length === bb.length && ba.length > 0 && timingSafeEqual(ba, bb);
+  } catch {
+    return false;
+  }
+}
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 
 // R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
@@ -240,9 +253,15 @@ async function brainFetchHealth(path, timeoutMs = 8000) {
 
 // R-F1413 — async-complete-and-push callback URL. The brain POSTs completed
 // job results here so deep queries deliver even after the poll loop times out.
-// Defaults to the WA listener's own /send endpoint (internal Fly DNS).
+// R-F1884 (review RV-01, CRITICAL): the async-complete-and-push callback MUST
+// target /api/wa-listener/callback (job_id/status/message), NOT /send
+// (group_id/message). The brain's SSRF allowlist (aria.py _CALLBACK_ALLOWLIST)
+// only permits …/callback, so a /send default was silently rejected — every
+// long-running DD that exceeded the poll window never delivered (empty chat,
+// no report), and the R-F1870 callback-token check (in the /callback handler)
+// was dead code. Pre-existing from R-F1413.
 const CALLBACK_URL  = process.env.WA_LISTENER_CALLBACK_URL
-  || 'http://aria-wa.internal:5070/api/wa-listener/send';
+  || 'http://aria-wa.internal:5070/api/wa-listener/callback';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
 // R-F963 (2026-05-28, operator choice) — a voice note is a deliberate act aimed
@@ -1087,7 +1106,9 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   // Without it, anyone holding the shared internal token (or an internal SSRF)
   // could replay a known job_id with a forged message and impersonate ARIA.
   const callbackToken = randomBytes(24).toString('hex');
-  const callbackUrl = CALLBACK_URL + (CALLBACK_URL.includes('?') ? '&' : '?') + 'ct=' + callbackToken;
+  // R-F1884 (review): URL-encode the token query value (defensive — hex is
+  // already URL-safe, but never build a URL by raw concatenation of a value).
+  const callbackUrl = CALLBACK_URL + (CALLBACK_URL.includes('?') ? '&' : '?') + 'ct=' + encodeURIComponent(callbackToken);
   let job;
   try {
     // R-F1413 — pass callback_url so the brain pushes the result when done
@@ -2526,8 +2547,13 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
   // callback (even with the shared internal token) won't have it → reject.
   // Backward-compat: jobs registered before this change have no token → skip.
   if (mapping.callbackToken) {
-    const presented = (req.query?.ct || b.callback_token || '');
-    if (presented !== mapping.callbackToken) {
+    // R-F1884 (review RV-04): the token MUST come ONLY from the query string
+    // (?ct=), which the brain echoes from the dispatch-time callback_url. The
+    // old `|| b.callback_token` body fallback let an attacker who knows a
+    // job_id present any token in the (untrusted) request body and bypass the
+    // check. Constant-time compare (RV timing-safe).
+    const presented = req.query?.ct || '';
+    if (!_callbackTokenEq(presented, mapping.callbackToken)) {
       console.warn(`[ARIA Listener] R-F1870 callback token mismatch for job ${jobId} — rejecting`);
       return res.status(403).json({ error: 'invalid callback token' });
     }
@@ -2540,10 +2566,16 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
     return res.json({ delivered: false, reason: 'job_failed' });
   }
 
-  // Prevent double-delivery: if the poll loop already sent the result, skip
-  if (mapping.deliveredViaCallback) {
-    return res.json({ delivered: false, reason: 'already_delivered_via_poll' });
+  // R-F1884 (review, double-delivery race): atomically CLAIM delivery before the
+  // send. The check + the `delivering` set below have NO await between them, so
+  // (Node being single-threaded) a second concurrent callback for the same job
+  // cannot slip past — it sees `delivering` and bails. The old code checked
+  // `deliveredViaCallback` but only SET it AFTER the awaited send loop, so two
+  // callbacks racing through the awaits both delivered (duplicate WA messages).
+  if (mapping.deliveredViaCallback || mapping.deliveringViaCallback) {
+    return res.json({ delivered: false, reason: 'already_delivered_or_in_progress' });
   }
+  mapping.deliveringViaCallback = true;  // atomic claim — no await before this
 
   // Deliver the result to WhatsApp
   const t0 = Date.now();
@@ -2562,6 +2594,11 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
     console.log(`[ARIA Listener] R-F1413 callback delivered job ${jobId} to ${chatId} (${message.length} chars)`);
     res.json({ delivered: true, to: chatId, parts: chunks.length });
   } catch (e) {
+    // R-F1884: release the in-progress claim on failure so a retry callback can
+    // re-attempt delivery (deliveredViaCallback stays false — the user got
+    // nothing yet). Combined with the atomic claim above this gives
+    // exactly-once delivery without losing a turn on a transient send error.
+    mapping.deliveringViaCallback = false;
     reportOutcome('wa', requestId, 'chat_response', 'send_failed', Date.now() - t0, e.message);
     console.error(`[ARIA Listener] R-F1413 callback send failed for job ${jobId}: ${e.message}`);
     res.status(500).json({ error: e.message });
