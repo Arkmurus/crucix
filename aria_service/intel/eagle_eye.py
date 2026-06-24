@@ -33,6 +33,15 @@ _SCAN_INTERVAL_S = int(os.getenv("ARIA_EAGLE_EYE_INTERVAL", "1800"))  # 30 min
 _GUARDIAN_DIR = Path(os.getenv("ARIA_EAGLE_EYE_DIR", ".aria/eagle_eye"))
 _MAX_CHANGE_HISTORY = 50
 
+# R-F1872 — restrict scanning to an evening window so the GIL-bound scan (AST
+# parse + regex over the whole tree) can never starve the event loop during the
+# working day / live testing. The scan runs in asyncio.to_thread, but it is
+# CPU/GIL-bound, so it still contends with the loop (the WA brain-fetch timeout
+# cascade, live 2026-06-24). Format "HH:MM-HH:MM" in _SCAN_TZ; empty = always
+# (legacy). Interval still applies WITHIN the window.
+_SCAN_WINDOW = os.getenv("ARIA_EAGLE_EYE_WINDOW", "20:00-22:00").strip()
+_SCAN_TZ = os.getenv("ARIA_EAGLE_EYE_TZ", "Europe/London").strip()
+
 # ── Danger patterns ────────────────────────────────────────────────────────
 
 _DANGEROUS_PATTERNS: list[tuple[str, str, int, str]] = [
@@ -203,7 +212,13 @@ class EagleEyeGuardian:
                 # R-F1591: pass is_changed to _scan_for_issues so it can skip
                 # expensive operations (like ChromaDB re-indexing) for files
                 # whose content hasn't changed since the last scan.
-                self._scan_for_issues(file_path, content, is_changed=is_changed)
+                # R-F1872: skip the AST-parse + regex security scan ENTIRELY for
+                # unchanged files once the baseline (one full pass per process)
+                # exists. Unchanged code → unchanged findings, so re-parsing the
+                # whole tree every cycle was pure wasted GIL time. The cold-start
+                # baseline pass (_baseline_seeded=False) still scans everything.
+                if is_changed or not self._baseline_seeded:
+                    self._scan_for_issues(file_path, content, is_changed=is_changed)
                 # R-F1754: only advance the persisted hash if the index was NOT
                 # deferred. A deferred file keeps its OLD hash so the next (quiet)
                 # scan re-detects is_changed=True and actually indexes it — never
@@ -427,7 +442,13 @@ class EagleEyeGuardian:
         self.metrics["trouble_spotted"] += 1
 
         if trouble.severity >= 9:
-            logger.warning(
+            # R-F1872: per-finding CRITICAL lines are logged at DEBUG, not WARNING.
+            # The baseline pass re-detects hundreds of (mostly known/false-positive,
+            # e.g. eval() in test files) findings each process start and the old
+            # WARNING flood was itself GIL/I-O load that helped wedge the loop. The
+            # per-scan summary ("found N high-severity issues"), the brain wiring,
+            # and get_report() still surface them — without flooding the log.
+            logger.debug(
                 "[EagleEye] CRITICAL: %s at %s:%d — %s",
                 trouble.description, trouble.file_path, trouble.line_number, trouble.suggested_fix,
             )
@@ -563,41 +584,84 @@ async def stop() -> None:
     logger.info("[EagleEye] Shut down")
 
 
+def _within_scan_window(now: "datetime | None" = None) -> bool:
+    """True if the current local time (in _SCAN_TZ) falls inside _SCAN_WINDOW.
+
+    R-F1872: an empty window means "always" (legacy). Handles windows that
+    cross midnight. On any parse/tz error, defaults to ALLOW so a bad config
+    never silently disables the guardian forever (it just loses the gating).
+    `now` is injectable for tests.
+    """
+    if not _SCAN_WINDOW:
+        return True
+    try:
+        from datetime import time as _dtime
+        if now is None:
+            try:
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo(_SCAN_TZ))
+            except Exception:
+                now = datetime.now()  # tzdata unavailable → local wall clock
+        start_s, end_s = _SCAN_WINDOW.split("-", 1)
+        sh, sm = (int(x) for x in start_s.strip().split(":"))
+        eh, em = (int(x) for x in end_s.strip().split(":"))
+        start, end, cur = _dtime(sh, sm), _dtime(eh, em), now.time()
+        if start <= end:
+            return start <= cur <= end
+        return cur >= start or cur <= end  # window crosses midnight
+    except Exception as e:
+        logger.debug("[EagleEye] scan-window parse failed (%s) — allowing scan", e)
+        return True
+
+
 async def _scan_loop() -> None:
     """Background scan loop.
-    
+
     R-F1553: ticks agent heartbeat and wires scan results to the brain
     so critical findings (eval, exec, SQL injection) reach the operator
     dashboard and the autonomous self-improvement cycle.
+    R-F1872: scans only run inside the configured evening window so the
+    GIL-bound scan never starves the loop during the day / live testing.
     """
     global _guardian
     if _guardian is None:
         return
-    # Initial scan after a short delay so the app can bind first
+    # Initial scan after a short delay so the app can bind first.
+    # R-F1872: only if we're inside the scan window — otherwise a daytime
+    # restart/deploy would trigger the full cold-start scan (the wedge).
     await asyncio.sleep(30)
-    try:
-        report = await _guardian.scan_once()
-        if report["high_severity_issues"] > 0:
-            logger.warning(
-                "[EagleEye] Initial scan found %d high-severity issues",
-                report["high_severity_issues"],
-            )
-            # R-F1553: record capability gaps for critical findings
-            await _record_critical_gaps(report)
-        # R-F1553: wire scan result to brain
-        _wire_scan_to_brain(report)
-        # R-F1559: tick heartbeat after the initial scan so the stall detector
-        # sees us alive immediately, not only after the first 30-min interval.
-        await _tick_heartbeat()
-    except Exception as e:
-        logger.debug("[EagleEye] Initial scan failed: %s", e)
-        _wire_failure_to_brain(f"Initial scan failed: {e}")
+    if _within_scan_window():
+        try:
+            report = await _guardian.scan_once()
+            if report["high_severity_issues"] > 0:
+                logger.warning(
+                    "[EagleEye] Initial scan found %d high-severity issues",
+                    report["high_severity_issues"],
+                )
+                # R-F1553: record capability gaps for critical findings
+                await _record_critical_gaps(report)
+            # R-F1553: wire scan result to brain
+            _wire_scan_to_brain(report)
+        except Exception as e:
+            logger.debug("[EagleEye] Initial scan failed: %s", e)
+            _wire_failure_to_brain(f"Initial scan failed: {e}")
+    else:
+        logger.info("[EagleEye] Outside scan window %s (%s) — deferring initial scan",
+                    _SCAN_WINDOW, _SCAN_TZ)
+    # R-F1559: tick heartbeat so the stall detector sees us alive immediately,
+    # whether or not we scanned (R-F1872: heartbeat must NOT depend on scanning).
+    await _tick_heartbeat()
 
     while True:
         await asyncio.sleep(_SCAN_INTERVAL_S)
         try:
-            # R-F1553: tick heartbeat so the agent registry knows we're alive
+            # R-F1553: tick heartbeat so the agent registry knows we're alive.
+            # This runs EVERY interval, in or out of window, so the stall
+            # detector never flags the guardian as dead while it's just idle.
             await _tick_heartbeat()
+            # R-F1872: skip the CPU/GIL-bound scan outside the evening window.
+            if not _within_scan_window():
+                continue
             report = await _guardian.scan_once()
             if report["high_severity_issues"] > 0:
                 logger.warning(
