@@ -1094,7 +1094,12 @@ app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
+// R-F1868 (ARIA finding): this POST route is registered (~1097) BEFORE the
+// `app.use('/api/', express.json())` mount (~1202), so without a route-level
+// parser req.body is undefined → JSON.stringify(req.body || {}) forwards `{}`
+// and the user-supplied `name` is dropped (account created with the auto-id as
+// its name). A route-level express.json() runs the parser before the handler.
+app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb' }), async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
       method: 'POST',
