@@ -140,7 +140,20 @@ def _safe_encode(model, text_or_texts, **kwargs):
 
     Note: model.encode() holds the GIL (torch C extension), but the
     bounded lock wait prevents indefinite blocking. Callers should run
-    this via asyncio.to_thread so the event loop isn't blocked."""
+    this via asyncio.to_thread so the event loop isn't blocked.
+
+    R-F1890: when the encode-offload pool is available, run the encode in a
+    SEPARATE PROCESS so it never holds the MAIN process GIL (the root cause of
+    the recurring loop wedge). Only the known {normalize_embeddings} kwarg shape
+    is offloaded; anything else, or any offload failure, transparently falls
+    through to the in-process path below — the offload can never make it worse."""
+    try:
+        if set(kwargs.keys()) <= {"normalize_embeddings"}:
+            from . import encode_offload as _eo
+            if _eo.is_enabled():
+                return _eo.encode(text_or_texts, normalize=bool(kwargs.get("normalize_embeddings", False)))
+    except Exception:
+        pass  # OffloadUnavailable / import error / anything → in-process fallback
     acquired = _encode_lock.acquire(timeout=_ENCODE_LOCK_WAIT_S)
     if not acquired:
         raise EncodeLockTimeout(

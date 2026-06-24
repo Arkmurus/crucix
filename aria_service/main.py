@@ -659,7 +659,7 @@ async def lifespan(app: FastAPI):
     #     /health/live timed out → fly PR04 cascade → reverted 22:25.
     #   - R-F459 (this commit) — prewarm fires at T+0 (not T+15) AND
     #     the lock-pattern was validated locally on Python 3.14 first.
-    async def _embedder_prewarm_bg():
+    async def _prewarm_inprocess_model():
         try:
             from .intel.semantic_search import prewarm_embedder
             await prewarm_embedder()
@@ -669,6 +669,28 @@ async def lifespan(app: FastAPI):
                 "[R-F459] sentence-transformer prewarm failed "
                 "(non-fatal, lazy load will retry): %s", exc,
             )
+
+    async def _embedder_prewarm_bg():
+        # R-F1890 — load the embedding model in EXACTLY ONE place to avoid 2x
+        # torch+model RAM on the memory-constrained Fly box:
+        #   offload ON  → the separate WORKER process owns the model; the main
+        #                 process does NOT prewarm it (lazy-loads only if a
+        #                 fallback encode is ever needed).
+        #   offload OFF → prewarm the in-process model (legacy behaviour).
+        try:
+            from .intel import encode_offload as _eo
+            if _eo._ENABLED:
+                await asyncio.to_thread(_eo.start)   # blocks on bounded worker warmup
+                if _eo.is_enabled():
+                    logger.info("[R-F1890] encode-offload pool ready — main-process model NOT prewarmed (saves RAM)")
+                else:
+                    logger.warning("[R-F1890] encode-offload pool unavailable — prewarming in-process model as fallback")
+                    await _prewarm_inprocess_model()
+            else:
+                await _prewarm_inprocess_model()
+        except Exception as exc:
+            logger.warning("[R-F1890] encode-offload start errored — prewarming in-process model as fallback: %s", exc)
+            await _prewarm_inprocess_model()
     _bg_task(asyncio.create_task(_embedder_prewarm_bg(), name="embedder_prewarm"))
 
     # ── R-F1512 — seed baseline mastery for topics stuck at scaffold ───
@@ -2817,6 +2839,13 @@ async def lifespan(app: FastAPI):
         await eagle_eye.stop()
     except Exception as _ee_err:
         logger.warning("[EagleEye] Shutdown failed (non-fatal): %s", _ee_err)
+
+    # R-F1890: stop the encode-offload worker process
+    try:
+        from .intel import encode_offload as _eo
+        _eo.stop()
+    except Exception as _eo_err:
+        logger.warning("[R-F1890] encode-offload stop failed (non-fatal): %s", _eo_err)
 
     # R-F1574: stop Autonomous Scheduler
     if _scheduler_task is not None:
