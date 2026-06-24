@@ -1066,8 +1066,63 @@ def _tesseract_extract_sync(image_data: bytes) -> Optional[dict]:
             new_size = (int(img_gray.width * scale), int(img_gray.height * scale))
             img_gray = img_gray.resize(new_size, Image.LANCZOS)
 
-        # Auto-contrast to handle dim photos
-        img_gray = ImageOps.autocontrast(img_gray)
+        # R-F1858 — OpenCV preprocessing for significantly better OCR on
+        # photos of documents (WhatsApp snaps of contracts, invoices, tenders).
+        # The PIL-only path (autocontrast) is a global operation that doesn't
+        # handle uneven lighting, shadows, or rotation well. OpenCV adds:
+        #   1. Adaptive thresholding — handles shadows/lighting gradients
+        #   2. Denoising — removes camera sensor noise / compression artefacts
+        #   3. Deskewing — corrects rotated photos
+        #   4. Morphological closing — closes small gaps in broken text
+        # Falls back gracefully to PIL autocontrast if OpenCV is not installed.
+        try:
+            import cv2
+            import numpy as np
+
+            # Convert PIL grayscale to numpy array for OpenCV
+            img_np = np.array(img_gray)
+
+            # 1. Deskew — detect and correct rotation
+            coords = np.column_stack(np.where(img_np < 240))
+            if len(coords) > 100:
+                angle = cv2.minAreaRect(coords)[-1]
+                if angle < -45:
+                    angle = 90 + angle
+                if abs(angle) > 0.5:
+                    h, w = img_np.shape
+                    center = (w // 2, h // 2)
+                    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                    img_np = cv2.warpAffine(
+                        img_np, matrix, (w, h),
+                        flags=cv2.INTER_CUBIC,
+                        borderMode=cv2.BORDER_REPLICATE,
+                    )
+
+            # 2. Denoise — bilateral filter preserves edges
+            img_np = cv2.bilateralFilter(img_np, 9, 75, 75)
+
+            # 3. Adaptive thresholding — handles uneven lighting
+            img_np = cv2.adaptiveThreshold(
+                img_np, 255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=31,
+                C=10,
+            )
+
+            # 4. Morphological closing — fill small gaps in broken characters
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+            img_np = cv2.morphologyEx(img_np, cv2.MORPH_CLOSE, kernel)
+
+            # Convert back to PIL for Tesseract
+            img_gray = Image.fromarray(img_np)
+
+        except ImportError:
+            # OpenCV not installed — fall back to PIL autocontrast
+            img_gray = ImageOps.autocontrast(img_gray)
+        except Exception as e:
+            logger.debug("OpenCV preprocessing failed, falling back to PIL: %s", e)
+            img_gray = ImageOps.autocontrast(img_gray)
 
         # Try several page segmentation modes — Tesseract is sensitive to
         # layout. PSM 3 = fully automatic, PSM 6 = uniform block, PSM 4 =

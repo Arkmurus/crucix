@@ -80,6 +80,13 @@ chromadb>=0.4.0
 pytesseract>=0.3.10
 Pillow>=10.0.0
 
+# R-F1858 — OpenCV for image preprocessing before OCR (adaptive thresholding,
+# denoising, deskewing, morphological ops). Significantly improves Tesseract
+# accuracy on photos of documents (WhatsApp snaps of contracts, invoices,
+# tenders). The Dockerfile already has the system deps (libgl1, libglib2.0-0,
+# libsm6, libxext6, libxrender1) so this installs cleanly.
+opencv-python>=4.8.0
+
 # ── Anthropic SDK for active_challenge_engine, claim_ledger, ground_truth ──
 # These three modules use the Claude API directly (not through ARIA's own
 # LLM provider abstraction) to keep their logic self-contained. The SDK is
