@@ -346,6 +346,118 @@ async def _extract_entity_from_url(url: str) -> dict:
     return result
 
 
+def _dd_strip_html(html: str) -> str:
+    """R-F1874 — minimal, dependency-free HTML→text (drop script/style, tags,
+    entities; collapse whitespace). Mirrors link_investigator's regex approach."""
+    h = re.sub(r"(?is)<(script|style|noscript|svg|template)[^>]*>.*?</\1>", " ", html)
+    h = re.sub(r"<[^>]+>", " ", h)
+    h = re.sub(r"&nbsp;|&amp;|&#\d+;|&[a-z]+;", " ", h)
+    return re.sub(r"\s+", " ", h).strip()
+
+
+# R-F1874 — anchors whose href/text hint at the key DD pages on an entity site.
+_DD_KEY_PAGE_RE = re.compile(
+    r"about|team|leadership|management|people|board|director|contact|"
+    r"service|solution|company|who-?we-?are|our-?(?:team|company|people|story)",
+    re.IGNORECASE,
+)
+
+
+async def _mine_entity_website(url: str, *, max_pages: int = 5, budget_s: float = 25.0) -> list[dict]:
+    """R-F1874 (direct-source-first) — mine the entity's OWN website as PRIMARY
+    DD evidence: the homepage plus key sub-pages (about / team / leadership /
+    contact / services). Returns ``[{url, label, title, text}]`` (text capped).
+
+    This is the independence path (CLAUDE.md §6): a company's own site rarely
+    blocks the Fly datacenter IP the way Google/Bing/DDG do, so the DD still has
+    real content when general web search is 403'd. SSRF-safe (every hop
+    re-validated), same-domain only, bounded by ``max_pages`` and a wall-clock
+    ``budget_s``. Never raises — returns ``[]`` on any failure (best-effort)."""
+    import time as _t
+    _t0 = _t.monotonic()
+    out: list[dict] = []
+    if not url:
+        return out
+    _ok, _why = _ssrf_safe_url(url)
+    if not _ok:
+        logger.warning("_mine_entity_website: blocked SSRF-unsafe url %r (%s)", url[:120], _why)
+        return out
+    from urllib.parse import urlparse as _up, urljoin as _uj
+    try:
+        import httpx as _httpx
+    except Exception:
+        return out
+    base_host = (_up(url).netloc or "").removeprefix("www.").lower()
+
+    async def _fetch(_client, _u: str):
+        if not _ssrf_safe_url(_u)[0]:
+            return None
+        cur = _u
+        for _ in range(4):  # initial + up to 3 SSRF-revalidated redirects
+            r = await _client.get(cur)
+            loc = r.headers.get("location")
+            if r.status_code in (301, 302, 303, 307, 308) and loc:
+                nxt = str(_httpx.URL(r.url).join(loc))
+                if not _ssrf_safe_url(nxt)[0]:
+                    return None
+                cur = nxt
+                continue
+            r.raise_for_status()
+            return r.text[:_URL_FETCH_MAX_BYTES]
+        return None
+
+    def _title(html: str) -> str:
+        m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+        return (m.group(1).strip() if m else "")[:200]
+
+    try:
+        async with _httpx.AsyncClient(
+            timeout=_httpx.Timeout(_URL_FETCH_TIMEOUT_S),
+            follow_redirects=False,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)"},
+        ) as client:
+            home = await _fetch(client, url)
+            if not home:
+                return out
+            out.append({"url": url, "label": "homepage", "title": _title(home),
+                        "text": _dd_strip_html(home)[:4000]})
+            # Discover same-domain key sub-pages from homepage anchors.
+            seen = {url.split("#")[0].rstrip("/")}
+            cand: list[tuple[str, str]] = []
+            for m in re.finditer(r'<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                                 home, re.IGNORECASE | re.DOTALL):
+                href, anchor = m.group(1), _dd_strip_html(m.group(2))
+                if not (_DD_KEY_PAGE_RE.search(href) or _DD_KEY_PAGE_RE.search(anchor)):
+                    continue
+                full = _uj(url, href)
+                if (_up(full).netloc or "").removeprefix("www.").lower() != base_host:
+                    continue
+                key = full.split("#")[0].rstrip("/")
+                if key in seen:
+                    continue
+                seen.add(key)
+                cand.append((full, (anchor or _DD_KEY_PAGE_RE.search(href).group(0)).strip()[:40]))
+                if len(cand) >= max_pages - 1:
+                    break
+            for full, label in cand:
+                if _t.monotonic() - _t0 > budget_s:
+                    break
+                try:
+                    body = await _fetch(client, full)
+                except Exception:
+                    body = None
+                if not body:
+                    continue
+                txt = _dd_strip_html(body)
+                if len(txt) < 80:
+                    continue
+                out.append({"url": full, "label": label, "title": _title(body),
+                            "text": txt[:4000]})
+    except Exception as e:
+        logger.debug("_mine_entity_website failed for %s: %s", url[:120], e)
+    return out
+
+
 # R-F1831 — detect a "name" that is really a URL or bare domain (so it should
 # be resolved to an org, not used as the entity name). Matches "https://x.com",
 # "x.com", "sub.x.co.uk/path"; rejects real org names ("Modirum Gespi",
@@ -3710,6 +3822,38 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 snippet=(getattr(h, "snippet", "") or "")[:400],
                 retrieved_at=datetime.now(timezone.utc).isoformat(),
             ))
+        # R-F1874 (direct-source-first): mine the entity's OWN website as PRIMARY
+        # evidence. A company's own site rarely blocks the datacenter IP the way
+        # search engines do, so this is the independence backbone (CLAUDE.md §6) —
+        # the DD has real content even when general web search is 403'd/empty.
+        # Prepended so primary self-reported content leads the digital evidence.
+        _site = ""
+        for _c in (target.get("website"), target.get("url"), target.get("domain")):
+            if _c and isinstance(_c, str) and _c.strip():
+                _site = _c.strip()
+                break
+        if _site:
+            if not _site.lower().startswith(("http://", "https://")):
+                _site = "https://" + _site
+            try:
+                _mined = await _mine_entity_website(_site)
+            except Exception as _mine_e:
+                _mined = []
+                logger.debug("R-F1874 site-mine failed: %s", _mine_e)
+            if _mined:
+                _primary: list[Evidence] = []
+                for _pg in _mined:
+                    _primary.append(Evidence(
+                        source=f"{_pg.get('label', 'page')}: {_pg.get('title') or _pg.get('url')}"[:200],
+                        source_tier="ENTITY_SITE",   # primary, self-reported
+                        url=_pg.get("url"),
+                        snippet=(_pg.get("text") or "")[:400],
+                        retrieved_at=datetime.now(timezone.utc).isoformat(),
+                    ))
+                tier_counts["ENTITY_SITE"] = tier_counts.get("ENTITY_SITE", 0) + len(_primary)
+                press = _primary + press     # primary content leads the digital layer
+                logger.info("R-F1874: mined %d primary page(s) from entity site %s",
+                            len(_primary), _site[:80])
         report.digital.press_coverage = press[:15]
         report.digital.source_tier_breakdown = tier_counts
         if _dropped_irrelevant:
