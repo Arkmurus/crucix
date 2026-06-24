@@ -15,7 +15,7 @@ DSK=$(grep -E '^DEEPSEEK_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | t
 TOK=$(grep -E '^ARIA_INTERNAL_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
 BRAIN="${ARIA_BRAIN_URL:-https://aria-intel.fly.dev}"
 VOL=4vdw2zmqov
-GPUS='["NVIDIA A40","NVIDIA RTX A4000","NVIDIA RTX A5000","NVIDIA GeForce RTX 3090","NVIDIA GeForce RTX 4090","NVIDIA L40S","NVIDIA L40"]'
+GPUS='["NVIDIA A40","NVIDIA RTX A4000","NVIDIA RTX A5000","NVIDIA GeForce RTX 3090","NVIDIA GeForce RTX 4090","NVIDIA L40S","NVIDIA L40","NVIDIA RTX A6000","NVIDIA RTX 6000 Ada Generation","NVIDIA A100 80GB PCIe","NVIDIA A100-SXM4-80GB","NVIDIA A100-SXM4-40GB"]'
 [ -n "$KEY" ] || { echo "[selfrun] FATAL RUNPOD_API_KEY missing"; exit 1; }
 [ -n "$TOK" ] || { echo "[selfrun] FATAL ARIA_INTERNAL_TOKEN missing"; exit 1; }
 
@@ -128,19 +128,47 @@ print(json.dumps({
 PY
 }
 
+# pod_status <id> → prints "STATUS|uptime" (e.g. RUNNING|42, EXITED|none)
+pod_status(){
+  curl -s --max-time 20 "$API/pods/$1" -H "Authorization: Bearer $KEY" 2>/dev/null | python -c "import sys,json
+try:
+  d=json.load(sys.stdin); print('%s|%s'%(d.get('desiredStatus','?'),(d.get('runtime') or {}).get('uptimeInSeconds','none')))
+except: print('?|none')" 2>/dev/null
+}
+terminate(){ curl -s -X POST "$API/pods/$1/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; curl -s -X DELETE "$API/pods/$1" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }
+
+# Create a pod AND verify it actually starts. RunPod SECURE intermittently returns a
+# pod id that immediately EXITs without ever getting a GPU (uptime None) — those are
+# phantoms; terminate + recreate. Only proceed once a pod is genuinely RUNNING.
 POD_ID=""
-for i in $(seq 1 20); do
+for attempt in $(seq 1 240); do
   R=$(curl -s -X POST "$API/pods" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d "$(mkjson)")
-  POD_ID=$(echo "$R" | python -c "import sys,json
+  PID=$(echo "$R" | python -c "import sys,json
 try: print(json.load(sys.stdin).get('id','') or '')
 except: print('')" 2>/dev/null)
-  [ -n "$POD_ID" ] && { echo "[selfrun] CREATED self-run pod $POD_ID (try $i) — it will eval + POST + self-stop"; break; }
-  ERR=$(echo "$R" | python -c "import sys,json
-try: print((json.load(sys.stdin).get('error','') or str(json.load(sys.stdin)))[:80])
+  if [ -z "$PID" ]; then
+    ERR=$(echo "$R" | python -c "import sys,json
+try: print((json.load(sys.stdin).get('error','') or str(json.load(sys.stdin)))[:70])
 except: print('')" 2>/dev/null)
-  echo "[selfrun] no capacity ($ERR) — retry 120s ($i/20)"; sleep 120
+    echo "[selfrun] no capacity ($ERR) — retry 90s ($attempt/240)"; sleep 90; continue
+  fi
+  echo "[selfrun] created $PID ($attempt/15) — verifying it actually starts…"
+  started=0
+  for s in $(seq 1 9); do
+    sleep 20
+    ST=$(pod_status "$PID"); SS=${ST%%|*}; UP=${ST##*|}
+    if [ "$SS" = "RUNNING" ] && [ "$UP" != "none" ] && [ "$UP" != "0" ]; then
+      started=1; echo "[selfrun] pod $PID RUNNING (uptime ${UP}s) — it will eval + POST + self-stop"; break
+    fi
+    if [ "$SS" = "EXITED" ] || [ "$SS" = "TERMINATED" ]; then
+      echo "[selfrun] phantom $PID ($SS, no GPU) — terminating + recreating"; terminate "$PID"; break
+    fi
+  done
+  [ "$started" = 1 ] && { POD_ID="$PID"; break; }
+  # didn't confirm running (stuck pending or exited) — clean up and recreate
+  terminate "$PID"; sleep 10
 done
-[ -n "$POD_ID" ] || { echo "[selfrun] GAVE UP — US-KS-2 capacity-blocked across GPU types"; exit 2; }
+[ -n "$POD_ID" ] || { echo "[selfrun] GAVE UP — could not get a pod to actually RUN (capacity flaky)"; exit 2; }
 
 # Backstop force-stop (in case the pod's self-stop fails) — launcher owns the key.
 force_stop(){ curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true; }
