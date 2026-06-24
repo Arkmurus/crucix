@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1857,
+  "next_available": 1858,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12928,6 +12928,16 @@
       "r_number": "R-F1856",
       "title": "fix advisory-split test wrong logger name",
       "claimed_at": "2026-06-24T08:26:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "88230db6",
+      "notes": null,
+      "shipped_at": "2026-06-24T08:27:18Z"
+    },
+    {
+      "r_number": "R-F1857",
+      "title": "gate MODULE_BUG minting on code-defect evidence (kill tracebackless-warning coder fuel churn)",
+      "claimed_at": "2026-06-24T08:50:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
