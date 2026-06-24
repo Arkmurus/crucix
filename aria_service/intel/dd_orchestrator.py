@@ -1875,6 +1875,49 @@ async def _run_identity(
     report.identity.jurisdiction_iso2 = jurisdiction_iso2
     report.identity.registration_number = registration_number
 
+    # R-F1876 (direct-source-first R2): GLEIF authoritative enrichment. Fill any
+    # registration fields the caller didn't supply with AUTHORITATIVE data from
+    # the free, global, key-less GLEIF LEI registry — legal name / LEI /
+    # jurisdiction / registered-as id / status / legal address. Independent of
+    # web search. Matching is CONSERVATIVE (gleif.best_match) so a near-miss can
+    # never inject another entity's data — the exact failure mode behind the
+    # 2026-04-09 Modirum fabrication incident. Only fills EMPTY fields (never
+    # overwrites caller/registry data). Best-effort; never raises.
+    if entity_type != EntityType.PERSON.value and name:
+        try:
+            from . import gleif as _gleif
+            _gl_hits = await _gleif.search_lei(name, country=jurisdiction_iso2)
+            if not _gl_hits and jurisdiction_iso2:
+                _gl_hits = await _gleif.search_lei(name)  # retry without the country filter
+            _gl = _gleif.best_match(name, _gl_hits)
+            if _gl:
+                _filled = []
+                if not report.identity.registration_number and _gl.get("registered_as"):
+                    report.identity.registration_number = _gl["registered_as"]; _filled.append("reg#")
+                if not report.identity.jurisdiction_iso2 and _gl.get("jurisdiction"):
+                    report.identity.jurisdiction_iso2 = _gl["jurisdiction"]; _filled.append("jurisdiction")
+                if not report.identity.registration_status and _gl.get("status"):
+                    report.identity.registration_status = (_gl["status"] or "").lower(); _filled.append("status")
+                if not report.identity.registered_address and _gl.get("legal_address"):
+                    report.identity.registered_address = _gl["legal_address"]; _filled.append("address")
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=f"GLEIF: LEI {_gl.get('lei')} — {_gl.get('legal_name')}",
+                    detail=(
+                        f"Authoritative GLEIF record (free global LEI registry): legal name "
+                        f"'{_gl.get('legal_name')}', jurisdiction {_gl.get('jurisdiction') or '?'}, "
+                        f"registered as '{_gl.get('registered_as') or '?'}', entity status "
+                        f"{_gl.get('status') or '?'}, LEI registration {_gl.get('registration_status') or '?'}. "
+                        f"Source: {_gl.get('source_url')}. Fields filled from GLEIF: "
+                        f"{', '.join(_filled) if _filled else 'none (all already known)'}."
+                    ),
+                    source="gleif.search_lei",
+                    confidence="PROBABLE",
+                ))
+                logger.info("R-F1876 GLEIF match for %r: LEI=%s filled=%s", name[:60], _gl.get("lei"), _filled)
+        except Exception as _gl_e:
+            logger.debug("R-F1876 GLEIF enrichment failed (non-fatal): %s", _gl_e)
+
     hard_stop = False
 
     # Romanian CUI → incorporation-date analyzer. If the caller
