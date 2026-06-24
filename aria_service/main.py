@@ -3464,7 +3464,7 @@ async def phase_gates():
 
     Gates:
       #1 Composite >= 71%  — from compute_composite()
-      #2 Heatmap floor >= 70% — from coverage_heatmap.build_heatmap()
+      #2 Heatmap floor >= 70% — from student.get_regional_heatmap()
       #3 0 fly ERRORs/7d — from mistake_ledger (WARNING-level, not ERROR)
       #4 Quarantined DDs closed — from dd_case_archive
       #5 Env vars set — from os.environ probe
