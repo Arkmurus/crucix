@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1874,
+  "next_available": 1879,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13027,9 +13027,10 @@
       "title": "make _check_hallucinated_api precise — skip local vars/imports (kill .append/.get false positives)",
       "claimed_at": "2026-06-24T13:02:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "610d5e2d",
+      "notes": null,
+      "shipped_at": "2026-06-24T15:05:57Z"
     },
     {
       "r_number": "R-F1867",
@@ -13072,9 +13073,10 @@
       "title": "event-loop wedge R-F703 root-cause — diagnose+fix main.py/brain CPU-path stall (215s /api/aria/health timeout)",
       "claimed_at": "2026-06-24T13:28:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "775a2a48",
+      "notes": null,
+      "shipped_at": "2026-06-24T15:05:57Z"
     },
     {
       "r_number": "R-F1872",
@@ -13089,6 +13091,51 @@
       "r_number": "R-F1873",
       "title": "SearXNG timeout inversion: client 15s > gather 12s, never completes; clamp under gather",
       "claimed_at": "2026-06-24T14:36:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1874",
+      "title": "Direct-source-first DD R1: mine entity website (homepage+key pages) as PRIMARY evidence",
+      "claimed_at": "2026-06-24T14:40:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1875",
+      "title": "DD chat turns vanish: stream-path persists only after stream completes; register conversation+user turn early so a dropped DD stream survives",
+      "claimed_at": "2026-06-24T15:16:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1876",
+      "title": "Direct-source-first DD R2: GLEIF (free global LEI) authoritative registration enrichment in identity layer",
+      "claimed_at": "2026-06-24T15:29:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1877",
+      "title": "offload deep_researcher search_knowledge calls to to_thread (research-loop event-loop wedge)",
+      "claimed_at": "2026-06-24T15:29:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1878",
+      "title": "DD absorb wedge: completion brain_hook.absorb awaited in DD critical path (29s p95 trips circuit) -> fire-and-forget",
+      "claimed_at": "2026-06-24T15:35:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

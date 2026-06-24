@@ -13,6 +13,7 @@ Capabilities:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -429,7 +430,7 @@ async def crawl_website(
         except Exception as e:
             logger.debug("RAG ingest during crawl failed for %s: %s", url, e)
 
-        existing_kb = search_knowledge(text[:200])
+        existing_kb = await asyncio.to_thread(search_knowledge,text[:200])
         parsed = await _analyse_article(llm, article_text, f"crawl:{domain}", existing_kb, hypotheses)
 
         page_facts = 0
@@ -1093,7 +1094,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             if not body or len(body) < 100:
                 return None
             article_text = f"Title: {article['title']}\nSearch: {query}\nContent:\n{body[:4000]}"
-            existing_kb = search_knowledge(article["title"])
+            existing_kb = await asyncio.to_thread(search_knowledge,article["title"])
             try:
                 parsed = await _analyse_article(
                     llm, article_text, f"investigation:{topic[:30]}", existing_kb, hypotheses
@@ -1352,7 +1353,7 @@ async def analyse_scenarios(
     logger.info(f"ARIA scenario analysis: '{situation[:60]}'")
 
     # Gather relevant knowledge
-    existing_kb = search_knowledge(situation)
+    existing_kb = await asyncio.to_thread(search_knowledge,situation)
     hypotheses = await _load_hypotheses()
     hyp_block = "\n".join(f"- [{h['status']}] {h['hypothesis']}" for h in hypotheses[:10])
 
@@ -1488,7 +1489,7 @@ async def build_profile(
                 continue
 
             article_text = f"Title: {article['title']}\nProfile target: {entity}\nContent:\n{body[:4000]}"
-            existing_kb = search_knowledge(entity)
+            existing_kb = await asyncio.to_thread(search_knowledge,entity)
             parsed = await _analyse_article(llm, article_text, f"profile:{entity}", existing_kb, hypotheses)
 
             if parsed:
@@ -1506,13 +1507,14 @@ async def build_profile(
     if all_facts:
         facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:25])
 
+        _kb_existing = await asyncio.to_thread(search_knowledge, entity)
         profile_prompt = f"""ARIA has gathered intelligence on: "{entity}"
 
 DISCOVERED FACTS ({len(all_facts)}):
 {facts_block}
 
 EXISTING KNOWLEDGE:
-{search_knowledge(entity) or 'None on file.'}
+{_kb_existing or 'None on file.'}
 
 Produce a comprehensive intelligence profile:
 
@@ -1611,7 +1613,7 @@ async def investigate_person(llm: LLMProvider, name: str, context: str = "") -> 
                 continue
 
             article_text = f"Title: {article['title']}\nInvestigation target (person): {name}\nContent:\n{body[:4000]}"
-            existing_kb = search_knowledge(name)
+            existing_kb = await asyncio.to_thread(search_knowledge,name)
             parsed = await _analyse_article(llm, article_text, f"person_investigation:{name}", existing_kb, hypotheses)
 
             if parsed:
@@ -1628,7 +1630,7 @@ async def investigate_person(llm: LLMProvider, name: str, context: str = "") -> 
     report = None
     if all_facts:
         facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:25])
-        existing_kb = search_knowledge(name)
+        existing_kb = await asyncio.to_thread(search_knowledge,name)
 
         synth_prompt = f"""ARIA has investigated a PERSON: "{name}"
 {f'Context: {context}' if context else ''}
@@ -1739,7 +1741,7 @@ async def investigate_company(llm: LLMProvider, company: str, country: str = "")
                 continue
 
             article_text = f"Title: {article['title']}\nInvestigation target (company): {company}\nContent:\n{body[:4000]}"
-            existing_kb = search_knowledge(company)
+            existing_kb = await asyncio.to_thread(search_knowledge,company)
             parsed = await _analyse_article(llm, article_text, f"company_investigation:{company}", existing_kb, hypotheses)
 
             if parsed:
@@ -1756,7 +1758,7 @@ async def investigate_company(llm: LLMProvider, company: str, country: str = "")
     report = None
     if all_facts:
         facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:25])
-        existing_kb = search_knowledge(company)
+        existing_kb = await asyncio.to_thread(search_knowledge,company)
 
         synth_prompt = f"""ARIA has investigated a COMPANY: "{company}"
 {f'Country: {country}' if country else ''}
@@ -1867,7 +1869,7 @@ async def map_network(llm: LLMProvider, entities: list, context: str = "") -> di
                     continue
 
                 article_text = f"Title: {article['title']}\nNetwork mapping target: {entity}\nContent:\n{body[:4000]}"
-                existing_kb = search_knowledge(entity)
+                existing_kb = await asyncio.to_thread(search_knowledge,entity)
                 parsed = await _analyse_article(llm, article_text, f"network:{','.join(entity_names[:3])}", existing_kb, hypotheses)
 
                 if parsed:
@@ -1909,7 +1911,7 @@ async def map_network(llm: LLMProvider, entities: list, context: str = "") -> di
         # Gather existing knowledge on each entity
         kb_blocks = []
         for entity in entity_names:
-            kb = search_knowledge(entity)
+            kb = await asyncio.to_thread(search_knowledge, entity)
             if kb:
                 kb_blocks.append(f"{entity}: {kb[:300]}")
         kb_text = "\n".join(kb_blocks) if kb_blocks else "None on file."
