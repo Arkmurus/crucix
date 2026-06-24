@@ -346,6 +346,36 @@ async def _extract_entity_from_url(url: str) -> dict:
     return result
 
 
+# R-F1878 — strong refs for fire-and-forget brain signals. The DD critical path
+# must NEVER await a brain_hook.absorb: under load the synchronous embed tier is
+# GIL-bound and absorb p95 climbed to ~29s, which (a) tripped the brain_hook
+# circuit breaker and (b) blocked DD completion, feeding the budget overrun. A
+# completion signal is telemetry — fire it in a tracked background task (strong
+# ref so it isn't GC'd mid-flight) and let brain_hook's own background tiers +
+# circuit breaker absorb it off the DD path.
+_DD_SIGNAL_TASKS: set = set()
+
+
+def _fire_signal(**kwargs) -> None:
+    """Fire brain_hook.absorb as a tracked background task — never awaited."""
+    try:
+        from . import brain_hook as _bh_fs
+    except Exception:
+        return
+    _coro = _bh_fs.absorb_silent(**kwargs)
+    try:
+        _t = asyncio.create_task(_coro)
+        _DD_SIGNAL_TASKS.add(_t)
+        _t.add_done_callback(_DD_SIGNAL_TASKS.discard)
+    except RuntimeError:
+        _coro.close()  # no running event loop (sync/unit context) — close cleanly
+    except Exception:
+        try:
+            _coro.close()
+        except Exception:
+            pass
+
+
 def _dd_strip_html(html: str) -> str:
     """R-F1874 — minimal, dependency-free HTML→text (drop script/style, tags,
     entities; collapse whitespace). Mirrors link_investigator's regex approach."""
@@ -8208,7 +8238,12 @@ async def _orchestrate_dd_impl(
             )
         if report.data_gaps_summary:
             _dd_detail_parts.append(f"Data gaps: {', '.join(report.data_gaps_summary[:5])}")
-        await brain_hook.absorb(
+        # R-F1878: fire-and-forget — do NOT await. This completion signal is
+        # telemetry; awaiting brain_hook.absorb here blocked DD completion for up
+        # to ~29s (GIL-bound embed) and tripped the brain_hook circuit. The
+        # tracked background task + brain_hook's own background tiers absorb it
+        # off the DD path.
+        _fire_signal(
             module="dd_orchestrator",
             summary=_dd_summary,
             detail=" | ".join(_dd_detail_parts),
@@ -8220,7 +8255,7 @@ async def _orchestrate_dd_impl(
             gap_detail=f"DD data gaps for {report.identity.entity_name}: {', '.join(report.data_gaps_summary[:5])}" if report.data_gaps_summary else None,
         )
     except Exception as e:
-        logger.warning("dd_orchestrator: brain_hook failed (non-fatal): %s", e)
+        logger.warning("dd_orchestrator: brain_hook signal failed (non-fatal): %s", e)
 
     # R-F305: ecosystem awareness. Before returning, stamp the report with
     # a per-layer activity snapshot so the chat/dashboard/self_diagnostic
