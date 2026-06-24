@@ -2594,10 +2594,14 @@ app.get('/api/aria/brain/alerts', requireAuth, (req, res) =>
 // /brain/stats route was proxied above but /brain/absorb wasn't — so
 // every signal returned 404, swallowed by the fire-and-forget catch.
 // Result: 50 backfilled emails → 0 brain signals counted.
-app.post('/api/aria/brain/absorb', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/brain/absorb', { method: 'POST', fallback: async () => {
+app.post('/api/aria/brain/absorb', requireAuth, (req, res) => {
+  // R-F1865 (audit DD-25): pin user_id from the JWT so an absorbed signal is
+  // attributed to the authenticated caller, never to a forged body value.
+  try { req.body = req.body || {}; req.body.user_id = req.user?.userId || ''; } catch {}
+  return ariaProxy(req, res, '/api/aria/brain/absorb', { method: 'POST', fallback: async () => {
     res.status(503).json({ error: 'Brain absorb unavailable — Python aria_service offline', skipped: true });
-  }}));
+  }});
+});
 
 // ── ARIA read-document — email body + attachment ingest (proxy to Python) ──
 // Same gap as /brain/absorb above: emailReader.mjs and waListener.mjs
@@ -2616,6 +2620,17 @@ app.post('/api/aria/read-document', requireAuth, (req, res) => {
   } catch {}
   return ariaProxy(req, res, '/api/aria/read-document', { method: 'POST', fallback: async () => {
     res.status(503).json({ error: 'Document ingest unavailable — Python aria_service offline' });
+  }});
+});
+
+// R-F1865 (audit DD-16): meeting-notes ingest — Python (aria.py:15401) reads
+// user_id from the body/header for attribution. Pin it from the JWT so it can't
+// be forged on the wire (same scheme as /dd/orchestrate + /read-document). Must
+// sit before the catch-all (which would forward the client body verbatim).
+app.post('/api/aria/meeting-notes/process', requireAuth, (req, res) => {
+  try { req.body = req.body || {}; req.body.user_id = req.user?.userId || ''; } catch {}
+  return ariaProxy(req, res, '/api/aria/meeting-notes/process', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Meeting-notes processing unavailable — ARIA service offline' });
   }});
 });
 
@@ -2673,9 +2688,15 @@ app.get('/api/aria/vision-status', requireAuth, (req, res) =>
 app.post('/api/aria/ocr',
   express.json({ limit: '12mb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/ocr', { method: 'POST', fallback: async () => {
-    res.status(503).json({ text: '', method: 'none', error: 'OCR unavailable — ARIA service offline' });
-  }}));
+  (req, res) => {
+    // R-F1865 (audit DD-07): pin the JWT owner onto the body so an async OCR
+    // job persists user_id → GET /ocr/result/{id} can enforce ownership.
+    // Pinned (not trusted from the client) like /dd/orchestrate + /read-document.
+    try { req.body = req.body || {}; req.body.user_id = req.user?.userId || ''; } catch {}
+    return ariaProxy(req, res, '/api/aria/ocr', { method: 'POST', fallback: async () => {
+      res.status(503).json({ text: '', method: 'none', error: 'OCR unavailable — ARIA service offline' });
+    }});
+  });
 
 // ── ARIA RAG store (proxy) — persistent retrieval-augmented generation ────
 app.get('/api/aria/rag/stats', requireAuth, (req, res) =>
@@ -2767,10 +2788,26 @@ app.get('/api/aria/dd/sources', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/dd/sources', { fallback: async () => res.status(503).json(_brainFallback()) }));
 // R-F51 watchlist alerts — three endpoints proxied to fly. Query string is
 // preserved (since_hours, user_id) so the FE can pass the read-state tag.
-app.get('/api/aria/dd/watchlist/alerts', requireAuth, (req, res) =>
-  ariaProxy(req, res, `/api/aria/dd/watchlist/alerts${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
-app.get('/api/aria/dd/watchlist/alerts/unread-count', requireAuth, (req, res) =>
-  ariaProxy(req, res, `/api/aria/dd/watchlist/alerts/unread-count${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F1865 (audit DD-17): pin user_id from the JWT (strip any client value) so
+// the brain returns only the caller's own watchlist alerts. Pre-fix the query
+// string was forwarded verbatim → ?user_id=victim leaked another user's alerts.
+// Mirrors /dd/reports (R-F607).
+app.get('/api/aria/dd/watchlist/alerts', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.set('user_id', userId);
+  return ariaProxy(req, res, `/api/aria/dd/watchlist/alerts?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/dd/watchlist/alerts/unread-count', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.set('user_id', userId);
+  return ariaProxy(req, res, `/api/aria/dd/watchlist/alerts/unread-count?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
 app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/dd/watchlist/alerts/read', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 // R-F52 DD report library
@@ -2837,6 +2874,52 @@ app.get('/api/aria/entity-graph/:run_id', requireAuth, (req, res) => {
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   return ariaProxy(req, res, `/api/aria/entity-graph/${encodeURIComponent(req.params.run_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+// R-F1865 (audit DD-02..07) — ownership-pinned GET routes for the per-user
+// record endpoints (trace / scratchpad / feedback / honesty / verify /
+// ocr-result). Each MUST sit before the catch-all proxy, which forwards the
+// client query string verbatim (so ?user_id=victim would defeat the brain's
+// ownership check). Each strips any client value and pins user_id from the
+// JWT, exactly like /dd/report (R-F1820) + read-document/result (R-F1852).
+// The Python side 404s (or not_found) on cross-tenant access — leaks nothing.
+// These prefixes also have non-id sub-routes (list / stats / recent / sources)
+// that take NO path param and must keep flowing to the catch-all. Express would
+// otherwise bind ":id"='list' etc. and forward it to the wrong Python route, so
+// each handler skips the reserved words via next().
+const _DD16_RESERVED = new Set(['list', 'stats', 'recent', 'sources', 'export', 'result']);
+app.get('/api/aria/ocr/result/:job_id', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/ocr/result/${encodeURIComponent(req.params.job_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/trace/:trace_id', requireAuth, (req, res, next) => {
+  if (_DD16_RESERVED.has(req.params.trace_id)) return next();  // /trace/stats → catch-all
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/trace/${encodeURIComponent(req.params.trace_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/scratchpad/:trace_id', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/scratchpad/${encodeURIComponent(req.params.trace_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/feedback/:feedback_id', requireAuth, (req, res, next) => {
+  if (_DD16_RESERVED.has(req.params.feedback_id)) return next();  // /feedback/list|stats → catch-all
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/feedback/${encodeURIComponent(req.params.feedback_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/honesty/:judgment_id', requireAuth, (req, res, next) => {
+  if (_DD16_RESERVED.has(req.params.judgment_id)) return next();  // /honesty/list|stats → catch-all
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/honesty/${encodeURIComponent(req.params.judgment_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/verify/:verification_id', requireAuth, (req, res, next) => {
+  if (_DD16_RESERVED.has(req.params.verification_id)) return next();  // /verify/list|stats → catch-all
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/verify/${encodeURIComponent(req.params.verification_id)}?user_id=${encodeURIComponent(userId)}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
 // R-F607 (2026-05-16) — stamp originating user identity onto the
 // orchestrate request body so the persisted report carries `user_id`

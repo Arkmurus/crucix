@@ -114,12 +114,20 @@ async def start_trace(
     question: str,
     session_id: str = "",
     user: str = "",
+    user_id: str = "",
     source: str = "chat",
     metadata: dict | None = None,
 ) -> str:
     """Create a new trace record + set the current trace_id contextvar.
     Returns the trace_id so the caller can attach it to the response or
-    the WhatsApp snapshot for later feedback joining."""
+    the WhatsApp snapshot for later feedback joining.
+
+    R-F1865 (audit DD-02): `user_id` is the JWT-pinned owner identity used
+    for ownership enforcement on GET /trace/{id}. It is distinct from the
+    legacy `user` field, which historically carries the session_id (chat)
+    or the request `user` (dd) inconsistently — so `user` can't be trusted
+    for authz. The Node proxy pins `user_id` from the JWT before reaching
+    here, so it can't be forged on the wire."""
     trace_id = f"tr_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     record = {
         "id": trace_id,
@@ -127,6 +135,7 @@ async def start_trace(
         "ts_end": None,
         "session_id": session_id or "",
         "user": (user or "")[:120],
+        "user_id": (user_id or "")[:120],
         "source": source,  # chat | research_task | eval | other
         "question": (question or "")[:4000],
         "response": "",

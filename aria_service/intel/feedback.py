@@ -107,6 +107,7 @@ async def snapshot_reply(
     answer: str,
     *,
     user: str = "",
+    user_id: str = "",
     group_name: str = "",
     metadata: dict | None = None,
     trace_id: str = "",
@@ -129,6 +130,10 @@ async def snapshot_reply(
         "question": (question or "")[:4000],
         "answer": (answer or "")[:6000],
         "user": (user or "")[:120],
+        # R-F1865 (audit DD-04): JWT-pinned owner for the web path so the
+        # downstream feedback record can enforce ownership. WA path leaves
+        # this empty and falls back to `user` in record_feedback.
+        "user_id": (user_id or "")[:120],
         "group_name": (group_name or "")[:120],
         "metadata": metadata or {},
         "trace_id": trace_id or "",
@@ -192,6 +197,12 @@ async def record_feedback(
         "question": (snap or {}).get("question", ""),
         "answer": (snap or {}).get("answer", ""),
         "original_user": (snap or {}).get("user", ""),
+        # R-F1865 (audit DD-04): owner identity for ownership enforcement on
+        # GET /feedback/{id}. The snapshot may carry a JWT-pinned user_id
+        # (web) or fall back to the originating `user` (WA). Empty when the
+        # snapshot is missing — legacy records stay readable (guard fires
+        # only when both the caller's and the record's id are present).
+        "user_id": ((snap or {}).get("user_id") or (snap or {}).get("user") or "")[:120],
         "group_name": (snap or {}).get("group_name", ""),
         "snapshot_metadata": (snap or {}).get("metadata", {}),
         "trace_id": (snap or {}).get("trace_id", ""),

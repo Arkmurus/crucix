@@ -305,11 +305,16 @@ async def record_judgment(
     trace_id: str = "",
     session_id: str = "",
     user: str = "",
+    user_id: str = "",
     question_preview: str = "",
     response_preview: str = "",
 ) -> dict:
     """Persist a judgment record + index entry. Fires diagnose_failure for
-    suspicious scores so the self-improve loop sees dishonest labelling."""
+    suspicious scores so the self-improve loop sees dishonest labelling.
+
+    R-F1865 (audit DD-05): `user_id` is the JWT-pinned owner used for
+    ownership enforcement on GET /honesty/{id}; distinct from the legacy
+    free-form `user` field, which can't be trusted for authz."""
     jid = f"jdg_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     record = {
         "id": jid,
@@ -317,6 +322,7 @@ async def record_judgment(
         "trace_id": trace_id or "",
         "session_id": session_id or "",
         "user": (user or "")[:120],
+        "user_id": (user_id or "")[:120],
         "question_preview": (question_preview or "")[:300],
         "response_preview": (response_preview or "")[:600],
         **judgment,

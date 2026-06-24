@@ -443,12 +443,17 @@ async def record_verification(
     request_id: str = "",
     session_id: str = "",
     user: str = "",
+    user_id: str = "",
     question_preview: str = "",
     response_preview: str = "",
     tool_used: str = "",
 ) -> dict:
     """Persist a verification record + update the index. Returns the
-    saved record so the caller can attach the id to its response."""
+    saved record so the caller can attach the id to its response.
+
+    R-F1865 (audit DD-06): `user_id` is the JWT-pinned owner used for
+    ownership enforcement on GET /verify/{id}; distinct from the legacy
+    free-form `user` field, which can't be trusted for authz."""
     vid = f"vfy_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     record = {
         "id": vid,
@@ -456,6 +461,7 @@ async def record_verification(
         "request_id": request_id or "",
         "session_id": session_id or "",
         "user": (user or "")[:120],
+        "user_id": (user_id or "")[:120],
         "question_preview": (question_preview or "")[:300],
         "response_preview": (response_preview or "")[:600],
         "tool_used": tool_used or "",

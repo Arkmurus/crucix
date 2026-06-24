@@ -667,6 +667,9 @@ async def dd_orchestrate_ep(req: Request):
         question=f"dd_orchestrate: {body.get('name') or body.get('entity')}",
         session_id=body.get("session_id", ""),
         user=body.get("user", ""),
+        # R-F1865 (audit DD-02): JWT-pinned owner so GET /trace/{id} can
+        # enforce ownership. Node pins body.user_id from the JWT.
+        user_id=(body.get("user_id") or "").strip(),
         source="dd_orchestrator",
     )
 
@@ -1966,10 +1969,18 @@ async def feedback_stats_ep():
 
 @router.get("/feedback/{feedback_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def feedback_get_ep(feedback_id: str):
-    """Full record for one feedback item, including original Q&A snapshot."""
+async def feedback_get_ep(feedback_id: str, user_id: str = ""):
+    """Full record for one feedback item, including original Q&A snapshot.
+
+    R-F1865 (audit DD-04): a feedback record embeds the original question +
+    answer — confidential to its owner. `user_id` (Node pins it from the
+    JWT) enforces ownership; 404 on mismatch. Legacy records (no user_id) +
+    admin callers (user_id='') still resolve."""
     rec = await feedback_store.get_feedback(feedback_id)
     if not rec:
+        raise HTTPException(status_code=404, detail="feedback not found")
+    _owner = (rec.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         raise HTTPException(status_code=404, detail="feedback not found")
     return rec
 
@@ -2317,10 +2328,18 @@ async def verify_stats_ep():
 
 @router.get("/verify/{verification_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def verify_get_ep(verification_id: str):
-    """Full verification record including the actual cited and fetched URL lists."""
+async def verify_get_ep(verification_id: str, user_id: str = ""):
+    """Full verification record including the actual cited and fetched URL lists.
+
+    R-F1865 (audit DD-06): a verification embeds the question + response
+    preview — confidential to its owner. `user_id` (Node pins it from the
+    JWT) enforces ownership; 404 on mismatch. Legacy records (no user_id) +
+    admin callers (user_id='') still resolve."""
     rec = await source_verifier.get_verification(verification_id)
     if not rec:
+        raise HTTPException(status_code=404, detail="verification not found")
+    _owner = (rec.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         raise HTTPException(status_code=404, detail="verification not found")
     return rec
 
@@ -3411,12 +3430,21 @@ async def trace_stats_ep():
 
 @router.get("/trace/{trace_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def trace_get_ep(trace_id: str):
+async def trace_get_ep(trace_id: str, user_id: str = ""):
     """Full trace record — question, response, every LLM call with cost,
     verification verdict, feedback (if any). The complete lifecycle of
-    one ARIA reply in one record."""
+    one ARIA reply in one record.
+
+    R-F1865 (audit DD-02): a trace contains the user's question + response +
+    cost — confidential to its owner. `user_id` (Node pins it from the JWT)
+    enforces ownership; 404 on mismatch leaks nothing about existence.
+    Legacy traces (no stored user_id) + admin/internal callers (user_id='')
+    still resolve — the guard fires only when both sides are present."""
     rec = await trace_stream.get_trace(trace_id)
     if not rec:
+        raise HTTPException(status_code=404, detail="trace not found")
+    _owner = (rec.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         raise HTTPException(status_code=404, detail="trace not found")
     return rec
 
@@ -3443,11 +3471,19 @@ async def honesty_stats_ep():
 
 @router.get("/honesty/{judgment_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def honesty_get_ep(judgment_id: str):
+async def honesty_get_ep(judgment_id: str, user_id: str = ""):
     """Full judgment record including each [CONFIRMED] claim, the per-claim
-    supported/unsupported verdict, and the judge's reason for each."""
+    supported/unsupported verdict, and the judge's reason for each.
+
+    R-F1865 (audit DD-05): a judgment embeds the question + response preview
+    — confidential to its owner. `user_id` (Node pins it from the JWT)
+    enforces ownership; 404 on mismatch. Legacy records (no user_id) +
+    admin callers (user_id='') still resolve."""
     rec = await honesty_judge.get_judgment(judgment_id)
     if not rec:
+        raise HTTPException(status_code=404, detail="judgment not found")
+    _owner = (rec.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         raise HTTPException(status_code=404, detail="judgment not found")
     return rec
 
@@ -8373,6 +8409,9 @@ async def chat_ep(req: ChatRequest, request: Request):
         question=req.message,
         session_id=session_id,
         user=req.session_id or "",
+        # R-F1865 (audit DD-02): JWT-pinned owner (ChatRequest.user_id is
+        # injected by the Node proxy) so GET /trace/{id} enforces ownership.
+        user_id=(req.user_id or "").strip(),
         source="chat",
     )
     response_text = ""
@@ -8939,6 +8978,8 @@ async def chat_ep(req: ChatRequest, request: Request):
                     request_id=session_id,
                     session_id=session_id,
                     user=req.session_id or "",
+                    # R-F1865 (audit DD-06): JWT-pinned owner.
+                    user_id=(req.user_id or "").strip(),
                     question_preview=req.message,
                     response_preview=response_text,
                     tool_used=tool_used or "",
@@ -9502,6 +9543,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                     _trace_id=trace_id,
                     _session=session_id,
                     _q=req.message,
+                    _uid=(req.user_id or "").strip(),
                 ):
                     try:
                         judgment = await honesty_judge.judge_response(_llm, _resp, _ctx)
@@ -9509,6 +9551,8 @@ async def chat_ep(req: ChatRequest, request: Request):
                             judgment,
                             trace_id=_trace_id,
                             session_id=_session,
+                            # R-F1865 (audit DD-05): JWT-pinned owner.
+                            user_id=_uid,
                             question_preview=_q,
                             response_preview=_resp,
                         )
@@ -14827,16 +14871,20 @@ async def ocr_ep(request: Request):
     if body.get("async"):
         import uuid as _uuid_ocr
         _job_id = _uuid_ocr.uuid4().hex[:12]
-        await _ocr_job_set(_job_id, {"status": "processing", "filename": filename})
+        # R-F1865 (audit DD-07): stamp the JWT-pinned owner into the job dict
+        # so GET /ocr/result/{id} can enforce ownership (the extracted text is
+        # confidential). Node pins body.user_id from the JWT.
+        _ocr_owner = (body.get("user_id") or "").strip()
+        await _ocr_job_set(_job_id, {"status": "processing", "filename": filename, "user_id": _ocr_owner})
 
         async def _ocr_async_run():
             try:
                 llm = get_llm(request)
                 _res = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
-                await _ocr_job_set(_job_id, {"status": "done", "result": _res, "filename": filename})
+                await _ocr_job_set(_job_id, {"status": "done", "result": _res, "filename": filename, "user_id": _ocr_owner})
             except Exception as _e:
                 _log.warning("R-F1311 async OCR job %s failed: %s", _job_id, _e)
-                await _ocr_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": filename})
+                await _ocr_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": filename, "user_id": _ocr_owner})
 
         # R-F1377 — strong ref: a GC'd OCR job = scanned-document parse that
         # never finishes (polled store stuck at "processing").
@@ -14865,11 +14913,18 @@ async def ocr_ep(request: Request):
 
 @router.get("/ocr/result/{job_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def ocr_result_ep(job_id: str):
+async def ocr_result_ep(job_id: str, user_id: str = ""):
     """GET /api/aria/ocr/result/{job_id} — poll OCR job status.
-    R-F1311: mirrors /read-document/result/{job_id} for the async OCR path."""
+    R-F1311: mirrors /read-document/result/{job_id} for the async OCR path.
+    R-F1865 (audit DD-07): `user_id` (Node pins it from the JWT) enforces
+    ownership — the extracted document text is confidential. not_found on
+    mismatch leaks nothing. Legacy jobs (no user_id) + admin callers
+    (user_id='') still resolve, exactly like read-document."""
     job = await _ocr_job_get(job_id)
     if not job:
+        return {"status": "not_found", "job_id": job_id}
+    _owner = (job.get("user_id") or "").strip()
+    if user_id and _owner and _owner != user_id:
         return {"status": "not_found", "job_id": job_id}
     if job["status"] == "done":
         return {"status": "done", "result": job.get("result"), "job_id": job_id}
@@ -22115,11 +22170,25 @@ async def critique_export_ep(
 
 @router.get("/scratchpad/{trace_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def scratchpad_for_trace_ep(trace_id: str):
+async def scratchpad_for_trace_ep(trace_id: str, user_id: str = ""):
     """Retrieve the Clause 22 scratchpad recorded for a trace_id. Used
-    for post-hoc audit, training-data mining, operator debugging."""
+    for post-hoc audit, training-data mining, operator debugging.
+
+    R-F1865 (audit DD-03): the scratchpad is keyed only by trace_id (it has
+    no owner field of its own), so ownership is enforced via the trace it
+    belongs to — load trace_stream.get_trace(trace_id) and check its
+    JWT-pinned user_id. not_found on mismatch leaks nothing. Legacy traces
+    (no user_id) + admin callers (user_id='') still resolve."""
     try:
         from ..intel import redis_store as rs
+        from ..intel import trace_stream as _ts
+        # Enforce ownership against the OWNING trace — do not trust any field
+        # on the scratchpad payload itself.
+        _trace = await _ts.get_trace(trace_id)
+        if _trace is not None:
+            _owner = (_trace.get("user_id") or "").strip()
+            if user_id and _owner and _owner != user_id:
+                return {"ok": False, "error": "not_found", "trace_id": trace_id}
         key = f"crucix:scratchpad:{trace_id}"
         payload = await rs.get_json(key)
         if not payload:
