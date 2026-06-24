@@ -736,37 +736,48 @@ if (telegramAlerter.isConfigured) {
     }
 
     if (subCmd === 'apply' && parts[1]) {
-      const moduleName = parts[1];
+      // R-F1887 (review Class D): sanitize the module name — it flows into
+      // gitCommit() + ./sources/${name}.mjs file paths (path traversal).
+      const moduleName = _sanitizeModuleName(parts[1]);
+      if (!moduleName) return '❌ Invalid module name (alphanumeric/underscore only)';
       const result = await deployModule(moduleName);
       return result.success ? `✅ ${result.message}` : `❌ Deploy failed: ${result.error}`;
     }
 
     if (subCmd === 'discard' && parts[1]) {
+      // R-F1887 (review Class D): sanitize BEFORE building the path — parts[1]
+      // was joined into runs/staged/${parts[1]}.mjs.staged and unlinkSync'd, so
+      // "../../<x>" was a path-traversal file delete.
+      const _m = _sanitizeModuleName(parts[1]);
+      if (!_m) return '❌ Invalid module name (alphanumeric/underscore only)';
       const { unlinkSync, existsSync } = await import('node:fs');
-      const stagePath = join(ROOT, 'runs', 'staged', `${parts[1]}.mjs.staged`);
+      const stagePath = join(ROOT, 'runs', 'staged', `${_m}.mjs.staged`);
       // R-F16: also clear Redis mirror so a future boot doesn't
       // rehydrate a module the operator already discarded.
       try {
         const { discardStagedFromRedis } = await import('./lib/self/code_generator.mjs');
-        await discardStagedFromRedis(parts[1]);
+        await discardStagedFromRedis(_m);
       } catch {}
       if (existsSync(stagePath)) {
         unlinkSync(stagePath);
         try { unlinkSync(stagePath + '.meta.json'); } catch {}
-        return `🗑️ Staged module \`${parts[1]}\` discarded`;
+        return `🗑️ Staged module \`${_m}\` discarded`;
       }
-      return `❌ No staged module named: ${parts[1]}`;
+      return `❌ No staged module named: ${_m}`;
     }
 
     if (subCmd === 'preview' && parts[1]) {
-      const code = getStagedCode(parts[1]);
-      if (!code) return `❌ No staged module: ${parts[1]}`;
+      const _m = _sanitizeModuleName(parts[1]);   // R-F1887: name → staged file path
+      if (!_m) return '❌ Invalid module name (alphanumeric/underscore only)';
+      const code = getStagedCode(_m);
+      if (!code) return `❌ No staged module: ${_m}`;
       const preview = code.substring(0, 800);
-      return `*Preview: ${parts[1]}*\n\`\`\`\n${preview}\n\`\`\`${code.length > 800 ? `\n_...${code.length - 800} more chars_` : ''}`;
+      return `*Preview: ${_m}*\n\`\`\`\n${preview}\n\`\`\`${code.length > 800 ? `\n_...${code.length - 800} more chars_` : ''}`;
     }
 
     if (subCmd === 'fix' && parts[1]) {
-      const sourceName = parts[1];
+      const sourceName = _sanitizeModuleName(parts[1]);   // R-F1887
+      if (!sourceName) return '❌ Invalid source name (alphanumeric/underscore only)';
       const sourceHistory = getSourceHistory();
       const srcInfo = sourceHistory.find(s => s.name.toLowerCase() === sourceName.toLowerCase());
       const errorMsg = srcInfo?.status === 'critical' ? `Source ${sourceName} has ${srcInfo.reliability}% reliability` : `Source ${sourceName} reported as failing`;
@@ -781,7 +792,9 @@ if (telegramAlerter.isConfigured) {
     }
 
     if (subCmd === 'rollback' && parts[1]) {
-      const result = rollbackModule(parts[1]);
+      const _m = _sanitizeModuleName(parts[1]);   // R-F1887: name → file paths
+      if (!_m) return '❌ Invalid module name (alphanumeric/underscore only)';
+      const result = rollbackModule(_m);
       return result.success ? `⏪ ${result.message}` : `❌ Rollback failed: ${result.error}`;
     }
 
@@ -3928,8 +3941,12 @@ app.get('/api/self/staged', requireAdmin, (req, res) => {
 });
 
 app.post('/api/self/generate', requireAdmin, async (req, res) => {
-  const { description, moduleName } = req.body || {};
-  if (!description || !moduleName) return res.status(400).json({ error: 'description and moduleName required' });
+  const { description } = req.body || {};
+  // R-F1887 (review Class D): sanitize moduleName — it flows into
+  // ./sources/${name}.mjs file paths (path traversal). R-F1867 fixed /apply +
+  // /rollback but missed /generate.
+  const moduleName = _sanitizeModuleName((req.body || {}).moduleName);
+  if (!description || !moduleName) return res.status(400).json({ error: 'description and moduleName required (alphanumeric/underscore)' });
   const result = await generateSourceModule(llmProvider, description, moduleName);
   if (result.success) {
     stageModule(result.moduleName, result.code, { description });
