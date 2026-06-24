@@ -543,3 +543,47 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     # In-memory fallback — simple glob match
     import fnmatch
     return [k for k in list(_mem_store.keys()) if fnmatch.fnmatch(k, pattern)][:count]
+
+
+async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, Any]]:
+    """R-F1885 — return [(key, parsed-JSON)] for keys matching `pattern` in ONE
+    backend round-trip, so callers avoid N separate get_json calls (see
+    absorption_quarantine.stats). Mirrors scan_keys' backend dispatch."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.scan_json(pattern, count)
+    if _client:
+        try:
+            keys: list[str] = []
+            async for key in _client.scan_iter(match=pattern, count=count):
+                keys.append(key)
+                if len(keys) >= count:
+                    break
+            if not keys:
+                return []
+            vals = await _client.mget(keys)
+            out: list[tuple[str, Any]] = []
+            for k, v in zip(keys, vals):
+                if v is None:
+                    continue
+                try:
+                    out.append((k, json.loads(v)))
+                except Exception:
+                    continue
+            return out
+        except Exception as e:
+            logger.warning("Redis SCAN_JSON %s failed: %s", pattern, e)
+            return []
+    # In-memory fallback
+    import fnmatch as _fnm
+    out: list[tuple[str, Any]] = []
+    for k in list(_mem_store.keys()):
+        if not _fnm.fnmatch(k, pattern):
+            continue
+        try:
+            out.append((k, json.loads(_mem_store[k])))
+        except Exception:
+            continue
+        if len(out) >= count:
+            break
+    return out

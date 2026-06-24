@@ -158,11 +158,14 @@ async def promote(entry_id: str, reason: str | None = None) -> dict[str, Any] | 
 async def stats() -> dict[str, Any]:
     """Queue depth + decided counts for /api/aria/brain/stats surface."""
     from . import redis_store as rs
-    keys = await rs.scan_keys(_KEY_PREFIX + "*", count=500)
+    # R-F1885 — one batched query (scan_json) instead of scan_keys + up to 500
+    # sequential get_json round-trips. This loop dominated /api/aria/health cost
+    # (the round-trips, not the scan — R-F1871 already fixed the scan). Same 500
+    # cap + counting semantics; only the fetch is batched.
+    items = await rs.scan_json(_KEY_PREFIX + "*", count=500)
     pending = promoted = rejected = 0
     oldest_pending_at: float | None = None
-    for k in keys:
-        e = await rs.get_json(k)
+    for _k, e in items:
         if not isinstance(e, dict):
             continue
         s = e.get("status")

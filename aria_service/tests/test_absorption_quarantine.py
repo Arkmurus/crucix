@@ -48,12 +48,30 @@ def _setup_fake_redis(monkeypatch):
             return [k for k in store.keys() if k.startswith(prefix)]
         return [k for k in store.keys() if k == pattern]
 
+    async def fake_scan_json(pattern, count=200):
+        # R-F1885 — fake of the new batch primitive: scan_keys + json.loads,
+        # over the same in-process store (mirrors the real scan_json contract).
+        import json
+        out = []
+        for k in await fake_scan_keys(pattern, count):
+            v = store.get(k)
+            if v is None:
+                continue
+            try:
+                out.append((k, json.loads(v)))
+            except Exception:
+                continue
+            if len(out) >= count:
+                break
+        return out
+
     monkeypatch.setattr(rs, "get", fake_get)
     monkeypatch.setattr(rs, "set", fake_set)
     monkeypatch.setattr(rs, "delete", fake_delete)
     monkeypatch.setattr(rs, "get_json", fake_get_json)
     monkeypatch.setattr(rs, "set_json", fake_set_json)
     monkeypatch.setattr(rs, "scan_keys", fake_scan_keys)
+    monkeypatch.setattr(rs, "scan_json", fake_scan_json)
     return store
 
 

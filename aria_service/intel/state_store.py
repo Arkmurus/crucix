@@ -1747,6 +1747,53 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     return matched
 
 
+async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
+    """R-F1885 — like scan_keys, but returns (key, parsed-JSON-value) for each
+    match in ONE query, so callers don't fan out N separate get_json round-trips.
+    absorption_quarantine.stats() did up to 500 sequential `await get_json(k)` on
+    every /api/aria/health hit — the dominant health-endpoint cost. Same
+    GLOB-prefix + fnmatch + flush + read-connection contract as scan_keys; values
+    that aren't valid JSON are skipped (mirrors get_json returning None)."""
+    try:
+        await _flush_write_queue()
+    except Exception:
+        pass
+    conn = _get_read_conn()
+    if conn is None:
+        return []
+    _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)
+    _prefix = pattern if _meta < 0 else pattern[:_meta]
+    try:
+        if _prefix:
+            cur = await conn.execute(
+                "SELECT key, value FROM state WHERE key GLOB ? "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (_prefix + "*", _now()),
+            )
+        else:
+            cur = await conn.execute(
+                "SELECT key, value FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
+                (_now(),),
+            )
+        rows = await cur.fetchall()
+        await cur.close()
+    except Exception as e:
+        logger.warning("state_store: SCAN_JSON failed: %s", e)
+        _schedule_reconnect_if_dead(e)  # read path self-heals
+        return []
+    out: list[tuple[str, "Any"]] = []
+    for (k, v) in rows:
+        if not fnmatch.fnmatch(k, pattern):
+            continue
+        try:
+            out.append((k, json.loads(v)))
+        except Exception:
+            continue  # not JSON / unparseable — skip, like get_json
+        if len(out) >= count:
+            break
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Diagnostics
 # ─────────────────────────────────────────────────────────────────────────
