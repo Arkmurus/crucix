@@ -7110,15 +7110,32 @@ async def _orchestrate_dd_impl(
     )
     _overall_deadline = t_run_start + _total_budget_s
 
-    def _clamp(t: float) -> float:
-        """Clamp a layer timeout to the remaining overall budget.
+    # R-F1879 — reserve a tail of the budget for verification + synthesis. The
+    # HEAVY data-gathering layers clamp to (budget − reserve); verification +
+    # synthesis clamp to the full budget (i.e. the reserved tail). Before this,
+    # those two final layers used FIXED 30s/10s timeouts that ignored the budget
+    # entirely — the "impl overran on unclamped work" the hard deadline caught.
+    _SYNTH_RESERVE_S = float(_env_int("ARIA_DD_SYNTH_RESERVE_S", 15))
+    _heavy_deadline = _overall_deadline - _SYNTH_RESERVE_S
 
-        When the budget is exhausted, returns a tiny value so the layer fails
-        fast (TimeoutError → marked ERROR, never raises) and the walk cascades
-        to verification + synthesis, which build the report from whatever the
-        completed layers collected. Never returns 0 (asyncio.wait_for(timeout=0)
-        can hang on already-scheduled work) — 0.05s is effectively immediate.
+    def _clamp(t: float) -> float:
+        """Clamp a HEAVY-layer timeout to the remaining budget MINUS the
+        synthesis reserve, so verification + synthesis are guaranteed time to
+        build the report from whatever the completed layers collected. When the
+        heavy budget is exhausted, returns a tiny value so the layer fails fast
+        (TimeoutError → marked ERROR, never raises). Never returns 0
+        (asyncio.wait_for(timeout=0) can hang on already-scheduled work).
         """
+        rem = _heavy_deadline - time.time()
+        if rem <= 0:
+            return 0.05
+        return min(t, rem)
+
+    def _clamp_final(t: float) -> float:
+        """Clamp the final verification/synthesis layers to the FULL remaining
+        budget (the reserved tail). Bounded like every other layer — never an
+        unclamped fixed timeout — but allowed to use the reserve the heavy
+        layers left. Floors at 0.05s when even the hard tail is gone."""
         rem = _overall_deadline - time.time()
         if rem <= 0:
             return 0.05
@@ -7718,25 +7735,33 @@ async def _orchestrate_dd_impl(
         layer_name = "verification"
         report.layers_run.append(layer_name)
         try:
-            await asyncio.wait_for(_run_verification(target, report), timeout=30)
+            # R-F1879: clamped to the reserved tail (was a fixed 30s that ignored
+            # the budget — the unclamped overrun the hard deadline caught).
+            await asyncio.wait_for(_run_verification(target, report), timeout=_clamp_final(30))
         except asyncio.TimeoutError:
             report.verification.meta.status = LayerStatus.ERROR.value
-            report.verification.meta.error = "timeout after 30s"
+            report.verification.meta.error = "timeout (budget-clamped)"
 
         # ── LAYER 6: SYNTHESIS ──
         layer_name = "synthesis"
         report.layers_run.append(layer_name)
         try:
-            await asyncio.wait_for(_run_synthesis(target, report), timeout=10)
+            # R-F1879: clamped to the reserved tail (was a fixed 10s that ignored
+            # the budget). Synthesis still gets the reserve the heavy layers left.
+            await asyncio.wait_for(_run_synthesis(target, report), timeout=_clamp_final(10))
         except asyncio.TimeoutError:
             report.synthesis.meta.status = LayerStatus.ERROR.value
-            report.synthesis.meta.error = "timeout after 10s"
+            report.synthesis.meta.error = "timeout (budget-clamped)"
 
         # ── R-F1572: flag a time-boxed run so the BLUF/footer is honest ──
-        # If the overall budget was hit, the heavy layers were cut short by
-        # _clamp() — the report is real but partial. Mark it so downstream
+        # If the HEAVY-gathering budget was hit, the data layers were cut short
+        # by _clamp() — the report is real but partial. Mark it so downstream
         # delivery can say so rather than implying full coverage.
-        if time.time() >= _overall_deadline:
+        # R-F1879: key off _heavy_deadline (budget − synthesis reserve), NOT
+        # _overall_deadline. Heavy layers now fail fast at _heavy_deadline, so a
+        # tight/exhausted budget finishes BEFORE _overall_deadline — checking the
+        # overall deadline missed those genuinely time-boxed runs.
+        if time.time() >= _heavy_deadline:
             try:
                 report.time_boxed = True  # type: ignore[attr-defined]
             except Exception:
