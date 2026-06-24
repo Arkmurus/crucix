@@ -3856,6 +3856,39 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             f"{name_for_search} defence procurement",
             max_results=12,
         )
+        # R-F1880 (search best-effort honesty): a BLOCKED search (all engines
+        # 403/CAPTCHA the datacenter IP) must NOT be read as "no adverse media →
+        # clean entity". Inspect the backend ecosystem; when search is DEAD/
+        # DEGRADED, flag the absence of press findings as a COVERAGE GAP, loudly,
+        # so the BLUF/footer never implies a clean bill from an un-searchable web.
+        # Primary sources (entity site R-F1874, GLEIF R-F1876) carry the report.
+        try:
+            _eco = web_search.get_last_search_ecosystem() or {}
+            _eco_health = (_eco.get("health_signal") or "").upper()
+            _eco_active = (_eco.get("summary") or {}).get("active_backends")
+            if _eco_health in ("DEAD", "DEGRADED") or _eco_active == 0:
+                report.digital.data_gaps.append(
+                    "⚠️ ADVERSE-MEDIA SEARCH UNAVAILABLE — all/most web-search backends were "
+                    f"blocked or silent this run (health={_eco_health or 'unknown'}). The ABSENCE "
+                    "of press/adverse-media findings does NOT indicate a clean entity; it means the "
+                    "open web could not be searched. Findings rely on PRIMARY sources (entity "
+                    "website, GLEIF) — a dedicated adverse-media check is still required."
+                )
+                report.digital.findings.append(Finding(
+                    severity="info",
+                    title="Web-search coverage gap — adverse media not searchable this run",
+                    detail=(
+                        f"Search ecosystem health={_eco_health or 'unknown'}, "
+                        f"active_backends={_eco_active}. Treat 'no adverse media' as UNKNOWN, "
+                        f"not clean (R-F1880)."
+                    ),
+                    source="web_search.get_last_search_ecosystem",
+                    confidence="ASSESSED",
+                ))
+                logger.warning("R-F1880 DD digital: search ecosystem %s (active=%s) — "
+                               "flagged coverage gap, NOT clean", _eco_health, _eco_active)
+        except Exception as _eco_e:
+            logger.debug("R-F1880 search-ecosystem check failed (non-fatal): %s", _eco_e)
         # Convert SearchResult objects to Evidence dataclasses where possible
         press: list[Evidence] = []
         tier_counts: dict[str, int] = {}
