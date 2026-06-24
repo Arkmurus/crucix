@@ -2134,7 +2134,7 @@ function _ariaHeaders(extra = {}) {
   // line 165). seenode previously only forwarded ARIA_API_TOKEN, so any
   // deploy that set ARIA_INTERNAL_TOKEN alone produced a silent 401 cascade
   // across the non-public-bypass endpoints (/rlaif/stats, /critique/stats,
-  // /pending-actions, /airtable/health, /security/counter-intel/scan,
+  // /pending-actions, /security/counter-intel/scan,
   // /learning/coverage, /sanctions/divergence, /vendors). Public-bypass
   // endpoints (/health, /adversarial/stats, etc.) kept working — which
   // hid the cause for weeks. Fall through to the internal token when the

@@ -10,9 +10,9 @@ Design goals
   1. Idempotent — sha256(notes) gates re-processing. Re-pasted notes
      return the original extraction and the already-created action IDs.
   2. Pending-queue first — actions land in pending_actions (Clause 18
-     approval queue), not directly in an external CRM or Airtable base.
-     Airtable sync, if/when configured, should watch pending_actions with
-     source='meeting_notes' and mirror approved entries.
+     approval queue), not directly in an external CRM. Any future mirror
+     should watch pending_actions with source='meeting_notes' and mirror
+     approved entries.
   3. Provenance — every created pending_actions entry carries notes_hash
      and meeting_label in metadata so origin is auditable.
   4. Compliance signals surface as flags — SITCL, sanctions, export

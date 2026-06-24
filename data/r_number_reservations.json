@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1863,
+  "next_available": 1864,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12988,6 +12988,16 @@
       "r_number": "R-F1862",
       "title": "wa-connections.html apiFetch must send Bearer crucix_token (page 401s for real users)",
       "claimed_at": "2026-06-24T11:09:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2b89d82",
+      "notes": null,
+      "shipped_at": "2026-06-24T11:12:57Z"
+    },
+    {
+      "r_number": "R-F1863",
+      "title": "remove Airtable integration completely (modules + all callers + env + tests)",
+      "claimed_at": "2026-06-24T11:29:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

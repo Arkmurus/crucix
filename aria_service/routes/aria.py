@@ -1678,17 +1678,8 @@ async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
 # history at HEAD ~ R-F745 (pre-removal SHA recorded in the R-F746 commit).
 
 
-# ── Airtable health — reads 1 row from Task Register + Pipeline ──
-# Added 2026-04-21 after ops couldn't tell why Airtable rows were
-# silently missing — pending_actions.airtable_sync failures were
-# _log.debug only. This endpoint surfaces live reachability + table
-# resolution + auth scope so "fix the airtable" triages in 1 call.
-@router.get("/airtable/health")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def airtable_health_ep():
-    """Live Airtable reachability + table-name resolution probe."""
-    from ..integrations import airtable_sync as _as
-    return await _as.health_check()
+# R-F1863 (2026-06-24): the Airtable health endpoint + integration were
+# removed. Ticketing is GitHub-only; no external Airtable mirror remains.
 
 
 # ── Link investigator: recursive URL tree walk + fact fusion ──
@@ -5285,9 +5276,8 @@ def _detect_tool_intent(message: str) -> dict | None:
     #   (b) natural-language ask: "file a ticket for X", "raise a ticket
     #       about Y", "log this as a bug", "open an issue for Z"
     # The tool executor routes to tickets.raise_ticket() which writes to
-    # GitHub (primary) + Airtable (mirror). Constitution clause 22 forbids
-    # ARIA from fabricating ticket IDs — this intent is the ONLY path that
-    # can produce a real one.
+    # GitHub Issues. Constitution clause 22 forbids ARIA from fabricating
+    # ticket IDs — this intent is the ONLY path that can produce a real one.
     _ticket_lower = msg.strip().lower()
     _TICKET_SLASH = (
         _ticket_lower.startswith("/ticket")
@@ -5344,8 +5334,8 @@ def _detect_tool_intent(message: str) -> dict | None:
     # from a WhatsApp digest) and produces:
     #   - structured brief (prime / product / country fingerprint)
     #   - ranked sub-contractor angles from prime_sub_map
-    #   - Airtable Pipeline row (Stage=IDENTIFIED) for operator enrichment
     # Added 2026-04-20 as part of the BD-workflow tooling sprint.
+    # R-F1863 (2026-06-24): no longer pushes to any external pipeline.
     _stripped = msg.strip()
     _lower = _stripped.lower()
     _OPP_INTENT = any((
@@ -5405,22 +5395,8 @@ def _detect_tool_intent(message: str) -> dict | None:
         r")\b",
         re.IGNORECASE,
     )
-    # Airtable-health intent — user asks "is airtable working / healthy / synced".
-    # Routes to a dedicated handler that calls airtable_sync.health_check()
-    # and surfaces real status (table reachability, row counts, auth state)
-    # so ARIA answers from live data instead of "no tool block confirms this".
-    # Added 2026-04-21 after operator asked ARIA "is Airtable sync healthy?"
-    # and she correctly refused to fabricate because no tool block ran.
-    if re.search(
-        r"\b(is\s+)?airtable\s+(sync\s+)?(healthy|working|ok|status|live|"
-        r"synced|operational|up|reachable|connected)\b",
-        msg, re.IGNORECASE,
-    ) or re.search(
-        r"\bstatus\s+of\s+(task\s+register|pipeline)\s+(table|airtable)",
-        msg, re.IGNORECASE,
-    ):
-        return {"tool": "airtable_health", "context": msg,
-                "_reason": "airtable_health_query"}
+    # R-F1863 (2026-06-24): the Airtable-health chat intent was removed
+    # along with the Airtable integration.
 
     if _META_QUERY_RE.search(msg):
         # Decide which slice to pull. Default to "everything" if both
@@ -6770,11 +6746,10 @@ async def _execute_tool(
             return f"\n\n[TOOL: pipeline_summary]\n{summary}\n\nPresent this pipeline summary to the user exactly as formatted."
 
         # ── Ticket raise — user asked ARIA to file a dev ticket ──
-        # Calls tickets.raise_ticket() which writes to GitHub Issues (primary)
-        # + Airtable "Dev Tickets" (mirror, if configured). Constitution
-        # clause 22 forbids fabricating ticket IDs — the authoritative ID
-        # comes from the tool block below. If this block is missing from
-        # the reply context, ARIA MUST NOT invent one.
+        # Calls tickets.raise_ticket() which writes to GitHub Issues.
+        # Constitution clause 22 forbids fabricating ticket IDs — the
+        # authoritative ID comes from the tool block below. If this block
+        # is missing from the reply context, ARIA MUST NOT invent one.
         if tool == "raise_ticket":
             from ..intel import tickets as _tk
             body = (intent.get("body") or intent.get("context") or "").strip()
@@ -6807,10 +6782,9 @@ async def _execute_tool(
                 )
             if not result.get("ok"):
                 gh_reason = (result.get("github") or {}).get("reason", "unknown")
-                at_reason = (result.get("airtable") or {}).get("reason", "unknown")
                 return (
-                    "[TOOL: raise_ticket — FAILED on all surfaces]\n"
-                    f"GitHub: {gh_reason}. Airtable: {at_reason}.\n"
+                    "[TOOL: raise_ticket — FAILED]\n"
+                    f"GitHub: {gh_reason}.\n"
                     "Tell the user the ticket was NOT filed and ask whether "
                     "they want to file it manually. Do NOT invent a ticket ID. "
                     "Describe the issue plainly so it can be copy-pasted into "
@@ -6818,21 +6792,11 @@ async def _execute_tool(
                 )
             ticket_id = result["ticket_id"]
             gh_url = (result.get("github") or {}).get("url", "")
-            at_ok = (result.get("airtable") or {}).get("ok", False)
-            mirror_note = ""
-            if at_ok:
-                mirror_note = " Mirrored to Airtable Dev Tickets table."
-            elif (result.get("airtable") or {}).get("skipped"):
-                mirror_note = ""
-            else:
-                at_reason = (result.get("airtable") or {}).get("reason", "unknown")
-                mirror_note = f" (Airtable mirror failed: {at_reason}.)"
             return (
                 f"\n\n[TOOL: raise_ticket]\n"
                 f"Ticket filed: **{ticket_id}** ({severity})\n"
                 f"Title: {title}\n"
-                f"URL: {gh_url or '(Airtable-only — no public URL)'}\n"
-                f"{mirror_note}\n\n"
+                f"URL: {gh_url}\n\n"
                 f"Confirm to the user that you filed ticket {ticket_id} with severity {severity}. "
                 f"Quote the ticket ID and URL EXACTLY as shown. Do NOT invent an alternate ID. "
                 f"This is the only permitted form under constitution clause 22."
@@ -6876,84 +6840,29 @@ async def _execute_tool(
             return "\n".join(lines)
 
         if tool == "opportunity_convert":
-            # Take free-text alert / URL, produce structured brief, push
-            # to Airtable Pipeline. No LLM call — pure pattern match +
-            # prime_sub_map lookup + Airtable POST. See
+            # Take free-text alert / URL, produce a structured brief. No LLM
+            # call — pure pattern match + prime_sub_map lookup. See
             # intel/opportunity_converter.py for the field map.
+            # R-F1863 (2026-06-24): no longer pushes to any external pipeline.
             from ..intel import opportunity_converter as _oc
             alert_text = intent.get("alert") or intent.get("context") or ""
-            result = await _oc.convert(alert_text, push_to_airtable=True)
+            result = await _oc.convert(alert_text)
             if not result.get("ok"):
                 return (
                     "\n\n[TOOL: opportunity_convert — FAILED]\n"
                     f"Reason: {result.get('reason','unknown')}\n"
-                    "No Airtable row was created. Try pasting the full alert "
+                    "No brief could be built. Try pasting the full alert "
                     "text with prime + product + country visible, or run "
                     "`/investigate <entity>` to get deep DD first."
-                )
-            airtable = result.get("airtable") or {}
-            tail = ""
-            if airtable.get("ok"):
-                tail = (
-                    f"\n\n✅ **Airtable Pipeline row created** "
-                    f"(Stage=IDENTIFIED, id={airtable.get('record_id','?')}). "
-                    "Open the base to set Sector / Our Role / Deal Value."
-                )
-            else:
-                tail = (
-                    f"\n\n⚠ Airtable push did not succeed: "
-                    f"{airtable.get('reason','unknown')}. The brief above is still valid; "
-                    "check AIRTABLE_PAT + table permissions."
                 )
             return (
                 "\n\n[TOOL: opportunity_convert]\n"
                 + result.get("brief_markdown", "(no brief)")
-                + tail
             )
 
         # ── Meta-query — ARIA introspecting on her own state ──
-        # ── Airtable health — live reachability of Task Register + Pipeline ──
-        # Added 2026-04-21. Without this, ARIA had no way to answer "is
-        # Airtable healthy?" truthfully — she would refuse to guess, per
-        # Clause 11. Now the health_check() result is injected into the
-        # tool block so she narrates from real data.
-        if tool == "airtable_health":
-            from ..integrations import airtable_sync as _as
-            try:
-                health = await _as.health_check()
-            except Exception as e:
-                return (
-                    "[TOOL: airtable_health — probe raised]\n"
-                    f"Error: {type(e).__name__}: {e}\n"
-                    "Report to user that the probe itself failed. Do NOT claim "
-                    "Airtable is OK or broken without data."
-                )
-            parts = ["[TOOL: airtable_health — live probe]", ""]
-            parts.append(f"enabled: {health.get('enabled')}")
-            parts.append(f"base_id: {health.get('base_id')}")
-            parts.append(f"overall_ok: {health.get('ok')}")
-            parts.append("")
-            for tname, t in (health.get("tables") or {}).items():
-                if not t:
-                    parts.append(f"  {tname}: no data")
-                    continue
-                parts.append(
-                    f"  {tname}: ok={t.get('ok')} "
-                    f"http={t.get('http_status')} "
-                    f"reason={t.get('reason') or '-'} "
-                    f"records_seen={t.get('records_seen')} "
-                    f"table_name=\"{t.get('table')}\""
-                )
-            parts.append("")
-            parts.append(
-                "INSTRUCTIONS: Narrate the live status above in one paragraph. "
-                "If overall_ok=true, say Airtable is operational with both tables "
-                "reachable. If any table shows ok=false, report the reason "
-                "verbatim (table_not_found / auth_failed / rate_limited / etc.) "
-                "and tell the user what to check. Do NOT hedge with 'no tool "
-                "confirmed a sync' — this IS the tool block."
-            )
-            return "\n".join(parts)
+        # R-F1863 (2026-06-24): the airtable_health tool handler was removed
+        # along with the Airtable integration.
 
         # ── Brave Answers — single-call AI answer with memory-first ──
         # Factual Q&A fast-path. Memory-first check hits RAG for $0 on
@@ -11678,43 +11587,10 @@ async def sanctions_check_ep(request: Request):
 
 
 # ──────────────────────────────────────────────────────────────────
-# R-F529 — Airtable retry-buffer admin endpoints
+# R-F1863 (2026-06-24): the Airtable retry-buffer admin endpoints
+# (/admin/airtable-buffer/status|list|drain) were removed along with
+# the Airtable integration.
 # ──────────────────────────────────────────────────────────────────
-
-@router.get("/admin/airtable-buffer/status")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def airtable_buffer_status_ep():
-    """How many pending-action syncs are buffered for retry?
-    Operator-facing diagnostic. Empty buffer = healthy state."""
-    from ..integrations import airtable_buffer as _atb
-    return _atb.get_status()
-
-
-@router.get("/admin/airtable-buffer/list")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def airtable_buffer_list_ep(limit: int = 50):
-    """List buffered pending-action entries, oldest first.
-    Returns action_id + first_failed_at + attempts + last_reason +
-    promise_preview for each."""
-    from ..integrations import airtable_buffer as _atb
-    return {"items": _atb.list_pending(limit=max(1, min(limit, 500)))}
-
-
-@router.post("/admin/airtable-buffer/drain")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def airtable_buffer_drain_ep(request: Request):
-    """Re-attempt Airtable sync for up to `max_items` queued entries.
-    Removes each on success. Body (optional):
-        {"max_items": 100}
-    """
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    max_items = int(body.get("max_items") or 100)
-    from ..integrations import airtable_buffer as _atb
-    return await _atb.drain(max_items=max_items)
 
 
 @router.post("/admin/purge-gaps")

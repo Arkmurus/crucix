@@ -273,8 +273,8 @@ async def _act_capability_gap(payload: dict, key: str) -> dict:
     """Missing file parser / API / endpoint — log a detailed ticket for
     the human engineering queue. No autonomous code-write on core files.
 
-    Routes through tickets.raise_ticket() which writes to GitHub Issues
-    (primary) and Airtable (fallback). The previous lpush to the
+    Routes through tickets.raise_ticket() which writes to GitHub Issues.
+    The previous lpush to the
     `aria:engineering:tickets` Redis list went nowhere -- nothing reads
     that key, and Clause 22 mandates real ticket IDs from raise_ticket().
     Capability-gap tickets had been silently lost since core_develop

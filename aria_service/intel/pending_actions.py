@@ -146,59 +146,9 @@ async def record(
     except Exception as e:
         logger.warning("[pending_actions] record failed: %s", e)
 
-    # Airtable mirror — operator-visible Task Register. Fire-and-forget;
-    # silent no-op if AIRTABLE_PAT isn't set (local dev, or the table
-    # hasn't been created yet). See integrations/airtable_sync.py docstring.
-    #
-    # 2026-04-21: loglevel raised debug→warning for real failures. Ops
-    # flagged "fix the airtable" because silent drops at logger.debug
-    # made it impossible to see why rows were missing. sync_record
-    # returns a dict with ok/reason; surface the reason explicitly when
-    # it's a real failure (not "disabled" / "no_action_id" which are
-    # expected no-op returns). The bare-except fallback stays debug
-    # since it would only fire on a codebase bug, not an ops issue.
-    try:
-        from ..integrations import airtable_sync as _as
-        _at_result = await _as.sync_record(entry)
-        if isinstance(_at_result, dict) and not _at_result.get("ok"):
-            _reason = _at_result.get("reason") or "unknown"
-            if not str(_reason).startswith(("disabled:", "no_action_id", "empty_fields")):
-                logger.warning(
-                    "airtable sync DROPPED action=%s reason=%s http=%s",
-                    (entry or {}).get("action_id", "?"),
-                    _reason,
-                    _at_result.get("http_status") or "-",
-                )
-                # R-F529 (2026-05-15) — buffer for retry instead of
-                # silently dropping. Live 2026-05-15 morning:
-                # "airtable sync DROPPED action=4a19afaeb076c6cb
-                # reason=net:ConnectTimeout" was a HIGH/operator_action
-                # circuit-trip notification — the single most
-                # operationally important signal that turn — and we
-                # lost it forever to a transient network blip.
-                # buffer.enqueue() persists to SQLite; a periodic drain
-                # retries against Airtable on the next sync cycle.
-                try:
-                    from ..integrations import airtable_buffer as _atb
-                    _atb.enqueue(entry, reason=str(_reason)[:200])
-                except Exception as _buf_err:
-                    logger.warning(
-                        "[airtable_buffer] R-F529 enqueue raised: %s "
-                        "(this is bad — both sync and buffer failed for "
-                        "action=%s; check airtable_buffer.db permissions)",
-                        _buf_err, (entry or {}).get("action_id", "?"),
-                    )
-    except Exception as e:
-        logger.warning("pending_actions airtable sync raised: %s", e)
-        # R-F529 — even when the sync_record call itself raises (not
-        # just returns ok=False), buffer the entry. The action_id
-        # was already minted; the operator-visible record must not
-        # be lost.
-        try:
-            from ..integrations import airtable_buffer as _atb
-            _atb.enqueue(entry, reason=f"raised: {type(e).__name__}")
-        except Exception:
-            pass
+    # R-F1863 (2026-06-24): the Airtable Task Register mirror was removed
+    # (fire-and-forget sync + R-F529 retry buffer). Pending actions live in
+    # the local store + brain only; no external mirror.
 
     # Brain signal — every recorded promise is a self-honesty event.
     # CRITICAL/HIGH severity feeds capability_gap so the predictor
@@ -280,40 +230,7 @@ async def _mark_status(action_id: str, new_status: str, note: str) -> dict:
     await rs.set_json(key, entry)
     await rs.incr(_KEY_STATS + f":{new_status}")
     logger.info("[pending_actions] %s → %s (%s)", action_id, new_status, note[:60])
-    # Mirror the status change to Airtable — pass the FULL entry so that
-    # compact-mode (What/Notes Housekeeping target) still has the promise
-    # text available for the What field. Full-mode treats it as a normal
-    # upsert on Action ID.
-    # 2026-04-21: loglevel lifted from debug to warning for real drops.
-    try:
-        from ..integrations import airtable_sync as _as
-        _at_result = await _as.sync_record(entry)
-        if isinstance(_at_result, dict) and not _at_result.get("ok"):
-            _reason = _at_result.get("reason") or "unknown"
-            if not str(_reason).startswith(("disabled:", "no_action_id", "empty_fields")):
-                logger.warning(
-                    "airtable status-change sync DROPPED action=%s reason=%s http=%s",
-                    action_id, _reason, _at_result.get("http_status") or "-",
-                )
-                # R-F529 — buffer status-change drops too. Status
-                # transitions (satisfied/cancelled) are operationally
-                # important: silently losing one leaves the Airtable
-                # view stuck on "open" indefinitely.
-                try:
-                    from ..integrations import airtable_buffer as _atb
-                    _atb.enqueue(entry, reason=str(_reason)[:200])
-                except Exception as _buf_err:
-                    logger.warning(
-                        "[airtable_buffer] R-F529 enqueue raised: %s",
-                        _buf_err,
-                    )
-    except Exception as e:
-        logger.warning("pending_actions airtable status-change raised: %s", e)
-        try:
-            from ..integrations import airtable_buffer as _atb
-            _atb.enqueue(entry, reason=f"raised: {type(e).__name__}")
-        except Exception:
-            pass
+    # R-F1863 (2026-06-24): the Airtable status-change mirror was removed.
     return {"ok": True, "entry": entry}
 
 

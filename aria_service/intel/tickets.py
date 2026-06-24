@@ -7,19 +7,19 @@ failed sources, fabricated answers from old data, etc. Before this module
 she mentioned them in chat and even fabricated ticket IDs (incident
 2026-04-21: "ARK-DEV-001", never filed). Now she can raise real tickets:
 
-  - Primary surface: GitHub Issues (label `aria-raised`). Visible to
-    Claude Code sessions via `gh issue list --label aria-raised`, which
-    is how the developer receives them across sessions without a secret
-    exchange.
-  - Mirror surface: Airtable "Dev Tickets" table (optional). Gives the
-    operator a filterable queue inside the Arkmurus base.
+  - GitHub Issues (label `aria-raised`). Visible to Claude Code sessions
+    via `gh issue list --label aria-raised`, which is how the developer
+    receives them across sessions without a secret exchange.
 
-Either surface is env-gated and silently no-ops when unconfigured, so
-local dev / tests don't blow up.
+GitHub is env-gated and silently no-ops when unconfigured, so local dev /
+tests don't blow up.
+
+R-F1863 (2026-06-24): the optional Airtable "Dev Tickets" mirror was
+removed. Ticketing is GitHub-only.
 
 Configuration
 ─────────────
-GitHub (primary — this is what Claude Code sees):
+GitHub (this is what Claude Code sees):
   GITHUB_TOKEN          Personal access token. Fine-grained token needs
                         `Issues: Read and write` on the target repo.
                         Classic PAT needs `repo` scope.
@@ -29,24 +29,15 @@ GitHub (primary — this is what Claude Code sees):
                         doesn't, the issue still gets created — GitHub
                         ignores unknown labels silently.
 
-Airtable (mirror — optional, reuses airtable_sync env vars):
-  AIRTABLE_PAT          Already set for Task Register sync.
-  AIRTABLE_BASE_ID      Already set.
-  AIRTABLE_TICKETS_TABLE  Default `Dev Tickets`. If the table doesn't
-                          exist the mirror write fails gracefully;
-                          GitHub still gets the issue.
-
-Killswitches (set to "0" to disable that surface without removing env):
+Killswitch (set to "0" to disable without removing env):
   ARIA_TICKETS_GITHUB_ENABLED   default "1"
-  ARIA_TICKETS_AIRTABLE_ENABLED default "1"
 
 Anti-fabrication
 ────────────────
 Constitution clause 22 (aria_engine.py) forbids ARIA from citing ticket
 IDs she didn't obtain from raise_ticket(). The returned payload includes
-the authoritative `ticket_id` string (`GH-42` when GitHub succeeded,
-`AT-recXXXX` when only Airtable succeeded) which is the ONLY form ARIA
-is permitted to quote in a reply.
+the authoritative `ticket_id` string (`GH-42` when GitHub succeeded)
+which is the ONLY form ARIA is permitted to quote in a reply.
 """
 from __future__ import annotations
 
@@ -62,9 +53,7 @@ logger = logging.getLogger("aria.intel.tickets")
 _DEFAULT_REPO = "Arkmurus/crucix"  # override with GITHUB_REPO env
 
 _DEFAULT_LABEL = "aria-raised"
-_DEFAULT_AIRTABLE_TABLE = "Dev Tickets"
 _GITHUB_API = "https://api.github.com"
-_AIRTABLE_API = "https://api.airtable.com/v0"
 _HTTP_TIMEOUT = 12.0
 
 # Severity → GitHub label mapping. Every ticket gets `aria-raised` plus one
@@ -94,14 +83,6 @@ def _github_enabled() -> tuple[bool, str]:
         return False, "killswitch"
     if not (os.getenv("GITHUB_TOKEN") or "").strip():
         return False, "no_github_token"
-    return True, ""
-
-
-def _airtable_enabled() -> tuple[bool, str]:
-    if os.getenv("ARIA_TICKETS_AIRTABLE_ENABLED", "1").strip() == "0":
-        return False, "killswitch"
-    if not (os.getenv("AIRTABLE_PAT") or "").strip():
-        return False, "no_airtable_pat"
     return True, ""
 
 
@@ -188,67 +169,6 @@ async def _create_github_issue(
         return {"ok": False, "reason": "exception", "detail": str(e)[:200]}
 
 
-async def _create_airtable_ticket(
-    *,
-    title: str,
-    symptom: str,
-    context: str,
-    severity: str,
-    category: str,
-    suggested_fix: str | None,
-    source: str | None,
-    github_url: str | None,
-) -> dict[str, Any]:
-    pat = (os.getenv("AIRTABLE_PAT") or "").strip()
-    base = (os.getenv("AIRTABLE_BASE_ID") or "appq2TB9F6NRxAB8f").strip()
-    table = (os.getenv("AIRTABLE_TICKETS_TABLE") or _DEFAULT_AIRTABLE_TABLE).strip()
-    from urllib.parse import quote
-
-    url = f"{_AIRTABLE_API}/{base}/{quote(table)}"
-    headers = {
-        "Authorization": f"Bearer {pat}",
-        "Content-Type": "application/json",
-    }
-    # Field names chosen to match a sensible default schema. If the user's
-    # table has different field names, the write fails with 422 and we log
-    # it once. Operator then either renames fields or sets the env var to
-    # a different table.
-    fields = {
-        "Title": title[:250],
-        "Severity": severity,
-        "Category": category,
-        "Symptom": symptom,
-        "Context": context,
-        "Status": "open",
-        "Raised": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
-    if suggested_fix:
-        fields["Suggested Fix"] = suggested_fix
-    if source:
-        fields["Source"] = source
-    if github_url:
-        fields["GitHub URL"] = github_url
-
-    payload = {"records": [{"fields": fields}], "typecast": True}
-    try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            r = await client.post(url, json=payload, headers=headers)
-        if r.status_code in (200, 201):
-            data = r.json()
-            rec = (data.get("records") or [{}])[0]
-            rec_id = rec.get("id")
-            return {"ok": True, "record_id": rec_id, "ticket_id": f"AT-{rec_id}"}
-        logger.warning(
-            "Airtable ticket create failed: %s %s", r.status_code, r.text[:200]
-        )
-        return {"ok": False, "reason": f"http_{r.status_code}", "detail": r.text[:200]}
-    except httpx.TimeoutException:
-        return {"ok": False, "reason": "timeout"}
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning("Airtable ticket create exception: %s", e)
-        return {"ok": False, "reason": "exception", "detail": str(e)[:200]}
-
-
 async def raise_ticket(
     *,
     title: str,
@@ -262,13 +182,11 @@ async def raise_ticket(
     """Raise a durable ticket for a problem ARIA has observed.
 
     Returns a dict with:
-      ticket_id   Canonical ID ARIA is permitted to quote. Preferred form
-                  is `GH-<number>` (GitHub succeeded). If GitHub is disabled
-                  or failed but Airtable succeeded, returns `AT-<recId>`.
-                  If both failed, returns None and ok=False.
+      ticket_id   Canonical ID ARIA is permitted to quote — `GH-<number>`
+                  when GitHub succeeded. If GitHub is disabled or failed,
+                  returns None and ok=False.
       github      {ok, number, url} — present iff GitHub attempted.
-      airtable    {ok, record_id}   — present iff Airtable attempted.
-      ok          True iff at least one surface succeeded.
+      ok          True iff GitHub succeeded.
 
     Fire-and-forget callers can ignore the return; the authoritative ID
     is only important when ARIA needs to cite the ticket back to the user.
@@ -313,28 +231,8 @@ async def raise_ticket(
     else:
         result["github"] = {"ok": False, "reason": gh_reason, "skipped": True}
 
-    # ── Airtable (mirror) ──────────────────────────────────────────────────
-    at_enabled, at_reason = _airtable_enabled()
-    if at_enabled:
-        github_url = (result.get("github") or {}).get("url") if result["ok"] else None
-        at = await _create_airtable_ticket(
-            title=title,
-            symptom=symptom,
-            context=context,
-            severity=severity,
-            category=category,
-            suggested_fix=suggested_fix,
-            source=source,
-            github_url=github_url,
-        )
-        result["airtable"] = at
-        if at.get("ok") and not result["ticket_id"]:
-            # GitHub was unavailable or failed — fall back to the Airtable ID
-            # so ARIA can still cite an authoritative reference.
-            result["ticket_id"] = at["ticket_id"]
-            result["ok"] = True
-    else:
-        result["airtable"] = {"ok": False, "reason": at_reason, "skipped": True}
+    # R-F1863 (2026-06-24): the Airtable "Dev Tickets" mirror was removed —
+    # ticketing is GitHub-only.
 
     if result["ok"]:
         logger.info(
@@ -343,9 +241,8 @@ async def raise_ticket(
         )
     else:
         logger.warning(
-            "Ticket raise failed on all surfaces (github=%s, airtable=%s)",
+            "Ticket raise failed (github=%s)",
             result.get("github", {}).get("reason"),
-            result.get("airtable", {}).get("reason"),
         )
     # R-F1001 - wire to brain
     from .engine_wiring import wire_success

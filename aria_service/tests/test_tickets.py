@@ -4,7 +4,7 @@ chat-flow intent classifier that routes "raise a ticket" / "/ticket" into it.
 Covers:
   1. Intent regex fires on the intended shapes, does not over-fire.
   2. Severity inference from keywords.
-  3. raise_ticket() no-ops gracefully when no GitHub token and no Airtable PAT.
+  3. raise_ticket() no-ops gracefully when no GitHub token is set.
   4. GitHub issue creation posts the expected payload (mocked httpx).
   5. list_open_tickets() filters out pull requests.
 """
@@ -154,10 +154,10 @@ def test_severity_medium_default():
 # ── raise_ticket module — graceful no-op when unconfigured ──────────────────
 
 def test_raise_ticket_no_creds_returns_ok_false(monkeypatch):
-    """When neither GitHub nor Airtable is configured, raise_ticket should
-    return ok=False and a truthful reason on each surface — never raise."""
+    """When GitHub is not configured, raise_ticket should return ok=False
+    and a truthful reason on the GitHub surface — never raise.
+    (R-F1863: Airtable mirror removed; GitHub-only.)"""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("AIRTABLE_PAT", raising=False)
 
     from aria_service.intel import tickets
 
@@ -171,26 +171,23 @@ def test_raise_ticket_no_creds_returns_ok_false(monkeypatch):
     assert result["ticket_id"] is None
     assert result["github"]["reason"] == "no_github_token"
     assert result["github"]["skipped"] is True
-    assert result["airtable"]["reason"] == "no_airtable_pat"
-    assert result["airtable"]["skipped"] is True
+    assert "airtable" not in result
 
 
 def test_raise_ticket_killswitches_honoured(monkeypatch):
     """Explicit killswitch env must prevent the HTTP call even with creds set."""
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
-    monkeypatch.setenv("AIRTABLE_PAT", "pat")
     monkeypatch.setenv("ARIA_TICKETS_GITHUB_ENABLED", "0")
-    monkeypatch.setenv("ARIA_TICKETS_AIRTABLE_ENABLED", "0")
 
     from aria_service.intel import tickets
 
     result = _run(tickets.raise_ticket(
         title="Test",
-        symptom="Should be skipped on both surfaces",
+        symptom="Should be skipped",
     ))
     assert result["ok"] is False
     assert result["github"]["reason"] == "killswitch"
-    assert result["airtable"]["reason"] == "killswitch"
+    assert "airtable" not in result
 
 
 # ── raise_ticket — GitHub success path (mocked) ─────────────────────────────
@@ -252,7 +249,6 @@ class _FakeAsyncClient:
 def test_raise_ticket_github_success(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
     monkeypatch.setenv("GITHUB_REPO", "acme/widget")
-    monkeypatch.delenv("AIRTABLE_PAT", raising=False)  # airtable off
     monkeypatch.delenv("ARIA_TICKETS_GITHUB_ENABLED", raising=False)
 
     import httpx

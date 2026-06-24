@@ -232,26 +232,8 @@ def test_deferred_feature_gate_contracts() -> None:
     assert hasattr(mem0_notebook, "search"), "cited_artifact_verifier fallback"
 
 
-def test_airtable_sync_module_present() -> None:
-    """The pending_actions → Airtable mirror exists and is resilient to
-    missing credentials (silent no-op when AIRTABLE_PAT unset)."""
-    import os
-    from aria_service.integrations import airtable_sync
-    import inspect
-    assert inspect.iscoroutinefunction(airtable_sync.sync_record)
-    assert inspect.iscoroutinefunction(airtable_sync.sync_status_change)
-    # With no PAT it must not raise — silent disable is the contract
-    saved = os.environ.pop("AIRTABLE_PAT", None)
-    try:
-        import asyncio
-        result = asyncio.run(airtable_sync.sync_record(
-            {"action_id": "test123", "promise": "x", "severity": "LOW"}
-        ))
-        assert result["ok"] is False
-        assert result["reason"] == "disabled:no_pat"
-    finally:
-        if saved:
-            os.environ["AIRTABLE_PAT"] = saved
+# R-F1863 (2026-06-24): test_airtable_sync_module_present was removed
+# along with the Airtable integration.
 
 
 def test_ecosystem_reassess_gate_contracts() -> None:

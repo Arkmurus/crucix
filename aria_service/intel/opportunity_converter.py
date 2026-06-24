@@ -1,15 +1,13 @@
 """Turn a raw intel alert (news snippet, URL, or free-text fragment)
-into a structured BD opportunity — suitable for pushing to the
-Airtable Pipeline table.
+into a structured BD opportunity brief.
 
 This is the glue layer between:
   - intel alerts (correlation signals, news digests, /teach submissions)
   - intel/prime_sub_map.py (prime → sub-contractor ecosystem lookup)
-  - integrations/airtable_pipeline.py (Pipeline writer)
 
 Public API
 ──────────
-  async convert(alert: dict | str, *, push_to_airtable=True) -> dict
+  async convert(alert: dict | str) -> dict
 
   `alert` can be:
     - a string (raw headline / snippet)
@@ -25,7 +23,6 @@ Public API
       "country": str | None,
       "sub_contractor_candidates": [...],
       "brief_markdown": str,
-      "airtable": {"ok", "record_id"?, "reason"},
     }
 
 Design notes
@@ -33,11 +30,10 @@ Design notes
 - Zero LLM calls. Pattern matching + lookup only. Can be invoked from
   within chat handlers WITHOUT extending the turn budget.
 - ARIA's chat-response quoting this brief is the natural flow: chat
-  says "here's the structured opportunity + it's been pushed to your
-  Pipeline table, ID recXXXX".
-- Idempotency: by default we DO push to Airtable every call (the
-  Pipeline table isn't keyed on a stable id and duplicate rows are
-  easier to clean up than missing rows).
+  says "here's the structured opportunity".
+- R-F1863 (2026-06-24): removed the Airtable Pipeline push — the
+  conversion + sub-contractor extraction stay; the brief is no longer
+  mirrored to any external surface.
 """
 from __future__ import annotations
 
@@ -290,7 +286,6 @@ def _build_markdown_brief(
 async def convert(
     alert: dict | str,
     *,
-    push_to_airtable: bool = True,
     prime_hint: str = "",
     product_hint: str = "",
     country_hint: str = "",
@@ -322,29 +317,8 @@ async def convert(
         opportunities=opportunities,
     )
 
-    airtable_result: dict[str, Any] = {"ok": False, "reason": "skipped"}
-    if push_to_airtable:
-        try:
-            from ..integrations import airtable_pipeline
-            notes_parts = [
-                f"Source URL: {url}" if url else "",
-                f"Original signal: {text[:800]}" if text else "",
-                "",
-                "Auto-converted from intel alert via "
-                "intel/opportunity_converter.py. Review prime/product/"
-                "country fields below; run /investigate for deep DD.",
-            ]
-            airtable_result = await airtable_pipeline.create_opportunity(
-                opp_name,
-                notes="\n".join(p for p in notes_parts if p is not None),
-                # Intentionally NOT setting stage — Pipeline.Stage is a
-                # singleSelect with operator-curated options; our PAT
-                # can't create new ones. Operator sets Stage in the UI
-                # from the existing dropdown (IDENTIFIED / QUALIFIED / etc).
-            )
-        except Exception as e:
-            logger.warning("airtable_pipeline.create_opportunity failed: %s", e)
-            airtable_result = {"ok": False, "reason": f"exception:{type(e).__name__}"}
+    # R-F1863 (2026-06-24): the Airtable Pipeline push was removed. The
+    # brief below is the deliverable; it is no longer mirrored externally.
 
     # R-F1001 - wire to brain
     from .engine_wiring import wire_success
@@ -363,5 +337,4 @@ async def convert(
         "source_url": url,
         "sub_contractor_candidates": opportunities,
         "brief_markdown": brief,
-        "airtable": airtable_result,
     }

@@ -154,7 +154,6 @@ CORE_MODULES = [
     # 2026-04-20 audit follow-ups — modules that used to be missing
     "aria_service.intel.mem0_notebook",
     "aria_service.integrations",
-    "aria_service.integrations.airtable_sync",
     # 2026-04-20 forward roadmap — academic APIs + output harvester
     "aria_service.intel.sources.academic",
     "aria_service.learning.output_harvester",
@@ -164,7 +163,6 @@ CORE_MODULES = [
     # 2026-04-20 BD-workflow tooling — prime-sub map + opportunity converter
     "aria_service.intel.prime_sub_map",
     "aria_service.intel.opportunity_converter",
-    "aria_service.integrations.airtable_pipeline",
     # 2026-04-26 — compliance review specificity addendum (forces ARIA to
     # demand attribute-specific gates on ML8/dual-use draft reviews)
     "aria_service.intel.compliance_review_specificity",

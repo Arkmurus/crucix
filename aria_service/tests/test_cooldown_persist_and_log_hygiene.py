@@ -5,9 +5,8 @@ restart re-probed the failed (billing) backend and burned 5 wasted
 calls before the in-memory cooldown re-engaged. Now mirrored to Redis;
 hydrate_from_redis() re-applies on startup.
 
-F70 — `airtable sync network error for X:` logged with empty `str(e)`
-for httpx.ReadTimeout, ending the line at the colon with no error
-detail. Now always includes the exception type name.
+F70 — (R-F1863, 2026-06-24) the airtable sync log-hygiene guard was
+removed along with the Airtable integration.
 
 F71 — neural_memory.detect_conflict fired same-value "conflicts"
 (`existing=HIGH_RISK new=HIGH_RISK`) for entities like UN Security
@@ -94,54 +93,8 @@ def test_hydrate_from_redis_restores_cooldown():
     assert stats["last_kind"] == "billing"
 
 
-# ── F70: airtable sync log format ─────────────────────────────────────────
-
-
-def test_airtable_sync_logs_exception_type_on_empty_message(caplog, monkeypatch):
-    """httpx.ReadTimeout has empty str(e); the sync_record path's network
-    handler must still produce a log line carrying the type name so the
-    operator can triage. Drives the real code path end-to-end with a
-    patched httpx.AsyncClient that raises ReadTimeout(\"\")."""
-    import httpx
-    from aria_service.integrations import airtable_sync
-
-    # Force "enabled" + return a minimal field set so sync_record reaches
-    # the network call.
-    monkeypatch.setattr(airtable_sync, "_is_enabled",
-                        lambda: (True, "ok"))
-    monkeypatch.setattr(airtable_sync, "_entry_to_fields",
-                        lambda entry: {"Action ID": "abc123"})
-    monkeypatch.setattr(airtable_sync, "_table_url",
-                        lambda: "https://api.airtable.com/v0/app/Task")
-    monkeypatch.setattr(airtable_sync, "_field_map_mode",
-                        lambda: "full")
-    monkeypatch.setattr(airtable_sync, "_headers",
-                        lambda: {"Authorization": "Bearer test"})
-
-    async def fake_post(self, url, headers=None, json=None):
-        raise httpx.ReadTimeout("")
-
-    async def fake_patch(self, url, headers=None, json=None):
-        raise httpx.ReadTimeout("")
-
-    async def run():
-        with caplog.at_level(logging.WARNING, logger="aria.integrations.airtable"), \
-             patch.object(httpx.AsyncClient, "post", new=fake_post), \
-             patch.object(httpx.AsyncClient, "patch", new=fake_patch):
-            await airtable_sync.sync_record({"action_id": "abc123"})
-
-    asyncio.run(run())
-    matching = [r for r in caplog.records
-                if "airtable sync network error" in r.getMessage()]
-    assert matching, "no airtable network error log emitted"
-    msg = matching[0].getMessage()
-    assert "ReadTimeout" in msg, (
-        f"exception type name missing from log line: {msg!r}"
-    )
-    # Must NOT end with bare ': ' (the original F70 failure shape)
-    assert not msg.rstrip().endswith(":"), (
-        f"log line ends in a bare colon — the F70 failure shape: {msg!r}"
-    )
+# ── F70: airtable sync log format — guard removed with the Airtable
+#         integration (R-F1863, 2026-06-24) ──────────────────────────────
 
 
 # ── F71: neural memory same-value conflict guard ──────────────────────────

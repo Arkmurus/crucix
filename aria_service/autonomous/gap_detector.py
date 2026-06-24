@@ -292,9 +292,9 @@ class ErrorLedgerExtractor:
         # R-F1857 — ROOT-CAUSE gate (not another deny-list entry). A MODULE_BUG is
         # by definition "an exception in existing code" the coder can REPRODUCE
         # and fix. Since R-F1681/R-F1685 the gold gate requires the reproduce test
-        # to go FAIL-on-unfixed → PASS-on-fixed; a bare operational WARNING with no
-        # traceback (e.g. airtable_buffer "enqueued … rate_limited … will retry on
-        # next drain", R-F529 by-design) has NO reproducible fault → it can never
+        # to go FAIL-on-unfixed → PASS-on-fixed; a benign operational WARNING with
+        # no traceback (R-F1863: an "enqueued … rate_limited … will retry"-style
+        # log shed) has NO reproducible fault → it can never
         # become gold and only churns LLM budget. error_log_handler mirrors ALL
         # WARNING+ aria.* logs into the error_log with type=`log:<levelname>`, so
         # the extractor's old assumption ("every entry IS an error") is false. We
