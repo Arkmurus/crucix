@@ -56,7 +56,7 @@ def test_audit_log_message_includes_advisory_count(caplog):
     """The 'Security audit complete' log line must surface the advisory
     count separately so the operator sees both."""
     import logging
-    with caplog.at_level(logging.INFO, logger="ARIA.SecurityProtocol"):
+    with caplog.at_level(logging.INFO, logger="aria.security_protocol"):
         asyncio.run(run_security_audit())
     complete_lines = [r.message for r in caplog.records if "audit complete" in r.message]
     assert complete_lines, "expected an 'audit complete' log line"
