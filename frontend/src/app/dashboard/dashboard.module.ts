@@ -18,6 +18,8 @@ import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.compo
 import { SearchComponent } from './search/search.component';
 import { AriaComponent } from './aria/aria.component';
 import { VaultComponent } from './vault/vault.component';
+import { WaConnectionsComponent } from './wa-connections/wa-connections.component';
+import { SanitizeHtmlPipe } from '../shared/sanitize-html.pipe';
 import { FormsModule } from '@angular/forms';
 
 @NgModule({
@@ -32,6 +34,8 @@ import { FormsModule } from '@angular/forms';
     SearchComponent,
     AriaComponent,
     VaultComponent,
+    WaConnectionsComponent,
+    SanitizeHtmlPipe,
   ],
   imports: [
     CommonModule,

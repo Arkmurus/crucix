@@ -1,0 +1,229 @@
+<div class="container-fluid">
+  <!-- ── Page header ── -->
+  <div class="row mb-3">
+    <div class="col-12 d-flex align-items-center justify-content-between">
+      <h4 class="page-title mb-0">
+        <mat-icon class="me-2" style="vertical-align:middle">smartphone</mat-icon>
+        WhatsApp Connections
+      </h4>
+      <div>
+        <button mat-stroked-button color="primary" (click)="refresh()" [disabled]="loading || busy" class="me-2">
+          <mat-icon>refresh</mat-icon>
+          Refresh
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Error banner ── -->
+  <div *ngIf="error" class="alert alert-danger d-flex align-items-center mb-3 py-2 px-3" style="border-radius:8px">
+    <mat-icon class="me-2" style="font-size:18px;width:18px;height:18px">error_outline</mat-icon>
+    <span class="small flex-grow-1">{{ error }}</span>
+    <button mat-icon-button (click)="error = null" aria-label="Dismiss"><mat-icon>close</mat-icon></button>
+  </div>
+
+  <!-- ── Loading state ── -->
+  <div *ngIf="loading && accounts.length === 0" class="text-center py-5">
+    <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
+    <p class="text-muted mt-2 small">Connecting to WhatsApp listener…</p>
+  </div>
+
+  <!-- ── Empty state ── -->
+  <div *ngIf="!loading && accounts.length === 0 && !error" class="text-center py-5">
+    <mat-icon style="font-size:64px;width:64px;height:64px;color:#9e9e9e" class="mb-3">smartphone</mat-icon>
+    <h5 class="text-muted">No WhatsApp connections yet</h5>
+    <p class="text-muted small mb-4">
+      Create a connection to link a WhatsApp number as a linked device.
+      You'll scan a QR code from WhatsApp → Settings → Linked Devices.
+    </p>
+    <div class="d-flex justify-content-center">
+      <div class="input-group" style="max-width:400px">
+        <input
+          type="text"
+          class="form-control form-control-sm"
+          placeholder="e.g. ARIA Portugal"
+          [(ngModel)]="newAccountName"
+          (keyup.enter)="createAccount()"
+          [disabled]="busy"
+        />
+        <button
+          mat-raised-button
+          color="primary"
+          (click)="createAccount()"
+          [disabled]="!newAccountName.trim() || busy"
+        >
+          <mat-icon>add</mat-icon>
+          Create
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Account list ── -->
+  <div *ngIf="accounts.length > 0">
+    <!-- Create new account bar -->
+    <mat-card class="mb-3 p-2" style="background:#f8f9fa">
+      <mat-card-content class="d-flex align-items-center gap-2 p-0">
+        <input
+          type="text"
+          class="form-control form-control-sm"
+          placeholder="New account name…"
+          [(ngModel)]="newAccountName"
+          (keyup.enter)="createAccount()"
+          [disabled]="busy"
+          style="max-width:300px"
+        />
+        <button
+          mat-raised-button
+          color="primary"
+          size="small"
+          (click)="createAccount()"
+          [disabled]="!newAccountName.trim() || busy"
+        >
+          <mat-icon>add</mat-icon>
+          Add Connection
+        </button>
+        <span *ngIf="busy" class="small text-muted ms-2">
+          <mat-spinner diameter="16" class="d-inline-block me-1" style="vertical-align:middle"></mat-spinner>
+          Working…
+        </span>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Account cards -->
+    <div class="row">
+      <div *ngFor="let account of accounts" class="col-12 col-md-6 col-lg-4 mb-3">
+        <mat-card class="h-100 wa-card" [class.card-connected]="account.connected">
+          <mat-card-content>
+            <!-- Header row -->
+            <div class="d-flex align-items-start justify-content-between mb-2">
+              <div>
+                <h5 class="mb-1" style="font-size:1rem">{{ account.name }}</h5>
+                <span class="small text-muted">ID: {{ account.id | slice:0:20 }}…</span>
+              </div>
+              <span class="status-badge {{ statusClass(account.status) }}">
+                <mat-icon class="status-icon">{{ statusIcon(account.status) }}</mat-icon>
+                {{ statusLabel(account.status) }}
+              </span>
+            </div>
+
+            <!-- Details -->
+            <div class="small text-muted mb-3">
+              <div *ngIf="account.started_at">
+                <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:text-bottom">play_arrow</mat-icon>
+                Started: {{ formatTime(account.started_at) }}
+              </div>
+              <div>
+                <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:text-bottom">calendar_today</mat-icon>
+                Created: {{ formatTime(account.created_at) }}
+              </div>
+              <div *ngIf="account.last_active">
+                <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:text-bottom">schedule</mat-icon>
+                Last active: {{ formatTime(account.last_active) }}
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="d-flex gap-2">
+              <button
+                *ngIf="canShowQr(account)"
+                mat-stroked-button
+                color="primary"
+                size="small"
+                (click)="showQr(account)"
+              >
+                <mat-icon>qr_code_scanner</mat-icon>
+                Show QR
+              </button>
+              <button
+                *ngIf="deleteConfirmId === account.id"
+                mat-raised-button
+                color="warn"
+                size="small"
+                (click)="deleteAccount(account.id)"
+                [disabled]="busy"
+              >
+                <mat-icon>warning</mat-icon>
+                Confirm Delete
+              </button>
+              <button
+                *ngIf="deleteConfirmId !== account.id"
+                mat-stroked-button
+                color="warn"
+                size="small"
+                (click)="confirmDelete(account.id)"
+              >
+                <mat-icon>delete_outline</mat-icon>
+                Remove
+              </button>
+              <button
+                *ngIf="deleteConfirmId === account.id"
+                mat-button
+                size="small"
+                (click)="cancelDelete()"
+              >
+                Cancel
+              </button>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── QR Code Modal ── -->
+<div *ngIf="qrAccount" class="qr-overlay" (click)="closeQr()">
+  <div class="qr-modal" (click)="$event.stopPropagation()">
+    <div class="qr-modal-header">
+      <h5 class="mb-0">
+        <mat-icon style="vertical-align:middle" class="me-1">qr_code_scanner</mat-icon>
+        Link WhatsApp Device
+      </h5>
+      <button mat-icon-button (click)="closeQr()" aria-label="Close">
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
+
+    <div class="qr-modal-body text-center">
+      <p class="text-muted small mb-3">
+        Open <strong>WhatsApp</strong> on your phone →
+        <strong>Settings</strong> → <strong>Linked Devices</strong> →
+        <strong>Link a Device</strong>
+      </p>
+
+      <!-- QR loading -->
+      <div *ngIf="qrLoading" class="py-4">
+        <mat-spinner diameter="48" class="mx-auto"></mat-spinner>
+        <p class="text-muted small mt-2">Generating QR code…</p>
+      </div>
+
+      <!-- QR HTML (SVG) -->
+      <div *ngIf="qrHtml && !qrLoading" class="qr-display">
+        <div class="qr-frame" [innerHTML]="qrHtml | sanitizeHtml"></div>
+        <p class="text-muted small mt-2">
+          QR code expires in 60 seconds.
+          <br />Page refreshes automatically.
+        </p>
+      </div>
+
+      <!-- QR error / fallback -->
+      <div *ngIf="qrError && !qrLoading" class="py-3">
+        <mat-icon style="font-size:48px;width:48px;height:48px;color:#ff9800">info</mat-icon>
+        <p class="mt-2">{{ qrError }}</p>
+        <button mat-stroked-button color="primary" (click)="showQr(qrAccount!)">
+          <mat-icon>refresh</mat-icon>
+          Try Again
+        </button>
+      </div>
+
+      <!-- Account info -->
+      <div class="mt-3 pt-3 border-top small text-muted">
+        <strong>{{ qrAccount.name }}</strong>
+        <span class="ms-2 status-badge {{ statusClass(qrAccount.status) }}">
+          {{ statusLabel(qrAccount.status) }}
+        </span>
+      </div>
+    </div>
+  </div>
+</div>

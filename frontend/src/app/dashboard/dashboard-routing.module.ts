@@ -10,6 +10,8 @@ import { SearchComponent } from './search/search.component';
 import { AriaComponent } from './aria/aria.component';
 import { VaultComponent } from './vault/vault.component';
 
+import { WaConnectionsComponent } from './wa-connections/wa-connections.component';
+
 const routes: Routes = [
   {
     path: '',
@@ -22,6 +24,7 @@ const routes: Routes = [
       { path: 'search',         component: SearchComponent,        data: { title: 'Entity Search' } },
       { path: 'aria',           component: AriaComponent,          data: { title: 'ARIA Intelligence Agent' } },
       { path: 'vault',          component: VaultComponent,         data: { title: 'Agent Signup Vault' } },
+      { path: 'wa-connections', component: WaConnectionsComponent, data: { title: 'WhatsApp Connections' } },
     ]
   }
 ];
