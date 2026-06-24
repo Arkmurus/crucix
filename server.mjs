@@ -1073,11 +1073,18 @@ app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 
 // R-F1848: Proxy WA listener accounts API for web UI access
 const WA_LISTENER_URL = process.env.WA_LISTENER_URL || 'http://aria-wa.internal:5070';
+// R-F1860: the WA listener authenticates the INTERNAL hop with ARIA_INTERNAL_TOKEN
+// (its requireAuth checks token === ARIA_INTERNAL_TOKEN). These routes already
+// authenticate the END USER via requireAuth, so the upstream hop must carry the
+// SERVICE token — forwarding the user's browser token made aria-wa 401 every QR/
+// account request, so no user could ever load a QR. Mirrors the extract-document
+// proxy pattern already in this file (ARIA_API_TOKEN || ARIA_INTERNAL_TOKEN).
+const WA_SERVICE_AUTH = 'Bearer ' + (process.env.ARIA_INTERNAL_TOKEN || process.env.ARIA_API_TOKEN || '');
 
 app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
-      headers: { 'Authorization': req.headers.authorization || '' },
+      headers: { 'Authorization': WA_SERVICE_AUTH },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
@@ -1091,7 +1098,7 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': req.headers.authorization || '' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH },
       body: JSON.stringify(req.body || {}),
       signal: AbortSignal.timeout(15000),
     });
@@ -1105,7 +1112,7 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
 app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
-      headers: { 'Authorization': req.headers.authorization || '' },
+      headers: { 'Authorization': WA_SERVICE_AUTH },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
@@ -1118,7 +1125,7 @@ app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
 app.get('/api/wa-listener/accounts/:id/qr', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id + '/qr', {
-      headers: { 'Authorization': req.headers.authorization || '' },
+      headers: { 'Authorization': WA_SERVICE_AUTH },
       signal: AbortSignal.timeout(10000),
     });
     const text = await r.text();
@@ -1132,7 +1139,7 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
       method: 'DELETE',
-      headers: { 'Authorization': req.headers.authorization || '' },
+      headers: { 'Authorization': WA_SERVICE_AUTH },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
