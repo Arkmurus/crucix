@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1862,
+  "next_available": 1863,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12950,9 +12950,9 @@
       "claimed_at": "2026-06-24T09:26:32Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "cdc09643",
+      "commit_sha": "c7a0d0c4",
       "notes": null,
-      "shipped_at": "2026-06-24T09:34:23Z"
+      "shipped_at": "2026-06-24T10:18:46Z"
     },
     {
       "r_number": "R-F1859",
@@ -12969,14 +12969,25 @@
       "title": "web wa-listener proxy must use service token not user token (QR 401 fix)",
       "claimed_at": "2026-06-24T10:04:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "329405bc",
+      "notes": null,
+      "shipped_at": "2026-06-24T10:18:51Z"
     },
     {
       "r_number": "R-F1861",
       "title": "aria-wa ESM require() fixes + sync QR SVG render (account-create 500 + QR display)",
       "claimed_at": "2026-06-24T10:13:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6280476f",
+      "notes": null,
+      "shipped_at": "2026-06-24T10:18:51Z"
+    },
+    {
+      "r_number": "R-F1862",
+      "title": "wa-connections.html apiFetch must send Bearer crucix_token (page 401s for real users)",
+      "claimed_at": "2026-06-24T11:09:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

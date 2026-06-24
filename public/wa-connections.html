@@ -203,10 +203,23 @@
     let pollTimer = null;
 
     async function apiFetch(path, opts = {}) {
+      // R-F1862: the proxy routes are Bearer-only (requireAuth reads
+      // Authorization: Bearer <jwt>); every other page sends the JWT from
+      // localStorage('crucix_token'). Without this header the page 401'd for
+      // every real logged-in user (it only "worked" via the localhost bypass /
+      // internal token in testing). Mirror the rest of the UI.
+      const token = localStorage.getItem('crucix_token') || '';
       const res = await fetch(API + path, {
-        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+          ...opts.headers,
+        },
         ...opts,
       });
+      if (res.status === 401) {
+        throw new Error('Not signed in — log in to intel.arkmurus.com first, then reload this page.');
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(text || `HTTP ${res.status}`);
