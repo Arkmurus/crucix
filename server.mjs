@@ -3918,16 +3918,24 @@ app.post('/api/self/generate', requireAdmin, async (req, res) => {
   }
 });
 
+// R-F1867 (audit DD-12): moduleName flows into gitCommit() (now spawnSync-safe)
+// AND into file paths (`./sources/${moduleName}.mjs`), so an unsanitized value
+// is both a (former) shell-injection and a path-traversal vector. Constrain it
+// to a safe identifier at the HTTP boundary — mirrors the Telegram /update path.
+function _sanitizeModuleName(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9_]/g, '').substring(0, 40);
+}
+
 app.post('/api/self/apply', requireAdmin, async (req, res) => {
-  const { moduleName } = req.body || {};
-  if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
+  const moduleName = _sanitizeModuleName((req.body || {}).moduleName);
+  if (!moduleName) return res.status(400).json({ error: 'moduleName required (alphanumeric/underscore)' });
   const result = await deployModule(moduleName);
   res.json(result);
 });
 
 app.post('/api/self/rollback', requireAdmin, (req, res) => {
-  const { moduleName } = req.body || {};
-  if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
+  const moduleName = _sanitizeModuleName((req.body || {}).moduleName);
+  if (!moduleName) return res.status(400).json({ error: 'moduleName required (alphanumeric/underscore)' });
   res.json(rollbackModule(moduleName));
 });
 
