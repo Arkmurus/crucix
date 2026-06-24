@@ -12870,45 +12870,50 @@
       "title": "Remove dead PowerShell RCE endpoint (DD stage1)",
       "claimed_at": "2026-06-23T23:19:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": null,
+      "shipped_at": "2026-06-24T00:03:13Z"
     },
     {
       "r_number": "R-F1851",
       "title": "Route 3 SSRF fetchers through safe_get (DD stage2)",
       "claimed_at": "2026-06-23T23:20:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": null,
+      "shipped_at": "2026-06-24T00:03:13Z"
     },
     {
       "r_number": "R-F1852",
       "title": "Bind owner to 5 job/trace result IDOR endpoints (DD stage4)",
       "claimed_at": "2026-06-23T23:20:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": null,
+      "shipped_at": "2026-06-24T00:03:13Z"
     },
     {
       "r_number": "R-F1853",
       "title": "Body-size cap middleware + wire zip-bomb scanner (DD stage3)",
       "claimed_at": "2026-06-23T23:20:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": null,
+      "shipped_at": "2026-06-24T00:03:14Z"
     },
     {
       "r_number": "R-F1854",
       "title": "Optional-chain WA messages.upsert loop (DD stage3)",
       "claimed_at": "2026-06-23T23:20:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": null,
+      "shipped_at": "2026-06-24T00:03:14Z"
     },
     {
       "r_number": "R-F1855",
