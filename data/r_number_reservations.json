@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1879,
+  "next_available": 1884,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13009,18 +13009,20 @@
       "title": "DD-01 fix circuit-breaker NameError CB_KEY_FREFIX in test_runner",
       "claimed_at": "2026-06-24T12:59:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1865",
       "title": "DD-02..07/16/17/25 IDOR sweep: user_id ownership on trace/scratchpad/feedback/honesty/verify/ocr + proxy pinning",
       "claimed_at": "2026-06-24T13:01:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1866",
@@ -13037,36 +13039,40 @@
       "title": "DD-11/12 command injection: gitCommit execSync->spawnSync arg-array + sanitize moduleName",
       "claimed_at": "2026-06-24T13:17:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1868",
       "title": "DD/ARIA: wa-listener accounts POST req.body undefined (express.json mounts after route) - Add Account name lost",
       "claimed_at": "2026-06-24T13:20:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1869",
       "title": "DD-13/14/20/08: Node unhandled-async hangs + ReDoS regex + SSRF webhook guard",
       "claimed_at": "2026-06-24T13:21:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1870",
       "title": "DD-18/24/19/27/15 WA integrity: callback auth+one-time token, deliver-flag after send, real senderJid+allowlist on auto-response, cap media buffer",
       "claimed_at": "2026-06-24T13:26:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:16Z"
     },
     {
       "r_number": "R-F1871",
@@ -13083,59 +13089,114 @@
       "title": "EagleEye evening-window gating + changed-files-only + de-flood logging (fix brain wedge)",
       "claimed_at": "2026-06-24T13:44:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e4fcd719",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:16Z"
     },
     {
       "r_number": "R-F1873",
       "title": "SearXNG timeout inversion: client 15s > gather 12s, never completes; clamp under gather",
       "claimed_at": "2026-06-24T14:36:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
     },
     {
       "r_number": "R-F1874",
       "title": "Direct-source-first DD R1: mine entity website (homepage+key pages) as PRIMARY evidence",
       "claimed_at": "2026-06-24T14:40:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
     },
     {
       "r_number": "R-F1875",
       "title": "DD chat turns vanish: stream-path persists only after stream completes; register conversation+user turn early so a dropped DD stream survives",
       "claimed_at": "2026-06-24T15:16:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "355830cc",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:15Z"
     },
     {
       "r_number": "R-F1876",
       "title": "Direct-source-first DD R2: GLEIF (free global LEI) authoritative registration enrichment in identity layer",
       "claimed_at": "2026-06-24T15:29:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
     },
     {
       "r_number": "R-F1877",
       "title": "offload deep_researcher search_knowledge calls to to_thread (research-loop event-loop wedge)",
       "claimed_at": "2026-06-24T15:29:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8f13ebd8",
+      "notes": null,
+      "shipped_at": "2026-06-24T15:46:41Z"
     },
     {
       "r_number": "R-F1878",
       "title": "DD absorb wedge: completion brain_hook.absorb awaited in DD critical path (29s p95 trips circuit) -> fire-and-forget",
       "claimed_at": "2026-06-24T15:35:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
+    },
+    {
+      "r_number": "R-F1879",
+      "title": "DD budget overrun: verification+synthesis used fixed 30/10s timeouts ignoring budget; clamp + reserve tail",
+      "claimed_at": "2026-06-24T15:39:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
+    },
+    {
+      "r_number": "R-F1880",
+      "title": "DD R3: search best-effort honesty - surface 'all search backends blocked' so no-adverse-media is not read as clean",
+      "claimed_at": "2026-06-24T15:43:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
+    },
+    {
+      "r_number": "R-F1881",
+      "title": "GLEIF best_match wrong-entity bug: reverse-subset let generic name match specific query (Modirum Gespi->MODIRUM OU); require query-subset-of-candidate",
+      "claimed_at": "2026-06-24T15:47:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f0df8f3",
+      "notes": null,
+      "shipped_at": "2026-06-24T16:01:14Z"
+    },
+    {
+      "r_number": "R-F1882",
+      "title": "GIL-contention: route html-parse through shared CPU gate so pure-Python GIL holders serialise (event-loop starvation fix)",
+      "claimed_at": "2026-06-24T21:46:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1883",
+      "title": "Ingest Python on Windows documentation into ARIA RAG",
+      "claimed_at": "2026-06-24T21:51:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

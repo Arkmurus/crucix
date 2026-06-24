@@ -80,6 +80,28 @@ async def run_in_thread_throttled(
         return await asyncio.to_thread(fn, *args, **kwargs)
 
 
+async def run_in_thread_cpu(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """R-F1882 — like run_in_thread_throttled but WITHOUT the per-call brain
+    signal, for HIGH-FREQUENCY CPU-bound work (e.g. per-page HTML parse) that
+    must share the SAME GIL-serialisation semaphore but would flood the brain
+    if it wired every call.
+
+    Why this exists: the snapshot JSON encoders (knowledge/_encode_all,
+    neural_memory/_encode_edges) already serialise through this semaphore, but
+    crawler/_strip_html_to_text (BeautifulSoup, a pure-Python tree-walk that
+    holds the GIL for 5-15s on big pages) ran on a RAW asyncio.to_thread — so an
+    HTML parse could run CONCURRENTLY with a JSON encode, and with several other
+    parses, giving 3-4 pure-Python GIL holders that starved the event-loop
+    thread's heartbeat (R-F703 5-19s stalls, event loop idle-but-starved in the
+    wedge stacks). Sharing the gate caps concurrent pure-Python GIL holders so
+    the loop always gets GIL slices. Concurrency is env-tunable via
+    ARIA_SNAPSHOT_THROTTLE_CONCURRENCY (default 1).
+    """
+    sem = _get_semaphore()
+    async with sem:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+
 def reset_for_tests() -> None:
     """Tests that create fresh event loops must call this so the
     next _get_semaphore() rebinds to the new loop. Production must

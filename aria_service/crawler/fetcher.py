@@ -299,7 +299,12 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
     # runs on the loop. On a large feed page (multi-100 KB), the parse
     # routinely takes 5–15s. Move to a worker so concurrent crawl
     # fetches + chat requests can run while a page is being stripped.
-    title, headings, body = await asyncio.to_thread(_strip_html_to_text, html)
+    # R-F1882 — share the global CPU-serialisation gate (same semaphore the JSON
+    # snapshot encoders use) so this pure-Python BeautifulSoup parse (holds the
+    # GIL 5-15s on big pages) can't run concurrently with a JSON encode or another
+    # parse and starve the event-loop heartbeat (R-F703 GIL wedge).
+    from ..intel._snapshot_throttle import run_in_thread_cpu
+    title, headings, body = await run_in_thread_cpu(_strip_html_to_text, html)
     if not body or len(body.split()) < 20:
         return {"url": url, "domain": domain,
                 "status_class": "thin",
