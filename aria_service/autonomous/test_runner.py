@@ -361,7 +361,7 @@ class TestRunner:
     async def _record_failure(self, summary: str) -> None:
         """Record a test failure in the circuit breaker counter."""
         try:
-            key = f"{CB_KEY_FREFIX}:count"
+            key = f"{CB_KEY_PREFIX}:count"
             count = await self.redis.incr(key)
             if count == 1:
                 await self.redis.expire(key, CB_WINDOW_S)
