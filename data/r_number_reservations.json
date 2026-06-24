@@ -13189,9 +13189,10 @@
       "title": "GIL-contention: route html-parse through shared CPU gate so pure-Python GIL holders serialise (event-loop starvation fix)",
       "claimed_at": "2026-06-24T21:46:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9ff412f7",
+      "notes": null,
+      "shipped_at": "2026-06-24T22:01:11Z"
     },
     {
       "r_number": "R-F1883",
