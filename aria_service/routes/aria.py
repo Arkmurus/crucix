@@ -16304,8 +16304,14 @@ async def entity_graph_ep(run_id: str, user_id: str = ""):
                 raise HTTPException(status_code=404, detail=f"No entity graph for run_id {run_id}")
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as _eg_owner_e:
+            # R-F1886 (review): FAIL CLOSED. The old `except: pass` swallowed any
+            # error loading the owning DD report and then RETURNED the confidential
+            # graph — a store blip became an IDOR bypass. If ownership cannot be
+            # verified for a user-scoped caller, DENY (404).
+            _log.warning("entity_graph ownership check errored for %s — denying (fail-closed): %s",
+                         run_id, _eg_owner_e)
+            raise HTTPException(status_code=404, detail=f"No entity graph for run_id {run_id}")
     return {
         "run_id": run_id,
         "nodes": len(graph.nodes),
@@ -22195,10 +22201,19 @@ async def scratchpad_for_trace_ep(trace_id: str, user_id: str = ""):
         from ..intel import trace_stream as _ts
         # Enforce ownership against the OWNING trace — do not trust any field
         # on the scratchpad payload itself.
+        # R-F1886 (review RV-02, fail CLOSED): a user-scoped caller may read the
+        # scratchpad ONLY if the owning trace exists AND they own it (or it's a
+        # legacy trace with no stored owner). The old code nested the check inside
+        # `if _trace is not None`, so when the trace was deleted/expired the check
+        # was SKIPPED and ANY authenticated user got the (sensitive) reasoning.
+        # If we cannot establish ownership, DENY. Admin/internal (user_id='')
+        # still resolves; legacy traces (no stored user_id) still resolve.
         _trace = await _ts.get_trace(trace_id)
-        if _trace is not None:
+        if user_id:
+            if _trace is None:
+                return {"ok": False, "error": "not_found", "trace_id": trace_id}
             _owner = (_trace.get("user_id") or "").strip()
-            if user_id and _owner and _owner != user_id:
+            if _owner and _owner != user_id:
                 return {"ok": False, "error": "not_found", "trace_id": trace_id}
         key = f"crucix:scratchpad:{trace_id}"
         payload = await rs.get_json(key)
