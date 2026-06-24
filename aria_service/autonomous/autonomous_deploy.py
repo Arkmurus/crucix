@@ -312,6 +312,19 @@ class WebhookNotifier:
         """Send a webhook notification (fire-and-forget)."""
         if not self.webhook_url:
             return
+        # R-F1869 (audit DD-08): webhook_url comes from DEPLOY_WEBHOOK_URL — a
+        # poisoned env value (169.254.169.254 cloud-metadata, fdaa::1 / RFC-1918
+        # internal services) would turn deploy notifications into an SSRF that
+        # leaks operational state in the payload. Validate before POSTing.
+        try:
+            from ..intel.url_safety import is_safe_url
+            ok, reason = is_safe_url(self.webhook_url)
+            if not ok:
+                logger.warning("[webhook] refusing unsafe webhook_url: %s", reason)
+                return
+        except Exception as e:
+            logger.warning("[webhook] url safety check failed, refusing: %s", e)
+            return
         try:
             payload = {
                 "event": event,

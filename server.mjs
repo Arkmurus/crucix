@@ -147,6 +147,11 @@ function trivialReply(q) {
   // strip optional leading "aria" or "aria,", trailing punctuation, lowercase
   let s = q.trim().toLowerCase().replace(/[?.! ]+$/g, '');
   s = s.replace(/^aria[,!\s]*/, '').trim();
+  // R-F1869 (audit DD-20): collapse internal whitespace runs to a single space
+  // so the \s+/\s* groups in the probe regexes below can never backtrack on
+  // long whitespace (ReDoS). Combined with the length guard, worst-case match
+  // work is bounded.
+  s = s.replace(/\s+/g, ' ');
   if (!s) return null;
 
   if (/^(are\s+you\s+(online|there|alive|awake|working|up|ready|here)|you\s+(online|there|alive|awake))$/.test(s)) {
@@ -169,9 +174,12 @@ function trivialReply(q) {
   }
   // Background/status meta probes — keep in sync with waListener
   // _waTrivialReply and lib/aria/aria.mjs _ariaTrivialReply.
-  if (/^(can\s+you\s+(confirm|tell\s+me|verify)\s+)?(you('?re|\s+are)?\s+|are\s+you\s+)?(still|actually|really)?\s*(working|processing|running|on\s+it|there|alive)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$/.test(s)
+  // R-F1869 (audit DD-20): these probes only ever match short status questions;
+  // gate them behind a length cap so a long crafted near-match can't drive the
+  // nested-optional regexes into catastrophic backtracking.
+  if (s.length <= 80 && (/^(can\s+you\s+(confirm|tell\s+me|verify)\s+)?(you('?re|\s+are)?\s+|are\s+you\s+)?(still|actually|really)?\s*(working|processing|running|on\s+it|there|alive)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$/.test(s)
    || /^(still|actually)\s+(working|on\s+it|there)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$/.test(s)
-   || /^did\s+you\s+(get|hear|see)\s+(that|me|it|my\s+(message|question))$/.test(s)) {
+   || /^did\s+you\s+(get|hear|see)\s+(that|me|it|my\s+(message|question))$/.test(s))) {
     return "✅ I'm here. I don't persist long-running tasks across messages — if your last question is still pending after ~60s, please re-send it and I'll work on it now.";
   }
   return null;
@@ -1590,12 +1598,20 @@ app.post('/api/learning/outcome', requireAuth, (req, res) => {
 });
 
 app.get('/api/opportunities', requireAuth, async (req, res) => {
-  if (currentData) {
-    const fresh = await detectOpportunities(currentData);
-    return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
+  // R-F1869 (audit DD-13): without try/catch a throw in detectOpportunities
+  // became an unhandledRejection — the response never sent and the request
+  // hung, accumulating dead connections. Always send a response.
+  try {
+    if (currentData) {
+      const fresh = await detectOpportunities(currentData);
+      return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
+    }
+    const stored = getOpportunities();
+    res.json({ ...stored, source: 'cached' });
+  } catch (e) {
+    console.error('[opportunities] detect failed:', e?.message);
+    res.status(500).json({ error: 'opportunity detection failed', opportunities: [] });
   }
-  const stored = getOpportunities();
-  res.json({ ...stored, source: 'cached' });
 });
 
 // R-F914 — merge the brain's intel-derived leads into the BD page. The Node
@@ -5156,16 +5172,33 @@ app.get('/api/admin/source-health-errors', requireAdmin, errHandlers.getSourceHe
 app.get('/api/admin/error-dashboard',  requireAdmin, errHandlers.getDashboard);
 
 // ── Source Pruner Admin Routes ────────────────────────────────────────────────
+// R-F1869 (audit DD-14): wrap each await so a sourcePruner throw can't become
+// an unhandledRejection that hangs the response and leaks connections.
 app.get('/api/admin/source-prune-report', requireAdmin, async (req, res) => {
-  res.json(await sourcePruner.getSourceHealthReport());
+  try {
+    res.json(await sourcePruner.getSourceHealthReport());
+  } catch (e) {
+    console.error('[source-prune-report] failed:', e?.message);
+    res.status(500).json({ error: 'source health report failed' });
+  }
 });
 app.post('/api/admin/sources/:name/enable', requireAdmin, async (req, res) => {
-  await sourcePruner.setSourceEnabled(req.params.name, true);
-  res.json({ status: 'enabled', source: req.params.name });
+  try {
+    await sourcePruner.setSourceEnabled(req.params.name, true);
+    res.json({ status: 'enabled', source: req.params.name });
+  } catch (e) {
+    console.error('[sources/enable] failed:', e?.message);
+    res.status(500).json({ error: 'enable failed', source: req.params.name });
+  }
 });
 app.post('/api/admin/sources/:name/disable', requireAdmin, async (req, res) => {
-  await sourcePruner.setSourceEnabled(req.params.name, false);
-  res.json({ status: 'disabled', source: req.params.name });
+  try {
+    await sourcePruner.setSourceEnabled(req.params.name, false);
+    res.json({ status: 'disabled', source: req.params.name });
+  } catch (e) {
+    console.error('[sources/disable] failed:', e?.message);
+    res.status(500).json({ error: 'disable failed', source: req.params.name });
+  }
 });
 
 // ── Compliance entity screening (live lists) + version info ───────────────────
