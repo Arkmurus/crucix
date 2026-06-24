@@ -6361,9 +6361,17 @@ async def _execute_tool(
                 # R-F1829: a caller-supplied budget (web stream → fits the SSE
                 # proxy window) overrides the env default (720s = WhatsApp
                 # async-push window). Guarantees inline delivery on web.
+                # R-F1891: inline budget default lowered 720s→300s. A 12-min
+                # inline DD was slow AND extremely fragile (any restart / blip /
+                # poll-window edge lost the whole run — the recurring WA failure).
+                # Now that the async-complete-and-push callback is reliable
+                # (RV-01/R-F1884 fixed the /callback endpoint), the inline pass
+                # delivers a solid primary-data report fast (R1 site-mine + R2
+                # GLEIF carry it) and the background deep-DD (R-F1830) + callback
+                # finish the depth. Operator can still override via the env var.
                 _dd_chat_budget_s = (
                     float(dd_budget_s) if dd_budget_s is not None
-                    else float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "720")))
+                    else float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "300")))
                 )
                 _dd_chat_t0 = time.time()
                 report = await dd_orchestrator.orchestrate_dd(
@@ -10416,6 +10424,45 @@ def _hold_job_task(task) -> None:
     """Pin an async-job task (chatjob.* / readdoc.*) until it completes."""
     _ASYNC_JOB_TASKS.add(task)
     task.add_done_callback(_ASYNC_JOB_TASKS.discard)
+
+
+async def recover_orphaned_jobs() -> int:
+    """R-F1891 — at boot, FAIL any async chat/read-document job left at
+    'processing'. A brain restart loses the in-memory computation, so such a job
+    can NEVER finish — without this it stays 'processing' until its 30-min TTL,
+    and the WhatsApp poll hangs the full 15-min window into a dead-end
+    "still finishing in the background" that never lands (the exact silent-loss
+    the operator hit when a deploy restarted the brain mid-DD). Marking them
+    failed-interrupted now gives the poll/callback a definitive failure so the
+    user is told to resend instead of waiting on a job that's gone. Best-effort;
+    never raises (boot must not depend on it)."""
+    from ..intel import redis_store as _rs_rec
+    swept = 0
+    for _prefix in (_CHAT_JOB_PREFIX, _READDOC_JOB_PREFIX):
+        try:
+            # Scan via redis_store — the SAME facade the jobs are written through
+            # (_chat_job_set/_readdoc_job_set), so the backend matches whether it
+            # resolves to sqlite or the in-memory fallback.
+            _keys = await _rs_rec.scan_keys(_prefix + "*")
+        except Exception as _scan_e:
+            _log.debug("R-F1891 scan_keys(%s) failed: %s", _prefix, _scan_e)
+            continue
+        for _k in _keys or []:
+            try:
+                _job = await _rs_rec.get_json(_k)
+                if isinstance(_job, dict) and _job.get("status") == "processing":
+                    await _rs_rec.set_json(
+                        _k,
+                        {**_job, "status": "failed",
+                         "error": "interrupted by a service restart — please resend your request"},
+                        ex=_CHAT_JOB_TTL_S,
+                    )
+                    swept += 1
+            except Exception:
+                continue
+    if swept:
+        _log.info("R-F1891 boot: failed %d orphaned 'processing' job(s) interrupted by restart", swept)
+    return swept
 
 
 # R-F1413 — async-complete-and-push: fire callback URL when a job completes.

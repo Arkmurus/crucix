@@ -564,6 +564,20 @@ async def lifespan(app: FastAPI):
     # _freeze_long_lived_state() + knowledge._write_to_disk_atomic.
     _freeze_long_lived_state()
 
+    # ── R-F1891 — recover orphaned async jobs after a restart ────────────
+    # A restart loses the in-memory chat/DD computation, so any job left at
+    # 'processing' can never finish. Fail them now (awaited, fast scan) so a
+    # reconnecting WhatsApp poll/callback gets a definitive failure and tells the
+    # user to resend, instead of hanging the full 15-min poll window on a dead
+    # job. Best-effort — never blocks boot on failure.
+    try:
+        from .routes.aria import recover_orphaned_jobs as _recover_jobs
+        _n_recovered = await _recover_jobs()
+        if _n_recovered:
+            logger.info("[R-F1891] failed %d orphaned async job(s) interrupted by the restart", _n_recovered)
+    except Exception as _rec_e:
+        logger.warning("[R-F1891] orphaned-job recovery skipped (non-fatal): %s", _rec_e)
+
     # ── R-F504 (2026-05-14) — ARIA's own search index ───────────────────
     # Opens a separate SQLite file at /data/aria_search.db (configurable
     # via ARIA_SEARCH_DB_PATH) for the curated FTS5 corpus that powers
@@ -3480,36 +3494,20 @@ async def phase_gates():
 
     # Gate #2: Heatmap floor >= 70%
     try:
-        from .intel.coverage_heatmap import build_heatmap
-        hm = await build_heatmap()
-        cells = hm.get("cells", hm.get("matrix", {}))
-        floor = None
-        if isinstance(cells, dict):
-            vals = [v for v in cells.values() if isinstance(v, (int, float))]
-            if vals:
-                floor = min(vals)
-        elif isinstance(cells, list):
-            flat = []
-            for row in cells:
-                if isinstance(row, dict):
-                    for v in row.values():
-                        if isinstance(v, (int, float)):
-                            flat.append(v)
-                elif isinstance(row, list):
-                    for cell in row:
-                        if isinstance(cell, dict):
-                            for v in cell.values():
-                                if isinstance(v, (int, float)):
-                                    flat.append(v)
-            if flat:
-                floor = min(flat)
+        from .intel import student as _s1892
+        hm_data = await _s1892.get_regional_heatmap()
+        hm = (hm_data or {}).get("heatmap", {}) or {}
+        all_scores = [s for regions in hm.values() for s in regions.values()]
+        floor = min(all_scores) if all_scores else None
+        breach = (hm_data or {}).get("floor_breach_cells", []) or []
         gates["gate_2_heatmap_floor"] = {
             "label": "Heatmap floor >= 70%",
             "value": floor,
             "pass": floor is not None and floor >= 0.70,
-            "source": "coverage_heatmap.build_heatmap()",
+            "source": "student.get_regional_heatmap()",
+            "floor_breach_cells": breach,
         }
-        sources["heatmap"] = "coverage_heatmap.build_heatmap()"
+        sources["heatmap"] = "student.get_regional_heatmap()"
     except Exception as e:
         gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
         sources["heatmap"] = f"error: {e}"
