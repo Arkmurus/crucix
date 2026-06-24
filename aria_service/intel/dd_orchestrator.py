@@ -393,6 +393,64 @@ _DD_KEY_PAGE_RE = re.compile(
 )
 
 
+# R-F1895 — country → ISO2 for self-reported HQ/office extraction. An entity's
+# OWN stated HQ ("Finland Helsinki HQ") is a LEGITIMATE jurisdiction indicator
+# (unlike the TLD/language the Clause-14 guard rejects). Focused list — common
+# DD jurisdictions; unknowns are surfaced as text, never guessed.
+_COUNTRY_ISO2 = {
+    "finland": "FI", "estonia": "EE", "austria": "AT", "united kingdom": "GB",
+    "uk": "GB", "england": "GB", "switzerland": "CH", "serbia": "RS",
+    "portugal": "PT", "brazil": "BR", "brasil": "BR", "germany": "DE",
+    "france": "FR", "spain": "ES", "italy": "IT", "netherlands": "NL",
+    "belgium": "BE", "ireland": "IE", "sweden": "SE", "norway": "NO",
+    "denmark": "DK", "poland": "PL", "romania": "RO", "czechia": "CZ",
+    "czech republic": "CZ", "slovakia": "SK", "hungary": "HU", "greece": "GR",
+    "turkey": "TR", "türkiye": "TR", "united states": "US", "usa": "US",
+    "united arab emirates": "AE", "uae": "AE", "saudi arabia": "SA",
+    "india": "IN", "singapore": "SG", "lithuania": "LT", "latvia": "LV",
+    "luxembourg": "LU", "cyprus": "CY", "malta": "MT", "slovenia": "SI",
+    "croatia": "HR", "bulgaria": "BG", "ukraine": "UA", "israel": "IL",
+}
+
+
+def _extract_site_locations(text: str) -> dict:
+    """R-F1895 — pull SELF-REPORTED HQ + office countries out of mined site text.
+
+    Returns {"hq_iso2", "hq_country", "countries": [iso2,...], "raw": [labels]}.
+    The HQ is the country immediately preceding/around an 'HQ'/'headquarters'
+    marker (e.g. 'Finland Helsinki HQ'). This is grounded primary-source data
+    (the entity's OWN stated location) — NOT a guess from TLD/language. Empty
+    dict-ish result when nothing explicit is found; never fabricates."""
+    out = {"hq_iso2": None, "hq_country": None, "countries": [], "raw": []}
+    if not text:
+        return out
+    low = text.lower()
+    seen = set()
+    # all explicitly-named countries (office footprint)
+    for cname, iso2 in _COUNTRY_ISO2.items():
+        if re.search(r"\b" + re.escape(cname) + r"\b", low):
+            if iso2 not in seen:
+                seen.add(iso2)
+                out["countries"].append(iso2)
+                out["raw"].append(cname)
+    # HQ: a country name near an HQ / headquarters marker. Two real phrasings:
+    #   A) "<Country> <City> HQ"            → country BEFORE the marker
+    #   B) "headquartered in <City>, <Country>" → country AFTER the marker
+    # Check BEFORE first (format A), then AFTER (format B fallback).
+    def _country_in(window: str):
+        for cname, iso2 in _COUNTRY_ISO2.items():
+            if re.search(r"\b" + re.escape(cname) + r"\b", window):
+                return iso2, cname
+        return None
+    for m in re.finditer(r"(?i)\b(hq|head\s*office|headquarter(?:s|ed)?)\b", text):
+        hit = _country_in(low[max(0, m.start() - 40): m.start()]) \
+            or _country_in(low[m.end(): m.end() + 40])
+        if hit:
+            out["hq_iso2"], out["hq_country"] = hit
+            break
+    return out
+
+
 async def _mine_entity_website(url: str, *, max_pages: int = 5, budget_s: float = 25.0) -> list[dict]:
     """R-F1874 (direct-source-first) — mine the entity's OWN website as PRIMARY
     DD evidence: the homepage plus key sub-pages (about / team / leadership /
@@ -1947,6 +2005,53 @@ async def _run_identity(
                 logger.info("R-F1876 GLEIF match for %r: LEI=%s filled=%s", name[:60], _gl.get("lei"), _filled)
         except Exception as _gl_e:
             logger.debug("R-F1876 GLEIF enrichment failed (non-fatal): %s", _gl_e)
+
+    # R-F1895 (review #4): if jurisdiction is STILL unknown after GLEIF, mine the
+    # entity's OWN site for a self-reported HQ/office footprint. A stated
+    # "Finland Helsinki HQ" is a LEGITIMATE jurisdiction indicator (unlike the
+    # TLD/language the Clause-14 guard rejects) — and without it the compliance
+    # layer stays wired-but-silent (no jurisdiction → no country risk → the thin
+    # 'INSUFFICIENT EVIDENCE' the operator saw). Tagged SELF-REPORTED (registry
+    # verification still required — no fabrication). Mined pages are stashed on
+    # target so _run_digital reuses them (no double-mine).
+    if entity_type != EntityType.PERSON.value and not report.identity.jurisdiction_iso2:
+        _site_id = ""
+        for _c in (target.get("website"), target.get("url"), target.get("domain")):
+            if _c and isinstance(_c, str) and _c.strip():
+                _site_id = _c.strip(); break
+        if _site_id:
+            if not _site_id.lower().startswith(("http://", "https://")):
+                _site_id = "https://" + _site_id
+            try:
+                _mined_id = await _mine_entity_website(_site_id)
+                if _mined_id:
+                    target["_mined_pages"] = _mined_id  # R-F1895: reuse in _run_digital
+                    _loc = _extract_site_locations(" ".join(p.get("text", "") for p in _mined_id))
+                    if _loc.get("hq_iso2"):
+                        report.identity.jurisdiction_iso2 = _loc["hq_iso2"]
+                        if not report.identity.jurisdiction:
+                            report.identity.jurisdiction = (_loc.get("hq_country") or "").title()
+                        _offices = ", ".join(_loc.get("countries") or [])
+                        report.identity.findings.append(Finding(
+                            severity="info",
+                            title=f"Self-reported HQ: {(_loc.get('hq_country') or '').title()} ({_loc['hq_iso2']})",
+                            detail=(
+                                f"The entity's own website states its HQ is in "
+                                f"{(_loc.get('hq_country') or '?').title()}; office footprint: {_offices or 'n/a'}. "
+                                f"SELF-REPORTED (site, not registry-verified) — used to seed jurisdiction so "
+                                f"compliance/country-risk can run. Registry confirmation still required."
+                            ),
+                            source="entity_site:locations",
+                            confidence="ASSESSED",
+                        ))
+                        report.identity.data_gaps.append(
+                            f"R-F1895: jurisdiction {_loc['hq_iso2']} is SELF-REPORTED from the entity's site "
+                            f"(stated HQ) — NOT registry-verified; confirm against the national registry."
+                        )
+                        logger.info("R-F1895 site-derived HQ jurisdiction for %r: %s (offices=%s)",
+                                    name[:60], _loc["hq_iso2"], _loc.get("countries"))
+            except Exception as _loc_e:
+                logger.debug("R-F1895 site-location extraction failed (non-fatal): %s", _loc_e)
 
     hard_stop = False
 
@@ -3942,7 +4047,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             if not _site.lower().startswith(("http://", "https://")):
                 _site = "https://" + _site
             try:
-                _mined = await _mine_entity_website(_site)
+                # R-F1895: reuse the pages the identity layer already mined (it
+                # mines the site to derive jurisdiction); avoid a second fetch.
+                _mined = target.get("_mined_pages")
+                if not _mined:
+                    _mined = await _mine_entity_website(_site)
             except Exception as _mine_e:
                 _mined = []
                 logger.debug("R-F1874 site-mine failed: %s", _mine_e)
