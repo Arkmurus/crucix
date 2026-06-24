@@ -10432,8 +10432,19 @@ _CALLBACK_ALLOWLIST = (
 
 
 def _is_callback_allowed(url: str) -> bool:
-    """Check if a callback URL is on the SSRF allowlist."""
-    return url in _CALLBACK_ALLOWLIST
+    """Check if a callback URL is on the SSRF allowlist.
+
+    R-F1870 (audit DD-18): the WA listener now appends a per-job ?ct=<token>
+    to the callback_url. Compare scheme+host+path only (query stripped) so the
+    token can vary without defeating the allowlist — and so the SSRF guard is
+    NOT weakened (the base URL must still match exactly)."""
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(url)
+        base = urlunsplit((p.scheme, p.netloc, p.path, "", ""))
+    except Exception:
+        base = url
+    return base in _CALLBACK_ALLOWLIST
 
 
 async def _fire_and_forget_callback(callback_url: str, job_id: str,

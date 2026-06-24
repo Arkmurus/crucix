@@ -97,7 +97,28 @@ import express  from 'express';
 import fs       from 'fs';
 import path     from 'path';            // R-F1861: ESM has no require(); import node:path
 import { createClient } from 'redis';
+import { randomBytes } from 'node:crypto';   // R-F1870 (audit DD-18): per-job callback token
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
+
+// R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
+// stream that lies about its declared size cannot exhaust memory before the
+// downstream 8MB display cap is applied. Throws past the cap (caught by each
+// media handler's try/catch → user gets a clean error, the process survives).
+const MEDIA_HARD_CAP_BYTES = 64 * 1024 * 1024; // 64MB ceiling on any single media download
+async function collectMediaBuffer(stream, hardCap = MEDIA_HARD_CAP_BYTES) {
+  if (Buffer.isBuffer(stream)) {
+    if (stream.length > hardCap) throw new Error(`media buffer ${stream.length} exceeds ${hardCap}-byte cap`);
+    return stream;
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const c of stream) {
+    total += c.length;
+    if (total > hardCap) throw new Error(`media stream exceeds ${hardCap}-byte cap (DoS guard)`);
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
 // R-F1802 (audit #1/#3) — observability circuit breaker. GUARDED import: an
 // observability dependency must NEVER crash the WA listener on boot (it did once
 // — a bad image omitted the module, crash-looping the app). Falls back to a no-op
@@ -1060,11 +1081,18 @@ async function askARIA(message, senderJid, chatId = null, requestId = null) {
 // returned to the caller, which sends it exactly as for a sync reply.
 async function askARIAAsync(message, senderJid, chatId = null, requestId = null) {
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
+  // R-F1870 (audit DD-18): per-job one-time callback token. The brain echoes the
+  // callback_url verbatim, so the token rides back as ?ct=… and the callback
+  // handler rejects any POST whose token doesn't match the registered job.
+  // Without it, anyone holding the shared internal token (or an internal SSRF)
+  // could replay a known job_id with a forged message and impersonate ARIA.
+  const callbackToken = randomBytes(24).toString('hex');
+  const callbackUrl = CALLBACK_URL + (CALLBACK_URL.includes('?') ? '&' : '?') + 'ct=' + callbackToken;
   let job;
   try {
     // R-F1413 — pass callback_url so the brain pushes the result when done
     // (async-complete-and-push: safety net for deep queries that exceed the poll budget)
-    job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true, callback_url: CALLBACK_URL });
+    job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true, callback_url: callbackUrl });
   } catch (e) {
     // Dispatch itself failed (brain down / network) — fall back to a best-effort
     // sync attempt so a transient blip doesn't silently drop the question.
@@ -1080,7 +1108,7 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   // R-F1413 — register the job_id → chat mapping for async-complete-and-push callback
   // deliveredViaCallback flag prevents double-delivery when both poll and callback fire
   if (jobId && chatId) {
-    _asyncJobMap.set(jobId, { chatId, requestId, senderJid, ts: Date.now(), deliveredViaCallback: false });
+    _asyncJobMap.set(jobId, { chatId, requestId, senderJid, ts: Date.now(), deliveredViaCallback: false, callbackToken });
     // Evict stale entries after 30 min (the brain job TTL is 1h)
     for (const [jid, entry] of _asyncJobMap) {
       if (Date.now() - entry.ts > 1800000) _asyncJobMap.delete(jid);
@@ -1884,9 +1912,7 @@ async function startListener() {
 
         try {
           const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
-          const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
-            const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
-          })());
+          const buffer = await collectMediaBuffer(stream); // R-F1870 (audit DD-15): capped collection
 
           if (!buffer || buffer.length === 0) {
             // R-F1564 — terminal outcome for the image request → report it.
@@ -2033,9 +2059,7 @@ async function startListener() {
           console.log(`[ARIA Listener] Processing document: ${filename} (${mimetype})`);
           try {
             const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });  // R-F867 — standalone fn, not a socket method
-            const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
-              const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
-            })());
+            const buffer = await collectMediaBuffer(stream); // R-F1870 (audit DD-15): capped collection
             // Slice BYTES (not base64 string!) to avoid mid-character truncation
             // R-F862 — track byte-level truncation. A large/scanned contract PDF
             // >8MB is clipped to the first 8MB BEFORE extraction; without a
@@ -2174,9 +2198,7 @@ async function startListener() {
       if (audioMsg && !text.trim()) {
         try {
           const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
-          const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
-            const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
-          })());
+          const buffer = await collectMediaBuffer(stream); // R-F1870 (audit DD-15): capped collection
           const tr = await brainPost('/api/aria/transcribe', {
             audio_b64: buffer.toString('base64'),
             mime: audioMsg.mimetype || 'audio/ogg',
@@ -2296,7 +2318,10 @@ async function startListener() {
       if (AUTO_RESPOND) {
         const trigger = detectComplianceTrigger(text);
         // R-F1152 — rate limit: at most one auto-response per chat per 2 min
-        if (trigger.triggered && shouldAutoRespond(chatId, trigger.keywords) && _checkAutoRespondRateLimit(chatId)) {
+        // R-F1870 (audit DD-27): gate the auto-response on the SAME per-sender
+        // allow-list that handleCommand uses, so an unauthorized group member
+        // can't trigger a compliance assessment just by posting trigger keywords.
+        if (trigger.triggered && _waSenderAllowed(senderJid) && shouldAutoRespond(chatId, trigger.keywords) && _checkAutoRespondRateLimit(chatId)) {
           const categoryLabel = {
             compliance: 'compliance/export control',
             opportunity: 'business development/procurement',
@@ -2306,7 +2331,12 @@ async function startListener() {
           const prompt = `A team member said: "${text.slice(0, 800)}"\n\nProvide a brief (under 300 words) intelligence note relevant to this. Focus on ${categoryLabel} implications. Be specific and actionable. Keywords detected: ${trigger.keywords.join(', ')}`;
 
           try {
-            let response = await askARIA(prompt, `auto_${chatId}`, chatId);
+            // R-F1870 (audit DD-19): namespace the auto-response session by the
+            // real SENDER, not the group chatId. Keying on chatId made every
+            // sender in a group share ONE session, leaking compliance/risk
+            // context across senders. `auto_${senderJid}` keeps auto-responses
+            // in their own per-sender namespace, distinct from the @mention one.
+            let response = await askARIA(prompt, `auto_${senderJid}`, chatId);
             if (response) {
               // Enforce 500 char limit and add prefix
               response = response.slice(0, 480);
@@ -2490,6 +2520,19 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
 
   const { chatId, requestId } = mapping;
 
+  // R-F1870 (audit DD-18): verify the per-job one-time token. The brain echoes
+  // the callback_url (incl. ?ct=…) it was given at dispatch, so a legitimate
+  // callback carries the exact token registered for this job. A forged/replayed
+  // callback (even with the shared internal token) won't have it → reject.
+  // Backward-compat: jobs registered before this change have no token → skip.
+  if (mapping.callbackToken) {
+    const presented = (req.query?.ct || b.callback_token || '');
+    if (presented !== mapping.callbackToken) {
+      console.warn(`[ARIA Listener] R-F1870 callback token mismatch for job ${jobId} — rejecting`);
+      return res.status(403).json({ error: 'invalid callback token' });
+    }
+  }
+
   if (status === 'failed' || !message) {
     console.warn(`[ARIA Listener] R-F1413 callback for job ${jobId} — ${status}: ${error}`);
     // Report the failure outcome
@@ -2501,7 +2544,6 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
   if (mapping.deliveredViaCallback) {
     return res.json({ delivered: false, reason: 'already_delivered_via_poll' });
   }
-  mapping.deliveredViaCallback = true;
 
   // Deliver the result to WhatsApp
   const t0 = Date.now();
@@ -2511,6 +2553,11 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
       await sock.sendMessage(chatId, { text: chunks[i] });
     }
+    // R-F1870 (audit DD-24): mark delivered only AFTER all chunks send. The flag
+    // used to be set before the send, so a mid-send failure left it true and a
+    // retry callback returned 'already_delivered' → the user silently got
+    // nothing (violates §25 delivery-outcome guarantee).
+    mapping.deliveredViaCallback = true;
     reportOutcome('wa', requestId, 'chat_response', 'delivered_real_answer', Date.now() - t0);
     console.log(`[ARIA Listener] R-F1413 callback delivered job ${jobId} to ${chatId} (${message.length} chars)`);
     res.json({ delivered: true, to: chatId, parts: chunks.length });
