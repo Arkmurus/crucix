@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1864,
+  "next_available": 1868,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12998,6 +12998,43 @@
       "r_number": "R-F1863",
       "title": "remove Airtable integration completely (modules + all callers + env + tests)",
       "claimed_at": "2026-06-24T11:29:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ee1f23af",
+      "notes": null,
+      "shipped_at": "2026-06-24T11:57:42Z"
+    },
+    {
+      "r_number": "R-F1864",
+      "title": "DD-01 fix circuit-breaker NameError CB_KEY_FREFIX in test_runner",
+      "claimed_at": "2026-06-24T12:59:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1865",
+      "title": "DD-02..07/16/17/25 IDOR sweep: user_id ownership on trace/scratchpad/feedback/honesty/verify/ocr + proxy pinning",
+      "claimed_at": "2026-06-24T13:01:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1866",
+      "title": "make _check_hallucinated_api precise — skip local vars/imports (kill .append/.get false positives)",
+      "claimed_at": "2026-06-24T13:02:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1867",
+      "title": "DD-11/12 command injection: gitCommit execSync->spawnSync arg-array + sanitize moduleName",
+      "claimed_at": "2026-06-24T13:17:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

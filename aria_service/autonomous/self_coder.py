@@ -1256,14 +1256,50 @@ class ARIACoder:
         except SyntaxError:
             return (True, [])  # Can't parse — don't block on a parse error
 
+        # R-F1866 — the original check treated the receiver of EVERY `obj.method()`
+        # as a module/class and grepped the target file for `def <method>`, so
+        # local vars calling built-in methods — `out.append()`, `e.get()`,
+        # `counts_by_sev.get()` — were all false-flagged as "hallucinated API not
+        # found" (live 2026-06-24: advisory log noise that drowns out REAL
+        # hallucinations). A method call is only reliably verifiable when its
+        # receiver IS a locally-defined class or an INSTANCE of one — then every
+        # real method lives in the file, so a missing `def` is a genuine
+        # hallucination (the original intent: `detector = GapDetector();
+        # detector._nonexistent_method_xyz()`). Receivers that are built-in-typed
+        # locals, imported modules (members live in the package, not the target),
+        # or self/cls (inherited methods, not greppable in one file) are skipped.
+        try:
+            with open(target, encoding="utf-8", errors="replace") as _fh:
+                target_content = _fh.read()
+        except (OSError, FileNotFoundError):
+            target_content = ""  # new file — nothing to verify against
+
+        # Classes defined locally (in the generated code OR the target file).
+        local_classes: set[str] = {
+            _n.name for _n in _ast.walk(tree) if isinstance(_n, _ast.ClassDef)
+        }
+        for _m in _re.finditer(r"^\s*class\s+([A-Za-z_]\w*)", target_content, _re.M):
+            local_classes.add(_m.group(1))
+
+        # Map `var = LocalClass(...)` so we can resolve an instance's type.
+        var_class: dict[str, str] = {}
+        for _n in _ast.walk(tree):
+            if (isinstance(_n, _ast.Assign) and isinstance(_n.value, _ast.Call)
+                    and isinstance(_n.value.func, _ast.Name)
+                    and _n.value.func.id in local_classes):
+                for _tgt in _n.targets:
+                    if isinstance(_tgt, _ast.Name):
+                        var_class[_tgt.id] = _n.value.func.id
+
+        def _method_defined(meth: str) -> bool:
+            pat = rf"(async\s+)?def\s+{_re.escape(meth)}\s*\("
+            return bool(_re.search(pat, target_content) or _re.search(pat, code))
+
         # Collect all attribute calls: obj.method()
         for node in _ast.walk(tree):
             if isinstance(node, _ast.Call):
                 func = node.func
-                # Pattern: module.Class.method() → Attribute(Attribute(Name))
-                # Pattern: self.method() → Attribute(Name)
                 if isinstance(func, _ast.Attribute):
-                    method_name = func.attr
                     # Get the full chain: obj.attr.attr...
                     parts = []
                     current = func
@@ -1272,56 +1308,29 @@ class ARIACoder:
                         current = current.value
                     if isinstance(current, _ast.Name):
                         parts.append(current.id)
-                    elif isinstance(current, _ast.Call):
-                        # e.g. some_func().method() — skip, can't statically verify
-                        continue
                     else:
+                        # e.g. some_func().method() — receiver type unknown → skip
                         continue
                     parts.reverse()
-                    # parts is now e.g. ["SentenceTransformer", "_clear_cache"]
                     if len(parts) >= 2:
                         module_name = parts[0]
                         called_method = ".".join(parts[1:])
+                        leaf_method = called_method.split(".")[0]
 
-                        # Skip standard library and well-known third-party
-                        # (per CLAUDE.md §3b exception)
-                        _SKIP_MODULES = {
-                            "json", "os", "sys", "re", "time", "datetime",
-                            "Path", "logging", "asyncio", "typing", "uuid",
-                            "hashlib", "shutil", "subprocess", "ast",
-                            "pathlib", "functools", "itertools", "collections",
-                            "copy", "math", "random", "statistics",
-                            "httpx", "pytest",
-                        }
-                        if module_name in _SKIP_MODULES:
+                        # Resolve the receiver to a LOCAL class, else skip — only
+                        # then is a missing method a genuine hallucination.
+                        if module_name in local_classes:
+                            owner = module_name             # LocalClass.method()
+                        elif module_name in var_class:
+                            owner = var_class[module_name]   # instance of LocalClass
+                        else:
                             continue
 
-                        # Try to find the method definition in the target file
-                        # by grepping for `def method_name`
-                        try:
-                            with open(target, encoding="utf-8", errors="replace") as fh:
-                                target_content = fh.read()
-                            # Check for async def or def
-                            method_pattern = rf"(async\s+)?def\s+{_re.escape(called_method.split('.')[0])}\s*\("
-                            if not _re.search(method_pattern, target_content):
-                                # Also check for the method on the class
-                                # e.g. class SentenceTransformer: ... def _clear_cache
-                                class_pattern = rf"class\s+{_re.escape(module_name)}"
-                                if _re.search(class_pattern, target_content):
-                                    # Class exists but method might not
-                                    method_in_class = rf"(async\s+)?def\s+{_re.escape(called_method.split('.')[0])}\s*\("
-                                    if not _re.search(method_in_class, target_content):
-                                        hallucinated.append(
-                                            f"{module_name}.{called_method}() not found in {target}"
-                                        )
-                                else:
-                                    # Module-level function not found
-                                    hallucinated.append(
-                                        f"{module_name}.{called_method}() not found in {target}"
-                                    )
-                        except (OSError, FileNotFoundError):
-                            # Target file doesn't exist yet (new file) — skip check
-                            pass
+                        if not _method_defined(leaf_method):
+                            hallucinated.append(
+                                f"{module_name}.{called_method}() not found "
+                                f"(class {owner}) in {target}"
+                            )
 
         if hallucinated:
             return (False, hallucinated)
