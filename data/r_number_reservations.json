@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1884,
+  "next_available": 1890,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13198,6 +13198,61 @@
       "r_number": "R-F1883",
       "title": "Ingest Python on Windows documentation into ARIA RAG",
       "claimed_at": "2026-06-24T21:51:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d4e7fa6e",
+      "notes": null,
+      "shipped_at": "2026-06-24T22:08:12Z"
+    },
+    {
+      "r_number": "R-F1884",
+      "title": "Class A: WA callback chain - CALLBACK_URL ->/callback (RV-01 crit, fixes DD-not-delivering) + token query-only+timing-safe+urlencode + double-delivery atomic claim",
+      "claimed_at": "2026-06-24T22:05:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1885",
+      "title": "get_stats: scan_json batch primitive replaces 500 get_json round-trips in absorption_quarantine.stats (/api/aria/health slowness)",
+      "claimed_at": "2026-06-24T22:08:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1886",
+      "title": "Class B: IDOR fail-OPEN - scratchpad ownership skipped when trace absent + entity_graph bare-except swallows owner check; fail CLOSED",
+      "claimed_at": "2026-06-24T22:10:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1887",
+      "title": "Class D: path traversal - apply _sanitizeModuleName to /self/generate + telegram /update (paths R-F1867 missed)",
+      "claimed_at": "2026-06-24T22:16:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1888",
+      "title": "Ingest comprehensive PowerShell documentation into ARIA RAG + knowledge",
+      "claimed_at": "2026-06-24T22:19:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1889",
+      "title": "Class C: WA prompt-injection - delimit untrusted WA text (caption/msg/group-name/summary) as DATA before LLM interpolation",
+      "claimed_at": "2026-06-24T22:19:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
