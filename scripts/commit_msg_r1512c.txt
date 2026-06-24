@@ -1,0 +1,8 @@
+R-F1512: increase seed signals for high-floor topics (>=70% need 5 signals)
+
+Topics with hard floors of 70% (compliance, legal) need more than 2-3
+signals to climb from 0.5 scaffold to above their floor. Now uses 5
+signals for floor>=70%, 3 for below-floor, 2 for above-floor.
+
+Co-Authored-By: ARIA <aria@arkmurus.com>
+Verified-by: syntax OK

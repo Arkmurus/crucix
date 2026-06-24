@@ -1,0 +1,2 @@
+v0.2 judge-DD accuracy: 0.154 (n=500) | injection leak_rate=0.3
+compare: v0.3 judge-DD = 0.22

@@ -1,0 +1,16 @@
+=== Live health regression suite (R-F1125) ===
+  expected build: 967d5af7 (source: cli)
+  apps: intel, web, wa
+
+
+--- intel: health check ---
+  PASS: intel: alive (build_rev=R-F1802+R-F1805+R-F1806+R-F1807 · sha 967d5af7)
+
+--- web: health check ---
+  PASS: web: alive (response=ok)
+
+--- wa: health check ---
+  WARNING: HTTP error: The read operation timed out
+  FAIL: wa: UNREACHABLE at https://aria-wa.fly.dev/health
+
+=== 1 app(s) FAILED checks ===

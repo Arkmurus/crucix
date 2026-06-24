@@ -242,6 +242,19 @@ async def _engine_loop(llm) -> None:
         "[autonomous engine] starting — startup delay %ds, poll interval %ds",
         STARTUP_DELAY_SECONDS, POLL_INTERVAL_SECONDS,
     )
+
+    # R-F1897: register in the agent registry so other agents can see us
+    try:
+        from ..intel.agent_registry import AgentRegistry
+        _reg = AgentRegistry()
+        await _reg.register(
+            agent_id="autonomous_engine",
+            agent_type="autonomous_scheduler",
+            current_task="starting up - waiting for startup delay",
+        )
+    except Exception:
+        pass  # registration is best-effort, never breaks the engine
+
     await asyncio.sleep(STARTUP_DELAY_SECONDS)
 
     # First load of tasks.yaml — also re-loadable via the reload-tasks
@@ -272,6 +285,13 @@ async def _engine_loop(llm) -> None:
             # R-F1146 — tick heartbeat so the blackout detector knows we're alive
             try:
                 tick_heartbeat("autonomous_engine")
+            except Exception:
+                pass
+            # R-F1897 — tick agent registry heartbeat so other agents see us alive
+            try:
+                from ..intel.agent_registry import AgentRegistry
+                _reg_hb = AgentRegistry()
+                await _reg_hb.tick_heartbeat("autonomous_engine", "running tasks")
             except Exception:
                 pass
 

@@ -555,12 +555,35 @@ async def start(project_root: Path | None = None) -> None:
     _scan_task = asyncio.create_task(_scan_loop())
 
     # R-F1553: register in agent registry so the stall detector can see us
+    # R-F1899: also register a binding contract
     try:
         from .agent_registry import AgentRegistry
+        from .agent_contract import AgentContract
         _reg = AgentRegistry()
+        _eagle_contract = AgentContract(
+            agent_id="eagle_eye",
+            version="1.0.0",
+            directives=[
+                "Scan codebase for bugs, security issues, and code smells",
+                "Wire both success and failure to the brain",
+                "Record capability gaps for critical findings",
+                "Never block the event loop - all scans use async with timeouts",
+            ],
+            inputs=["Project root path", "AST parser"],
+            outputs=["Scan report with issue counts", "Capability gaps for critical findings"],
+            error_modes=[
+                "scan_timeout - log and continue, never crash the loop",
+                "parse_failure - skip file, continue with rest",
+                "no_files_to_scan - log and skip cycle",
+            ],
+            dependencies=[],
+            check_interval_s=3600,
+            critical=False,
+        )
         await _reg.register(
             "eagle_eye", "codebase_guardian",
             current_task="Scanning codebase for bugs, security issues, and code smells",
+            contract=_eagle_contract,
         )
     except Exception:
         logger.debug("[EagleEye] Agent registration failed (non-fatal)")

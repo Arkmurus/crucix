@@ -207,6 +207,31 @@ async def _heartbeat_ticker() -> None:
     try:
         from ..intel.self_restart import tick_heartbeat
         from ..intel.agent_registry import AgentRegistry
+        from ..intel.agent_contract import AgentContract
+
+        # R-F1898: define a binding contract for the coder
+        _coder_contract = AgentContract(
+            agent_id="aria_coder",
+            version="1.0.0",
+            directives=[
+                "Scan for capability gaps every 15min via gap_detector",
+                "Fix auto-fixable gaps with code changes",
+                "Stage improvements via self_improve.stage_improvement",
+                "Wire both success and failure to the brain",
+                "Never modify protected files (constitutional_validator gate)",
+            ],
+            inputs=["GapDetector", "LLM provider", "CodebaseReader", "TestRunner"],
+            outputs=["Fixed gaps", "Staged improvements", "R-numbers"],
+            error_modes=[
+                "gap_detector_unavailable - skip cycle, log warning",
+                "llm_unavailable - skip fix, log warning",
+                "test_failure - mark gap as failed, retry with cooldown",
+                "constitutional_block - skip gap, log warning",
+            ],
+            dependencies=["gap_detector", "self_improve"],
+            check_interval_s=900,
+            critical=False,
+        )
 
         # Register in the agent registry (non-fatal if it fails)
         _reg = AgentRegistry()
@@ -215,6 +240,7 @@ async def _heartbeat_ticker() -> None:
                 agent_id="aria_coder",
                 agent_type="autonomous_coder",
                 current_task="starting up",
+                contract=_coder_contract,
             )
         except Exception:
             logger.debug("[coder_entrypoint] agent registry registration failed (non-fatal)")

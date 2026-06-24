@@ -1,0 +1,167 @@
+.......F................................................................ [  1%]
+..................................................F.F....F.............. [  2%]
+....................F................................................... [  3%]
+........................................................................ [  4%]
+.............F...F......F............................................... [  5%]
+.......................................................................F [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................FFF.F..FF....................................... [  9%]
+...............F........................................................ [ 10%]
+...................s.................................................... [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+............................s........................................... [ 18%]
+........................................................................ [ 19%]
+.......................................................................F [ 20%]
+..F.........FF.......................................................... [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+..........x.x........................................................... [ 26%]
+........................................................................ [ 27%]
+.......................................................................F [ 28%]
+.....................F.................................................. [ 29%]
+.....F.................F.FF....................F..F..................... [ 30%]
+........................................................................ [ 31%]
+.................F.................................F.................... [ 32%]
+..............................................FF..................F..... [ 33%]
+....................................................................+++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_3 (32184) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_2 (30432) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_1 (18984) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_0 (5628) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~ Stack of Thread-1874 (_connection_worker_thread) (27936) ~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\aiosqlite\core.py", line 59, in _connection_worker_thread
+    future, function = tx.get()
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (1652) ~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (30232) ~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest\__main__.py", line 9, in <module>
+    raise SystemExit(pytest.console_main())
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 223, in console_main
+    code = main()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 199, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 365, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 318, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 372, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 396, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 137, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 244, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 353, in from_call
+    result: TResult | None = func()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 179, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 569, in runtest
+    super().runtest()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1720, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 166, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 905, in inner
+    runner.run(coro, context=context)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 712, in run_until_complete
+    self.run_forever()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 683, in run_forever
+    self._run_once()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2023, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\windows_events.py", line 446, in select
+    self._poll(timeout)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\windows_events.py", line 775, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+EXIT=1

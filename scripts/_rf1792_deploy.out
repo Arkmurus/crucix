@@ -1,0 +1,15 @@
+=== Live health regression suite (R-F1125) ===
+  expected build: 7dc3258c (source: cli)
+  apps: intel, web, wa
+
+
+--- intel: health check ---
+  PASS: intel: alive (build_rev=R-F1790+R-F1791+R-F1792 · sha 7dc3258c)
+
+--- web: health check ---
+  PASS: web: alive (response=ok)
+
+--- wa: health check ---
+  PASS: wa: alive (build_rev=?)
+
+=== ALL CHECKS PASSED (commit 7dc3258c) ===

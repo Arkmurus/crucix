@@ -1157,13 +1157,32 @@ async def start_self_healing() -> None:
     await orch.start()
 
     # R-F1172 — register in the multi-agent registry
+    # R-F1900: also register a binding contract
     try:
         from .agent_registry import AgentRegistry
+        from .agent_contract import AgentContract
         _reg = AgentRegistry()
+        _sh_contract = AgentContract(
+            agent_id="self_healing",
+            version="1.0.0",
+            directives=[
+                "Run health checks on all subsystems",
+                "Detect and repair circuit breaker trips",
+                "Auto-recover from known failure modes",
+                "Wire both success and failure to the brain",
+            ],
+            inputs=["Circuit breaker registry", "Agent registry", "Contract registry"],
+            outputs=["Health reports", "Auto-recovery actions"],
+            error_modes=["registry_unreachable", "no_failures_to_repair"],
+            dependencies=[],
+            check_interval_s=3600,
+            critical=True,
+        )
         await _reg.register(
             agent_id="self_healing",
             agent_type="infrastructure",
             current_task="monitoring system health",
+            contract=_sh_contract,
         )
     except Exception:
         pass

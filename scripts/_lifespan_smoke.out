@@ -1,0 +1,4 @@
+WARNING:root:state_store: module-level functions shadow built-ins: {'set'}. Code inside this module that needs the built-in must use builtins.<name>() explicitly.
+main import OK
+lifespan defined: True
+EXIT=0

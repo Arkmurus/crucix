@@ -1,0 +1,8 @@
+R-F1512: add /api/aria/mastery/seed endpoint + return count from seed
+
+New POST endpoint triggers seed_baseline_mastery on demand. Returns
+the number of topics seeded. seed_baseline_mastery now returns int
+instead of None so callers know what happened.
+
+Co-Authored-By: ARIA <aria@arkmurus.com>
+Verified-by: syntax OK

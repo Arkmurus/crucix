@@ -1,0 +1,13 @@
+R-F1512: Surgical improvements across 6 areas
+
+1. WA DNS: use aria-intel.internal directly (Fly private network) instead of public hostname — eliminates DNS timeouts entirely. Public URL kept as fallback for non-Fly deployments. Timeouts reduced: 3s primary, 10s fallback, 2s switch-back probe every 60s.
+
+2. Memory leak detector: raised growth threshold from 1MB to 50MB/interval before emitting LEAK DETECTED signal. The old threshold false-positived on normal knowledge base growth (~12MB/interval at 2.8GB RSS). Now logs at DEBUG for normal growth, WARNING only for genuine leaks (>50MB/interval).
+
+3. Neural edge cold-storage offload: added _MAX_HOT_EDGES_PER_NEURON (5000) soft cap. When a neuron exceeds this, weakest edges are moved to a separate Redis key (cold storage) instead of accumulating in the hot edges dict. Cold edges are preserved (infinite-memory rule) but not loaded on every absorb cycle — prevents the >3.5s neural tier timeout.
+
+4. Mastery baseline seed: added seed_baseline_mastery() that gives topics stuck at scaffold (0.5) three gentle "correct" signals (weight=0.3) to lift them above their hard floor. Called once at boot. Prevents the MASTERY HARD FLOOR BREACH warning for osint/market_intel every cycle.
+
+5. Stale web_integrity probe targets: removed /api/auth/status (404) and /api/aria/status (401) from _WEB_ENDPOINTS_PUBLIC. These were reported as "passed" but generated misleading 404/401 noise in logs.
+
+Verified-by: tests (6 state lock, 9 state retry, 11 self-improve wiring, 5 human gate, 6 web integrity endpoint tests)

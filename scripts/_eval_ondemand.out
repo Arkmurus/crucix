@@ -1,0 +1,10 @@
+[10:04:14] CREATED on-demand pod 6ny5zv2wb8aco1 (try 1/25)
+[10:04:27] RUNNING 64.247.206.120:31009
+[10:10:32] scp retry 1 pod_eval_only.sh
+[10:10:48] scp retry 2 pod_eval_only.sh
+[10:11:04] scp retry 3 pod_eval_only.sh
+[10:11:19] scp retry 4 pod_eval_only.sh
+[10:11:32] scp retry 5 pod_eval_only.sh
+[10:11:42] FATAL scp runner
+[10:11:42] stopping pod 6ny5zv2wb8aco1
+DRIVER_EXIT=1

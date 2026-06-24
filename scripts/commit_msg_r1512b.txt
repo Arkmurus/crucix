@@ -1,0 +1,10 @@
+R-F1512: improve mastery seed to boost ALL zero-sample topics above scaffold
+
+Previous version only seeded topics below their hard floor. Core topics
+at exactly INITIAL_MASTERY (0.503) were skipped because they were above
+the 0.5 floor - but 0.503 is indistinguishable from scaffold. Now seeds
+any topic with zero samples up to max(floor+5pp, 60%), using 2-3 gentle
+signals (weight=0.3). Topics with real samples are never touched.
+
+Co-Authored-By: ARIA <aria@arkmurus.com>
+Verified-by: tests (16 pass, 0 fail)

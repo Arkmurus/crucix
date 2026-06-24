@@ -1,0 +1,25 @@
+[eval] open-book eval set: data/eval_reports/aria_eval_500q_openbook.jsonl (500 Q)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (1/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (2/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (3/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (4/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (5/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (6/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (7/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (8/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (9/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (10/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (11/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (12/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (13/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (14/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (15/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (16/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (17/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (18/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (19/20)
+[eval] start blocked (start pod: There are not enough free GPUs on the host machine to start this pod.) — retry 60s (20/20)
+scripts/train/eval_only_v07.sh: line 49: syntax error near unexpected token `&&'
+scripts/train/eval_only_v07.sh: line 49: `&& { echo "[eval] pod RUNNING $HOST:$PORT"; break; }'
+[eval] stopping pod 2adkzeri6fa2zi
+DRIVER_EXIT=2

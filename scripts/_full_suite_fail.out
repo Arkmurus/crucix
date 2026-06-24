@@ -1,0 +1,284 @@
+.......F................................................................ [  1%]
+..................................................F.F....F.............. [  2%]
+....................F................................................... [  3%]
+........................................................................ [  4%]
+..............F...F......F.............................................. [  5%]
+........................................................................ [  6%]
+F....................................................................... [  7%]
+........................................................................ [  8%]
+.........................FFF.F..FF...................................... [  9%]
+................F....................................................... [ 10%]
+....................s................................................... [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+.............................s.......................................... [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+F..F.........FF......................................................... [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+...............x.x...................................................... [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+...........F.....................F...................................... [ 28%]
+.................F.................F.FF..........................F..F... [ 29%]
+........................................................................ [ 30%]
+...................................F.................................F.. [ 31%]
+................................................................FF...... [ 32%]
+............F........................................................... [ 33%]
+........................................................................ [ 34%]
+......................................................................FF [ 35%]
+FFFFFF..F............................................................... [ 36%]
+.......................................................FFFF............. [ 37%]
+.................................................FFF.................... [ 38%]
+...........................F..F.......................s................. [ 39%]
+........................................................................ [ 40%]
+..................................FFFFFF................................ [ 41%]
+.....................................................................F.. [ 42%]
+..................F..................................................... [ 43%]
+........................................................................ [ 44%]
+...................................................+++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_2 (17092) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 93, in _worker
+    work_item.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\code\crucix\aria_service\intel\eagle_eye.py", line 187, in _scan_files_sync
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py", line 546, in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\pathlib\_abc.py", line 633, in read_text
+    return f.read()
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_1 (29028) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_0 (27760) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (14580) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~ Stack of Thread-3300 (_connection_worker_thread) (23128) ~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\aiosqlite\core.py", line 59, in _connection_worker_thread
+    future, function = tx.get()
+~~~~~~~~~~~~~~~~~ Stack of asyncio-portal-24c677025d0 (20300) ~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\anyio\from_thread.py", line 532, in run_blocking_portal
+    run_eventloop(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\anyio\_core\_eventloop.py", line 77, in run
+    return async_backend.run(func, args, {}, backend_options)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\anyio\_backends\_asyncio.py", line 2358, in run
+    return runner.run(wrapper())
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 712, in run_until_complete
+    self.run_forever()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 683, in run_forever
+    self._run_once()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2061, in _run_once
+    handle._run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\code\crucix\aria_service\main.py", line 1801, in _self_improve_loop
+    result = await self_improve.autonomous_improvement_cycle(llm)
+  File "C:\code\crucix\aria_service\intel\self_improve.py", line 1822, in autonomous_improvement_cycle
+    code_learnings = await _study_own_code(llm)
+  File "C:\code\crucix\aria_service\intel\self_improve.py", line 1401, in _study_own_code
+    available = [f for f in MODIFIABLE_FILES if (_root / f).exists()]
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\pathlib\_abc.py", line 458, in exists
+    return True
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py", line 515, in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (31576) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (35100) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (25016) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (35832) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (28432) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~ Stack of Thread-1896 (_connection_worker_thread) (13236) ~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\aiosqlite\core.py", line 59, in _connection_worker_thread
+    future, function = tx.get()
+~~~~~~~~~~~~~~~~~~~~ Stack of rf704-wedge-watchdog (7988) ~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1015, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 1044, in _bootstrap_inner
+    self.run()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 995, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\code\crucix\aria_service\main.py", line 723, in _wedge_watchdog
+    _time.sleep(1.0)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (25900) ~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest\__main__.py", line 9, in <module>
+    raise SystemExit(pytest.console_main())
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 223, in console_main
+    code = main()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 199, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 365, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 318, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 372, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 396, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 137, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 244, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 353, in from_call
+    result: TResult | None = func()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 179, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1720, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 166, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\code\crucix\aria_service\tests\test_rf1231_agent_signup_vault.py", line 444, in test_vault_import_endpoint
+    response = client.post("/api/aria/vault/import", json={"agent_id": "test_agent"})
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\starlette\testclient.py", line 560, in post
+    return super().post(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 1144, in post
+    return self.request(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\starlette\testclient.py", line 459, in request
+    return super().request(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 914, in send
+    response = self._send_handling_auth(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\starlette\testclient.py", line 358, in handle_request
+    response_complete = portal.call(anyio.Event)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\site-packages\anyio\from_thread.py", line 334, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 451, in result
+    self._condition.wait(timeout)
+  File "C:\Users\anton\AppData\Local\Programs\Python\Python313\Lib\threading.py", line 359, in wait
+    waiter.acquire()
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+SUITE_EXIT=1

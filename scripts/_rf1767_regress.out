@@ -1,0 +1,39 @@
+.....F.................................................................. [ 59%]
+..................................................                       [100%]
+================================== FAILURES ===================================
+_________________ TestAutonomousCoder.test_generate_fix_plan __________________
+
+self = <aria_service.tests.test_rf1003_autonomous_coder.TestAutonomousCoder object at 0x0000018B22376990>
+
+    @pytest.mark.asyncio
+    async def test_generate_fix_plan(self):
+        """generate_fix_plan should return a plan dict matching self_coder contract."""
+        from aria_service.intel.autonomous_coder import AutonomousCoder
+        coder = AutonomousCoder()
+    
+        # Create a mock gap
+        class MockGap:
+            description = "Create a new sanctions screening module"
+            title = "New sanctions module"
+            module = "sanctions_screener"
+            gap_id = "gap_001"
+            gap_type = "missing_capability"
+    
+        plan = await coder.generate_fix_plan(MockGap(), "")
+        assert plan is not None
+        assert "title" in plan
+        assert "approach" in plan  # self_coder reads "approach", not "description"
+        assert "target_files" in plan  # self_coder reads "target_files"
+        assert "risk_level" in plan  # self_coder reads "risk_level"
+        assert plan["llm_free"] is True
+>       assert plan["source"] == "self_coding_os"
+E       AssertionError: assert 'code_understanding' == 'self_coding_os'
+E         
+E         - self_coding_os
+E         + code_understanding
+
+aria_service\tests\test_rf1003_autonomous_coder.py:32: AssertionError
+=========================== short test summary info ===========================
+FAILED aria_service/tests/test_rf1003_autonomous_coder.py::TestAutonomousCoder::test_generate_fix_plan
+1 failed, 121 passed in 58.34s
+EXIT=1

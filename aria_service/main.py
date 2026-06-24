@@ -1859,10 +1859,11 @@ async def lifespan(app: FastAPI):
                 )
     asyncio.create_task(_register_all_contracts())
 
-    # Register self-healing (already done in start_self_healing, but ensure it's registered)
+    # Register self-healing with its binding contract
     asyncio.create_task(_register_agent(
         "self_healing", "infrastructure",
         "Health checks, circuit breakers, auto-recovery, ecosystem repair",
+        contract=_self_healing_contract,
     ))
 
     # R-F1574: register autonomous scheduler agent

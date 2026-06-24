@@ -1,0 +1,15 @@
+=== Live health regression suite (R-F1125) ===
+  expected build: a7b96f7f (source: cli)
+  apps: intel, web, wa
+
+
+--- intel: health check ---
+  PASS: intel: alive (build_rev=R-F1801 · sha a7b96f7f)
+
+--- web: health check ---
+  PASS: web: alive (response=ok)
+
+--- wa: health check ---
+  PASS: wa: alive (build_rev=?)
+
+=== ALL CHECKS PASSED (commit a7b96f7f) ===

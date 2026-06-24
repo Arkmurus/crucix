@@ -1823,7 +1823,30 @@ class GapDetector:
 
     @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def scan(self) -> list[Gap]:
-        """Run all extractors, dedupe, return prioritised list."""
+        """Run all extractors, dedupe, return prioritised list.
+
+        R-F1896: registers in the agent registry on first call (lazy-init)
+        and ticks heartbeat every cycle so other agents can see the gap
+        detector is alive and what it's working on.
+        """
+        # R-F1896: lazy registration + heartbeat on every scan cycle
+        try:
+            from aria_service.intel.agent_registry import AgentRegistry
+            if not hasattr(self, '_reg') or self._reg is None:
+                self._reg = AgentRegistry()
+                await self._reg.register(
+                    agent_id="gap_detector",
+                    agent_type="gap_detector",
+                    current_task="scanning for gaps",
+                )
+            else:
+                await self._reg.tick_heartbeat(
+                    "gap_detector",
+                    current_task=f"scanning - {len(self._active_gaps)} active gaps",
+                )
+        except Exception:
+            pass  # registration is best-effort, never breaks scanning
+
         since = datetime.now(timezone.utc) - self.LOOKBACK_WINDOW
         all_gaps: list[Gap] = []
 
@@ -2295,7 +2318,7 @@ class GapDetector:
                     try:
                         await _reg.tick_heartbeat(
                             "gap_detector",
-                            current_task=f"scanning — {len(gaps)} actionable gaps",
+                            current_task=f"scanning - {len(gaps)} actionable gaps",
                         )
                     except Exception:
                         pass
