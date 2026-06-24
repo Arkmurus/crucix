@@ -255,12 +255,16 @@
 
   <script>
   // R-F1848: Load WhatsApp accounts and display QR codes
+  // R-F1862: use Bearer token from localStorage (same as every other page)
   (async function() {
     const container = document.getElementById('wa-accounts');
+    const token = localStorage.getItem('crucix_token') || '';
     try {
       const r = await fetch('/api/wa-listener/accounts', {
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' },
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
       });
       if (!r.ok) {
         if (r.status === 401) {
@@ -318,11 +322,15 @@
   async function createAccount() {
     const name = prompt('Enter a name for this WhatsApp connection:');
     if (!name) return;
+    const token = localStorage.getItem('crucix_token') || '';
     try {
       const r = await fetch('/api/wa-listener/accounts', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
         body: JSON.stringify({ name }),
       });
       if (r.ok) {

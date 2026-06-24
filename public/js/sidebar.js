@@ -252,7 +252,6 @@ const Sidebar = {
         ${link('brain',   '/aria-brain',   'bi-heart-pulse', 'ARIA Brain')}
         ${link('status',  '/status.html',  'bi-broadcast-pin', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text', 'Model Card')}
-        ${link('wa-connections', '/wa-connections.html', 'bi-phone', 'WhatsApp')}
 
         <div data-admin style="display:none">
           <div class="sidebar-divider"></div>
@@ -310,9 +309,6 @@ const Sidebar = {
             </a>
             <a href="/vault.html" class="nav-dropdown-item">
               <i class="bi bi-key"></i> Signup Vault
-            </a>
-            <a href="/wa-connections.html" class="nav-dropdown-item">
-              <i class="bi bi-phone"></i> WhatsApp
             </a>
             <div class="nav-dropdown-divider"></div>
             <button class="nav-dropdown-item danger" id="btn-logout">
