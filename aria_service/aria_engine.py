@@ -4457,6 +4457,33 @@ async def _aria_chat_stream_impl(
         if _uid and _uid != "anon":
             session["userId"] = _uid
 
+    # R-F1875 — EARLY conversation persist (DD-vanish fix). The end-of-turn
+    # persist + conversation registration (~line 4760) runs AFTER the whole
+    # response has streamed. A long DD/research turn whose SSE stream the client
+    # drops (proxy 240s budget / 390s overrun / "Connection interrupted") closes
+    # this generator before that block runs, so the entire turn used to vanish
+    # from the sidebar on return — plain chats persisted fine, only long DDs were
+    # lost (operator-confirmed 2026-06-24). Register the conversation + seed the
+    # user turn NOW, before any long streamed work, so a mid-stream disconnect
+    # still leaves the conversation + question visible. No duplication: on normal
+    # completion the end block overwrites session["messages"] from the full
+    # `history`, and conversation_store.create_conversation is idempotent.
+    try:
+        _euid = session.get("userId", "")
+        if _euid and _euid != "anon":
+            _euser = _strip_tool_context_for_history(message)
+            if not session.get("messages"):
+                _seed = list(history) + [{"role": "user", "content": _euser}]
+                session["messages"] = _seed[-MAX_TURNS * 2:]
+                session["updatedAt"] = time.time()
+                await _save_session(session_id, session)
+            if len(history) < 2:
+                await conversation_store.create_conversation(_euid, session_id, _euser)
+            else:
+                await conversation_store.touch_conversation(session_id, _euid)
+    except Exception as _e_earlyreg:
+        logger.debug("R-F1875 early conversation register failed (non-fatal): %s", _e_earlyreg)
+
     # Parallel pre-fetch (same pattern as aria_chat — 2026-04-12)
     import asyncio as _aio
 
