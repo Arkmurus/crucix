@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1858,
+  "next_available": 1860,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12938,6 +12938,26 @@
       "r_number": "R-F1857",
       "title": "gate MODULE_BUG minting on code-defect evidence (kill tracebackless-warning coder fuel churn)",
       "claimed_at": "2026-06-24T08:50:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5963777e",
+      "notes": null,
+      "shipped_at": "2026-06-24T09:08:01Z"
+    },
+    {
+      "r_number": "R-F1858",
+      "title": "WhatsApp Connections Angular frontend page",
+      "claimed_at": "2026-06-24T09:26:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cdc09643",
+      "notes": null,
+      "shipped_at": "2026-06-24T09:34:23Z"
+    },
+    {
+      "r_number": "R-F1859",
+      "title": "controlled first-gold demo — seeded isolated bug for autonomous coder flywheel proof",
+      "claimed_at": "2026-06-24T09:29:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
