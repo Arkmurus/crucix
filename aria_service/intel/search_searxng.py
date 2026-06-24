@@ -32,7 +32,13 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.search_searxng")
 
-_DEFAULT_TIMEOUT = 15.0
+# R-F1873: MUST stay below web_search.REQUEST_TIMEOUT (12s) — the parent search
+# gather wraps every backend in asyncio.wait_for(REQUEST_TIMEOUT). If SearXNG's
+# own HTTP timeout is longer, a slow SearXNG call is cancelled by the gather
+# before it can return OR fail cleanly, so the PRIMARY self-host backend silently
+# contributes nothing. 10s leaves ~2s headroom for result parsing within the
+# gather window. (See web_search.py:82 REQUEST_TIMEOUT — keep these in sync.)
+_DEFAULT_TIMEOUT = 10.0
 _USER_AGENT = "AriaIntelligence/1.0 (defence-DD; aria@arkmurus.com)"
 
 
