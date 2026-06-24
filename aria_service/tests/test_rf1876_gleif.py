@@ -81,6 +81,8 @@ def test_best_match_accepts_right_entity():
     # legal-form suffix differences must not block the match
     assert gleif.best_match("Modirum Gespi", hits) is hits[0]
     assert gleif.best_match("Modirum Gespi Lda", hits) is hits[0]
+    # candidate with an extra descriptor (query ⊆ candidate) still matches
+    assert gleif.best_match("Modirum Gespi", [{"legal_name": "Modirum Gespi International"}]) is not None
 
 
 def test_best_match_rejects_different_entity():
@@ -90,6 +92,16 @@ def test_best_match_rejects_different_entity():
     # partial-but-insufficient overlap also rejected
     hits2 = [{"legal_name": "Gespi Logistics International"}]
     assert gleif.best_match("Modirum Gespi", hits2) is None
+
+
+def test_best_match_rejects_generic_shorter_name_real_api_case():
+    """R-F1881 — the REAL GLEIF case: 'Modirum Gespi' must NOT match the generic
+    'MODIRUM OÜ' (a different Estonian entity). The old reverse-subset rule
+    accepted it, which would inject another entity's authoritative data."""
+    assert gleif.best_match("Modirum Gespi", [{"legal_name": "MODIRUM OÜ"}]) is None
+    assert gleif.best_match("Modirum Gespi", [{"legal_name": "MODIRUM SERVICES OÜ"}]) is None
+    # but a bare 'Modirum' query legitimately matches 'Modirum OÜ' (query ⊆ cand)
+    assert gleif.best_match("Modirum", [{"legal_name": "MODIRUM OÜ"}]) is not None
 
 
 def test_search_lei_empty_query_and_failure(monkeypatch):

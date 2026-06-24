@@ -128,15 +128,23 @@ def best_match(name: str, hits: list[dict]) -> dict | None:
             continue
         if c_norm == q_norm:
             return h  # exact normalised match — unambiguous
-        # token agreement: all query tokens present in candidate (or vice-versa
-        # for a short query), with strong overlap
+        # R-F1881: accept ONLY when the candidate contains EVERY query token
+        # (q ⊆ c) — i.e. the candidate is the query entity, possibly with extra
+        # descriptors ("Modirum Gespi" ⊆ "Modirum Gespi International"). The
+        # REVERSE (c ⊆ q) is REJECTED: a shorter/generic candidate must never
+        # match a more specific query. Real-API check 2026-06-24: "Modirum Gespi"
+        # wrongly matched "MODIRUM OÜ" (a different Estonian entity) under the old
+        # bidirectional-subset rule — exactly the wrong-entity data injection R2
+        # must prevent.
         inter = q_tokens & c_tokens
         jacc = len(inter) / len(q_tokens | c_tokens)
-        subset = q_tokens.issubset(c_tokens) or c_tokens.issubset(q_tokens)
-        score = jacc + (0.5 if subset else 0.0)
+        q_in_c = q_tokens.issubset(c_tokens)
+        score = jacc + (0.6 if q_in_c else 0.0)
         if score > best_score:
             best_score, best = score, h
-    # accept only a strong match (full subset + decent jaccard)
+    # Accept only a strong match: every query token present in the candidate
+    # AND high token overlap (guards against a candidate padded with extra
+    # tokens that drowns out a one-token query).
     if best is not None and best_score >= 1.0:
         return best
     return None
