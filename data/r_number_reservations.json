@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1861,
+  "next_available": 1862,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -12968,6 +12968,15 @@
       "r_number": "R-F1860",
       "title": "web wa-listener proxy must use service token not user token (QR 401 fix)",
       "claimed_at": "2026-06-24T10:04:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1861",
+      "title": "aria-wa ESM require() fixes + sync QR SVG render (account-create 500 + QR display)",
+      "claimed_at": "2026-06-24T10:13:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

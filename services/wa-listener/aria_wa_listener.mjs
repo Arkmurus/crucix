@@ -91,9 +91,11 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 
 import qrcode   from 'qrcode-terminal';
+import QRCode   from 'qrcode';          // R-F1861: SVG QR rendering (package, distinct from qrcode-terminal)
 import pino     from 'pino';
 import express  from 'express';
 import fs       from 'fs';
+import path     from 'path';            // R-F1861: ESM has no require(); import node:path
 import { createClient } from 'redis';
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 // R-F1802 (audit #1/#3) — observability circuit breaker. GUARDED import: an
@@ -307,12 +309,14 @@ const _accounts = new Map();  // account_id → { id, name, status, sock, qr, ..
 const _ACCOUNTS_DIR = process.env.WA_ACCOUNTS_DIR || '/data/wa-accounts';
 
 function _accountPath(accountId) {
-  return require('path').join(_ACCOUNTS_DIR, accountId);
+  // R-F1861: was require('path') — fatal "require is not defined" in this ESM
+  // module, which 500'd every account-create (the QR could never be generated).
+  return path.join(_ACCOUNTS_DIR, accountId);
 }
 
 async function _createAccount(accountId, name) {
   const authDir = _accountPath(accountId);
-  require('fs').mkdirSync(authDir, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });  // R-F1861: fs already imported
   
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
@@ -2632,21 +2636,33 @@ function _renderQrHtml(accountId, qrCode) {
 </body></html>`;
 }
 
-// Render QR code as SVG path data (simplified — uses qrcode-generator lib)
+// Render the Baileys QR string as SVG rects (the inner content of the <svg> tag
+// in _renderQrHtml). R-F1861: the old path was broken two ways — require('qrcode')
+// is fatal in this ESM module, and qrcode.toString() is ASYNC (returns a Promise)
+// but was called synchronously, so .replace() threw → it ALWAYS fell back to
+// placeholder text and never showed a scannable code. We use the SYNCHRONOUS
+// QRCode.create().modules matrix and emit one <rect> per dark module — no async,
+// no require, genuinely scannable.
 function _renderQrSvg(qrData, size) {
-  // QR data is a string from Baileys; render as SVG using qrcode package
   if (!qrData) return '';
   try {
-    const qr = require('qrcode');
-    // qrcode.toString with svg type returns an SVG string
-    // We extract just the path data from the SVG
-    const svgStr = qr.toString(qrData, { type: 'svg', width: size, margin: 1 });
-    // Remove XML declaration and wrapper, keep just the SVG tag
-    return svgStr.replace(/^<\?xml.*?\?>/, '').trim();
+    const qr = QRCode.create(qrData, { errorCorrectionLevel: 'M' });
+    const count = qr.modules.size;
+    const data = qr.modules.data;       // Uint8Array, length count*count, 1 = dark
+    const cell = size / count;
+    let rects = '';
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (data[r * count + c]) {
+          rects += `<rect x="${(c * cell).toFixed(2)}" y="${(r * cell).toFixed(2)}" `
+                 + `width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="#000"/>`;
+        }
+      }
+    }
+    return `<rect width="${size}" height="${size}" fill="#fff"/>${rects}`;
   } catch (e) {
-    // qrcode package not installed - render fallback text
-    return `<text x="${size/2}" y="${size/2}" text-anchor="middle" font-size="14" fill="#666">QR Code Available</text>
-<text x="${size/2}" y="${size/2 + 20}" text-anchor="middle" font-size="11" fill="#999">Install qrcode package for SVG rendering</text>`;
+    return `<rect width="${size}" height="${size}" fill="#fff"/>`
+         + `<text x="${size / 2}" y="${size / 2}" text-anchor="middle" font-size="13" fill="#c00">QR render error</text>`;
   }
 }
 
