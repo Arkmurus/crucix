@@ -1087,6 +1087,11 @@ async def set(key: str, value: str, ex: int | None = None,
 async def delete(key: str) -> bool:
     if _conn is None:
         return False
+    # R-F1933 (M4): drain queued set()s FIRST. set/set_json enqueue (R-F1541) while
+    # delete executes immediately; without this a prior queued set(k) would flush on
+    # the NEXT read and resurrect the key after this delete. Flush-first keeps the
+    # FIFO program order (set→delete = deleted), and the bool return is preserved.
+    await _flush_write_queue()
     try:
         cur = await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
         await _conn.commit()
@@ -1201,6 +1206,9 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
         if critical:
             raise StateWriteError(f"lpush {key}: no connection")
         return
+    # R-F1933 (M4): flush queued writes first so the list seq-counter read/INSERT
+    # below stays ordered relative to the enqueued set/set_json path.
+    await _flush_write_queue()
     seq_key = _list_seq_counter(key)
     # R-F1518: per-list lock to serialize counter increment + INSERT.
     # This is a fast operation (microseconds) — the lock is never held
@@ -1425,6 +1433,10 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
             raise StateWriteError(f"incr: no connection") from e
         return 0
 
+    # R-F1933 (M4): flush queued set()s first. This UPSERT increments the CURRENT
+    # DB row; a queued set(k) that hasn't landed would make incr compute on a stale
+    # value (then the set flushes after and clobbers the increment).
+    await _flush_write_queue()
     try:
         # Atomic UPSERT: INSERT if missing (value=1), else increment.
         # SQLite serialises writes through its single worker thread — no
@@ -1510,6 +1522,10 @@ async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> flo
 async def expire(key: str, seconds: int) -> bool:
     if _conn is None:
         return False
+    # R-F1933 (M4): flush queued set()s first so this TTL update applies to the
+    # latest value (a queued set(k) would otherwise land after and the row this
+    # UPDATE targeted may not exist / be stale).
+    await _flush_write_queue()
     try:
         cur = await _conn.execute(
             "UPDATE state SET expires_at = ? WHERE key = ?",
@@ -1621,6 +1637,9 @@ async def hset(key: str, mapping: dict, *, critical: bool = False) -> None:
         if critical:
             raise StateWriteError(f"hset {key}: no connection")
         return
+    # R-F1933 (M4): flush queued writes first so hash UPSERTs stay ordered relative
+    # to the enqueued set/set_json path (one ordered write timeline, no reorder).
+    await _flush_write_queue()
     try:
         for field, value in mapping.items():
             # Store as string — hgetall returns strings to match Redis semantics
