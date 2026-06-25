@@ -294,7 +294,7 @@ def _host_of(url_or_source: str) -> str | None:
     return s or None
 
 
-@wired(module="counter_intelligence", summary="Counter-intel scan: {entity_name}", entity_arg="entity_name")
+@wired(module="counter_intelligence", summary="Counter-intel scan: {entity_name}", entity_arg="entity_name", check_falsy_success=True)
 
 async def scan_entity(
     entity_name: str,

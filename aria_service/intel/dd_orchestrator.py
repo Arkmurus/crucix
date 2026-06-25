@@ -7076,11 +7076,15 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
         data_gaps = len(getattr(report, 'data_gaps_summary', []))
 
         # Determine overall success
-        all_layers_ok = layers_errored == 0 and not hard_deadline_hit
+        # R-F1912 fix: empty run (0 layers executed) is a failure, not success
+        no_layers_executed = layers_total == 0
+        all_layers_ok = layers_errored == 0 and not hard_deadline_hit and not no_layers_executed
+        # Defensive target access — may be None on partial reports
+        _target = getattr(report, 'target', {}) or {}
         entity_name = (
             getattr(report.identity, 'entity_name', None)
-            or report.target.get('name')
-            or report.target.get('entity')
+            or _target.get('name')
+            or _target.get('entity')
             or 'unknown'
         )
 
@@ -7207,16 +7211,9 @@ async def orchestrate_dd(
         except Exception:
             pass
         # §25 — a slow DD is a self-heal trigger; tell the brain (best-effort, bounded).
+                # R-F1912: wire DD hard-deadline to brain (lightweight, not absorb)
         try:
-            from . import brain_hook
-            await asyncio.wait_for(
-                brain_hook.absorb(
-                    module="dd_orchestrator",
-                    summary=f"DD hard-deadline hit ({int(hard)}s) for {_name[:40]} — partial returned",
-                    entity_name=_name, success=False, confidence="ASSESSED",
-                ),
-                timeout=5,
-            )
+            await _finalize_dd_run(rep, hard_deadline_hit=True)
         except Exception:
             pass
         return rep
