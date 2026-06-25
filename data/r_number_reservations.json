@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1943,
+  "next_available": 1944,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13757,10 +13757,12 @@
       "title": "Durable build fix: speed up aria-intel torch layer (CPU-only wheel + cache-friendly layering) so Depot stops hitting the build deadline",
       "claimed_at": "2026-06-25T14:53:21Z",
       "claimed_by": "claude",
-      "status": "shipped",
+      "status": "abandoned",
       "commit_sha": "a1b20fd5",
       "notes": null,
-      "shipped_at": "2026-06-25T15:10:39Z"
+      "shipped_at": "2026-06-25T15:10:39Z",
+      "abandoned_at": "2026-06-25T15:11:11Z",
+      "abandon_reason": "not needed — aria-intel deploy failures were transient Depot capacity, not build-time; resolved by retry (v1967 @ a1b20fd5). No code/Dockerfile change made. Dockerfile already optimized (CPU torch R-F1709 + cache-stable heavy layers)."
     },
     {
       "r_number": "R-F1941",
@@ -13775,6 +13777,15 @@
       "r_number": "R-F1942",
       "title": "verifiable-reward grounding reward function: objective score (citations map to real context, fabrication penalty, abstention-correctness) — the reasoning analog of tests-pass; foundation for DPO/GRPO cap-breaker",
       "claimed_at": "2026-06-25T15:09:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1943",
+      "title": "DPO preference-pair builder: chosen=grounded corpus answer, rejected=ungrounded parametric answer, preference VERIFIED by the R-F1942 grounding reward (keep only chosen>rejected+margin)",
+      "claimed_at": "2026-06-25T15:33:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
