@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1945,
+  "next_available": 1946,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13795,6 +13795,15 @@
       "r_number": "R-F1944",
       "title": "DPO trainer (verifiable-reward cap-breaker): TRL DPOTrainer + QLoRA on the 469 verified grounding preference pairs, init from the grounded-SFT adapter; --validate no-GPU check",
       "claimed_at": "2026-06-25T15:45:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1945",
+      "title": "one-line RunPod launcher: clone/pull + install + grounded-SFT + DPO + eval vs DeepSeek 0.34, single command, robust (set -e, logged, reports pass/fail)",
+      "claimed_at": "2026-06-25T16:22:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
