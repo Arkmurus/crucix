@@ -23,5 +23,15 @@
   "gradient_checkpointing": true,
   "logging_steps": 10,
   "save_steps": 50,
-  "output_dir": "data/training/checkpoints/aria_llm_grounded_v1"
+  "output_dir": "data/training/checkpoints/aria_llm_grounded_v1",
+
+  "_dpo_comment": "R-F1944 DPO (verifiable-reward cap-breaker) — runs AFTER the grounded-SFT above, init from its adapter, on the 469 reward-verified preference pairs.",
+  "dpo_pairs_file": "data/training/aria_dpo_pairs_v1.jsonl",
+  "sft_adapter_path": "data/training/checkpoints/aria_llm_grounded_v1/final",
+  "dpo_beta": 0.1,
+  "dpo_learning_rate": 5e-06,
+  "dpo_num_epochs": 1,
+  "dpo_max_length": 4096,
+  "dpo_max_prompt_length": 3072,
+  "dpo_output_dir": "data/training/checkpoints/aria_llm_dpo_v1"
 }
