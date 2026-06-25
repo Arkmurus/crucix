@@ -5521,6 +5521,14 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     else:
         report.synthesis.ghost_score_total = int(ghost.get("total") or 0)
         report.synthesis.ghost_classification = str(ghost.get("classification") or "GREEN")
+    # R-F1924: incremental BLUF write — preserves partial result if synthesis times out
+    report.synthesis.findings.append(Finding(
+        severity="info",
+        title=f"Ghost score: {report.synthesis.ghost_score_total}/20 — {report.synthesis.ghost_classification}",
+        detail=f"Ghost classification for {report.identity.entity_name or 'entity'}: {report.synthesis.ghost_classification}",
+        source="dd_orchestrator:_run_synthesis:6a",
+        confidence="ASSESSED",
+    ))
 
     # ── 6b. Risk classification — worst-case aggregation ──
     # Tiers in ascending severity
@@ -5571,6 +5579,15 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         worst = max(candidates, key=lambda c: severity_rank.get(c, 0))
     else:
         worst = "GREEN"
+
+    # R-F1924: incremental BLUF write — risk classification available even if synthesis times out
+    report.synthesis.findings.append(Finding(
+        severity="info",
+        title=f"Risk classification: {worst}",
+        detail=f"Aggregated from {len(candidates)} signal(s): {', '.join(candidates) if candidates else 'no signals'}",
+        source="dd_orchestrator:_run_synthesis:6b",
+        confidence="ASSESSED",
+    ))
 
     # Normalise to canonical RiskClassification values
     canonical_map = {
@@ -7473,6 +7490,60 @@ async def _orchestrate_dd_impl(
     except Exception as _pe:
         logger.debug("predictor forecast failed (non-fatal): %s", _pe)
 
+        # R-F1923: precondition check helper for layer prerequisites
+    def _check_layer_prerequisites(layer_name: str) -> tuple[bool, str]:
+        """Check if a layer's prerequisites are met before running.
+
+        Returns (should_skip, reason). When prerequisites are missing but
+        self-reported data exists, returns (False, "degraded") so the layer
+        runs with degraded status. Only hard-skips when genuinely zero signal.
+
+        Must NOT break R-F1895 (site-derived jurisdiction) or
+        R-F1903 (export-control without jurisdiction).
+        """
+        _id = report.identity
+        _has_entity_name = bool(getattr(_id, 'entity_name', None) or target.get('name'))
+        _has_jurisdiction = bool(getattr(_id, 'jurisdiction_iso2', None)
+                                  or getattr(_id, 'jurisdiction', None))
+        _has_self_reported = bool(
+            getattr(_id, 'declared_activity', None)
+            or getattr(_id, 'self_reported_jurisdiction', None)
+        )
+
+        if layer_name == "network":
+            if not _has_entity_name:
+                return True, "prereq_fail: no entity name resolved"
+            return False, "ok"
+
+        if layer_name == "compliance":
+            if not _has_jurisdiction and not _has_self_reported:
+                return True, "prereq_fail: no jurisdiction and no self-reported data"
+            if not _has_jurisdiction and _has_self_reported:
+                return False, "degraded: no jurisdiction, using self-reported data"
+            return False, "ok"
+
+        if layer_name == "digital":
+            if not _has_entity_name:
+                return True, "prereq_fail: no entity name resolved"
+            return False, "ok"
+
+        if layer_name in ("sweep_intelligence", "commercial_coherence",
+                          "counter_intelligence", "sanctions_divergence",
+                          "forensic", "extensions"):
+            if not _has_entity_name:
+                return True, "prereq_fail: no entity name resolved"
+            return False, "ok"
+
+        if layer_name == "verification":
+            if not _has_entity_name:
+                return True, "prereq_fail: no entity name resolved"
+            return False, "ok"
+
+        if layer_name == "synthesis":
+            return False, "ok"
+
+        return False, "ok"
+
     try:
         # ── LAYER 1: IDENTITY ──
         layer_name = "identity"
@@ -7501,12 +7572,20 @@ async def _orchestrate_dd_impl(
             # ── LAYER 2: NETWORK (unless quick mode) ──
             if mode != "quick":
                 layer_name = "network"
-                report.layers_run.append(layer_name)
-                try:
-                    await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
-                except asyncio.TimeoutError:
-                    report.network.meta.status = LayerStatus.ERROR.value
-                    report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+                # R-F1923: precondition check
+                _skip_n, _reason_n = _check_layer_prerequisites("network")
+                if _skip_n:
+                    report.network.meta.status = LayerStatus.PREREQ_FAIL.value
+                    report.network.meta.error = _reason_n
+                    if "network" not in report.layers_skipped:
+                        report.layers_skipped.append("network")
+                else:
+                    report.layers_run.append(layer_name)
+                    try:
+                        await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    except asyncio.TimeoutError:
+                        report.network.meta.status = LayerStatus.ERROR.value
+                        report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
             else:
                 if "network" not in report.layers_skipped:
                     report.layers_skipped.append("network")
@@ -7514,25 +7593,44 @@ async def _orchestrate_dd_impl(
 
         # ── LAYER 4: COMPLIANCE ── (always — it's cheap and load-bearing)
         layer_name = "compliance"
-        report.layers_run.append(layer_name)
-        try:
-            await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
-        except asyncio.TimeoutError:
-            report.compliance.meta.status = LayerStatus.ERROR.value
-            report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+        # R-F1923: precondition check — degraded ok if self-reported data exists
+        _skip_c, _reason_c = _check_layer_prerequisites("compliance")
+        if _skip_c:
+            report.compliance.meta.status = LayerStatus.PREREQ_FAIL.value
+            report.compliance.meta.error = _reason_c
+            if "compliance" not in report.layers_skipped:
+                report.layers_skipped.append("compliance")
+        else:
+            report.layers_run.append(layer_name)
+            if "degraded" in _reason_c:
+                report.compliance.meta.status = LayerStatus.PREREQ_DEGRADED.value
+                report.compliance.data_gaps.append(_reason_c)
+            try:
+                await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+            except asyncio.TimeoutError:
+                report.compliance.meta.status = LayerStatus.ERROR.value
+                report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
 
         # ── LAYER 5: DIGITAL (unless quick mode OR short-circuited) ──
         if mode != "quick" and not hard_stop:
             layer_name = "digital"
-            report.layers_run.append(layer_name)
-            try:
-                await asyncio.wait_for(
-                    _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
-                    timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S * 2),
-                )
-            except asyncio.TimeoutError:
-                report.digital.meta.status = LayerStatus.ERROR.value
-                report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"
+            # R-F1923: precondition check
+            _skip_d, _reason_d = _check_layer_prerequisites("digital")
+            if _skip_d:
+                report.digital.meta.status = LayerStatus.PREREQ_FAIL.value
+                report.digital.meta.error = _reason_d
+                if "digital" not in report.layers_skipped:
+                    report.layers_skipped.append("digital")
+            else:
+                report.layers_run.append(layer_name)
+                try:
+                    await asyncio.wait_for(
+                        _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
+                        timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S * 2),
+                    )
+                except asyncio.TimeoutError:
+                    report.digital.meta.status = LayerStatus.ERROR.value
+                    report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"
         elif mode == "quick":
             if "digital" not in report.layers_skipped:
                 report.layers_skipped.append("digital")

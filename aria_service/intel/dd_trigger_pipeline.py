@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -67,6 +68,115 @@ async def _get_watchlist() -> list[dict[str, Any]]:
     except Exception:
         return []
 
+
+# ── R-F1922: DDTriggerGuard — failure feedback for trigger pipeline ──────────
+
+_TRIGGER_HISTORY_KEY = "crucix:dd:trigger_history"
+_TRIGGER_FAILURE_THRESHOLD = 3
+_OPERATOR_PENDING_KEY = "crucix:dd:operator_pending"
+
+
+async def _dd_trigger_guard_check(entity_name: str) -> tuple[bool, str]:
+    """Check if an entity should be re-triggered based on recent failure history.
+
+    Returns (ok, reason). If not ok, the trigger should be suppressed and the
+    entity escalated to operator_pending.
+
+    R-F1922: after 3 consecutive DD failures on the same layer, stop re-triggering
+    and escalate. Prevents the trigger pipeline from burning compute on an entity
+    whose DD keeps failing on the same root cause.
+    """
+    try:
+        from . import redis_store as rs
+        raw = await rs.hget(_TRIGGER_HISTORY_KEY, entity_name.lower())
+        if not raw:
+            return True, "ok"
+
+        history = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(history, list) or len(history) < _TRIGGER_FAILURE_THRESHOLD:
+            return True, "ok"
+
+        recent = history[-_TRIGGER_FAILURE_THRESHOLD:]
+        failures = [h for h in recent if not h.get("success", True)]
+        if len(failures) < _TRIGGER_FAILURE_THRESHOLD:
+            return True, "ok"
+
+        failed_layers = [f.get("failed_layer", "unknown") for f in failures]
+        if len(set(failed_layers)) == 1:
+            culprit = failed_layers[0]
+            reason = (
+                f"3 consecutive DD failures on '{entity_name}'. "
+                f"Persistent failure in layer: {culprit}. "
+                f"Escalated to operator_pending."
+            )
+            await _dd_escalate_to_operator(entity_name, culprit, reason)
+            return False, reason
+
+        return True, "ok"
+    except Exception:
+        return True, "ok"
+
+
+async def _dd_trigger_guard_record(entity_name: str, succeeded: bool, failed_layer: str = "") -> None:
+    """Record a DD outcome for trigger guard analysis."""
+    try:
+        from . import redis_store as rs
+        raw = await rs.hget(_TRIGGER_HISTORY_KEY, entity_name.lower())
+        history = json.loads(raw) if isinstance(raw, str) else []
+        if not isinstance(history, list):
+            history = []
+        history.append({"success": succeeded, "failed_layer": failed_layer, "ts": time.time()})
+        if len(history) > 10:
+            history = history[-10:]
+        await rs.hset(_TRIGGER_HISTORY_KEY, {entity_name.lower(): json.dumps(history)})
+        await rs.expire(_TRIGGER_HISTORY_KEY, 86400 * 90)
+    except Exception:
+        pass
+
+
+async def _dd_escalate_to_operator(entity_name: str, failed_layer: str, reason: str) -> None:
+    """Escalate a persistently failing entity to operator_pending."""
+    try:
+        from . import redis_store as rs
+        await rs.hset(_OPERATOR_PENDING_KEY, {
+            entity_name.lower(): json.dumps({
+                "entity": entity_name, "failed_layer": failed_layer,
+                "reason": reason, "ts": time.time(),
+                "iso": datetime.now(timezone.utc).isoformat(),
+            })
+        })
+        logger.warning("[DDTriggerGuard] Escalated %s: %s", entity_name, reason)
+    except Exception:
+        pass
+
+
+async def get_operator_pending() -> list[dict[str, Any]]:
+    """Get all entities escalated to operator_pending by the trigger guard."""
+    try:
+        from . import redis_store as rs
+        raw = await rs.hgetall(_OPERATOR_PENDING_KEY)
+        if not raw:
+            return []
+        result = []
+        for key, val in raw.items():
+            entry = json.loads(val) if isinstance(val, str) else val
+            if isinstance(entry, dict):
+                result.append(entry)
+        return result
+    except Exception:
+        return []
+
+
+async def resolve_operator_pending(entity_name: str) -> bool:
+    """Mark an operator_pending entity as resolved, clearing its trigger history."""
+    try:
+        from . import redis_store as rs
+        await rs.hdel(_OPERATOR_PENDING_KEY, entity_name.lower())
+        await rs.hdel(_TRIGGER_HISTORY_KEY, entity_name.lower())
+        logger.info("[DDTriggerGuard] Resolved operator_pending for %s", entity_name)
+        return True
+    except Exception:
+        return False
 
 async def _add_to_watchlist(
     entity_name: str,
@@ -183,6 +293,8 @@ async def trigger_dd_for_entity(
     """Trigger a DD run for an entity.
 
     Checks the DD cache to avoid re-running the same entity too frequently.
+    R-F1922: also checks the DDTriggerGuard — if the last 3 runs all failed
+    on the same layer, escalates to operator_pending instead of re-triggering.
     Calls dd_orchestrator.orchestrate_dd() and logs the result.
 
     Args:
@@ -194,6 +306,19 @@ async def trigger_dd_for_entity(
     Returns:
         Dict with trigger result.
     """
+    # R-F1922: check trigger guard before proceeding
+    try:
+        guard_ok, guard_reason = await _dd_trigger_guard_check(entity_name)
+        if not guard_ok:
+            logger.warning("[dd_trigger] %s blocked by trigger guard: %s", entity_name, guard_reason)
+            return {
+                "triggered": False,
+                "reason": guard_reason,
+                "entity": entity_name,
+            }
+    except Exception:
+        pass  # guard failure is non-fatal — proceed with trigger
+
     # Check cache to prevent spam
     try:
         from . import redis_store as rs
@@ -214,6 +339,7 @@ async def trigger_dd_for_entity(
         pass
 
     # Run DD
+    dd_succeeded = False
     try:
         from . import dd_orchestrator as _dd
         target = {"name": entity_name}
@@ -225,6 +351,8 @@ async def trigger_dd_for_entity(
             mode="quick",  # Quick mode for automated triggers
             trace_id=f"auto_dd_{hashlib.md5(entity_name.encode()).hexdigest()[:8]}",
         )
+
+        dd_succeeded = True
 
         # Update cache
         try:
@@ -256,6 +384,12 @@ async def trigger_dd_for_entity(
             "reason": str(e)[:200],
             "entity": entity_name,
         }
+    finally:
+        # R-F1922: record the outcome for trigger guard analysis
+        try:
+            await _dd_trigger_guard_record(entity_name, dd_succeeded)
+        except Exception:
+            pass
 
 
 async def _log_trigger(

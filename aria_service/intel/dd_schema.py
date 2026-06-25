@@ -43,6 +43,8 @@ class LayerStatus(str, Enum):
     PARTIAL = "partial"
     SKIPPED = "skipped"   # short-circuited before reaching this layer
     ERROR = "error"
+    PREREQ_FAIL = "prereq_fail"      # R-F1923: prerequisite missing, zero signal
+    PREREQ_DEGRADED = "degraded"     # R-F1923: prerequisite missing but self-reported data exists
 
 
 class RiskClassification(str, Enum):
