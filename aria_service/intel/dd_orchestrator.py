@@ -2026,6 +2026,19 @@ async def _run_identity(
                 _mined_id = await _mine_entity_website(_site_id)
                 if _mined_id:
                     target["_mined_pages"] = _mined_id  # R-F1895: reuse in _run_digital
+                    # R-F1903: also seed declared_activity from the site's OWN
+                    # description (homepage title) when empty, so the export-control
+                    # classifier (compliance 4b) has a product/activity to classify
+                    # instead of being skipped — the same under-extraction as the
+                    # jurisdiction gap. Self-reported; the EC result is tagged as
+                    # classified-from-self-description, not an authoritative ECCN.
+                    if not report.identity.declared_activity:
+                        _home = next((p for p in _mined_id if p.get("label") == "homepage"), _mined_id[0])
+                        _act = (_home.get("title") or "").strip() or (_home.get("text") or "")[:160].strip()
+                        # strip a trailing " | Brand" / " — Brand" boilerplate
+                        _act = re.split(r"\s*[|—–]\s*", _act)[0].strip()
+                        if _act and len(_act) > 3:
+                            report.identity.declared_activity = _act[:200]
                     _loc = _extract_site_locations(" ".join(p.get("text", "") for p in _mined_id))
                     if _loc.get("hq_iso2"):
                         report.identity.jurisdiction_iso2 = _loc["hq_iso2"]
@@ -3723,11 +3736,18 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
         logger.warning("R-F886 expert-knowledge compliance block failed (non-fatal): %s", _expert_err)
 
     # ── 4b. Export control classification ──
-    product_text = target.get("product_description") or target.get("goods") or ""
+    # R-F1903: fall back to the entity's declared_activity (seeded from its OWN
+    # site by R-F1895/R-F1903) when no explicit product/goods was supplied — so a
+    # URL-only DD of a defence/dual-use entity ("C2 and ISR solutions") still gets
+    # an export-control read instead of being skipped. Tagged self-described.
+    product_text = target.get("product_description") or target.get("goods") or (report.identity.declared_activity or "")
+    _ec_from_self_desc = not (target.get("product_description") or target.get("goods")) and bool(report.identity.declared_activity)
     if product_text:
         try:
             from . import tech_classifier
             ec = tech_classifier.classify_export_control(product_text)
+            if isinstance(ec, dict) and _ec_from_self_desc:
+                ec["basis"] = "classified from the entity's SELF-DESCRIBED activity (website), not a supplied product spec — indicative only"
             report.compliance.export_control = ec
             report.compliance.meta.subcalls += 1
             if ec.get("multilateral"):
