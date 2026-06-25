@@ -334,7 +334,24 @@
         body: JSON.stringify({ name }),
       });
       if (r.ok) {
-        location.reload();
+        const data = await r.json();
+        // R-F1905: show QR inline if available, otherwise reload to show the new account
+        if (data.qr_html) {
+          const container = document.getElementById('wa-accounts');
+          container.innerHTML = '<div style="text-align:center;padding:20px;">'
+            + '<h3 style="color:#fff;margin-bottom:16px;">Scan with WhatsApp</h3>'
+            + '<p style="color:rgba(255,255,255,0.6);font-size:13px;margin-bottom:16px;">'
+            + 'Open WhatsApp → Settings → Linked Devices → Link a Device</p>'
+            + '<div style="display:inline-block;background:#fff;padding:16px;border-radius:12px;">'
+            + data.qr_html
+            + '</div>'
+            + '<p style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:12px;">'
+            + 'QR code expires in 60 seconds. Refresh to scan again.</p>'
+            + '<button onclick="location.reload()" style="margin-top:16px;background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Done — Refresh</button>'
+            + '</div>';
+        } else {
+          location.reload();
+        }
       } else {
         const data = await r.json();
         alert('Failed: ' + (data.error || r.statusText));

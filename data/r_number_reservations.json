@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1905,
+  "next_available": 1906,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13404,6 +13404,16 @@
       "r_number": "R-F1904",
       "title": "De-junk commit 31eaa8e2",
       "claimed_at": "2026-06-25T05:19:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3ddb4fb4",
+      "notes": null,
+      "shipped_at": "2026-06-25T05:19:26Z"
+    },
+    {
+      "r_number": "R-F1905",
+      "title": "Fix WhatsApp Add Account on model card",
+      "claimed_at": "2026-06-25T05:23:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

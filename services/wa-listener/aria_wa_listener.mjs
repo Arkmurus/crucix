@@ -2647,8 +2647,12 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   
   try {
     const account = await _createAccount(accountId, name || accountId);
-    // Wait briefly for QR to be generated
-    await new Promise(r => setTimeout(r, 1000));
+    // R-F1905: poll for QR code instead of fixed 1s wait. Baileys can take
+    // 2-5s to generate the QR on first connect. Poll every 500ms for up to 10s.
+    for (let _i = 0; _i < 20; _i++) {
+      if (account.qr) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
     
     res.json({
       account: _getAccountStatus(account),
