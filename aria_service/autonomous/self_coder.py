@@ -618,6 +618,11 @@ class ARIACoder:
             context = await self.codebase.get_context(
                 gap.module, gap.related_files,
             )
+            # R-F1934 — ground the fix in ARIA's code RAG (indexed codebase
+            # structure + past fixes). fix_gap previously read raw files but never
+            # consulted the code knowledge ARIA has accumulated, so fixes were
+            # blind to documented structure / prior solutions.
+            context = await self._ground_context_with_rag(context, gap, fix_id)
 
             # STEP 2 — plan
             await self._publish_progress(
@@ -1480,6 +1485,43 @@ class ARIACoder:
                 "[aria_coder] review ticket open failed (non-fatal): %s",
                 result.get("reason"),
             )
+
+    async def _ground_context_with_rag(self, context, gap, fix_id: str = "") -> str:
+        """R-F1934 — append ARIA's code-RAG knowledge (indexed codebase structure
+        + relevant past fixes) to the LLM fix context, so the coder plans grounded
+        in accumulated code knowledge rather than blind to it.
+
+        Best-effort: never raises (a RAG miss must not break a fix). The
+        coding_rag_indexer.query_* calls are BLOCKING chromadb queries, so they
+        run via asyncio.to_thread (per their docstrings) — never on the loop.
+        """
+        try:
+            from ..intel import coding_rag_indexer as _crag
+            import asyncio as _aio
+            struct = await _aio.to_thread(_crag.query_codebase_context, gap.module, 3) or []
+            q = f"{gap.title} {gap.description}"[:300]
+            fixes = await _aio.to_thread(_crag.query_relevant_fixes, q, 3) or []
+            parts: list[str] = []
+            for r in (struct or [])[:3]:
+                c = str((r or {}).get("content", "")).strip()
+                if c:
+                    parts.append("• structure: " + c[:400])
+            for r in (fixes or [])[:3]:
+                c = str((r or {}).get("content", "")).strip()
+                if c:
+                    parts.append("• past fix: " + c[:400])
+            if parts:
+                if fix_id:
+                    await self._publish_progress(
+                        fix_id, "context_rag",
+                        f"Grounded in {len(parts)} code-RAG snippet(s)")
+                return (context or "") + (
+                    "\n\n## ARIA code-RAG knowledge (indexed structure + past fixes)\n"
+                    + "\n".join(parts)
+                )
+        except Exception as e:
+            logger.debug("[aria_coder] code-RAG grounding skipped (non-fatal): %s", e)
+        return context
 
     async def _claude_review(self, plan: FixPlan) -> "ReviewVerdict":
         """R-F805: ask Claude to second-opinion the diff before staging.
