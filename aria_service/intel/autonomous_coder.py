@@ -15,6 +15,7 @@ import ast
 import logging
 import pathlib
 import re
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.autonomous_coder")

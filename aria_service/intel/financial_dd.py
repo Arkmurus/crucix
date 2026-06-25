@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.intel.financial_dd")
 
@@ -52,6 +53,8 @@ _FORMATION_AGENT_PATTERNS = [
 
 
 # ── Financial Data Fetch ─────────────────────────────────────────────────────
+
+@wired(module="financial_dd", summary="Financial DD profile")
 
 async def get_financial_profile(
     company_number: str,
@@ -241,6 +244,8 @@ async def get_financial_profile(
 
 # ── Finding Generator ────────────────────────────────────────────────────────
 
+
+@wired(module="financial_dd", summary="Financial DD findings")
 def financial_findings(profile: dict) -> list[dict]:
     """Convert a financial profile into DD Finding objects.
 

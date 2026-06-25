@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.intel.country_sanctions")
 

@@ -54,6 +54,7 @@ technology is involved, or (d) a UK person is involved in arranging or
 negotiating the transfer anywhere in the world. The last point is the
 critical broker trap: UK trade controls apply to UK nationals operating
 from third countries on goods that never touch the UK.
+from .engine_wiring import wired
 
 ─────────────────────────────────────────────────────────────────────────────
 1.1 THE UK STRATEGIC EXPORT CONTROL LISTS (SECL)
@@ -1418,6 +1419,8 @@ ALL_SECTIONS = {
 # =============================================================================
 # RAG STORE INJECTION
 # =============================================================================
+
+@wired(module="global_export_control", summary="Global export control ingest")
 
 async def ingest_all_sections() -> dict:
     """Ingest the global export control library into ARIA's RAG store.

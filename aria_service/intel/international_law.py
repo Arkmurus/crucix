@@ -27,6 +27,7 @@ import logging
 import hashlib
 from datetime import datetime, timezone
 from typing import Optional
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.international_law")
 
@@ -2361,6 +2362,8 @@ ALL_SECTIONS = {
 # RAG STORE INJECTION — adapted for ARIA's existing Redis/chromadb stack
 # =============================================================================
 
+@wired(module="international_law", summary="International law ingest")
+
 async def ingest_all_sections() -> dict:
     """Ingest the complete international law library into ARIA's RAG store.
 
@@ -2465,6 +2468,8 @@ LAW_SOURCE_URLS = {
 }
 
 
+@wired(module="international_law", summary="International law register sources")
+
 async def register_law_sources() -> dict:
     """Register the law primary sources with the corpus manager.
 
@@ -2494,6 +2499,8 @@ async def register_law_sources() -> dict:
     )
     return {"registered": registered, "total_urls": total}
 
+
+@wired(module="international_law", summary="International law refresh knowledge")
 
 async def refresh_law_knowledge() -> dict:
     """Full refresh: re-ingest static sections + crawl live sources.

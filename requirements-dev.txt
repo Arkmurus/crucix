@@ -7,3 +7,8 @@
 pytest>=8.0
 pytest-asyncio>=0.23
 pytest-timeout>=2.1
+# R-F1908 (G1 vaccine) — pyflakes powers the undefined-name (F821) regression
+# gate in test_rf1908_no_undefined_names.py. Pure-python, dev-only (NOT a prod
+# dependency — §6 applies to ARIA's runtime, not test tooling). The gate caught
+# 24 live latent-NameError sites the self-coder/refactors had introduced.
+pyflakes>=3.0

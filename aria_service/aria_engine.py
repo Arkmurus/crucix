@@ -19,7 +19,7 @@ from typing import Any
 
 from .llm.provider import LLMProvider, LLMResult
 from .intel import redis_store as rs
-from .intel.knowledge import search_knowledge, auto_extract_facts
+from .intel.knowledge import search_knowledge, auto_extract_facts, store_fact
 from .intel.intel_ledger import query_ledger
 from .intel.contacts import get_contact_context
 from .intel.competitors import get_competitor_context

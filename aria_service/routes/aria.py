@@ -1030,6 +1030,58 @@ async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: in
     return {"unread_count": n, "user_id": user_id, "since_hours": since_hours}
 
 
+
+@router.get("/dd/health")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_health_ep():
+    """R-F1914: DD system health - per-layer completion rates and error counts.
+
+    Reads layer stats recorded by _finalize_dd_run() in dd_orchestrator.py.
+    Returns the number of runs, successes, and errors per layer over the
+    last 7 days. Lets the operator see at a glance which DD layers are
+    healthy and which are silently failing.
+    """
+    from ..intel import redis_store as rs
+
+    _DD_LAYER_NAMES = [
+        "identity", "network", "compliance", "digital",
+        "sweep_intelligence", "commercial_coherence",
+        "counter_intelligence", "sanctions_divergence",
+        "extensions", "verification", "synthesis",
+    ]
+
+    layers = {}
+    for layer_name in _DD_LAYER_NAMES:
+        key = f"crucix:dd:layer_stats:{layer_name}"
+        try:
+            raw = await rs.hgetall(key)
+            if raw:
+                layers[layer_name] = {
+                    k.decode() if isinstance(k, bytes) else k:
+                    int(v) if isinstance(v, (bytes, str)) and str(v).isdigit() else v
+                    for k, v in raw.items()
+                }
+            else:
+                layers[layer_name] = {}
+        except Exception:
+            layers[layer_name] = {"error": "unreachable"}
+
+    total_runs = sum(
+        sum(v.values()) for v in layers.values() if isinstance(v, dict)
+    )
+    total_errors = sum(
+        v.get("error", 0) + v.get("timeout", 0)
+        for v in layers.values() if isinstance(v, dict)
+    )
+
+    return {
+        "layers": layers,
+        "total_runs": total_runs,
+        "total_errors": total_errors,
+        "error_rate_pct": round(total_errors / total_runs * 100, 1) if total_runs > 0 else 0,
+    }
+
+
 @router.get("/dd/layer-5c/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_layer_5c_stats_ep(limit: int = 200):
@@ -1278,7 +1330,7 @@ async def teach_url_ep(req: TeachRequest):
     pages = result.get("pages_fetched") or []
 
     if not result.get("extraction_ok") or not text or len(text) < 200:
-        logger.warning(
+        _log.warning(
             "[R-F1526] teach_url: extraction failed for %s "
             "(extraction_ok=%s, text_len=%d, pages=%d, error=%s)",
             req.url, result.get("extraction_ok"), len(text), len(pages),
@@ -7196,7 +7248,7 @@ async def _execute_tool(
                         # any of the seenode-processed emails yet (the
                         # bridge was only just restored), or chromadb is
                         # in fallback mode without persistence.
-                        scanned = len(raw_hits) if raw_hits else 0
+                        scanned = len(email_hits) if email_hits else 0
                         parts.append(
                             f"RAG EMAIL SEARCH: 0 email-tagged chunks found "
                             f"(scanned {scanned} total). Either /api/aria/read-"
@@ -8968,7 +9020,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                 )
                 result["response"] = response_text
         except Exception as _cv_e:
-            logger.warning("R-F1633 citation validator failed: %s", _cv_e)
+            _log.warning("R-F1633 citation validator failed: %s", _cv_e)
 
         # ── Cited-source verification (deterministic hallucination check) ──
         try:
@@ -15268,7 +15320,7 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
                                   "trace_tail": _buf.getvalue()[-25000:]}, _f)
                 except Exception:
                     pass
-                logger.info(
+                _log.info(
                     "[R-F1723] background onboarding %s -> status=%s key=%s",
                     portal_id, _res.get("status"), ("len=%d" % len(_k)) if _k else "NONE",
                 )
@@ -15332,7 +15384,7 @@ async def ingest_ofac_sdn_ep(max_rows: int = 2000, background: bool = True):
                 _js.dump(out, _f, indent=2, default=str)
         except Exception:
             pass
-        logger.info("[R-F1731] OFAC SDN ingest done: %s", out.get("summary") or out.get("error"))
+        _log.info("[R-F1731] OFAC SDN ingest done: %s", out.get("summary") or out.get("error"))
 
     if background:
         # R-F1734: register the task so it survives GC. A bare create_task() local
@@ -15407,7 +15459,7 @@ async def ingest_run_portal_ep(portal: str, domain: str = "sanctions_screening",
                 _js.dump(out, _f, indent=2, default=str)
         except Exception:
             pass
-        logger.info("[R-F1737] ingest/run %s -> %s", portal, out.get("summary") or out.get("error"))
+        _log.info("[R-F1737] ingest/run %s -> %s", portal, out.get("summary") or out.get("error"))
 
     if background:
         _t = _aio.create_task(_run(), name=f"ingest_run_{portal}")
@@ -15931,7 +15983,7 @@ async def search_conversations(q: str = "", limit: int = 50, user_id: str = ""):
                 if len(results) >= limit:
                     break
         except Exception as e:
-            _log.warning("Session search error for %s: %s", key, e)
+            _log.warning("Session search error for %s: %s", session_id, e)
             continue
 
     return {"results": results, "total": len(results), "query": q}

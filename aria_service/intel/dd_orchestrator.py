@@ -6193,6 +6193,25 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
 # PERSISTENCE
 # =============================================================================
 
+# R-F1908 (G1 eradication) — vault-write helpers were CALLED at _persist_report
+# but defined NOWHERE → NameError swallowed by the except, so DD cases silently
+# never persisted. Defined here, defensive (getattr) so they cannot raise.
+def _summarize_findings(report) -> str:
+    return str(getattr(report, "bottom_line", "") or "")[:1000]
+
+
+def _compute_risk_score(report) -> float:
+    return {"GREEN": 0.0, "AMBER-LIGHT": 0.4, "AMBER-DARK": 0.6,
+            "RED": 0.85, "HARD_STOP": 1.0}.get(
+        str(getattr(report, "risk_classification", "") or "").upper(), 0.0)
+
+
+def _extract_tags(report) -> list:
+    rc = getattr(report, "risk_classification", "") or "unknown"
+    et = getattr(getattr(report, "identity", None), "entity_type", "") or "company"
+    return ["dd", str(rc).lower(), str(et)]
+
+
 async def _persist_report(report: ARKDDReport) -> None:
     """Store the finished report in Redis + emit signals to brain_hook,
     intel_ledger, audit_log (RED/HARD_STOP only), mem0, and VLS (async,
@@ -7025,6 +7044,80 @@ async def _dd_interactive_keepalive() -> None:
             pass
         await asyncio.sleep(4)
 
+async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = False) -> None:
+    """Centralized DD run finalizer — wires success/failure to brain and records layer stats.
+
+    Called ONCE at the end of every orchestrate_dd() call, in both the normal
+    completion path and the hard-deadline timeout path. Eliminates the pattern
+    of 196 independent try/except blocks that log locally but never propagate
+    to a central observer.
+
+    R-F1912: replaces the previous pattern where each layer handled its own
+    errors silently (data_gaps.append + logger.warning) and the brain never
+    learned a DD happened. Now every DD run produces a verifiable brain signal.
+
+    Args:
+        report: The completed (or partial) ARKDDReport.
+        hard_deadline_hit: True if the hard deadline was reached before all
+                          layers completed (partial report).
+    """
+    try:
+        from .engine_wiring import wire_success, wire_failure
+        from . import redis_store as _rs
+
+        # Compute per-layer completion stats
+        layers_total = len(report.layers_run) + len(report.layers_skipped)
+        layers_ok = sum(
+            1 for layer_name in report.layers_run
+            if getattr(getattr(report, layer_name, None), 'meta', None) is not None
+            and getattr(report, layer_name).meta.status not in ('error', 'timeout')
+        )
+        layers_errored = layers_total - layers_ok
+        data_gaps = len(getattr(report, 'data_gaps_summary', []))
+
+        # Determine overall success
+        all_layers_ok = layers_errored == 0 and not hard_deadline_hit
+        entity_name = (
+            getattr(report.identity, 'entity_name', None)
+            or report.target.get('name')
+            or report.target.get('entity')
+            or 'unknown'
+        )
+
+        if all_layers_ok:
+            wire_success(
+                module='dd_orchestrator',
+                summary=f'DD complete: {layers_ok}/{layers_total} layers, {data_gaps} data gaps',
+                entity_name=entity_name,
+                source_id=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
+            )
+        else:
+            reason = 'hard deadline' if hard_deadline_hit else f'{layers_errored} layer(s) errored'
+            wire_failure(
+                module='dd_orchestrator',
+                detail=f'DD incomplete for {entity_name}: {reason} ({layers_ok}/{layers_total} layers ok)',
+                gap_type='dd_layer_failure',
+                source=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
+            )
+
+        # Record per-layer stats to Redis for the DD health endpoint (R-F1914)
+        try:
+            for layer_name in report.layers_run:
+                layer_obj = getattr(report, layer_name, None)
+                if layer_obj is None:
+                    continue
+                meta = getattr(layer_obj, 'meta', None)
+                if meta is None:
+                    continue
+                status = getattr(meta, 'status', 'unknown') or 'unknown'
+                await _rs.hincrby(f'crucix:dd:layer_stats:{layer_name}', status, 1)
+                await _rs.expire(f'crucix:dd:layer_stats:{layer_name}', 86400 * 7)
+        except Exception:
+            pass  # stats recording is best-effort
+
+    except Exception:
+        pass  # finalizer must never crash the caller
+
 
 async def orchestrate_dd(
     target: dict,
@@ -7062,7 +7155,7 @@ async def orchestrate_dd(
     # DD wins the event loop (cancelled in finally; bounded by the hard deadline).
     _ka_task = asyncio.create_task(_dd_interactive_keepalive())
     try:
-        return await asyncio.wait_for(
+        _rep = await asyncio.wait_for(
             _orchestrate_dd_impl(
                 target,
                 llm=llm,
@@ -7077,6 +7170,12 @@ async def orchestrate_dd(
             ),
             timeout=hard,
         )
+        # R-F1912: wire DD completion to brain
+        try:
+            await _finalize_dd_run(_rep, hard_deadline_hit=False)
+        except Exception:
+            pass
+        return _rep
     except asyncio.TimeoutError:
         _name = str(target.get("name") or target.get("entity") or target.get("query") or "the target")
         logger.error(

@@ -2747,7 +2747,7 @@ async def deep_research(
                         if not _url or _url in snippets_by_url:
                             continue
                         try:
-                            _tier = classify_url_tier(_url)
+                            _tier = _score_url_by_domain_tier(_url)
                         except Exception:
                             _tier = 0
                         snippets_by_url[_url] = {

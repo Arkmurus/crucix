@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.dual_use_classifier")
 
@@ -218,6 +219,8 @@ def _decide_licence(
         ),
     }
 
+
+@wired(module="dual_use_classifier", summary="Dual-use classification")
 
 async def assess(
     item_description: str,

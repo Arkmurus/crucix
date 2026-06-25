@@ -40,6 +40,7 @@
 import logging
 from dataclasses import dataclass
 from typing import Optional
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.risk_indices")
 
@@ -430,6 +431,8 @@ class CountryRiskProfile:
         }
 
 
+
+@wired(module="risk_indices", summary="Country risk: {name}")
 def get_country_risk(iso2: str, name: str = "") -> CountryRiskProfile:
     """Return the aggregated risk profile for an ISO-2 country code.
 

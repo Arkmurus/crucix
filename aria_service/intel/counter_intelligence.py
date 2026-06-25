@@ -58,6 +58,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.counter_intelligence")
 
@@ -293,6 +294,8 @@ def _host_of(url_or_source: str) -> str | None:
     return s or None
 
 
+@wired(module="counter_intelligence", summary="Counter-intel scan: {entity_name}", entity_arg="entity_name")
+
 async def scan_entity(
     entity_name: str,
     *,
@@ -364,6 +367,8 @@ async def scan_entity(
     return result
 
 
+@wired(module="counter_intelligence", summary="Counter-intel top entities scan")
+
 async def scan_top_entities(*, n: int = 5, window_days: int = 14) -> dict[str, Any]:
     """Scan the N most-frequently-mentioned entities in recent ledger
     signals. Used by the WEEKLY-COUNTER-INTEL autonomous task (R-F98).
@@ -422,8 +427,6 @@ async def scan_top_entities(*, n: int = 5, window_days: int = 14) -> dict[str, A
             continue
         # Skip pure country names — they show up in every signal but aren't
         # the kind of "entity" counter-intelligence cares about.
-        if entity in _PRIORITY_COUNTRIES if False else False:
-            continue
         # Defensive: real country list lives in fcpa_enforcement; just
         # filter obvious 1-2-word country strings here
         if len(entity) < 4:

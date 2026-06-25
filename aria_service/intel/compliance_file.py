@@ -34,6 +34,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.compliance_file")
 
@@ -140,6 +141,8 @@ def _summarise_decisions(audit_entries: list[dict]) -> dict:
         "decisions_chronological": list(reversed(decisions)),  # oldest first for narrative
     }
 
+
+@wired(module="compliance_file", summary="Compliance file compose")
 
 async def compose(
     deal_id: str,
@@ -320,6 +323,8 @@ async def compose(
 
     return dossier
 
+
+@wired(module="compliance_file", summary="Compliance file provenance")
 
 async def get_provenance(entry_hash: str) -> dict:
     """Decision provenance: given an audit entry hash, walk back through

@@ -772,7 +772,7 @@ async def lifespan(app: FastAPI):
     try:
         _os.makedirs(_wedge_dir, exist_ok=True)
     except Exception:
-        _log.warning("R-F672: wedge dir creation failed")
+        logger.warning("R-F672: wedge dir creation failed")
     _wedge_log_path = _os.path.join(
         _wedge_dir, f"wedge_{_os.getpid()}_{int(_time.time())}.log"
     )
@@ -1511,7 +1511,7 @@ async def lifespan(app: FastAPI):
             _reg = AgentRegistry()
             await _reg.register(agent_id, agent_type, current_task=task, contract=contract)
         except Exception:
-            _log.warning("R-F672: agent register failed for %s", agent_id)
+            logger.warning("R-F672: agent register failed for %s", agent_id)
 
     async def _tick_heartbeat(agent_id: str, current_task: str = "") -> None:
         """Tick an agent's heartbeat in the registry. Best-effort, non-fatal."""
@@ -1520,7 +1520,7 @@ async def lifespan(app: FastAPI):
             _reg = AgentRegistry()
             await _reg.tick_heartbeat(agent_id, current_task=current_task or None)
         except Exception:
-            _log.warning("R-F672: agent heartbeat failed for %s", agent_id)
+            logger.warning("R-F672: agent heartbeat failed for %s", agent_id)
 
     async def _wire_agent_success(agent_id: str, summary: str) -> None:
         """Wire an agent's successful cycle to the brain. Best-effort."""
@@ -1532,7 +1532,7 @@ async def lifespan(app: FastAPI):
                 source_id=f"agent:{agent_id}",
             )
         except Exception:
-            _log.warning("R-F672: agent wire_success failed for %s", agent_id)
+            logger.warning("R-F672: agent wire_success failed for %s", agent_id)
 
     async def _wire_agent_failure(agent_id: str, detail: str) -> None:
         """Wire an agent's failed cycle to the brain. Best-effort."""
@@ -1545,7 +1545,7 @@ async def lifespan(app: FastAPI):
                 source=f"agent:{agent_id}",
             )
         except Exception:
-            _log.warning("R-F672: agent wire_failure failed for %s", agent_id)
+            logger.warning("R-F672: agent wire_failure failed for %s", agent_id)
 
     # Register research engine
     if research_enabled:
@@ -1853,7 +1853,7 @@ async def lifespan(app: FastAPI):
             try:
                 await _CR.register_contract(_c)
             except Exception:
-                _log.warning(
+                logger.warning(
                     "R-F1561: contract registration failed for %s",
                     getattr(_c, "agent_id", "?"),
                 )

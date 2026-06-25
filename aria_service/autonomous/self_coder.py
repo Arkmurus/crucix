@@ -45,7 +45,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+if TYPE_CHECKING:  # R-F1908: resolve the "ReviewVerdict" forward-ref (runtime-safe)
+    from .claude_reviewer import ReviewVerdict
 
 from .codebase_reader import CodebaseReader
 # R-F1191: constitutional validator removed. ARIA is fully autonomous.

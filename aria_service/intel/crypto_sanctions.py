@@ -62,6 +62,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
+from .engine_wiring import wired
 
 logger = logging.getLogger("aria.crypto_sanctions")
 
@@ -104,6 +105,8 @@ async def _redis():
     from . import redis_store as rs
     return rs
 
+
+@wired(module="crypto_sanctions", summary="Crypto sanctions fetch and index")
 
 async def fetch_and_index(force: bool = False) -> dict[str, Any]:
     """Refresh the crypto-wallet index from OpenSanctions.
@@ -225,6 +228,8 @@ async def _index_size(rs) -> int:
         return 0
 
 
+@wired(module="crypto_sanctions", summary="Crypto wallet screen")
+
 async def screen_wallet(address: str) -> list[dict[str, Any]]:
     """Look up one wallet address in the indexed table.
 
@@ -270,6 +275,8 @@ async def screen_wallet(address: str) -> list[dict[str, Any]]:
             logger.debug("crypto sanctions brain absorb failed (non-fatal): %s", e)
     return hits
 
+
+@wired(module="crypto_sanctions", summary="Crypto wallet batch screen")
 
 async def screen_wallet_batch(addresses: list[str]) -> dict[str, Any]:
     """Screen a list of addresses; returns per-address match list."""

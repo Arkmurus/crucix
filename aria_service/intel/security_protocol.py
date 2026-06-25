@@ -21,7 +21,7 @@ All functions work alongside the existing ``security.py`` module which
 handles lower-level URL validation, SSRF protection, and content scanning.
 This module operates at the intelligence/protocol layer."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
