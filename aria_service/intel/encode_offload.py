@@ -30,8 +30,11 @@ logger = logging.getLogger("aria.encode_offload")
 
 _MODEL_NAME = (os.getenv("ARIA_EMBED_MODEL", "all-MiniLM-L6-v2") or "all-MiniLM-L6-v2").strip()
 _ENABLED = (os.getenv("ARIA_ENCODE_OFFLOAD", "1").strip().lower() in ("1", "true", "yes", "on"))
-_RESULT_TIMEOUT_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_TIMEOUT_S", "60"))
-_WARMUP_TIMEOUT_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_WARMUP_S", "90"))
+# R-F1906 (verification V-05): `or "60"` not the getenv default — an explicitly
+# EMPTY env var ("") passes the default-check and float("") crashes module import
+# → boot crash. `or` falls back on empty too.
+_RESULT_TIMEOUT_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_TIMEOUT_S") or "60")
+_WARMUP_TIMEOUT_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_WARMUP_S") or "90")
 
 _pool = None
 _pool_broken = False

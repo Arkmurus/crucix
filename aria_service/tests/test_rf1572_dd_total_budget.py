@@ -174,7 +174,10 @@ def test_rf1572_rf409_escalation_is_budget_gated():
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("R-F409")
     assert idx > 0
-    block = src[idx - 1500:idx + 3500]
+    # R-F1906: widened from idx+3500 → +6000. The R-F409 block grew (added
+    # R-F1572 budget comments) so the gating line moved to ~+3746, just past the
+    # old window — a stale-window false negative, the gating code is intact.
+    block = src[idx - 1500:idx + 6000]
     assert "total_budget_s=" in block, (
         "R-F1572: routes/aria.py doesn't pass total_budget_s to "
         "orchestrate_dd — the chained deep run is unbounded again."

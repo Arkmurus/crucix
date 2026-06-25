@@ -282,8 +282,14 @@ def _get_embedder():
             except Exception as _torch_err:
                 logger.debug("R-F857 torch.set_num_threads(1) skipped: %s", _torch_err)
             from sentence_transformers import SentenceTransformer
-            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2, torch threads=1)")
+            # R-F1906 (verification): honour ARIA_EMBED_MODEL — the SAME source
+            # the encode-offload worker uses (encode_offload._MODEL_NAME). If the
+            # in-process fallback used a different (hardcoded) model than the
+            # worker, offloaded vs fallback embeddings would diverge and poison
+            # the shared RAG store. Same default keeps them identical.
+            _embed_model = (os.getenv("ARIA_EMBED_MODEL", "all-MiniLM-L6-v2") or "all-MiniLM-L6-v2").strip()
+            _embedder = SentenceTransformer(_embed_model)
+            logger.info("Loaded sentence-transformers embedding model (%s, torch threads=1)", _embed_model)
         except ImportError:
             logger.warning("sentence-transformers not installed — using TF-IDF only")
         except Exception as exc:

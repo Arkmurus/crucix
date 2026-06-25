@@ -138,7 +138,14 @@ def best_match(name: str, hits: list[dict]) -> dict | None:
         # must prevent.
         inter = q_tokens & c_tokens
         jacc = len(inter) / len(q_tokens | c_tokens)
-        q_in_c = q_tokens.issubset(c_tokens)
+        # R-F1906 (verification V-08): the q⊆c subset bonus applies ONLY to
+        # multi-token queries. A SINGLE-token query ("Apple" → {apple}) is a
+        # subset of any padded candidate ("Apple International Ltd"), so with the
+        # bonus it scored 0.5+0.6=1.1 ≥ 1.0 and matched a DIFFERENT entity — the
+        # wrong-entity injection R-F1881 set out to stop, surviving for 1-token
+        # names. Single-token queries now match only via the exact-normalised
+        # path above (c_norm == q_norm) or genuinely-high jaccard.
+        q_in_c = q_tokens.issubset(c_tokens) and len(q_tokens) >= 2
         score = jacc + (0.6 if q_in_c else 0.0)
         if score > best_score:
             best_score, best = score, h

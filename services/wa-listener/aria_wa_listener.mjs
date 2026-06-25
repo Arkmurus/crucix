@@ -120,7 +120,7 @@ function _callbackTokenEq(a, b) {
 // control chars (delimiter/format breakers), keeps \n and \t, caps length.
 function _untrusted(text, maxLen = 2000) {
   return String(text == null ? '' : text)
-    .replace(/[\u0000-\u0008\u000b-\u000c\u000e-\u001f\u007f]/g, ' ')  // strip control chars; keep tab+newline
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')  // R-F1906 V-15: strip control chars incl. CR(0x0d); keep tab(0x09)+newline(0x0a)
     .slice(0, maxLen);
 }
 function _untrustedBlock(text, label = 'USER CONTENT', maxLen = 2000) {

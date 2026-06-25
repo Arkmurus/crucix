@@ -10447,6 +10447,10 @@ async def recover_orphaned_jobs() -> int:
         except Exception as _scan_e:
             _log.debug("R-F1891 scan_keys(%s) failed: %s", _prefix, _scan_e)
             continue
+        # R-F1906 (verification V-13/14): preserve each job-type's own TTL —
+        # readdoc jobs live 1h, chat jobs 30m. The failed marker must not shorten
+        # a readdoc job to the chat TTL (it could expire before a slow WA poll).
+        _ttl = _READDOC_JOB_TTL_S if _prefix == _READDOC_JOB_PREFIX else _CHAT_JOB_TTL_S
         for _k in _keys or []:
             try:
                 _job = await _rs_rec.get_json(_k)
@@ -10455,7 +10459,7 @@ async def recover_orphaned_jobs() -> int:
                         _k,
                         {**_job, "status": "failed",
                          "error": "interrupted by a service restart — please resend your request"},
-                        ex=_CHAT_JOB_TTL_S,
+                        ex=_ttl,
                     )
                     swept += 1
             except Exception:

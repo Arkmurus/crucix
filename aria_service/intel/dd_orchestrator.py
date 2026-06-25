@@ -433,18 +433,28 @@ def _extract_site_locations(text: str) -> dict:
                 seen.add(iso2)
                 out["countries"].append(iso2)
                 out["raw"].append(cname)
-    # HQ: a country name near an HQ / headquarters marker. Two real phrasings:
+    # HQ: the country CLOSEST to an HQ / headquarters marker. Two real phrasings:
     #   A) "<Country> <City> HQ"            → country BEFORE the marker
     #   B) "headquartered in <City>, <Country>" → country AFTER the marker
-    # Check BEFORE first (format A), then AFTER (format B fallback).
-    def _country_in(window: str):
+    # R-F1906 (verification V-06): pick the NEAREST country to the marker edge,
+    # not the first in dict-iteration order — a window with two countries
+    # ("Estonia ... Finland HQ") previously returned whichever came first in the
+    # dict, mis-seeding jurisdiction. `ref` is the marker-side edge of the window
+    # (right edge for the before-window, left edge for the after-window).
+    def _nearest_country(window: str, ref: int):
+        best = None
+        best_dist = 10 ** 9
         for cname, iso2 in _COUNTRY_ISO2.items():
-            if re.search(r"\b" + re.escape(cname) + r"\b", window):
-                return iso2, cname
-        return None
+            for cm in re.finditer(r"\b" + re.escape(cname) + r"\b", window):
+                d = min(abs(cm.start() - ref), abs(cm.end() - ref))
+                if d < best_dist:
+                    best_dist, best = d, (iso2, cname)
+        return best
     for m in re.finditer(r"(?i)\b(hq|head\s*office|headquarter(?:s|ed)?)\b", text):
-        hit = _country_in(low[max(0, m.start() - 40): m.start()]) \
-            or _country_in(low[m.end(): m.end() + 40])
+        _before = low[max(0, m.start() - 40): m.start()]
+        _after = low[m.end(): m.end() + 40]
+        hit = _nearest_country(_before, len(_before)) \
+            or _nearest_country(_after, 0)
         if hit:
             out["hq_iso2"], out["hq_country"] = hit
             break
@@ -7441,7 +7451,7 @@ async def _orchestrate_dd_impl(
             try:
                 await asyncio.wait_for(
                     _run_sweep_intelligence(target, report),
-                    timeout=15.0,
+                    timeout=_clamp(15.0),  # R-F1906 (V-09): clamp to heavy budget, was fixed 15s
                 )
             except asyncio.TimeoutError:
                 report.sweep_data.meta.status = LayerStatus.ERROR.value
@@ -7469,7 +7479,7 @@ async def _orchestrate_dd_impl(
                 from . import commercial_coherence as _cc
                 _section = await asyncio.wait_for(
                     _cc.assess_commercial_coherence(target, report),
-                    timeout=10,  # pure data-driven — no network calls
+                    timeout=_clamp(10),  # R-F1906 (V-09): clamp to heavy budget, was fixed 10s
                 )
                 _coherence_text = _cc.anomaly_text_for_deception(_section)
                 if _section.tier != "GREEN":
@@ -7652,7 +7662,7 @@ async def _orchestrate_dd_impl(
             from . import counter_intelligence as _ci
             _ci_result = await asyncio.wait_for(
                 _ci.scan_entity(report.identity.entity_name or "", window_days=30),
-                timeout=8,
+                timeout=_clamp(8),  # R-F1906 (V-09): clamp to heavy budget, was fixed 8s
             )
             try:
                 report.counter_intelligence = _ci_result  # type: ignore[attr-defined]
@@ -7683,7 +7693,7 @@ async def _orchestrate_dd_impl(
             from . import sanctions_divergence as _sdiv
             _sdiv_result = await asyncio.wait_for(
                 _sdiv.analyze_divergence(report.identity.entity_name or ""),
-                timeout=10,
+                timeout=_clamp(10),  # R-F1906 (V-09): clamp to heavy budget, was fixed 10s
             )
             try:
                 report.sanctions_divergence = _sdiv_result  # type: ignore[attr-defined]
