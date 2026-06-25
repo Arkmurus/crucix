@@ -28,6 +28,13 @@
 
 import logging
 
+# R-F1908 (G1) — the ONLY `from .engine_wiring import wired` text in this file
+# was buried inside a content string (export-control prose), so `wired` was never
+# actually imported and the `@wired(...)` decorator at module scope NameError'd at
+# import time → main.py's startup seeding of this library silently failed. Real
+# module-level import:
+from .engine_wiring import wired
+
 logger = logging.getLogger("aria.global_export_control")
 
 
