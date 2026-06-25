@@ -39,6 +39,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -237,7 +238,14 @@ class TestRunner:
                 timeout_s = SAFE_TIMEOUT_S - 10
 
             cmd = [
-                "python", "-m", "pytest",
+                # R-F1928: sys.executable, NOT literal "python". The latter
+                # resolves via PATH to whatever python is first (on Windows/venv
+                # that's often the SYSTEM python, which lacks the app's test deps
+                # like pytest-timeout) → "--timeout unrecognized" → every isolated
+                # run ERRORed → the coder could never test a fix → no gold.
+                # gap_detector.reproduce_symptom already uses sys.executable;
+                # this makes TestRunner consistent (same interpreter as the app).
+                sys.executable, "-m", "pytest",
                 *test_target.split(),
                 "-v", "--tb=short", "--no-header",
                 "--timeout=30",  # per-test timeout

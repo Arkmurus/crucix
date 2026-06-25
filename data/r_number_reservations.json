@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1925,
+  "next_available": 1929,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13585,23 +13585,64 @@
       "title": "DDTriggerGuard trigger pipeline failure feedback",
       "claimed_at": "2026-06-25T09:06:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d52899d3",
+      "notes": null,
+      "shipped_at": "2026-06-25T09:16:59Z"
     },
     {
       "r_number": "R-F1923",
       "title": "DD precondition validation PREREQ_DEGRADED",
       "claimed_at": "2026-06-25T09:06:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d52899d3",
+      "notes": null,
+      "shipped_at": "2026-06-25T09:17:00Z"
     },
     {
       "r_number": "R-F1924",
       "title": "Partial BLUF on synthesis timeout incremental write",
       "claimed_at": "2026-06-25T09:06:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d52899d3",
+      "notes": null,
+      "shipped_at": "2026-06-25T09:17:00Z"
+    },
+    {
+      "r_number": "R-F1925",
+      "title": "Accelerate Gate 2 closure multi-cell region-targeted",
+      "claimed_at": "2026-06-25T10:15:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2836f8eb",
+      "notes": null,
+      "shipped_at": "2026-06-25T10:33:23Z"
+    },
+    {
+      "r_number": "R-F1926",
+      "title": "coder first-gold canary: controlled reproducible bug to prove gold pipeline (gap->reproduce FAIL->fix->PASS->gold)",
+      "claimed_at": "2026-06-25T10:19:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1927",
+      "title": "WA multi-account durability: persist account metadata + restore Baileys sockets from saved creds on boot (links survive restart)",
+      "claimed_at": "2026-06-25T10:25:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "29b27e1e",
+      "notes": null,
+      "shipped_at": "2026-06-25T10:30:58Z"
+    },
+    {
+      "r_number": "R-F1928",
+      "title": "TestRunner uses literal 'python' subprocess -> wrong interpreter (no pytest-timeout); use sys.executable",
+      "claimed_at": "2026-06-25T10:40:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
