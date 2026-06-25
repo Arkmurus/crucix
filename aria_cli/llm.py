@@ -78,14 +78,20 @@ class LLMConfig:
         """Resolve config from env. ARIA_CODER_* overrides, then the generic
         LLM_*/DEEPSEEK_* vars that the rest of the stack already uses.
 
-        Default provider is now ``aria`` — the ARIA server's own LLM endpoint
-        (/api/aria/coder/llm). Falls back to deepseek if ARIA_SERVICE_URL is
-        not set or the aria provider is explicitly overridden.
+        R-F1937: default to DIRECT ``deepseek`` when DEEPSEEK_API_KEY is present.
+        The old default ``aria`` builds base_url ``{ARIA_SERVICE_URL}/api/aria``
+        and chat() appends ``/chat/completions`` — i.e. it hits the HEAVY brain
+        full-chat pipeline, NOT a fast coder endpoint (the prior docstring's
+        "/api/aria/coder/llm" claim was wrong). That path times out (~122s
+        measured), so a *coder* CLI must never default to it. Direct deepseek
+        answers the same prompt in ~1.7s. ``aria`` stays available as an explicit
+        opt-in via ARIA_CODER_LLM_PROVIDER/LLM_PROVIDER=aria; if no deepseek key
+        is set we fall back to ``aria`` (unchanged from before).
         """
         provider = (
             os.getenv("ARIA_CODER_LLM_PROVIDER")
             or os.getenv("LLM_PROVIDER")
-            or "aria"
+            or ("deepseek" if os.getenv("DEEPSEEK_API_KEY") else "aria")
         ).strip().lower()
 
         # R-F1280: api-key resolution MUST be provider-aware. The old order put
