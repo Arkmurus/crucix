@@ -404,6 +404,57 @@ async def _http_github_head_sha(
     return None
 
 
+# A compare fetcher returns the list of file paths changed between two refs
+# (or None if it can't be determined — caller fail-safes to "relevant").
+CompareFetcher = Callable[[str, str, str, Optional[str]], Awaitable[Optional[list]]]
+
+
+async def _http_github_compare_files(
+    repo: str, base: str, head: str, token: Optional[str], timeout: float = 15.0
+) -> Optional[list]:
+    """Default compare fetcher: the file paths changed between base..head via the
+    GitHub compare API. None on unreachable (caller treats None as 'relevant')."""
+    if not base or not head:
+        return None
+    try:
+        import httpx
+        headers = {"Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        url = f"https://api.github.com/repos/{repo}/compare/{base}...{head}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            logger.debug("[deploy_verifier] compare %s..%s -> %s", base, head, resp.status_code)
+            return None
+        data = resp.json()
+        files = data.get("files") if isinstance(data, dict) else None
+        if files is None:
+            return None
+        return [str(f.get("filename") or "") for f in files if isinstance(f, dict)]
+    except Exception as exc:
+        logger.debug("[deploy_verifier] compare fetch failed: %s", exc)
+        return None
+
+
+def _is_runtime_relevant(changed_files: Optional[list]) -> bool:
+    """True if a redeploy of aria-intel is actually warranted by these changes.
+
+    Runtime = a file under aria_service/ that is NOT a test (tests ship in the
+    image but don't change runtime behaviour). Tooling/docs/registry (data/*,
+    scripts/*, *.md), and the web/wa tiers (server.mjs, public/*, services/*)
+    do NOT warrant an aria-intel redeploy. None (compare unavailable) → True:
+    fail SAFE — a possibly-spurious alert beats missing a real undeployed change.
+    """
+    if changed_files is None:
+        return True
+    for f in changed_files:
+        p = str(f or "").replace("\\", "/")
+        if p.startswith("aria_service/") and not p.startswith("aria_service/tests/"):
+            return True
+    return False
+
+
 @fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
 async def reconcile_origin_vs_live(
     *,
@@ -414,6 +465,7 @@ async def reconcile_origin_vs_live(
     token: Optional[str] = None,
     gh_fetcher: Optional[GhFetcher] = None,
     live_fetcher: Optional[Fetcher] = None,
+    compare_fetcher: Optional[CompareFetcher] = None,
     behind_alert_s: float = DEFAULT_BEHIND_ALERT_S,
     now: Optional[float] = None,
 ) -> dict:
@@ -462,13 +514,27 @@ async def reconcile_origin_vs_live(
     out["age_s"] = round(age, 1)
     out["state"] = st
     if age >= behind_alert_s and not st.get("alerted"):
+        # R-F1921 — only alert if the undeployed diff actually touches aria-intel
+        # runtime; a tooling/docs/registry/web/test-only lag needs no redeploy
+        # (else the reconciler nags on every chore commit and trains the operator
+        # to ignore it). Evaluate ONCE per head (set alerted=True either way).
+        _cmp = compare_fetcher or _http_github_compare_files
+        changed = await _cmp(repo, out["live_sha"] or "", origin_sha, token)
         st["alerted"] = True
-        out["alert"] = {
-            "origin_sha": _short(origin_sha),
-            "live_sha": out["live_sha"],
-            "live_build_rev": live_build_rev,
-            "age_s": round(age, 1),
-        }
+        relevant = _is_runtime_relevant(changed)
+        out["runtime_relevant"] = relevant
+        if relevant:
+            out["alert"] = {
+                "origin_sha": _short(origin_sha),
+                "live_sha": out["live_sha"],
+                "live_build_rev": live_build_rev,
+                "age_s": round(age, 1),
+            }
+        else:
+            logger.info(
+                "[deploy_verifier] origin %s ahead of live %s but diff is "
+                "tooling/web/test-only — no aria-intel redeploy needed, suppressing alert",
+                _short(origin_sha), out["live_sha"])
     return out
 
 
@@ -482,19 +548,22 @@ async def reconcile_origin_via_store(
     token: Optional[str] = None,
     gh_fetcher: Optional[GhFetcher] = None,
     live_fetcher: Optional[Fetcher] = None,
+    compare_fetcher: Optional[CompareFetcher] = None,
     behind_alert_s: float = DEFAULT_BEHIND_ALERT_S,
     operator_notifier: Optional[Callable[[dict], Awaitable[None]]] = None,
 ) -> dict:
     """Proprioception-loop glue (module-level so it is testable): read the
     behind-state from `rs_module`, reconcile origin vs live, persist the new
-    state, and call `operator_notifier(alert)` when live has lagged past grace.
+    state, and call `operator_notifier(alert)` when live has lagged past grace
+    AND the undeployed diff touches aria-intel runtime (R-F1921).
 
     Returns {"behind", "age_s", "origin_sha", "live_sha", "alerted"}.
     """
     state = await rs_module.get_json(ORIGIN_RECONCILE_STATE_KEY) or {}
     res = await reconcile_origin_vs_live(
         state=state, app=app, repo=repo, branch=branch, token=token,
-        gh_fetcher=gh_fetcher, live_fetcher=live_fetcher, behind_alert_s=behind_alert_s)
+        gh_fetcher=gh_fetcher, live_fetcher=live_fetcher,
+        compare_fetcher=compare_fetcher, behind_alert_s=behind_alert_s)
     await rs_module.set_json(ORIGIN_RECONCILE_STATE_KEY, res["state"], ex=30 * 86400)
     if res.get("alert") and operator_notifier:
         try:

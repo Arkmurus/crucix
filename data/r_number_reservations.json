@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1921,
+  "next_available": 1925,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13569,6 +13569,42 @@
       "commit_sha": "6d87d421",
       "notes": null,
       "shipped_at": "2026-06-25T09:02:24Z"
+    },
+    {
+      "r_number": "R-F1921",
+      "title": "deploy-reconciler runtime-relevance filter: only alert when live->origin diff touches aria_service runtime (not tooling/docs/registry/web/tests)",
+      "claimed_at": "2026-06-25T09:05:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1922",
+      "title": "DDTriggerGuard trigger pipeline failure feedback",
+      "claimed_at": "2026-06-25T09:06:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1923",
+      "title": "DD precondition validation PREREQ_DEGRADED",
+      "claimed_at": "2026-06-25T09:06:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1924",
+      "title": "Partial BLUF on synthesis timeout incremental write",
+      "claimed_at": "2026-06-25T09:06:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
