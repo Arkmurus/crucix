@@ -44,7 +44,10 @@ jget(){ python -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') o
 pmget(){ python -c "import sys,json;d=json.load(sys.stdin);pm=d.get('portMappings') or {};print(pm.get('22') or '')" 2>/dev/null; }
 
 stop_pod(){ echo "[driver] stopping pod $POD"; curl -s -X POST "$API/pods/$POD/stop" -H "Authorization: Bearer $API_KEY" >/dev/null 2>&1 || true; }
-trap stop_pod EXIT
+# NOTE: no `trap stop_pod EXIT` — the on-pod self-stop watcher (armed below) owns
+# the pod lifecycle, so a driver/session death does NOT abort the detached cycle
+# (the watcher stops the pod on completion/idle = no runaway, no abort). The
+# normal end-of-run stop_pod still fires when this driver polls to completion.
 
 # 1. Ensure RUNNING
 HOST=""; PORT=""
@@ -76,6 +79,7 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 echo "[driver] pushing proven scripts + aria_service subtree + grounded datasets..."
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel"
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/dpo_v04_pod_run.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp orchestrator"; exit 1; }
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN: self-stop watcher scp failed"
 for f in sft_train.py dpo_train.py serve_eval_shim.py eval_aria_llm.py; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
 done
@@ -97,6 +101,14 @@ $SSH -p "$PORT" root@"$HOST" \
    DEEPSEEK_API_KEY='$DSK' \
    setsid nohup bash /workspace/dpo_v04_pod_run.sh > /workspace/logs/grounded_dpo_cycle.log 2>&1 < /dev/null & echo STARTED" \
   || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
+
+# 4b. AUTO-ARM the on-pod self-stop watcher (R-F1654 hardening) so the pod ALWAYS
+# stops on completion/idle even if THIS driver dies — no runaway GPU spend, and
+# the detached cycle survives a driver/session death.
+echo "[driver] arming on-pod self-stop watcher (GRACE=1200)..."
+$SSH -p "$PORT" root@"$HOST" \
+  "POD_ID=$POD RP_KEY='$API_KEY' GRACE=1200 setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 < /dev/null & echo ARMED" \
+  || echo "[driver] WARN: self-stop watcher arm failed — relying on EXIT trap"
 
 echo "[driver] polling for completion (cap ~6.6h; breaks as soon as it finishes)..."
 RC=""
