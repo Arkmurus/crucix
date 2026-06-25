@@ -176,6 +176,87 @@ async def _run(gap) -> int:
     return 0 if res.success else 1
 
 
+def _report_to_brain(content: str, metadata: dict) -> None:
+    """§25 outcome-wire: tell the brain what the local coder loop did (best-effort,
+    never raises — a reporting miss must not break the loop)."""
+    try:
+        import httpx
+        tok = os.environ.get("ARIA_INTERNAL_TOKEN", "")
+        url = os.environ["ARIA_SERVICE_URL"].rstrip("/") + "/api/aria/brain/signal"
+        httpx.post(url, headers={"Authorization": f"Bearer {tok}"},
+                   json={"content": content, "source": "local_coder_loop",
+                         "signal_type": "local_coder_cycle", "metadata": metadata},
+                   timeout=15)
+    except Exception:
+        pass
+
+
+async def _connect_state_store(attempts: int = 4):
+    """Open state_store with retry — the intermittent Windows aiosqlite lock uses
+    a FRESH unique db path each attempt so a locked file never blocks the loop."""
+    from aria_service.intel import state_store as ss
+    for i in range(attempts):
+        db = str(Path(os.environ.get("TEMP", "/tmp")) / f"_aria_loop_{int(time.time())}_{i}.db")
+        os.environ["ARIA_STATE_DB_PATH"] = db
+        Path(db).unlink(missing_ok=True)
+        try:
+            if await ss.connect():
+                return True, db
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)
+    return False, None
+
+
+async def _loop(source: str, interval: int, max_per_cycle: int, max_cycles: int) -> int:
+    """Autonomous local coder daemon: pull RAG-grounded fuel -> fix_gap locally
+    (stage-only) -> report outcome to the brain, on a timer. This is what makes
+    ARIA's autonomy ACT (vs the fly engine's fire=0): the verify/gold loop runs
+    where the toolchain lives (pytest + repo), not on fly (no pytest)."""
+    from aria_service.autonomous.self_coder import ARIACoder
+    from aria_service.intel import redis_store as rs
+    from code_gap_fuel import gather
+    ok, db = await _connect_state_store()
+    if not ok:
+        print("BLOCKED: state_store could not connect after retries.")
+        return 2
+    print(f"[loop] state_store connected (db={db}); interval={interval}s "
+          f"max_per_cycle={max_per_cycle} max_cycles={max_cycles or 'inf'}")
+    coder = ARIACoder(redis_client=rs, aria_service_url=os.environ["ARIA_SERVICE_URL"])
+    seen: set = set()
+    cycle = 0
+    while True:
+        cycle += 1
+        try:
+            gaps = await gather(source, limit=20, enrich=True)
+        except Exception as e:
+            print(f"[loop] cycle {cycle}: fuel gather failed: {e}")
+            gaps = []
+        fresh = [g for g in gaps if g.gap_id not in seen][:max_per_cycle]
+        print(f"[loop] cycle {cycle}: {len(gaps)} fuel, {len(fresh)} fresh -> fixing")
+        out = {"staged": 0, "failed": 0}
+        for g in fresh:
+            seen.add(g.gap_id)
+            try:
+                res = await coder.fix_gap(g, operator_initiated=False, force_stage_only=True)
+                if res.success:
+                    out["staged"] += 1
+                    print(f"[loop]   OK {g.module}: staged (r_number={res.r_number})")
+                else:
+                    out["failed"] += 1
+                    print(f"[loop]   -- {g.module}: {str(res.failure_reason)[:90]}")
+            except Exception as e:
+                out["failed"] += 1
+                print(f"[loop]   !! {g.module}: {type(e).__name__}: {str(e)[:80]}")
+        _report_to_brain(f"local coder loop cycle {cycle}: staged={out['staged']} failed={out['failed']}",
+                         {"cycle": cycle, "fresh": len(fresh), **out})
+        print(f"[loop] cycle {cycle} done: {out}")
+        if max_cycles and cycle >= max_cycles:
+            break
+        await asyncio.sleep(interval)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Run ARIA's coder locally on the computer")
     ap.add_argument("--list", action="store_true", help="show the brain's coder gaps")
@@ -188,7 +269,18 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=10, help="--scan max gaps")
     ap.add_argument("--fix-top", action="store_true",
                     help="with --scan: run fix_gap locally on the top fuel gap")
+    ap.add_argument("--loop", action="store_true",
+                    help="AUTONOMOUS daemon: pull fuel -> fix -> stage on a timer")
+    ap.add_argument("--interval", type=int, default=900, help="--loop seconds between cycles")
+    ap.add_argument("--max-per-cycle", type=int, default=2, help="--loop max fixes per cycle")
+    ap.add_argument("--max-cycles", type=int, default=0, help="--loop stop after N cycles (0=forever)")
     a = ap.parse_args()
+
+    if a.loop:
+        if not os.environ.get("ARIA_INTERNAL_TOKEN"):
+            print("BLOCKED: ARIA_INTERNAL_TOKEN unset (needed for DeepSeek + brain).")
+            return 2
+        return asyncio.run(_loop(a.source, a.interval, a.max_per_cycle, a.max_cycles))
 
     if a.scan:
         from code_gap_fuel import gather

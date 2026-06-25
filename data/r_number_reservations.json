@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1938,
+  "next_available": 1939,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13727,6 +13727,15 @@
       "r_number": "R-F1937",
       "title": "aria_cli root fix: default coder LLM to direct deepseek when DEEPSEEK_API_KEY present (aria provider routed to slow /api/aria/chat/completions -> 122s timeout)",
       "claimed_at": "2026-06-25T13:24:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1938",
+      "title": "autonomous local coder LOOP: daemon pulls RAG-grounded fuel -> fix_gap locally -> stage/gold on a timer, with per-cycle cap + dedup + brain outcome-wire",
+      "claimed_at": "2026-06-25T13:55:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
