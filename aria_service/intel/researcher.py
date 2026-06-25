@@ -3602,6 +3602,19 @@ async def read_document(
     else:
         chunks = [content]
 
+    # R-F1916 (G2): hard chunk-count ceiling — defense-in-depth so even if a
+    # caller bypasses the read_document_ep content cap, the fan-out below (a
+    # gather over every chunk, each scheduling an LLM analysis + a search_knowledge
+    # thread hop) can't explode into thousands of coroutines and wedge/OOM the
+    # single-process brain. ~200 chunks ≈ 900K chars — well past any real document.
+    _MAX_CHUNKS = max(1, int(os.getenv("ARIA_DOC_MAX_CHUNKS", "200")))
+    if len(chunks) > _MAX_CHUNKS:
+        logger.warning(
+            "read_document: capping chunk fan-out %d -> %d (content=%d chars, doc=%s)",
+            len(chunks), _MAX_CHUNKS, len(content), filename,
+        )
+        chunks = chunks[:_MAX_CHUNKS]
+
     total_facts = 0
     total_hyp = 0
     all_facts: list[dict] = []

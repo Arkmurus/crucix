@@ -1903,6 +1903,14 @@ async function startListener() {
         msg.message?.documentMessage?.caption                  ||
         msg.message?.buttonsResponseMessage?.selectedDisplayText ||
         '';
+      // R-F1916 (G2): cap raw inbound text immediately. detectComplianceTrigger
+      // runs 25+ regexes over the full string and the body is forwarded to the
+      // brain uncapped — one adversarial multi-hundred-KB message would burn the
+      // Node loop + amplify LLM cost. A chat turn is never legitimately this long.
+      const _WA_MAX_TEXT = parseInt(process.env.ARIA_WA_MAX_TEXT || '8000', 10);
+      if (typeof text === 'string' && text.length > _WA_MAX_TEXT) {
+        text = text.slice(0, _WA_MAX_TEXT);
+      }
 
       // Get sender info
       const senderJid  = msg.key.participant || msg.key.remoteJid || '';

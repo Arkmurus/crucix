@@ -11388,6 +11388,15 @@ async def _read_document_ep_impl(request: Request):
     if not content or len(content) < 20:
         raise HTTPException(status_code=400, detail="content required (min 20 chars)")
 
+    # R-F1916 (G2): cap plain-text content at MAX_DOC_CHARS. The base64 upload
+    # branches above each cap, but THIS text path — the one WhatsApp/email use —
+    # did not, so a ~50MB body chunked into ~14k coroutines + thread hops inside
+    # read_document (event-loop/memory DoS). One choke-point cap for every entry.
+    if len(content) > MAX_DOC_CHARS:
+        _log.warning("[read-document] R-F1916 capping plain-text content %d -> %d chars (%s)",
+                     len(content), MAX_DOC_CHARS, filename)
+        content = content[:MAX_DOC_CHARS]
+
     # R-F65 (2026-05-09): content-hash dedupe with 24h TTL.
     # Live evidence 12:20:01 → 12:20:49: same LinkedIn email document
     # re-extracted within 48s, yielding 44 facts then 26 facts (different
