@@ -10950,7 +10950,21 @@ async def _read_document_ep_impl(request: Request):
         except HTTPException:
             raise
         except Exception as _cs1853_e:
-            _log.error("R-F1853 content scan failed (FAILING OPEN — fix asap): %s",
+            # R-F1917 (G6): the scanner erroring must NOT silently bypass the
+            # zip-bomb/DoS guard. A bomb large enough to crash the scanner is
+            # exactly the input we must reject — so fail-CLOSED (422) for large
+            # inputs (the plausible-bomb / DoS case), and fail-open only for small
+            # files (a scanner bug on a quirky-but-harmless doc shouldn't lose
+            # ingestion). Threshold is env-tunable.
+            _cs_failclose_bytes = int(os.getenv("ARIA_SCAN_FAILCLOSE_BYTES", str(8 * 1024 * 1024)))
+            if len(raw_bytes or b"") > _cs_failclose_bytes:
+                _log.error("R-F1917 content scan errored on a LARGE upload (%d bytes) — "
+                           "failing CLOSED (possible bomb): %s", len(raw_bytes or b""), _cs1853_e)
+                raise HTTPException(
+                    status_code=422,
+                    detail="document blocked: content scan could not verify a large upload",
+                )
+            _log.error("R-F1853 content scan failed on small input (failing open — fix asap): %s",
                        _cs1853_e, exc_info=True)
 
         extracted = ""

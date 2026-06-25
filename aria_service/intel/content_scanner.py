@@ -53,7 +53,10 @@ EICAR_STRING = base64.b64decode(_EICAR_B64)
 MAX_COMPRESSION_RATIO = 100  # 100:1 ratio threshold
 
 # Max decompressed size for archives (prevents zip bombs)
-MAX_DECOMPRESSED_SIZE = 500 * 1024 * 1024  # 500MB
+# R-F1917 (G6): lowered 500MB -> 100MB, proportional to the 50MB ingress cap
+# (main.py). 500MB let a ~40MB DOCX inflate to ~400MB and OOM the single-process
+# brain while still passing the bomb check. Env-tunable.
+MAX_DECOMPRESSED_SIZE = int(os.getenv("ARIA_MAX_DECOMPRESSED_MB", "100")) * 1024 * 1024
 
 # Magic bytes for common file types
 MAGIC_BYTES: dict[str, list[bytes]] = {
