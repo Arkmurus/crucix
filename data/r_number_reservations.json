@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1941,
+  "next_available": 1942,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13754,6 +13754,15 @@
       "r_number": "R-F1940",
       "title": "Durable build fix: speed up aria-intel torch layer (CPU-only wheel + cache-friendly layering) so Depot stops hitting the build deadline",
       "claimed_at": "2026-06-25T14:53:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1941",
+      "title": "robust grounded-SFT trainer + fixed config: chat-template + completion-only loss, QLoRA, train/val split, eval, checkpointing, --validate no-GPU pipeline check; consumes the 664-example grounded corpus",
+      "claimed_at": "2026-06-25T15:01:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
