@@ -123,3 +123,38 @@ data/_*.md
 # R-F1808 IAST run artifacts
 scripts/iast/_*.jsonl
 scripts/iast/_*.log
+
+# R-F1902 — comprehensive runtime/debug junk guard. ARIA's commit 31eaa8e2
+# (R-F1896..1900) blanket-`git add -A`'d ~61 junk files into origin/main —
+# _eu_sample.xml (172k lines), a Windows .lnk, _gh_logs.zip, _bridge_reply.txt,
+# .aria/ runtime metrics, scripts/_*.out, data/training/dataset_*.json, etc.
+# (the recurring problem R-F1478 logged a Gap for). These patterns stop the next
+# blanket-add from re-sweeping them. Root-anchored where possible so legit
+# package files (e.g. aria_service/intel/_snapshot_throttle.py) are unaffected.
+# NOT ignored (meaningful, left to operator/ARIA): data/aria_training/coder_verifiable_gold.jsonl,
+# public/endpoint-manifest.json.
+# (.gitignore has NO inline comments — patterns only, one per line.)
+# all root-level _scratch (xml/json/txt/zip/sh/dirs); no legit root file starts with _
+/_*
+# Windows shortcuts — never source
+*.lnk
+# runtime agent metrics dir
+.aria/
+# deploy-pipeline runtime marker
+.last_deploy_sha
+# debug scan workspaces
+_test_scan_*/
+# data-dir scratch (_n1l4_port.txt, _v04_pod_id.txt, ...)
+data/_*
+# training-run scratch datasets
+data/training/dataset_*.json
+# training scratch
+data/training/_*.jsonl
+# partial/in-flight training files
+data/training/*.partial.jsonl
+# eval scratch (_v0_2_verdict.txt, ...)
+data/eval_reports/_*
+# partial eval outputs
+data/eval_reports/*.partial.jsonl
+# eval/test capture dumps (_eval_*.out, _rf*.out, ...)
+scripts/_*.out
