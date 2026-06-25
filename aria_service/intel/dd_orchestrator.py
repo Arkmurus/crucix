@@ -1919,6 +1919,328 @@ async def _check_domain_ownership(target: dict, report: ARKDDReport) -> None:
         logger.debug("domain_ownership_verifier failed (non-fatal): %s", e)
 
 
+async def _identity_primary_source_screen(
+    name: str, jurisdiction: "str | None", report: ARKDDReport,
+) -> bool:
+    """R-F1844 — extracted from _run_identity (was the inline 1a1 block).
+
+    Runs the six primary-source sanctions/debarment/event screens (SEC, OFAC,
+    UK OFSI, UN SC, World Bank, ACLED) in parallel, applies the R-F569
+    name-overlap gate, and appends findings to report.identity. Pure
+    extraction: behaviour is identical to the prior inline block. Returns
+    True iff a hard-stop was triggered (the caller OR-combines it).
+    """
+    hard_stop = False
+    # ── 1a1. Primary-source parallel screen (SEC, OFAC, OFSI, UN, WB, ACLED) ──
+    # Added 2026-04-18 after the DD-depth audit. The OpenSanctions call
+    # above is convenient but aggregation-lagged; these six direct primary
+    # sources run in parallel and surface findings with canonical
+    # citations. Each source is wrapped in an individual try so one
+    # failure cannot block the others. ~2-4s added to identity layer
+    # worst-case (all six fetched in parallel, cached heavily).
+    #
+    # R-F569 (2026-05-16) — name-overlap gate on the per-source HARD_STOP
+    # emissions below. Pre-R-F569 each adapter's `_hits[0]` was emitted
+    # verbatim as a HARD_STOP finding with no similarity check beyond the
+    # adapter's own internal fuzzy_filter threshold (0.70 for ofac_sdn —
+    # too liberal). Live MVP fire-test 2026-05-16 logged
+    #   Embraer S.A. → OFAC SDN "MARANER HOLDINGS LIMITED"  (false)
+    #   Aselsan A.S. → OFAC SDN "Guillermo NIEBLAS NAVA"     (false)
+    #   Aselsan A.S. → UN SC    "ALI SADDAM HUSSEIN AL-TIKRITI" (false)
+    #   Acme Widgets → OFAC SDN "TAMIN KALAYE SABZ ARAS COMPANY" (false on fake input)
+    # The gate below reuses _sanctions_classify._tokenize_entity_name /
+    # _name_overlap (R-F277 / R-F351) so the per-source path applies the
+    # same token-overlap discipline the topic-classifier already uses.
+    # A hit is allowed to remain HARD_STOP only when it shares ≥1
+    # meaningful 5+ char token with the query OR scores ≥0.95.
+    from ._sanctions_classify import (
+        _tokenize_entity_name as _r569_tokenize,
+        _name_overlap as _r569_overlap,
+    )
+
+    def _r569_is_real_sanctions_hit(_hit: dict, _query: str) -> tuple[bool, str]:
+        """Return (is_real_match, reason). False if the hit is fuzzy noise."""
+        if not isinstance(_hit, dict) or not _query:
+            return True, ""  # defensive — don't accidentally suppress
+        _cand = (
+            _hit.get("name") or _hit.get("primary_name")
+            or _hit.get("full_name") or _hit.get("caption") or ""
+        )
+        if not _cand:
+            return True, ""
+        # Exact-or-near-exact scores bypass the gate (1.0 = identical
+        # normalised form, ≥0.95 = trivial spelling/punctuation drift).
+        _score = float(_hit.get("_match_score") or _hit.get("score") or 0.0)
+        if _score >= 0.95:
+            return True, f"score≥0.95 ({_score:.2f}) bypasses overlap gate"
+        # Token-overlap discipline: at least one shared token ≥5 chars.
+        _q_tokens = _r569_tokenize(_query)
+        _c_tokens = _r569_tokenize(_cand)
+        _shared = _q_tokens & _c_tokens
+        if not _shared:
+            return False, f"zero token overlap (query={list(_q_tokens)[:3]}, candidate={list(_c_tokens)[:3]})"
+        # Single-overlap on short token = high false-positive risk (R-F351 pattern).
+        if len(_shared) == 1:
+            _only = next(iter(_shared))
+            if len(_only) < 5:
+                return False, f"single short-token overlap ('{_only}', <5 chars)"
+        return True, f"shared tokens: {sorted(_shared)[:3]}"
+
+    try:
+        from .sources import (
+            sec_edgar as _src_sec,
+            ofac_sdn as _src_ofac,
+            fcdo_sanctions as _src_ofsi,
+            un_sc_sanctions as _src_un,
+            worldbank_debarred as _src_wb,
+            acled as _src_acled,
+        )
+        _src_results = await asyncio.gather(
+            _src_sec.lookup(name),
+            _src_ofac.lookup(name),
+            _src_ofsi.lookup(name),
+            _src_un.lookup(name),
+            _src_wb.lookup(name),
+            _src_acled.lookup(name, country=(jurisdiction or "")),
+            return_exceptions=True,
+        )
+        _src_labels = ["sec_edgar", "ofac_sdn", "uk_ofsi", "un_sc", "wb_debarred", "acled"]
+
+        for _lbl, _r in zip(_src_labels, _src_results):
+            if isinstance(_r, Exception):
+                logger.debug("Identity: primary source %s raised: %s", _lbl, _r)
+                report.identity.data_gaps.append(f"primary source {_lbl} did not complete")
+                continue
+            if not isinstance(_r, dict):
+                continue
+            report.identity.meta.subcalls += 1
+
+            if not _r.get("ok"):
+                if _r.get("error"):
+                    report.identity.data_gaps.append(
+                        f"{_lbl}: {str(_r.get('error'))[:120]}"
+                    )
+                continue
+
+            _hits = _r.get("hits") or []
+            if not _hits:
+                continue
+
+            # ── Severity mapping per source (semantics differ) ──
+            if _lbl == "ofac_sdn":
+                _best = _hits[0]
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"OFAC SDN match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Programme(s): {', '.join(_best.get('programs', []))}. "
+                            f"Designated {_best.get('designation_date','?')}. "
+                            f"50-percent-rule applies to subsidiaries. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.ofac_sdn",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    # R-F569: fuzzy noise — surface for operator review at INFO level
+                    # so it doesn't block but stays auditable.
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"OFAC SDN fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.ofac_sdn",
+                        confidence="ASSESSED",
+                    ))
+
+            elif _lbl == "un_sc":
+                _best = _hits[0]
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"UN Security Council match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Regime: {_best.get('regime','?')}. "
+                            f"Listed {_best.get('designation_date','?')}. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.un_sc_sanctions",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"UN SC fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.un_sc_sanctions",
+                        confidence="ASSESSED",
+                    ))
+
+            elif _lbl == "uk_ofsi":
+                _best = _hits[0]
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"UK OFSI match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Regime: {_best.get('regime','?')}. "
+                            f"Group ID {_best.get('group_id','?')}. "
+                            f"Designated {_best.get('designation_date','?')}. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.fcdo_sanctions",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"UK OFSI fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.fcdo_sanctions",
+                        confidence="ASSESSED",
+                    ))
+
+            elif _lbl == "wb_debarred":
+                _active = [h for h in _hits if h.get("status") == "active"]
+                if _active:
+                    _best = _active[0]
+                    report.identity.findings.append(Finding(
+                        severity="red",
+                        title=f"World Bank debarment (active): {_best.get('name','?')}",
+                        detail=(
+                            f"Grounds: {_best.get('grounds','?')}. "
+                            f"Ineligible {_best.get('ineligibility_from','?')} → "
+                            f"{_best.get('ineligibility_to','?')}. "
+                            f"Cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA 2010."
+                        ),
+                        source="sources.worldbank_debarred",
+                        confidence="PROBABLE",
+                    ))
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"World Bank debarment (expired): {_hits[0].get('name','?')}",
+                        detail=(
+                            f"Historical debarment, ineligibility ended "
+                            f"{_hits[0].get('ineligibility_to','?')}. "
+                            f"Relevant context, not a current refusal ground."
+                        ),
+                        source="sources.worldbank_debarred",
+                        confidence="ASSESSED",
+                    ))
+
+            elif _lbl == "sec_edgar":
+                # R-F613 (2026-05-17): surface ALL material hits, not just
+                # first per severity bucket. Past gap: company with 5
+                # recent RED 8-K events (cyber incident + exec departure
+                # + investigation + restatement + going-concern) only
+                # showed ONE in the DD report — credibility loss for
+                # financial-health DD. Cap at 5 per bucket.
+                _red_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("RED")]
+                _amber_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("AMBER")]
+                _info_hits = [h for h in _hits if
+                              not (h.get("severity_hint") or "").startswith(("RED", "AMBER"))]
+
+                for _b in _red_hits[:5]:
+                    report.identity.findings.append(Finding(
+                        severity="red",
+                        title=f"SEC 8-K material event: {_b.get('company_name','?')}",
+                        detail=(
+                            f"{_b.get('severity_hint','?')}. "
+                            f"Filed {_b.get('filing_date','?')}. "
+                            f"Items: {_b.get('items','?')}."
+                        ),
+                        source="sources.sec_edgar",
+                        confidence="CONFIRMED",
+                    ))
+                for _b in _amber_hits[:5]:
+                    report.identity.findings.append(Finding(
+                        severity="amber",
+                        title=f"SEC filing flagged: {_b.get('company_name','?')}",
+                        detail=(
+                            f"{_b.get('severity_hint','?')}. "
+                            f"Filed {_b.get('filing_date','?')}. "
+                            f"Items: {_b.get('items','?')}."
+                        ),
+                        source="sources.sec_edgar",
+                        confidence="PROBABLE",
+                    ))
+                # INFO summary fires only when no red/amber present —
+                # don't clutter when there's already a substantive finding.
+                if _info_hits and not (_red_hits or _amber_hits):
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"SEC filings found: {len(_info_hits)} recent ({_info_hits[0].get('company_name','?')})",
+                        detail=(
+                            f"Most recent: {_info_hits[0].get('form','?')} filed "
+                            f"{_info_hits[0].get('filing_date','?')}. "
+                            f"Full filings available for financial DD review."
+                        ),
+                        source="sources.sec_edgar",
+                        confidence="CONFIRMED",
+                    ))
+
+            elif _lbl == "acled":
+                _sev = _r.get("severity_hint") or ""
+                if _sev.startswith("RED"):
+                    report.identity.findings.append(Finding(
+                        severity="red",
+                        title=f"ACLED: entity named in political-violence events",
+                        detail=(
+                            f"{len(_hits)} events in last 180d involve similar actor name. "
+                            f"Most recent: {_hits[0].get('event_date','?')} "
+                            f"{_hits[0].get('event_type','?')} in {_hits[0].get('country','?')}."
+                        ),
+                        source="sources.acled",
+                        confidence="PROBABLE",
+                    ))
+                elif _sev.startswith("INFO"):
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title="ACLED: operational-environment signal",
+                        detail=_sev,
+                        source="sources.acled",
+                        confidence="ASSESSED",
+                    ))
+    except Exception as _e:
+        # R-F118 (2026-05-09): surface the cause in the data_gap so the
+        # operator sees WHY in the DD report (and on the chat output)
+        # instead of only in fly logs. Previous message was just
+        # "did not complete" — operator had to dig fly logs to learn
+        # whether it was an import error, a network issue, or an arg
+        # mismatch.
+        logger.warning(
+            "Identity: primary-source parallel screen failed: %s: %s",
+            type(_e).__name__, _e, exc_info=True,
+        )
+        report.identity.data_gaps.append(
+            f"primary-source parallel screen did not complete: "
+            f"{type(_e).__name__}: {str(_e)[:160]}"
+        )
+    return hard_stop
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -2411,312 +2733,10 @@ async def _run_identity(
         report.identity.data_gaps.append("sanctions screen did not complete")
 
     # ── 1a1. Primary-source parallel screen (SEC, OFAC, OFSI, UN, WB, ACLED) ──
-    # Added 2026-04-18 after the DD-depth audit. The OpenSanctions call
-    # above is convenient but aggregation-lagged; these six direct primary
-    # sources run in parallel and surface findings with canonical
-    # citations. Each source is wrapped in an individual try so one
-    # failure cannot block the others. ~2-4s added to identity layer
-    # worst-case (all six fetched in parallel, cached heavily).
-    #
-    # R-F569 (2026-05-16) — name-overlap gate on the per-source HARD_STOP
-    # emissions below. Pre-R-F569 each adapter's `_hits[0]` was emitted
-    # verbatim as a HARD_STOP finding with no similarity check beyond the
-    # adapter's own internal fuzzy_filter threshold (0.70 for ofac_sdn —
-    # too liberal). Live MVP fire-test 2026-05-16 logged
-    #   Embraer S.A. → OFAC SDN "MARANER HOLDINGS LIMITED"  (false)
-    #   Aselsan A.S. → OFAC SDN "Guillermo NIEBLAS NAVA"     (false)
-    #   Aselsan A.S. → UN SC    "ALI SADDAM HUSSEIN AL-TIKRITI" (false)
-    #   Acme Widgets → OFAC SDN "TAMIN KALAYE SABZ ARAS COMPANY" (false on fake input)
-    # The gate below reuses _sanctions_classify._tokenize_entity_name /
-    # _name_overlap (R-F277 / R-F351) so the per-source path applies the
-    # same token-overlap discipline the topic-classifier already uses.
-    # A hit is allowed to remain HARD_STOP only when it shares ≥1
-    # meaningful 5+ char token with the query OR scores ≥0.95.
-    from ._sanctions_classify import (
-        _tokenize_entity_name as _r569_tokenize,
-        _name_overlap as _r569_overlap,
-    )
-
-    def _r569_is_real_sanctions_hit(_hit: dict, _query: str) -> tuple[bool, str]:
-        """Return (is_real_match, reason). False if the hit is fuzzy noise."""
-        if not isinstance(_hit, dict) or not _query:
-            return True, ""  # defensive — don't accidentally suppress
-        _cand = (
-            _hit.get("name") or _hit.get("primary_name")
-            or _hit.get("full_name") or _hit.get("caption") or ""
-        )
-        if not _cand:
-            return True, ""
-        # Exact-or-near-exact scores bypass the gate (1.0 = identical
-        # normalised form, ≥0.95 = trivial spelling/punctuation drift).
-        _score = float(_hit.get("_match_score") or _hit.get("score") or 0.0)
-        if _score >= 0.95:
-            return True, f"score≥0.95 ({_score:.2f}) bypasses overlap gate"
-        # Token-overlap discipline: at least one shared token ≥5 chars.
-        _q_tokens = _r569_tokenize(_query)
-        _c_tokens = _r569_tokenize(_cand)
-        _shared = _q_tokens & _c_tokens
-        if not _shared:
-            return False, f"zero token overlap (query={list(_q_tokens)[:3]}, candidate={list(_c_tokens)[:3]})"
-        # Single-overlap on short token = high false-positive risk (R-F351 pattern).
-        if len(_shared) == 1:
-            _only = next(iter(_shared))
-            if len(_only) < 5:
-                return False, f"single short-token overlap ('{_only}', <5 chars)"
-        return True, f"shared tokens: {sorted(_shared)[:3]}"
-
-    try:
-        from .sources import (
-            sec_edgar as _src_sec,
-            ofac_sdn as _src_ofac,
-            fcdo_sanctions as _src_ofsi,
-            un_sc_sanctions as _src_un,
-            worldbank_debarred as _src_wb,
-            acled as _src_acled,
-        )
-        _src_results = await asyncio.gather(
-            _src_sec.lookup(name),
-            _src_ofac.lookup(name),
-            _src_ofsi.lookup(name),
-            _src_un.lookup(name),
-            _src_wb.lookup(name),
-            _src_acled.lookup(name, country=(jurisdiction or "")),
-            return_exceptions=True,
-        )
-        _src_labels = ["sec_edgar", "ofac_sdn", "uk_ofsi", "un_sc", "wb_debarred", "acled"]
-
-        for _lbl, _r in zip(_src_labels, _src_results):
-            if isinstance(_r, Exception):
-                logger.debug("Identity: primary source %s raised: %s", _lbl, _r)
-                report.identity.data_gaps.append(f"primary source {_lbl} did not complete")
-                continue
-            if not isinstance(_r, dict):
-                continue
-            report.identity.meta.subcalls += 1
-
-            if not _r.get("ok"):
-                if _r.get("error"):
-                    report.identity.data_gaps.append(
-                        f"{_lbl}: {str(_r.get('error'))[:120]}"
-                    )
-                continue
-
-            _hits = _r.get("hits") or []
-            if not _hits:
-                continue
-
-            # ── Severity mapping per source (semantics differ) ──
-            if _lbl == "ofac_sdn":
-                _best = _hits[0]
-                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
-                if _real:
-                    report.identity.findings.append(Finding(
-                        severity="hard_stop",
-                        title=f"OFAC SDN match: {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}. "
-                            f"Programme(s): {', '.join(_best.get('programs', []))}. "
-                            f"Designated {_best.get('designation_date','?')}. "
-                            f"50-percent-rule applies to subsidiaries. "
-                            f"R-F569 gate: {_reason}."
-                        ),
-                        source="sources.ofac_sdn",
-                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                    ))
-                    hard_stop = True
-                else:
-                    # R-F569: fuzzy noise — surface for operator review at INFO level
-                    # so it doesn't block but stays auditable.
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"OFAC SDN fuzzy hit (filtered): {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}, "
-                            f"but R-F569 name-overlap gate rejected: {_reason}. "
-                            f"Not a refusal ground; surfaced for operator audit."
-                        ),
-                        source="sources.ofac_sdn",
-                        confidence="ASSESSED",
-                    ))
-
-            elif _lbl == "un_sc":
-                _best = _hits[0]
-                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
-                if _real:
-                    report.identity.findings.append(Finding(
-                        severity="hard_stop",
-                        title=f"UN Security Council match: {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}. "
-                            f"Regime: {_best.get('regime','?')}. "
-                            f"Listed {_best.get('designation_date','?')}. "
-                            f"R-F569 gate: {_reason}."
-                        ),
-                        source="sources.un_sc_sanctions",
-                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                    ))
-                    hard_stop = True
-                else:
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"UN SC fuzzy hit (filtered): {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}, "
-                            f"but R-F569 name-overlap gate rejected: {_reason}. "
-                            f"Not a refusal ground; surfaced for operator audit."
-                        ),
-                        source="sources.un_sc_sanctions",
-                        confidence="ASSESSED",
-                    ))
-
-            elif _lbl == "uk_ofsi":
-                _best = _hits[0]
-                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
-                if _real:
-                    report.identity.findings.append(Finding(
-                        severity="hard_stop",
-                        title=f"UK OFSI match: {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}. "
-                            f"Regime: {_best.get('regime','?')}. "
-                            f"Group ID {_best.get('group_id','?')}. "
-                            f"Designated {_best.get('designation_date','?')}. "
-                            f"R-F569 gate: {_reason}."
-                        ),
-                        source="sources.fcdo_sanctions",
-                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                    ))
-                    hard_stop = True
-                else:
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"UK OFSI fuzzy hit (filtered): {_best.get('name','?')}",
-                        detail=(
-                            f"Match score {_best.get('_match_score', 0):.2f}, "
-                            f"but R-F569 name-overlap gate rejected: {_reason}. "
-                            f"Not a refusal ground; surfaced for operator audit."
-                        ),
-                        source="sources.fcdo_sanctions",
-                        confidence="ASSESSED",
-                    ))
-
-            elif _lbl == "wb_debarred":
-                _active = [h for h in _hits if h.get("status") == "active"]
-                if _active:
-                    _best = _active[0]
-                    report.identity.findings.append(Finding(
-                        severity="red",
-                        title=f"World Bank debarment (active): {_best.get('name','?')}",
-                        detail=(
-                            f"Grounds: {_best.get('grounds','?')}. "
-                            f"Ineligible {_best.get('ineligibility_from','?')} → "
-                            f"{_best.get('ineligibility_to','?')}. "
-                            f"Cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA 2010."
-                        ),
-                        source="sources.worldbank_debarred",
-                        confidence="PROBABLE",
-                    ))
-                else:
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"World Bank debarment (expired): {_hits[0].get('name','?')}",
-                        detail=(
-                            f"Historical debarment, ineligibility ended "
-                            f"{_hits[0].get('ineligibility_to','?')}. "
-                            f"Relevant context, not a current refusal ground."
-                        ),
-                        source="sources.worldbank_debarred",
-                        confidence="ASSESSED",
-                    ))
-
-            elif _lbl == "sec_edgar":
-                # R-F613 (2026-05-17): surface ALL material hits, not just
-                # first per severity bucket. Past gap: company with 5
-                # recent RED 8-K events (cyber incident + exec departure
-                # + investigation + restatement + going-concern) only
-                # showed ONE in the DD report — credibility loss for
-                # financial-health DD. Cap at 5 per bucket.
-                _red_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("RED")]
-                _amber_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("AMBER")]
-                _info_hits = [h for h in _hits if
-                              not (h.get("severity_hint") or "").startswith(("RED", "AMBER"))]
-
-                for _b in _red_hits[:5]:
-                    report.identity.findings.append(Finding(
-                        severity="red",
-                        title=f"SEC 8-K material event: {_b.get('company_name','?')}",
-                        detail=(
-                            f"{_b.get('severity_hint','?')}. "
-                            f"Filed {_b.get('filing_date','?')}. "
-                            f"Items: {_b.get('items','?')}."
-                        ),
-                        source="sources.sec_edgar",
-                        confidence="CONFIRMED",
-                    ))
-                for _b in _amber_hits[:5]:
-                    report.identity.findings.append(Finding(
-                        severity="amber",
-                        title=f"SEC filing flagged: {_b.get('company_name','?')}",
-                        detail=(
-                            f"{_b.get('severity_hint','?')}. "
-                            f"Filed {_b.get('filing_date','?')}. "
-                            f"Items: {_b.get('items','?')}."
-                        ),
-                        source="sources.sec_edgar",
-                        confidence="PROBABLE",
-                    ))
-                # INFO summary fires only when no red/amber present —
-                # don't clutter when there's already a substantive finding.
-                if _info_hits and not (_red_hits or _amber_hits):
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"SEC filings found: {len(_info_hits)} recent ({_info_hits[0].get('company_name','?')})",
-                        detail=(
-                            f"Most recent: {_info_hits[0].get('form','?')} filed "
-                            f"{_info_hits[0].get('filing_date','?')}. "
-                            f"Full filings available for financial DD review."
-                        ),
-                        source="sources.sec_edgar",
-                        confidence="CONFIRMED",
-                    ))
-
-            elif _lbl == "acled":
-                _sev = _r.get("severity_hint") or ""
-                if _sev.startswith("RED"):
-                    report.identity.findings.append(Finding(
-                        severity="red",
-                        title=f"ACLED: entity named in political-violence events",
-                        detail=(
-                            f"{len(_hits)} events in last 180d involve similar actor name. "
-                            f"Most recent: {_hits[0].get('event_date','?')} "
-                            f"{_hits[0].get('event_type','?')} in {_hits[0].get('country','?')}."
-                        ),
-                        source="sources.acled",
-                        confidence="PROBABLE",
-                    ))
-                elif _sev.startswith("INFO"):
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title="ACLED: operational-environment signal",
-                        detail=_sev,
-                        source="sources.acled",
-                        confidence="ASSESSED",
-                    ))
-    except Exception as _e:
-        # R-F118 (2026-05-09): surface the cause in the data_gap so the
-        # operator sees WHY in the DD report (and on the chat output)
-        # instead of only in fly logs. Previous message was just
-        # "did not complete" — operator had to dig fly logs to learn
-        # whether it was an import error, a network issue, or an arg
-        # mismatch.
-        logger.warning(
-            "Identity: primary-source parallel screen failed: %s: %s",
-            type(_e).__name__, _e, exc_info=True,
-        )
-        report.identity.data_gaps.append(
-            f"primary-source parallel screen did not complete: "
-            f"{type(_e).__name__}: {str(_e)[:160]}"
-        )
+    # R-F1844: extracted to _identity_primary_source_screen (pure). It sets a
+    # hard-stop on a real OFAC/UN/OFSI match; OR-combine so we never unset one.
+    if await _identity_primary_source_screen(name, jurisdiction, report):
+        hard_stop = True
 
     # ── 1a2. Extract contact names from email / phone / explicit fields ──
     # When the user provides emails like branislav.takac@btg.sk or
@@ -5522,7 +5542,7 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         report.synthesis.ghost_score_total = int(ghost.get("total") or 0)
         report.synthesis.ghost_classification = str(ghost.get("classification") or "GREEN")
     # R-F1924: incremental BLUF write — preserves partial result if synthesis times out
-    report.synthesis.findings.append(Finding(
+    report.synthesis.key_findings.append(Finding(
         severity="info",
         title=f"Ghost score: {report.synthesis.ghost_score_total}/20 — {report.synthesis.ghost_classification}",
         detail=f"Ghost classification for {report.identity.entity_name or 'entity'}: {report.synthesis.ghost_classification}",
@@ -5581,7 +5601,7 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         worst = "GREEN"
 
     # R-F1924: incremental BLUF write — risk classification available even if synthesis times out
-    report.synthesis.findings.append(Finding(
+    report.synthesis.key_findings.append(Finding(
         severity="info",
         title=f"Risk classification: {worst}",
         detail=f"Aggregated from {len(candidates)} signal(s): {', '.join(candidates) if candidates else 'no signals'}",
