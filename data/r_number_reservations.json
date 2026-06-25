@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1929,
+  "next_available": 1932,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13606,9 +13606,9 @@
       "claimed_at": "2026-06-25T09:06:43Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "d52899d3",
+      "commit_sha": "f41bf836",
       "notes": null,
-      "shipped_at": "2026-06-25T09:17:00Z"
+      "shipped_at": "2026-06-25T11:29:00Z"
     },
     {
       "r_number": "R-F1925",
@@ -13643,6 +13643,35 @@
       "r_number": "R-F1928",
       "title": "TestRunner uses literal 'python' subprocess -> wrong interpreter (no pytest-timeout); use sys.executable",
       "claimed_at": "2026-06-25T10:40:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1929",
+      "title": "Consolidate WA UX: model-card §12 -> read-only status + Manage link to wa-connections.html (kill prompt/innerHTML-swap/reload)",
+      "claimed_at": "2026-06-25T11:04:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6d6fb015",
+      "notes": null,
+      "shipped_at": "2026-06-25T11:09:10Z"
+    },
+    {
+      "r_number": "R-F1930",
+      "title": "C1: factor messages.upsert into shared handler + attach to secondary account sockets (two-way multi-account)",
+      "claimed_at": "2026-06-25T11:17:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7b5a3272",
+      "notes": null,
+      "shipped_at": "2026-06-25T11:30:04Z"
+    },
+    {
+      "r_number": "R-F1931",
+      "title": "ARIA local coder runner — run self_coder.fix_gap on the computer (pull brain gaps / canary), all lifecycle fixes baked",
+      "claimed_at": "2026-06-25T11:34:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
