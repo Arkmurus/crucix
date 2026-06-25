@@ -1320,7 +1320,17 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         # R-F1925: target up to 10 weakest cells per session (was 3) to
         # accelerate gate #2 closure. Also include 'thin' cells (1-9 facts)
         # that are below the floor target — they need fewer lifts to cross.
-        for _cell in _weak_cells[:10]:
+        # R-F1925b: ALWAYS include the current argmin cell (the floor) even
+        # if it's not in the top 10 — the gate only closes when the single
+        # weakest cell crosses 0.70, so the floor cell must be targeted
+        # every session regardless of breadth.
+        _target_cells = list(_weak_cells[:10])
+        _floor_cells = _hm.get("floor_breach_cells") or []
+        if _floor_cells:
+            _floor = _floor_cells[0]
+            if _floor not in _target_cells:
+                _target_cells.append(_floor)
+        for _cell in _target_cells:
             _topic = (_cell.get("topic") or "").strip()
             _region = (_cell.get("region") or "").strip()
             # Only act on real, region-specific gate-#2 cells.
