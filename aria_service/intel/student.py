@@ -1317,7 +1317,10 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         _hm = await get_regional_heatmap()
         _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
         from . import web_explorer as _we2
-        for _cell in _weak_cells[:3]:
+        # R-F1925: target up to 10 weakest cells per session (was 3) to
+        # accelerate gate #2 closure. Also include 'thin' cells (1-9 facts)
+        # that are below the floor target — they need fewer lifts to cross.
+        for _cell in _weak_cells[:10]:
             _topic = (_cell.get("topic") or "").strip()
             _region = (_cell.get("region") or "").strip()
             # Only act on real, region-specific gate-#2 cells.
