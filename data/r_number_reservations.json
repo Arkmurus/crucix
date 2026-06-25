@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1906,
+  "next_available": 1910,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13414,6 +13414,44 @@
       "r_number": "R-F1905",
       "title": "Fix WhatsApp Add Account on model card",
       "claimed_at": "2026-06-25T05:23:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "55f6f1a1",
+      "notes": null,
+      "shipped_at": "2026-06-25T05:55:02Z"
+    },
+    {
+      "r_number": "R-F1906",
+      "title": "Verification follow-ups: GLEIF single-token false-match + HQ nearest-to-marker + clamp 4 heavy DD layers + encode_offload empty-env+model-name + readdoc TTL + CR strip",
+      "claimed_at": "2026-06-25T05:55:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "288b10d5",
+      "notes": null,
+      "shipped_at": "2026-06-25T06:15:05Z"
+    },
+    {
+      "r_number": "R-F1907",
+      "title": "autonomy_scorer min-sample guard — n=1 honesty sample deflated gate-1 composite 0.80->0.60",
+      "claimed_at": "2026-06-25T06:33:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1908",
+      "title": "G1: eradicate undefined-name NameError class in routes/aria.py + F821 repo guard",
+      "claimed_at": "2026-06-25T06:37:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1909",
+      "title": "G3: complete IDOR owner-check across document-extraction siblings + WA account routes + ownership-enumeration guard",
+      "claimed_at": "2026-06-25T06:37:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
