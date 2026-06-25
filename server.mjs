@@ -48,7 +48,7 @@ import { createStatusRouter } from './lib/status/routes.mjs';
 import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
 import { initApiKeysStore } from './lib/api_keys/store.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
-import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
+import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -4338,6 +4338,8 @@ app.post('/api/auth/verify-email', async (req, res) => {
     }
 
     updateUser(user.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
+    // R-F1935: notify user that email verification was successful
+    await sendVerificationSuccessEmail(email, user.fullName).catch(() => {});
     // Notify user that their request is under review
     await sendPendingApprovalEmail(email, user.fullName).catch(() => {});
     // Notify admin
