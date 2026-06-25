@@ -1,9 +1,0 @@
-[eval] open-book eval set: data/eval_reports/aria_eval_500q_openbook.jsonl (500 Q)
-[eval] pod RUNNING 63.141.33.53:22130
-[eval] SSH ready
-[eval] pushing runner + scripts + eval set + watcher…
-Connection to 63.141.33.53 closed by remote host.
-scp: Connection closed
-[eval] FATAL scp eval_aria_llm.py
-[eval] stopping pod 2adkzeri6fa2zi
-DRIVER_EXIT=1
