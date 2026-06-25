@@ -225,7 +225,7 @@ window.addEventListener('DOMContentLoaded', function () {
   <span id="autonomy-badge" class="badge">--</span>
   <span id="composite-badge" class="badge badge-blue">--</span>
   <span class="timestamp" id="last-refresh">--</span>
-  <button class="refresh-btn" onclick="refreshAll()">Refresh</button>
+  <button class="refresh-btn" id="refreshBtn">Refresh</button>
 </div>
 
 <div class="grid">
@@ -316,8 +316,8 @@ window.addEventListener('DOMContentLoaded', function () {
       <input id="inv-tag" type="text" placeholder="tag (e.g. angola_procurement, sam.gov, wagner)"
              style="flex:1;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);
                     color:#fff;padding:7px 10px;border-radius:6px;font-size:13px;outline:none"
-             onkeydown="if(event.key==='Enter')runInventory()">
-      <button onclick="runInventory()"
+             >
+      <button id="invRunBtn"
               style="background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;border:0;
                      padding:7px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
         Lookup
@@ -2079,6 +2079,12 @@ function clearStuckLoading() {
 // 14 endpoints × every 60s = 840 req/hr was triggering 429s
 refreshAll().then(() => setTimeout(clearStuckLoading, 10000));
 setInterval(() => refreshAll().then(() => setTimeout(clearStuckLoading, 10000)), 300000);
+
+// R-F1919 (G6b/CSP): wire via listeners (was inline onclick/onkeydown) so CSP
+// script-src-attr 'none' can block inline event handlers (XSS hardening).
+document.getElementById('refreshBtn').addEventListener('click', () => refreshAll());
+document.getElementById('invRunBtn').addEventListener('click', () => runInventory());
+document.getElementById('inv-tag').addEventListener('keydown', (e) => { if (e.key === 'Enter') runInventory(); });
 </script>
 
 </main>

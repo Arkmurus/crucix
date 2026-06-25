@@ -156,12 +156,12 @@
     <!-- Create new account -->
     <div class="create-bar">
       <input type="text" id="accountName" placeholder="e.g. ARIA Portugal" maxlength="50">
-      <button class="btn btn-primary" id="createBtn" onclick="createAccount()">+ Add</button>
+      <button class="btn btn-primary" id="createBtn">+ Add</button>
     </div>
 
     <!-- Refresh -->
     <div class="refresh-bar">
-      <button class="btn btn-outline" onclick="refresh()">↻ Refresh</button>
+      <button class="btn btn-outline" id="refreshBtn">↻ Refresh</button>
     </div>
 
     <!-- Loading -->
@@ -182,10 +182,10 @@
   </div>
 
   <!-- QR Modal -->
-  <div id="qrModal" class="modal-overlay" style="display:none" onclick="closeQr()">
-    <div class="modal" onclick="event.stopPropagation()">
+  <div id="qrModal" class="modal-overlay" style="display:none">
+    <div class="modal" id="qrModalInner">
       <div class="modal-wrap">
-        <button class="modal-close" onclick="closeQr()">✕</button>
+        <button class="modal-close" id="qrCloseBtn">✕</button>
         <h2 id="qrTitle">Scan with WhatsApp</h2>
         <p>Open <strong>WhatsApp</strong> → <strong>Settings</strong> → <strong>Linked Devices</strong> → <strong>Link a Device</strong></p>
         <div id="qrContent" class="text-center" style="text-align:center">
@@ -278,11 +278,11 @@
           </div>
           <div class="actions">
             ${a.status === 'qr_ready' || a.status === 'connecting'
-              ? `<button class="btn btn-primary" onclick="showQr('${a.id}')">📷 Show QR</button>`
+              ? `<button class="btn btn-primary" data-action="showQr" data-id="${escHtml(a.id)}">📷 Show QR</button>`
               : ''}
-            <button class="btn btn-danger" id="del-${a.id}" onclick="confirmDelete('${a.id}')">🗑 Remove</button>
-            <button class="btn btn-danger confirm" id="del-confirm-${a.id}" style="display:none" onclick="deleteAccount('${a.id}')">⚠ Confirm Delete</button>
-            <button class="btn btn-outline" id="del-cancel-${a.id}" style="display:none" onclick="cancelDelete('${a.id}')">Cancel</button>
+            <button class="btn btn-danger" id="del-${escHtml(a.id)}" data-action="confirmDelete" data-id="${escHtml(a.id)}">🗑 Remove</button>
+            <button class="btn btn-danger confirm" id="del-confirm-${escHtml(a.id)}" style="display:none" data-action="deleteAccount" data-id="${escHtml(a.id)}">⚠ Confirm Delete</button>
+            <button class="btn btn-outline" id="del-cancel-${escHtml(a.id)}" style="display:none" data-action="cancelDelete" data-id="${escHtml(a.id)}">Cancel</button>
           </div>
         </div>
       `).join('');
@@ -391,6 +391,23 @@
     function closeQr() {
       document.getElementById('qrModal').style.display = 'none';
     }
+
+    // R-F1919 (G6b/CSP) — wire all interactions via listeners instead of inline
+    // on*= handlers, so CSP `script-src-attr 'none'` can block inline event
+    // handlers (XSS hardening) without breaking the page. Delegated listener on
+    // the account list handles the dynamically-rendered per-account buttons.
+    const _waActions = { showQr, confirmDelete, deleteAccount, cancelDelete };
+    document.getElementById('accounts').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const fn = _waActions[btn.dataset.action];
+      if (fn) fn(btn.dataset.id);
+    });
+    document.getElementById('createBtn').addEventListener('click', () => createAccount());
+    document.getElementById('refreshBtn').addEventListener('click', () => refresh());
+    document.getElementById('qrCloseBtn').addEventListener('click', () => closeQr());
+    document.getElementById('qrModal').addEventListener('click', () => closeQr());
+    document.getElementById('qrModalInner').addEventListener('click', (e) => e.stopPropagation());
 
     // Start polling
     refresh();

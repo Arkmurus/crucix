@@ -284,7 +284,7 @@
         container.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:14px;">'
           + '<p>No WhatsApp accounts connected.</p>'
           + '<p style="font-size:12px;margin-top:8px;">'
-          + '<button onclick="createAccount()" style="background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Add Account</button>'
+          + '<button data-action="createAccount" style="background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Add Account</button>'
           + '</p></div>';
         return;
       }
@@ -311,7 +311,7 @@
       }
       html += '</div>';
       html += '<div style="text-align:center;margin-top:12px;">';
-      html += '<button onclick="createAccount()" style="background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Add Account</button>';
+      html += '<button data-action="createAccount" style="background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Add Account</button>';
       html += '</div>';
       container.innerHTML = html;
     } catch (e) {
@@ -347,7 +347,7 @@
             + '</div>'
             + '<p style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:12px;">'
             + 'QR code expires in 60 seconds. Refresh to scan again.</p>'
-            + '<button onclick="location.reload()" style="margin-top:16px;background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Done — Refresh</button>'
+            + '<button data-action="reload" style="margin-top:16px;background:#7c3aed;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;">Done — Refresh</button>'
             + '</div>';
         } else {
           location.reload();
@@ -360,6 +360,15 @@
       alert('Failed: ' + e.message);
     }
   }
+
+  // R-F1919 (G6b/CSP): delegated handler — was inline onclick. Lets CSP
+  // script-src-attr 'none' block inline event handlers (XSS hardening).
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-action]');
+    if (!el) return;
+    if (el.dataset.action === 'createAccount') createAccount();
+    else if (el.dataset.action === 'reload') location.reload();
+  });
   </script>
 </main>
 

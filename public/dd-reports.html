@@ -1262,7 +1262,7 @@ loadReports();
       data.entries.forEach(function(e) {
         var riskClass = (e.risk_level || '').toLowerCase();
         var lastRun = e.last_run_at ? new Date(e.last_run_at * 1000).toLocaleDateString() : '--';
-        html += '<tr class="dd-row" onclick="showVaultCase(\'' + escHtml(e.canonical_entity_id) + '\')">';
+        html += '<tr class="dd-row" data-action="showVaultCase" data-id="' + escHtml(e.canonical_entity_id) + '">';
         html += '<td class="col-entity">' + escHtml(e.entity_name) + '</td>';
         html += '<td class="col-meta">' + escHtml(e.entity_type) + '</td>';
         html += '<td><span class="dd-pill ' + riskClass + '">' + escHtml(e.risk_level || 'unknown') + '</span></td>';
@@ -1315,7 +1315,7 @@ loadReports();
         html += '<h4 style="color:#3b82f6;font-size:13px;margin:12px 0 8px">Related Cases</h4>';
         html += '<div style="font-size:12px">';
         data.related_cases.forEach(function(rc) {
-          html += '<div style="padding:4px 0;cursor:pointer;color:#a78bfa" onclick="showVaultCase(\'' + escHtml(rc.canonical_entity_id) + '\')">';
+          html += '<div style="padding:4px 0;cursor:pointer;color:#a78bfa" data-action="showVaultCase" data-id="' + escHtml(rc.canonical_entity_id) + '">';
           html += '<i class="bi bi-box-arrow-up-right" style="font-size:10px"></i> ' + escHtml(rc.entity_name) + ' (' + escHtml(rc.risk_level || 'unknown') + ')';
           html += '</div>';
         });
@@ -1343,6 +1343,14 @@ loadReports();
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
     });
   }
+
+  // R-F1919 (G6b/CSP): delegated click for vault rows (was inline onclick with an
+  // interpolated id — the #3 DOM-XSS vector). Lets CSP script-src-attr 'none'
+  // block inline handlers without breaking row navigation.
+  document.addEventListener('click', function(e) {
+    var el = e.target.closest('[data-action="showVaultCase"]');
+    if (el && el.dataset.id) window.showVaultCase(el.dataset.id);
+  });
 })();
 </script>
 </body>

@@ -284,7 +284,7 @@ async function showPublicKey() {
     box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
       '<span style="color:rgba(255,255,255,0.5);font-size:12px;font-family:sans-serif">' +
       '<strong style="color:#fff">Algorithm:</strong> ' + escText(data.algorithm || 'ECDSA-SECP256K1') + '</span>' +
-      '<button class="vls-btn sec" style="padding:4px 10px;font-size:11px" onclick="copyPem()">' +
+      '<button class="vls-btn sec" style="padding:4px 10px;font-size:11px" data-action="copyPem">' +
       '<i class="bi bi-clipboard"></i> Copy</button></div>' +
       '<pre style="margin:0;white-space:pre-wrap">' + escText(pem) + '</pre>';
 
@@ -319,6 +319,12 @@ function copyPem() {
 function escText(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// R-F1919 (G6b/CSP): delegated handler — was inline onclick. Lets CSP
+// script-src-attr 'none' block inline event handlers (XSS hardening).
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-action="copyPem"]')) copyPem();
+});
 </script>
 </body>
 </html>

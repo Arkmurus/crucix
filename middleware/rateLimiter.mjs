@@ -170,7 +170,15 @@ export function applySecurityHeaders(app) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'", "'unsafe-inline'"],   // Angular needs this
+        // R-F1919 (G6b): scriptSrcAttr 'none' BLOCKS all inline on*= event handlers
+        // (the #3 DOM-XSS class) — every served page's handlers were migrated to
+        // delegated addEventListener first, so nothing breaks. `'unsafe-inline'`
+        // stays on scriptSrc for now because each page still has a large inline
+        // <script> app block; fully dropping it needs those externalised (tracked
+        // follow-up). The stale "Angular needs this" note was wrong — Angular is
+        // dead/undeployed; the real reason is the inline page-app scripts.
+        scriptSrc:     ["'self'", "'unsafe-inline'"],  // inline page-app <script> blocks
+        scriptSrcAttr: ["'none'"],                     // R-F1919: no inline event handlers
         styleSrc:    ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
         fontSrc:     ["'self'", 'fonts.gstatic.com'],
         imgSrc:      ["'self'", 'data:', 'blob:'],
