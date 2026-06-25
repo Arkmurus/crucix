@@ -98,6 +98,13 @@ import fs       from 'fs';
 import path     from 'path';            // R-F1861: ESM has no require(); import node:path
 import { createClient } from 'redis';
 import { randomBytes, timingSafeEqual } from 'node:crypto';   // R-F1870/R-F1884: per-job callback token (constant-time compare)
+import { AsyncLocalStorage } from 'node:async_hooks';         // R-F1930 (C1): per-inbound {sock,account} context so secondary numbers reply on themselves
+
+// R-F1930 (C1): ambient context for the inbound message pipeline. onMessagesUpsert
+// runs each batch inside _waCtx.run({sock, account}); sendReply reads the store to
+// answer on the SAME socket the message arrived on (instead of always the primary),
+// and the job map records account.id so the async /callback delivers there too.
+const _waCtx = new AsyncLocalStorage();
 
 // R-F1884 (review RV-04, timing-safe): constant-time token compare; false on
 // any length mismatch or error. Prevents both timing side-channels and the
@@ -485,7 +492,11 @@ async function _createAccount(accountId, name, ownerUserId = '') {
       }
     }
   });
-  
+
+  // R-F1930 (C1): secondary accounts now PROCESS inbound messages (were dark) —
+  // and reply on their own socket via the _waCtx context onMessagesUpsert sets.
+  sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(sock, account, ev));
+
   return account;
 }
 
@@ -536,6 +547,9 @@ async function _reconnectAccount(accountId) {
         account.status = 'disconnected';
       }
     });
+    // R-F1930 (C1): re-attach the inbound handler on reconnect too, else a
+    // reconnected secondary account would go dark again.
+    account.sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(account.sock, account, ev));
   } catch (e) {
     console.error(`[ARIA Listener] Account ${accountId} reconnect failed:`, e.message);
   }
@@ -1190,7 +1204,10 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   // R-F1413 — register the job_id → chat mapping for async-complete-and-push callback
   // deliveredViaCallback flag prevents double-delivery when both poll and callback fire
   if (jobId && chatId) {
-    _asyncJobMap.set(jobId, { chatId, requestId, senderJid, ts: Date.now(), deliveredViaCallback: false, callbackToken });
+    _asyncJobMap.set(jobId, { chatId, requestId, senderJid, ts: Date.now(), deliveredViaCallback: false, callbackToken,
+      // R-F1930 (C1): remember WHICH account this job came in on so the async
+      // /callback delivers the answer back on that same socket (empty = primary).
+      accountId: ((_waCtx.getStore() || {}).account || {}).id || '' });
     // Evict stale entries after 30 min (the brain job TTL is 1h)
     for (const [jid, entry] of _asyncJobMap) {
       if (Date.now() - entry.ts > 1800000) _asyncJobMap.delete(jid);
@@ -1410,7 +1427,14 @@ async function reportOutcome(surface, requestId, intendedResult, actualOutcome, 
 }
 
 async function sendReply(chatId, text, requestId) {
-  if (!sock || !isConnected || !text) return;
+  // R-F1930 (C1): answer on the socket the inbound message arrived on (the ALS
+  // store set by onMessagesUpsert), so a secondary number replies as ITSELF;
+  // fall back to the primary sock for proactive / out-of-context sends.
+  // account=null in the store means the primary/global connection.
+  const _ctx = _waCtx.getStore();
+  const _s = (_ctx && _ctx.sock) || sock;
+  const _connected = _ctx ? (_ctx.account ? _ctx.account.connected : isConnected) : isConnected;
+  if (!_s || !_connected || !text) return;
   const t0 = Date.now();
   try {
     // R-F1329 — format Markdown for WhatsApp before chunking
@@ -1418,7 +1442,7 @@ async function sendReply(chatId, text, requestId) {
     const chunks = splitMessage(formatted);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      await sock.sendMessage(chatId, { text: chunks[i] });
+      await _s.sendMessage(chatId, { text: chunks[i] });
     }
     // T0★ — report success outcome (R-F1411)
     if (requestId) {
@@ -1912,11 +1936,19 @@ async function startListener() {
   });
 
   // ── THE CORE: receive every group message ──────────────────────────────────
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+  sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(sock, null, ev));
+}
 
-    // Only process new incoming messages, not history
-    if (type !== 'notify') return;
-
+// R-F1930 (C1): the inbound message pipeline, factored out of startListener so
+// SECONDARY account sockets get it too (before this they were dark — connected
+// but never processed inbound). `sock`+`account` ride in AsyncLocalStorage so the
+// reply path (sendReply) and the async /callback answer on the SAME number the
+// message arrived on. account=null = the primary/global connection.
+async function onMessagesUpsert(sock, account, ev) {
+  const { messages, type } = ev;
+  // Only process new incoming messages, not history
+  if (type !== 'notify') return;
+  return _waCtx.run({ sock, account }, async () => {
     for (const msg of messages) {
       // R-F1854 (audit, DD stage 3) — shape guard. A malformed messages.upsert
       // entry (null msg, or missing `key`) previously threw a TypeError on the
@@ -2678,12 +2710,17 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
   mapping.deliveringViaCallback = true;  // atomic claim — no await before this
 
   // Deliver the result to WhatsApp
+  // R-F1930 (C1): deliver on the socket the job came in on. If the job was from a
+  // secondary account (accountId set + still present), use its sock; otherwise the
+  // primary. Falls back to primary if the account vanished (e.g. removed mid-flight).
+  const _acct = mapping.accountId ? _accounts.get(mapping.accountId) : null;
+  const _dsock = (_acct && _acct.sock) || sock;
   const t0 = Date.now();
   try {
     const chunks = splitMessage(message);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      await sock.sendMessage(chatId, { text: chunks[i] });
+      await _dsock.sendMessage(chatId, { text: chunks[i] });
     }
     // R-F1870 (audit DD-24): mark delivered only AFTER all chunks send. The flag
     // used to be set before the send, so a mid-send failure left it true and a
