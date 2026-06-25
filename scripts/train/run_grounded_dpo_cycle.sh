@@ -30,7 +30,7 @@ DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | t
 [ -n "$DSK" ] || { echo "[driver] FATAL: DEEPSEEK_API_KEY not in .env — judge required for the eval"; exit 1; }
 
 SFT_CORPUS="${SFT_CORPUS:-data/training/aria_grounded_v1.jsonl}"
-DPO_PAIRS="${DPO_PAIRS:-data/training/aria_dpo_pairs_v1.jsonl}"
+DPO_PAIRS="${DPO_PAIRS:-data/training/aria_dpo_pairs_v1_str.jsonl}"  # R-F1945 fix: STRING format (prompt/chosen/rejected as str, no extra cols) so dpo_train.py's line-120 cleanup+remove_columns fires (the conversational+extras format made DPO produce no adapter, run 1 fail)
 EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"
 PARITY="${PARITY:-0.336}"   # DeepSeek open-book defence-DD baseline to beat
 [ -s "$SFT_CORPUS" ] || { echo "[driver] FATAL: grounded SFT corpus missing/empty: $SFT_CORPUS"; exit 1; }
