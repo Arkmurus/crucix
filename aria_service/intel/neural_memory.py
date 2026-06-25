@@ -118,6 +118,33 @@ _edges: dict[str, dict[str, float]] = defaultdict(dict)  # from_id → {to_id: w
 _meta: dict = {"total_neurons": 0, "total_edges": 0, "total_activations": 0, "born": None}
 _loaded = False
 
+# R-F1932 (G4 tail): inverted indices so _find_neuron + recall()'s seed scan are
+# O(matching neurons), not O(all neurons). _neurons grows forever (infinite memory),
+# so the old per-call full scans were a creeping on-event-loop wedge (audit H4).
+# `concept` is stored lowercased + is immutable, and neurons are never deleted, so
+# these indices only ever GROW — no per-neuron removal needed.
+_concept_to_id: dict[str, str] = {}   # concept(lower) -> neuron id   (exact lookup)
+_word_to_ids: dict[str, set] = {}     # concept word   -> {neuron ids} (overlap candidates)
+
+
+def _index_neuron(n: dict) -> None:
+    """Add one neuron to the inverted indices (idempotent)."""
+    nid = n.get("id")
+    if not nid:
+        return
+    concept = n.get("concept") or ""
+    _concept_to_id[concept] = nid
+    for w in concept.split():
+        _word_to_ids.setdefault(w, set()).add(nid)
+
+
+def _rebuild_neuron_index() -> None:
+    """Rebuild both indices from _neurons — call after any BULK load/replace."""
+    _concept_to_id.clear()
+    _word_to_ids.clear()
+    for n in _neurons.values():
+        _index_neuron(n)
+
 # R-F442 (2026-05-13) — write-skipping dirty flag for the edges blob.
 # Pre-R-F442 _persist() unconditionally rewrote EDGES_KEY (~4.14 MB) on
 # every call, including from recall(), which only mutates neuron-level
@@ -396,6 +423,7 @@ async def init() -> None:
 
         if neurons_raw and isinstance(neurons_raw, dict):
             _neurons = neurons_raw
+            _rebuild_neuron_index()  # R-F1932: index the bulk-loaded neurons
         if edges_raw and isinstance(edges_raw, dict):
             _edges = defaultdict(dict, {k: v for k, v in edges_raw.items()})
         if meta_raw and isinstance(meta_raw, dict):
@@ -476,6 +504,7 @@ async def _persist() -> None:
                 if isinstance(disk_neurons, dict):
                     _neurons.clear()
                     _neurons.update(disk_neurons)
+                    _rebuild_neuron_index()  # R-F1932: re-index after the disk reload
                     try:
                         # R-F442: disk edges may be gzipped — go through _decode_edges.
                         disk_edges_raw = await rs.get(EDGES_KEY)
@@ -576,12 +605,10 @@ async def _maybe_persist() -> None:
 # ── Neuron Operations ────────────────────────────────────────────────────────
 
 def _find_neuron(concept: str) -> Optional[dict]:
-    """Find neuron by concept (case-insensitive)."""
-    key = concept.strip().lower()
-    for n in _neurons.values():
-        if n["concept"] == key:
-            return n
-    return None
+    """Find neuron by concept (case-insensitive). R-F1932: O(1) via the concept
+    index instead of an O(all-neurons) scan on every _find_or_create."""
+    nid = _concept_to_id.get(concept.strip().lower())
+    return _neurons.get(nid) if nid else None
 
 
 def _find_or_create(concept: str, category: str = "general",
@@ -599,6 +626,7 @@ def _find_or_create(concept: str, category: str = "general",
     # Create new neuron
     neuron = _make_neuron(concept, category, source, confidence)
     _neurons[neuron["id"]] = neuron
+    _index_neuron(neuron)  # R-F1932: keep the inverted indices in sync
     _meta["total_activations"] = _meta.get("total_activations", 0) + 1
 
     # R-F240 (2026-05-11) — warn-only at WARN_NEURONS, no pruning.
@@ -1111,9 +1139,22 @@ async def recall(
         if age_h < 24 * 30: return 0.85
         return 0.7
 
+    # R-F1932 (G4 tail): gather ONLY candidate neurons that share a word with the
+    # query or an extracted concept (via the inverted index), instead of scanning
+    # every neuron. The scoring below is unchanged — it just runs over candidates.
+    _cand_words = set(query_words)
+    for c, _ in concepts:
+        _cand_words.update(c.lower().split())
+    _cand_ids: set = set()
+    for w in _cand_words:
+        ids = _word_to_ids.get(w)
+        if ids:
+            _cand_ids |= ids
+
     seeds = []
-    for n in _neurons.values():
-        if not _passes_filter(n):
+    for nid in _cand_ids:
+        n = _neurons.get(nid)
+        if n is None or not _passes_filter(n):
             continue
         score = 0.0
         for c, _ in concepts:
