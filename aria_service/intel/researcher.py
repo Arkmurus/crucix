@@ -3480,7 +3480,7 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     if len(body) > _article_max_chars:
         body = body[:_article_max_chars] + "\n\n[TRUNCATED — original content was " + str(len(body)) + " chars]"
 
-    existing_kb = search_knowledge(body[:200])
+    existing_kb = await asyncio.to_thread(search_knowledge, body[:200])  # R-F1910 G4: off-loop
     hypotheses = await _load_hypotheses()
 
     # Use compliance-specific analysis when content warrants it
@@ -3634,7 +3634,7 @@ async def read_document(
         if context:
             _dt += f"Context: {context}\n"
         _dt += f"Content (part {_i + 1}/{len(chunks)}):\n{_chunk}"
-        _ekb = search_knowledge(_chunk[:200])
+        _ekb = await asyncio.to_thread(search_knowledge, _chunk[:200])  # R-F1910 G4: off-loop
         async with _doc_sem:
             if is_compliance:
                 return await _analyse_compliance_document(llm, _dt, f"{source}:{filename}", _ekb)
@@ -3915,7 +3915,7 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
                     logger.debug("R-F195 RAG ingest failed: %s", _ie)
             continue
 
-        existing_kb = search_knowledge(article["title"])
+        existing_kb = await asyncio.to_thread(search_knowledge, article["title"])  # R-F1910 G4: off-loop
         parsed = await _analyse_article(llm, article_text, article["source"], existing_kb, existing_hypotheses)
 
         if parsed:
