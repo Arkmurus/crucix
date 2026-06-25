@@ -371,7 +371,7 @@ function _accountPath(accountId) {
   return path.join(_ACCOUNTS_DIR, accountId);
 }
 
-async function _createAccount(accountId, name) {
+async function _createAccount(accountId, name, ownerUserId = '') {
   const authDir = _accountPath(accountId);
   fs.mkdirSync(authDir, { recursive: true });  // R-F1861: fs already imported
   
@@ -394,6 +394,7 @@ async function _createAccount(accountId, name) {
   const account = {
     id: accountId,
     name: name || accountId,
+    ownerUserId: ownerUserId || '',  // R-F1909 (G3): per-user account ownership
     status: 'connecting',
     sock,
     saveCreds,
@@ -2627,9 +2628,26 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
 // ── R-F1848: Multi-account management API ────────────────────────────────────
 
 // List all accounts
-app.get('/api/wa-listener/accounts', requireAuth, (_req, res) => {
+// R-F1909 (G3): the WA listener has its own auth'd HTTP server; the Node proxy
+// forwards the JWT user in `X-WA-User`. Accounts are scoped per-owner so a
+// logged-in user can't read another user's QR (link/hijack their WhatsApp) or
+// delete/inspect their account. An account WITH an owner is accessible only to
+// that owner; ownerless (legacy) accounts stay open (none exist post-deploy —
+// the Map is in-memory). Empty caller (admin/internal) bypasses the check.
+function _waUser(req) { return (req.get('x-wa-user') || '').trim(); }
+function _waOwns(account, req) {
+  const u = _waUser(req);
+  if (!account.ownerUserId) return true;   // legacy ownerless
+  if (!u) return true;                       // admin/internal (no user pinned)
+  return account.ownerUserId === u;
+}
+
+app.get('/api/wa-listener/accounts', requireAuth, (req, res) => {
+  const u = _waUser(req);
   const list = [];
   for (const account of _accounts.values()) {
+    // owner-scoped listing: a user sees only their own (+ ownerless) accounts
+    if (u && account.ownerUserId && account.ownerUserId !== u) continue;
     list.push(_getAccountStatus(account));
   }
   res.json({ accounts: list, count: list.length });
@@ -2639,14 +2657,14 @@ app.get('/api/wa-listener/accounts', requireAuth, (_req, res) => {
 app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   const { name } = req.body || {};
   const accountId = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  
+
   // Rate limit: max 5 accounts
   if (_accounts.size >= 5) {
     return res.status(429).json({ error: 'Maximum 5 accounts allowed' });
   }
-  
+
   try {
-    const account = await _createAccount(accountId, name || accountId);
+    const account = await _createAccount(accountId, name || accountId, _waUser(req));
     // R-F1905: poll for QR code instead of fixed 1s wait. Baileys can take
     // 2-5s to generate the QR on first connect. Poll every 500ms for up to 10s.
     for (let _i = 0; _i < 20; _i++) {
@@ -2667,8 +2685,8 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
 // Get account details + QR code
 app.get('/api/wa-listener/accounts/:id', requireAuth, (req, res) => {
   const account = _accounts.get(req.params.id);
-  if (!account) return res.status(404).json({ error: 'Account not found' });
-  
+  if (!account || !_waOwns(account, req)) return res.status(404).json({ error: 'Account not found' });
+
   res.json({
     account: _getAccountStatus(account),
     qr: account.qr || null,
@@ -2679,8 +2697,8 @@ app.get('/api/wa-listener/accounts/:id', requireAuth, (req, res) => {
 // Get QR code as HTML page (for iframe/model card display)
 app.get('/api/wa-listener/accounts/:id/qr', requireAuth, (req, res) => {
   const account = _accounts.get(req.params.id);
-  if (!account) return res.status(404).json({ error: 'Account not found' });
-  
+  if (!account || !_waOwns(account, req)) return res.status(404).json({ error: 'Account not found' });
+
   if (!account.qr) {
     return res.status(404).json({ error: 'No QR code available', status: account.status });
   }
@@ -2691,8 +2709,8 @@ app.get('/api/wa-listener/accounts/:id/qr', requireAuth, (req, res) => {
 // Delete an account
 app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   const account = _accounts.get(req.params.id);
-  if (!account) return res.status(404).json({ error: 'Account not found' });
-  
+  if (!account || !_waOwns(account, req)) return res.status(404).json({ error: 'Account not found' });
+
   try {
     if (account.sock) {
       account.sock.ev?.removeAllListeners?.();

@@ -10279,8 +10279,10 @@ async def document_verify_ep(request: Request):
     by = (body.get("by") or "operator").strip()
     if not eid:
         raise HTTPException(status_code=400, detail="extraction_id required")
+    # R-F1909 (G3): Node pins user_id into the body from the JWT; owner-gate the verify.
+    _uid = (body.get("user_id") or "").strip() or None
     from ..intel import document_corrections as _dc
-    rec = await _dc.verify_extraction(eid, by)
+    rec = await _dc.verify_extraction(eid, by, user_id=_uid)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"extraction {eid} not found")
     return {"ok": True, "extraction_id": eid, "verifications": rec.get("verifications", [])}
@@ -10296,8 +10298,10 @@ async def document_correct_ep(request: Request):
     by = (body.get("by") or "operator").strip()
     if not (eid and field):
         raise HTTPException(status_code=400, detail="extraction_id and field required")
+    # R-F1909 (G3): owner-gate the field correction (Node pins user_id from the JWT).
+    _uid = (body.get("user_id") or "").strip() or None
     from ..intel import document_corrections as _dc
-    rec = await _dc.correct_extraction(eid, field, value, by)
+    rec = await _dc.correct_extraction(eid, field, value, by, user_id=_uid)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"extraction {eid} not found")
     if isinstance(rec, dict) and rec.get("_error"):
@@ -10322,9 +10326,12 @@ async def document_extraction_get_ep(extraction_id: str, user_id: str = ""):
 
 @router.get("/document/extractions/recent")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def document_extractions_recent_ep(limit: int = 20, form_code: str = ""):
+async def document_extractions_recent_ep(limit: int = 20, form_code: str = "", user_id: str = ""):
+    # R-F1909 (G3): Node pins user_id from the JWT; list only the caller's own
+    # records (user_id='' = admin/no-filter), matching the GET-by-id route above.
     from ..intel import document_corrections as _dc
-    items = await _dc.recent_extractions(limit=max(1, min(limit, 100)), form_code=form_code or None)
+    items = await _dc.recent_extractions(limit=max(1, min(limit, 100)),
+                                         form_code=form_code or None, user_id=user_id or None)
     # Strip the heaviest field from the listing — caller can fetch full record by id
     out = []
     for r in items:

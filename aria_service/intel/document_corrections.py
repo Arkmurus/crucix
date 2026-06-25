@@ -246,11 +246,21 @@ async def get_extraction(extraction_id: str, user_id: Optional[str] = None) -> O
     return rec
 
 
-async def recent_extractions(limit: int = 20, form_code: Optional[str] = None) -> list[dict]:
+async def recent_extractions(limit: int = 20, form_code: Optional[str] = None,
+                             user_id: Optional[str] = None) -> list[dict]:
+    # R-F1909 (G3, audit M2): when user_id is passed, list ONLY the caller's own
+    # records (plus legacy/admin records with no owner) — same ownership rule as
+    # get_extraction. Without it this leaked every tenant's filenames/form-types/
+    # timestamps + the ids needed to drive the verify/correct IDOR. user_id=None
+    # = trusted internal/admin path (no filter).
     store = await _load()
     items = list(store["extractions"].values())
     if form_code:
         items = [e for e in items if e.get("form_code") == form_code]
+    if user_id is not None:
+        items = [e for e in items
+                 if not (e.get("user_id") or "").strip()
+                 or (e.get("user_id") or "").strip() == user_id]
     items.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
     return items[:limit]
 
@@ -296,13 +306,23 @@ async def find_unverified_for_entity(
     return candidates[0]
 
 
-async def verify_extraction(extraction_id: str, by: str) -> Optional[dict]:
-    """Mark the extraction as human-verified. Returns the updated record."""
+async def verify_extraction(extraction_id: str, by: str,
+                            user_id: Optional[str] = None) -> Optional[dict]:
+    """Mark the extraction as human-verified. Returns the updated record.
+
+    R-F1909 (G3, audit H7): when user_id is passed, only the owner may verify
+    (or a legacy/admin record with no owner). This is an IDOR write — verifying
+    flips the find_unverified_for_entity DD pre-run gate, so a cross-tenant
+    verify could let a DD proceed on another user's unconfirmed fields."""
     async with _LOCK:
         store = await _load()
         rec = store["extractions"].get(extraction_id)
         if not rec:
             return None
+        if user_id is not None:
+            owner = (rec.get("user_id") or "").strip()
+            if owner and owner != user_id:
+                return None  # ownership mismatch — treat as not found
         rec.setdefault("verifications", []).append({"by": by or "unknown", "at": _now()})
         rec["updated_at"] = _now()
         await _save(store)
@@ -310,19 +330,28 @@ async def verify_extraction(extraction_id: str, by: str) -> Optional[dict]:
 
 
 async def correct_extraction(
-    extraction_id: str, field: str, value: Any, by: str
+    extraction_id: str, field: str, value: Any, by: str,
+    user_id: Optional[str] = None,
 ) -> Optional[dict]:
     """Apply a field correction to the structured record. Returns updated record.
 
     Field syntax: dotted path with numeric segments for list indices, e.g.
     'company_name_en', 'allottees.0.name', 'shares.1.amount_paid'.
     Values are auto-coerced (numbers, booleans, null).
+
+    R-F1909 (G3, audit H7): when user_id is passed, only the owner may correct
+    (or a legacy/admin record with no owner) — without it any token holder could
+    overwrite arbitrary structured fields on another tenant's document.
     """
     async with _LOCK:
         store = await _load()
         rec = store["extractions"].get(extraction_id)
         if not rec:
             return None
+        if user_id is not None:
+            owner = (rec.get("user_id") or "").strip()
+            if owner and owner != user_id:
+                return None  # ownership mismatch — treat as not found
         ok = _set_path(rec.setdefault("structured_current", {}), field, value)
         if not ok:
             return {"_error": f"could not set field '{field}' — bad path"}

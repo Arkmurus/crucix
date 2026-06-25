@@ -1105,7 +1105,8 @@ const WA_SERVICE_AUTH = 'Bearer ' + (process.env.ARIA_INTERNAL_TOKEN || process.
 app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F1909 (G3): pin the JWT user so the listener scopes accounts per-owner.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
@@ -1124,7 +1125,8 @@ app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb'
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH },
+      // R-F1909 (G3): pin the JWT user so the new account is owned by its creator.
+      headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       body: JSON.stringify(req.body || {}),
       signal: AbortSignal.timeout(15000),
     });
@@ -1138,7 +1140,8 @@ app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb'
 app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F1909 (G3): pin the JWT user so the listener owner-gates this account read.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
@@ -1151,7 +1154,9 @@ app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
 app.get('/api/wa-listener/accounts/:id/qr', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id + '/qr', {
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F1909 (G3): pin the JWT user — without this any logged-in user could read
+      // another user's QR and link (hijack) their WhatsApp session.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       signal: AbortSignal.timeout(10000),
     });
     const text = await r.text();
@@ -1165,7 +1170,8 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
       method: 'DELETE',
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F1909 (G3): pin the JWT user so only the owner can delete their account.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
@@ -2582,15 +2588,22 @@ app.post('/api/aria/correct', requireAuth, async (req, res) => {
 });
 
 // ── Document-intelligence learning loop (proxy to aria_service) ────────────
-app.post('/api/aria/document/verify', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/document/verify', { method: 'POST', fallback: async () => {
+app.post('/api/aria/document/verify', requireAuth, (req, res) => {
+  // R-F1909 (G3): pin user_id from the JWT so the brain owner-gates the verify
+  // (an IDOR write — verifying flips the DD pre-run gate). Client value ignored.
+  try { req.body = req.body || {}; req.body.user_id = req.user?.userId || ''; } catch {}
+  return ariaProxy(req, res, '/api/aria/document/verify', { method: 'POST', fallback: async () => {
     res.status(503).json({ error: 'Document verify unavailable — backend offline' });
-  }}));
+  }});
+});
 
-app.post('/api/aria/document/correct', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/document/correct', { method: 'POST', fallback: async () => {
+app.post('/api/aria/document/correct', requireAuth, (req, res) => {
+  // R-F1909 (G3): pin user_id from the JWT so the brain owner-gates the field correction.
+  try { req.body = req.body || {}; req.body.user_id = req.user?.userId || ''; } catch {}
+  return ariaProxy(req, res, '/api/aria/document/correct', { method: 'POST', fallback: async () => {
     res.status(503).json({ error: 'Document correct unavailable — backend offline' });
-  }}));
+  }});
+});
 
 app.get('/api/aria/document/extraction/:id', requireAuth, (req, res) => {
   // R-F1826 (audit H7): pin user_id from the JWT so the brain enforces extraction
@@ -2602,7 +2615,12 @@ app.get('/api/aria/document/extraction/:id', requireAuth, (req, res) => {
 });
 
 app.get('/api/aria/document/extractions/recent', requireAuth, (req, res) => {
-  const qs = new URLSearchParams(req.query || {}).toString();
+  // R-F1909 (G3, audit M2): OVERRIDE user_id with the JWT value — the client
+  // query was forwarded verbatim, so ?user_id=victim would have defeated the
+  // brain's owner filter and listed every tenant's extractions. Mirrors /dd/reports.
+  const params = new URLSearchParams(req.query || {});
+  params.set('user_id', req.user?.userId || '');
+  const qs = params.toString();
   ariaProxy(req, res, `/api/aria/document/extractions/recent${qs ? '?' + qs : ''}`, { fallback: async () => {
     res.status(503).json({ count: 0, extractions: [], error: 'backend offline' });
   }});
