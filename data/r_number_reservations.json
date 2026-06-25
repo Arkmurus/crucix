@@ -13575,9 +13575,10 @@
       "title": "deploy-reconciler runtime-relevance filter: only alert when live->origin diff touches aria_service runtime (not tooling/docs/registry/web/tests)",
       "claimed_at": "2026-06-25T09:05:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9ee3a5b7",
+      "notes": null,
+      "shipped_at": "2026-06-25T09:15:09Z"
     },
     {
       "r_number": "R-F1922",
