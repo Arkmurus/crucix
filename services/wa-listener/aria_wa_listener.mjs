@@ -1153,6 +1153,7 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
     for (const [jid, entry] of _asyncJobMap) {
       if (Date.now() - entry.ts > 1800000) _asyncJobMap.delete(jid);
     }
+    _persistAsyncJobs();  // R-F1918 (G5): survive a restart so the callback still routes
   }
   // R-F982 — fast-first polling so quick chats stay snappy now that ALL chats are
   // async. Most answers land in a few seconds: poll at 1s for the first 30s, then
@@ -2510,6 +2511,36 @@ function _waBrainSignal(signalType, content, metadata) {
 // Used by the callback endpoint to deliver results to the right chat.
 const _asyncJobMap = new Map();
 
+// R-F1918 (G5) — persist the in-flight job→chat map to the aria-wa volume. This
+// map was IN-MEMORY ONLY, so any restart (deploy, watchdog, crash, disconnect
+// storm) wiped it; the brain's R-F1413 completion callback then found no mapping
+// and 404'd, DROPPING the finished DD/answer — the recurring "DD never delivers /
+// empty chat" that R-F1884 only half-closed (it fixed WHERE the callback points,
+// not its SURVIVAL across a restart). Now the mapping survives a restart so a
+// callback that lands post-restart still routes to the right chat. Mirrors the
+// R-F964 recent-docs cache. Best-effort; 30-min TTL matches the in-memory evict.
+const _ASYNC_JOBS_FILE = process.env.ARIA_ASYNC_JOBS_FILE || '/data/async_jobs.json';
+function _persistAsyncJobs() {
+  try {
+    fs.writeFileSync(_ASYNC_JOBS_FILE, JSON.stringify([..._asyncJobMap.entries()]));
+  } catch (e) {
+    console.warn('[ARIA Listener] R-F1918 async-job map save failed:', e.message);
+  }
+}
+function _loadAsyncJobs() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(_ASYNC_JOBS_FILE, 'utf-8'));
+    let restored = 0;
+    const cutoff = Date.now() - 1800000;  // 30 min — match the in-memory TTL
+    for (const [jobId, entry] of arr) {
+      if (entry && entry.ts > cutoff && entry.chatId) { _asyncJobMap.set(jobId, entry); restored++; }
+    }
+    if (restored) console.log(`[ARIA Listener] R-F1918 restored ${restored} in-flight job mapping(s) from ${_ASYNC_JOBS_FILE}`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('[ARIA Listener] R-F1918 async-job map load failed:', e.message);
+  }
+}
+
 app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   const b      = req.body || {};
   const target = b.group_id || b.to || b.chat_id || b.jid || '';
@@ -2617,6 +2648,7 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
     // retry callback returned 'already_delivered' → the user silently got
     // nothing (violates §25 delivery-outcome guarantee).
     mapping.deliveredViaCallback = true;
+    _persistAsyncJobs();  // R-F1918 (G5): record delivery so a restart can't re-deliver
     reportOutcome('wa', requestId, 'chat_response', 'delivered_real_answer', Date.now() - t0);
     console.log(`[ARIA Listener] R-F1413 callback delivered job ${jobId} to ${chatId} (${message.length} chars)`);
     res.json({ delivered: true, to: chatId, parts: chunks.length });
@@ -2896,6 +2928,7 @@ process.on('unhandledRejection', (reason) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 _loadRecentDocs();   // R-F964 — restore the doc cache from disk so a restart doesn't forget shared documents
+_loadAsyncJobs();    // R-F1918 (G5) — restore in-flight job→chat mappings so a callback landing post-restart still delivers
 startListener().catch(e => {
   console.error('[ARIA Listener] Fatal error:', e);
   process.exit(1);

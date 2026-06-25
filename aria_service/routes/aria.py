@@ -9727,6 +9727,28 @@ async def chat_ep(req: ChatRequest, request: Request):
             _log.debug("finish_trace failed: %s", e)
 
 
+def _fire_web_delivery_outcome(session_id: str, outcome: str, detail: str = "", latency_ms: int = 0) -> None:
+    """R-F1918 (G5/§25): fire-and-forget the WEB chat delivery outcome so the brain
+    KNOWS when a stream was cut short or errored — not only on success. The SSE
+    path always emits a terminal `done` (R-F1725), but a server-side compose-cut or
+    ProviderError previously reached the brain as NO outcome, so the §25 self-heal
+    couldn't see the web limb fail (it could only see WA). Never blocks/raises."""
+    try:
+        async def _bg():
+            try:
+                from ..intel.outcome_wire import OutcomeRecord, record_outcome
+                await record_outcome(OutcomeRecord(
+                    surface="web", request_id=session_id or "web",
+                    intended_result="chat_response", actual_outcome=outcome,
+                    latency_ms=int(latency_ms), detail=str(detail)[:200],
+                ))
+            except Exception:
+                pass
+        asyncio.create_task(_bg())
+    except Exception:
+        pass
+
+
 # 18b. POST /api/aria/chat/stream — SSE streaming variant of /chat
 @router.post("/chat/stream")
 async def chat_stream_ep(req: ChatRequest, request: Request):
@@ -10049,6 +10071,9 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         "closing stream with partial (buf_chunks=%d)",
                         _compose_hard_s, session_id, len(_r412_response_buf),
                     )
+                    # R-F1918 (G5/§25): tell the brain the web limb degraded.
+                    _fire_web_delivery_outcome(session_id, "timeout_fallback",
+                                               f"compose deadline {_compose_hard_s:.0f}s")
                     _cut_note = (
                         "\n\n_(I cut the written narrative to guarantee a response. "
                         "The structured findings are above"
@@ -10203,6 +10228,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 else:
                     msg = "⚠️ Temporary model failure. Please retry in a minute."
                 _log.exception("ProviderError in SSE stream (kind=%s): %s", kind, pe)
+                _fire_web_delivery_outcome(session_id, "error", f"provider:{kind}")  # R-F1918 (G5/§25)
                 try:
                     yield f'data: {json.dumps({"type":"error","kind":kind,"message":msg})}\n\n'
                     yield f'data: {json.dumps({"type":"done"})}\n\n'
@@ -10210,6 +10236,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     pass
             except Exception as e:
                 _log.exception("Unhandled SSE stream error: %s", e)
+                _fire_web_delivery_outcome(session_id, "error", f"internal:{str(e)[:80]}")  # R-F1918 (G5/§25)
                 try:
                     yield f'data: {json.dumps({"type":"error","kind":"internal","message":"⚠️ Internal error while streaming. Please retry."})}\n\n'
                     yield f'data: {json.dumps({"type":"done"})}\n\n'
