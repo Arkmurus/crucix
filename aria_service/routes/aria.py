@@ -6254,6 +6254,12 @@ def _classify_tool_outcome(tool_context: str) -> str:
 # job (the recurring duplicate-job pain, CLAUDE.md §25).
 _DD_DEEP_BG_TASKS: set = set()
 _DD_DEEP_BG_INFLIGHT: set = set()
+# R-F1915 (G4, audit H1): global cap on concurrent deep-bg DDs. The single-process
+# brain has NO process-wide admission gate, and the per-key dedup below only stops
+# the SAME (entity,user) — N distinct users/entities could each launch an 840s deep
+# DD into one process at once, saturating the loop + RAM (the architectural root of
+# the recurring wedge). This bounds total concurrent heavy DD work.
+_DD_DEEP_BG_MAX = int(os.getenv("ARIA_DD_DEEP_BG_MAX", "3"))
 
 
 def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | None) -> bool:
@@ -6270,6 +6276,12 @@ def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | Non
         return False
     _key = (_ent, user_id)
     if _key in _DD_DEEP_BG_INFLIGHT:
+        return False
+    # R-F1915 (G4): global concurrency cap — reject (caller falls back to the
+    # shallow inline result) rather than pile another 840s job onto a busy brain.
+    if len(_DD_DEEP_BG_INFLIGHT) >= _DD_DEEP_BG_MAX:
+        _log.warning("R-F1915 deep-bg DD rejected — global cap %d reached (entity=%r user=%s)",
+                     _DD_DEEP_BG_MAX, _ent, user_id)
         return False
     _DD_DEEP_BG_INFLIGHT.add(_key)
     _budget = float(int(os.getenv("ARIA_DD_DEEP_BG_BUDGET_S", "840")))
@@ -14026,7 +14038,11 @@ async def semantic_search_ep(request: Request):
     top_k = min(body.get("top_k", 10), 50)
     if not query:
         raise HTTPException(status_code=400, detail="query required")
-    return {"results": semantic_search(query, top_k)}
+    # R-F1915 (G4): semantic_search() runs a GIL-bound model.encode(); calling it
+    # sync here blocked the single event loop for the whole encode (the recurring
+    # wedge class, on an entry point R-F1890 didn't cover). Offload to a thread —
+    # _safe_encode's process-offload + the freed loop keep every other request live.
+    return {"results": await asyncio.to_thread(semantic_search, query, top_k)}
 
 
 # 45. GET /api/aria/semantic/stats — Semantic index statistics
