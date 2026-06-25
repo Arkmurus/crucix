@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1918,
+  "next_available": 1921,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13525,14 +13525,45 @@
       "title": "G2: single choke-point input caps — eradicate unbounded doc/text/voice fan-out DoS",
       "claimed_at": "2026-06-25T07:23:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d22ac5fe",
+      "notes": null,
+      "shipped_at": "2026-06-25T07:37:50Z"
     },
     {
       "r_number": "R-F1917",
       "title": "G6: fail-CLOSED on the content-security scanner + tighten zip-bomb decompress bound",
       "claimed_at": "2026-06-25T07:26:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d22ac5fe",
+      "notes": null,
+      "shipped_at": "2026-06-25T07:37:50Z"
+    },
+    {
+      "r_number": "R-F1918",
+      "title": "G5: delivery durability — persist WA job->chat map across restart + fire delivery-outcome on stream cut/error",
+      "claimed_at": "2026-06-25T07:37:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "017048b9",
+      "notes": null,
+      "shipped_at": "2026-06-25T07:50:22Z"
+    },
+    {
+      "r_number": "R-F1919",
+      "title": "G6b: migrate inline handlers->delegated listeners + drop scriptSrc unsafe-inline (CSP hardening)",
+      "claimed_at": "2026-06-25T07:54:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f156a35",
+      "notes": null,
+      "shipped_at": "2026-06-25T08:10:27Z"
+    },
+    {
+      "r_number": "R-F1920",
+      "title": "deploy-reconciler: alert operator when origin/main is ahead of live build_rev for >N min",
+      "claimed_at": "2026-06-25T08:23:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

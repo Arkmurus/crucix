@@ -2174,6 +2174,51 @@ async def lifespan(app: FastAPI):
                                 res1773["verified"], res1773["failed"])
             except Exception as e:
                 logger.warning("[R-F1773] intent reconcile error: %s", e)
+            # R-F1920 — ORIGIN-vs-LIVE reconciler: ALERT THE OPERATOR when
+            # origin/main sits ahead of the live build_rev past a threshold. The
+            # intent ledger above only records a coder gap, which the coder can't
+            # action for human/Claude commits — so a pushed-but-undeployed batch
+            # never reached the operator (§19e). GitHub (GH_TOKEN) is the
+            # authoritative origin truth — independent of the pre-push hook.
+            try:
+                import os as _os1920
+                _gh_token = _os1920.getenv("GH_TOKEN") or _os1920.getenv("GITHUB_TOKEN")
+                if _gh_token:
+                    from .autonomous import deploy_verifier as _dv1920
+                    from .intel import redis_store as _rs1920
+
+                    async def _origin_alert_1920(alert):
+                        from .intel import pending_actions as _pa1920
+                        short = alert.get("origin_sha")
+                        age_min = round(float(alert.get("age_s") or 0) / 60.0)
+                        await _pa1920.record(
+                            promise=(f"Deploy origin/main {short} to aria-intel — "
+                                     f"live still serves {alert.get('live_sha')}"),
+                            reason=(f"origin/main has been ahead of the live build_rev for "
+                                    f"~{age_min} min; no auto-deploy path fired (coder dry "
+                                    "and/or no [deploy] tag on the pending commits)."),
+                            severity="HIGH",
+                            source="deploy_reconciler",
+                            operator_prompt=(
+                                f"aria-intel is BEHIND origin/main by commit {short} "
+                                f"(~{age_min} min). Deploy it: scripts\\deploy.ps1 -Intel "
+                                "(or push a follow-up commit tagged [deploy])."),
+                            metadata={"origin_sha": short,
+                                      "live_build_rev": alert.get("live_build_rev")},
+                        )
+                        logger.warning(
+                            "[R-F1920] origin/main %s ahead of live %s for ~%dmin → operator alerted",
+                            short, alert.get("live_sha"), age_min)
+
+                    res1920 = await _dv1920.reconcile_origin_via_store(
+                        _rs1920, token=_gh_token, operator_notifier=_origin_alert_1920)
+                    if res1920.get("behind"):
+                        logger.info(
+                            "[R-F1920] live behind origin: origin=%s live=%s age=%.0fs alerted=%s",
+                            res1920.get("origin_sha"), res1920.get("live_sha"),
+                            res1920.get("age_s"), res1920.get("alerted"))
+            except Exception as e:
+                logger.warning("[R-F1920] origin reconcile error: %s", e)
             await asyncio.sleep(300)
 
     deploy_proprio_task = _bg_task(asyncio.create_task(_deploy_proprioception_loop(), name="deploy_proprioception"), factory=_deploy_proprioception_loop)

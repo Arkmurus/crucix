@@ -353,3 +353,158 @@ async def reconcile_intents_via_store(
     verified = sum(1 for i in updated if isinstance(i, dict) and i.get("verified_live"))
     pending = sum(1 for i in updated if isinstance(i, dict) and not i.get("verified_live"))
     return {"verified": verified, "failed": len(gaps), "pending": pending}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F1920 — ORIGIN-vs-LIVE reconciler. The intent ledger (R-F1773) catches a
+# push that doesn't go live but only records a CODER gap — which the coder
+# cannot action for human/Claude-authored commits (its deploy path ships only
+# its OWN self-improvements). So when a batch of Claude commits sat undeployed,
+# nobody told the operator and he discovered it himself — the §19e worst case.
+# This reconciler uses GitHub as the authoritative "what SHOULD be live"
+# (origin/<branch> HEAD via GH_TOKEN — robust, independent of the pre-push hook
+# that the intent ledger relies on) and ALERTS THE OPERATOR when the live
+# build_rev sits behind origin past a threshold. Detect+alert only: it never
+# auto-deploys (deploying arbitrary origin commits from the brain — no review,
+# no canary/rollback — is too risky to do unsupervised).
+# ──────────────────────────────────────────────────────────────────────────
+
+ORIGIN_RECONCILE_STATE_KEY = "crucix:aria:deploy:origin_behind_state"
+# How long live may lag origin before we alert. Shorter than the 1200s intent
+# grace, but longer than a normal fly rolling deploy (~3-5 min) so an in-flight
+# deploy never cries wolf.
+DEFAULT_BEHIND_ALERT_S = 600.0
+_GITHUB_REPO = "Arkmurus/crucix"
+
+# A GitHub fetcher returns origin/<branch> HEAD sha (or None on unreachable).
+GhFetcher = Callable[[str, str, Optional[str]], Awaitable[Optional[str]]]
+
+
+async def _http_github_head_sha(
+    repo: str, branch: str, token: Optional[str], timeout: float = 15.0
+) -> Optional[str]:
+    """Default GH fetcher: origin/<branch> HEAD sha via the GitHub commits API."""
+    try:
+        import httpx
+        headers = {"Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        url = f"https://api.github.com/repos/{repo}/commits/{branch}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            logger.debug("[deploy_verifier] github head %s@%s -> %s",
+                         repo, branch, resp.status_code)
+            return None
+        data = resp.json()
+        if isinstance(data, dict) and data.get("sha"):
+            return str(data["sha"])
+    except Exception as exc:
+        logger.debug("[deploy_verifier] github head fetch failed: %s", exc)
+    return None
+
+
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
+async def reconcile_origin_vs_live(
+    *,
+    state: Optional[dict],
+    app: str = "aria-intel",
+    repo: str = _GITHUB_REPO,
+    branch: str = "main",
+    token: Optional[str] = None,
+    gh_fetcher: Optional[GhFetcher] = None,
+    live_fetcher: Optional[Fetcher] = None,
+    behind_alert_s: float = DEFAULT_BEHIND_ALERT_S,
+    now: Optional[float] = None,
+) -> dict:
+    """Is origin/<branch> HEAD actually live? Pure-ish (both fetches injectable).
+
+    `state` persists across ticks: {"origin_sha", "first_seen_at", "alerted"}.
+    Logic:
+      • origin HEAD is live → clear state (all good).
+      • origin HEAD undetermined (API down / no token) → no-op, keep state.
+      • origin ahead of live → track since-when; if it moved, RESET the clock
+        (a brand-new commit just landed — give the deploy time). When the SAME
+        head has been behind ≥ behind_alert_s and we haven't alerted for it yet
+        → return an `alert` (and flip alerted=True so it fires ONCE per head).
+
+    Returns {"behind", "origin_sha", "live_sha", "live_build_rev", "age_s",
+             "alert": dict|None, "state": <new state>}.
+    """
+    _now = float(now if now is not None else time.time())
+    _gh = gh_fetcher or _http_github_head_sha
+    _live = live_fetcher or _http_fetch_build_rev
+    st = dict(state or {})
+
+    origin_sha = await _gh(repo, branch, token)
+    live_build_rev = await _live(app)
+    out = {
+        "behind": False,
+        "origin_sha": _short(origin_sha) if origin_sha else None,
+        "live_sha": extract_live_sha(live_build_rev),
+        "live_build_rev": live_build_rev,
+        "age_s": 0.0,
+        "alert": None,
+        "state": st,
+    }
+    if not origin_sha:
+        return out  # can't determine origin → don't touch state, don't alert
+    if build_rev_matches(live_build_rev, origin_sha):
+        out["state"] = {}  # origin is live → clear any behind-tracking
+        return out
+
+    # origin is AHEAD of live. Reset the clock if the head moved (new push).
+    if st.get("origin_sha") != _short(origin_sha):
+        st = {"origin_sha": _short(origin_sha), "first_seen_at": _now, "alerted": False}
+    _fs = st.get("first_seen_at")  # explicit None-check: 0.0 is a valid epoch, not "missing"
+    age = _now - (float(_fs) if _fs is not None else _now)
+    out["behind"] = True
+    out["age_s"] = round(age, 1)
+    out["state"] = st
+    if age >= behind_alert_s and not st.get("alerted"):
+        st["alerted"] = True
+        out["alert"] = {
+            "origin_sha": _short(origin_sha),
+            "live_sha": out["live_sha"],
+            "live_build_rev": live_build_rev,
+            "age_s": round(age, 1),
+        }
+    return out
+
+
+@fail_wire(module="deploy_verifier", gap_type="agent_cycle_failure")
+async def reconcile_origin_via_store(
+    rs_module,
+    *,
+    app: str = "aria-intel",
+    repo: str = _GITHUB_REPO,
+    branch: str = "main",
+    token: Optional[str] = None,
+    gh_fetcher: Optional[GhFetcher] = None,
+    live_fetcher: Optional[Fetcher] = None,
+    behind_alert_s: float = DEFAULT_BEHIND_ALERT_S,
+    operator_notifier: Optional[Callable[[dict], Awaitable[None]]] = None,
+) -> dict:
+    """Proprioception-loop glue (module-level so it is testable): read the
+    behind-state from `rs_module`, reconcile origin vs live, persist the new
+    state, and call `operator_notifier(alert)` when live has lagged past grace.
+
+    Returns {"behind", "age_s", "origin_sha", "live_sha", "alerted"}.
+    """
+    state = await rs_module.get_json(ORIGIN_RECONCILE_STATE_KEY) or {}
+    res = await reconcile_origin_vs_live(
+        state=state, app=app, repo=repo, branch=branch, token=token,
+        gh_fetcher=gh_fetcher, live_fetcher=live_fetcher, behind_alert_s=behind_alert_s)
+    await rs_module.set_json(ORIGIN_RECONCILE_STATE_KEY, res["state"], ex=30 * 86400)
+    if res.get("alert") and operator_notifier:
+        try:
+            await operator_notifier(res["alert"])
+        except Exception as exc:  # an alert failure never breaks reconcile
+            logger.warning("[deploy_verifier] origin operator_notifier failed: %s", exc)
+    return {
+        "behind": res["behind"],
+        "age_s": res["age_s"],
+        "origin_sha": res.get("origin_sha"),
+        "live_sha": res.get("live_sha"),
+        "alerted": bool(res.get("alert")),
+    }
