@@ -371,6 +371,48 @@ function _accountPath(accountId) {
   return path.join(_ACCOUNTS_DIR, accountId);
 }
 
+// R-F1927: persist account METADATA (not the live socket, which is not
+// serializable) so linked WhatsApp connections survive a listener restart.
+// Baileys creds already persist per-account via useMultiFileAuthState; this
+// records id/name/owner so _loadAccounts can re-instantiate each socket from its
+// saved creds on boot (reconnects WITHOUT a new QR if the device is still
+// linked). Without it, EVERY deploy/restart wiped the in-memory _accounts Map and
+// the UI showed "No WhatsApp accounts connected" even though the creds were on disk.
+const _ACCOUNTS_META_FILE = process.env.WA_ACCOUNTS_META_FILE || '/data/wa-accounts-meta.json';
+function _persistAccounts() {
+  try {
+    const meta = [..._accounts.values()].map(a => ({
+      id: a.id, name: a.name, ownerUserId: a.ownerUserId || '', createdAt: a.createdAt,
+    }));
+    fs.writeFileSync(_ACCOUNTS_META_FILE, JSON.stringify(meta));
+  } catch (e) {
+    console.warn('[ARIA Listener] R-F1927 account-meta save failed:', e.message);
+  }
+}
+async function _loadAccounts() {
+  let meta;
+  try {
+    meta = JSON.parse(fs.readFileSync(_ACCOUNTS_META_FILE, 'utf-8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('[ARIA Listener] R-F1927 account-meta load failed:', e.message);
+    return;
+  }
+  let restored = 0;
+  for (const m of (Array.isArray(meta) ? meta : [])) {
+    if (!m || !m.id) continue;
+    try {
+      // only restore an account whose saved creds dir still exists on the volume
+      if (!fs.existsSync(_accountPath(m.id))) continue;
+      const acc = await _createAccount(m.id, m.name || m.id, m.ownerUserId || '');
+      if (m.createdAt) acc.createdAt = m.createdAt;   // preserve original creation time
+      restored++;
+    } catch (e) {
+      console.warn(`[ARIA Listener] R-F1927 restore failed for ${m.id}:`, e.message);
+    }
+  }
+  if (restored) console.log(`[ARIA Listener] R-F1927 restored ${restored} WhatsApp account(s) from saved creds (reconnecting)`);
+}
+
 async function _createAccount(accountId, name, ownerUserId = '') {
   const authDir = _accountPath(accountId);
   fs.mkdirSync(authDir, { recursive: true });  // R-F1861: fs already imported
@@ -2705,13 +2747,14 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
 
   try {
     const account = await _createAccount(accountId, name || accountId, _waUser(req));
+    _persistAccounts();  // R-F1927: record metadata so this link survives a restart
     // R-F1905: poll for QR code instead of fixed 1s wait. Baileys can take
     // 2-5s to generate the QR on first connect. Poll every 500ms for up to 10s.
     for (let _i = 0; _i < 20; _i++) {
       if (account.qr) break;
       await new Promise(r => setTimeout(r, 500));
     }
-    
+
     res.json({
       account: _getAccountStatus(account),
       qr: account.qr || null,
@@ -2758,6 +2801,7 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
       account.sock.end?.(undefined);
     }
     _accounts.delete(req.params.id);
+    _persistAccounts();  // R-F1927: keep the persisted metadata in sync after a delete
     res.json({ deleted: true, id: req.params.id });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2929,6 +2973,7 @@ process.on('unhandledRejection', (reason) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 _loadRecentDocs();   // R-F964 — restore the doc cache from disk so a restart doesn't forget shared documents
 _loadAsyncJobs();    // R-F1918 (G5) — restore in-flight job→chat mappings so a callback landing post-restart still delivers
+_loadAccounts().catch(e => console.warn('[ARIA Listener] R-F1927 _loadAccounts failed:', e.message));  // restore linked WhatsApp accounts from saved creds
 startListener().catch(e => {
   console.error('[ARIA Listener] Fatal error:', e);
   process.exit(1);
