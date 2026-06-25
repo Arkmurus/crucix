@@ -181,7 +181,30 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="show the brain's coder gaps")
     ap.add_argument("--gap-id", help="pull this gap from the brain and run it locally")
     ap.add_argument("--canary", action="store_true", help="run the controlled canary code task")
+    ap.add_argument("--scan", action="store_true",
+                    help="generate high-signal code-gap FUEL (failing-tests + reliability, RAG-grounded)")
+    ap.add_argument("--source", choices=["both", "test", "reliability"], default="both",
+                    help="--scan fuel source (default both)")
+    ap.add_argument("--limit", type=int, default=10, help="--scan max gaps")
+    ap.add_argument("--fix-top", action="store_true",
+                    help="with --scan: run fix_gap locally on the top fuel gap")
     a = ap.parse_args()
+
+    if a.scan:
+        from code_gap_fuel import gather
+        gaps = asyncio.run(gather(a.source, a.limit, enrich=True))
+        print(f"[local-coder] {len(gaps)} code-gap fuel item(s) (source={a.source}):")
+        for g in gaps:
+            gold = "GOLD-ABLE" if (g.evidence or {}).get("gold_able") else "stage"
+            rc = "RAG" if (g.evidence or {}).get("rag_context") else "—"
+            print(f"  [{g.gap_type:11}] {gold:9} {rc} {g.module:42} {str(g.title)[:56]}")
+        if a.fix_top and gaps:
+            if not os.environ.get("ARIA_INTERNAL_TOKEN"):
+                print("BLOCKED: ARIA_INTERNAL_TOKEN unset (needed for DeepSeek).")
+                return 2
+            print(f"[local-coder] --fix-top: running fix_gap on {gaps[0].gap_id} ...")
+            return asyncio.run(_run(gaps[0]))
+        return 0
 
     if not os.environ.get("ARIA_INTERNAL_TOKEN") and (a.list or a.gap_id):
         print("BLOCKED: ARIA_INTERNAL_TOKEN unset (needed for brain + DeepSeek).")
