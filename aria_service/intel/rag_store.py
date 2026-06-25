@@ -1289,19 +1289,27 @@ async def get_rag_context(
 
 # ── Public API: stats + maintenance ────────────────────────────────────────
 
-@fail_wire(module="rag_store", gap_type="embedder_failure")
-async def get_stats() -> dict:
-    """Report on the RAG store state."""
-    if not await _ensure_async():
-        return {
-            "available": False,
-            "reason": "chromadb not installed or init failed",
-            "path": RAG_PATH,
-        }
+# R-F1911 (2026-06-25) — single-flight TTL cache for get_stats.
+# ROOT CAUSE (§22 evidence, live aria-intel): /api/aria/health was a flat ~30s
+# on EVERY poll. Per-sub-call timing showed the entire cost was here —
+# ChromaDB `.count()` on the documents + facts collections (~215K chunks) is an
+# O(collection-size) NATIVE scan, ~38s cold, and it ran uncached on every
+# diagnostic request (dashboard polls /health). The counts are slowly-changing
+# diagnostic data, so memoising them eliminates the per-request scan (this is the
+# structural fix for the /health latency class — not a timeout band-aid).
+# A single asyncio.Lock makes it single-flight: after the TTL exactly ONE caller
+# pays the count while concurrent callers await the lock and then read the fresh
+# value, so a burst of /health polls can never launch N concurrent 30s scans.
+_STATS_TTL_S = float(os.getenv("ARIA_RAG_STATS_TTL_S", "120"))
+_stats_cache: dict = {"value": None, "ts": 0.0}
+_stats_lock = asyncio.Lock()
+
+
+async def _compute_stats() -> dict:
+    """The actual (expensive) count — offloaded so it never runs on the loop."""
     try:
-        import asyncio as _aio
-        doc_count = await _aio.to_thread(_documents_collection.count) if _documents_collection else 0
-        fact_count = await _aio.to_thread(_facts_collection.count) if _facts_collection else 0
+        doc_count = await asyncio.to_thread(_documents_collection.count) if _documents_collection else 0
+        fact_count = await asyncio.to_thread(_facts_collection.count) if _facts_collection else 0
         return {
             "available": True,
             "path": RAG_PATH,
@@ -1315,6 +1323,34 @@ async def get_stats() -> dict:
         }
     except Exception as e:
         return {"available": False, "error": str(e), "path": RAG_PATH}
+
+
+@fail_wire(module="rag_store", gap_type="embedder_failure")
+async def get_stats() -> dict:
+    """Report on the RAG store state (memoised — see R-F1911 above)."""
+    if not await _ensure_async():
+        return {
+            "available": False,
+            "reason": "chromadb not installed or init failed",
+            "path": RAG_PATH,
+        }
+    now = time.monotonic()
+    cached = _stats_cache["value"]
+    if cached is not None and (now - _stats_cache["ts"]) < _STATS_TTL_S:
+        return {**cached, "stats_cache_age_s": round(now - _stats_cache["ts"], 1)}
+    # Stale or empty — single-flight refresh so a poll burst can't fan out
+    # into N concurrent 30s scans.
+    async with _stats_lock:
+        now2 = time.monotonic()
+        cached2 = _stats_cache["value"]
+        if cached2 is not None and (now2 - _stats_cache["ts"]) < _STATS_TTL_S:
+            # another caller refreshed while we waited on the lock
+            return {**cached2, "stats_cache_age_s": round(now2 - _stats_cache["ts"], 1)}
+        val = await _compute_stats()
+        if val.get("available"):  # never cache a transient failure
+            _stats_cache["value"] = val
+            _stats_cache["ts"] = time.monotonic()
+        return {**val, "stats_cache_age_s": 0.0}
 
 
 @fail_wire(module="rag_store", gap_type="embedder_failure")

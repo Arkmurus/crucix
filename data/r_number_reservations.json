@@ -13480,27 +13480,30 @@
       "title": "DD orchestrator brain wiring + layer health tracking",
       "claimed_at": "2026-06-25T06:47:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "be8da9b5",
+      "notes": null,
+      "shipped_at": "2026-06-25T07:01:38Z"
     },
     {
       "r_number": "R-F1913",
       "title": "Wire 9 unwired DD compliance modules with dd_module decorator",
       "claimed_at": "2026-06-25T06:47:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8abb0c1e",
+      "notes": null,
+      "shipped_at": "2026-06-25T06:53:44Z"
     },
     {
       "r_number": "R-F1914",
       "title": "Add DD health endpoint for per-layer completion tracking",
       "claimed_at": "2026-06-25T06:47:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8abb0c1e",
+      "notes": null,
+      "shipped_at": "2026-06-25T06:53:45Z"
     }
   ]
 }
