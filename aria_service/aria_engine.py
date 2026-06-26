@@ -1897,6 +1897,63 @@ def _trim_session_for_resend(session: dict, keep_history: int | None) -> dict:
     return session
 
 
+# ── R-F1976: ADAPTIVE FAST-LANE — instant answers for basic questions ────────
+# The router (routes/aria.py:_fast_lane_eligible) sends ONLY clearly-basic,
+# tool-free, entity-free, low-stakes questions here. This path deliberately
+# SKIPS the 7-layer context build (RAG + semantic search + neural-memory encode —
+# the latency-dominant, GIL-bound step) and the verification pass: a single lean
+# LLM round-trip with a compact prompt + recent conversation, so "how are you" /
+# "what can you do" / "explain X simply" answer in ~1-2s instead of waiting on the
+# full grounded pipeline. The no-fabrication guardrails STILL apply — if the model
+# realises it actually needs data/tools, the system prompt tells it to say so
+# rather than guess (and we never route fact/entity questions here in the first
+# place). Returns None on an empty answer so the caller falls through to the full
+# pipeline — fail-safe toward MORE grounding, never less.
+FAST_LANE_SYSTEM = (
+    "You are ARIA — Arkmurus's security, compliance and intelligence agent. This is a "
+    "FAST conversational reply to a simple question.\n"
+    "- Answer directly, warmly and concisely. Be genuinely helpful and sharp.\n"
+    "- NEVER fabricate a verifiable fact (company/registration numbers, full legal names, "
+    "addresses, sanctions/PEP status, codes, dates, figures, named people). If answering "
+    "needs data you don't have in front of you, say so plainly.\n"
+    "- If the question actually needs due-diligence, sanctions screening, a document review, "
+    "research, or live data, DON'T guess — say you'll run the full check and ask for the "
+    "entity/details. It is always better to offer the real tool than to invent an answer.\n"
+    "- Keep your identity: you are a precise, honest, security-minded analyst, not a chatbot."
+)
+
+
+async def fast_lane_chat(message: str, session_id: str, llm,
+                         *, max_tokens: int = 600, timeout: float = 30.0):
+    """Lean single-LLM-call reply for a basic question (R-F1976). Reuses the
+    session store for continuity but skips the heavy context/verification path.
+    Returns the answer text, or None to signal 'fall through to the full pipeline'."""
+    session = await _get_session(session_id)
+    recent = (session.get("messages") or [])[-6:]   # last ~3 exchanges
+    lines = []
+    for m in recent:
+        _role = "ARIA" if (m.get("role") == "aria") else "User"
+        lines.append(f"{_role}: {(m.get('content') or '')[:1000]}")
+    lines.append(f"User: {message}")
+    user_prompt = "\n".join(lines)
+
+    result = await llm.complete(FAST_LANE_SYSTEM, user_prompt,
+                                max_tokens=max_tokens, timeout=timeout)
+    text = (getattr(result, "text", "") or "").strip()
+    if not text:
+        return None  # empty → let the full grounded pipeline handle it
+
+    msgs = session.get("messages") or []
+    msgs.append({"role": "user", "content": message})
+    msgs.append({"role": "aria", "content": text})
+    session["messages"] = msgs[-20:]
+    try:
+        await _save_session(session_id, session)
+    except Exception:
+        pass  # continuity is best-effort; never fail the reply on a session write
+    return text
+
+
 # ── Identity ─────────────────────────────────────────────────────────────────
 
 IDENTITY_KEY = "crucix:brain:aria:identity"

@@ -468,6 +468,52 @@ def _quota_user_key(req: "ChatRequest") -> str:
     return sid or "anon"
 
 
+# R-F1976 — ADAPTIVE FAST-LANE router. Decides whether a question is CLEARLY
+# basic enough to answer with a single lean LLM call (fast_lane_chat), skipping
+# the heavy 7-layer context build + tool execution + verification. CONSERVATIVE
+# by design — every off-ramp routes to the FULL grounded pipeline, so the
+# no-fabrication / DD / compliance path is never weakened. When in any doubt → full.
+_FAST_LANE_HEAVY_KW = (
+    "investigate", "due diligence", " dd ", "diligence", "screen", "sanction",
+    "compliance", "profile", "research", "crawl", "registry", "registration",
+    "registr", "beneficial owner", "export", "licens", "embargo", "itar",
+    "dual-use", "dual use", "pep ", "adverse media", "ofac", "ofsi", "number of",
+    "background check", "look up", "look into", "find out about", "report on",
+    "verify ", "vet ", "kyc", "ubo", "shareholder", "director of",
+)
+_FAST_LANE_ENTITY_RE = re.compile(r"\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}")  # 2+ Capitalized words → likely a named entity
+
+
+def _fast_lane_eligible(message: str) -> bool:
+    m = (message or "").strip()
+    if not m or len(m) > 280:           # long asks usually need real context
+        return False
+    if "[ATTACHED DOCUMENT" in message:  # documents → full review path
+        return False
+    ml = m.lower()
+    if "http://" in ml or "https://" in ml or "www." in ml:   # URLs → crawl/extract
+        return False
+    if any(k in ml for k in _FAST_LANE_HEAVY_KW):              # compliance/entity intent → full
+        return False
+    try:
+        if _detect_tool_intent(m) is not None:                # any tool intent → full
+            return False
+    except Exception:
+        return False                                          # unsure → full
+    try:
+        from ..intel import comprehension as _comp
+        ca = _comp.analyse(m)
+        if not getattr(ca, "is_trivial", False):
+            _cv = (getattr(getattr(ca, "complexity", None), "value", "") or "").lower()
+            if _cv not in ("simple", "low", "trivial", "basic", ""):
+                return False                                  # non-trivial → full
+    except Exception:
+        pass
+    if _FAST_LANE_ENTITY_RE.search(m):                         # named entity → full (grounding)
+        return False
+    return True
+
+
 class ThinkRequest(BaseModel):
     question: str
     context: dict | None = None
@@ -8550,6 +8596,23 @@ async def chat_ep(req: ChatRequest, request: Request):
 
     llm = get_llm(request)
     intel = get_intel_data(request)
+
+    # R-F1976 — ADAPTIVE FAST-LANE. A clearly-basic, tool-free, entity-free,
+    # low-stakes question gets a single lean LLM call (skips the 7-layer context
+    # build + tools + verification), so "how are you" / "what can you do" answer
+    # in ~1-2s instead of paying the full grounded pipeline. The router is
+    # conservative (any entity/compliance/tool/document/complex signal → full
+    # pipeline), and an empty answer falls through — so grounding is never
+    # weakened. async_mode callers skip it (they want the job/poll contract).
+    if req.auto_tools and not req.async_mode and _fast_lane_eligible(req.message):
+        try:
+            from ..aria_engine import fast_lane_chat
+            _fl = await fast_lane_chat(req.message, session_id, llm)
+            if _fl:
+                _log.info("[chat] fast-lane: %r → lean reply (%d chars)", req.message[:60], len(_fl))
+                return {"response": _fl, "session_id": session_id, "fast_lane": True}
+        except Exception as _fle:
+            _log.warning("[chat] fast-lane errored, falling through to full pipeline: %s", _fle)
 
     # Start a trace for this chat request — joins cost, verification,
     # and (later) feedback under one id so /trace shows the full
