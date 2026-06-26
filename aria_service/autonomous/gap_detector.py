@@ -1776,6 +1776,29 @@ class TestFailureExtractor:
         return f"intel/{module}.py" if module else "unknown"
 
 
+# R-F1962 — genuineness gate for symptom reproduction. A VALID reproduction is a
+# real TEST FAILURE: pytest exit code 1 (tests ran and >=1 assertion failed). A
+# collection/import/usage/no-tests error (exit 2/3/4/5) fails for a reason
+# UNRELATED to the symptom — yet pytest still prints the module/file name on those
+# errors, so the "module name appears in output" clue check accepted them as
+# "symptom reproduced" (the gameable hole: an LLM-written test that can't even
+# import would pass the gate). Requiring exit==1 + no collection/import markers
+# means the symptom must actually be exercised, not just mentioned in an error.
+_NON_SYMPTOM_MARKERS = (
+    "error collecting", "errors during collection", "importerror",
+    "modulenotfounderror", "no module named", "no tests ran",
+    "internalerror", "usage:", "syntaxerror", "conftest",
+)
+
+
+def _is_symptom_failure(returncode: int, combined_lower: str) -> bool:
+    """True only for a genuine test FAILURE (pytest exit 1), not a
+    collection/import/usage error that merely mentions the module."""
+    if returncode != 1:
+        return False
+    return not any(m in combined_lower for m in _NON_SYMPTOM_MARKERS)
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -2108,8 +2131,13 @@ class GapDetector:
             # Test PASSED on unfixed code — it's a gamed/trivial test
             return (False, f"auto-written reproduce test PASSES on unfixed code — test is not a valid reproduction (gamed)")
 
-        # Test FAILED — symptom reproduced. Verify the failure is related.
+        # Test FAILED — symptom reproduced. Verify the failure is GENUINE (a real
+        # test failure, not a collection/import error — R-F1962) AND related.
         _combined = (_output + _errors).lower()
+        if not _is_symptom_failure(_proc.returncode, _combined):
+            return (False, f"auto-written reproduce test did not produce a genuine test "
+                           f"failure (exit={_proc.returncode}; collection/import error or "
+                           f"no tests ran) — unverifiable")
         _clues = [
             c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
                         gap.title[:40], gap.description[:60]]
@@ -2188,15 +2216,21 @@ class GapDetector:
         errors = (stderr or b"").decode("utf-8", errors="replace")
 
         if proc.returncode != 0:
-            # Test FAILED — symptom reproduced. But verify it's the EXPECTED
-            # failure, not an unrelated import error or fixture issue.
+            # Test FAILED — symptom reproduced. But verify it's a GENUINE test
+            # failure (R-F1962: exit 1, not a collection/import error that just
+            # mentions the module) AND the EXPECTED failure (clue match), not an
+            # unrelated import error or fixture issue.
+            combined = (output + errors).lower()
+            if not _is_symptom_failure(proc.returncode, combined):
+                return (False, f"test {test_path} did not produce a genuine test failure "
+                               f"(exit={proc.returncode}; collection/import error or no tests "
+                               f"ran) — unverifiable")
             # Look for the gap's description or module name in the failure output.
             expected_clues = [
                 c for c in [module.rsplit("/", 1)[-1], module.rsplit(".", 1)[-1],
                             gap.title[:40], gap.description[:60]]
                 if c
             ]
-            combined = (output + errors).lower()
             if any(clue.lower() in combined for clue in expected_clues):
                 return (True, f"symptom reproduced: test {test_path} failed (exit={proc.returncode})")
             else:

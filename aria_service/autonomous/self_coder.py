@@ -50,7 +50,12 @@ if TYPE_CHECKING:  # R-F1908: resolve the "ReviewVerdict" forward-ref (runtime-s
     from .claude_reviewer import ReviewVerdict
 
 from .codebase_reader import CodebaseReader
-# R-F1191: constitutional validator removed. ARIA is fully autonomous.
+# R-F1963 (corrects a misleading R-F1191 comment): the constitutional validator
+# is NOT gone. R-F1191 removed it from THIS in-loop coder pass, but R-F1287
+# RESTORED it as a FAIL-CLOSED gate at DEPLOY time (self_improve.deploy_improvement
+# — protected files, weakening patterns, dangerous AST/imports, learned attacks).
+# So generated code is constitution-checked before it is ever written live; the
+# old "validator removed / fully autonomous" comments overstated the autonomy.
 from typing import Any as _Any
 from .fly_deployer import DeployResult, FlyDeployer
 from .gap_detector import Gap, GapDetector, GapSeverity, GapType
@@ -66,7 +71,10 @@ from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.self_coder")
 
-# R-F1191: constitutional validator removed. No protected files.
+# R-F1963: this in-loop list is empty (R-F1191), but protected-file enforcement
+# is NOT gone — it lives at deploy time in self_improve.deploy_improvement's
+# constitutional gate (R-F1287) + the NO_AUTODEPLOY_FILES per-file lock. Empty
+# here ≠ unprotected overall.
 _PROTECTED_FILES: frozenset = frozenset()
 
 WORKSPACE_BASE = Path(

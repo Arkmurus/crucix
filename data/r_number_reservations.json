@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1962,
+  "next_available": 1964,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13953,14 +13953,34 @@
       "title": "deploy_improvement explicit result contract (ok on every path) — kills the guess-the-key class that silently misread successful auto-deploys as failures",
       "claimed_at": "2026-06-26T18:46:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "81e0cd43",
+      "notes": null,
+      "shipped_at": "2026-06-26T19:15:00Z"
     },
     {
       "r_number": "R-F1961",
       "title": "scope pre-commit checks to ADDED lines/functions (whole-file scope false-blocked legitimate commits on pre-existing debt + correct pathlib + self-referential pattern defs)",
       "claimed_at": "2026-06-26T18:57:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "81e0cd43",
+      "notes": null,
+      "shipped_at": "2026-06-26T19:15:02Z"
+    },
+    {
+      "r_number": "R-F1962",
+      "title": "reproduce-symptom genuineness gate — require a real test FAILURE (pytest exit 1), not a collection/import error that merely mentions the module (closes the clue-heuristic gameability)",
+      "claimed_at": "2026-06-26T19:18:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1963",
+      "title": "correct misleading 'constitutional validator removed / fully autonomous' comments — validator IS enforced fail-closed at deploy (R-F1287); truthful-playbook fix",
+      "claimed_at": "2026-06-26T19:20:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
