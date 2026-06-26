@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1973,
+  "next_available": 1975,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14012,36 +14012,40 @@
       "title": "Fix DD reports page showing empty - API calls failing silently",
       "claimed_at": "2026-06-26T19:50:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6fe94c43",
+      "notes": null,
+      "shipped_at": "2026-06-26T20:50:24Z"
     },
     {
       "r_number": "R-F1967",
       "title": "surface delivery-health on the ecosystem dashboard — get_all_surface_health + wire into get_ecosystem_status so operator can see did-I-deliver per channel",
       "claimed_at": "2026-06-26T20:05:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ce2d6617",
+      "notes": null,
+      "shipped_at": "2026-06-26T20:48:52Z"
     },
     {
       "r_number": "R-F1968",
       "title": "silent-drop detector — request-start ledger + reconcile so a surface that dies before reporting an outcome becomes visible (active proprioception)",
       "claimed_at": "2026-06-26T20:05:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ce2d6617",
+      "notes": null,
+      "shipped_at": "2026-06-26T20:48:52Z"
     },
     {
       "r_number": "R-F1969",
       "title": "engine delivery-outcome: DD orchestrator records real-report-vs-empty via outcome_wire (generalize the §25a template beyond surfaces)",
       "claimed_at": "2026-06-26T20:05:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ce2d6617",
+      "notes": null,
+      "shipped_at": "2026-06-26T20:48:52Z"
     },
     {
       "r_number": "R-F1970",
@@ -14066,6 +14070,25 @@
       "r_number": "R-F1972",
       "title": "QR multi-device: _reconnectAccount close handler must re-schedule reconnect (515 restartRequired pairing handshake was a dead-end → new scanned devices never finished linking / not responding)",
       "claimed_at": "2026-06-26T20:43:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a2f0546b",
+      "notes": null,
+      "shipped_at": "2026-06-26T20:50:44Z"
+    },
+    {
+      "r_number": "R-F1973",
+      "title": "Bulletproof state_store: background write worker + never-block reads + index-vault sync",
+      "claimed_at": "2026-06-26T21:09:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1974",
+      "title": "linked team-member can invoke ARIA from their OWN number — process fromMe @mentions on secondary accounts (loop-protected via sent-id tracking), auto-respond stays off for fromMe",
+      "claimed_at": "2026-06-26T21:18:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

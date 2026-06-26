@@ -1448,6 +1448,24 @@ function _markFailedOutcome(requestId) {
   }
 }
 
+// R-F1974 — message ids of replies ARIA herself SENT (via sendReply). Now that a
+// linked team-member's own `fromMe` messages are processed (so they can invoke
+// ARIA from their own phone), we MUST NOT re-process ARIA's OWN replies (also
+// `fromMe` on that account) — that would self-trigger an infinite loop. Every
+// sent chunk's id is tracked here and skipped in onMessagesUpsert. TTL-evicted.
+const _ariaSentMsgIds = new Map();        // messageId → ts
+const _ARIA_SENT_TTL_MS = 600000;         // 10 min
+function _markAriaSent(messageId) {
+  if (!messageId) return;
+  const now = Date.now();
+  _ariaSentMsgIds.set(messageId, now);
+  if (_ariaSentMsgIds.size > 4000) {
+    for (const [k, ts] of _ariaSentMsgIds) {
+      if (now - ts > _ARIA_SENT_TTL_MS) _ariaSentMsgIds.delete(k);
+    }
+  }
+}
+
 // R-F1968 — durably register a request START so a silent drop (this listener
 // dies mid-request before reporting any outcome) becomes visible to the brain's
 // reconcile instead of vanishing. Fire-and-forget; never blocks the chat path.
@@ -1499,7 +1517,10 @@ async function sendReply(chatId, text, requestId) {
     const chunks = splitMessage(formatted);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      await _s.sendMessage(chatId, { text: chunks[i] });
+      const _sentMsg = await _s.sendMessage(chatId, { text: chunks[i] });
+      // R-F1974 — remember our OWN sent id so we never re-process it as a
+      // linked-member `fromMe` invocation (loop guard).
+      try { if (_sentMsg?.key?.id) _markAriaSent(_sentMsg.key.id); } catch {}
     }
     // T0★ — report success outcome (R-F1411).
     // R-F1965 — but NOT if askARIAAsync already recorded a failure outcome for
@@ -2017,8 +2038,17 @@ async function onMessagesUpsert(sock, account, ev) {
       // anything without the minimal shape so a single bad inbound packet can't
       // kill the listener. Every msg.key.* read after this point is then safe.
       if (!msg || !msg.key) continue;
-      // Skip messages sent by ARIA herself
-      if (msg.key.fromMe) continue;
+      // R-F1974 — let a LINKED team-member invoke ARIA from their OWN number.
+      // A `fromMe` message is normally skipped (it's the account's own send).
+      // But on a SECONDARY (QR-linked team-member) account, `fromMe` IS the
+      // team member typing on their own phone — so process it, so an explicit
+      // "Aria, …" mention from the linked device gets a reply (operator
+      // requirement). NEVER process ARIA's OWN replies (tracked sent ids) — that
+      // would self-trigger an infinite loop. On the PRIMARY number (account is
+      // null = ARIA's own account), keep skipping all fromMe. Auto-keyword
+      // response is gated OFF for fromMe below, so she only answers EXPLICIT calls.
+      const _isFromMe = !!msg.key.fromMe;
+      if (_isFromMe && (!account || _ariaSentMsgIds.has(msg.key.id))) continue;
 
       const chatId = msg.key.remoteJid || '';
 
@@ -2046,6 +2076,13 @@ async function onMessagesUpsert(sock, account, ev) {
       if (typeof text === 'string' && text.length > _WA_MAX_TEXT) {
         text = text.slice(0, _WA_MAX_TEXT);
       }
+
+      // R-F1974 — for the linked member's OWN (`fromMe`) messages, ONLY act on an
+      // EXPLICIT "Aria, …" mention (the operator's "reply whenever her name is
+      // called"). This keeps ARIA out of the member's personal chatter/images on
+      // their linked phone — she answers only when explicitly called. (Incoming
+      // messages from OTHERS are unaffected and still flow through normally.)
+      if (_isFromMe && !MENTIONS_RE.some((p) => p.test(text || ''))) continue;
 
       // Get sender info
       const senderJid  = msg.key.participant || msg.key.remoteJid || '';
@@ -2498,7 +2535,7 @@ async function onMessagesUpsert(sock, account, ev) {
       }
 
       // ── Smart auto-response — trigger on compliance/opportunity/risk keywords
-      if (AUTO_RESPOND) {
+      if (AUTO_RESPOND && !_isFromMe) {  // R-F1974 — keyword auto-response never fires on the linked member's OWN messages; they only trigger ARIA via an explicit mention
         const trigger = detectComplianceTrigger(text);
         // R-F1152 — rate limit: at most one auto-response per chat per 2 min
         // R-F1870 (audit DD-27): gate the auto-response on the SAME per-sender
