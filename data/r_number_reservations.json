@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1964,
+  "next_available": 1966,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13973,14 +13973,34 @@
       "title": "reproduce-symptom genuineness gate — require a real test FAILURE (pytest exit 1), not a collection/import error that merely mentions the module (closes the clue-heuristic gameability)",
       "claimed_at": "2026-06-26T19:18:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e0e8fbfe",
+      "notes": null,
+      "shipped_at": "2026-06-26T19:30:50Z"
     },
     {
       "r_number": "R-F1963",
       "title": "correct misleading 'constitutional validator removed / fully autonomous' comments — validator IS enforced fail-closed at deploy (R-F1287); truthful-playbook fix",
       "claimed_at": "2026-06-26T19:20:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e0e8fbfe",
+      "notes": null,
+      "shipped_at": "2026-06-26T19:30:51Z"
+    },
+    {
+      "r_number": "R-F1964",
+      "title": "ARIA-LLM v2 training round — kill citation-fabrication via grounding_reward DPO (chosen=grounded-cite/correct-abstain, rejected=fabricated-cite); preserve abstention",
+      "claimed_at": "2026-06-26T19:33:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1965",
+      "title": "degraded/llm_failure non-answers must record as failure delivery outcome (timeout_fallback/error), not delivered_real_answer — closes the proprioception blind spot that made today's outage invisible",
+      "claimed_at": "2026-06-26T19:43:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

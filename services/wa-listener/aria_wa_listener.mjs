@@ -136,6 +136,7 @@ function _untrustedBlock(text, label = 'USER CONTENT', maxLen = 2000) {
     + `\n[END UNTRUSTED ${label}]`;
 }
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
+import { isDegraded, classifyDeliveryOutcome, degradedDetail } from '../../lib/aria/deliveryOutcome.mjs';  // R-F1965
 
 // R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
 // stream that lies about its declared size cannot exhaust memory before the
@@ -1299,6 +1300,16 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
       const mapping = _asyncJobMap.get(jobId);
       if (mapping) mapping.deliveredViaCallback = true;
       const res = st.result || {};
+      // R-F1965 — a DEGRADED non-answer (LLM unavailable/failed: res.degraded /
+      // res.llm_failure) is NOT a real delivery. Record the true §25 outcome
+      // (timeout_fallback/error) here and mark the requestId so the subsequent
+      // sendReply does not overwrite it with delivered_real_answer. Without this,
+      // ARIA logs her own non-answer as a success and stays blind to the failure.
+      if (requestId && isDegraded(res)) {
+        reportOutcome('wa', requestId, 'chat_response', classifyDeliveryOutcome(res),
+                      Date.now() - t0, degradedDetail(res));
+        _markFailedOutcome(requestId);
+      }
       return res.response || res.answer || 'No response.';
     }
     if (st.status === 'failed')    throw new Error(st.error || 'chat job failed');
@@ -1404,6 +1415,23 @@ function formatForWhatsApp(text) {
   return result.trim();
 }
 
+// R-F1965 — requestIds whose delivery outcome was already recorded as a FAILURE
+// (a degraded / llm_failure non-answer detected in askARIAAsync). sendReply
+// checks this so it does NOT then overwrite that truth with delivered_real_answer
+// when it sends the degraded text to the user. TTL-evicted to stay bounded.
+const _failedOutcomeReqIds = new Map();   // requestId → ts
+const _FAILED_OUTCOME_TTL_MS = 600000;    // 10 min
+function _markFailedOutcome(requestId) {
+  if (!requestId) return;
+  const now = Date.now();
+  _failedOutcomeReqIds.set(requestId, now);
+  if (_failedOutcomeReqIds.size > 2000) {
+    for (const [k, ts] of _failedOutcomeReqIds) {
+      if (now - ts > _FAILED_OUTCOME_TTL_MS) _failedOutcomeReqIds.delete(k);
+    }
+  }
+}
+
 // ── T0★ outcome reporting (R-F1411) ──────────────────────────────────────
 // Reports delivery outcomes to the brain so ARIA knows whether her outputs
 // actually reached the user. Every surface (WA, web, TG, email, CLI, API)
@@ -1444,8 +1472,11 @@ async function sendReply(chatId, text, requestId) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
       await _s.sendMessage(chatId, { text: chunks[i] });
     }
-    // T0★ — report success outcome (R-F1411)
-    if (requestId) {
+    // T0★ — report success outcome (R-F1411).
+    // R-F1965 — but NOT if askARIAAsync already recorded a failure outcome for
+    // this request (a degraded non-answer): the send physically succeeded, yet
+    // the user did NOT get a real answer, so the truth is the failure outcome.
+    if (requestId && !_failedOutcomeReqIds.has(requestId)) {
       reportOutcome('wa', requestId, 'send_reply', 'delivered_real_answer', Date.now() - t0);
     }
   } catch (e) {

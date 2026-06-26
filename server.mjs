@@ -39,6 +39,7 @@ import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
 import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
+import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
@@ -3407,8 +3408,12 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         data.engine = 'aria-8layer';
         // Persist to Redis
         try { await redisAdapter.hset?.(sessionKey, 'lastMessage', message, 'lastResponse', (data.response || data.answer)?.slice(0, 500) || '', 'updatedAt', new Date().toISOString()); } catch {}
-        // §25a (R-F1565) — real guarded answer delivered to the web user.
-        reportOutcome('web', _outReqId, 'chat_answer', 'delivered_real_answer', Date.now() - _outT0);
+        // §25a (R-F1565) — record the TRUE outcome. R-F1965: a DEGRADED non-answer
+        // (data.degraded / data.llm_failure — the brain's "Cannot reason…" fallback)
+        // must NOT be logged as delivered_real_answer, or the brain stays blind to
+        // its own failure (today's aria_llm outage was invisible this way).
+        reportOutcome('web', _outReqId, 'chat_answer', classifyDeliveryOutcome(data),
+                      Date.now() - _outT0, degradedDetail(data));
         return res.json(data);
       }
       // No usable answer (e.g. brain w/o async support returned nothing) —
