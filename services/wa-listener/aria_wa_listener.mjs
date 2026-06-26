@@ -541,11 +541,26 @@ async function _reconnectAccount(accountId) {
         account.connected = true;
         account.status = 'connected';
         account.qr = null;
+        console.log(`[ARIA Listener] Account ${accountId}: connected (reconnect)`);  // R-F1972 — visibility
       }
       if (connection === 'close') {
         account.connected = false;
         account.qrPrinted = false;
-        account.status = 'disconnected';
+        // R-F1972 — KEEP reconnecting. This handler was a DEAD END (it set
+        // 'disconnected' and stopped), so a scanned device that hit code 515
+        // (DisconnectReason.restartRequired — the NORMAL post-pairing handshake,
+        // which needs ANOTHER reconnect to finish) never completed linking and
+        // never responded. Mirror _createAccount: reconnect on any non-logout
+        // close (515 → fast, since it's the time-sensitive pairing step).
+        const code = lastDisconnect?.error?.output?.statusCode;
+        if (code === DisconnectReason.loggedOut) {
+          account.status = 'logged_out';
+          console.log(`[ARIA Listener] Account ${accountId}: logged out`);
+        } else {
+          account.status = 'disconnected';
+          console.log(`[ARIA Listener] Account ${accountId}: disconnected (code ${code}) — reconnecting`);
+          setTimeout(() => _reconnectAccount(accountId), code === 515 ? 1000 : 5000);
+        }
       }
     });
     // R-F1930 (C1): re-attach the inbound handler on reconnect too, else a
