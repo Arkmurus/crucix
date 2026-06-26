@@ -295,14 +295,18 @@ def module_has_breaker(content: str) -> bool:
     return any(tok in content for tok in BREAKER_TOKENS)
 
 
-def check_circuit_breaker(files: list[Path]) -> list[str]:
+def check_circuit_breaker(
+    files: list[Path],
+    added_lines_by_file: dict[str, set[int]] | None = None,
+) -> list[str]:
     """R-F1791 — every changed intel module that makes outbound HTTP calls must
     reference a circuit breaker (CLAUDE.md §1 root-cause-not-symptom; closes the
     breaker-gap class confirmed by the 2026-06-23 cross-check, item #40).
 
-    Whole-file heuristic, mirroring check_wiring_present. Documented exception:
-    put ``# no-breaker: <reason>`` on the HTTP-client line (e.g. <app>.internal
-    cross-app calls that never hit a rate-limiting public backend).
+    R-F1971 — when ``added_lines_by_file`` is provided (pre-commit staged mode),
+    only HTTP calls on ADDED lines are flagged, so editing a module that has a
+    PRE-EXISTING unguarded httpx elsewhere isn't blocked on debt this diff didn't
+    introduce. Documented exception: ``# no-breaker: <reason>`` on the call line.
 
     Returns a list of issue strings (empty if all pass).
     """
@@ -322,6 +326,9 @@ def check_circuit_breaker(files: list[Path]) -> list[str]:
             continue
 
         http_calls = find_http_client_calls(content.splitlines())
+        if added_lines_by_file is not None:
+            _added = added_lines_by_file.get(file_path.name, set())
+            http_calls = [c for c in http_calls if c["line_num"] in _added]
         if not http_calls:
             continue
         if module_has_breaker(content):

@@ -47,3 +47,23 @@ def test_checker_script_exists_and_imports_checks():
     for fn in ("check_wiring_present", "check_false_success",
                "check_windows_compat", "find_direct_function_calls"):
         assert fn in body, f"{fn} must be wired into the checker the hook runs"
+
+
+def test_checker_imports_every_check_it_calls():
+    """Regression guard for the NameError that crashed the whole checker:
+    check_builtin_shadowing was CALLED but never imported, so every run died
+    before any check ran. Assert each called check is also imported."""
+    import ast
+
+    checker = _REPO / "scripts" / "pre-commit"
+    tree = ast.parse(checker.read_text(encoding="utf-8"))
+    imported = set()
+    called = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.update(a.asname or a.name for a in node.names)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id.startswith(("check_", "find_")):
+                called.add(node.func.id)
+    missing = called - imported - {"check_all_files"}  # check_all_files is local
+    assert not missing, f"checker calls but never imports: {sorted(missing)} (NameError at runtime)"
