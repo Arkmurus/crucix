@@ -2872,25 +2872,6 @@ app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
 // runs only". The Python endpoint also accepts `user_email_domain` for
 // R-F608 same-company visibility — wired here via findUserById lookup
 // so the JWT-only payload doesn't have to carry email.
-app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
-  const userId = req.user?.userId || '';
-  if (!userId) return res.status(401).json({ error: 'Authentication required' });
-  let userEmailDomain = '';
-  try {
-    const u = findUserById(userId);
-    const e = String(u?.email || '').toLowerCase().trim();
-    if (e.includes('@')) userEmailDomain = e.split('@', 2)[1] || '';
-  } catch {}
-  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
-  const params = new URLSearchParams(existingQs);
-  // Pin user_id to the JWT-resolved value — never trust whatever the
-  // client put on the URL.
-  params.set('user_id', userId);
-  if (userEmailDomain) params.set('user_email_domain', userEmailDomain);
-  return ariaProxy(req, res, `/api/aria/dd/reports?${params.toString()}`, {
-    fallback: async () => res.status(503).json(_brainFallback()),
-  });
-});
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
   // R-F1820 (audit H3): pin user_id from the JWT (strip any client value) so the
   // brain can enforce report ownership. Pre-fix this forwarded the client query
