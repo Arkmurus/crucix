@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1957,
+  "next_available": 1958,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13893,23 +13893,35 @@
       "title": "per-user monthly cost sub-cap + wire record_cost + graceful degradation near global cap",
       "claimed_at": "2026-06-26T14:52:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd881637",
+      "notes": null,
+      "shipped_at": "2026-06-26T15:24:09Z"
     },
     {
       "r_number": "R-F1955",
       "title": "inline DD concurrency cap + deferred-transparency (no silent degrade)",
       "claimed_at": "2026-06-26T14:52:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd881637",
+      "notes": null,
+      "shipped_at": "2026-06-26T15:24:09Z"
     },
     {
       "r_number": "R-F1956",
       "title": "Structural fixes for pre-existing test failures - mock fragility, test data coupling, file encoding",
       "claimed_at": "2026-06-26T15:03:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bd881637",
+      "notes": null,
+      "shipped_at": "2026-06-26T15:15:27Z"
+    },
+    {
+      "r_number": "R-F1957",
+      "title": "harden ARIA-LLM shadow: completion-based health probe + short shadow timeout so a hangs-but-reachable endpoint trips the breaker proactively",
+      "claimed_at": "2026-06-26T17:47:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

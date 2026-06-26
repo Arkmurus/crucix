@@ -51,10 +51,20 @@ _ARIA_LLM_URL = (os.getenv("ARIA_LLM_URL") or "").strip()
 _ARIA_LLM_KEY = os.getenv("ARIA_LLM_KEY", "sovereign")
 _ARIA_LLM_MODEL = os.getenv("ARIA_LLM_MODEL", "aria-llm-v0.1")
 
-_HEALTH_CHECK_INTERVAL = int(os.getenv("ARIA_LLM_HEALTH_CHECK_INTERVAL", "30"))
+_HEALTH_CHECK_INTERVAL = int(os.getenv("ARIA_LLM_HEALTH_CHECK_INTERVAL", "10"))  # R-F1957: 30→10, trip breaker faster
 _HEALTH_CHECK_TIMEOUT = int(os.getenv("ARIA_LLM_HEALTH_CHECK_TIMEOUT", "10"))
 _HEALTH_CHECK_FAILURE_THRESHOLD = int(os.getenv("ARIA_LLM_HEALTH_FAILURE_THRESHOLD", "3"))
 _HEALTH_CHECK_COOLDOWN = int(os.getenv("ARIA_LLM_HEALTH_COOLDOWN", "300"))
+
+# R-F1957 — hangs-but-healthy / cold-start protection (ALL inert while ARIA_LLM_URL unset).
+# The 2026-06-26 outage: a reached-but-hung endpoint passed `is_available()` and each user
+# call waited the full 60s; a scale-to-zero cold-start (>60s) looked the same. Three guards:
+#   _ARIA_LLM_CALL_TIMEOUT  — clamp the per-call deadline so a hang fast-fails to DeepSeek
+#   _ARIA_LLM_STREAM_TIMEOUT — same for streaming (more generous; long answers stream > clamp)
+#   _ARIA_LLM_WARM_TTL      — warm-gate: only admit aria_llm if a probe SUCCEEDED this recently
+_ARIA_LLM_CALL_TIMEOUT = float(os.getenv("ARIA_LLM_CALL_TIMEOUT_S", "12"))
+_ARIA_LLM_STREAM_TIMEOUT = float(os.getenv("ARIA_LLM_STREAM_TIMEOUT_S", "45"))
+_ARIA_LLM_WARM_TTL = float(os.getenv("ARIA_LLM_WARM_TTL_S", "120"))
 
 _QUEUE_MAX_CONCURRENT = int(os.getenv("ARIA_LLM_MAX_CONCURRENT", "5"))
 _QUEUE_MAX_SIZE = int(os.getenv("ARIA_LLM_QUEUE_MAX_SIZE", "100"))
@@ -223,6 +233,17 @@ class LLMHealthChecker:
         breaker = self._get_breaker()
         breaker.record_failure(reason=reason)
 
+    def record_user_failure(self, reason: str = "server") -> None:
+        """R-F1957: a USER-facing call (not the background probe) failed/timed-out.
+
+        Feed it into the SAME breaker so a hung/dead endpoint trips fast instead of
+        waiting for the next 10s probe cycle (user traffic is far more frequent than
+        the probe). Best-effort — never raises into the caller's error path."""
+        try:
+            self._record_failure(reason)
+        except Exception:
+            pass
+
     def _get_breaker(self):
         """Lazy-init the circuit breaker for ARIA-LLM."""
         if self._breaker is None:
@@ -274,12 +295,26 @@ class LLMHealthChecker:
 
     @fail_wire(module="resilience", gap_type="engine_failure")
     def is_available(self) -> bool:
-        """Is ARIA-LLM currently considered available?"""
+        """Is ARIA-LLM currently considered available?
+
+        R-F1957 warm-gate: a cold/unproven endpoint must be SKIPPED (fast-fail to
+        DeepSeek), never timed-out-on by user traffic. The old "breaker is None →
+        assume available" path is exactly what let a cold/hung endpoint stall users
+        on 2026-06-26. Admission now REQUIRES a successful completion probe within
+        _ARIA_LLM_WARM_TTL seconds — so a scale-to-zero endpoint that is still
+        cold-starting, or has never answered, is treated as unavailable until the
+        probe actually confirms it warm."""
         if not self._enabled:
             return False
-        if self._breaker is None:
-            return True  # haven't probed yet — assume available
-        return not self._breaker.is_open()
+        # never succeeded yet → cold/unproven → skip
+        if self.last_success_at <= 0:
+            return False
+        # last good probe too old → treat as cold until the probe re-confirms
+        if (time.time() - self.last_success_at) > _ARIA_LLM_WARM_TTL:
+            return False
+        if self._breaker is not None and self._breaker.is_open():
+            return False
+        return True
 
     @fail_wire(module="resilience", gap_type="engine_failure")
     def get_status(self) -> dict:
@@ -332,13 +367,22 @@ class LLMHealthChecker:
                     from .provider import ProviderError
                     raise ProviderError(
                         "aria_llm",
-                        "ARIA-LLM circuit breaker OPEN — skipping to fallback",
+                        "ARIA-LLM unavailable (cold/unproven or breaker OPEN) — skipping to fallback",
                         kind="server", retryable=True,
                     )
-                return await inner.complete(
-                    system_prompt, user_message,
-                    max_tokens=max_tokens, timeout=timeout,
-                )
+                # R-F1957: clamp the deadline so a reached-but-hung endpoint
+                # fast-fails to DeepSeek instead of stalling user traffic ~60s.
+                eff_timeout = min(timeout, _ARIA_LLM_CALL_TIMEOUT)
+                try:
+                    return await inner.complete(
+                        system_prompt, user_message,
+                        max_tokens=max_tokens, timeout=eff_timeout,
+                    )
+                except Exception:
+                    # R-F1957: feed user-call failures into the breaker so it
+                    # trips fast (don't wait for the next probe cycle).
+                    _health_checker_instance.record_user_failure()
+                    raise
 
             async def stream(
                 self,
@@ -353,14 +397,21 @@ class LLMHealthChecker:
                     from .provider import ProviderError
                     raise ProviderError(
                         "aria_llm",
-                        "ARIA-LLM circuit breaker OPEN — skipping to fallback",
+                        "ARIA-LLM unavailable (cold/unproven or breaker OPEN) — skipping to fallback",
                         kind="server", retryable=True,
                     )
-                async for chunk in inner.stream(
-                    system_prompt, user_message,
-                    max_tokens=max_tokens, timeout=timeout, on_done=on_done,
-                ):
-                    yield chunk
+                # R-F1957: clamp streaming deadline (more generous than complete —
+                # long answers stream past the call-clamp) + feed failures to the breaker.
+                eff_timeout = min(timeout, _ARIA_LLM_STREAM_TIMEOUT)
+                try:
+                    async for chunk in inner.stream(
+                        system_prompt, user_message,
+                        max_tokens=max_tokens, timeout=eff_timeout, on_done=on_done,
+                    ):
+                        yield chunk
+                except Exception:
+                    _health_checker_instance.record_user_failure()
+                    raise
 
         return _HealthCheckedProvider()
 
