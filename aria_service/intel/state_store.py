@@ -885,9 +885,22 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     _reconnect() cannot kill concurrent reads. Retries ONCE on 'closed
     database' by reopening the read connection and re-executing.
     """
-    # Flush pending writes so read-after-write is consistent
+    # R-F1966: flush pending writes in the BACKGROUND so reads are NEVER
+    # blocked by a backlogged write queue. The write queue was growing to
+    # 1500+ items during boot, causing every read to hang for 12+ seconds
+    # while draining it synchronously. Background flush means reads return
+    # immediately; the write queue drains asynchronously and the next read
+    # will see the writes from the previous flush cycle.
+    #
+    # However, we still do a synchronous flush for SMALL queues (<=10 items)
+    # so that read-after-write consistency holds for the common case. Only
+    # large backlogs are deferred to the background.
     try:
-        await _flush_write_queue()
+        queue = _QUEUED_WRITES
+        if queue is not None and not queue.empty() and queue.qsize() <= 10:
+            await _flush_write_queue()
+        elif queue is not None and not queue.empty():
+            asyncio.ensure_future(_flush_write_queue())
     except Exception:
         pass
     conn = _get_read_conn()
