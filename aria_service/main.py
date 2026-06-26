@@ -2126,6 +2126,43 @@ async def lifespan(app: FastAPI):
     memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"), factory=_memory_wal_drain_loop)
     logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
 
+    # R-F1979 — GUARDIAN check-in reconcile loop (dead-man's switch). The safety
+    # guarantee: a check-in deadline that passes WITHOUT an all-clear fires an
+    # alert to the user's trusted circle. Durable (Redis) so a redeploy/restart
+    # cannot drop a pending safety timer; idempotent so an alert fires at most
+    # once. Delivers via the aria-wa /send hop. Runs every 60s.
+    async def _guardian_reconcile_loop():
+        await asyncio.sleep(90)
+        import os as _os_g
+        import httpx as _httpx_g
+        from .guardian import checkin as _gci
+        _wa_send = "http://aria-wa.internal:5070/api/wa-listener/send"
+        _tok = _os_g.getenv("ARIA_INTERNAL_TOKEN", "")
+
+        async def _send_fn(req):
+            try:
+                async with _httpx_g.AsyncClient(timeout=8.0) as _c:
+                    r = await _c.post(
+                        _wa_send,
+                        headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json"},
+                        json={"to": req.recipient_jid, "message": req.message},
+                    )
+                    return r.status_code == 200
+            except Exception:
+                return False
+
+        while True:
+            try:
+                n = await _gci.reconcile(_send_fn)
+                if n:
+                    logger.warning("[R-F1979 guardian] fired %d dead-man's-switch alert(s)", n)
+            except Exception as e:
+                logger.warning("[R-F1979 guardian] reconcile error: %s", e)
+            await asyncio.sleep(60)
+
+    guardian_task = _bg_task(asyncio.create_task(_guardian_reconcile_loop(), name="guardian_reconcile"), factory=_guardian_reconcile_loop)
+    logger.info("[R-F1979] Guardian check-in reconcile loop started (dead-man's switch)")
+
     # R-F1766 — DEPLOY PROPRIOCEPTION loop: confirm ARIA's autonomous self-improve
     # commits ACTUALLY reached the live server (build_rev), turning a confabulated
     # "deployed" into a verified one. Every 5 min: flips committed items to

@@ -2025,6 +2025,72 @@ async function startListener() {
 // but never processed inbound). `sock`+`account` ride in AsyncLocalStorage so the
 // reply path (sendReply) and the async /callback answer on the SAME number the
 // message arrived on. account=null = the primary/global connection.
+// ── R-F1979: ARIA Guardian — conversational safety commands ─────────────────
+// Parsed deterministically (no LLM) so a safety command is instant + reliable.
+function _guardianIntent(text) {
+  const t = (text || '').toLowerCase().trim();
+  if (!t) return null;
+  if (/\b(aria stop|guardian stop|stop guardian|panic stop|cancel (all|everything))\b/.test(t))
+    return { action: 'pause' };
+  if (/\b(resume guardian|guardian resume|unpause guardian)\b/.test(t))
+    return { action: 'resume' };
+  if (/\b(all clear|i'?m safe|i am safe|im safe|i'?m home safe|reached home safe|got home safe|safe now)\b/.test(t))
+    return { action: 'clear' };
+  let m = t.match(/check\s*(?:on me|in)\b.*?(\d+)\s*(min|minute|hour|hr)/);
+  if (m) {
+    let n = parseInt(m[1], 10);
+    if (/hour|hr/.test(m[2])) n *= 60;
+    return { action: 'arm', minutes: n, message: text.slice(0, 200) };
+  }
+  m = text.match(/add\s+(.+?)\s+(\+?\d[\d\s\-]{6,}\d)\s*(?:to (?:my )?circle)?/i);
+  if (m && /circle/i.test(text)) {
+    return { action: 'circle_add', name: m[1].trim().slice(0, 60), jid: m[2].replace(/[\s\-]/g, '') };
+  }
+  if (/\b(my circle|who'?s in my circle|show (my )?circle|list (my )?circle)\b/.test(t))
+    return { action: 'circle_list' };
+  if (/\b(check.?in status|am i checked in|guardian status)\b/.test(t))
+    return { action: 'status' };
+  return null;
+}
+
+async function _handleGuardianIntent(gi, user) {
+  if (gi.action === 'pause') {
+    await brainPost('/api/aria/guardian/pause', { user });
+    return '🛑 Guardian PAUSED — I won\'t act on your behalf until you say "resume guardian".';
+  }
+  if (gi.action === 'resume') {
+    await brainPost('/api/aria/guardian/resume', { user });
+    return '✅ Guardian resumed.';
+  }
+  if (gi.action === 'clear') {
+    const r = await brainPost('/api/aria/guardian/checkin/clear', { user });
+    return r.was_armed ? '✅ Glad you\'re safe — check-in cleared.' : '✅ Noted. (No active check-in was running.)';
+  }
+  if (gi.action === 'arm') {
+    const r = await brainPost('/api/aria/guardian/checkin', { user, minutes: gi.minutes, message: gi.message });
+    if (r.ok) {
+      return `🛡️ Check-in armed for ${Math.round(r.minutes)} min. If you don't tell me "all clear" by then, I'll alert your trusted circle. `
+        + `(Set it up first with "add <name> <number> to my circle".)`;
+    }
+    return `⚠️ Could not arm the check-in: ${r.error || 'unknown'}`;
+  }
+  if (gi.action === 'circle_add') {
+    const r = await brainPost('/api/aria/guardian/circle', { user, name: gi.name, jid: gi.jid });
+    return r.ok ? `✅ Added ${gi.name} to your trusted circle (${r.count} total).` : `⚠️ ${r.error || 'could not add contact'}`;
+  }
+  if (gi.action === 'circle_list') {
+    const r = await brainGet(`/api/aria/guardian/circle?user=${encodeURIComponent(user)}`);
+    if (!r || !r.count) return 'Your trusted circle is empty. Add someone with "add <name> <number> to my circle".';
+    return '🛡️ Your trusted circle:\n' + (r.circle || []).map(c => `• ${c.name}${c.relationship ? ' (' + c.relationship + ')' : ''} ${c.jid_masked}`).join('\n');
+  }
+  if (gi.action === 'status') {
+    const r = await brainGet(`/api/aria/guardian/checkin/status?user=${encodeURIComponent(user)}`);
+    if (!r || !r.status) return 'No active check-in right now.';
+    return `🛡️ Check-in active — ${Math.round((r.status.seconds_left || 0) / 60)} min left. Say "all clear" when you're safe.`;
+  }
+  return null;
+}
+
 async function onMessagesUpsert(sock, account, ev) {
   const { messages, type } = ev;
   // Only process new incoming messages, not history
@@ -2496,6 +2562,19 @@ async function onMessagesUpsert(sock, account, ev) {
       //    is unreliable in STT, so a voice note IS the address). ──────────────
       if (MENTIONS_RE.some(p => p.test(text)) || (_isVoiceNote && VOICE_ALWAYS_REPLY)) {
         let q = text.replace(/^@?ar[iy]{1,3}a[,:?\s]*/i, '').trim() || text;  // R-F959 — strip STT-variant name prefix
+        // R-F1979 — GUARDIAN intents (check-in / all-clear / panic / circle).
+        // Handled BEFORE the LLM so a safety command is instant and deterministic.
+        const _gi = _guardianIntent(q);
+        if (_gi) {
+          try {
+            const _gr = await _handleGuardianIntent(_gi, senderJid);
+            if (_gr) await sendReply(chatId, _gr, requestId);
+          } catch (e) {
+            console.error('[ARIA Listener] Guardian intent error:', e.message);
+            try { await sendReply(chatId, '⚠️ I could not action that safety command — please try again.'); } catch {}
+          }
+          continue;
+        }
         // R-F854 — if this is a doc-referencing follow-up and we recently read
         // a document from this sender, re-attach its text as an
         // [ATTACHED DOCUMENT] block so the chat path is document-grounded.

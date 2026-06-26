@@ -13957,6 +13957,105 @@ async def outcome_start_ep(request: Request):
     return {"recorded": ok}
 
 
+# ── R-F1979: ARIA Guardian control plane ────────────────────────────────────
+# Auth-gated by the router-wide require_aria_token. `user` is the account holder
+# (the WA listener passes the sender JID). The Action Gateway enforces the
+# safety invariants; these endpoints are the thin control surface over it.
+
+async def _guardian_body(request: Request) -> dict:
+    try:
+        return await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+
+@router.post("/guardian/checkin")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_arm_checkin_ep(request: Request):
+    """Arm a check-in / dead-man's switch. Body: {user, minutes, message?}."""
+    b = await _guardian_body(request)
+    user = (b.get("user") or "").strip()
+    if not user:
+        raise HTTPException(status_code=400, detail="user required")
+    from ..guardian import checkin as _gci
+    return await _gci.arm(user, b.get("minutes", 30), b.get("message", ""))
+
+
+@router.post("/guardian/checkin/clear")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_all_clear_ep(request: Request):
+    """Confirm safe → disarm the pending check-in. Body: {user}."""
+    b = await _guardian_body(request)
+    from ..guardian import checkin as _gci
+    return await _gci.all_clear((b.get("user") or "").strip())
+
+
+@router.get("/guardian/checkin/status")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_checkin_status_ep(user: str = ""):
+    from ..guardian import checkin as _gci
+    return {"status": await _gci.status(user.strip())}
+
+
+@router.post("/guardian/circle")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_circle_add_ep(request: Request):
+    """Enrol a trusted-circle contact. Body: {user, name, jid, relationship?}."""
+    b = await _guardian_body(request)
+    from ..guardian import circle as _gc
+    return await _gc.add_contact((b.get("user") or "").strip(), b.get("name", ""),
+                                 b.get("jid", ""), b.get("relationship", ""))
+
+
+@router.post("/guardian/circle/remove")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_circle_remove_ep(request: Request):
+    b = await _guardian_body(request)
+    from ..guardian import circle as _gc
+    return await _gc.remove_contact((b.get("user") or "").strip(), b.get("name_or_jid", ""))
+
+
+@router.get("/guardian/circle")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_circle_list_ep(user: str = ""):
+    """List the trusted circle (jid MASKED — PII minimisation on read)."""
+    from ..guardian import circle as _gc
+    out = []
+    for c in await _gc.list_circle(user.strip()):
+        _d = "".join(ch for ch in c.get("jid", "") if ch.isdigit())
+        out.append({"name": c.get("name"), "relationship": c.get("relationship"),
+                    "jid_masked": ("***" + _d[-4:]) if _d else ""})
+    return {"circle": out, "count": len(out)}
+
+
+@router.post("/guardian/pause")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_pause_ep(request: Request):
+    """Panic kill-switch — stop ALL Guardian outbound action. Body: {user}."""
+    b = await _guardian_body(request)
+    from ..guardian import gateway as _gg
+    await _gg.pause((b.get("user") or "").strip())
+    return {"ok": True, "paused": True}
+
+
+@router.post("/guardian/resume")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_resume_ep(request: Request):
+    b = await _guardian_body(request)
+    from ..guardian import gateway as _gg
+    await _gg.resume((b.get("user") or "").strip())
+    return {"ok": True, "paused": False}
+
+
+@router.get("/guardian/audit")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_audit_ep(user: str = "", limit: int = 50):
+    """Tamper-evident log of what ARIA did as the user, + chain verification."""
+    from ..guardian import audit as _ga
+    return {"history": await _ga.history(user.strip(), limit),
+            "chain": await _ga.verify_chain(user.strip())}
+
+
 @router.get("/outcome/health")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def outcome_health_ep(surface: str = "wa", hours: int = 24):

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1978,
+  "next_available": 1981,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14111,9 +14111,10 @@
       "title": "adaptive response speed — fast-lane for basic questions (skip 7-layer context build + tools + verification, lean LLM call) so simple Qs answer in ~1-2s while entity/compliance Qs keep the full grounded pipeline",
       "claimed_at": "2026-06-26T21:45:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48679522",
+      "notes": null,
+      "shipped_at": "2026-06-26T22:13:44Z"
     },
     {
       "r_number": "R-F1977",
@@ -14124,6 +14125,33 @@
       "commit_sha": "1661bdff",
       "notes": null,
       "shipped_at": "2026-06-26T21:57:21Z"
+    },
+    {
+      "r_number": "R-F1978",
+      "title": "Guard: detect simple factual questions before launching expensive tool chains",
+      "claimed_at": "2026-06-26T22:07:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1979",
+      "title": "ARIA Guardian Phase-0 — Action Gateway (risk class + consent tiers + trusted-circle vault + tamper-evident audit + panic kill-switch + durable queue + §25 outcome) + check-in/dead-mans-switch capability (operator Phase-A override)",
+      "claimed_at": "2026-06-26T22:17:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1980",
+      "title": "DD reports: collapse by entity, versioning, delete on rows, vault as source of truth",
+      "claimed_at": "2026-06-26T22:24:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
