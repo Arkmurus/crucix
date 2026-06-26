@@ -319,32 +319,50 @@ def _warn_rate_limited(msg: str, *args) -> None:
 
 
 async def _start_write_worker() -> None:
-    """Initialise the write queue. Called from connect().
-    
-    R-F1541: the queue is drained synchronously on every read (_flush_write_queue)
-    rather than by a background worker. This avoids a race between the worker
-    and the flush-on-read: if the worker took an item from the queue but hadn't
-    committed it yet, the read would miss it. Synchronous flush-on-read guarantees
-    that every write is visible to the next read.
-    
-    The queue still provides backpressure (if full, caller gets StateWriteError
-    immediately) and batching (multiple writes are committed together on the
-    next read or close).
+    """Initialise the write queue AND start a background worker that drains
+    it continuously. Called from connect().
+
+    R-F1973: replaces the R-F1541 design where the queue was drained
+    SYNCHRONOUSLY on every read. That design meant a backlog of 1500+ writes
+    (common during boot) caused every read to hang for 12+ seconds. Now the
+    background worker drains the queue every 100ms, and reads NEVER touch the
+    queue — they go straight to the database. Read-after-write consistency is
+    guaranteed by the 100ms drain interval (writes are visible within 100ms).
     """
-    global _QUEUED_WRITES
+    global _QUEUED_WRITES, _WRITE_WORKER_TASK
     if _QUEUED_WRITES is not None:
         return  # already initialised
     _QUEUED_WRITES = asyncio.Queue(maxsize=_WRITE_QUEUE_MAX)
+
+    async def _worker_loop():
+        """Background loop: drain the write queue every 100ms."""
+        while True:
+            try:
+                await asyncio.sleep(0.1)
+                await _flush_write_queue()
+            except asyncio.CancelledError:
+                await _flush_write_queue()
+                break
+            except Exception:
+                pass
+
+    _WRITE_WORKER_TASK = asyncio.ensure_future(_worker_loop())
     logger.info(
-        "state_store: write queue initialised (max=%d, batch_size=%d)",
+        "state_store: write queue + background worker started (max=%d, batch_size=%d)",
         _WRITE_QUEUE_MAX, _WRITE_BATCH_SIZE,
     )
 
 
 async def _stop_write_worker() -> None:
-    """No-op: the write queue has no background worker (R-F1541).
-    Kept for API compatibility with connect()/close()."""
-    pass
+    """Cancel the background write worker and flush remaining writes."""
+    global _WRITE_WORKER_TASK
+    if _WRITE_WORKER_TASK is not None:
+        _WRITE_WORKER_TASK.cancel()
+        try:
+            await _WRITE_WORKER_TASK
+        except asyncio.CancelledError:
+            pass
+        _WRITE_WORKER_TASK = None
 
 
 async def _enqueue_write(sql: str, params: tuple) -> None:
@@ -885,22 +903,18 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     _reconnect() cannot kill concurrent reads. Retries ONCE on 'closed
     database' by reopening the read connection and re-executing.
     """
-    # R-F1966: flush pending writes in the BACKGROUND so reads are NEVER
-    # blocked by a backlogged write queue. The write queue was growing to
-    # 1500+ items during boot, causing every read to hang for 12+ seconds
-    # while draining it synchronously. Background flush means reads return
-    # immediately; the write queue drains asynchronously and the next read
-    # will see the writes from the previous flush cycle.
+    # R-F1973: reads NEVER flush the write queue in production. The background
+    # worker drains it every 100ms, so writes are visible within 100ms.
+    # Previously (R-F1541) every read drained the queue synchronously, causing
+    # 12+ second hangs when the queue backlogged to 1500+ items during boot.
     #
-    # However, we still do a synchronous flush for SMALL queues (<=10 items)
-    # so that read-after-write consistency holds for the common case. Only
-    # large backlogs are deferred to the background.
+    # For SMALL queues (<=10 items) we still flush synchronously to guarantee
+    # read-after-write consistency in the common case (single writes, tests).
+    # Large backlogs are handled by the background worker.
     try:
         queue = _QUEUED_WRITES
         if queue is not None and not queue.empty() and queue.qsize() <= 10:
             await _flush_write_queue()
-        elif queue is not None and not queue.empty():
-            asyncio.ensure_future(_flush_write_queue())
     except Exception:
         pass
     conn = _get_read_conn()

@@ -9072,6 +9072,35 @@ async def list_reports(
     """
     from . import redis_store as rs
     index = await rs.get_json(REPORT_INDEX_KEY) or []
+
+    # R-F1973: if the index is empty but the vault has cases, rebuild the
+    # index from the vault. This fixes the case where the state_store was
+    # reset but the vault (separate SQLite DB) survived.
+    if not index:
+        try:
+            from .dd_vault import get_vault as _get_dd_vault
+            vault = _get_dd_vault()
+            vault_cases = vault.list_all(limit=limit)
+            if vault_cases:
+                for case in vault_cases:
+                    index.append({
+                        "run_id": case.get("latest_report_id", ""),
+                        "entity_name": case.get("entity_name", "unknown"),
+                        "entity_type": case.get("entity_type", "company"),
+                        "jurisdiction": case.get("jurisdiction", ""),
+                        "user_id": case.get("user_id"),
+                        "user_email_domain": case.get("user_email_domain"),
+                        "created_at": case.get("last_run_at"),
+                        "severity": case.get("severity", "unknown"),
+                    })
+                # Persist the rebuilt index so subsequent reads are fast
+                try:
+                    await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     if not index:
         return []
 
