@@ -1,0 +1,45 @@
+#!/bin/sh
+# R-F1958 — pre-commit hook: run the 10-check verifier on staged changes.
+#
+# WHY THIS EXISTS (root cause): the 10 playbook checks (function-name verify,
+# wiring-present, windows-compat, false-success, direct-calls, capability-test,
+# builtin-shadow, circuit-breaker, no-token-default, SSRF-boundary) live in
+# scripts/pre-commit (logic in scripts/pre_commit_checks.py). AGENTS.md claims
+# they "enforce the playbook structurally" — but they NEVER RAN: core.hooksPath
+# is scripts/git-hooks/ (this dir, which only had pre-push), while the checks'
+# own installer pointed at the look-alike scripts/githooks/ dir. The two
+# near-identical directory names diverged, orphaning the checks. This hook wires
+# them into the ACTIVE path so the playbook is actually enforced at commit time.
+#
+# FAIL-SAFE: blocks ONLY when the checker explicitly reports "VERIFICATION
+# FAILED" (a real issue). If the checker itself errors (infra/import bug), the
+# commit is ALLOWED — a tooling bug must never wedge commits. Bypass a genuine
+# false-positive with: git commit --no-verify  (use only when authorised).
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Detect available Python interpreter — prefer repo venv (mirrors pre-push).
+if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$REPO_ROOT/.venv/Scripts/python.exe"
+elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    PY="$REPO_ROOT/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    PY=python
+fi
+
+# Run the checker, capturing output. `set -e` is relaxed for this call so a
+# non-zero exit doesn't abort before we can decide fail-open vs fail-closed.
+OUT="$("$PY" "$REPO_ROOT/scripts/pre-commit" 2>&1)" || true
+printf '%s\n' "$OUT"
+
+# Fail-CLOSED only on an explicit verification failure; fail-OPEN otherwise so a
+# checker crash (no "VERIFICATION FAILED" sentinel) never blocks the commit.
+if printf '%s' "$OUT" | grep -q "VERIFICATION FAILED"; then
+    echo "[R-F1958 pre-commit] commit BLOCKED — fix the issues above, or 'git commit --no-verify' to bypass."
+    exit 1
+fi
+
+exit 0

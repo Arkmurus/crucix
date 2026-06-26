@@ -14,9 +14,11 @@ prompting strategy ship as R-numbers via the normal flow.
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -59,6 +61,54 @@ DEFAULT_MAX_TOKENS = 8192
 # making file size irrelevant and truncation impossible. Whole-file generation
 # stays as the fallback for smaller files and when no edit applies cleanly.
 LARGE_FILE_LINES = int(os.getenv("ARIA_CODER_LARGE_FILE_LINES", "500"))
+
+
+# R-F1959 — BIND THE PLAYBOOK to the autonomous coder. AGENTS.md states it "is
+# injected into your system prompt automatically", but that was only true for the
+# interactive `aria` CLI (aria_cli/prompt.py:load_repo_guidance) — the AUTONOMOUS
+# self-coding loop built its prompts here with NO playbook injected, so it ran
+# below the bar it's meant to hold. This loads CLAUDE.md (the binding floor) +
+# AGENTS.md (the coder playbook) once and prepends them to the plan/code/edit
+# prompts, so every autonomous fix is grounded in the same rules Claude follows.
+# Each file is capped (mirrors the CLI's 16KB-per-file cap) to bound prompt size.
+_PLAYBOOK_FILE_CAP = int(os.getenv("ARIA_CODER_PLAYBOOK_FILE_CAP", "9000"))
+
+
+@functools.lru_cache(maxsize=1)
+def _load_playbook() -> str:
+    """Read CLAUDE.md + AGENTS.md from the repo root (cached). Returns '' if
+    neither is present (e.g. running outside the repo) so the coder degrades to
+    its inline rules rather than failing."""
+    try:
+        root = Path(__file__).resolve().parents[2]
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        try:
+            txt = (root / name).read_text(encoding="utf-8")[:_PLAYBOOK_FILE_CAP]
+            if txt.strip():
+                parts.append(f"----- {name} (BINDING — follow exactly) -----\n{txt}")
+        except Exception:
+            continue
+    return "\n\n".join(parts)
+
+
+def _playbook_preamble() -> str:
+    """Prompt preamble that binds the autonomous coder to its playbook. Empty
+    string when no playbook is found (degrade gracefully, never break the call)."""
+    pb = _load_playbook()
+    if not pb:
+        return ""
+    return (
+        "BINDING OPERATING PLAYBOOK — you are ARIA's autonomous coder and you hold "
+        "the SAME bar as Claude Code. Follow these rules exactly (root-cause not "
+        "symptom, smallest diff, verify twice, wire success+failure, no false "
+        "success, no truncation/stubs). CLAUDE.md is the floor and overrides "
+        "AGENTS.md on conflict.\n"
+        f"{pb}\n"
+        "----- END PLAYBOOK -----\n\n"
+    )
 
 
 @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
@@ -257,7 +307,7 @@ relevant to this gap. Use these as templates and avoid repeating past
 mistakes.
 {rag_context}
 """
-        return f"""You are ARIA's autonomous self-coding engine. Plan a fix for the gap below.
+        return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. Plan a fix for the gap below.
 
 GAP REPORT
 - Type: {gap.gap_type}
@@ -306,7 +356,7 @@ Reply with ONLY valid JSON (no markdown, no prose):
     def _build_code_prompt(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> str:
-        return f"""You are ARIA's autonomous self-coding engine. Write the complete updated file content.
+        return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. Write the complete updated file content.
 
 TARGET FILE: {target_file}
 
@@ -337,7 +387,7 @@ Reply with ONLY valid JSON:
     def _build_edit_prompt(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> str:
-        return f"""You are ARIA's autonomous self-coding engine. This file is LARGE — do
+        return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. This file is LARGE — do
 NOT rewrite the whole file. Make SURGICAL edits: emit only the exact snippets that
 change, as search/replace pairs. This avoids truncation and preserves everything
 you don't touch.

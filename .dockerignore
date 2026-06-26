@@ -18,4 +18,9 @@ runs/
 docs/
 *.md
 !README.md
+# R-F1959 — the autonomous self-coder (sovereign_llm._load_playbook) reads these
+# at runtime to bind itself to the playbook. Without these un-ignores, *.md
+# above strips them from the image and the binding silently degrades to no-op.
+!CLAUDE.md
+!AGENTS.md
 LICENSE

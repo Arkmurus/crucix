@@ -30,6 +30,7 @@ sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 from pre_commit_checks import (
     ARIA_SERVICE,
     REPO_ROOT,
+    check_builtin_shadowing,   # R-F1958 — was CALLED (line ~195) but NOT imported → NameError crashed the whole checker on every run, so NO checks ran even before the hooks-path orphaning. Import it so the checker completes.
     check_capability_tests,
     check_circuit_breaker,
     check_no_token_default,
