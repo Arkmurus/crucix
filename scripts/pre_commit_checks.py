@@ -52,6 +52,12 @@ WIRING_EXEMPT_MODULES = {
     "mistake_ledger", "capability_gaps", "intel_ledger",
 }
 
+# R-F1961 — THIS file (and any future pattern-authoring file) literally contains
+# the danger-strings it scans for (os.fork regex, 'aria-internal', SSRF/url
+# patterns) as DETECTION definitions, so a whole-file content check run on it
+# self-flags. A check must not flag the file that defines its own patterns.
+_PATTERN_AUTHORING_FILES = {"pre_commit_checks.py"}
+
 # Known Windows-incompatible patterns (R-F1268)
 WINDOWS_INCOMPATIBLE_PATTERNS: list[tuple[str, str]] = [
     (r"os\.fork\s*\(", "os.fork() is not available on Windows"),
@@ -61,7 +67,10 @@ WINDOWS_INCOMPATIBLE_PATTERNS: list[tuple[str, str]] = [
     (r"pty\.", "pty module is not available on Windows"),
     (r"subprocess\.Popen\(.*shell\s*=\s*True", "shell=True in subprocess has quoting issues on Windows"),
     (r"os\.pathsep\s*!=\s*['\"];['\"]", "os.pathsep is ';' on Windows, not ':'"),
-    (r"Path\(.*\)\s*/\s*['\"].*['\"]", "Path concatenation with string may produce wrong separators on Windows"),
+    # R-F1961 — REMOVED a wrong pattern that flagged `Path(...) / "str"`. That is
+    # the CANONICAL, correct pathlib idiom — the `/` operator yields the right
+    # separator on every platform. The check punished good code and pushed toward
+    # os.path string-concat (the actually-unsafe pattern). Deleting it, not weakening.
 ]
 
 
@@ -331,8 +340,16 @@ def check_circuit_breaker(files: list[Path]) -> list[str]:
     return issues
 
 
-def check_windows_compat(files: list[Path]) -> list[str]:
+def check_windows_compat(
+    files: list[Path],
+    added_lines_by_file: dict[str, set[int]] | None = None,
+) -> list[str]:
     """R-F1268 — Check changed files for known Windows-incompatible patterns.
+
+    R-F1961 — when ``added_lines_by_file`` is provided (pre-commit staged mode),
+    only lines ADDED in this diff are checked, so a touched legacy file isn't
+    blocked on pre-existing patterns (and the checker file's own pattern-string
+    DEFINITIONS don't self-flag). When None (CI), scans the whole file.
 
     Returns a list of issue strings (empty if all pass).
     """
@@ -343,14 +360,21 @@ def check_windows_compat(files: list[Path]) -> list[str]:
             continue
         if "__pycache__" in file_path.parts:
             continue
+        # R-F1961 — test files legitimately carry platform-pattern strings as
+        # FIXTURES; the pattern-authoring file defines them. Skip both.
+        if "tests" in file_path.parts or file_path.name in _PATTERN_AUTHORING_FILES:
+            continue
 
         try:
             content = file_path.read_text(encoding="utf-8")
         except Exception:
             continue
 
+        _added = None if added_lines_by_file is None else added_lines_by_file.get(file_path.name, set())
         lines = content.splitlines()
         for i, line in enumerate(lines):
+            if _added is not None and (i + 1) not in _added:
+                continue
             for pattern, message in WINDOWS_INCOMPATIBLE_PATTERNS:
                 if re.search(pattern, line):
                     issues.append(
@@ -361,13 +385,20 @@ def check_windows_compat(files: list[Path]) -> list[str]:
     return issues
 
 
-def check_false_success(files: list[Path]) -> list[str]:
+def check_false_success(
+    files: list[Path],
+    added_lines_by_file: dict[str, set[int]] | None = None,
+) -> list[str]:
     """R-F1268 — Scan changed files for ``success: True`` or ``"success": True``
     that is NOT preceded by actual verification logic.
 
     Flags patterns like:
     - return {"success": True, ...} without a preceding check
     - success: True in a dict literal without verification
+
+    R-F1961 — when ``added_lines_by_file`` is provided (pre-commit staged mode),
+    only ADDED lines are flagged, so a touched legacy file isn't blocked on a
+    pre-existing success:True. When None (CI), scans the whole file.
 
     Returns a list of issue strings (empty if all pass).
     """
@@ -386,8 +417,11 @@ def check_false_success(files: list[Path]) -> list[str]:
         except Exception:
             continue
 
+        _added = None if added_lines_by_file is None else added_lines_by_file.get(file_path.name, set())
         lines = content.splitlines()
         for i, line in enumerate(lines):
+            if _added is not None and (i + 1) not in _added:
+                continue
             # Look for success: True, "success": True, or 'success': True in dict literals
             if re.search(r"""(?:"success"|'success'|success)\s*:\s*True""", line):
                 # Check if this is preceded by verification logic in the
@@ -440,9 +474,19 @@ def find_direct_function_calls(lines: list[str]) -> list[dict]:
     return calls
 
 
-def check_capability_tests(files: list[Path]) -> list[str]:
+def check_capability_tests(
+    files: list[Path],
+    changed_funcs: dict[str, set[str]] | None = None,
+) -> list[str]:
     """R-F1124 — For every changed function in aria_service/intel/, verify
     there's a test file that calls it.
+
+    R-F1961 — when ``changed_funcs`` is provided (pre-commit staged mode: a map of
+    filename -> set of function names whose `def` is in the ADDED diff lines),
+    ONLY those genuinely-new/changed functions are checked. The old whole-file
+    scan flagged EVERY untested public function in a touched legacy module, so any
+    incremental commit to a big file was blocked on pre-existing debt. When None
+    (CI --check-all) it scans the whole file as before.
 
     Returns a list of issue strings (empty if all pass).
     """
@@ -469,6 +513,11 @@ def check_capability_tests(files: list[Path]) -> list[str]:
             m = re.match(r"^\s*(?:async\s+)?def\s+(\w+)\s*\(", line)
             if m:
                 func_defs.append(m.group(1))
+
+        # R-F1961 — restrict to functions ADDED in this diff, when known.
+        if changed_funcs is not None:
+            _added = changed_funcs.get(file_path.name, set())
+            func_defs = [f for f in func_defs if f in _added]
 
         if not func_defs:
             continue
@@ -520,7 +569,7 @@ def check_no_token_default(files: list[Path]) -> list[str]:
     for fp in files:
         if fp.suffix not in (".mjs", ".js", ".cjs", ".py"):
             continue
-        if "tests" in fp.parts:
+        if "tests" in fp.parts or fp.name in _PATTERN_AUTHORING_FILES:  # R-F1961
             continue
         try:
             content = fp.read_text(encoding="utf-8", errors="ignore")

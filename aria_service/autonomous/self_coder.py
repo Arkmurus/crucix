@@ -1667,7 +1667,11 @@ class ARIACoder:
         # items are excluded above and remain staged for the operator.
         for sid in deployable:
             deploy_res = await _si.deploy_improvement(sid)
-            if not deploy_res.get("ok"):
+            # R-F1960 — classify via the canonical contract helper, NOT a guessed
+            # key. The old `deploy_res.get("ok")` read a key deploy_improvement
+            # never returned → EVERY successful auto-deploy was misread as failed
+            # (gap churn + the post-deploy regression monitor never ran).
+            if not _si.deploy_succeeded(deploy_res):
                 err = deploy_res.get("error", "unknown")
                 logger.error(
                     "[aria_coder] deploy_improvement %s failed: %s",

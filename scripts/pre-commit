@@ -75,6 +75,42 @@ def extract_added_lines(diff):
     return added
 
 
+def added_line_numbers(diff):
+    """R-F1961 — new-file line numbers that were ADDED in the staged diff, by
+    walking the unified-diff hunks. Lets the whole-file checks gate ONLY what this
+    commit adds (not pre-existing debt in a touched legacy file)."""
+    import re as _re
+    nums = set()
+    new_ln = 0
+    for line in diff.splitlines():
+        if line.startswith("@@"):
+            m = _re.search(r"\+(\d+)", line)
+            if m:
+                new_ln = int(m.group(1))
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            nums.add(new_ln)
+            new_ln += 1
+        elif line.startswith("-"):
+            continue  # removed line — new-file numbering doesn't advance
+        else:
+            new_ln += 1  # context line
+    return nums
+
+
+def added_func_names(diff):
+    """R-F1961 — names of functions whose `def` is in the ADDED lines."""
+    import re as _re
+    names = set()
+    for line in extract_added_lines(diff):
+        m = _re.match(r"^\s*(?:async\s+)?def\s+(\w+)\s*\(", line)
+        if m:
+            names.add(m.group(1))
+    return names
+
+
 def check_all_files() -> list[str]:
     """Check ALL Python files in the repo (CI mode)."""
     issues = []
@@ -142,6 +178,16 @@ def main():
     if not files:
         return 0
 
+    # R-F1961 — per-file ADDED-line numbers + ADDED function names, so the
+    # whole-file checks gate only what THIS commit introduces (not pre-existing
+    # debt in a touched legacy file). Empty maps fall back to whole-file behavior.
+    added_lines_by_file = {}
+    changed_funcs = {}
+    for fp in files:
+        _d = get_staged_diff(fp)
+        added_lines_by_file[fp.name] = added_line_numbers(_d)
+        changed_funcs[fp.name] = added_func_names(_d)
+
     issues = []
 
     # Check 1: Function-name verification (existing)
@@ -160,20 +206,20 @@ def main():
                 issues.append(f"  {rel}:{call['line_num']} — {call['code']}")
                 issues.append(f"    Function '{call['function']}()' not found in {module_path}")
 
-    # Check 2: Capability test requirement (R-F1124)
-    cap_issues = check_capability_tests(files)
+    # Check 2: Capability test requirement (R-F1124) — R-F1961: ADDED funcs only
+    cap_issues = check_capability_tests(files, changed_funcs)
     issues.extend(cap_issues)
 
-    # Check 3: Wiring presence (R-F1268)
+    # Check 3: Wiring presence (R-F1268) — whole-file (a module is wired or not)
     wiring_issues = check_wiring_present(files)
     issues.extend(wiring_issues)
 
-    # Check 4: Windows compatibility (R-F1268)
-    win_issues = check_windows_compat(files)
+    # Check 4: Windows compatibility (R-F1268) — R-F1961: ADDED lines only
+    win_issues = check_windows_compat(files, added_lines_by_file)
     issues.extend(win_issues)
 
-    # Check 5: False success detection (R-F1268)
-    fs_issues = check_false_success(files)
+    # Check 5: False success detection (R-F1268) — R-F1961: ADDED lines only
+    fs_issues = check_false_success(files, added_lines_by_file)
     issues.extend(fs_issues)
 
     # Check 6: Direct function call verification (R-F1268)

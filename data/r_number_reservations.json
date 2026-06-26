@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1960,
+  "next_available": 1962,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13933,14 +13933,34 @@
       "title": "activate orphaned 10-check pre-commit hook (githooks vs git-hooks dir mismatch) so playbook checks actually run",
       "claimed_at": "2026-06-26T18:13:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "58c006e7",
+      "notes": null,
+      "shipped_at": "2026-06-26T18:32:02Z"
     },
     {
       "r_number": "R-F1959",
       "title": "inject repo guidance (CLAUDE.md+AGENTS.md) into autonomous self-coder prompts so the loop is bound to its playbook",
       "claimed_at": "2026-06-26T18:13:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "58c006e7",
+      "notes": null,
+      "shipped_at": "2026-06-26T18:32:03Z"
+    },
+    {
+      "r_number": "R-F1960",
+      "title": "deploy_improvement explicit result contract (ok on every path) — kills the guess-the-key class that silently misread successful auto-deploys as failures",
+      "claimed_at": "2026-06-26T18:46:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1961",
+      "title": "scope pre-commit checks to ADDED lines/functions (whole-file scope false-blocked legitimate commits on pre-existing debt + correct pathlib + self-referential pattern defs)",
+      "claimed_at": "2026-06-26T18:57:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

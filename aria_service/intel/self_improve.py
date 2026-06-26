@@ -628,8 +628,36 @@ async def get_staged_diff(improvement_id: str) -> dict:
     return {"error": "Improvement not found"}
 
 
+def deploy_succeeded(res: dict | None) -> bool:
+    """R-F1960 — THE single source of truth for "did deploy_improvement succeed?".
+
+    Root cause this kills: deploy_improvement returns three different shapes
+    ({"deployed":True} on success, {"error":...} / {"error":...,"blocked":True}
+    on failure) and callers GUESSED the key. self_coder checked `.get("ok")` — a
+    key deploy_improvement NEVER returned — so every successful auto-deploy was
+    misread as `deploy_failed:...:unknown`, churning the gap and bypassing the
+    post-deploy regression monitor. The internal caller checked `.get("deployed")`
+    (right). Two callers, two guesses, no contract. Now every caller asks HERE.
+
+    Robust to all current shapes AND to any future return that forgets the
+    explicit `ok` flag: a real success has `deployed`/`ok` truthy and no
+    error/blocked marker.
+    """
+    if not isinstance(res, dict):
+        return False
+    if res.get("error") or res.get("blocked"):
+        return False
+    return bool(res.get("ok", res.get("deployed")))
+
+
 async def deploy_improvement(improvement_id: str) -> dict:
-    """Deploy a staged improvement to production."""
+    """Deploy a staged improvement to production.
+
+    Result contract (R-F1960): EVERY return carries an explicit ``ok`` bool.
+    Callers MUST classify success via ``deploy_succeeded()``, never by guessing
+    a key. Success also keeps ``deployed=True`` (legacy marker); failures carry
+    ``error`` and sometimes ``blocked``.
+    """
     global _SI_DEPLOYED, _SI_FAILURES
     staged = await rs.get_json(STAGED_KEY) or []
 
@@ -644,7 +672,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
         wire_failure(module="self_improve",
                      detail=f"Deploy failed: improvement {improvement_id} not found or already deployed",
                      gap_type="deploy_failure", source="self_improve:deploy_improvement")
-        return {"error": "Improvement not found or already deployed"}
+        return {"ok": False, "error": "Improvement not found or already deployed"}
 
     file_path = target["file"]
     full_path = _root / file_path
@@ -675,6 +703,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
                          detail=f"R-F904 blocked deploy of {file_path}: {_prop_lines}L < half of {_cur_lines}L",
                          gap_type="truncation_guard", source="self_improve:deploy_improvement")
             return {
+                "ok": False,   # R-F1960 — explicit failure contract
                 "error": (
                     f"BLOCKED: proposed content ({_prop_lines} lines) is under half the "
                     f"current file ({_cur_lines} lines) — a truncated full-file "
@@ -721,6 +750,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
         logger.warning("[self_improve] R-F1287 BLOCKED deploy of %s: risk=%.2f violations=%s",
                        file_path, _cv_risk, _cv_violations[:3])
         return {
+            "ok": False,   # R-F1960 — explicit failure contract
             "error": "BLOCKED by constitutional_validator: " + "; ".join(_cv_violations)[:300],
             "blocked": True,
             "constitutional_block": True,
@@ -774,7 +804,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
         wire_failure(module="self_improve",
                      detail=f"Deploy write failed for {file_path}: {e}",
                      gap_type="deploy_failure", source="self_improve:deploy_improvement")
-        return {"error": f"Deploy failed: {e}"}
+        return {"ok": False, "error": f"Deploy failed: {e}"}
 
     # Git commit
     try:
@@ -863,6 +893,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
         logger.debug("[CodingRAG] Fix index failed (non-fatal): %s", e)
 
     return {
+        "ok": True,            # R-F1960 — explicit success contract
         "deployed": True,
         "id": improvement_id,
         "file": file_path,
@@ -1809,7 +1840,7 @@ async def autonomous_improvement_cycle(llm) -> dict:
                         # the flag directly.
                         if stage_result.get("auto_deployable") and file_path not in NO_AUTODEPLOY_FILES:
                             deploy_result = await deploy_improvement(stage_result["id"])
-                            if deploy_result.get("deployed"):
+                            if deploy_succeeded(deploy_result):   # R-F1960 — canonical contract
                                 results["auto_deployed"] += 1
                                 logger.info(
                                     "[Self-Improve] Auto-deployed bug fix: %s in %s",
