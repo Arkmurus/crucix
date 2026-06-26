@@ -1378,6 +1378,15 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                     "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts)",
                     _topic, _region, _stored,
                 )
+            else:
+                # R-F1947: a cell visited but NOT credited (stored=0 or detect_regions
+                # didn't geo-confirm the region) leaves the gate-#2 floor frozen — make
+                # that failure visible instead of silent so the credit chain is debuggable.
+                logger.info(
+                    "[student] R-F1947 gate-2 cell %s:%s NOT credited (stored=%d grounded=%s) "
+                    "— visited, no mastery lift",
+                    _topic, _region, _stored, _grounded,
+                )
     except Exception as _rce:
         logger.warning("[student] R-F1744 region-targeted branch failed (non-fatal): %s", _rce)
 
@@ -1605,13 +1614,20 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("west_africa", re.compile(
         r"\b(?:nigeria|ghana|senegal|côte\s+d.ivoire|cameroon|ecowas|"
         r"niger|mali|burkina|togo|benin|sierra\s+leone|liberia|aes\s+alliance)\b", re.I)),
+    # R-F1947 (gate-#2 credit fix): Kenya/Nairobi/Tanzania/Uganda were miscategorised
+    # under central_africa, so the osint×east_africa floor cell's own query
+    # ("Ethiopia Kenya East Africa …") returned Kenya-heavy results that detect_regions
+    # tagged central_africa → _grounded stayed False → update_regional_mastery never
+    # fired → the gate-#2 floor (≈0.269) was frozen no matter how often it was visited.
+    # Core East-African (EAC) states now correctly map to east_africa; central_africa
+    # keeps the DRC/Congo cluster (+ Rwanda/Burundi, which sit in the DRC-conflict orbit).
     ("east_africa", re.compile(
-        r"\b(?:ethiopia|somalia|eac|amisom|djibouti|eritrea|"
-        r"south\s+sudan|sudan)\b", re.I)),
+        r"\b(?:ethiopia|addis\s+ababa|somalia|mogadishu|eac|east\s+african\s+community|"
+        r"amisom|djibouti|eritrea|south\s+sudan|sudan|"
+        r"kenya|nairobi|mombasa|tanzania|dodoma|dar\s+es\s+salaam|uganda|kampala)\b", re.I)),
     ("central_africa", re.compile(
-        r"\b(?:d\.?r\.?c\.?|drc|democratic\s+republic\s+of\s+(?:the\s+)?congo|"
-        r"kinshasa|rwanda|kigali|uganda|kampala|tanzania|dodoma|dar\s+es\s+salaam|"
-        r"kenya|nairobi|burundi|m23|monusco)\b", re.I)),
+        r"\b(?:d\.?r\.?c\.?|drc|democratic\s+republic\s+of\s+(?:the\s+)?congo|congo|"
+        r"kinshasa|brazzaville|rwanda|kigali|burundi|bujumbura|m23|monusco)\b", re.I)),
     ("north_africa", re.compile(
         r"\b(?:libya|algeria|morocco|tunisia|egypt|sahel|maghreb)\b", re.I)),
     ("southern_africa", re.compile(
