@@ -74,6 +74,14 @@ from .engine_wiring import wired  # R-F1121 — @wired decorator for brain sinks
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
+def _slugify_entity_name(name: str) -> str:
+    """Generate a stable canonical ID from an entity name.
+    Used when canonical_entity_id is not available (pre-R-F573 reports)."""
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower().strip())
+    return f"entity:{slug[:64]}" if slug else f"entity:unknown_{abs(hash(name)) % 100000}"
+
+
 def _note_dd_screen_gap(report, who: str, exc: Exception) -> None:
     """R-F1348: a sanctions/entity screen that threw must surface as a visible
     data_gap in the DD report (never silently dropped — a false negative the
@@ -6554,7 +6562,8 @@ async def _persist_report(report: ARKDDReport) -> None:
         from .dd_vault import get_vault as _get_dd_vault
         _vault = _get_dd_vault()
         _vault.record_case(
-            canonical_entity_id=getattr(report, "canonical_entity_id", None) or report.run_id,
+            canonical_entity_id=getattr(report, "canonical_entity_id", None)
+                or _slugify_entity_name(getattr(report.identity, "entity_name", "unknown")),
             entity_name=getattr(report.identity, "entity_name", "unknown"),
             entity_type=getattr(report.identity, "entity_type", "company"),
             jurisdiction=getattr(report.identity, "jurisdiction", ""),
@@ -9293,7 +9302,31 @@ async def list_reports(
             )
         return filtered[:limit]
 
-    return index[:limit]
+    # R-F1980: collapse by canonical_entity_id — return only the LATEST
+    # version per entity. The DD library is a CASE FILE DIRECTORY, not a
+    # run log. 20+ entries for the same entity is noise, not intelligence.
+    # When an entity has no canonical_id (pre-R-F573 entries), fall back
+    # to entity_name as the grouping key.
+    collapsed: dict[str, dict] = {}
+    for entry in index[:limit]:
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("canonical_entity_id") or entry.get("entity_name", "")
+        if not cid:
+            continue
+        existing = collapsed.get(cid)
+        if existing is None:
+            collapsed[cid] = dict(entry)
+        else:
+            # Keep the newer one
+            existing_ts = existing.get("generated_at") or existing.get("created_at") or ""
+            entry_ts = entry.get("generated_at") or entry.get("created_at") or ""
+            if entry_ts > existing_ts:
+                collapsed[cid] = dict(entry)
+    result = list(collapsed.values())
+    # Sort by most recent first
+    result.sort(key=lambda e: e.get("generated_at") or e.get("created_at") or "", reverse=True)
+    return result[:limit]
 
 
 # =============================================================================
@@ -9485,6 +9518,15 @@ async def delete_report(run_id: str) -> dict:
         "[dd_orchestrator] R-F162 delete_report %s: blob=%s index_entries=%d",
         run_id, blob_existed, removed_from_index,
     )
+    # R-F1980: also remove from the persistent vault
+    try:
+        from .dd_vault import get_vault as _get_dd_vault
+        _vault = _get_dd_vault()
+        # Find the canonical_entity_id for this run_id from the index
+        # (we already have the updated index minus this entry)
+        _vault.delete_case(run_id)
+    except Exception as e:
+        logger.debug("delete_report vault cleanup failed (non-fatal): %s", e)
     return {
         "ok": True,
         "run_id": run_id,

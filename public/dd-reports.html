@@ -375,7 +375,7 @@ function renderTable(reports) {
     content.innerHTML = '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
-  let html = '<table class="dd-table"><thead><tr><th>Entity</th><th>Severity</th><th>Run ID</th><th>Created</th></tr></thead><tbody>';
+  let html = '<table class="dd-table"><thead><tr><th>Entity</th><th>Severity</th><th>Version</th><th>Last Run</th><th style="width:40px"></th></tr></thead><tbody>';
   for (const r of reports) {
     // R-F130 (2026-05-10): the /dd/reports index stores `risk` not
     // `severity` — the column was always rendering "—" because the
@@ -414,14 +414,38 @@ function renderTable(reports) {
         sharedBadge +
       '</td>' +
       '<td>' + severityPill(sev) + '</td>' +
-      '<td class="col-meta"><code style="font-size:11.5px">' + escText((r.run_id || '').slice(0, 14)) + '</code></td>' +
+      '<td class="col-meta">v' + (r.version_number || 1) + '</td>' +
       '<td class="col-meta">' + fmtDate(created) + '</td>' +
+      '<td style="text-align:right">' +
+        '<button class="dd-act-btn dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" ' +
+          'title="Delete this report" style="color:#fca5a5;padding:4px 8px;font-size:11px">' +
+          '<i class="bi bi-trash"></i></button>' +
+      '</td>' +
     '</tr>';
   }
   html += '</tbody></table>';
   content.innerHTML = html;
   content.querySelectorAll('.dd-row').forEach(row => {
-    row.addEventListener('click', () => toggleDetail(row, row.dataset.runId));
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.dd-delete-btn')) return;
+      toggleDetail(row, row.dataset.runId);
+    });
+  });
+  // R-F1980: delete buttons on each row
+  content.querySelectorAll('.dd-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const runId = btn.dataset.runId;
+      if (!confirm('Delete report ' + (runId || '').slice(0, 14) + '?')) return;
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+      try {
+        const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId), { method: 'DELETE' });
+        if (!r.ok) { alert('Delete failed (HTTP ' + r.status + ')'); btn.disabled = false; btn.innerHTML = orig; return; }
+        await loadReports();
+      } catch (err) { alert('Delete error: ' + err.message); btn.disabled = false; btn.innerHTML = orig; }
+    });
   });
 }
 
