@@ -449,6 +449,25 @@ class ChatRequest(BaseModel):
     # to the caller's delivery endpoint (e.g. WA listener's /api/wa-listener/send).
     callback_url: str = ""
 
+
+# R-F1953 — derive the PER-USER quota key. The old `session_id.split("_", 1)[0]`
+# collapsed every channel into ONE shared bucket: WhatsApp sessions are
+# `wa_<jid>` → "wa", Telegram `telegram_<chatid>` → "telegram", WA auto-response
+# `auto_<jid>` → "auto". So 30 RPM + $5/day were SHARED across every WhatsApp
+# team member (one chatty user starved the rest) — the opposite of per-user
+# scoping. Fix: prefer the JWT-pinned user_id (the web proxy injects a stable
+# per-account slug); for channels that don't inject one, the per-SENDER identity
+# is embedded in the FULL session_id, so key on that instead of the channel
+# prefix. Web is unchanged (it always sends user_id == the same slug the old
+# split produced); WA/Telegram/auto/api sessions now get one bucket per sender.
+def _quota_user_key(req: "ChatRequest") -> str:
+    uid = (getattr(req, "user_id", "") or "").strip()
+    if uid:
+        return uid
+    sid = (getattr(req, "session_id", "") or "").strip()
+    return sid or "anon"
+
+
 class ThinkRequest(BaseModel):
     question: str
     context: dict | None = None
@@ -8465,7 +8484,7 @@ async def chat_ep(req: ChatRequest, request: Request):
     # Anthropic RPM budget. Now we enforce a sliding-window cap per user
     # plus a daily USD cap, with an allow-list for ops.
     from ..intel import user_quota
-    _quota_user = (req.session_id or "anon").split("_", 1)[0] if req.session_id else "anon"
+    _quota_user = _quota_user_key(req)   # R-F1953 — per-sender, not per-channel
     _allowed, _reason = await user_quota.check(_quota_user)
     if not _allowed:
         raise HTTPException(status_code=429, detail=_reason)
@@ -9802,7 +9821,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     # StreamingResponse is returned so the client gets a clean 429
     # instead of an error mid-stream.
     from ..intel import user_quota
-    _quota_user = (req.session_id or user_id or "anon").split("_", 1)[0] if (req.session_id or user_id) else "anon"
+    _quota_user = _quota_user_key(req)   # R-F1953 — per-sender, not per-channel
     _allowed, _reason = await user_quota.check(_quota_user)
     if not _allowed:
         raise HTTPException(status_code=429, detail=_reason)

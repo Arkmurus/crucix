@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1952,
+  "next_available": 1954,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13844,9 +13844,10 @@
       "title": "shadow-flag (ARIA_LLM_SHADOW: aria-llm as fallback not primary) + push-adapter-to-HF script — final operationalization prep",
       "claimed_at": "2026-06-26T09:02:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2c994f76",
+      "notes": null,
+      "shipped_at": "2026-06-26T13:24:44Z"
     },
     {
       "r_number": "R-F1950",
@@ -13862,6 +13863,25 @@
       "r_number": "R-F1951",
       "title": "Include DD run_id in chat_ep and chat_stream_ep responses + fix hallucination guard for DD output",
       "claimed_at": "2026-06-26T11:03:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "34c903f0",
+      "notes": null,
+      "shipped_at": "2026-06-26T11:12:48Z"
+    },
+    {
+      "r_number": "R-F1952",
+      "title": "merge ARIA-LLM LoRA into base on a GPU pod + push standalone merged model to HF for clean serverless serving (one Model id)",
+      "claimed_at": "2026-06-26T11:11:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1953",
+      "title": "per-user quota isolation: stop collapsing wa_/telegram_/auto_ sessions into one channel bucket",
+      "claimed_at": "2026-06-26T11:59:01Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
