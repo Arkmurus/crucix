@@ -571,25 +571,37 @@ def create_fallback_chain(
     # is set, ARIA-LLM serves all chat / DD / audit-grade calls with
     # the existing chain demoted to break-glass fallback.
     _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
+    # R-F1949 — SHADOW/canary mode. With ARIA_LLM_SHADOW=1, ARIA-LLM is slotted
+    # BELOW the primary (fallback position, appended after the primary further
+    # down) so it serves real traffic ONLY when the primary (DeepSeek) fails — a
+    # safe canary — while DeepSeek stays primary. Unset ARIA_LLM_SHADOW to promote
+    # ARIA-LLM to primary (the original R-F93 behaviour).
+    _aria_llm_shadow = (os.getenv("ARIA_LLM_SHADOW", "").strip().lower() in ("1", "true", "yes"))
+    _aria_llm_provider = None
     if _aria_llm_url:
         # ARIA-LLM speaks OpenAI-compatible API; reuse the OpenAICompatProvider.
-        aria_llm = create_llm_provider(
+        _aria_llm_provider = create_llm_provider(
             "openai",
             os.getenv("ARIA_LLM_KEY", "sovereign"),
             os.getenv("ARIA_LLM_MODEL", "aria-llm-v0.1"),
             base_url=_aria_llm_url.rstrip("/"),
         )
-        if aria_llm and aria_llm.is_configured:
-            # Rename so logs are clear about what's serving
+        if _aria_llm_provider and _aria_llm_provider.is_configured:
             try:
-                aria_llm.name = "aria_llm"
+                _aria_llm_provider.name = "aria_llm"
             except Exception:
                 pass
-            providers.append(aria_llm)
-            logger.info(
-                "ARIA-LLM (R-F93 sovereign) configured at %s — taking primary position",
-                _aria_llm_url,
-            )
+            if not _aria_llm_shadow:
+                providers.append(_aria_llm_provider)
+                logger.info(
+                    "ARIA-LLM (R-F93 sovereign) configured at %s — taking PRIMARY position",
+                    _aria_llm_url,
+                )
+            else:
+                logger.info(
+                    "ARIA-LLM (R-F1949 SHADOW) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
+                    _aria_llm_url,
+                )
 
     # Primary (configured via env vars in main.py — typically Anthropic)
     primary = create_llm_provider(
@@ -597,6 +609,14 @@ def create_fallback_chain(
     )
     if primary and primary.is_configured:
         providers.append(primary)
+
+    # R-F1949: in SHADOW mode, slot ARIA-LLM right after the primary (fallback/
+    # canary) — it serves only when the primary fails, so DeepSeek stays primary
+    # while ARIA-LLM gets observable real traffic. Promote by unsetting ARIA_LLM_SHADOW.
+    if (_aria_llm_provider is not None and _aria_llm_shadow
+            and _aria_llm_provider.is_configured and _aria_llm_provider not in providers):
+        providers.append(_aria_llm_provider)
+        logger.info("ARIA-LLM appended as FALLBACK (R-F1949 shadow/canary; primary unchanged)")
 
     # Fallbacks from env vars (only if different from primary).
     # Order is intentional — each entry is an independent billing domain,
