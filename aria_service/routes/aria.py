@@ -8489,6 +8489,7 @@ async def chat_ep(req: ChatRequest, request: Request):
     response_text = ""
     tool_used = None
     tool_context = ""
+    _dd_run_id = ""  # R-F1951: extracted from DD tool_context for web UI linkage
     try:
         # Attribute every LLM call from this chat path to "chat" so /cost
         # can show what user-driven traffic costs vs background cycles.
@@ -8514,6 +8515,16 @@ async def chat_ep(req: ChatRequest, request: Request):
                         # started" note that was never true).
                         user_id=getattr(req, "user_id", "") or "",
                     )
+                    # R-F1951: extract DD run_id from tool_context so the
+                    # response carries it for the web UI to link to the
+                    # DD Reports panel. Stored in a temp var and added to
+                    # result after aria_chat returns.
+                    _dd_run_id = ""
+                    if tool_context and "Run ID:" in tool_context:
+                        import re as _re_runid
+                        _runid_m = _re_runid.search(r"Run ID:\s*(\S+)", tool_context)
+                        if _runid_m:
+                            _dd_run_id = _runid_m.group(1)
 
             # Build the final message for the LLM. Three components in
             # this order, all CONDITIONAL on being non-empty:
@@ -9719,6 +9730,12 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as _e:
             _log.debug("[R-F655] aria_chat brain_hook dispatch failed: %s", _e)
 
+        # R-F1951: attach DD run_id to the response so the web UI can
+        # link to the DD Reports panel. Extracted from tool_context above.
+        if _dd_run_id:
+            if isinstance(result, dict):
+                result["dd_report"] = {"run_id": _dd_run_id}
+
         return result
     finally:
         # Always finalise the trace so /trace doesn't show stuck
@@ -9855,6 +9872,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         # generator definition for the why.
         tool_used = None
         tool_context = ""
+        _dd_run_id = ""  # R-F1951: extracted from DD tool_context for web UI linkage
         # R-F948 — skip auto tool-crawl when a document is attached (see chat path).
         if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
             yield f'data: {json.dumps({"type":"progress","stage":"detecting","message":"Detecting intent…"})}\n\n'
@@ -9936,6 +9954,14 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                             _done, _ = await _aio.wait({_tool_task}, timeout=_hb_interval)
                             if _done:
                                 tool_context = _tool_task.result()
+                                # R-F1951: extract DD run_id from tool_context
+                                # for web UI linkage in the stream response.
+                                _dd_run_id = ""
+                                if tool_context and "Run ID:" in tool_context:
+                                    import re as _re_runid2
+                                    _runid_m2 = _re_runid2.search(r"Run ID:\s*(\S+)", tool_context)
+                                    if _runid_m2:
+                                        _dd_run_id = _runid_m2.group(1)
                                 break
                             # R-F1754 — keep the interactive-yield window alive
                             # for the WHOLE tool run so background encoders
@@ -10258,7 +10284,12 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
             # truncated response. This finally block ensures the client
             # always gets a clean termination signal.
             try:
-                yield f'data: {json.dumps({"type":"done","session_id":session_id})}\n\n'
+                _done_event = {"type": "done", "session_id": session_id}
+                # R-F1951: attach DD run_id to the done event so the web UI
+                # can link to the DD Reports panel.
+                if _dd_run_id:
+                    _done_event["dd_report"] = {"run_id": _dd_run_id}
+                yield f'data: {json.dumps(_done_event)}\n\n'
             except Exception:
                 pass
             cost_tracker.reset_feature(_cost_token)

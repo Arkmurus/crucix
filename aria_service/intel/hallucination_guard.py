@@ -46,7 +46,8 @@ _ENTITY_ID_RE = re.compile(
 # Inline citation patterns — if any of these are present, the claim is sourced
 _CITATION_RE = re.compile(
     r"\[from\s|\[snippet\s|\[EXTRACT|\[LEGACY|\[UNVERIFIED|\[CONTRADICTED|"
-    r"\[ASSESSED|\[PROBABLE|\[UNCERTAIN|\[SPECULATIVE",
+    r"\[ASSESSED|\[PROBABLE|\[UNCERTAIN|\[SPECULATIVE|"
+    r"\[from dd_orchestrate:",  # R-F1951: DD orchestrator citations
     re.IGNORECASE,
 )
 
