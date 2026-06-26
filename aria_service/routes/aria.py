@@ -6280,6 +6280,23 @@ _DD_DEEP_BG_INFLIGHT: set = set()
 # the recurring wedge). This bounds total concurrent heavy DD work.
 _DD_DEEP_BG_MAX = int(os.getenv("ARIA_DD_DEEP_BG_MAX", "3"))
 
+# R-F1955 — INLINE (chat-path) DD concurrency cap. The background deep-DD has a
+# global cap (_DD_DEEP_BG_MAX) but the inline dd_orchestrate awaited directly in
+# the chat turn had NONE — N users each triggering an inline DD ran N heavy jobs
+# at once on the single-process loop (the multi-user starvation risk). This bounds
+# concurrent inline DDs; overflow QUEUES (it is NOT dropped) and the user is told
+# the request was briefly deferred — no silent degrade (CLAUDE.md §25). The
+# Semaphore is created lazily so it binds to the running event loop, not import.
+_DD_INLINE_MAX = int(os.getenv("ARIA_DD_INLINE_MAX", "3"))
+_dd_inline_sem = None
+
+
+def _get_dd_inline_sem() -> "asyncio.Semaphore":
+    global _dd_inline_sem
+    if _dd_inline_sem is None:
+        _dd_inline_sem = asyncio.Semaphore(_DD_INLINE_MAX)
+    return _dd_inline_sem
+
 
 def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | None) -> bool:
     """Fire-and-forget a full-depth DD that persists to the user's panel.
@@ -6436,6 +6453,10 @@ async def _execute_tool(
             # the BLUF is consumed by the LLM. Cap at 1 retry (no
             # infinite loops). If deep also gate-triggers, take the
             # deep result (more layers fired) and emit it with a note.
+            # R-F1955 — inline DD admission gate state (released in finally below).
+            _dd_inline_deferred = False
+            _dd_inline_acquired = False
+            _dd_inline_sem_local = None
             try:
                 # R-F1572: bound the whole DD (initial run + any R-F409 deep
                 # re-run) to a budget that fits inside the WhatsApp async-push
@@ -6457,6 +6478,16 @@ async def _execute_tool(
                     else float(int(os.getenv("ARIA_DD_CHAT_BUDGET_S", "300")))
                 )
                 _dd_chat_t0 = time.time()
+                # R-F1955 — bound concurrent inline DDs. If all permits are in
+                # use this call QUEUES here (not dropped); we note the deferral
+                # so the reply can tell the user, then proceed once a slot frees.
+                _dd_inline_sem_local = _get_dd_inline_sem()
+                _dd_inline_deferred = _dd_inline_sem_local.locked()
+                if _dd_inline_deferred:
+                    _log.info("R-F1955 inline DD queued — %d already running (cap %d), entity=%r",
+                              _DD_INLINE_MAX, _DD_INLINE_MAX, target.get("name", "?"))
+                await _dd_inline_sem_local.acquire()
+                _dd_inline_acquired = True
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,
                     llm=llm,
@@ -6526,6 +6557,14 @@ async def _execute_tool(
                     f"The orchestrator could not complete — fall back to narrative "
                     f"reasoning based on knowledge and live intel only."
                 )
+            finally:
+                # R-F1955 — always release the inline-DD slot, on success OR
+                # failure, so a failed/timed-out DD never leaks a permit.
+                if _dd_inline_acquired and _dd_inline_sem_local is not None:
+                    try:
+                        _dd_inline_sem_local.release()
+                    except Exception:
+                        pass
             # Render as markdown and return as tool_context so the LLM
             # writes its final answer grounded in the structured report.
             md = await asyncio.to_thread(report.render_markdown, concise=False)  # R-F1786
@@ -6642,6 +6681,12 @@ async def _execute_tool(
                 f"come from the report. Honour the GROUNDING_CHECK block above: "
                 f"if the hard counts say zero, do not claim non-zero.\n"
                 f"{_deep_bg_note}"
+                + (  # R-F1955 — transparency: tell the user it was briefly queued
+                    "\n[NOTE TO USER — please surface this: several due-diligence "
+                    "requests were running at once, so yours was briefly queued "
+                    "before starting. The full result below is complete.]\n"
+                    if _dd_inline_deferred else ""
+                ) +
                 f"\n"
                 f"{md}"
             )
@@ -8489,6 +8534,19 @@ async def chat_ep(req: ChatRequest, request: Request):
     if not _allowed:
         raise HTTPException(status_code=429, detail=_reason)
     await user_quota.register_request(_quota_user)
+    # R-F1954 — per-user monthly sub-cap so one heavy user can't drain the
+    # shared $300 pool. Attribute every LLM call this turn (incl. tool-internal
+    # ones — contextvars propagate to child tasks) to this user, and refuse
+    # cleanly if they're already over their monthly budget.
+    from ..intel import cost_tracker as _ct1954
+    _ct1954.set_user(_quota_user)
+    _um_over, _um_spent, _um_cap = await _ct1954.user_month_cap_exceeded(_quota_user)
+    if _um_over:
+        raise HTTPException(
+            status_code=429,
+            detail=(f"Your monthly usage budget (${_um_cap:.0f}) is reached — "
+                    f"resets on the 1st. Ask the operator to raise it if you need more."),
+        )
 
     llm = get_llm(request)
     intel = get_intel_data(request)
@@ -9826,6 +9884,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     if not _allowed:
         raise HTTPException(status_code=429, detail=_reason)
     await user_quota.register_request(_quota_user)
+    # R-F1954 — per-user monthly sub-cap (same as chat_ep).
+    from ..intel import cost_tracker as _ct1954
+    _ct1954.set_user(_quota_user)
+    _um_over, _um_spent, _um_cap = await _ct1954.user_month_cap_exceeded(_quota_user)
+    if _um_over:
+        raise HTTPException(
+            status_code=429,
+            detail=(f"Your monthly usage budget (${_um_cap:.0f}) is reached — "
+                    f"resets on the 1st. Ask the operator to raise it if you need more."),
+        )
 
     # Strip listener context (same as chat_ep)
     req.message = _strip_listener_context(req.message)

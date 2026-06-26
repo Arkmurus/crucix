@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1954,
+  "next_available": 1957,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13882,6 +13882,34 @@
       "r_number": "R-F1953",
       "title": "per-user quota isolation: stop collapsing wa_/telegram_/auto_ sessions into one channel bucket",
       "claimed_at": "2026-06-26T11:59:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "86a61dea",
+      "notes": null,
+      "shipped_at": "2026-06-26T14:59:27Z"
+    },
+    {
+      "r_number": "R-F1954",
+      "title": "per-user monthly cost sub-cap + wire record_cost + graceful degradation near global cap",
+      "claimed_at": "2026-06-26T14:52:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1955",
+      "title": "inline DD concurrency cap + deferred-transparency (no silent degrade)",
+      "claimed_at": "2026-06-26T14:52:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1956",
+      "title": "Structural fixes for pre-existing test failures - mock fragility, test data coupling, file encoding",
+      "claimed_at": "2026-06-26T15:03:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

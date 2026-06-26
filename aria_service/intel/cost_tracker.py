@@ -157,6 +157,112 @@ _MONTH_CACHE_TTL_S = 30.0  # re-sync from Redis at least this often
 _warned_thresholds: set[str] = set()
 
 
+# ── R-F1954: per-USER monthly sub-cap ───────────────────────────────────────
+# The global cap above is a SHARED $300 ceiling — one heavy user can drain it
+# and hard-fail the whole team (the cliff). This adds a second, per-user monthly
+# budget so no single user can monopolise the shared pool. It is wired off the
+# SAME record_call path that already knows each call's USD (user_quota.record_cost
+# was dead code — never invoked — so per-user cost was previously unenforced).
+# Attribution is via a contextvar set by the chat handler, mirroring _current_feature.
+COST_USER_MONTH_PREFIX = "crucix:aria:cost:usermonth:"   # + <user>:<YYYY-MM>
+DEFAULT_USER_MONTHLY_CAP_USD = 20.0
+# user → (month, spent_usd) in-process mirror (authoritative on this process;
+# Redis is the cross-process mirror, same pattern as the global _month_cache).
+_user_month_mem: dict[str, tuple[str, float]] = {}
+_current_user: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "aria_cost_user", default="",
+)
+
+
+class UserMonthlyCostCapExceeded(RuntimeError):
+    """Raised/surfaced when a single user's monthly sub-cap is hit."""
+
+    def __init__(self, user: str, spent: float, cap: float, month: str):
+        self.user = user
+        self.spent = spent
+        self.cap = cap
+        self.month = month
+        super().__init__(
+            f"Per-user monthly cost cap ${cap:.2f} reached for {month} "
+            f"(user spent ${spent:.4f})."
+        )
+
+
+def _user_monthly_cap_usd() -> float:
+    try:
+        return float(os.getenv("ARIA_USER_MONTHLY_COST_USD_CAP",
+                               str(DEFAULT_USER_MONTHLY_CAP_USD)))
+    except (TypeError, ValueError):
+        return DEFAULT_USER_MONTHLY_CAP_USD
+
+
+def set_user(name: str) -> contextvars.Token:
+    """Attribute subsequent LLM calls (incl. tool-internal ones spawned as
+    child tasks — contextvars propagate) to this user for per-user budgeting."""
+    return _current_user.set((name or "").strip())
+
+
+def get_current_user() -> str:
+    return _current_user.get()
+
+
+def _user_month_key(user: str, month: str | None = None) -> str:
+    return f"{COST_USER_MONTH_PREFIX}{user}:{month or _current_month_key()}"
+
+
+async def _record_user_month_spend(user: str, cost_usd: float) -> None:
+    """Add one call's USD to the user's month-to-date bucket (mem + Redis).
+    Best-effort: a Redis failure never blocks the LLM call (caller wraps)."""
+    if not user or cost_usd <= 0:
+        return
+    month = _current_month_key()
+    prev = _user_month_mem.get(user)
+    base = prev[1] if (prev and prev[0] == month) else 0.0
+    _user_month_mem[user] = (month, base + cost_usd)
+    try:
+        key = _user_month_key(user, month)
+        if hasattr(rs, "incrbyfloat"):
+            await rs.incrbyfloat(key, cost_usd)
+        else:
+            existing = float(await rs.get(key) or "0")
+            await rs.set(key, f"{existing + cost_usd:.6f}")
+        if hasattr(rs, "expire"):
+            await rs.expire(key, COST_MONTH_TTL)
+    except Exception as e:
+        logger.debug("cost_tracker per-user month record failed (non-fatal): %s", e)
+
+
+async def get_user_month_spend(user: str) -> float:
+    """User's month-to-date USD spend (max of in-process + Redis mirror)."""
+    if not user:
+        return 0.0
+    month = _current_month_key()
+    prev = _user_month_mem.get(user)
+    mem = prev[1] if (prev and prev[0] == month) else 0.0
+    redis_val = 0.0
+    try:
+        redis_val = float(await rs.get(_user_month_key(user, month)) or "0")
+    except Exception:
+        pass
+    return max(mem, redis_val)
+
+
+async def user_month_cap_exceeded(user: str) -> tuple[bool, float, float]:
+    """Return (exceeded, spent, cap). Operators on the unlimited allow-list and
+    an unset/zero cap are never capped."""
+    cap = _user_monthly_cap_usd()
+    if cap <= 0 or not user:
+        return (False, 0.0, cap)
+    try:
+        from . import user_quota
+        if user_quota.is_unlimited(user):
+            return (False, 0.0, cap)
+    except Exception:
+        pass
+    spent = await get_user_month_spend(user)
+    return (spent >= cap, spent, cap)
+
+
 # ── Feature attribution via contextvar ─────────────────────────────────────
 # contextvar (not threading.local) so it propagates correctly through
 # asyncio tasks — research_tasks fires multiple parallel LLM calls and
@@ -447,6 +553,8 @@ async def record_call(
         await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
         # Calendar-month rollup (independent of 90-day detail TTL).
         await _update_month_rollup(record)
+        # R-F1954 — per-user monthly sub-cap accounting (best-effort).
+        await _record_user_month_spend(get_current_user(), cost_usd)
     except Exception as e:
         logger.warning("cost_tracker.record_call persist failed: %s", e)
     return record
