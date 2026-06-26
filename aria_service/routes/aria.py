@@ -14047,6 +14047,54 @@ async def guardian_resume_ep(request: Request):
     return {"ok": True, "paused": False}
 
 
+# ── R-F1981: Guardian Phase 1 — send-as-you (CONFIRM) + panic (instant SOS) ──
+
+@router.post("/guardian/send")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_send_propose_ep(request: Request):
+    """Stage a send-as-you (sends nothing yet). Body: {user, to, message}."""
+    b = await _guardian_body(request)
+    user = (b.get("user") or "").strip()
+    if not user:
+        raise HTTPException(status_code=400, detail="user required")
+    from ..guardian import relay as _gr
+    return await _gr.propose(user, b.get("to", ""), b.get("message", ""))
+
+
+@router.post("/guardian/send/confirm")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_send_confirm_ep(request: Request):
+    """Confirm + deliver the staged send-as-you from the user's linked number."""
+    b = await _guardian_body(request)
+    user = (b.get("user") or "").strip()
+    if not user:
+        raise HTTPException(status_code=400, detail="user required")
+    from ..guardian import relay as _gr
+    from ..guardian.delivery import wa_send_fn
+    return await _gr.confirm(user, wa_send_fn())
+
+
+@router.post("/guardian/send/cancel")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_send_cancel_ep(request: Request):
+    b = await _guardian_body(request)
+    from ..guardian import relay as _gr
+    return await _gr.cancel((b.get("user") or "").strip())
+
+
+@router.post("/guardian/panic")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_panic_ep(request: Request):
+    """Instant SOS — alert the whole trusted circle now. Body: {user, note?}."""
+    b = await _guardian_body(request)
+    user = (b.get("user") or "").strip()
+    if not user:
+        raise HTTPException(status_code=400, detail="user required")
+    from ..guardian import panic as _gp
+    from ..guardian.delivery import wa_send_fn
+    return await _gp.trigger(user, wa_send_fn(), b.get("note", ""))
+
+
 @router.get("/guardian/audit")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def guardian_audit_ep(user: str = "", limit: int = 50):

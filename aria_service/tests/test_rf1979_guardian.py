@@ -132,7 +132,7 @@ def test_checkin_all_clear_disarms():
     asyncio.run(run())
 
 
-def test_checkin_miss_alerts_circle_and_is_idempotent():
+def test_checkin_miss_pings_user_then_alerts_circle_and_is_idempotent():
     async def run():
         send, sent = _stub_send(ok=True)
         u = "rf1979_k2"
@@ -142,9 +142,14 @@ def test_checkin_miss_alerts_circle_and_is_idempotent():
         # before deadline → nothing fires
         assert await checkin.reconcile(send, now=__import__("time").time()) == 0
         assert not sent
-        # past deadline → alert BOTH circle contacts
-        future = await checkin.status(u)
-        past = future["deadline"] + 1
+        deadline = (await checkin.status(u))["deadline"]
+        # STAGE 1 — at the deadline ARIA pings the USER (not the circle yet)
+        assert await checkin.reconcile(send, now=deadline + 1) == 0
+        assert len(sent) == 1 and sent[0].risk == gw.RiskClass.NOTIFY_ME
+        assert sent[0].recipient_jid == u, "stage 1 must ping the user themselves"
+        # STAGE 2 — grace window also missed → alert BOTH circle contacts
+        sent.clear()
+        past = deadline + 1 + checkin._ESCALATE_GRACE_S + 1
         fired = await checkin.reconcile(send, now=past)
         assert fired == 1
         assert len(sent) == 2, "both circle contacts must be alerted"
@@ -156,13 +161,19 @@ def test_checkin_miss_alerts_circle_and_is_idempotent():
     asyncio.run(run())
 
 
-def test_checkin_miss_with_empty_circle_does_not_loop():
+def test_checkin_miss_with_empty_circle_pings_user_then_disarms():
     async def run():
         send, sent = _stub_send()
         u = "rf1979_k3"          # no circle enrolled
         await checkin.arm(u, minutes=30)
-        st = await checkin.status(u)
-        fired = await checkin.reconcile(send, now=st["deadline"] + 1)
-        assert fired == 0 and not sent
+        deadline = (await checkin.status(u))["deadline"]
+        # stage 1 still pings the user even with an empty circle (not a silent drop)
+        assert await checkin.reconcile(send, now=deadline + 1) == 0
+        assert len(sent) == 1 and sent[0].recipient_jid == u
+        # stage 2 with empty circle → tell the user it couldn't escalate, then disarm
+        sent.clear()
+        past = deadline + 1 + checkin._ESCALATE_GRACE_S + 1
+        assert await checkin.reconcile(send, now=past) == 0
+        assert len(sent) == 1 and sent[0].kind == "checkin_no_circle"
         assert await checkin.status(u) is None, "an unfireable check-in must be disarmed, not looped"
     asyncio.run(run())

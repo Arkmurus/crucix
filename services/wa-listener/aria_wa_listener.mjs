@@ -2027,6 +2027,36 @@ async function startListener() {
 // message arrived on. account=null = the primary/global connection.
 // ── R-F1979: ARIA Guardian — conversational safety commands ─────────────────
 // Parsed deterministically (no LLM) so a safety command is instant + reliable.
+// R-F1981 — parse a duration from natural phrasing into MINUTES. Handles digits
+// ("1 minute", "5 mins", "2 hours"), word-numbers ("one minute", "half an hour"),
+// and the redundant "1 one minute" the operator actually typed (the digit wins).
+// Returns minutes (float) or null when no duration is present.
+const _NUM_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40,
+  fifty: 50, sixty: 60, half: 0.5, an: 1, a: 1,
+};
+function _parseDuration(t) {
+  const um = t.match(/\b(hours?|hrs?|minutes?|mins?)\b/);
+  if (!um) return null;
+  const isHour = /^h/.test(um[1]);
+  const before = t.slice(0, um.index);          // number must precede the unit
+  const digits = before.match(/(\d+(?:\.\d+)?)/g);
+  let n = null;
+  if (digits) {
+    n = parseFloat(digits[digits.length - 1]);  // last number before the unit
+  } else {
+    const words = before.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|half|an|a)\b/g);
+    if (words) {
+      // "half an hour" → "half" wins; "in a minute" (only articles) → 1.
+      const meaningful = words.filter(w => w !== 'a' && w !== 'an');
+      n = _NUM_WORDS[meaningful.length ? meaningful[meaningful.length - 1] : 'a'];
+    }
+  }
+  if (n == null || !isFinite(n) || n <= 0) return null;
+  return isHour ? n * 60 : n;
+}
+
 function _guardianIntent(text) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return null;
@@ -2036,11 +2066,10 @@ function _guardianIntent(text) {
     return { action: 'resume' };
   if (/\b(all clear|i'?m safe|i am safe|im safe|i'?m home safe|reached home safe|got home safe|safe now)\b/.test(t))
     return { action: 'clear' };
-  let m = t.match(/check\s*(?:on me|in)\b.*?(\d+)\s*(min|minute|hour|hr)/);
-  if (m) {
-    let n = parseInt(m[1], 10);
-    if (/hour|hr/.test(m[2])) n *= 60;
-    return { action: 'arm', minutes: n, message: text.slice(0, 200) };
+  // "check on me in 1 min", "check in in one minute", "check on me in half an hour"…
+  if (/\bcheck\s*(?:on me|in|up on me)\b/.test(t)) {
+    const mins = _parseDuration(t);
+    if (mins) return { action: 'arm', minutes: mins, message: text.slice(0, 200) };
   }
   m = text.match(/add\s+(.+?)\s+(\+?\d[\d\s\-]{6,}\d)\s*(?:to (?:my )?circle)?/i);
   if (m && /circle/i.test(text)) {
@@ -2050,6 +2079,18 @@ function _guardianIntent(text) {
     return { action: 'circle_list' };
   if (/\b(check.?in status|am i checked in|guardian status)\b/.test(t))
     return { action: 'status' };
+  // R-F1981 — panic / SOS. ("panic stop" is handled by the pause rule above.)
+  if (/\b(panic|sos|emergency alert|i'?m in danger|i am in danger|help me now|send help)\b/.test(t))
+    return { action: 'panic', message: text.slice(0, 200) };
+  // R-F1981 — send-as-you confirm / cancel (the staged-message replies).
+  if (/\b(send it|yes send|confirm send|yes,? send it|go ahead,? send)\b/.test(t))
+    return { action: 'send_confirm' };
+  if (/\b(don'?t send|do not send|cancel send|no,? don'?t send|stop,? don'?t send)\b/.test(t))
+    return { action: 'send_cancel' };
+  // R-F1981 — send-as-you propose. Require an explicit message connector
+  // (saying / that I / to say / :) so normal queries ("tell me about X") never match.
+  let sm = text.match(/\b(?:tell|text|message|msg|whatsapp|send (?:a )?(?:message|text|whatsapp) to)\s+(.+?)\s+(?:saying|to say|that i|that we|that i'?m)\s+(.+)/i);
+  if (sm) return { action: 'send', to: sm[1].trim().slice(0, 80), message: sm[2].trim().slice(0, 1000) };
   return null;
 }
 
@@ -2069,8 +2110,9 @@ async function _handleGuardianIntent(gi, user) {
   if (gi.action === 'arm') {
     const r = await brainPost('/api/aria/guardian/checkin', { user, minutes: gi.minutes, message: gi.message });
     if (r.ok) {
-      return `🛡️ Check-in armed for ${Math.round(r.minutes)} min. If you don't tell me "all clear" by then, I'll alert your trusted circle. `
-        + `(Set it up first with "add <name> <number> to my circle".)`;
+      const m = r.minutes < 1 ? `${Math.round(r.minutes * 60)} sec` : `${Math.round(r.minutes)} min`;
+      return `🛡️ Check-in armed for ${m}. At the deadline I'll message you to confirm you're safe — reply "all clear" and I'll stand down. `
+        + `If you don't reply, I'll alert your trusted circle. (Add contacts with "add <name> <number> to my circle".)`;
     }
     return `⚠️ Could not arm the check-in: ${r.error || 'unknown'}`;
   }
@@ -2087,6 +2129,28 @@ async function _handleGuardianIntent(gi, user) {
     const r = await brainGet(`/api/aria/guardian/checkin/status?user=${encodeURIComponent(user)}`);
     if (!r || !r.status) return 'No active check-in right now.';
     return `🛡️ Check-in active — ${Math.round((r.status.seconds_left || 0) / 60)} min left. Say "all clear" when you're safe.`;
+  }
+  if (gi.action === 'panic') {
+    const r = await brainPost('/api/aria/guardian/panic', { user, note: gi.message || '' });
+    if (r.ok) return `🚨 SOS sent — I alerted all ${r.alerted} contact(s) in your trusted circle. Hang in there.`;
+    if (r.error === 'empty_circle')
+      return '⚠️ I could NOT send an SOS — your trusted circle is empty. Add someone now with "add <name> <number> to my circle".';
+    return `⚠️ SOS partially failed — reached ${r.alerted || 0}/${r.total || 0}. I'm retrying and have flagged it.`;
+  }
+  if (gi.action === 'send') {
+    const r = await brainPost('/api/aria/guardian/send', { user, to: gi.to, message: gi.message });
+    if (r.ok) return `✍️ Ready to send to ${r.to_name || r.to_masked}:\n"${r.preview}"\n\nReply "send it" to send from your number, or "don't send" to cancel.`;
+    return `⚠️ ${r.error || 'could not stage that message'}`;
+  }
+  if (gi.action === 'send_confirm') {
+    const r = await brainPost('/api/aria/guardian/send/confirm', { user });
+    if (r.status === 'nothing_staged') return 'Nothing staged to send. Try "text <name> saying …" first.';
+    if (r.ok) return `✅ Sent to ${r.to_name || r.to_masked}.`;
+    return `⚠️ Could not send to ${r.to_name || r.to_masked || 'them'}: ${r.error || r.status || 'unknown'}.`;
+  }
+  if (gi.action === 'send_cancel') {
+    const r = await brainPost('/api/aria/guardian/send/cancel', { user });
+    return r.was_staged ? '✅ Cancelled — I won\'t send that.' : 'Nothing was staged.';
   }
   return null;
 }

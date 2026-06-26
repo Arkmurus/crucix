@@ -2133,23 +2133,10 @@ async def lifespan(app: FastAPI):
     # once. Delivers via the aria-wa /send hop. Runs every 60s.
     async def _guardian_reconcile_loop():
         await asyncio.sleep(90)
-        import os as _os_g
-        import httpx as _httpx_g
         from .guardian import checkin as _gci
-        _wa_send = "http://aria-wa.internal:5070/api/wa-listener/send"
-        _tok = _os_g.getenv("ARIA_INTERNAL_TOKEN", "")
-
-        async def _send_fn(req):
-            try:
-                async with _httpx_g.AsyncClient(timeout=8.0) as _c:
-                    r = await _c.post(
-                        _wa_send,
-                        headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json"},
-                        json={"to": req.recipient_jid, "message": req.message},
-                    )
-                    return r.status_code == 200
-            except Exception:
-                return False
+        from .guardian.delivery import wa_send_fn as _wa_send_fn
+        # R-F1981 — shared delivery hop (also used by send-as-you + panic).
+        _send_fn = _wa_send_fn()
 
         while True:
             try:

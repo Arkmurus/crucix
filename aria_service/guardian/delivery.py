@@ -1,0 +1,41 @@
+"""Guardian outbound delivery (R-F1981).
+
+The ONE place that turns an ``ActionRequest`` into an actual WhatsApp send, so
+every Guardian capability (check-in reconcile, send-as-you, panic) delivers
+through the identical, hardened hop instead of each re-implementing the httpx
+call. The send goes through aria-wa's ``/api/wa-listener/send`` — which sends
+from the linked WhatsApp number (i.e. the user's OWN number), so this is genuine
+"send AS you", not a third-party relay.
+"""
+from __future__ import annotations
+
+import os
+
+import httpx
+
+from . import gateway as _gw
+
+_WA_SEND_URL = "http://aria-wa.internal:5070/api/wa-listener/send"
+
+
+def wa_send_fn(timeout: float = 8.0) -> "_gw.SendFn":
+    """Build the production send_fn that delivers via aria-wa (the linked number).
+    Returns True only on a 200 so the gateway's audit/outcome reflect reality."""
+    tok = os.getenv("ARIA_INTERNAL_TOKEN", "")
+
+    async def _send(req: "_gw.ActionRequest") -> bool:
+        if not req.recipient_jid or not req.message:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as c:
+                r = await c.post(
+                    _WA_SEND_URL,
+                    headers={"Authorization": f"Bearer {tok}",
+                             "Content-Type": "application/json"},
+                    json={"to": req.recipient_jid, "message": req.message},
+                )
+                return r.status_code == 200
+        except Exception:
+            return False
+
+    return _send

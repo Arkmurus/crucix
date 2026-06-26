@@ -10,6 +10,7 @@ class). Idempotent: an alert fires at most once per armed check-in.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 from . import gateway as _gw
@@ -21,6 +22,12 @@ logger = logging.getLogger("aria.guardian.checkin")
 _CHECKIN_KEY = "crucix:guardian:checkin:{user}"
 _ACTIVE_SET = "crucix:guardian:checkin_active"   # set of user ids with an armed check-in
 _MAX_MINUTES = 24 * 60
+
+# R-F1981 — two-stage check-in: at the deadline ARIA pings the USER ("are you
+# safe?"); only if they still don't reply within this grace window does she
+# escalate to the trusted circle. This makes "check on me" actually check on YOU
+# (and works even with an empty circle), not just silently arm a circle alert.
+_ESCALATE_GRACE_S = float(os.getenv("ARIA_GUARDIAN_GRACE_SECONDS", "120"))
 
 
 async def arm(user: str, minutes: float, message: str = "") -> dict:
@@ -38,10 +45,13 @@ async def arm(user: str, minutes: float, message: str = "") -> dict:
         "armed_at": now,
         "minutes": mins,
         "fired": False,
+        "self_pinged": False,       # stage 1 (ping the user) not done yet
+        "escalate_deadline": None,  # set when stage 1 fires
     }
     await rs.set_json(_CHECKIN_KEY.format(user=user), record, ex=int(mins * 60) + 7 * 86400)
     await _active_add(user)
-    return {"ok": True, "deadline": record["deadline"], "minutes": mins}
+    return {"ok": True, "deadline": record["deadline"], "minutes": mins,
+            "grace_seconds": _ESCALATE_GRACE_S}
 
 
 async def all_clear(user: str) -> dict:
@@ -64,29 +74,65 @@ async def status(user: str) -> dict | None:
 
 
 async def reconcile(send_fn: "_gw.SendFn", now: float | None = None) -> int:
-    """Fire alerts for every check-in whose deadline passed without an all-clear.
-    Called by the Guardian reconcile loop. Returns the number of check-ins fired.
-    Idempotent (a fired check-in is disarmed) and fail-safe (a delivery failure
-    leaves the check-in armed so the next tick retries, and escalates via the
-    gateway's safety-failure path)."""
+    """Drive every armed check-in through the two-stage flow.
+
+    Stage 1 — at the deadline with no all-clear: ping the USER ("are you safe?")
+              and start a short grace window. (The user still controls the
+              outcome: replying "all clear" disarms.)
+    Stage 2 — grace window also missed: alert the trusted CIRCLE (EMERGENCY).
+
+    Returns the number of check-ins that ESCALATED to the circle (stage 2). A
+    stage-1 self-ping is not an escalation. Idempotent and fail-safe: a delivery
+    failure leaves the check-in armed so the next tick retries, and a failed
+    circle alert escalates via the gateway's safety-failure path."""
     now = now if now is not None else time.time()
     users = await _active_members()
     fired = 0
     for user in list(users or []):
         rec = await _get(user)
-        if not rec:
-            await _disarm(user)
-            continue
-        if rec.get("fired"):
+        if not rec or rec.get("fired"):
             await _disarm(user)
             continue
         if now < float(rec.get("deadline", now + 1)):
             continue  # still in-window — legitimately pending
-        # Deadline missed with no all-clear → alert the circle.
+
+        # ── Stage 1: ping the user themselves ───────────────────────────────
+        if not rec.get("self_pinged"):
+            body = rec.get("message") or ""
+            grace_min = max(1, int(round(_ESCALATE_GRACE_S / 60)))
+            ping = ("⏰ ARIA safety check-in — are you safe? Reply \"all clear\" to "
+                    "stand me down."
+                    + (f"\n(Your note: {body})" if body else "")
+                    + f"\nIf I don't hear back in ~{grace_min} min I'll alert your "
+                    "trusted circle.")
+            req = _gw.ActionRequest(
+                user=user, kind="checkin_ping", risk=_gw.RiskClass.NOTIFY_ME,
+                recipient_jid=user, message=ping,
+            )
+            await _gw.execute(req, send_fn)   # best-effort; circle alert is the hard guarantee
+            rec["self_pinged"] = True
+            rec["escalate_deadline"] = now + _ESCALATE_GRACE_S
+            await _save(user, rec)
+            continue
+
+        # ── Stage 2: grace also missed → escalate to the circle ─────────────
+        if now < float(rec.get("escalate_deadline", now + 1)):
+            continue  # user pinged; still inside the grace window
         contacts = await _circle.list_circle(user)
         if not contacts:
-            logger.warning("[guardian.checkin] %s missed a check-in but has an EMPTY circle — cannot alert", user)
-            await _disarm(user)   # nothing to do; don't loop forever
+            # The user was pinged at stage 1, so this is NOT a silent drop — but
+            # tell them their SOS reached no one, then stop (don't loop).
+            try:
+                await _gw.execute(_gw.ActionRequest(
+                    user=user, kind="checkin_no_circle", risk=_gw.RiskClass.NOTIFY_ME,
+                    recipient_jid=user,
+                    message=("⚠️ You didn't confirm you're safe and your trusted circle "
+                             "is empty, so I couldn't alert anyone. Add contacts with "
+                             "\"add <name> <number> to my circle\".")), send_fn)
+            except Exception:
+                pass
+            logger.warning("[guardian.checkin] %s missed check-in but circle EMPTY — pinged user, cannot escalate", user)
+            await _disarm(user)
             continue
         elapsed = int((now - float(rec.get("armed_at", now))) / 60)
         body = rec.get("message") or ""
@@ -118,6 +164,16 @@ async def _get(user: str) -> dict | None:
         return await rs.get_json(_CHECKIN_KEY.format(user=user))
     except Exception:
         return None
+
+
+async def _save(user: str, rec: dict) -> None:
+    """Persist an updated check-in record (e.g. after the stage-1 self-ping),
+    preserving a sane TTL so a pending safety timer can't quietly evaporate."""
+    try:
+        ttl = int(_ESCALATE_GRACE_S) + 7 * 86400
+        await rs.set_json(_CHECKIN_KEY.format(user=user), rec, ex=ttl)
+    except Exception as e:
+        logger.warning("[guardian.checkin] save failed for %s: %s", user, e)
 
 
 async def _disarm(user: str) -> None:
