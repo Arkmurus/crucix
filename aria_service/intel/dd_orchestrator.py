@@ -7141,6 +7141,29 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
                 source=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
             )
 
+        # R-F1969 (§25a) — record a DELIVERY-grade PRODUCTION outcome: did the DD
+        # actually produce a REAL report, or just "run"? engine_wiring above says
+        # the layers executed; this says whether ARIA had something real to
+        # deliver (a confidence-gated INSUFFICIENT_EVIDENCE report is NOT a real
+        # answer). Surfaces report user-delivery; this records production. Failure
+        # here triggers a gap + shows on the per-channel dashboard like any surface.
+        try:
+            from .outcome_wire import OutcomeRecord, record_outcome
+            _gate = bool(getattr(report, 'confidence_gate_triggered', False))
+            _outcome, _detail = dd_production_outcome(
+                all_layers_ok, _gate, "" if all_layers_ok else reason)
+            _rid = f'dd:{getattr(report, "trace_id", None) or getattr(report, "run_id", None) or "none"}'
+            await record_outcome(OutcomeRecord(
+                surface="dd",
+                request_id=_rid,
+                intended_result="dd_report",
+                actual_outcome=_outcome,
+                latency_ms=int(getattr(report, "total_duration_ms", 0) or 0),
+                detail=_detail,
+            ))
+        except Exception:
+            pass  # production-outcome wire is best-effort; never crash the finalizer
+
         # Record per-layer stats to Redis for the DD health endpoint (R-F1914)
         try:
             for layer_name in report.layers_run:
@@ -7158,6 +7181,23 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
 
     except Exception:
         pass  # finalizer must never crash the caller
+
+
+def dd_production_outcome(all_layers_ok: bool, gate_triggered: bool,
+                          reason: str = "") -> tuple[str, str]:
+    """R-F1969 (§25a) — classify a finished DD report into a delivery-grade
+    PRODUCTION outcome (did ARIA produce a REAL report?) + a detail string.
+
+    A real report = all layers ran AND the confidence gate did NOT trigger
+    (a gated INSUFFICIENT_EVIDENCE report is not a real answer). Returns
+    ("delivered_real_answer", "") on a real report, else ("error", <why>).
+    """
+    if all_layers_ok and not gate_triggered:
+        return ("delivered_real_answer", "")
+    if not all_layers_ok:
+        return ("error", reason or "layers_errored")
+    # all layers ran but the confidence gate fired → INSUFFICIENT_EVIDENCE.
+    return ("error", "insufficient_evidence")
 
 
 async def orchestrate_dd(

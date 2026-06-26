@@ -1145,6 +1145,7 @@ async function askARIA(message, senderJid, chatId = null, requestId = null) {
   // T0★ — generate a request_id if not provided (R-F1411)
   const rid = requestId || `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
   const t0 = Date.now();
+  reportOutcomeStart('wa', rid, 'chat_response');  // R-F1968 — silent-drop tracking
   try {
     const answer = await askARIAAsync(message, senderJid, chatId, rid);
     return answer;
@@ -1430,6 +1431,19 @@ function _markFailedOutcome(requestId) {
       if (now - ts > _FAILED_OUTCOME_TTL_MS) _failedOutcomeReqIds.delete(k);
     }
   }
+}
+
+// R-F1968 — durably register a request START so a silent drop (this listener
+// dies mid-request before reporting any outcome) becomes visible to the brain's
+// reconcile instead of vanishing. Fire-and-forget; never blocks the chat path.
+function reportOutcomeStart(surface, requestId, intendedResult) {
+  if (!requestId) return;
+  brainFetch(`/api/aria/outcome/start`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+    body: JSON.stringify({ surface, request_id: requestId, intended_result: intendedResult }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
 }
 
 // ── T0★ outcome reporting (R-F1411) ──────────────────────────────────────

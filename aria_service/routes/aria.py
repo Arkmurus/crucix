@@ -13874,6 +13874,26 @@ async def outcome_record_ep(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/outcome/start")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def outcome_start_ep(request: Request):
+    """R-F1968 — durably register that a request STARTED on a surface, so a
+    silent drop (surface dies before reporting a terminal outcome) becomes
+    visible via the reconcile. Body: {surface, request_id, intended_result?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    surface = (body.get("surface") or "").strip()
+    request_id = (body.get("request_id") or "").strip()
+    intended_result = (body.get("intended_result") or "").strip()
+    if not surface or not request_id:
+        raise HTTPException(status_code=400, detail="surface, request_id required")
+    from ..intel.outcome_wire import record_request_start
+    ok = await record_request_start(surface, request_id, intended_result)
+    return {"recorded": ok}
+
+
 @router.get("/outcome/health")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def outcome_health_ep(surface: str = "wa", hours: int = 24):

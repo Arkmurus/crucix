@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1966,
+  "next_available": 1971,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14001,6 +14001,51 @@
       "r_number": "R-F1965",
       "title": "degraded/llm_failure non-answers must record as failure delivery outcome (timeout_fallback/error), not delivered_real_answer — closes the proprioception blind spot that made today's outage invisible",
       "claimed_at": "2026-06-26T19:43:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1966",
+      "title": "Fix DD reports page showing empty - API calls failing silently",
+      "claimed_at": "2026-06-26T19:50:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1967",
+      "title": "surface delivery-health on the ecosystem dashboard — get_all_surface_health + wire into get_ecosystem_status so operator can see did-I-deliver per channel",
+      "claimed_at": "2026-06-26T20:05:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1968",
+      "title": "silent-drop detector — request-start ledger + reconcile so a surface that dies before reporting an outcome becomes visible (active proprioception)",
+      "claimed_at": "2026-06-26T20:05:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1969",
+      "title": "engine delivery-outcome: DD orchestrator records real-report-vs-empty via outcome_wire (generalize the §25a template beyond surfaces)",
+      "claimed_at": "2026-06-26T20:05:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1970",
+      "title": "HOTFIX: add lib/aria/deliveryOutcome.mjs to Dockerfile.wa cherry-pick (R-F1965 import crash-looped aria-wa)",
+      "claimed_at": "2026-06-26T20:21:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

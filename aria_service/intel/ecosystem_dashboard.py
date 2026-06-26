@@ -328,7 +328,16 @@ async def get_ecosystem_status() -> dict[str, Any]:
     """Get the full ecosystem status snapshot."""
     wiring = scan_wiring_coverage()
     loop_status = await get_autonomous_loop_status()
-    
+
+    # R-F1967 — surface delivery health, so the operator can SEE "did I deliver?"
+    # per channel (it was computable via /api/aria/outcome/health but invisible
+    # here). Best-effort: a stats failure must never blank the whole dashboard.
+    try:
+        from .outcome_wire import get_all_surface_health
+        delivery_health = await get_all_surface_health(24)
+    except Exception as e:
+        delivery_health = {"surfaces": {}, "error": str(e)[:120]}
+
     return {
         "timestamp": time.time(),
         "current_task": get_current_task(),
@@ -337,6 +346,7 @@ async def get_ecosystem_status() -> dict[str, Any]:
         "tasks_failed_24h": len([t for t in _task_history if t.get("status") == "failed"]),
         "wiring": wiring,
         "autonomous_loop": loop_status,
+        "delivery_health": delivery_health,
         "services": {
             "aria-intel": "deployed",
             "aria-web": "deployed",
