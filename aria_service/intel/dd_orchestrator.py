@@ -9091,7 +9091,7 @@ async def list_reports(
                         "user_id": case.get("user_id"),
                         "user_email_domain": case.get("user_email_domain"),
                         "created_at": case.get("last_run_at"),
-                        "severity": case.get("severity", "unknown"),
+                        "severity": case.get("risk_level", "unknown"),
                     })
                 # Persist the rebuilt index so subsequent reads are fast
                 try:
@@ -9282,6 +9282,15 @@ async def list_reports(
             ):
                 filtered.append(entry)
                 continue
+        
+        # R-F1977: guard against silent empty results from user_id mismatch.
+        if user_id and not filtered and index:
+            logger.warning(
+                "[R-F1977] user_id filter (%s) returned 0/%d reports "
+                "possible user_id format mismatch. Stored user_ids: %s",
+                user_id, len(index),
+                sorted(set(e.get("user_id") for e in index if isinstance(e, dict)))[:10],
+            )
         return filtered[:limit]
 
     return index[:limit]
