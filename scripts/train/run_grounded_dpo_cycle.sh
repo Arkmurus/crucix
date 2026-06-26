@@ -128,6 +128,18 @@ done
 mkdir -p data/eval_reports
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_llm_v0_4_dpo_eval.json data/eval_reports/aria_llm_grounded_dpo_eval.json 2>/dev/null || echo "[driver] (DPO report not pulled)"
 
+# 5b. R-F1945 — PERSIST the trained LoRA adapter durably (the pod is volume-free
+# = wiped on stop, so the proven model is otherwise LOST). scp the adapter dir
+# back so we never have to re-train just to recover it; this is also the source
+# for the later HF push -> serverless deploy.
+mkdir -p data/training/checkpoints
+ADAPTER_LOCAL="data/training/checkpoints/aria_llm_grounded_dpo_v1"
+if scp -r -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/checkpoints/aria_llm_v0_4_dpo "$ADAPTER_LOCAL" 2>/dev/null; then
+  echo "[driver] ✅ adapter persisted -> $ADAPTER_LOCAL ($(ls "$ADAPTER_LOCAL" 2>/dev/null | tr '\n' ' '))"
+else
+  echo "[driver] WARN: adapter scp-back failed (cycle may have failed before producing it)"
+fi
+
 # 6. G1 verdict — grounded-DPO vs DeepSeek parity
 echo "[driver] === GROUNDED SFT->DPO CYCLE RESULT — GATE G1 (local) ==="
 PARITY="$PARITY" python - <<'PY'
