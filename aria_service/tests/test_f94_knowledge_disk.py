@@ -47,7 +47,7 @@ def test_store_fact_persists_to_disk(fresh_knowledge):
     async def go():
         await kn.store_fact(
             topic="F94 test topic",
-            content="some fact content",
+            content="some fact content that is long enough to pass the R-F1526 fifty character minimum gate",
             source="test",
             confidence="ASSESSED",
         )
@@ -146,9 +146,11 @@ def test_save_does_not_block_on_redis(fresh_knowledge, monkeypatch):
     monkeypatch.setattr(kn.rs, "set_json", fake_set_json)
 
     async def go():
-        # Simulate a brain_hook burst — many facts in quick succession.
+        # Simulate a brain_hook burst -- many facts in quick succession.
         for i in range(20):
-            await kn.store_fact(f"burst topic {i}", f"content {i}",
+            # R-F1956: use content well above the R-F1526 50-char minimum
+            # so validation gates don't reject test data.
+            await kn.store_fact(f"burst topic {i}", f"meaningful content item number {i:03d} that passes the length gate",
                                 source="burst-test")
         # Force the disk flush.
         await kn.flush()

@@ -29,13 +29,18 @@ These tests pin both halves.
 """
 from __future__ import annotations
 
+import inspect
 import pathlib
 
 
 def _src_routes() -> str:
-    return pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
-    ).read_text(encoding="utf-8", errors="ignore")
+    """Return the source of _execute_tool, the function that contains
+    the R-F409 auto-escalation logic. Uses inspect.getsource on the
+    specific function rather than a fixed window into the module source,
+    so the test doesn't break when unrelated code is added above or
+    below the target (R-F1956 structural fix)."""
+    import aria_service.routes.aria as _aria
+    return inspect.getsource(_aria._execute_tool)
 
 
 def _src_orch() -> str:
@@ -50,26 +55,21 @@ def test_rf409_handler_checks_confidence_gate_after_initial():
     """After the first orchestrate_dd call, the handler must check
     confidence_gate_triggered to decide whether to retry."""
     src = _src_routes()
-    # Find the dd_orchestrate handler block
-    idx = src.find("R-F409")
-    assert idx > 0, (
-        "R-F409 regression: anchor comment missing — retry logic not in place."
+    assert "R-F409" in src, (
+        "R-F409 regression: anchor comment missing -- retry logic not in place."
     )
-    block = src[idx:idx + 5200]
-    assert "confidence_gate_triggered" in block
-    assert "rf409_already_escalated" in block.lower(), (
+    assert "confidence_gate_triggered" in src
+    assert "rf409_already_escalated" in src.lower(), (
         "R-F409: infinite-recursion guard flag missing."
     )
 
 
 def test_rf409_handler_skips_when_initial_mode_is_deep():
     """If the user explicitly asked for deep mode, the handler must
-    NOT retry — no value in re-running the same mode."""
+    NOT retry -- no value in re-running the same mode."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert 'mode != "deep"' in block, (
-        "R-F409: mode!='deep' guard missing — deep mode would retry "
+    assert 'mode != "deep"' in src, (
+        "R-F409: mode!='deep' guard missing -- deep mode would retry "
         "itself uselessly."
     )
 
@@ -79,19 +79,15 @@ def test_rf409_handler_passes_escalated_flag_to_retry():
     so a nested escalation (if anything ever calls back into the
     handler) doesn't double-retry."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert "_rf409_already_escalated" in block
-    assert '"_rf409_already_escalated": True' in block or "_rf409_already_escalated': True" in block
+    assert "_rf409_already_escalated" in src
+    assert '"_rf409_already_escalated": True' in src or "_rf409_already_escalated': True" in src
 
 
 def test_rf409_handler_calls_orchestrate_dd_with_mode_deep():
-    """The retry must explicitly pass mode='deep' — not the original
+    """The retry must explicitly pass mode='deep' -- not the original
     mode value. Otherwise the retry runs in the same shallow mode."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert 'mode="deep"' in block, (
+    assert 'mode="deep"' in src, (
         "R-F409: retry doesn't explicitly pass mode='deep'."
     )
 
@@ -101,9 +97,7 @@ def test_rf409_handler_replaces_report_with_deep_result():
     downstream BLUF + GROUNDING_CHECK + LLM context all see the
     DEEPER attempt."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert "report = deep_report" in block, (
+    assert "report = deep_report" in src, (
         "R-F409: deep result not propagated as the canonical report. "
         "Downstream consumers will still see the shallow report."
     )
@@ -113,22 +107,18 @@ def test_rf409_handler_annotates_report():
     """The deep report must be marked rf409_auto_escalated=True so the
     BLUF can surface the escalation status."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert 'setattr(report, "rf409_auto_escalated", True)' in block
-    assert 'rf409_initial_mode' in block, (
+    assert 'setattr(report, "rf409_auto_escalated", True)' in src
+    assert 'rf409_initial_mode' in src, (
         "R-F409: initial mode not preserved on the annotated report."
     )
 
 
 def test_rf409_handler_catches_escalation_exception():
     """If the deep retry itself crashes, the handler must keep the
-    shallow report — operator gets SOMETHING, not nothing."""
+    shallow report -- operator gets SOMETHING, not nothing."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 5200]
-    assert "except Exception as _esc_err" in block, (
-        "R-F409: no exception handler around the deep retry — a "
+    assert "except Exception as _esc_err" in src, (
+        "R-F409: no exception handler around the deep retry -- a "
         "crash there would propagate and lose the shallow result."
     )
 
@@ -183,10 +173,11 @@ def test_rf409_handler_only_one_retry():
     total (first run + one retry). Pin the count so a future refactor
     can't accidentally add a third call."""
     src = _src_routes()
-    idx = src.find("R-F409")
-    block = src[idx:idx + 4000]
-    # Count orchestrate_dd calls in the R-F409 block. Should be exactly 2.
-    n_calls = block.count("dd_orchestrator.orchestrate_dd(")
+    # Count orchestrate_dd calls in the full _execute_tool function.
+    # Should be exactly 2 (initial + 1 retry). Uses the full function
+    # body so the count doesn't break when code is added above/below
+    # the R-F409 block (R-F1956 structural fix).
+    n_calls = src.count("dd_orchestrator.orchestrate_dd(")
     assert n_calls == 2, (
         f"R-F409: expected exactly 2 orchestrate_dd calls in the "
         f"handler (initial + 1 retry). Got {n_calls}. Infinite "

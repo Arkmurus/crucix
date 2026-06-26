@@ -170,7 +170,11 @@ def test_rf858_trip_stamps_last_ticket_at():
     within the cooldown are suppressed."""
     _reset_breaker()
     brain_hook._warmup_complete = True
-    brain_hook._recent_latencies_ms.extend([12000.0] * 12)
+    # R-F1956: derive test latency from actual threshold so the test
+    # automatically adapts to threshold changes (structural fix for
+    # test-data coupling to a config constant).
+    _test_latency = float(brain_hook._LATENCY_TRIP_MS + 5000)
+    brain_hook._recent_latencies_ms.extend([_test_latency] * 12)
     for _ in range(brain_hook._TRIP_CONSECUTIVE):
         brain_hook._maybe_trip_breaker("test-flap")
     assert brain_hook._breaker_state["open"] is True
@@ -208,7 +212,10 @@ def test_rf968_genuine_wedge_still_trips():
     flap without disarming the breaker."""
     _reset_breaker()
     brain_hook._warmup_complete = True
-    brain_hook._recent_latencies_ms.extend([12000.0] * 12)
+    # R-F1956: derive test latency from actual threshold so the test
+    # automatically adapts to threshold changes.
+    _test_latency = float(brain_hook._LATENCY_TRIP_MS + 5000)
+    brain_hook._recent_latencies_ms.extend([_test_latency] * 12)
     for _ in range(brain_hook._TRIP_CONSECUTIVE):
         brain_hook._maybe_trip_breaker(reason="genuine wedge")
     assert brain_hook._breaker_state["open"] is True, (

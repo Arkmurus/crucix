@@ -28,7 +28,7 @@ def test_record_gap_dedupes_within_window():
     written: list[tuple[str, str]] = []
     sentinels: dict[str, str] = {}
 
-    async def fake_lpush(key, value):
+    async def fake_lpush(key, value, **kwargs):
         written.append(("lpush", value))
 
     async def fake_ltrim(key, start, stop):
@@ -74,7 +74,7 @@ def test_record_gap_different_detail_not_deduped():
     written: list[str] = []
     sentinels: dict[str, str] = {}
 
-    async def fake_lpush(key, value):
+    async def fake_lpush(key, value, **kwargs):
         written.append(value)
 
     async def fake_ltrim(key, start, stop):
