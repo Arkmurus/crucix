@@ -8505,7 +8505,15 @@ async def chat_ep(req: ChatRequest, request: Request):
                 if intent and llm and llm.is_configured:
                     tool_used = intent.get("tool")
                     _log.info("ARIA chat tool-use detected: %s", intent)
-                    tool_context = await _execute_tool(intent, llm)
+                    tool_context = await _execute_tool(
+                        intent, llm,
+                        # R-F1950: pass user_id so _launch_deep_dd_bg can
+                        # actually fire the background full-depth DD (without
+                        # it the deep-bg silently no-ops and the user gets a
+                        # partial report with a misleading "background job
+                        # started" note that was never true).
+                        user_id=getattr(req, "user_id", "") or "",
+                    )
 
             # Build the final message for the LLM. Three components in
             # this order, all CONDITIONAL on being non-empty:

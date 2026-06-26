@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1950,
+  "next_available": 1951,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -13843,6 +13843,15 @@
       "r_number": "R-F1949",
       "title": "shadow-flag (ARIA_LLM_SHADOW: aria-llm as fallback not primary) + push-adapter-to-HF script — final operationalization prep",
       "claimed_at": "2026-06-26T09:02:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1950",
+      "title": "Fix chat_ep deep-bg DD never launches - pass user_id to _execute_tool",
+      "claimed_at": "2026-06-26T10:05:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
