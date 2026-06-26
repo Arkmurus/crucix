@@ -123,3 +123,19 @@ def test_panic_blocked_by_kill_switch():
         assert r["ok"] is False and r["alerted"] == 0 and not sent
         await gw.resume(u)
     asyncio.run(run())
+
+
+# ── R-F1982: check-in stage-1 self-ping must land in the ORIGIN chat ─────────
+def test_checkin_self_ping_delivers_to_origin_chat_not_a_self_dm():
+    from aria_service.guardian import checkin as _ci
+    async def run():
+        send, sent = _stub_send()
+        u = "rf1982_user@s.whatsapp.net"
+        group = "120363000000000000@g.us"     # the group they armed in
+        await _ci.arm(u, minutes=30, message="walking home", origin_chat=group)
+        deadline = (await _ci.status(u))["deadline"]
+        await _ci.reconcile(send, now=deadline + 1)   # stage 1
+        assert len(sent) == 1
+        assert sent[0].recipient_jid == group, "self-ping must go to the origin chat, not the user's own jid"
+        await _ci.all_clear(u)
+    asyncio.run(run())

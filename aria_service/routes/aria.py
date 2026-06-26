@@ -13978,7 +13978,8 @@ async def guardian_arm_checkin_ep(request: Request):
     if not user:
         raise HTTPException(status_code=400, detail="user required")
     from ..guardian import checkin as _gci
-    return await _gci.arm(user, b.get("minutes", 30), b.get("message", ""))
+    return await _gci.arm(user, b.get("minutes", 30), b.get("message", ""),
+                          origin_chat=(b.get("chat") or ""))
 
 
 @router.post("/guardian/checkin/clear")

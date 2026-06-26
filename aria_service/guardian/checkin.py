@@ -30,8 +30,10 @@ _MAX_MINUTES = 24 * 60
 _ESCALATE_GRACE_S = float(os.getenv("ARIA_GUARDIAN_GRACE_SECONDS", "120"))
 
 
-async def arm(user: str, minutes: float, message: str = "") -> dict:
-    """Arm (or re-arm) a check-in for `minutes` from now. One active per user."""
+async def arm(user: str, minutes: float, message: str = "", origin_chat: str = "") -> dict:
+    """Arm (or re-arm) a check-in for `minutes` from now. One active per user.
+    `origin_chat` is the chat the request came from (group or DM jid); the stage-1
+    self-ping is delivered there so the user actually SEES it (R-F1982)."""
     if not user:
         return {"ok": False, "error": "no user"}
     try:
@@ -47,6 +49,7 @@ async def arm(user: str, minutes: float, message: str = "") -> dict:
         "fired": False,
         "self_pinged": False,       # stage 1 (ping the user) not done yet
         "escalate_deadline": None,  # set when stage 1 fires
+        "origin_chat": (origin_chat or "").strip(),  # where to deliver the self-ping
     }
     await rs.set_json(_CHECKIN_KEY.format(user=user), record, ex=int(mins * 60) + 7 * 86400)
     await _active_add(user)
@@ -107,7 +110,7 @@ async def reconcile(send_fn: "_gw.SendFn", now: float | None = None) -> int:
                     "trusted circle.")
             req = _gw.ActionRequest(
                 user=user, kind="checkin_ping", risk=_gw.RiskClass.NOTIFY_ME,
-                recipient_jid=user, message=ping,
+                recipient_jid=(rec.get("origin_chat") or user), message=ping,
             )
             await _gw.execute(req, send_fn)   # best-effort; circle alert is the hard guarantee
             rec["self_pinged"] = True
@@ -125,7 +128,7 @@ async def reconcile(send_fn: "_gw.SendFn", now: float | None = None) -> int:
             try:
                 await _gw.execute(_gw.ActionRequest(
                     user=user, kind="checkin_no_circle", risk=_gw.RiskClass.NOTIFY_ME,
-                    recipient_jid=user,
+                    recipient_jid=(rec.get("origin_chat") or user),
                     message=("⚠️ You didn't confirm you're safe and your trusted circle "
                              "is empty, so I couldn't alert anyone. Add contacts with "
                              "\"add <name> <number> to my circle\".")), send_fn)

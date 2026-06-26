@@ -2060,41 +2060,68 @@ function _parseDuration(t) {
 function _guardianIntent(text) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return null;
+
+  // 1. Kill-switch / resume — highest precedence.
   if (/\b(aria stop|guardian stop|stop guardian|panic stop|cancel (all|everything))\b/.test(t))
     return { action: 'pause' };
   if (/\b(resume guardian|guardian resume|unpause guardian)\b/.test(t))
     return { action: 'resume' };
-  if (/\b(all clear|i'?m safe|i am safe|im safe|i'?m home safe|reached home safe|got home safe|safe now)\b/.test(t))
-    return { action: 'clear' };
-  // "check on me in 1 min", "check in in one minute", "check on me in half an hour"…
+
+  // 2. ARM a check-in — MUST be tested BEFORE "all clear". R-F1982: "check on me
+  //    in 1 min to ensure I am safe" contains "I am safe"; with all-clear first
+  //    that was misread as a stand-down ("✅ Noted, no active check-in"), so the
+  //    check-in NEVER armed and ARIA never pinged back. Arm wins outright here.
   if (/\bcheck\s*(?:on me|in|up on me)\b/.test(t)) {
     const mins = _parseDuration(t);
     if (mins) return { action: 'arm', minutes: mins, message: text.slice(0, 200) };
   }
-  m = text.match(/add\s+(.+?)\s+(\+?\d[\d\s\-]{6,}\d)\s*(?:to (?:my )?circle)?/i);
-  if (m && /circle/i.test(text)) {
-    return { action: 'circle_add', name: m[1].trim().slice(0, 60), jid: m[2].replace(/[\s\-]/g, '') };
+
+  // 3. Panic / SOS.
+  if (/\b(panic|sos|emergency alert|i'?m in danger|i am in danger|help me now|send help)\b/.test(t))
+    return { action: 'panic', message: text.slice(0, 200) };
+
+  // 4. All-clear — ONLY a standalone safety confirmation; never when the message
+  //    is actually arming a check-in ("ensure/make sure I am safe") (R-F1982 guard).
+  if (!/\b(check\s*(?:on me|in)|ensure|make sure|in case)\b/.test(t)
+      && /\b(all clear|i'?m safe|i am safe|im safe|i'?m home safe|reached home safe|got home safe|safe now|stand down|i'?m fine now)\b/.test(t))
+    return { action: 'clear' };
+
+  // 5. Circle enrol — pull the phone number, then a name (prefer a Capitalised
+  //    full name like "Evelin Suurkivi"; else the words after "add" up to a stopword).
+  if (/\bcircle\b/i.test(text)) {
+    const pm = text.match(/\+?\d[\d\s\-]{6,}\d/);
+    if (pm) {
+      const jid = pm[0].replace(/[\s\-]/g, '');
+      let name = (text.match(/\b([A-ZÀ-Ý][\p{L}]+(?:\s+[A-ZÀ-Ý][\p{L}]+)+)\b/u) || [])[1] || '';
+      if (!name) {
+        const am = text.match(/add\s+([^,+\d]+?)\s+(?:to (?:my )?(?:safe )?circle|and (?:the|her|his)\b|with (?:the )?number|number\b)/i);
+        name = am ? am[1].trim() : '';
+      }
+      name = name.replace(/^(?:this group|the group)\s+(?:and\s+)?/i, '')
+                 .replace(/\s+to my.*$/i, '').trim();
+      if (name) return { action: 'circle_add', name: name.slice(0, 60), jid };
+    }
   }
   if (/\b(my circle|who'?s in my circle|show (my )?circle|list (my )?circle)\b/.test(t))
     return { action: 'circle_list' };
+
+  // 6. Status.
   if (/\b(check.?in status|am i checked in|guardian status)\b/.test(t))
     return { action: 'status' };
-  // R-F1981 — panic / SOS. ("panic stop" is handled by the pause rule above.)
-  if (/\b(panic|sos|emergency alert|i'?m in danger|i am in danger|help me now|send help)\b/.test(t))
-    return { action: 'panic', message: text.slice(0, 200) };
-  // R-F1981 — send-as-you confirm / cancel (the staged-message replies).
+
+  // 7. send-as-you confirm / cancel / propose.
   if (/\b(send it|yes send|confirm send|yes,? send it|go ahead,? send)\b/.test(t))
     return { action: 'send_confirm' };
   if (/\b(don'?t send|do not send|cancel send|no,? don'?t send|stop,? don'?t send)\b/.test(t))
     return { action: 'send_cancel' };
-  // R-F1981 — send-as-you propose. Require an explicit message connector
-  // (saying / that I / to say / :) so normal queries ("tell me about X") never match.
+  // Require an explicit message connector (saying / to say / that I) so normal
+  // queries ("tell me about X") never match.
   let sm = text.match(/\b(?:tell|text|message|msg|whatsapp|send (?:a )?(?:message|text|whatsapp) to)\s+(.+?)\s+(?:saying|to say|that i|that we|that i'?m)\s+(.+)/i);
   if (sm) return { action: 'send', to: sm[1].trim().slice(0, 80), message: sm[2].trim().slice(0, 1000) };
   return null;
 }
 
-async function _handleGuardianIntent(gi, user) {
+async function _handleGuardianIntent(gi, user, chat) {
   if (gi.action === 'pause') {
     await brainPost('/api/aria/guardian/pause', { user });
     return '🛑 Guardian PAUSED — I won\'t act on your behalf until you say "resume guardian".';
@@ -2108,7 +2135,9 @@ async function _handleGuardianIntent(gi, user) {
     return r.was_armed ? '✅ Glad you\'re safe — check-in cleared.' : '✅ Noted. (No active check-in was running.)';
   }
   if (gi.action === 'arm') {
-    const r = await brainPost('/api/aria/guardian/checkin', { user, minutes: gi.minutes, message: gi.message });
+    // R-F1982 — pass the origin chat so the deadline self-ping lands HERE (where
+    // they asked), not in a self-DM that never surfaces.
+    const r = await brainPost('/api/aria/guardian/checkin', { user, minutes: gi.minutes, message: gi.message, chat });
     if (r.ok) {
       const m = r.minutes < 1 ? `${Math.round(r.minutes * 60)} sec` : `${Math.round(r.minutes)} min`;
       return `🛡️ Check-in armed for ${m}. At the deadline I'll message you to confirm you're safe — reply "all clear" and I'll stand down. `
@@ -2631,7 +2660,7 @@ async function onMessagesUpsert(sock, account, ev) {
         const _gi = _guardianIntent(q);
         if (_gi) {
           try {
-            const _gr = await _handleGuardianIntent(_gi, senderJid);
+            const _gr = await _handleGuardianIntent(_gi, senderJid, chatId);
             if (_gr) await sendReply(chatId, _gr, requestId);
           } catch (e) {
             console.error('[ARIA Listener] Guardian intent error:', e.message);
