@@ -14096,6 +14096,21 @@ async def guardian_panic_ep(request: Request):
     return await _gp.trigger(user, wa_send_fn(), b.get("note", ""))
 
 
+@router.post("/guardian/interpret")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_interpret_ep(request: Request):
+    """R-F1983 — multilingual LLM comprehension of a Guardian command. The WA
+    listener calls this when its fast deterministic parser misses, so a command
+    in ANY language is still understood. Body: {message}. Returns the structured
+    intent {action, ...params, confidence}."""
+    b = await _guardian_body(request)
+    msg = (b.get("message") or "").strip()
+    if not msg:
+        return {"action": "none", "confidence": 0.0}
+    from ..guardian import interpret as _gi
+    return await _gi.interpret(msg, get_llm(request))
+
+
 @router.get("/guardian/audit")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def guardian_audit_ep(user: str = "", limit: int = 50):

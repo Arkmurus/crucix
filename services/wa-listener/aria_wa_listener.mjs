@@ -2076,8 +2076,9 @@ function _guardianIntent(text) {
     if (mins) return { action: 'arm', minutes: mins, message: text.slice(0, 200) };
   }
 
-  // 3. Panic / SOS.
-  if (/\b(panic|sos|emergency alert|i'?m in danger|i am in danger|help me now|send help)\b/.test(t))
+  // 3. Panic / SOS — incl. instant multilingual distress words (life-critical, so
+  //    kept on the deterministic fast-path; deeper phrasing goes to the LLM layer).
+  if (/\b(panic|sos|emergency alert|i'?m in danger|i am in danger|help me now|send help|socorro|ayuda|auxilio|au secours|aidez[- ]moi|hilfe|aiuto)\b/.test(t))
     return { action: 'panic', message: text.slice(0, 200) };
 
   // 4. All-clear — ONLY a standalone safety confirmation; never when the message
@@ -2119,6 +2120,18 @@ function _guardianIntent(text) {
   let sm = text.match(/\b(?:tell|text|message|msg|whatsapp|send (?:a )?(?:message|text|whatsapp) to)\s+(.+?)\s+(?:saying|to say|that i|that we|that i'?m)\s+(.+)/i);
   if (sm) return { action: 'send', to: sm[1].trim().slice(0, 80), message: sm[2].trim().slice(0, 1000) };
   return null;
+}
+
+// R-F1983 — cheap, GENEROUS multilingual pre-filter: "could this be a safety /
+// Guardian command in some language?" If yes, we pay for one LLM interpretation;
+// if not, we skip straight to normal chat. High recall by design — a false hit
+// just costs one classification that returns action="none".
+function _maybeGuardian(text) {
+  const t = (text || '').toLowerCase();
+  // a duration (digit + time unit) in several languages
+  if (/\d+\s*(mins?|minutes?|minutos?|hours?|horas?|heures?|stunden?|minuten|ore)\b/.test(t)) return true;
+  // safety / guardian lexicon (accent-tolerant; contains-match, not word-boundary)
+  return /(check on me|check in|stand down|all clear|i'?m safe|i am safe|home safe|keep me safe|my circle|trusted circle|safe circle|in danger|help me|emergency|panic|\bsos\b|seguro|segura|salvo|socorro|ayuda|auxilio|ajuda|perigo|peligro|p[aá]nico|c[ií]rculo|verifica|comprueba|cu[ií]dame|avisa|emergencia|emerg[eê]ncia|secours|aidez|\bsûr\b|cercle|v[eé]rifie|pr[eé]viens|hilfe|gefahr|kreis|aiuto|pericolo|cerchio|controlla)/.test(t);
 }
 
 async function _handleGuardianIntent(gi, user, chat) {
@@ -2667,6 +2680,21 @@ async function onMessagesUpsert(sock, account, ev) {
             try { await sendReply(chatId, '⚠️ I could not action that safety command — please try again.'); } catch {}
           }
           continue;
+        }
+        // R-F1983 — the fast parser missed, but this MIGHT be a safety command in
+        // another language / unusual phrasing. Ask the brain's multilingual LLM
+        // interpreter; only act on a confident guardian intent, else fall through
+        // to normal chat (which is itself multilingual).
+        if (_maybeGuardian(q)) {
+          try {
+            const gi2 = await brainPost('/api/aria/guardian/interpret', { message: q });
+            if (gi2 && gi2.action && gi2.action !== 'none' && (gi2.confidence == null || gi2.confidence >= 0.6)) {
+              const _gr2 = await _handleGuardianIntent(gi2, senderJid, chatId);
+              if (_gr2) { await sendReply(chatId, _gr2, requestId); continue; }
+            }
+          } catch (e) {
+            console.warn('[ARIA Listener] guardian interpret fallback failed:', e.message);
+          }
         }
         // R-F854 — if this is a doc-referencing follow-up and we recently read
         // a document from this sender, re-attach its text as an
