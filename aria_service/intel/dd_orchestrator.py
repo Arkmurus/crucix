@@ -6711,6 +6711,17 @@ async def _persist_report(report: ARKDDReport) -> None:
         )
     except Exception as _vault_err:
         logger.debug("dd_vault: record failed (non-fatal): %s", _vault_err)
+        # R-F2009b: wire vault failure to brain so it's not a silent drop
+        try:
+            from .engine_wiring import wire_failure as _wf_vault
+            _wf_vault(
+                module="dd_vault",
+                detail=f"record_case failed for {getattr(report, 'run_id', '?')}: {_vault_err}",
+                gap_type="persistence_failure",
+                source="dd_orchestrator:_persist_report",
+            )
+        except Exception:
+            pass
 
 # =============================================================================
 # HELPERS
@@ -9565,7 +9576,12 @@ async def list_reports(
                 user_id, len(index),
                 sorted(set(e.get("user_id") for e in index if isinstance(e, dict)))[:10],
             )
-        return filtered[:limit]
+        # R-F2009b: apply collapse to the filtered branch too, so user_id-
+        # filtered results also merge duplicate entities. Pre-fix the
+        # collapse only ran on the unfiltered path (line 9577), so the
+        # /dd/reports route (which passes user_id) returned un-collapsed
+        # duplicates — making the DD library show 29 entries instead of ~15.
+        return _collapse_index(filtered, limit)
 
     # R-F1980: collapse by canonical_entity_id — return only the LATEST
     # version per entity. The DD library is a CASE FILE DIRECTORY, not a
