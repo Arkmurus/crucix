@@ -6344,6 +6344,25 @@ def _get_dd_inline_sem() -> "asyncio.Semaphore":
     return _dd_inline_sem
 
 
+# R-F2055 — per-USER inline-DD FAIRNESS. The global Semaphore(_DD_INLINE_MAX) is
+# FIFO; without a per-user gate, ONE user firing several inline DDs can occupy
+# ALL global slots and starve other users (the audited multi-user-fairness gap).
+# A per-user lock acquired BEFORE the global semaphore serializes each user's OWN
+# inline DDs, so a single user holds at most ONE global slot — the remaining
+# slots stay available to other users. Purely additive: it gates entry, never the
+# DD pipeline. Lock-ordering is always per-user → global (no inversion/deadlock).
+_dd_inline_user_locks: dict = {}
+
+
+def _get_dd_inline_user_lock(user_id: str) -> "asyncio.Lock":
+    key = user_id or "_anon"
+    lk = _dd_inline_user_locks.get(key)
+    if lk is None:
+        lk = asyncio.Lock()
+        _dd_inline_user_locks[key] = lk
+    return lk
+
+
 def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | None) -> bool:
     """Fire-and-forget a full-depth DD that persists to the user's panel.
     Returns True if a job was launched, False if not eligible / de-duped."""
@@ -6503,6 +6522,8 @@ async def _execute_tool(
             _dd_inline_deferred = False
             _dd_inline_acquired = False
             _dd_inline_sem_local = None
+            _dd_user_lock = None          # R-F2055 per-user fairness
+            _dd_user_lock_held = False    # R-F2055
             try:
                 # R-F1572: bound the whole DD (initial run + any R-F409 deep
                 # re-run) to a budget that fits inside the WhatsApp async-push
@@ -6528,6 +6549,15 @@ async def _execute_tool(
                 # use this call QUEUES here (not dropped); we note the deferral
                 # so the reply can tell the user, then proceed once a slot frees.
                 _dd_inline_sem_local = _get_dd_inline_sem()
+                # R-F2055 — per-user fairness: serialize THIS user's own inline DDs
+                # FIRST (before taking a global slot) so one user can't occupy
+                # multiple global slots and starve others.
+                _dd_user_lock = _get_dd_inline_user_lock(user_id)
+                if _dd_user_lock.locked():
+                    _log.info("R-F2055 per-user inline-DD fairness — user %s already has a DD running; serializing theirs",
+                              user_id or "_anon")
+                await _dd_user_lock.acquire()
+                _dd_user_lock_held = True
                 _dd_inline_deferred = _dd_inline_sem_local.locked()
                 if _dd_inline_deferred:
                     _log.info("R-F1955 inline DD queued — %d already running (cap %d), entity=%r",
@@ -6609,6 +6639,12 @@ async def _execute_tool(
                 if _dd_inline_acquired and _dd_inline_sem_local is not None:
                     try:
                         _dd_inline_sem_local.release()
+                    except Exception:
+                        pass
+                # R-F2055 — release the per-user fairness lock (reverse order).
+                if _dd_user_lock_held and _dd_user_lock is not None:
+                    try:
+                        _dd_user_lock.release()
                     except Exception:
                         pass
             # Render as markdown and return as tool_context so the LLM
