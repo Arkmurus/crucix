@@ -504,7 +504,7 @@
     btn.textContent = 'Verifying...'; btn.disabled = true;
     document.getElementById('verify-error').style.display = 'none';
     try {
-      var result = await API.post('/api/auth/verify-code', {
+      var result = await API.post('/api/auth/verify-email', {
         email: window._pendingEmail,
         code: code,
       });
@@ -532,7 +532,7 @@
     btn.textContent = 'Sending...';
     btn.style.pointerEvents = 'none';
     try {
-      await API.post('/api/auth/resend-code', { email: window._pendingEmail });
+      await API.post('/api/auth/resend-verification', { email: window._pendingEmail });
       btn.textContent = 'Code sent!';
       setTimeout(function() {
         btn.textContent = 'Resend code';
