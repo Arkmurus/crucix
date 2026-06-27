@@ -71,22 +71,34 @@ def test_agent_registry_registrations_in_main():
         )
 
 
-def test_autonomous_scheduler_fix_gaps_wired():
-    """Verify AutonomousScheduler._fix_gaps is wired to real gap detection."""
-    source = _read("aria_service/intel/autonomous_scheduler.py")
+def test_gap_fixing_wired_via_coder_run_forever():
+    """Verify gap-fixing is wired to real gap detection + fix.
 
-    # Should reference GapDetector.scan() and ARIACoder.fix_gap()
-    assert "GapDetector" in source, (
-        "autonomous_scheduler.py must import GapDetector"
+    R-F2026: retargeted to the current owner. R-F1700 REMOVED the duplicate
+    gap_fixer tick from autonomous_scheduler (it was a divergent, dead+dark
+    duplicate that imported the wrong module and swallowed every error). Gap-
+    fixing is now owned SOLELY by the coder run_forever path: self_coder.
+    AutonomousCoder.run_forever() -> gap_detector.scan() -> fix_gap(), wired
+    into the app via start_aria_coder() in main.py. Assert that real path, not
+    the removed scheduler one.
+    """
+    coder = _read("aria_service/autonomous/self_coder.py")
+    assert "GapDetector" in coder, "self_coder must use GapDetector"
+    assert "async def run_forever" in coder, "AutonomousCoder must have run_forever loop"
+    assert "self.gap_detector.scan()" in coder, "run_forever must call gap_detector.scan()"
+    assert "self.fix_gap(gap)" in coder, "run_forever must call fix_gap(gap)"
+
+    main = _read("aria_service/main.py")
+    assert "start_aria_coder" in main, (
+        "main.py must wire the coder via start_aria_coder() at boot"
     )
-    assert "ARIACoder" in source, (
-        "autonomous_scheduler.py must import ARIACoder"
-    )
-    assert "detector.scan()" in source or "await detector.scan()" in source, (
-        "_fix_gaps must call GapDetector.scan()"
-    )
-    assert "coder.fix_gap(gap)" in source or "await coder.fix_gap(gap)" in source, (
-        "_fix_gaps must call ARIACoder.fix_gap()"
+
+    # And the scheduler must NOT have resurrected its duplicate gap_fixer TASK
+    # (the R-F1700 comment mentions the name; match the actual registration).
+    sched = _read("aria_service/intel/autonomous_scheduler.py")
+    assert '_tasks["gap_fixer"]' not in sched and "_tasks['gap_fixer']" not in sched, (
+        "autonomous_scheduler must NOT re-register the duplicate gap_fixer tick "
+        "(R-F1700 — gap-fixing is owned by the coder run_forever path)"
     )
 
 

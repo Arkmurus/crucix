@@ -53,13 +53,16 @@ def test_rf2022_health_exposes_sources_array(monkeypatch):
         ],
     }
 
-    class _RS:
-        @staticmethod
-        async def get_json(key):
-            return fake_last_run if key == sum_mod._K_LAST_RUN else []
+    # Monkeypatch the real redis_store.get_json directly. (Swapping the whole
+    # module via sys.modules is fragile — `from . import redis_store` resolves the
+    # already-imported package attribute, bypassing the swap, when another test in
+    # the suite imported redis_store first → flaky in-suite, green in isolation.)
+    rs_mod = __import__("aria_service.intel.redis_store", fromlist=["x"])
 
-    monkeypatch.setitem(__import__("sys").modules,
-                        "aria_service.intel.redis_store", _RS)
+    async def _fake_get_json(key):
+        return fake_last_run if key == sum_mod._K_LAST_RUN else []
+
+    monkeypatch.setattr(rs_mod, "get_json", _fake_get_json)
 
     h = asyncio.run(sum_mod.health())
     assert "sources" in h, "health() must expose a top-level sources array"

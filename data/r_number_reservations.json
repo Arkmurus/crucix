@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2026,
+  "next_available": 2028,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14581,14 +14581,34 @@
       "title": "dashboard.html missing authed() helper - ReferenceError crashes loadData, no data fetched",
       "claimed_at": "2026-06-27T14:37:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3e3bcdea",
+      "notes": null,
+      "shipped_at": "2026-06-27T14:50:44Z"
     },
     {
       "r_number": "R-F2025",
       "title": "adversarial scoring excludes per-attack empty LLM responses (artifact fix)",
       "claimed_at": "2026-06-27T14:38:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3e3bcdea",
+      "notes": null,
+      "shipped_at": "2026-06-27T14:50:44Z"
+    },
+    {
+      "r_number": "R-F2026",
+      "title": "update 8 stale tests to current contracts (async tiers / quarantine signal / web_integrity wire_success)",
+      "claimed_at": "2026-06-27T14:52:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2027",
+      "title": "robust onboarding",
+      "claimed_at": "2026-06-27T15:01:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

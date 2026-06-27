@@ -39,13 +39,22 @@ def test_web_integrity_agent_receives_brain_hook():
 
 
 def test_web_integrity_agent_has_wire_to_brain_method():
-    """Verify _wire_to_brain method exists and calls brain_hook.absorb."""
+    """Verify _wire_to_brain exists and reaches the brain.
+
+    R-F2026: retargeted to the current contract. R-F1598 switched this method
+    from the heavy brain_hook.absorb to the lightweight brain_hook.record_signal
+    — web_integrity_agent is high-frequency telemetry (probes every 60s), so its
+    events are metrics, not knowledge, and the expensive absorb tiers were
+    tripping the circuit breaker. The event must still REACH the brain, just via
+    the lightweight path.
+    """
     source = _read("aria_service/intel/web_integrity_agent.py")
     assert "async def _wire_to_brain" in source, (
         "WebIntegrityAgent must have _wire_to_brain method"
     )
-    assert "self._brain_hook.absorb" in source, (
-        "_wire_to_brain must call self._brain_hook.absorb"
+    assert "self._brain_hook.record_signal" in source, (
+        "_wire_to_brain must reach the brain via self._brain_hook.record_signal "
+        "(R-F1598: lightweight signal, not the expensive absorb tiers)"
     )
 
 
@@ -53,26 +62,24 @@ def test_web_integrity_agent_has_wire_to_brain_method():
 
 
 @pytest.mark.asyncio
-async def test_wire_to_brain_calls_real_absorb():
-    """FOCUSED PROOF: agent with spy brain_hook -> _wire_to_brain -> absorb fires.
-
-    This drives the REAL _wire_to_brain method with a SPY on the REAL
-    brain_hook.absorb. No mocking of the method under test.
+async def test_wire_to_brain_calls_record_signal():
+    """FOCUSED PROOF: agent with spy brain_hook -> _wire_to_brain -> record_signal
+    fires. R-F2026: spies record_signal (the R-F1598 lightweight path) instead of
+    absorb. Drives the REAL _wire_to_brain method; no mocking of the method itself.
     """
     from aria_service.intel.web_integrity_agent import WebIntegrityAgent
-    from aria_service.intel.brain_hook import absorb
 
-    # Create a spy that wraps the real absorb
+    # Spy on the lightweight record_signal path
     call_log = []
 
-    async def spy_absorb(**kwargs):
+    async def spy_record_signal(**kwargs):
         call_log.append(kwargs)
-        return {"ok": True}
+        return None
 
     # Create agent with the spy as brain_hook
     agent = WebIntegrityAgent(
         aria_service_url="http://localhost:9999",
-        brain_hook=MagicMock(absorb=spy_absorb),
+        brain_hook=MagicMock(record_signal=spy_record_signal),
     )
 
     # Call _wire_to_brain with an error — this drives the REAL method
@@ -85,18 +92,18 @@ async def test_wire_to_brain_calls_real_absorb():
         source_id="test_rf1403",
     )
 
-    # Assert absorb was called with the right args
+    # Assert record_signal was called with the right args
     assert len(call_log) == 1, (
-        "brain_hook.absorb must be called exactly once"
+        "brain_hook.record_signal must be called exactly once"
     )
     assert call_log[0]["module"] == "web_integrity", (
-        "absorb must receive module='web_integrity'"
+        "record_signal must receive module='web_integrity'"
     )
     assert call_log[0]["success"] is False, (
-        "absorb must receive success=False for error events"
+        "record_signal must receive success=False for error events"
     )
     assert "Test error reaching brain" in call_log[0]["summary"], (
-        "absorb must receive the error summary"
+        "record_signal must receive the error summary"
     )
 
 
@@ -134,13 +141,13 @@ async def test_verify_response_missing_field_reaches_brain():
 
     call_log = []
 
-    async def spy_absorb(**kwargs):
+    async def spy_record_signal(**kwargs):  # R-F2026: lightweight path (R-F1598)
         call_log.append(kwargs)
-        return {"ok": True}
+        return None
 
     agent = WebIntegrityAgent(
         aria_service_url="http://localhost:9999",
-        brain_hook=MagicMock(absorb=spy_absorb),
+        brain_hook=MagicMock(record_signal=spy_record_signal),
     )
 
     # verify_response checks that response_data contains expected fields
@@ -155,7 +162,7 @@ async def test_verify_response_missing_field_reaches_brain():
     # If there are errors, _wire_to_brain should have been called
     if errors:
         assert len(call_log) >= 1, (
-            "verify_response with errors must trigger brain_hook.absorb"
+            "verify_response with errors must trigger brain_hook.record_signal"
         )
     else:
         # If no errors (endpoint not in WEB_ENDPOINTS or no expected fields),

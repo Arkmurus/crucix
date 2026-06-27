@@ -68,4 +68,8 @@ def test_rf1292_failure_cycle_does_not_emit_success(monkeypatch):
     asyncio.run(a._one_cycle())
 
     assert not calls, "a failing cycle must NOT emit a success heartbeat"
-    a._brain_hook.absorb.assert_awaited()  # failure goes through absorb
+    # R-F2026 — the failing cycle routes through _record_error (which itself wires
+    # the brain via the R-F1598 lightweight record_signal path); this test mocks
+    # _record_error, so assert the failure reached that handler — NOT the old
+    # absorb path (R-F1598 removed absorb from web_integrity wiring).
+    a._record_error.assert_awaited()

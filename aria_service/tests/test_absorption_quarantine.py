@@ -227,9 +227,15 @@ def test_brain_hook_diverts_listed_module_to_quarantine(monkeypatch):
     assert out["skipped"] is True
     assert out["reason"] == "absorption_quarantine_pending_review"
     assert "quarantine_id" in out
-    # Signal counter should NOT fire when the absorption was diverted —
-    # the queue is the source of truth for whether it eventually lands.
-    assert captured["signal"] == []
+    # R-F2026 — the DIVERTED module's signal counter must NOT fire (the queue is
+    # the source of truth for whether brave_answer eventually lands). Other
+    # modules' self-monitoring meta-signals (e.g. self_infra_detector reporting
+    # its own gate check ran) are legitimate and expected during the gate phase —
+    # so assert on the diverted module specifically, not a globally-empty list.
+    assert not any(m == "brave_answer" for (m, _ok) in captured["signal"]), (
+        f"diverted module brave_answer must not record an absorption signal; "
+        f"captured={captured['signal']}"
+    )
 
 
 def test_brain_hook_passes_through_unlisted_module(monkeypatch):

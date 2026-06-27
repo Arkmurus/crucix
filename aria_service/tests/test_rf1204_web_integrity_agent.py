@@ -219,7 +219,11 @@ def test_brain_wiring_on_error():
         success=False,
     ))
 
-    brain_hook.absorb.assert_called_once()
+    # R-F2026 — R-F1598 routed this high-frequency telemetry module's wiring
+    # through the lightweight record_signal (not the expensive absorb tiers,
+    # which were tripping the circuit breaker). The error must still REACH the
+    # brain, now via record_signal.
+    brain_hook.record_signal.assert_awaited_once()
 
 
 # ── Directive 5: Zero Tolerance ─────────────────────────────────────────────
