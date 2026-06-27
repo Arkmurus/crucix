@@ -2122,6 +2122,23 @@ function _guardianIntent(text) {
   return null;
 }
 
+// R-F1989 — image forward intent. On an IMAGE caption like "Aria, send this to
+// Mom" / "forward this photo to Dad", extract the recipient. Requires the wake-word
+// (it's an explicit command) AND a send/forward verb pointing at "this" image, so a
+// plain captioned photo still goes to OCR. Returns { to } or null.
+function _imageSendIntent(caption) {
+  const c = (caption || '').trim();
+  if (!c) return null;
+  if (!MENTIONS_RE.some((p) => p.test(c))) return null;   // must address ARIA
+  // "send/forward/share this (image/photo/picture/pic)? to <name>"
+  const m = c.match(/\b(?:send|forward|share)\s+(?:this|it|the)?\s*(?:image|photo|picture|pic)?\s*to\s+(.+)$/i);
+  if (!m) return null;
+  let to = m[1].trim().replace(/[.!?,]+$/, '').slice(0, 80);
+  // strip a leading "my " so "send this to my mom" → "mom" matches a circle name
+  to = to.replace(/^my\s+/i, '').trim();
+  return to ? { to } : null;
+}
+
 // R-F1983 — cheap, GENEROUS multilingual pre-filter: "could this be a safety /
 // Guardian command in some language?" If yes, we pay for one LLM interpretation;
 // if not, we skip straight to normal chat. High recall by design — a false hit
@@ -2317,6 +2334,29 @@ async function onMessagesUpsert(sock, account, ev) {
           const b64 = buf.toString('base64');
           const sizeKb = Math.round(buffer.length / 102.4) / 10;
           const filename = `wa_${Date.now()}.jpg`;
+
+          // ── R-F1989: GUARDIAN image forward ("Aria, send this to Mom") ──────
+          // Detected before OCR — an explicit forward command isn't a "read this"
+          // request. Routes through the Guardian gateway (circle-gated + audited).
+          const _imgIntent = _imageSendIntent(caption);
+          if (_imgIntent) {
+            try {
+              const r = await brainPost('/api/aria/guardian/send-image', {
+                user: senderJid, to: _imgIntent.to, image_b64: b64,
+                caption: caption.replace(/^@?ar[iy]{1,3}a[,:?\s]*/i, '')
+                                 .replace(/\b(?:send|forward|share)\s+.*$/i, '').trim(),
+              });
+              if (r && r.ok) {
+                await sendReply(chatId, `🖼 Sent your image to ${r.to_name || r.to_masked} from your number.`, requestId);
+              } else {
+                await sendReply(chatId, `⚠️ ${(r && r.error) || 'I could not send that image.'}`, requestId);
+              }
+            } catch (e) {
+              console.error('[ARIA Listener] image forward error:', e.message);
+              await sendReply(chatId, `⚠️ I could not send that image — please try again.`, requestId).catch(() => {});
+            }
+            continue;
+          }
           const contextLabel = caption
             ? `Image shared in WhatsApp group "${groupName}" by ${senderName}. Caption: ${caption.slice(0, 300)}`
             : `Image shared in WhatsApp group "${groupName}" by ${senderName} (no caption)`;
@@ -2916,10 +2956,14 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   const b      = req.body || {};
   const target = b.group_id || b.to || b.chat_id || b.jid || '';
   const text   = b.message  || b.text || '';
+  // R-F1989 — optional image payload (Guardian image forward). When present the
+  // message goes out as an image (with optional caption) instead of plain text.
+  const imageB64 = b.image_b64 || '';
+  const caption  = b.caption || '';
   // T0★ — accept optional request_id from caller (R-F1411)
   const rid    = b.request_id || `outbound_${target.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
-  if (!target || !text) {
-    return res.status(400).json({ error: 'group_id (or to/chat_id) and message are required' });
+  if (!target || (!text && !imageB64)) {
+    return res.status(400).json({ error: 'group_id (or to/chat_id) and message (or image_b64) are required' });
   }
   if (!sock || !isConnected) {
     _waBrainSignal('wa_outbound_failed', `WA outbound dropped — not connected (to ${target})`,
@@ -2929,6 +2973,19 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   }
   const t0 = Date.now();
   try {
+    // R-F1989 — image branch: a single image message, captioned, from this number.
+    if (imageB64) {
+      let imgBuf;
+      try { imgBuf = Buffer.from(imageB64, 'base64'); } catch { imgBuf = null; }
+      if (!imgBuf || imgBuf.length === 0) {
+        return res.status(400).json({ error: 'image_b64 is not valid base64' });
+      }
+      await sock.sendMessage(target, { image: imgBuf, caption: (caption || '').slice(0, 1000) });
+      _waBrainSignal('wa_outbound_sent', `WA image sent to ${target} (${imgBuf.length} bytes)`,
+        { chat_id: String(target), bytes: imgBuf.length, kind: 'image' });
+      reportOutcome('wa', rid, 'outbound_send', 'delivered_real_answer', Date.now() - t0);
+      return res.json({ sent: true, to: target, kind: 'image', bytes: imgBuf.length });
+    }
     const chunks = splitMessage(text);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));

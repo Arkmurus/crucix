@@ -39,3 +39,28 @@ def wa_send_fn(timeout: float = 8.0) -> "_gw.SendFn":
             return False
 
     return _send
+
+
+def wa_send_image_fn(timeout: float = 30.0) -> "_gw.SendFn":
+    """Build the send_fn that delivers an IMAGE via aria-wa (the linked number).
+    Sends ``req.image_b64`` with an optional ``req.caption``. A longer timeout
+    than text because an image upload is larger. Returns True only on a 200."""
+    tok = os.getenv("ARIA_INTERNAL_TOKEN", "")
+
+    async def _send(req: "_gw.ActionRequest") -> bool:
+        if not req.recipient_jid or not req.image_b64:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as c:
+                r = await c.post(
+                    _WA_SEND_URL,
+                    headers={"Authorization": f"Bearer {tok}",
+                             "Content-Type": "application/json"},
+                    json={"to": req.recipient_jid, "image_b64": req.image_b64,
+                          "caption": req.caption or ""},
+                )
+                return r.status_code == 200
+        except Exception:
+            return False
+
+    return _send

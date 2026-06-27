@@ -33,6 +33,7 @@ _PAUSE_KEY = "crucix:guardian:paused:{user}"
 class RiskClass(str, Enum):
     NOTIFY_ME = "notify_me"          # ARIA tells the USER something — no external action
     SEND_AS_USER = "send_as_user"    # ARIA sends a message AS the user to someone
+    SEND_IMAGE = "send_image"        # ARIA sends an image AS the user to a circle contact
     ALERT_CIRCLE = "alert_circle"    # ARIA alerts a trusted-circle contact
     SHARE_LOCATION = "share_location"  # ARIA shares the user's location with a contact
     EMERGENCY = "emergency"          # panic / dead-man's-switch escalation
@@ -49,6 +50,10 @@ class ConsentTier(str, Enum):
 _REQUIRED: dict[RiskClass, ConsentTier] = {
     RiskClass.NOTIFY_ME: ConsentTier.AUTO,
     RiskClass.SEND_AS_USER: ConsentTier.CONFIRM,
+    # An image carries far more (a face, a location, a document) than text, so it is
+    # restricted to the trusted CIRCLE — enrolment IS the consent. A raw number is
+    # refused for images (relax later if the operator wants images to anyone).
+    RiskClass.SEND_IMAGE: ConsentTier.CIRCLE_ONLY,
     RiskClass.ALERT_CIRCLE: ConsentTier.CIRCLE_ONLY,
     RiskClass.SHARE_LOCATION: ConsentTier.CIRCLE_ONLY,
     RiskClass.EMERGENCY: ConsentTier.PRE_AUTHORIZED,
@@ -62,6 +67,8 @@ class ActionRequest:
     risk: RiskClass
     recipient_jid: str = ""         # who it goes to (empty for NOTIFY_ME)
     message: str = ""
+    image_b64: str = ""             # base64 image payload (SEND_IMAGE only)
+    caption: str = ""               # optional caption for an image send
     confirmed: bool = False         # one-tap confirmation supplied (CONFIRM tier)
     pre_authorized: bool = False    # standing consent supplied (EMERGENCY tier)
     meta: dict = field(default_factory=dict)

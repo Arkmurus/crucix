@@ -12500,6 +12500,86 @@ async def absorption_quarantine_promote_ep(request: Request):
     }
 
 
+# ── Design Partner Tracker (R-F1987, Phase A Gate #7) ──────────────────
+
+
+@router.get("/admin/design-partners")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def design_partners_list_ep():
+    """List all design-partner conversations.
+
+    Phase A Gate #7 requires >= 4 design-partner conversations.
+    Returns the full list + gate status.
+    """
+    from ..intel.design_partner_tracker import get_tracker
+    tracker = get_tracker()
+    return {
+        "entries": tracker.list(),
+        "stats": tracker.stats(),
+    }
+
+
+@router.post("/admin/design-partners")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def design_partners_add_ep(request: Request):
+    """Add a design-partner conversation.
+
+    Body:
+        {
+            "name": "Acme Corp",
+            "contact": "john@acme.com",
+            "notes": "Initial call — interested in DD pilot",
+            "status": "contacted"   # optional, default "contacted"
+        }
+    """
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    contact = (body.get("contact") or "").strip()
+    if not name or not contact:
+        raise HTTPException(status_code=400, detail="'name' and 'contact' are required")
+    notes = (body.get("notes") or "").strip()
+    status = (body.get("status") or "contacted").strip()
+    valid_statuses = {"contacted", "engaged", "onboarded", "declined"}
+    if status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}",
+        )
+    from ..intel.design_partner_tracker import get_tracker
+    tracker = get_tracker()
+    entry = tracker.add(name=name, contact=contact, notes=notes, status=status)
+    return {"added": entry.to_dict(), "stats": tracker.stats()}
+
+
+@router.patch("/admin/design-partners/{index}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def design_partners_update_ep(index: int, request: Request):
+    """Update a design-partner conversation by index.
+
+    Body (all optional):
+        {
+            "notes": "Follow-up call scheduled",
+            "status": "engaged"
+        }
+    """
+    body = await request.json()
+    notes = body.get("notes")
+    status = body.get("status")
+    if status is not None:
+        valid_statuses = {"contacted", "engaged", "onboarded", "declined"}
+        if status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}",
+            )
+    from ..intel.design_partner_tracker import get_tracker
+    tracker = get_tracker()
+    entry = tracker.update(index, notes=notes, status=status)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"No entry at index {index}")
+    return {"updated": entry.to_dict(), "stats": tracker.stats()}
+
+
 @router.post("/admin/absorption-quarantine/reject")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def absorption_quarantine_reject_ep(request: Request):
@@ -14081,6 +14161,21 @@ async def guardian_send_cancel_ep(request: Request):
     b = await _guardian_body(request)
     from ..guardian import relay as _gr
     return await _gr.cancel((b.get("user") or "").strip())
+
+
+@router.post("/guardian/send-image")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def guardian_send_image_ep(request: Request):
+    """Forward an image to a trusted-circle contact, sent from the user's linked
+    number. Body: {user, to, image_b64, caption?}. Refuses non-circle recipients."""
+    b = await _guardian_body(request)
+    user = (b.get("user") or "").strip()
+    if not user:
+        raise HTTPException(status_code=400, detail="user required")
+    from ..guardian import image_relay as _gir
+    from ..guardian.delivery import wa_send_image_fn
+    return await _gir.forward(user, b.get("to", ""), b.get("image_b64", ""),
+                              b.get("caption", ""), wa_send_image_fn())
 
 
 @router.post("/guardian/panic")
