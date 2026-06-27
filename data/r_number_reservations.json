@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2060,
+  "next_available": 2061,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14910,23 +14910,34 @@
       "title": "CORS root fix — env-driven origin allowlist (replace wildcard+credentials)",
       "claimed_at": "2026-06-27T19:53:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c2ded49e",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:05:28Z"
     },
     {
       "r_number": "R-F2058",
       "title": "admission control: bound inline-DD slot wait, honest busy reply when saturated (no pile-up)",
       "claimed_at": "2026-06-27T19:55:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c2ded49e",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:05:33Z"
     },
     {
       "r_number": "R-F2059",
       "title": "Bulletproof defence DD search",
       "claimed_at": "2026-06-27T19:56:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2060",
+      "title": "ARIA test-runner uses sys.executable not PATH python (fixes false collection errors)",
+      "claimed_at": "2026-06-27T20:01:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

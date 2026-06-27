@@ -9,6 +9,7 @@ import ast
 import logging
 import os
 import re
+import sys
 import time
 import pathlib
 from dataclasses import dataclass, field
@@ -856,7 +857,12 @@ class SelfCodingOS:
     async def run_tests(self, test_pattern=""):
         """Run pytest via asyncio subprocess. Returns result dict."""
         import asyncio.subprocess as a_subprocess
-        cmd = ["python", "-m", "pytest", "-q", "--no-header", "--tb=short"]
+        # R-F2060 — run pytest under THIS interpreter (sys.executable), not PATH
+        # `python`, so the test process inherits the venv/container deps (numpy,
+        # chromadb, sentence-transformers). A bare `python` can hit a system
+        # interpreter missing those → spurious collection errors mis-read as
+        # regressions. (Same root cause/fix as R-F1928.)
+        cmd = [sys.executable, "-m", "pytest", "-q", "--no-header", "--tb=short"]
         if test_pattern:
             cmd.extend(["-k", test_pattern])
         try:
@@ -1009,7 +1015,7 @@ class SelfCodingOS:
         prefix = (sha or "")[:7]
         if not prefix:
             return False
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:  # no-breaker: self-health deploy-verification poll, retry-bounded by deadline (not a 3rd-party backend)
             while asyncio.get_event_loop().time() < deadline:
                 try:
                     resp = await client.get("https://aria-intel.fly.dev/health/live")

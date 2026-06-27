@@ -10,6 +10,7 @@ imports here — all shell execution goes through the Toolbox.run() method.
 """
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -459,7 +460,16 @@ class CoderToolbox:
              verbose: bool = False) -> ToolResult:
         """Run pytest. path is the test file/dir (default: discover). pattern
         is -k filter. verbose adds -v."""
-        cmd = "python -m pytest"
+        # R-F2060 — use THIS interpreter (sys.executable), not PATH `python`.
+        # ARIA runs under the venv/container python that actually has numpy +
+        # chromadb + sentence-transformers; a bare `python` can resolve to a
+        # system interpreter missing those deps → every numpy/chromadb-importing
+        # test reports a COLLECTION ERROR, which ARIA then mis-reads as a code
+        # "regression" (the false 8-gap ecosystem report, 2026-06-27). Binding
+        # the test interpreter to the running one makes that failure class
+        # impossible. (Same root cause + fix as R-F1928 for the autonomous
+        # TestRunner.) sys.executable is quoted for paths containing spaces.
+        cmd = f'"{sys.executable}" -m pytest'
         if path:
             cmd += f" {path}"
         if pattern:
@@ -478,7 +488,7 @@ class CoderToolbox:
         script = self.root / "scripts" / "admin" / "reserve_r_number.py"
         if not script.exists():
             return ToolResult(f"error: reservation script not found at {script}", is_error=True)
-        return self._tb.run(f'python {script} reserve "{title}"', timeout=30)
+        return self._tb.run(f'"{sys.executable}" {script} reserve "{title}"', timeout=30)
 
     def ship_r_number(self, r_number: str, sha: str = "") -> ToolResult:
         """Mark an R-number as shipped with the given commit SHA."""
@@ -488,7 +498,7 @@ class CoderToolbox:
         if not sha:
             r = self._tb.run("git rev-parse HEAD", timeout=15)
             sha = r.output.splitlines()[0] if not r.is_error and r.output else "unknown"
-        return self._tb.run(f"python {script} ship {r_number} {sha}", timeout=30)
+        return self._tb.run(f'"{sys.executable}" {script} ship {r_number} {sha}', timeout=30)
 
     # ── self-review (adversarial self-critique — no Claude needed) ─────────
 
