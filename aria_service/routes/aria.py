@@ -8665,6 +8665,21 @@ async def chat_ep(req: ChatRequest, request: Request):
                         _runid_m = _re_runid.search(r"Run ID:\s*(\S+)", tool_context)
                         if _runid_m:
                             _dd_run_id = _runid_m.group(1)
+                elif (not intent) and llm and llm.is_configured:
+                    # R-F1998 — no regex tool matched. The ad-hoc forensic boxes
+                    # were removed from the DD page, so an in-chat plain-language
+                    # ask ("do these numbers look fabricated?", "where is X
+                    # listed?") routes here. Cheap keyword-gated, so non-forensic
+                    # turns pay nothing; result is fed via tool_context like any
+                    # tool. Covers WhatsApp + /ask (the stream path mirrors this).
+                    try:
+                        from ..intel import forensic_intent as _fi
+                        _fres = await _fi.maybe_handle(req.message, llm)
+                        if _fres and _fres.get("text"):
+                            tool_used = "forensic_" + (_fres.get("tool") or "")
+                            tool_context = _fres["text"]
+                    except Exception as _fe:
+                        _log.debug("R-F1998 forensic_intent skipped: %s", _fe)
 
             # Build the final message for the LLM. Three components in
             # this order, all CONDITIONAL on being non-empty:
@@ -10145,7 +10160,22 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     yield f'data: {json.dumps({"type":"chunk","text":"\n\n[END PRELIMINARY - Full analysis below]\n\n"})}\n\n'
                 yield f'data: {json.dumps({"type":"progress","stage":"tool_done","tool":tool_used,"message":"Tool complete - composing answer..."})}\n\n'
             else:
-                yield f'data: {json.dumps({"type":"progress","stage":"no_tool","message":"No tool needed — composing answer…"})}\n\n'
+                # R-F1998 — no regex tool matched. Mirror of chat_ep: try an
+                # ad-hoc forensic-primitive ask in plain language ("does this
+                # look fabricated?", "where is X listed?"). Cheap keyword-gated.
+                _fres = None
+                if llm and llm.is_configured:
+                    try:
+                        from ..intel import forensic_intent as _fi
+                        _fres = await _fi.maybe_handle(req.message, llm)
+                    except Exception as _fe:
+                        _log.debug("R-F1998 forensic_intent (stream) skipped: %s", _fe)
+                if _fres and _fres.get("text"):
+                    tool_used = "forensic_" + (_fres.get("tool") or "")
+                    tool_context = _fres["text"]
+                    yield f'data: {json.dumps({"type":"progress","stage":"tool_done","tool":tool_used,"message":"Forensic check complete — composing answer…"})}\n\n'
+                else:
+                    yield f'data: {json.dumps({"type":"progress","stage":"no_tool","message":"No tool needed — composing answer…"})}\n\n'
 
         # Build the final message for the LLM (same assembly as chat_ep)
         message_for_llm = req.message
@@ -11922,6 +11952,29 @@ async def purge_signals_ep(request: Request):
     dry_run = bool(body.get("dry_run", False))
     from ..intel import intel_ledger as _il
     return await _il.purge_signals_by_keyword(keywords, dry_run=dry_run)
+
+
+@router.post("/admin/reset-brain-stats")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def reset_brain_stats_ep(request: Request):
+    """R-F1999: Reset stale brain_hook stats (historical pre-fix data)."""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    if not body.get("confirm"):
+        raise HTTPException(status_code=400, detail='Pass {"confirm": true} to reset brain stats')
+    from ..intel import redis_store as _rs
+    import time as _t
+    fresh = {
+        "total_signals": 0,
+        "tracking_since": _t.time(),
+        "modules": {},
+        "_global": {"total": 0, "started_at": _t.time()},
+    }
+    await _rs.set_json("crucix:aria:brain_hook:stats", fresh, ex=30 * 86400)
+    return {"reset": True, "note": "Brain stats reset to clean slate."}
 
 
 # ──────────────────────────────────────────────────────────────────
