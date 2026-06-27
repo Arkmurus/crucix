@@ -508,12 +508,12 @@ loadData();
         const nm = escHtml(s.site_name || s.site_id || 'source');
         const url = escHtml(s.site_url || '');
         const type = escHtml(s.site_type || '');
-        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
-          + '<i class="bi bi-rss" style="color:#913BFF"></i>'
-          + '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + nm + '</div>'
-          + '<div style="font-size:11px;color:rgba(255,255,255,0.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + url + '</div></div>'
+        return '<div style="padding:10px 0;border-bottom:1px solid #e9e6df;display:flex;align-items:center;gap:10px">'
+          + '<i class="bi bi-rss" style="color:#7c3aed"></i>'
+          + '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#1f1e1c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + nm + '</div>'
+          + '<div style="font-size:11px;color:#9b968c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + url + '</div></div>'
           + '<span class="sc-badge sc-badge-muted">' + type + '</span>'
-          + '<button class="src-del" data-id="' + escHtml(s.site_id) + '" title="Remove" style="background:transparent;border:none;color:#fca5a5;cursor:pointer;font-size:14px"><i class="bi bi-trash"></i></button>'
+          + '<button class="src-del" data-id="' + escHtml(s.site_id) + '" title="Remove" style="background:transparent;border:none;color:#dc2626;cursor:pointer;font-size:14px"><i class="bi bi-trash"></i></button>'
           + '</div>';
       }).join('');
       listEl.querySelectorAll('.src-del').forEach(function (b) {

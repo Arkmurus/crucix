@@ -783,7 +783,7 @@ loadReports();
       }
       var c = data.case;
       var html = '<div style="background:#fff;border:1px solid #e9e6df;border-radius:12px;padding:20px">';
-      html += '<h3 style="color:#fff;margin:0 0 8px">' + escHtml(c.entity_name) + '</h3>';
+      html += '<h3 style="color:var(--sc-heading);margin:0 0 8px">' + escHtml(c.entity_name) + '</h3>';
       html += '<div style="color:#6b6862;font-size:13px;margin-bottom:16px">';
       html += 'Type: ' + escHtml(c.entity_type) + ' &middot; Jurisdiction: ' + escHtml(c.jurisdiction || '--');
       html += ' &middot; Risk: <span class="dd-pill ' + (c.risk_level || '').toLowerCase() + '">' + escHtml(c.risk_level || 'unknown') + '</span>';
