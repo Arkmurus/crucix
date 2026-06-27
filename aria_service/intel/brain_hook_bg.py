@@ -111,6 +111,29 @@ async def absorb_tiers_bg(
                 if err:
                     result["errors"].append(err)
 
+                # R-F1995: also store the DETAIL text as a separate RAG fact
+                # so the full analysis is searchable via semantic retrieval.
+                # The summary is a short status line (e.g. "DD report: Modirum
+                # Gespi (company, FI) - risk=AMBER-LIGHT") — useful for exact
+                # topic match but too short for meaningful semantic search.
+                # The detail field contains the full research output, DD report
+                # text, or analysis — make it discoverable via RAG.
+                if text_for_neural and len(text_for_neural) > 200:
+                    detail_topic = f"{topic_key}:detail"
+                    try:
+                        await _run_tier(
+                            knowledge.store_fact(
+                                topic=detail_topic,
+                                content=text_for_neural[:5000],
+                                source=source,
+                                confidence=confidence,
+                                skip_semantic_index=True,  # already indexed via summary
+                            ),
+                            "knowledge_detail",
+                        )
+                    except Exception:
+                        pass
+
             # R-F1665 (wedge cure 2): the NEURAL tier was here, inside the main
             # absorb semaphore. It now runs LAST, on its own bounded lane, AFTER
             # the breaker latency is recorded on the durable core — so a slow
