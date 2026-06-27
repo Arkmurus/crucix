@@ -253,19 +253,20 @@ async function loadOemPool() {
   const summary = document.getElementById('oem-summary');
   try {
     const resp = await API.get('/api/aria/oem/contacts');
-    if (!resp || !Array.isArray(resp)) {
-      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">OEM endpoint unreachable.</div>';
-      summary.textContent = '?';
+    const contacts = (resp && resp.contacts) || (Array.isArray(resp) ? resp : []);
+    if (!contacts.length) {
+      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No OEM contacts yet. Add via POST /api/aria/oem/contact</div>';
+      summary.textContent = '0 / 0 filled';
       return;
     }
-    const total = resp.length;
-    const filled = resp.filter(c => c && c.name && c.name.trim()).length;
+    const total = contacts.length;
+    const filled = contacts.filter(c => c && c.name && c.name.trim()).length;
     const empty = total - filled;
     summary.textContent = filled + ' / ' + total + ' filled';
 
     // Per-OEM aggregate
     const byOem = {};
-    resp.forEach(c => {
+    contacts.forEach(c => {
       if (!c || !c.oem) return;
       if (!byOem[c.oem]) byOem[c.oem] = { total: 0, filled: 0, hq: c.oem_country_hq || '' };
       byOem[c.oem].total += 1;
