@@ -58,6 +58,21 @@ check('R-F2014: matchOEMs is fed REAL needs only (no fabricated fallback)', () =
   assert.ok(/const matchedOEMs = matchOEMs\(procurementNeeds\);/.test(SRC),
     'matchOEMs must take the real detected procurementNeeds directly');
 });
+check('R-F2015: defence-relevance filter gates signal counting', () => {
+  assert.ok(/const DEFENCE_RELEVANCE_KW =/.test(SRC));
+  assert.ok(/function _isDefenceRelevant/.test(SRC));
+  assert.ok(/if \(!_isDefenceRelevant\(combined\)\) continue;/.test(SRC),
+    'non-defence (sports/noise) items must be skipped before counting');
+});
+check('R-F2015: min-evidence gate excludes zero-signal markets', () => {
+  assert.ok(/const hasRealSignal =/.test(SRC));
+  assert.ok(/if \(!hasRealSignal\) continue;/.test(SRC),
+    'a market with no conflict/signal/dev-finance/source must be excluded');
+  // the gate must sit BEFORE correlationBoost so boosts cannot inflate zero-signal markets
+  assert.ok(SRC.indexOf('if (!hasRealSignal) continue;') <
+            SRC.indexOf('const correlationBoost'),
+    'min-evidence gate must run before the correlation boost');
+});
 
 if (failures) { console.error(`\n${failures} test(s) FAILED`); process.exit(1); }
 console.log('\nAll R-F2012 opportunity-engine no-fabrication tests passed.');
