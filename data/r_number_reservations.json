@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2033,
+  "next_available": 2037,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14447,9 +14447,10 @@
       "title": "GRPO RLVR cycle: train ARIA-LLM directly against grounding_reward to kill citation fabrication",
       "claimed_at": "2026-06-27T11:46:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bcef95ca",
+      "notes": null,
+      "shipped_at": "2026-06-27T16:32:27Z"
     },
     {
       "r_number": "R-F2011",
@@ -14659,6 +14660,43 @@
       "r_number": "R-F2032",
       "title": "email.mjs read SMTP_USER/SMTP_PASS (and host/port) so auth uses the right credential namespace",
       "claimed_at": "2026-06-27T16:24:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2033",
+      "title": "Phase 1: answerable-aware grounding reward — penalize abstention on answerable Qs (kill GRPO abstention-gaming)",
+      "claimed_at": "2026-06-27T16:36:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cda41b5d",
+      "notes": null,
+      "shipped_at": "2026-06-27T16:43:54Z"
+    },
+    {
+      "r_number": "R-F2034",
+      "title": "self-serve instant approval: email-verify flips user to active + auto-approve audit",
+      "claimed_at": "2026-06-27T16:39:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2035",
+      "title": "email-verify hardening: mandatory gate, brute-force lockout, disposable-email block",
+      "claimed_at": "2026-06-27T16:39:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2036",
+      "title": "payment-gate: paid tiers only via Stripe, admin cannot elevate tier",
+      "claimed_at": "2026-06-27T16:39:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

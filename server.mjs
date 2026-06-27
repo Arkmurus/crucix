@@ -51,6 +51,7 @@ import { initApiKeysStore } from './lib/api_keys/store.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
 import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
+import { isDisposableEmail, evaluateAutoApproval, MAX_VERIFY_ATTEMPTS } from './lib/auth/onboarding.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
@@ -4112,6 +4113,24 @@ app.post('/api/auth/register', async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email address' });
     if (!password || password.length < 8)  return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
+    // R-F2035 — disposable / throwaway email block. Self-serve signup is an open
+    // door; throwaway addresses are the main abuse vector (one human, unlimited
+    // accounts). Reject before any account work.
+    if (isDisposableEmail(email)) {
+      return res.status(400).json({ error: 'Please register with a permanent (non-disposable) email address.' });
+    }
+
+    // R-F2035 — MANDATORY email-verify gate. The self-serve flow grants access on
+    // email verification, so registration cannot proceed if we can't send the
+    // code. Pre-R-F2035, an unconfigured-SMTP path silently created users in
+    // pending_approval WITHOUT verifying email ownership — a hole that self-serve
+    // (verify → instant active) must not have. Fail LOUDLY + globally (same for
+    // new and existing emails, so no account-enumeration), never silently bypass.
+    if (!smtpIsConfigured) {
+      console.error('[Auth] register BLOCKED — SMTP not configured; cannot send verification code (R-F2035).');
+      return res.status(503).json({ error: 'Registration is temporarily unavailable (email verification offline). Please try again shortly.' });
+    }
+
     // Anti-enumeration: return the SAME response whether the email/username
     // exists or not, so an attacker can't probe for account existence via
     // HTTP status code. Pre-2026-04-20 this returned 409 with a distinct
@@ -4144,12 +4163,12 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // R-F2028 (ARIA found): the old inline check tested only the bare EMAIL_*
-    // vars, but the live secrets are ARIA_EMAIL_* — so smtpConfigured was ALWAYS
-    // false and email verification was NEVER sent. Reuse email.mjs's isConfigured,
-    // which applies the full fallback chain (EMAIL_* || ARIA_SMTP_* || ARIA_EMAIL_*).
-    const smtpConfigured = smtpIsConfigured;
-
+    // R-F2034 — self-serve onboarding: SMTP is guaranteed configured here (the
+    // mandatory-verify gate above 503s otherwise), so every registration takes
+    // the email-verify path. The silent "no SMTP → pending_approval" bypass was
+    // REMOVED (R-F2035): there is no path that activates an account without a
+    // verified email. Account becomes active in /verify-email once the code is
+    // confirmed (R-F2034).
     createUser({
       username, email, password, fullName,
       accountType, companyName, companyCountry, companySize,
@@ -4159,30 +4178,9 @@ app.post('/api/auth/register', async (req, res) => {
     });
     const rawUser = findUserByEmail(email); // raw record includes verificationCode
 
-    if (smtpConfigured) {
-      // SMTP available — send verification email, require email confirmation first
-      await sendVerificationEmail(email, rawUser.fullName, rawUser.verificationCode).catch(() => {});
-      console.log(`[Auth] New registration, verification email sent: ${email}`);
-      res.json({ message: 'Account created. Please check your email for a 6-digit verification code.', needsVerification: true, email });
-    } else {
-      // SMTP not configured — skip email verification, go straight to pending_approval
-      updateUser(rawUser.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
-      console.log(`[Auth] New registration (no SMTP — skipping email verify, pending admin approval): ${email}`);
-
-      // Notify user that their request is under review
-      await sendPendingApprovalEmail(email, rawUser.fullName).catch(() => {});
-
-      // Notify admin via Telegram
-      if (telegramAlerter?.isConfigured) {
-        telegramAlerter.sendMessage(
-          `👤 *New User Registration — Approval Required*\n\n` +
-          `Name: ${rawUser.fullName}\nEmail: ${email}\nUsername: @${username}\n\n` +
-          `Go to Admin → Users in the dashboard to approve or reject.`
-        ).catch(() => {});
-      }
-
-      res.json({ message: 'Account created. Your registration is awaiting admin approval — you will be notified once activated.', needsVerification: false, email });
-    }
+    await sendVerificationEmail(email, rawUser.fullName, rawUser.verificationCode).catch(() => {});
+    console.log(`[Auth] New registration, verification email sent: ${email}`);
+    res.json({ message: 'Account created. Please check your email for a 6-digit verification code.', needsVerification: true, email });
   } catch (err) {
     console.error('[Auth] Register error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
@@ -4323,34 +4321,70 @@ app.post('/api/auth/verify-email', async (req, res) => {
 
     const user = findUserByEmail(email);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.verificationCode !== String(code)) return res.status(400).json({ error: 'Invalid verification code' });
+    if (user.status === 'active') return res.json({ message: 'Email already verified — your account is active. Please log in.' });
+
+    // R-F2035 — verify-code brute-force lockout. A 6-digit code is grindable; cap
+    // wrong attempts, then BURN the code (force a fresh resend) so brute force
+    // degrades into a resend-rate problem, not a 1e6 guessing game.
+    if (user.verificationCode !== String(code)) {
+      const attempts = (user.verificationAttempts || 0) + 1;
+      if (attempts >= MAX_VERIFY_ATTEMPTS) {
+        updateUser(user.id, { verificationCode: null, verificationExpiry: null, verificationAttempts: 0 });
+        console.warn(`[Auth] verify-email LOCKOUT email=${email} — ${attempts} wrong codes, code burned`);
+        return res.status(429).json({ error: 'Too many incorrect codes. Request a new verification code.', needsResend: true });
+      }
+      updateUser(user.id, { verificationAttempts: attempts });
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
     if (user.verificationExpiry && new Date(user.verificationExpiry) < new Date()) {
-      return res.status(400).json({ error: 'Verification code expired. Request a new one.' });
+      return res.status(400).json({ error: 'Verification code expired. Request a new one.', needsResend: true });
     }
 
-    updateUser(user.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
-    // R-F1935: notify user that email verification was successful
+    // ── R-F2034: self-serve INSTANT approval ────────────────────────────────
+    // A verified email IS the approval (operator policy 2026-06-27). The manual
+    // admin-approval bottleneck is gone: evaluate the auto-approval policy and,
+    // on approve, flip straight to `active`. The decision + its signals are
+    // audited so there's a human-reversible record of every automated approval.
+    const decision = evaluateAutoApproval(user);
+    if (decision.approve) {
+      updateUser(user.id, {
+        status: 'active',
+        verificationCode: null, verificationExpiry: null, verificationAttempts: 0,
+      });
+      logAudit({
+        adminId: 'system', adminEmail: 'auto-approve@onboarding',
+        action: 'auto_approve', targetId: user.id, targetEmail: email,
+        targetName: user.fullName,
+        notes: `self-serve: ${decision.reason} · signals=${JSON.stringify(decision.signals)}`,
+      });
+      await sendVerificationSuccessEmail(email, user.fullName).catch(() => {});
+      await sendWelcomeEmail(email, user.fullName).catch(() => {});
+      if (telegramAlerter?.isConfigured) {
+        telegramAlerter.sendMessage(
+          `✅ *New user joined (self-serve)*\n\nName: ${user.fullName}\nEmail: ${email}\nUsername: @${user.username}\nTier: free`
+        ).catch(() => {});
+      }
+      console.log(`[Auth] verify-email OK → AUTO-APPROVED active email=${email} reason=${decision.reason}`);
+      return res.json({ message: 'Email verified — your account is active. You can log in now.', active: true });
+    }
+
+    // Policy declined auto-approval (e.g. flagged for review) — verify the email
+    // but hold at pending_approval for an admin (audited with the reason).
+    updateUser(user.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null, verificationAttempts: 0 });
+    logAudit({
+      adminId: 'system', adminEmail: 'auto-approve@onboarding',
+      action: 'auto_approve_declined', targetId: user.id, targetEmail: email,
+      targetName: user.fullName,
+      notes: `held for review: ${decision.reason} · signals=${JSON.stringify(decision.signals)}`,
+    });
     await sendVerificationSuccessEmail(email, user.fullName).catch(() => {});
-    // Notify user that their request is under review
     await sendPendingApprovalEmail(email, user.fullName).catch(() => {});
-    // Notify admin
-    await sendAdminNotification(
-      'New user registration — approval required',
-      `<p>A new user has verified their email and is awaiting your approval:</p>
-       <ul>
-         <li><strong>Name:</strong> ${user.fullName}</li>
-         <li><strong>Email:</strong> ${email}</li>
-         <li><strong>Username:</strong> ${user.username}</li>
-       </ul>
-       <p>Log in to the admin panel and go to <strong>Admin &rarr; Users</strong> to approve or reject this account.</p>`
-    ).catch(() => {});
-    // Also notify via Telegram
     if (telegramAlerter?.isConfigured) {
       telegramAlerter.sendMessage(
-        `👤 *User Verified — Approval Required*\n\nName: ${user.fullName}\nEmail: ${email}\nUsername: @${user.username}\n\nGo to Admin → Users to approve or reject.`
+        `👤 *User verified — held for review* (${decision.reason})\n\nName: ${user.fullName}\nEmail: ${email}\nGo to Admin → Users.`
       ).catch(() => {});
     }
-    res.json({ message: 'Email verified. Your account is awaiting admin approval — you will be notified once activated.' });
+    res.json({ message: 'Email verified. Your account is under review — you will be notified once activated.' });
   } catch (err) {
     console.error('[Auth] Verify email error:', err.message);
     res.status(500).json({ error: 'Verification failed' });
@@ -4379,6 +4413,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     updateUser(user.id, {
       verificationCode: newCode,
       verificationExpiry: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      verificationAttempts: 0,  // R-F2035 — fresh code resets the brute-force counter
     });
     await sendVerificationEmail(email, user.fullName, newCode).catch(() => {});
     res.json({ message: 'Verification email resent.' });
@@ -4393,7 +4428,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     const user = findUserById(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     // Return clean user (no passwordHash) — findUserById returns raw; strip here
-    const { passwordHash, verificationCode, verificationExpiry, resetCode, resetExpiry, ...clean } = user;
+    const { passwordHash, verificationCode, verificationExpiry, resetCode, resetExpiry, verificationAttempts, ...clean } = user;
     res.json(clean);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch user' });
@@ -4876,6 +4911,13 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     const { role, status, notifyDigest, notifyFlash } = req.body || {};
+    // R-F2036 — payment gate: paid tiers (pro/proIntel) are granted ONLY via the
+    // Stripe billing webhook, never by admin action. This endpoint already
+    // ignores `tier`, but reject it EXPLICITLY so it can never silently become a
+    // back-door upgrade path (defense-in-depth + clear intent).
+    if (req.body && req.body.tier !== undefined) {
+      return res.status(400).json({ error: 'Tier cannot be changed here — paid tiers are managed via billing/Stripe only (R-F2036).' });
+    }
     const existingUser = findUserById(req.params.id);
     if (!existingUser) return res.status(404).json({ error: 'User not found' });
     const admin = findUserById(req.user.userId);
