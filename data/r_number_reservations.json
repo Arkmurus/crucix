@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2009,
+  "next_available": 2010,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14426,6 +14426,16 @@
       "r_number": "R-F2008",
       "title": "signal_correlator drops valid budget+tender clusters (return None) - add fallback so gate-passing correlations always emit an insight",
       "claimed_at": "2026-06-27T11:23:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ab4d0c4e",
+      "notes": null,
+      "shipped_at": "2026-06-27T11:33:45Z"
+    },
+    {
+      "r_number": "R-F2009",
+      "title": "honest BD leads",
+      "claimed_at": "2026-06-27T11:30:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
