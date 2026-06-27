@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2061,
+  "next_available": 2062,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14930,14 +14930,25 @@
       "title": "Bulletproof defence DD search",
       "claimed_at": "2026-06-27T19:56:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "47007bbd",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:23:44Z"
     },
     {
       "r_number": "R-F2060",
       "title": "ARIA test-runner uses sys.executable not PATH python (fixes false collection errors)",
       "claimed_at": "2026-06-27T20:01:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ebbbbcba",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:14:27Z"
+    },
+    {
+      "r_number": "R-F2061",
+      "title": "WA respond-only-when-called: gate image/doc review + keyword auto-response on name mention",
+      "claimed_at": "2026-06-27T20:31:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

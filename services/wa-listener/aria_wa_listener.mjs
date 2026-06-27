@@ -289,6 +289,13 @@ const CALLBACK_URL  = process.env.WA_LISTENER_CALLBACK_URL
   || 'http://aria-wa.internal:5070/api/wa-listener/callback';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
+// R-F2061 — RESPOND ONLY WHEN CALLED (operator rule, 2026-06-27). The keyword
+// "smart auto-response" (replying to compliance/risk KEYWORDS with no mention —
+// the uninvited "_ARIA noticed:_ …" messages) is now gated behind its OWN flag,
+// default OFF, and DECOUPLED from WA_LISTENER_AUTO_RESPOND (which is set =true on
+// the live aria-wa). This guarantees, in code, that uninvited keyword replies
+// can't fire even with the legacy secret on; re-enable deliberately if ever wanted.
+const KEYWORD_AUTO_RESPONSE = (process.env.WA_KEYWORD_AUTO_RESPONSE || 'false').toLowerCase() === 'true';
 // R-F963 (2026-05-28, operator choice) — a voice note is a deliberate act aimed
 // at ARIA, but STT keeps dropping/garbling the short leading "Aria" wake-word on
 // accented speech, so name-only mode left voice notes unanswered (live 12:51,
@@ -2312,6 +2319,17 @@ async function onMessagesUpsert(sock, account, ev) {
         }
       }
 
+      // ── R-F2061 — RESPOND ONLY WHEN CALLED ───────────────────────────────
+      // The single gate for the media REVIEW paths below: ARIA reads/reviews a
+      // shared image or document ONLY when she is explicitly addressed (her name
+      // in the caption/text). Operator rule of thumb (2026-06-27): she reacts only
+      // when called — before this, EVERY photo or document dropped in a watched
+      // group was downloaded + OCR'd/parsed + reviewed uninvited. `text` already
+      // includes the image/video/document caption (extracted above), so this is the
+      // caption-level mention state. She still OBSERVES silently (group text is
+      // captured for learning); she just doesn't RESPOND unless called.
+      const _ariaCalled = MENTIONS_RE.some((p) => p.test(text || ''));
+
       // ── Media processing — IMAGES + DOCUMENTS ────────────────────────────
       // Two separate paths because images need OCR (vision) and documents
       // need parsing. Previously these were lumped together and images were
@@ -2335,6 +2353,9 @@ async function onMessagesUpsert(sock, account, ev) {
       if (imgMsg) {
         const caption = imgMsg.caption || '';
         console.log(`[ARIA Listener] Image shared in ${groupName} by ${senderName}${caption ? ` "${caption.slice(0,60)}"` : ' (no caption)'}`);
+        // R-F2061 — only review the image when ARIA is called (named in caption).
+        // No mention → observe silently, do not download/OCR/reply (operator rule).
+        if (!_ariaCalled) continue;
 
         try {
           const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
@@ -2501,6 +2522,10 @@ async function onMessagesUpsert(sock, account, ev) {
       let _docAnsweredCaption = false;  // R-F955 — doc+caption answered inline below
       let _isVoiceNote = false;         // R-F963 — set when this message is a transcribed voice note
       if (docMsg) {
+        // R-F2061 — only read/review a shared document when ARIA is called (named
+        // in the caption). No mention → observe silently, do not download/parse/
+        // ack/reply (operator rule: respond only when called).
+        if (!_ariaCalled) continue;
         const filename = docMsg.fileName || 'attachment';
         const mimetype = docMsg.mimetype || '';
         const isProcessable = /pdf|word|spreadsheet|text|csv|octet-stream|msword|officedocument/.test(mimetype);
@@ -2792,7 +2817,11 @@ async function onMessagesUpsert(sock, account, ev) {
       }
 
       // ── Smart auto-response — trigger on compliance/opportunity/risk keywords
-      if (AUTO_RESPOND && !_isFromMe) {  // R-F1974 — keyword auto-response never fires on the linked member's OWN messages; they only trigger ARIA via an explicit mention
+      // R-F2061 — gated on KEYWORD_AUTO_RESPONSE (default OFF), NOT the live
+      // WA_LISTENER_AUTO_RESPOND=true secret. Replying to keywords with no mention
+      // is the uninvited "_ARIA noticed:_ …" behaviour the operator asked to stop;
+      // every legitimate request still flows through the explicit-mention path above.
+      if (KEYWORD_AUTO_RESPONSE && !_isFromMe) {  // R-F1974 — keyword auto-response never fires on the linked member's OWN messages; they only trigger ARIA via an explicit mention
         const trigger = detectComplianceTrigger(text);
         // R-F1152 — rate limit: at most one auto-response per chat per 2 min
         // R-F1870 (audit DD-27): gate the auto-response on the SAME per-sender
