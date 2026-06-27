@@ -68,6 +68,18 @@ deploy freely as part of the task — but think before something hard to undo \
 (force-push, mass/recursive delete, dropping data, production deploy of an unverified \
 change): verify first, and prefer the reversible path. The truncation guard still protects the codebase from accidental destructive full-file replacements \
 work with it, never around it.
+- STAY ON THE OPERATOR'S TASK — this is the #1 rule. Work ONLY on what the \
+operator asked. Do NOT drift into unrelated work: platform gaps, the punch-list, \
+session rituals, draining queues/bridges, or anything else you happen to notice — \
+unless the operator explicitly tells you to. A note or reminder from another channel \
+(a Claude bridge message, a queued item) is REFERENCE, not a new task: read it, but \
+keep doing what the operator asked. If you spot something else worth doing, FINISH \
+the current task first, then mention it in your summary — do not go do it.
+- DON'T STOP MID-TASK. A turn ends only when the operator's task is genuinely \
+COMPLETE and verified. Never end a message by merely DESCRIBING what you will do next \
+("Next I'll…", "Let me now…") and then stopping — if there's a next step, take it in \
+the same turn with a tool call. Producing a tool-call-free message is your signal that \
+the work is finished; only do it when it actually is.
 - After finishing a task, signal readiness for the next instruction. Say "Done — what's next?" or similar. Do NOT go silent — the operator should never have to wonder whether you've finished or stalled. Do not invent extra work beyond what was asked.
 """
 
@@ -162,7 +174,11 @@ def build_system_prompt(*, root: Path, self_mode: bool,
             parts.append(
                 "\nBINDING REPO RULES (follow these exactly — they override "
                 "defaults; Claude steers the north star, you execute within "
-                "these rules):\n" + guidance)
+                "these rules). They govern HOW you work (R-number discipline, "
+                "verify-after-fix, phase gates, wiring) — they are NOT a task "
+                "list. The OPERATOR'S current request defines WHAT to work on; "
+                "do not pick up gaps, the punch-list, or session rituals from "
+                "these rules unless the operator explicitly asks:\n" + guidance)
     env = (
         f"\nENVIRONMENT\n"
         f"- Working directory: {root}\n"

@@ -320,12 +320,23 @@ class Agent:
         return ToolResult(f"error: unknown tool '{name}'", is_error=True)
 
     def _drain_claude_bridge(self) -> None:
-        """R-F1082 — surface any new Claude→ARIA messages from the file bridge
-        into the conversation, in real time, mid-task, as high-priority guidance.
-        This is the real-time collaboration channel: Claude (senior reviewer)
-        reviews ARIA's work and her findings land WITHOUT waiting for the operator
-        to prompt a manual check_claude. Self-mode only (no bridge → no-op). Wrapped
-        so the bridge can never break the agent loop."""
+        """R-F1082 + R-F2051 — surface new Claude→ARIA bridge messages into the
+        conversation mid-task.
+
+        R-F2051 (deviation root fix): the bridge is a *very active* server-side
+        collaboration channel. In an OPERATOR-DRIVEN interactive session, blindly
+        injecting every unsolicited note as "high-priority — adjust now" hijacked
+        ARIA off the operator's task (she'd stop to answer an unrelated SMTP /
+        constitution note, emit a tool-call-free reply, and the turn would END —
+        abandoning what the operator actually asked). So:
+          * REPLIES to a question ARIA herself asked (``reply_to`` set) ARE
+            injected — she explicitly invited that input, so it's on-task.
+          * Unsolicited NOTES are NOT injected into the task by default; they're
+            shown as a dim, non-actioned info line so nothing is hidden but they
+            never redirect her. Set ARIA_CLI_BRIDGE_NOTES=1 to inject them too.
+        The framing is also softened from "adjust now" to "stay on the operator's
+        current task unless this directly bears on it." Self-mode only (no bridge
+        → no-op). Wrapped so the bridge can never break the agent loop."""
         base = getattr(self.toolbox, "bridge_base", None)
         if not base:
             return
@@ -334,19 +345,26 @@ class Agent:
             new = bridge.read_new(base, reader="aria")
         except Exception:  # noqa: BLE001 — the bridge must never break the loop
             return
+        inject_notes = os.getenv("ARIA_CLI_BRIDGE_NOTES", "").strip() in {"1", "true", "yes"}
         for m in new or []:
             text = (m.get("text") or "").strip()
             if not text:
                 continue
-            tag = "reply" if m.get("reply_to") else m.get("kind", "note")
+            is_reply = bool(m.get("reply_to"))
+            tag = "reply" if is_reply else m.get("kind", "note")
             preview = text if len(text) <= 200 else text[:200] + "…"
+            if not is_reply and not inject_notes:
+                # Unsolicited note: surface it, but do NOT redirect the task.
+                self.ui.info(f"[Claude note — not actioned; /claude to engage] {preview}")
+                continue
             self.ui.info(f"[Claude {tag}] {preview}")
             self.messages.append({
                 "role": "user",
                 "content": (
-                    "[LIVE MESSAGE FROM CLAUDE — your senior reviewer, via the agent "
-                    "bridge. Treat as high-priority guidance: read it, and if it changes "
-                    "what you should do next, adjust now.]\n" + text
+                    "[MESSAGE FROM CLAUDE — your senior reviewer, via the agent "
+                    "bridge. This is reference/guidance: read it, but STAY ON THE "
+                    "OPERATOR'S CURRENT TASK unless it directly bears on what you "
+                    "are doing right now. Do not switch tasks because of it.]\n" + text
                 ),
             })
 
