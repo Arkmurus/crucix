@@ -1,0 +1,96 @@
+#!/bin/bash
+# R-F2010 — local driver for the GRPO RLVR cycle. Mirrors run_grounded_dpo_cycle.sh
+# (proven pod plumbing) but runs grpo_pod_run.sh: GRPO against the grounding reward,
+# starting from the SAVED DPO adapter (uploaded as init). Self-stops; pulls the GRPO
+# adapter + judge report. Objective grounding eval is run OFF-POD by the operator/driver
+# afterwards (the judge number is biased — do not trust it for promotion).
+#
+# Usage: RUNPOD_POD_ID=<pod> bash scripts/train/run_grpo_cycle.sh
+set -uo pipefail
+REPO="/c/code/crucix"; cd "$REPO"
+POD="${RUNPOD_POD_ID:?need RUNPOD_POD_ID}"
+API="https://rest.runpod.io/v1"
+API_KEY=$(grep -E "^RUNPOD_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
+[ -n "$API_KEY" ] || { echo "[driver] FATAL: RUNPOD_API_KEY missing"; exit 1; }
+
+PROMPTS="${PROMPTS:-data/training/aria_grpo_prompts_v1.jsonl}"
+EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"
+INIT_ADAPTER="${INIT_ADAPTER:-data/training/checkpoints/aria_llm_grounded_dpo_v1/aria_llm_v0_4_dpo}"
+[ -s "$PROMPTS" ] || { echo "[driver] FATAL: prompts missing: $PROMPTS"; exit 1; }
+[ -s "$EVAL_LOCAL" ] || { echo "[driver] FATAL: eval set missing: $EVAL_LOCAL"; exit 1; }
+[ -f "$INIT_ADAPTER/adapter_config.json" ] || { echo "[driver] FATAL: init adapter missing: $INIT_ADAPTER"; exit 1; }
+echo "[driver] GRPO prompts $(wc -l < "$PROMPTS") | eval $(wc -l < "$EVAL_LOCAL") | init $INIT_ADAPTER"
+
+KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"
+SSH="ssh -i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=10"
+jget(){ python -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
+pmget(){ python -c "import sys,json;d=json.load(sys.stdin);pm=d.get('portMappings') or {};print(pm.get('22') or '')" 2>/dev/null; }
+stop_pod(){ echo "[driver] stopping pod $POD"; curl -s -X POST "$API/pods/$POD/stop" -H "Authorization: Bearer $API_KEY" >/dev/null 2>&1 || true; }
+
+# 1. ensure RUNNING + get host/port
+HOST=""; PORT=""
+for i in $(seq 1 20); do
+  PD=$(curl -s "$API/pods/$POD" -H "Authorization: Bearer $API_KEY")
+  ST=$(echo "$PD" | jget desiredStatus)
+  if [ "$ST" != "RUNNING" ]; then curl -s -X POST "$API/pods/$POD/start" -H "Authorization: Bearer $API_KEY" >/dev/null 2>&1; fi
+  for j in $(seq 1 18); do
+    PD=$(curl -s "$API/pods/$POD" -H "Authorization: Bearer $API_KEY")
+    ST=$(echo "$PD" | jget desiredStatus); HOST=$(echo "$PD" | jget publicIp); PORT=$(echo "$PD" | pmget)
+    [ "$ST" = "RUNNING" ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break; sleep 8
+  done
+  [ -n "$HOST" ] && [ -n "$PORT" ] && { echo "[driver] pod RUNNING $HOST:$PORT"; break; }; sleep 30
+done
+[ -n "$HOST" ] && [ -n "$PORT" ] || { echo "[driver] FATAL: pod not RUNNING"; exit 1; }
+
+# 2. wait SSH
+for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | grep -q ok && { echo "[driver] SSH ready"; break; }; sleep 5; done
+
+# 3. push scripts + aria_service subtree + datasets + init adapter
+echo "[driver] pushing scripts + grounding_reward + datasets + init adapter…"
+$SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel /workspace/checkpoints/aria_llm_init"
+for f in grpo_train.py grpo_pod_run.sh serve_eval_shim.py eval_aria_llm.py pod_selfstop_watch_v04.sh; do
+  scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" 2>/dev/null || \
+  scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
+done
+# grpo_pod_run + selfstop also at /workspace root (launched from there)
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/grpo_pod_run.sh root@"$HOST":/workspace/ || exit 1
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN selfstop scp"
+for f in aria_service/__init__.py aria_service/intel/__init__.py aria_service/intel/grounding_reward.py; do
+  scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$f" root@"$HOST":/workspace/crucix/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
+done
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$PROMPTS" root@"$HOST":/workspace/datasets/aria_grpo_prompts_v1.jsonl || exit 1
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$EVAL_LOCAL" root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl || exit 1
+echo "[driver] uploading init adapter (may take ~30s, 335MB)…"
+scp -r -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$INIT_ADAPTER"/* root@"$HOST":/workspace/checkpoints/aria_llm_init/ || { echo "[driver] FATAL scp init adapter"; exit 1; }
+
+# 4. launch detached + arm self-stop watcher
+echo "[driver] launching GRPO cycle DETACHED…"
+$SSH -p "$PORT" root@"$HOST" \
+  "rm -f /workspace/eval/_cycle_status; mkdir -p /workspace/logs; \
+   INIT_ADAPTER=/workspace/checkpoints/aria_llm_init \
+   PROMPTS=/workspace/datasets/aria_grpo_prompts_v1.jsonl \
+   EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
+   DEEPSEEK_API_KEY='$DSK' \
+   setsid nohup bash /workspace/grpo_pod_run.sh > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
+$SSH -p "$PORT" root@"$HOST" \
+  "POD_ID=$POD RP_KEY='$API_KEY' GRACE=1800 setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 < /dev/null & echo ARMED" || echo "[driver] WARN selfstop arm"
+
+echo "[driver] polling (cap ~6.6h)…"
+RC=""
+for i in $(seq 1 200); do
+  sleep 120
+  OUT=$($SSH -p "$PORT" root@"$HOST" 'printf "RC=%s\n" "$(cat /workspace/eval/_cycle_status 2>/dev/null)"; tail -1 /workspace/logs/grpo_cycle.log 2>/dev/null' 2>/dev/null | tr -d '\r')
+  RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tr -d ' ')
+  echo "[driver] [$i/200] $(printf '%s\n' "$OUT" | grep -v '^RC=' | tail -1)"
+  [ -n "$RC" ] && { echo "[driver] cycle finished (exit $RC)"; break; }
+done
+
+# 5. pull GRPO adapter + judge report
+mkdir -p data/eval_reports data/training/checkpoints
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_llm_grpo_v1_eval.json data/eval_reports/aria_llm_grpo_v1_eval.json 2>/dev/null || echo "[driver] (grpo report not pulled)"
+scp -r -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/checkpoints/aria_llm_grpo_v1 data/training/checkpoints/aria_llm_grpo_v1 2>/dev/null && echo "[driver] ✅ GRPO adapter persisted" || echo "[driver] WARN adapter scp-back failed"
+
+echo "[driver] === GRPO CYCLE DONE — run the OBJECTIVE grounding eval off-pod (judge number is biased) ==="
+stop_pod
+echo "[driver] DONE — pod stop requested."
