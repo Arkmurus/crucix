@@ -34,6 +34,8 @@ import time
 from typing import Any, Optional
 from urllib.parse import urljoin
 
+from .portal_knowledge import RegistrationKnowledge
+
 logger = logging.getLogger("aria.portal_agent")
 
 # ── Browser configuration ─────────────────────────────────────────────────
@@ -83,6 +85,9 @@ class AdaptivePortalAgent:
         self._playwright = None
         self._diagnostics: list[dict] = []
         self._attempt = 0
+        self._knowledge = RegistrationKnowledge()
+        self._domain = ""
+        self._portal_id = ""
 
     async def __aenter__(self):
         await self.start()
@@ -196,6 +201,14 @@ class AdaptivePortalAgent:
         self._diagnostics = []
         self._attempt += 1
         t0 = time.time()
+        self._portal_id = portal_id
+        from urllib.parse import urlparse
+        self._domain = urlparse(portal.url).netloc
+
+        # Check knowledge base for prior patterns
+        known_fields = self._knowledge.get_field_patterns(self._domain)
+        if known_fields:
+            self._log("knowledge", f"Found {len(known_fields)} known field patterns for {self._domain}")
 
         try:
             # Step 1: Navigate to the registration page
@@ -806,4 +819,31 @@ class AdaptivePortalAgent:
                 )
         except Exception:
             pass
+
+        # Record to knowledge base
+        try:
+            api_key = kwargs.get("api_key", "")
+            self._knowledge.update_site(
+                domain=self._domain,
+                success=success,
+                duration=time.time() - t0,
+                config={"portal_id": portal_id},
+                error=message if not success else None,
+            )
+            self._knowledge.record_attempt(
+                domain=self._domain,
+                portal_id=portal_id,
+                success=success,
+                duration=time.time() - t0,
+                error=message if not success else None,
+                captcha_solved=any(s.get("step") == "captcha" and "solved" in s.get("message", "").lower()
+                                   for s in self._diagnostics),
+                email_used=_ARIA_EMAIL,
+                api_key_obtained=bool(api_key),
+                config={"portal_id": portal_id},
+                diagnostics=self._diagnostics,
+            )
+        except Exception as e:
+            logger.debug("Failed to record knowledge: %s", e)
+
         return result
