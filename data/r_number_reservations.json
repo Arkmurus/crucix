@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2042,
+  "next_available": 2043,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14749,6 +14749,16 @@
       "r_number": "R-F2041",
       "title": "opportunities_ep: only procurement-backed insights are opportunities; MARKET_HEATING/SIGNAL are situational, not counted",
       "claimed_at": "2026-06-27T17:10:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "879dea69",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:19:25Z"
+    },
+    {
+      "r_number": "R-F2042",
+      "title": "add authed() to shared app.js so watchlist.html + vls-chain.html (+future pages) work; centralize",
+      "claimed_at": "2026-06-27T17:24:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

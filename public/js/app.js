@@ -247,3 +247,19 @@ function severityColor(s) {
     default: return '#22c55e';
   }
 }
+
+// R-F2042 — shared authed() helper. A thin fetch wrapper that attaches the JWT
+// (via API.headers()) and returns the RAW Response (callers do res.ok / res.json()).
+// Pages were each expected to define this locally; dashboard.html and
+// dd-reports.html did, but watchlist.html and vls-chain.html did NOT — so their
+// authed(...) calls threw "authed is not defined" and the pages could not load
+// data (the live watchlist had 4 entries but the page showed none). Defining it
+// once here fixes those pages and every future page that uses it. Supports an
+// opts arg (method/body/headers) so POST/DELETE callers work too; opts.headers
+// merge over the auth headers.
+function authed(path, opts = {}) {
+  return fetch(API.BASE + path, {
+    ...opts,
+    headers: { ...API.headers(), ...(opts.headers || {}) },
+  });
+}
