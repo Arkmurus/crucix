@@ -49,7 +49,7 @@ import { createStatusRouter } from './lib/status/routes.mjs';
 import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
 import { initApiKeysStore } from './lib/api_keys/store.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
-import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
+import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -4144,7 +4144,11 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
+    // R-F2028 (ARIA found): the old inline check tested only the bare EMAIL_*
+    // vars, but the live secrets are ARIA_EMAIL_* — so smtpConfigured was ALWAYS
+    // false and email verification was NEVER sent. Reuse email.mjs's isConfigured,
+    // which applies the full fallback chain (EMAIL_* || ARIA_SMTP_* || ARIA_EMAIL_*).
+    const smtpConfigured = smtpIsConfigured;
 
     createUser({
       username, email, password, fullName,
