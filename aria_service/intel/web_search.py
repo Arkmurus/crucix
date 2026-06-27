@@ -320,6 +320,12 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
     except Exception as _sx_e:
         _sx_cb.record_failure(reason="timeout")  # R-F1790
         logger.debug("R-F183 searxng self-host probe failed: %s", _sx_e)
+        wire_failure(
+            module="web_search._search_searxng",
+            detail=f"searxng self-host probe failed: {_sx_e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
     if not SEARXNG_INSTANCES:
         return []
     from .circuit_breaker import get_breaker
@@ -386,10 +392,15 @@ async def _search_academic(
     # papers about foreign-language entity queries (e.g. searching
     # "savunma sanayii baskanligi" still surfaces English papers
     # about the SSB).
+    from .circuit_breaker import get_breaker as _get_cb_ac
+    _cb = _get_cb_ac("search:academic", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
     from .sources import academic as _ac
     try:
         raw = await _ac.search_all(query, max_results_per_api=max_results)
     except Exception as exc:
+        _cb.record_failure(reason="timeout")
         # R-F1614 make-loud: a backend error here returns [] which is
         # indistinguishable from "no results" — a provider failure must
         # not masquerade as confidently-ungrounded "nothing found".
@@ -401,6 +412,7 @@ async def _search_academic(
             source="web_search",
         )
         return []
+    _cb.record_success()
     out: list[SearchResult] = []
     for r in raw:
         # Convert the dict shape academic.py returns into the dataclass
@@ -420,7 +432,17 @@ async def _search_academic(
 # ── Backend: Google News RSS (free, news-focused) ───────────────────────────
 
 async def _search_google_news(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """Google News RSS — free, news-specific, ~30 results max."""
+    """Google News RSS — free, news-specific, ~30 results max.
+    
+    R-F2059: circuit breaker + wire_failure on error. Pre-R-F2059 this
+    backend had NO circuit breaker — a persistent Google News outage
+    (rate-limit, DNS failure, IP block) would burn a request on EVERY
+    search call with no cooldown, silently returning [] each time.
+    """
+    from .circuit_breaker import get_breaker as _get_cb_gn
+    _cb = _get_cb_gn("search:google_news", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
     lang_map = {"en": "en", "pt": "pt-PT", "fr": "fr", "ar": "ar", "es": "es", "tr": "tr"}
     hl = lang_map.get(language, "en")
     encoded = urllib.parse.quote_plus(query)
@@ -436,6 +458,7 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
+                _cb.record_failure(reason=classify_status(resp.status_code))
                 return []
             # Parse RSS XML
             text = resp.text
@@ -457,9 +480,11 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
                         source="google_news", timestamp=pub,
                         credibility_tier=_score_credibility(link),
                     ))
+            _cb.record_success()
             logger.debug("Google News: %d results for %r", len(results), query[:60])
             return results
     except Exception as e:
+        _cb.record_failure(reason="timeout")
         # R-F1614 make-loud: backend error → [] looks like "no results".
         logger.warning("Google News search failed: %s", e)
         wire_failure(
@@ -562,7 +587,16 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
 # ── Backend: Bing News RSS (free fallback) ──────────────────────────────────
 
 async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchResult]:
-    """Bing News RSS — free fallback."""
+    """Bing News RSS — free fallback.
+    
+    R-F2059: circuit breaker + wire_failure on error. Pre-R-F2059 this
+    backend had NO circuit breaker — a persistent Bing outage would burn
+    a request on EVERY search call with no cooldown.
+    """
+    from .circuit_breaker import get_breaker as _get_cb_bn
+    _cb = _get_cb_bn("search:bing_news", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
     encoded = urllib.parse.quote_plus(query)
     url = f"https://www.bing.com/news/search?q={encoded}&format=rss"
     try:
@@ -571,6 +605,7 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
+                _cb.record_failure(reason=classify_status(resp.status_code))
                 return []
             text = resp.text
             results = []
@@ -588,8 +623,10 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
                         source="bing_news",
                         credibility_tier=_score_credibility(link),
                     ))
+            _cb.record_success()
             return results
     except Exception as e:
+        _cb.record_failure(reason="timeout")
         # R-F1614 make-loud: this was a fully-silent swallow — a Bing
         # backend error returned [] with no log at all, indistinguishable
         # from "no results" (confidently ungrounded).
@@ -871,7 +908,16 @@ def _detect_defence_event(query: str) -> dict[str, str] | None:
 async def _search_defence_event(query: str, max_results: int = 10) -> list[SearchResult]:
     """If the query mentions a known defence event, run a site:-scoped
     Brave/DDG search against the official site so post-event press +
-    contract-signing pages surface even when general news is thin."""
+    contract-signing pages surface even when general news is thin.
+    
+    R-F2059: circuit breaker on the DDG sub-call. Pre-R-F2059 a
+    persistent DDG outage would silently return [] every time with
+    no cooldown.
+    """
+    from .circuit_breaker import get_breaker as _get_cb_de
+    _cb = _get_cb_de("search:defence_event", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
     entry = _detect_defence_event(query)
     if not entry:
         return []
@@ -888,9 +934,56 @@ async def _search_defence_event(query: str, max_results: int = 10) -> list[Searc
             r.source = f"defence_event:{entry['key']}"
             r.credibility_tier = 2
             out.append(r)
+        _cb.record_success()
     except Exception as _ee:
+        _cb.record_failure(reason="timeout")
         logger.debug("defence-event search failed (non-fatal): %s", _ee)
+        wire_failure(
+            module="web_search._search_defence_event",
+            detail=f"defence_event backend failed: {_ee}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
     return out
+
+
+# ── R-F2059: search result cache (pay-once-remember-forever) ──────────────
+# Cache search results by (query_hash, language) so repeated queries
+# (common in DD workflows) hit cache instead of the wire. LRU with TTL.
+# The cache is in-process only (not Redis) — resets on deploy, which is
+# fine because the memory-first path (_query_memory) provides the durable
+# cache across restarts.
+_SEARCH_CACHE: dict[str, tuple[float, list[SearchResult]]] = {}
+_SEARCH_CACHE_MAX = 200
+_SEARCH_CACHE_TTL = 300  # 5 minutes — short enough for fresh data, long enough for repeat DD queries
+
+
+def _search_cache_key(query: str, language: str) -> str:
+    """Generate a cache key from query + language."""
+    import hashlib
+    raw = f"{query.lower().strip()}|{language}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _search_cache_get(key: str) -> list[SearchResult] | None:
+    """Get cached results if fresh. Returns None on miss/expiry."""
+    entry = _SEARCH_CACHE.get(key)
+    if entry is None:
+        return None
+    ts, results = entry
+    if time.time() - ts > _SEARCH_CACHE_TTL:
+        del _SEARCH_CACHE[key]
+        return None
+    return results
+
+
+def _search_cache_set(key: str, results: list[SearchResult]) -> None:
+    """Store results in cache. Evicts oldest entry if at capacity."""
+    if len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX:
+        # Evict the oldest entry
+        oldest = min(_SEARCH_CACHE.items(), key=lambda kv: kv[1][0])
+        del _SEARCH_CACHE[oldest[0]]
+    _SEARCH_CACHE[key] = (time.time(), results)
 
 
 @fail_wire(module="web_search", gap_type="source_failure")
@@ -914,6 +1007,15 @@ async def search(
     Returns:
         Deduplicated, credibility-scored, relevance-ranked results.
     """
+    # R-F2059: search result cache — pay-once-remember-forever.
+    # Check cache before fanning out to backends. Repeated queries
+    # (common in DD workflows) skip the wire entirely.
+    _cache_key = _search_cache_key(query, language)
+    cached = _search_cache_get(_cache_key)
+    if cached is not None:
+        logger.debug("Search cache HIT for %r (language=%s)", query[:60], language)
+        return cached[:max_results]
+
     # R-F120 (2026-05-09): added DuckDuckGo + Bing News to the main
     # parallel-gather. Live evidence: operator searched SAHA 2026
     # (Turkish defence trade show) when Brave was OPEN — Google News
@@ -1286,6 +1388,9 @@ async def search(
         )
     except Exception:
         pass
+
+    # R-F2059: write to search result cache
+    _search_cache_set(_cache_key, final)
 
     return final
 
