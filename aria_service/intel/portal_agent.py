@@ -671,12 +671,25 @@ class AdaptivePortalAgent:
 
         # Check for success indicators in page content
         page_text = (await self._page.evaluate("document.body.innerText") or "").lower()
+        has_api_key = "your api key" in page_text or "api key is" in page_text
         success_text = any(kw in page_text for kw in
                           ["account created", "registration complete", "welcome",
                            "api key", "your api key", "dashboard"])
 
+        # Only report success if the URL changed to a success page OR
+        # the page explicitly shows an API key. A re-rendered form with
+        # "email already in use" is NOT success even if it contains
+        # generic welcome text.
+        is_success = False
+        if success_url and (success_text or has_api_key):
+            is_success = True
+        elif has_api_key:
+            is_success = True
+        elif "/register/success" in url.lower():
+            is_success = True
+
         return {
-            "success": success_url or success_text,
+            "success": is_success,
             "errors": errors,
             "url": url,
         }
