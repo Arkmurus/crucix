@@ -19,16 +19,23 @@ from . import gateway as _gw
 logger = logging.getLogger("aria.guardian.panic")
 
 
-async def trigger(user: str, send_fn: "_gw.SendFn", note: str = "") -> dict:
+async def trigger(user: str, send_fn: "_gw.SendFn", note: str = "",
+                  dry_run: bool = False) -> dict:
     """Fire an immediate SOS to the user's whole trusted circle. Returns
     {ok, alerted, total, error?}. ``ok`` is True only if EVERY contact was
-    reached; a partial/total failure escalates via the gateway (EMERGENCY)."""
+    reached; a partial/total failure escalates via the gateway (EMERGENCY).
+
+    R-F1992: ``dry_run`` runs the full chain for an operator self-test but
+    keeps delivery failures OUT of the production error ledger (so a panic
+    button test can't reset Phase A gate #3 — CLAUDE.md §1). A real SOS
+    (dry_run=False) still logs ERROR + escalates on a failed delivery (§25)."""
     user = (user or "").strip()
     if not user:
         return {"ok": False, "error": "no user"}
     contacts = await _circle.list_circle(user)
     if not contacts:
-        return {"ok": False, "alerted": 0, "total": 0, "error": "empty_circle"}
+        return {"ok": False, "alerted": 0, "total": 0, "error": "empty_circle",
+                "dry_run": dry_run}
 
     note = (note or "").strip()[:300]
     alert = ("🚨 EMERGENCY — your contact triggered an ARIA panic alert and may need "
@@ -40,12 +47,18 @@ async def trigger(user: str, send_fn: "_gw.SendFn", note: str = "") -> dict:
         req = _gw.ActionRequest(
             user=user, kind="panic_alert", risk=_gw.RiskClass.EMERGENCY,
             recipient_jid=c.get("jid", ""), message=alert, pre_authorized=True,
-            meta={"contact": c.get("name", "")},
+            dry_run=dry_run, meta={"contact": c.get("name", "")},
         )
         res = await _gw.execute(req, send_fn)
         if res.get("ok"):
             alerted += 1
+        elif dry_run:
+            # Self-test: attended failure, surfaced in the return value — NOT an
+            # ERROR (would reset gate #3). The gateway already logged a [TEST] line.
+            logger.warning("[guardian.panic][TEST] %s — alert to %s did NOT "
+                           "deliver (self-test)", user, c.get("name", "?"))
         else:
             logger.error("[guardian.panic] %s — alert to %s did NOT deliver",
                          user, c.get("name", "?"))
-    return {"ok": alerted == len(contacts), "alerted": alerted, "total": len(contacts)}
+    return {"ok": alerted == len(contacts), "alerted": alerted,
+            "total": len(contacts), "dry_run": dry_run}

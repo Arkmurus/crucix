@@ -71,6 +71,13 @@ class ActionRequest:
     caption: str = ""               # optional caption for an image send
     confirmed: bool = False         # one-tap confirmation supplied (CONFIRM tier)
     pre_authorized: bool = False    # standing consent supplied (EMERGENCY tier)
+    # R-F1992: operator self-test of the Guardian chain. Runs the FULL path
+    # (kill-switch, consent, circle, real delivery attempt) so the test is
+    # meaningful, but a delivery FAILURE in test mode must not pollute the
+    # production error ledger — it logs at WARNING with a [TEST] marker and
+    # never resets Phase A gate #3 (CLAUDE.md §1) nor records a safety-failure
+    # gap. A REAL panic failure (dry_run=False) still ERRORs + escalates (§25).
+    dry_run: bool = False
     meta: dict = field(default_factory=dict)
 
 
@@ -143,6 +150,22 @@ async def execute(req: ActionRequest, send_fn: SendFn) -> dict:
     except Exception as e:
         err = str(e)[:200]
         delivered = False
+
+    # R-F1992: a self-test that fails delivery is an ATTENDED test (the caller
+    # sees ok/false in the response) — not a silent §25 failure the brain must
+    # self-heal from. Keep it out of the ERROR ledger so it can't reset gate #3.
+    if req.dry_run:
+        status = "test_delivered" if delivered else "test_failed"
+        await _audit.record(req.user, req.kind, {"risk": req.risk.value,
+                            "recipient": _redact(req.recipient_jid), "error": err,
+                            "dry_run": True}, outcome=status)
+        # Deliberately NOT wired to the §25 proprioception ledger — a self-test
+        # must not skew the real per-channel delivery success rate.
+        if not delivered:
+            logger.warning("[guardian][TEST] %s → %s did NOT deliver (%s) — "
+                           "self-test, gate #3 unaffected", req.kind,
+                           _redact(req.recipient_jid), err or "no error")
+        return {"ok": delivered, "status": status, "error": err, "dry_run": True}
 
     status = "delivered" if delivered else "failed"
     await _audit.record(req.user, req.kind, {"risk": req.risk.value,

@@ -14181,14 +14181,18 @@ async def guardian_send_image_ep(request: Request):
 @router.post("/guardian/panic")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def guardian_panic_ep(request: Request):
-    """Instant SOS — alert the whole trusted circle now. Body: {user, note?}."""
+    """Instant SOS — alert the whole trusted circle now. Body: {user, note?, test?}.
+
+    R-F1992: pass {"test": true} (or "dry_run") to self-test the panic chain —
+    it runs end-to-end but a failed delivery won't reset Phase A gate #3."""
     b = await _guardian_body(request)
     user = (b.get("user") or "").strip()
     if not user:
         raise HTTPException(status_code=400, detail="user required")
+    dry_run = bool(b.get("test") or b.get("dry_run"))
     from ..guardian import panic as _gp
     from ..guardian.delivery import wa_send_fn
-    return await _gp.trigger(user, wa_send_fn(), b.get("note", ""))
+    return await _gp.trigger(user, wa_send_fn(), b.get("note", ""), dry_run=dry_run)
 
 
 @router.post("/guardian/interpret")
