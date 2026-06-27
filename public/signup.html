@@ -122,15 +122,29 @@
         <span>ARKMURUS</span>
       </div>
 
-      <!-- Pending screen -->
+      <!-- Email verification screen -->
+      <div id="verify-screen" style="display:none" class="pending-wrap">
+        <div class="pending-icon">&#9993;</div>
+        <h3 style="color:#fff;margin-bottom:8px">Verify your email</h3>
+        <p id="verify-msg" style="color:rgba(255,255,255,.55);font-size:14px;margin-bottom:22px">We sent a 6-digit code to your email. Enter it below to verify your address.</p>
+        <div id="verify-error" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
+        <div class="sc-field">
+          <label for="verify-code">Verification Code</label>
+          <input type="text" id="verify-code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="text-align:center;font-size:24px;letter-spacing:8px;font-weight:700;padding:14px">
+        </div>
+        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-verify" style="margin-top:8px">Verify Email</button>
+        <p style="text-align:center;margin-top:14px;font-size:13px;color:rgba(255,255,255,.4)">Didn't receive it? <a href="#" id="btn-resend-code" style="color:#913BFF;text-decoration:none">Resend code</a></p>
+      </div>
+
+      <!-- Pending approval screen -->
       <div id="pending-screen" style="display:none" class="pending-wrap">
         <div class="pending-icon">&#9203;</div>
-        <h3 style="color:#fff;margin-bottom:8px">Account Created</h3>
+        <h3 style="color:#fff;margin-bottom:8px">Almost there</h3>
         <p id="pending-msg" style="color:rgba(255,255,255,.55);font-size:14px;margin-bottom:22px"></p>
         <div class="pending-checklist">
-          <div class="pending-check"><span class="chk">&#10003;</span>Account created and in the approval queue</div>
-          <div class="pending-check"><span class="chk">&#10003;</span>Administrator notified — will review your request</div>
-          <div class="pending-check"><span class="chk">&#10003;</span>You'll receive an email once your account is activated</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>Email verified</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>Account in admin approval queue</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>You'll receive an email once activated</div>
         </div>
         <a href="/signin.html" class="sc-btn sc-btn-primary w-full">Back to Sign In</a>
       </div>
@@ -460,11 +474,17 @@
       }
 
       document.getElementById('register-screen').style.display = 'none';
-      document.getElementById('pending-screen').style.display = 'block';
-      var msg = result.data.needsVerification
-        ? 'Hi ' + fullName + ', please check your email for a 6-digit verification code to confirm your address.'
-        : 'Hi ' + fullName + ', your access request has been submitted and is awaiting admin approval. You\'ll receive an email once your account is activated.';
-      document.getElementById('pending-msg').textContent = msg;
+      if (result.data.needsVerification) {
+        // Show email verification screen
+        document.getElementById('verify-screen').style.display = 'block';
+        document.getElementById('verify-msg').textContent = 'Hi ' + fullName + ', we sent a 6-digit code to ' + email + '. Enter it below to verify your address.';
+        window._pendingEmail = email;
+        window._pendingFullName = fullName;
+      } else {
+        // No verification needed — show pending approval
+        document.getElementById('pending-screen').style.display = 'block';
+        document.getElementById('pending-msg').textContent = 'Hi ' + fullName + ', your access request has been submitted and is awaiting admin approval. You\'ll receive an email once your account is activated.';
+      }
     } catch (e) {
       btn.textContent = 'Create Account'; btn.disabled = false;
       showError('Unexpected error — please try again.');
@@ -472,10 +492,66 @@
     }
   }
 
+  // ── Email verification ──
+  document.getElementById('btn-verify').addEventListener('click', async function() {
+    var code = document.getElementById('verify-code').value.trim();
+    if (!code || code.length !== 6) {
+      document.getElementById('verify-error').textContent = 'Please enter the 6-digit code sent to your email.';
+      document.getElementById('verify-error').style.display = 'block';
+      return;
+    }
+    var btn = this;
+    btn.textContent = 'Verifying...'; btn.disabled = true;
+    document.getElementById('verify-error').style.display = 'none';
+    try {
+      var result = await API.post('/api/auth/verify-code', {
+        email: window._pendingEmail,
+        code: code,
+      });
+      btn.textContent = 'Verify Email'; btn.disabled = false;
+      if (!result.ok) {
+        document.getElementById('verify-error').textContent = (result.data && result.data.error) || 'Invalid or expired code. Please try again.';
+        document.getElementById('verify-error').style.display = 'block';
+        return;
+      }
+      // Code verified — show pending approval
+      document.getElementById('verify-screen').style.display = 'none';
+      document.getElementById('pending-screen').style.display = 'block';
+      document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your email is verified. Your account is now in the admin approval queue.';
+    } catch (e) {
+      btn.textContent = 'Verify Email'; btn.disabled = false;
+      document.getElementById('verify-error').textContent = 'Unexpected error — please try again.';
+      document.getElementById('verify-error').style.display = 'block';
+    }
+  });
+
+  // ── Resend verification code ──
+  document.getElementById('btn-resend-code').addEventListener('click', async function(e) {
+    e.preventDefault();
+    var btn = this;
+    btn.textContent = 'Sending...';
+    btn.style.pointerEvents = 'none';
+    try {
+      await API.post('/api/auth/resend-code', { email: window._pendingEmail });
+      btn.textContent = 'Code sent!';
+      setTimeout(function() {
+        btn.textContent = 'Resend code';
+        btn.style.pointerEvents = 'auto';
+      }, 3000);
+    } catch (e) {
+      btn.textContent = 'Failed — try again';
+      btn.style.pointerEvents = 'auto';
+    }
+  });
+
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter') return;
     if (e.target && e.target.tagName === 'TEXTAREA') return;
     e.preventDefault();
+    if (document.getElementById('verify-screen').style.display !== 'none') {
+      document.getElementById('btn-verify').click();
+      return;
+    }
     if (currentStep === 1) document.getElementById('btn-step1-next').click();
     else if (currentStep === 2) document.getElementById('btn-step2-next').click();
     else if (currentStep === 3) document.getElementById('btn-step3-submit').click();
