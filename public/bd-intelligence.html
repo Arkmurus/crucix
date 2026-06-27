@@ -215,6 +215,8 @@ async function load() {
   // ── Brain Strategy panel ──
   if (brain) {
     var bHtml = '';
+    // R-F2002 — honesty banner: this panel is AI-generated from live signals.
+    bHtml += '<div style="font-size:11px;color:rgba(255,255,255,0.45);background:rgba(255,213,79,0.06);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;padding:7px 10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> AI-generated from live signals. Named buyers, OEMs, deal values and dates are estimates — verify independently before acting.</div>';
     // Weekly priority
     if (brain.weeklyPriority && brain.weeklyPriority.action) {
       var wp = brain.weeklyPriority;
@@ -287,7 +289,7 @@ async function load() {
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (t.score||0) + '</div>' +
       '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
-      (t.leadQuality ? '<div style="margin-bottom:8px">' + chip(t.leadQuality,qBadge) + (t.winProbability?chip('Win: '+t.winProbability+'%','sc-badge-green'):'') + '</div>' : '') +
+      (t.leadQuality ? '<div style="margin-bottom:8px">' + chip(t.leadQuality,qBadge) + (t.winProbability?chip('Fit '+t.winProbability+'/100','sc-badge-green'):'') + '</div>' : '') +
       '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px;line-height:1.5">' + escHtml(truncate(t.title||'',120)) + '</div>' +
       (t.summary ? '<p style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;margin-bottom:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
       (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
@@ -318,14 +320,14 @@ async function loadPipeline() {
   const deals = data || [];
   document.getElementById('cnt-pipeline').textContent = deals.length;
   document.getElementById('panel-pipeline').innerHTML = deals.length ?
-    `<div style="overflow-x:auto"><table class="sc-table"><thead><tr><th>Deal</th><th>Market</th><th>Stage</th><th>Value</th><th>Win Prob</th><th></th></tr></thead><tbody>
+    `<div style="overflow-x:auto"><table class="sc-table"><thead><tr><th>Deal</th><th>Market</th><th>Stage</th><th>Value</th><th>Fit (est.)</th><th></th></tr></thead><tbody>
     ${deals.map(d=>`<tr>
       <td><strong>${escHtml(d.title||d.company||'')}</strong></td>
       <td>${escHtml(d.market||d.country||'')}</td>
       <td>${chip(d.stage||'prospect','sc-badge-muted')}</td>
       <td>${d.value?`$${Math.round(d.value/1e6)}M`:'—'}</td>
       <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'—'}</td>
-      <td><button class="ic-share" data-sharetext="${escHtml((d.market||'')+ ': '+(d.title||d.company||'')+' | Stage: '+(d.stage||'')+(d.value?' | Value: $'+Math.round(d.value/1e6)+'M':'')+(d.winProb?' | Win: '+Math.round(d.winProb*100)+'%':''))}"><i class="bi bi-share"></i></button></td>
+      <td><button class="ic-share" data-sharetext="${escHtml((d.market||'')+ ': '+(d.title||d.company||'')+' | Stage: '+(d.stage||'')+(d.value?' | Value: $'+Math.round(d.value/1e6)+'M':'')+(d.winProb?' | Fit(est): '+Math.round(d.winProb*100)+'%':''))}"><i class="bi bi-share"></i></button></td>
     </tr>`).join('')}
     </tbody></table></div>` :
     '<p class="text-muted">No deals in pipeline yet.</p>';

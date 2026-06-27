@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2002,
+  "next_available": 2003,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14356,6 +14356,16 @@
       "r_number": "R-F2001",
       "title": "news_monitor to intel_ledger bridge",
       "claimed_at": "2026-06-27T09:57:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d1232e99",
+      "notes": null,
+      "shipped_at": "2026-06-27T10:01:09Z"
+    },
+    {
+      "r_number": "R-F2002",
+      "title": "BD no-fabrication: ground LLM to provided signals, drop hardcoded macro stat, reframe benchmarks as illustrative, relabel Win%->Fit",
+      "claimed_at": "2026-06-27T10:06:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
