@@ -355,6 +355,12 @@ async def verify_chain(canonical_entity_id: str) -> dict:
             # We reconstruct the hash from the report body to verify integrity
             report_key = f"crucix:dd:report:{run_id}"
             report_body = await rs.get_json(report_key)
+            # R-F2065: extract risk_classification from the report body for
+            # the frontend risk pill. The field is stored as an uppercase
+            # string (RED, AMBER_DARK, AMBER_LIGHT, GREEN, HARD_STOP, etc.)
+            # and may be absent on pre-R-F130 reports.
+            _risk = (report_body or {}).get("risk_classification", "")
+
             if report_body:
                 computed_hash = _compute_hash(report_body)
                 hash_ok = computed_hash == proof.get("hash")
@@ -367,6 +373,7 @@ async def verify_chain(canonical_entity_id: str) -> dict:
                         "reason": "Hash or signature mismatch",
                         "hash_valid": hash_ok,
                         "signature_valid": sig_ok,
+                        "risk_classification": _risk,
                     })
                     all_valid = False
                     continue
@@ -377,6 +384,7 @@ async def verify_chain(canonical_entity_id: str) -> dict:
                     "verified": False,
                     "reason": "Report body not found (cannot verify hash/signature)",
                     "chain_link_valid": chain_ok,
+                    "risk_classification": _risk,
                 })
                 all_valid = False
                 continue
@@ -386,6 +394,7 @@ async def verify_chain(canonical_entity_id: str) -> dict:
                 "verified": True,
                 "version": proof.get("version"),
                 "timestamp": proof.get("timestamp"),
+                "risk_classification": _risk,
             })
             previous_hash = proof.get("hash")
 
@@ -442,6 +451,9 @@ async def verify_single(run_id: str) -> dict:
         hash_valid = computed_hash == proof.get("hash")
         sig_valid = verify_signature(report_body, proof.get("signature", ""))
 
+        # R-F2065: include risk_classification for frontend display
+        _risk = report_body.get("risk_classification", "")
+
         return {
             "verified": hash_valid and sig_valid,
             "run_id": run_id,
@@ -450,6 +462,7 @@ async def verify_single(run_id: str) -> dict:
             "version": proof.get("version"),
             "timestamp": proof.get("timestamp"),
             "previous_hash": proof.get("previous_hash"),
+            "risk_classification": _risk,
         }
 
     except Exception as e:
