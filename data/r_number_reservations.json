@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2013,
+  "next_available": 2014,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14470,6 +14470,15 @@
       "commit_sha": "97885391",
       "notes": null,
       "shipped_at": "2026-06-27T12:10:39Z"
+    },
+    {
+      "r_number": "R-F2013",
+      "title": "engine catch-up on startup - fire tasks that missed their cron slot during restart (news_monitor resilience)",
+      "claimed_at": "2026-06-27T12:46:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

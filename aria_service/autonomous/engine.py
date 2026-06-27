@@ -289,6 +289,122 @@ def get_engine_status() -> dict[str, Any]:
     }
 
 
+# ── R-F2013: startup catch-up for missed cron slots ─────────────────────────
+# A once-an-hour task (cron "0 * * * *", e.g. news_monitor) only fires at :00.
+# If the engine is restarting (deploy / crash) when its slot lands, that slot is
+# MISSED and the task can stay stale for hours/days if restarts keep coinciding
+# with it — this is exactly why news_monitor sat 189h stale (R-F2004). On startup
+# we fire any task whose most-recent scheduled slot is recent AND hasn't run since.
+_CATCH_UP_MAX_AGE_S = float(os.getenv("ARIA_ENGINE_CATCHUP_MAX_AGE_S", "7200"))   # 2h
+_CATCH_UP_MAX_FIRES = int(os.getenv("ARIA_ENGINE_CATCHUP_MAX_FIRES", "15"))       # burst cap
+_TASK_LAST_FIRE_KEY = "crucix:autonomous:task_last_fire:{tid}"
+_TASK_LAST_FIRE_TTL = 30 * 86400
+
+
+async def _set_task_last_fire(task_id: str, epoch: float) -> None:
+    """Persist a per-task last-fire timestamp so catch-up knows what already ran.
+    (The shared run-history list is a rolling 50 across ALL tasks — not reliable
+    per-task.) Fire-and-forget."""
+    try:
+        from ..intel import redis_store as rs
+        key = _TASK_LAST_FIRE_KEY.format(tid=task_id)
+        await rs.set(key, str(int(epoch)))
+        if hasattr(rs, "expire"):
+            await rs.expire(key, _TASK_LAST_FIRE_TTL)
+    except Exception:
+        pass
+
+
+async def _get_task_last_fire(task_id: str) -> float | None:
+    try:
+        from ..intel import redis_store as rs
+        v = await rs.get(_TASK_LAST_FIRE_KEY.format(tid=task_id))
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
+def _most_recent_cron_match_epoch(cron: str, now_epoch: float, lookback_s: float) -> float | None:
+    """Epoch of the latest whole-minute <= now where `cron` matches, within
+    lookback_s; None if it didn't match in the window. Cheap: at most
+    lookback_s/60 cron_matches() calls (~120 for the 2h default)."""
+    base = int(now_epoch // 60) * 60
+    steps = int(lookback_s // 60) + 1
+    for i in range(steps):
+        t = base - i * 60
+        try:
+            if tasks_mod.cron_matches(cron, time.gmtime(t)):
+                return float(t)
+        except Exception:
+            return None
+    return None
+
+
+async def catch_up_overdue_tasks(llm) -> int:
+    """R-F2013 — on engine startup, fire tasks that MISSED their scheduled cron
+    slot while the engine was down/restarting. Bounded + safe:
+      - only tasks whose most-recent cron slot is within CATCH_UP_MAX_AGE (2h),
+      - that have NOT run since that slot (per-task last-fire),
+      - each fired AT MOST ONCE, capped at CATCH_UP_MAX_FIRES per startup,
+      - through the SAME enabled / pause / operating-mode / safety gates as a
+        normal tick (so a paused or disabled engine catches up nothing).
+    Returns the number of catch-up fires."""
+    if not is_enabled():
+        return 0
+    try:
+        if await safety.is_engine_paused():
+            return 0
+    except Exception:
+        return 0
+
+    loaded = tasks_mod.get_loaded_tasks() or {}
+    now_epoch = time.time()
+    fired = 0
+    try:
+        from ..intel import operating_modes as _om
+        mode = await _om.get_mode()
+    except Exception:
+        _om, mode = None, None
+
+    for task_id, task in loaded.items():
+        if fired >= _CATCH_UP_MAX_FIRES:
+            logger.warning("[R-F2013 catch-up] hit burst cap (%d) — remaining "
+                           "overdue tasks fire on their next normal cron", _CATCH_UP_MAX_FIRES)
+            break
+        try:
+            if not getattr(task, "enabled", False):
+                continue
+            match_epoch = _most_recent_cron_match_epoch(task.cron, now_epoch, _CATCH_UP_MAX_AGE_S)
+            if match_epoch is None or (now_epoch - match_epoch) > _CATCH_UP_MAX_AGE_S:
+                continue
+            last_fire = await _get_task_last_fire(task_id)
+            if last_fire is not None and last_fire >= match_epoch:
+                continue  # already ran since its scheduled slot — not missed
+            if _om is not None and mode is not None:
+                try:
+                    if not _om.should_task_run(task_id, mode):
+                        continue
+                except Exception:
+                    pass
+            try:
+                allowed, _why = await safety.can_task_run(task_id, task_id)
+            except Exception:
+                continue
+            if not allowed:
+                continue
+            logger.warning("[R-F2013 catch-up] firing MISSED task %s (slot %ds ago, cron=%r)",
+                           task_id, int(now_epoch - match_epoch), task.cron)
+            await tasks_mod.execute_task(task=task, llm=llm, dry_run=is_dry_run())
+            await _set_task_last_fire(task_id, now_epoch)
+            fired += 1
+        except Exception as e:
+            logger.warning("[R-F2013 catch-up] task %s failed: %s", task_id, e)
+
+    if fired:
+        logger.info("[R-F2013 catch-up] fired %d missed task(s) on startup", fired)
+    return fired
+
+
 # ── The polling loop ───────────────────────────────────────────────────────
 
 async def _engine_loop(llm) -> None:
@@ -343,6 +459,17 @@ async def _engine_loop(llm) -> None:
         start_blackout_detector()
     except ImportError:
         pass
+
+    # R-F2013 — fire any task that MISSED its scheduled slot while we were down /
+    # restarting (e.g. a restart spanned a once-an-hour task's :00). This is the
+    # permanent fix for the "news_monitor stayed 189h stale because restarts kept
+    # landing on its :00" fragility — no more dependence on a clean top-of-hour.
+    try:
+        n_caught = await catch_up_overdue_tasks(llm)
+        if n_caught:
+            logger.warning("[R-F2013] startup catch-up fired %d missed task(s)", n_caught)
+    except Exception as e:
+        logger.warning("[R-F2013] startup catch-up failed (non-fatal): %s", e)
 
     while True:
         try:
@@ -502,6 +629,9 @@ async def _engine_loop(llm) -> None:
                     # R-F2006 — last-fire recency for the watchdog (distinguishes
                     # "alive but firing nothing" from healthy firing).
                     await rs.set("crucix:autonomous:last_fire_ts", str(int(time.time())))
+                    # R-F2013 — per-task last-fire so startup catch-up knows what
+                    # already ran (and doesn't double-fire a task that fired normally).
+                    await _set_task_last_fire(task_id, time.time())
                 except Exception as _e:
                     logger.debug("fires_24h counter incr failed: %s", _e)
 
