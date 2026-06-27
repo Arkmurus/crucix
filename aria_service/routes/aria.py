@@ -6336,6 +6336,18 @@ _DD_DEEP_BG_MAX = int(os.getenv("ARIA_DD_DEEP_BG_MAX", "3"))
 _DD_INLINE_MAX = int(os.getenv("ARIA_DD_INLINE_MAX", "3"))
 _dd_inline_sem = None
 
+# R-F2058 — admission control. The inline-DD queue is unbounded: under a burst of
+# concurrent users, the (N+1)th request would wait minutes behind the 3 running
+# DDs, deepening the wedge and giving the user nothing. Bound the wait for a slot;
+# if none frees within the window the brain is genuinely saturated → return an
+# honest "busy, try again" instead of piling up. Tunable; 0 disables the bound.
+_DD_INLINE_ADMISSION_S = float(os.getenv("ARIA_DD_INLINE_ADMISSION_S", "45") or "45")
+
+
+class _DDAdmissionBusy(Exception):
+    """R-F2058 — no inline-DD slot freed within the admission window; the caller
+    returns an honest busy reply (never a fabricated DD result)."""
+
 
 def _get_dd_inline_sem() -> "asyncio.Semaphore":
     global _dd_inline_sem
@@ -6562,7 +6574,19 @@ async def _execute_tool(
                 if _dd_inline_deferred:
                     _log.info("R-F1955 inline DD queued — %d already running (cap %d), entity=%r",
                               _DD_INLINE_MAX, _DD_INLINE_MAX, target.get("name", "?"))
-                await _dd_inline_sem_local.acquire()
+                # R-F2058 — admission control: bound the wait for a global slot.
+                # If none frees within the window, the brain is saturated — raise
+                # to the busy handler rather than queue a minutes-long wait.
+                if _DD_INLINE_ADMISSION_S > 0:
+                    try:
+                        await asyncio.wait_for(
+                            _dd_inline_sem_local.acquire(),
+                            timeout=_DD_INLINE_ADMISSION_S,
+                        )
+                    except asyncio.TimeoutError:
+                        raise _DDAdmissionBusy()
+                else:
+                    await _dd_inline_sem_local.acquire()
                 _dd_inline_acquired = True
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,
@@ -6624,6 +6648,22 @@ async def _execute_tool(
                             "R-F409 deep escalation failed (keeping shallow report): %s",
                             _esc_err,
                         )
+            except _DDAdmissionBusy:
+                # R-F2058 — saturated: honest busy reply, never a fabricated DD.
+                _log.warning(
+                    "R-F2058 inline DD admission rejected — saturated (cap %d, "
+                    "waited %.0fs), entity=%r user=%s",
+                    _DD_INLINE_MAX, _DD_INLINE_ADMISSION_S,
+                    target.get("name", "?"), user_id or "_anon",
+                )
+                return (
+                    f"\n\n[TOOL: dd_orchestrate — BUSY]\n"
+                    f"Entity: {target.get('name', '?')}\n"
+                    f"ARIA is at capacity running other due-diligence checks right now "
+                    f"(all {_DD_INLINE_MAX} concurrent slots in use). The request was "
+                    f"NOT lost — tell the user plainly that the system is busy and to "
+                    f"re-send in a minute. Do NOT fabricate or guess a DD result."
+                )
             except Exception as e:
                 _log.warning("dd_orchestrate via chat intent failed: %s", e)
                 return (
