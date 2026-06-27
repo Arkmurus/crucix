@@ -21419,6 +21419,83 @@ async def adversarial_amendments_rejected_ep(limit: int = 100):
     }
 
 
+def _amendment_key(a: dict) -> tuple:
+    """R-F2030 — identity of an amendment: (attack_id, sorted anchor clauses)."""
+    return (
+        (a.get("attack_id") or ""),
+        tuple(sorted(a.get("anchor_clauses") or [])),
+    )
+
+
+def _collapse_approved_amendments(approved: list) -> list:
+    """R-F2030 — collapse duplicate approved amendments by (attack_id,
+    anchor_clauses). The approve flow was append-only with no dedup, so a
+    recurring attack stacked identical records (live 2026-06-27: 49 entries,
+    only 13 unique — C1 ×12). Keep the MOST RECENT record per key, carry a
+    reapproval_count, max the fail_count, and preserve first_approved_at.
+    Order-preserving (newest-first, matching the insert(0, …) convention).
+    """
+    by_key: dict = {}
+    order: list = []
+    for a in approved:
+        if not isinstance(a, dict):
+            continue
+        key = _amendment_key(a)
+        if key in by_key:
+            kept = by_key[key]
+            a_ts = a.get("approved_at") or ""
+            k_ts = kept.get("approved_at") or ""
+            newer = a if a_ts >= k_ts else kept
+            merged = dict(newer)
+            merged["reapproval_count"] = (
+                kept.get("reapproval_count", 1) + a.get("reapproval_count", 1)
+            )
+            merged["fail_count"] = max(
+                a.get("fail_count", 0) or 0, kept.get("fail_count", 0) or 0
+            )
+            _firsts = [t for t in (
+                a.get("first_approved_at"), kept.get("first_approved_at"), a_ts, k_ts,
+            ) if t]
+            if _firsts:
+                merged["first_approved_at"] = min(_firsts)
+            by_key[key] = merged
+        else:
+            rec = dict(a)
+            rec.setdefault("reapproval_count", 1)
+            rec.setdefault("first_approved_at", rec.get("approved_at"))
+            by_key[key] = rec
+            order.append(key)
+    return [by_key[k] for k in order]
+
+
+async def _resolve_amendment_deploy_status(staged_improvement_id) -> str:
+    """R-F2031 — the honest live deploy state of an approved amendment's staged
+    improvement, so we never tell the operator to POST a dead id. Returns one of:
+      staged   — still in the staged queue, deployable now
+      deployed — applied to live ARIA (improvement_log records the deploy)
+      gone     — was staged but no longer present (collapsed/expired/applied) —
+                 re-approve to mint a fresh deployable staged item
+      none     — no staged id was ever recorded
+    """
+    if not staged_improvement_id:
+        return "none"
+    try:
+        from ..intel import redis_store as rs
+        from ..intel.self_improve import STAGED_KEY, IMPROVEMENT_LOG_KEY
+        staged = await rs.get_json(STAGED_KEY) or []
+        for s in staged:
+            if isinstance(s, dict) and s.get("id") == staged_improvement_id:
+                return s.get("status") or "staged"
+        log = await rs.get_json(IMPROVEMENT_LOG_KEY) or []
+        for e in log:
+            if (isinstance(e, dict) and e.get("id") == staged_improvement_id
+                    and e.get("action") == "deployed"):
+                return "deployed"
+    except Exception:
+        return "unknown"
+    return "gone"
+
+
 @router.post("/adversarial/amendments/approve")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def adversarial_amendments_approve_ep(req: Request):
@@ -21469,6 +21546,54 @@ async def adversarial_amendments_approve_ep(req: Request):
         )
     amendment = matched[0]
 
+    # R-F2030 — IDEMPOTENT approve. Pre-R-F2030 every call re-appended a clause,
+    # re-staged, and inserted another approved record — so a recurring attack
+    # stacked identical clauses + minted fresh-then-stale staged ids (the source
+    # of the misleading "POST /self/deploy/<dead-id>"). If this (attack_id,
+    # anchor_clauses) is already approved AND its staged item is still deployable
+    # or already deployed, short-circuit: bump the count, clear it off the queue,
+    # and return the EXISTING staged id + its honest status. Only re-stage when
+    # the prior staged item is GONE (so the operator gets a fresh deployable one).
+    _approved_now = await rs.get_json(key_approved) or []
+    _akey = _amendment_key(amendment)
+    _dup = next(
+        (a for a in _approved_now
+         if isinstance(a, dict) and _amendment_key(a) == _akey),
+        None,
+    )
+    if _dup is not None:
+        _sid = _dup.get("staged_improvement_id")
+        _status = await _resolve_amendment_deploy_status(_sid)
+        if _status in ("staged", "pending", "deployed"):
+            _dup["reapproval_count"] = _dup.get("reapproval_count", 1) + 1
+            _dup["last_approved_at"] = _dt.now(_tz.utc).isoformat()
+            if notes:
+                _dup["operator_notes"] = notes
+            _kept = [
+                n for n in queue
+                if not isinstance(n, dict) or (n.get("attack_id") or "") != attack_id
+            ]
+            await rs.set_json(
+                key_approved, _collapse_approved_amendments(_approved_now)[:500],
+                ex=365 * 86400,
+            )
+            await rs.set_json(key_queue, _kept, ex=90 * 86400)
+            return {
+                "ok": True,
+                "attack_id": attack_id,
+                "idempotent": True,
+                "staged_improvement_id": _sid,
+                "deploy_status": _status,
+                "reapproval_count": _dup["reapproval_count"],
+                "next_step": (
+                    f"already {_status}"
+                    + (f" — POST /api/aria/self/deploy/{_sid} to apply"
+                       if _status in ("staged", "pending") else " (no action needed)")
+                ),
+                "queue_remaining": len(_kept),
+            }
+        # status == gone/none/unknown → fall through and re-stage a fresh item.
+
     # Read current aria_engine.py and append the amendment as a new
     # clause at the bottom of ARIA_SYSTEM_PROMPT.
     code_read = await _si.read_own_code("aria_service/aria_engine.py")
@@ -21498,6 +21623,17 @@ async def adversarial_amendments_approve_ep(req: Request):
     amend_text = (amendment.get("proposed_amendment") or "").strip()
     if not amend_text:
         amend_text = "(no proposed text supplied — operator notes only)"
+    # R-F2030 — append-guard. Never add a duplicate clause if this attack's
+    # amendment text is already present in the prompt (defense-in-depth beneath
+    # the idempotency check above, e.g. if the approved store was cleared but the
+    # clause remains). Signature = attack_id + the head of the amendment text.
+    _clause_sig = f"adversarial attack {attack_id}. {amend_text[:80]}"
+    if _clause_sig in src:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"clause for {attack_id} already present in ARIA_SYSTEM_PROMPT — "
+                    f"not appending a duplicate (R-F2030)"),
+        )
     new_clause_line = (
         f"\n{next_n}. R-F168 — staged from adversarial attack {attack_id}. "
         f"{amend_text[:600]}\n"
@@ -21533,9 +21669,13 @@ async def adversarial_amendments_approve_ep(req: Request):
     approved = await rs.get_json(key_approved) or []
     record = dict(amendment)
     record["approved_at"] = _dt.now(_tz.utc).isoformat()
+    record["first_approved_at"] = record.get("approved_at")
     record["operator_notes"] = notes
     record["staged_improvement_id"] = staged_res.get("id")
+    record["reapproval_count"] = 1
     approved.insert(0, record)
+    # R-F2030 — collapse duplicates on write so the store can never run away.
+    approved = _collapse_approved_amendments(approved)
     await rs.set_json(key_approved, approved[:500], ex=365 * 86400)
     await rs.set_json(key_queue, kept, ex=90 * 86400)
 
@@ -21543,6 +21683,7 @@ async def adversarial_amendments_approve_ep(req: Request):
         "ok": True,
         "attack_id": attack_id,
         "staged_improvement_id": staged_res.get("id"),
+        "deploy_status": "staged",  # R-F2031 — freshly staged, deployable now
         "next_step": (
             f"POST /api/aria/self/deploy/{staged_res.get('id')} to apply "
             f"the constitution amendment to live ARIA"
@@ -21557,12 +21698,33 @@ async def adversarial_amendments_approve_ep(req: Request):
 async def adversarial_amendments_approved_ep(limit: int = 100):
     """R-F168: audit surface — amendments the operator has approved.
     Each entry carries staged_improvement_id so the operator can chase
-    the deploy state via /self/deploy/{id}."""
+    the deploy state via /self/deploy/{id}.
+
+    R-F2030/R-F2031 — dedup-on-read-and-persist (self-heals the legacy runaway
+    pile: 49 → 13 unique) AND resolve each entry's LIVE deploy_status so the
+    operator is never pointed at a dead /self/deploy/<stale-id> command.
+    """
     from ..intel import redis_store as rs
-    approved = await rs.get_json("aria:adversarial:approved_amendments") or []
+    key = "aria:adversarial:approved_amendments"
+    raw = await rs.get_json(key) or []
+    collapsed = _collapse_approved_amendments(raw)
+    # Persist the collapse once (idempotent) so the stored pile actually shrinks.
+    if len(collapsed) != len(raw):
+        try:
+            await rs.set_json(key, collapsed[:500], ex=365 * 86400)
+        except Exception:
+            pass
+    out = []
+    for a in collapsed[: max(1, min(limit, 500))]:
+        rec = dict(a)
+        rec["deploy_status"] = await _resolve_amendment_deploy_status(
+            a.get("staged_improvement_id")
+        )
+        out.append(rec)
     return {
-        "count": len(approved),
-        "approved": approved[: max(1, min(limit, 500))],
+        "count": len(collapsed),
+        "raw_count_before_dedup": len(raw),
+        "approved": out,
     }
 
 

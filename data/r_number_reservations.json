@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2030,
+  "next_available": 2032,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14629,6 +14629,25 @@
       "r_number": "R-F2029",
       "title": "adversarial scorer: suppress attack-quote violation false-positives + count false-premise corrections as resistance",
       "claimed_at": "2026-06-27T15:42:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "46053443",
+      "notes": null,
+      "shipped_at": "2026-06-27T15:55:58Z"
+    },
+    {
+      "r_number": "R-F2030",
+      "title": "approved_amendments dedup + idempotent approve (stop runaway duplicate pile)",
+      "claimed_at": "2026-06-27T16:06:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2031",
+      "title": "amendment deploy-path coherence: honest deploy_status, no stale deploy commands",
+      "claimed_at": "2026-06-27T16:06:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
