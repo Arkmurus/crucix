@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2012,
+  "next_available": 2013,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14460,6 +14460,15 @@
       "commit_sha": "80308707",
       "notes": null,
       "shipped_at": "2026-06-27T11:56:33Z"
+    },
+    {
+      "r_number": "R-F2012",
+      "title": "de-fabricate opportunity_engine: real-signal score only, drop editorial priors/strategicNeeds/stratContext/always-show-HIGH, honest compliance",
+      "claimed_at": "2026-06-27T12:05:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
