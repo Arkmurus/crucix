@@ -24139,10 +24139,24 @@ async def opportunities_ep() -> dict:
     from ..intel import deal_pipeline as _dp
 
     insights = await _sc.correlate_signals()
-    opportunities = []
-    for ins in insights:
+
+    # R-F2041 — only PROCUREMENT-BACKED insights are OPPORTUNITIES. correlate_signals
+    # emits a market for ANY country with enough correlated signals — but most of
+    # those are MARKET_HEATING / MARKET_SIGNAL: pure news/conflict volume (Iran,
+    # Israel, Ukraine, Lebanon…) with NO tender/budget/pipeline signal. Those are
+    # situational awareness, NOT opportunities. Counting them showed "32
+    # opportunities" on the dashboard when the honest count was 0. An opportunity
+    # requires an actionable procurement signal — the four types below (each gated
+    # on a tender/budget/pipeline signal in _generate_insight). Everything else is
+    # returned separately as market_signals so the awareness isn't lost, but it is
+    # NOT counted as an opportunity.
+    _OPPORTUNITY_TYPES = {
+        "OPPORTUNITY_WINDOW", "COMPETITIVE_VACUUM", "URGENCY_SIGNAL", "RELATIONSHIP_LEVERAGE",
+    }
+
+    def _shape(ins: dict) -> dict:
         sigs = ins.get("signals", []) or []
-        opportunities.append({
+        return {
             "market": (ins.get("country") or "").title(),
             "score": round(float(ins.get("score") or 0), 1),
             "type": ins.get("insight_type") or "SIGNAL",
@@ -24151,7 +24165,10 @@ async def opportunities_ep() -> dict:
             "signals": sigs,            # the real evidence behind every entry
             "grounded": True,
             "source": "signal_correlator",
-        })
+        }
+
+    opportunities = [_shape(i) for i in insights if i.get("insight_type") in _OPPORTUNITY_TYPES]
+    market_signals = [_shape(i) for i in insights if i.get("insight_type") not in _OPPORTUNITY_TYPES]
 
     try:
         active_pipeline = await _dp.get_pipeline()
@@ -24163,13 +24180,19 @@ async def opportunities_ep() -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "count": len(opportunities),
         "opportunities": opportunities,
+        # Situational awareness — NOT opportunities (no procurement signal). Kept
+        # visible so nothing is hidden, but never counted as an opportunity.
+        "market_signal_count": len(market_signals),
+        "market_signals": market_signals,
         "active_pipeline_count": len(active_pipeline),
         "basis": (
-            "Signal-backed only: a market appears ONLY if it has the minimum real "
-            "correlated signals across multiple types; score = summed signal "
-            "weights, not editorial priority constants; no static templates, no "
-            "fabricated buyers/values/contacts. Empty = no signal-backed "
-            "opportunity right now (honest by construction)."
+            "OPPORTUNITIES are procurement-backed only — a market is counted ONLY "
+            "if it has an actionable tender/budget/pipeline signal (types: "
+            "OPPORTUNITY_WINDOW, COMPETITIVE_VACUUM, URGENCY_SIGNAL, "
+            "RELATIONSHIP_LEVERAGE). MARKET_HEATING / MARKET_SIGNAL (news/conflict "
+            "volume with no procurement signal) are returned as market_signals, "
+            "NOT opportunities. count=0 honestly means no procurement-backed "
+            "opportunity right now."
         ),
     }
 

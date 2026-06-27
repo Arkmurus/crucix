@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2041,
+  "next_available": 2042,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14680,27 +14680,30 @@
       "title": "self-serve instant approval: email-verify flips user to active + auto-approve audit",
       "claimed_at": "2026-06-27T16:39:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a04e0c82",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:03:23Z"
     },
     {
       "r_number": "R-F2035",
       "title": "email-verify hardening: mandatory gate, brute-force lockout, disposable-email block",
       "claimed_at": "2026-06-27T16:39:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a04e0c82",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:03:23Z"
     },
     {
       "r_number": "R-F2036",
       "title": "payment-gate: paid tiers only via Stripe, admin cannot elevate tier",
       "claimed_at": "2026-06-27T16:39:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a04e0c82",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:03:23Z"
     },
     {
       "r_number": "R-F2037",
@@ -14727,14 +14730,25 @@
       "title": "email.mjs trim CRLF-contaminated SMTP creds (real root cause); sender=aria mailbox; supersede R-F2032 SMTP_* approach",
       "claimed_at": "2026-06-27T16:55:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a04e0c82",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:03:23Z"
     },
     {
       "r_number": "R-F2040",
       "title": "dashboard.html: fix double Response.json() consumption that left DD+watchlist panels stuck on Loading",
       "claimed_at": "2026-06-27T17:01:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1df3af54",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:05:56Z"
+    },
+    {
+      "r_number": "R-F2041",
+      "title": "opportunities_ep: only procurement-backed insights are opportunities; MARKET_HEATING/SIGNAL are situational, not counted",
+      "claimed_at": "2026-06-27T17:10:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
