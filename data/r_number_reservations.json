@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2057,
+  "next_available": 2058,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14899,6 +14899,16 @@
       "r_number": "R-F2056",
       "title": "GIL offload: fitz PDF extraction + dd search_knowledge to thread pool (concurrent-DD loop relief)",
       "claimed_at": "2026-06-27T19:41:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "59cd166b",
+      "notes": null,
+      "shipped_at": "2026-06-27T19:53:52Z"
+    },
+    {
+      "r_number": "R-F2057",
+      "title": "CORS root fix — env-driven origin allowlist (replace wildcard+credentials)",
+      "claimed_at": "2026-06-27T19:53:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

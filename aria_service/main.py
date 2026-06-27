@@ -3088,13 +3088,30 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS for frontend
+# CORS for frontend — R-F2057: env-driven origin ALLOWLIST (root fix).
+# Was `allow_origins=["*"]` + `allow_credentials=True` — an invalid/permissive combo
+# that makes Starlette reflect ANY Origin back AND set Allow-Credentials:true, i.e.
+# every site a logged-in user visits could make credentialed cross-origin calls.
+# (Live exposure is limited because the browser reaches this API SAME-ORIGIN via the
+# aria-web proxy, and auth is a Bearer token not a cookie — but a wildcard with
+# credentials is never correct.) Now: an explicit, env-overridable allowlist, so a
+# missed origin is a one-secret change (ARIA_CORS_ORIGINS) — never a redeploy.
+#   - default: the real first-party web origins.
+#   - ARIA_CORS_ORIGINS="a,b,c" → exactly those origins (credentials allowed).
+#   - ARIA_CORS_ORIGINS="*"     → wildcard WITHOUT credentials (spec-correct opt-out).
+_cors_env = (_os.getenv("ARIA_CORS_ORIGINS", "https://intel.arkmurus.com,https://aria-web.fly.dev") or "").strip()
+if _cors_env == "*":
+    _cors_kwargs = {"allow_origins": ["*"], "allow_credentials": False}
+else:
+    _cors_kwargs = {
+        "allow_origins": [o.strip() for o in _cors_env.split(",") if o.strip()] or ["https://intel.arkmurus.com"],
+        "allow_credentials": True,
+    }
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    **_cors_kwargs,
 )
 
 # R-F1853 (audit, DD stage 3) — global request-body size cap. Before this, ~150
