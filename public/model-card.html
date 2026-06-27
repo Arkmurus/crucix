@@ -5,66 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARIA — Model Card & Capability Statement</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
-      background: #0c0919; margin: 0;
+      background: var(--sc-bg); margin: 0;
       font-family: 'Gordita', system-ui, -apple-system, sans-serif;
-      color: rgba(255,255,255,0.85); line-height: 1.65;
+      color: var(--sc-text); line-height: 1.65;
     }
     .mc-shell { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
-    .mc-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
-    .mc-title { font-size: 38px; line-height: 1.15; font-weight: 800; color: #fff; margin: 0 0 12px; letter-spacing: -0.02em; }
-    .mc-subtitle { font-size: 16px; color: rgba(255,255,255,0.55); margin: 0 0 36px; max-width: 640px; }
-    .mc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 28px 0 44px; padding: 18px 22px; background: rgba(124,58,237,0.06); border: 1px solid rgba(124,58,237,0.18); border-radius: 12px; }
+    .mc-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 12px; }
+    .mc-title { font-size: 38px; line-height: 1.15; font-weight: 800; color: var(--sc-heading); margin: 0 0 12px; letter-spacing: -0.02em; }
+    .mc-subtitle { font-size: 16px; color: var(--sc-muted); margin: 0 0 36px; max-width: 640px; }
+    .mc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 28px 0 44px; padding: 18px 22px; background: var(--sc-prime-soft); border: 1px solid rgba(124,58,237,0.18); border-radius: 12px; }
     .mc-meta-cell { font-size: 13px; }
-    .mc-meta-cell-label { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-    .mc-meta-cell-value { color: #fff; font-weight: 600; }
+    .mc-meta-cell-label { font-size: 10px; color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .mc-meta-cell-value { color: var(--sc-heading); font-weight: 600; }
 
-    h2.mc-h2 { font-size: 22px; font-weight: 800; color: #fff; margin: 48px 0 14px; letter-spacing: -0.01em; }
-    h3.mc-h3 { font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    h2.mc-h2 { font-size: 22px; font-weight: 800; color: var(--sc-heading); margin: 48px 0 14px; letter-spacing: -0.01em; }
+    h3.mc-h3 { font-size: 15px; font-weight: 700; color: var(--sc-prime-dark); margin: 28px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
     p { margin: 0 0 14px; font-size: 14.5px; }
-    p strong { color: #e9e3ff; }
+    p strong { color: var(--sc-heading); }
     ul, ol { padding-left: 22px; margin: 0 0 16px; }
     li { margin: 6px 0; font-size: 14.5px; }
-    li strong { color: #e9e3ff; }
+    li strong { color: var(--sc-heading); }
 
-    code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #c4b5fd; }
+    code { background: rgba(124,58,237,0.10); border: 1px solid rgba(124,58,237,0.20); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: var(--sc-prime-dark); }
 
     .mc-callout {
       padding: 16px 18px; border-radius: 10px; margin: 16px 0 24px;
       border-left: 3px solid;
     }
-    .mc-callout.purple { background: rgba(124,58,237,0.07); border-color: #7c3aed; }
-    .mc-callout.amber  { background: rgba(245,158,11,0.07); border-color: #f59e0b; }
-    .mc-callout.green  { background: rgba(34,197,94,0.07); border-color: #22c55e; }
-    .mc-callout.red    { background: rgba(239,68,68,0.07); border-color: #ef4444; }
-    .mc-callout p { margin: 0; font-size: 13.5px; color: rgba(255,255,255,0.78); }
+    .mc-callout.purple { background: var(--sc-prime-soft); border-color: #7c3aed; }
+    .mc-callout.amber  { background: rgba(245,158,11,0.10); border-color: #f59e0b; }
+    .mc-callout.green  { background: rgba(34,197,94,0.10); border-color: #16a34a; }
+    .mc-callout.red    { background: rgba(239,68,68,0.08); border-color: #dc2626; }
+    .mc-callout p { margin: 0; font-size: 13.5px; color: var(--sc-text); }
 
     .mc-table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; font-size: 13.5px; }
-    .mc-table th { text-align: left; padding: 10px 12px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .mc-table td { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+    .mc-table th { text-align: left; padding: 10px 12px; background: #f5f4ef; color: var(--sc-muted); font-weight: 600; border-bottom: 1px solid var(--sc-border-strong); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .mc-table td { padding: 12px; border-bottom: 1px solid var(--sc-border); vertical-align: top; }
     .mc-table tr:last-child td { border-bottom: none; }
 
     .mc-pill {
       display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px;
       font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
     }
-    .mc-pill.green { background: rgba(34,197,94,0.18); color: #4ade80; }
-    .mc-pill.amber { background: rgba(245,158,11,0.18); color: #fbbf24; }
-    .mc-pill.red   { background: rgba(239,68,68,0.18); color: #fca5a5; }
-    .mc-pill.blue  { background: rgba(0,102,255,0.18);  color: #60a5fa; }
+    .mc-pill.green { background: rgba(34,197,94,0.16); color: #15803d; }
+    .mc-pill.amber { background: rgba(245,158,11,0.16); color: #c2410c; }
+    .mc-pill.red   { background: rgba(239,68,68,0.14); color: #b91c1c; }
+    .mc-pill.blue  { background: rgba(37,99,235,0.16);  color: #1d4ed8; }
 
     .mc-clauses { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 14px 0 24px; }
-    .mc-clause { padding: 14px 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
-    .mc-clause-num { font-size: 11px; color: rgba(124,58,237,0.85); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-    .mc-clause-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px; }
-    .mc-clause-text { font-size: 12.5px; color: rgba(255,255,255,0.65); line-height: 1.55; }
+    .mc-clause { padding: 14px 16px; background: #ffffff; border: 1px solid var(--sc-border); border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+    .mc-clause-num { font-size: 11px; color: var(--sc-prime); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .mc-clause-title { font-size: 14px; font-weight: 700; color: var(--sc-heading); margin-bottom: 6px; }
+    .mc-clause-text { font-size: 12.5px; color: var(--sc-text); line-height: 1.55; }
 
-    .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
-    .mc-footer a { color: #c4b5fd; }
+    .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--sc-border); font-size: 12px; color: var(--sc-muted); }
+    .mc-footer a { color: var(--sc-prime); }
   </style>
 </head>
 <body>
@@ -247,7 +247,7 @@
   <p>ARIA connects to WhatsApp groups via linked devices — each connection is a separate phone number and Baileys session. Link a device, check status, or remove a connection in the connection manager.</p>
 
   <div id="wa-accounts">
-    <div style="text-align:center;padding:28px;color:rgba(255,255,255,0.4);font-size:14px;">
+    <div style="text-align:center;padding:28px;color:var(--sc-muted);font-size:14px;">
       <p>Loading WhatsApp status…</p>
     </div>
   </div>
@@ -266,7 +266,7 @@
         + 'font-weight:600;">' + (label || 'Manage connections') + ' →</a>';
     }
     function wrap(inner) {
-      return '<div style="text-align:center;padding:24px;color:rgba(255,255,255,0.6);font-size:14px;">'
+      return '<div style="text-align:center;padding:24px;color:var(--sc-text);font-size:14px;">'
         + inner + '</div>';
     }
     try {
@@ -276,7 +276,7 @@
       if (!r.ok) {
         if (r.status === 401) {
           container.innerHTML = wrap('<p>Sign in to manage WhatsApp connections.</p>'
-            + '<p style="margin-top:10px"><a href="/signin" style="color:#c4b5fd;">Sign in →</a></p>');
+            + '<p style="margin-top:10px"><a href="/signin" style="color:var(--sc-prime);">Sign in →</a></p>');
           return;
         }
         container.innerHTML = wrap('<p>Connection manager temporarily unavailable.</p>'
@@ -291,10 +291,10 @@
       if (accounts.length === 0) {
         summary = '<p>No WhatsApp connections yet.</p>';
       } else {
-        summary = '<p style="font-size:15px;color:#fff;">'
-          + '<span style="color:#22c55e;font-weight:600;">' + connected + ' connected</span>'
+        summary = '<p style="font-size:15px;color:var(--sc-heading);">'
+          + '<span style="color:#16a34a;font-weight:600;">' + connected + ' connected</span>'
           + (pending > 0
-              ? ' &nbsp;·&nbsp; <span style="color:#f59e0b;font-weight:600;">' + pending + ' pending</span>'
+              ? ' &nbsp;·&nbsp; <span style="color:#d97706;font-weight:600;">' + pending + ' pending</span>'
               : '')
           + '</p>';
       }
@@ -309,8 +309,8 @@
 
 <!-- R-F106: load shared sidebar+header. Sidebar.init() is safe to call
      for anonymous viewers — it gracefully handles missing user info. -->
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
   // Public page — no Auth.requireAuth(). Sidebar shows placeholder
   // user info (?) for anonymous viewers; full info for logged-in.

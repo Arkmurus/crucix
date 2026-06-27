@@ -5,7 +5,7 @@
   <title>Source Health — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -43,14 +43,14 @@
     <div class="sc-card-header">
       <div class="sc-card-title"><i class="bi bi-link-45deg"></i> Brain bridge (aria-intel → brain)</div>
     </div>
-    <div id="bridge-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+    <div id="bridge-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
   </div>
 
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-cpu"></i> Python-side sources (fly brain)</div>
       <button class="sc-btn sc-btn-sm" id="btn-run-pysrc"
-        style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer"
+        style="background:transparent;border:1px solid var(--sc-border-strong);color:var(--sc-text);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer"
         title="Manually trigger source uptime ping (R-F102)">
         <i class="bi bi-play-fill"></i> Run uptime ping
       </button>
@@ -61,9 +61,9 @@
         <tbody id="pysrc-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
       </table>
     </div>
-    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Source uptime ping fires automatically daily 02:00 UTC via the
-      <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">SOURCE-UPTIME-DAILY</code> autonomous task.
+      <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">SOURCE-UPTIME-DAILY</code> autonomous task.
       Empty list = ping hasn't fired yet (post-deploy / cold start) — click <em>Run uptime ping</em> to populate immediately.
     </div>
   </div>
@@ -78,9 +78,9 @@
       <div class="sc-card-title"><i class="bi bi-bookmark-star"></i> Curated defence source catalogue (R-F137)</div>
       <span id="catalogue-total" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
     </div>
-    <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
-    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
-      Persistent registry of defence-DD sources seeded into <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">web_atlas</code> at startup.
+    <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
+      Persistent registry of defence-DD sources seeded into <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas</code> at startup.
       Source for the Tier 1a / 1b / 2 credibility scoring across DD reports + chat retrieval.
       View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
     </div>
@@ -95,10 +95,10 @@
       <div class="sc-card-title"><i class="bi bi-building"></i> OEM slot pool (R-F138)</div>
       <span id="oem-summary" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
     </div>
-    <div id="oem-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
-    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
+    <div id="oem-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Structured placeholder slots ARIA tracks for operator fill. Names stay empty until the operator POSTs a verified contact (clause 11 forbids name fabrication).
-      Add via <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">POST /api/aria/oem/contact</code>.
+      Add via <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">POST /api/aria/oem/contact</code>.
     </div>
   </div>
 
@@ -106,22 +106,22 @@
     <div class="sc-card-header">
       <div class="sc-card-title"><i class="bi bi-people"></i> Brain absorb — per-sector (R-F56)</div>
     </div>
-    <div id="sector-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+    <div id="sector-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
   </div>
 
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-shield-check"></i> Adversarial resistance (R-F57)</div>
       <button class="sc-btn sc-btn-sm" id="btn-run-adv"
-        style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">
+        style="background:transparent;border:1px solid var(--sc-border-strong);color:var(--sc-text);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">
         <i class="bi bi-play-fill"></i> Run weekly suite
       </button>
     </div>
-    <div id="adv-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+    <div id="adv-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
   </div>
 </main>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('sources');
@@ -142,27 +142,27 @@ async function loadSources() {
     const isOk  = s.lastStatus === 'ok';
     const isErr = s.lastStatus === 'error';
     const dotCls = isOk ? 'ok' : isErr ? 'error' : 'warn';
-    const reliColor = s.reliability === null ? 'rgba(255,255,255,.3)'
-                    : s.reliability >= 80   ? '#22c55e'
-                    : s.reliability >= 50   ? '#FF7A41' : '#ef4444';
+    const reliColor = s.reliability === null ? '#9b968c'
+                    : s.reliability >= 80   ? '#16a34a'
+                    : s.reliability >= 50   ? '#ea580c' : '#dc2626';
     return `<tr>
       <td><strong>${escHtml(s.name || '')}</strong></td>
       <td>
         <span class="status-dot ${dotCls}" style="margin-right:6px;display:inline-block;
-          width:7px;height:7px;border-radius:50%;background:${isOk?'#22c55e':isErr?'#ef4444':'#FF7A41'};vertical-align:middle"></span>
+          width:7px;height:7px;border-radius:50%;background:${isOk?'#16a34a':isErr?'#dc2626':'#ea580c'};vertical-align:middle"></span>
         <span style="font-size:12px;text-transform:capitalize">${escHtml(s.lastStatus || '—')}</span>
       </td>
       <td style="font-size:12px;font-weight:700;color:${reliColor}">
         ${s.reliability !== null ? s.reliability + '%' : '—'}
       </td>
-      <td style="font-size:12px;color:rgba(255,255,255,.4)">
+      <td style="font-size:12px;color:var(--sc-muted)">
         ${s.lastMs ? s.lastMs + 'ms' : '—'}
       </td>
-      <td style="font-size:12px;color:rgba(255,255,255,.4)">
+      <td style="font-size:12px;color:var(--sc-muted)">
         ${s.ok || 0}ok / ${s.fail || 0}fail
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.4);padding:30px">No source data yet — run a sweep first</td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No source data yet — run a sweep first</td></tr>';
 }
 
 // R-F58: brain-bridge state pulled from R-F45's /api/brain-absorb/verify
@@ -172,7 +172,7 @@ async function loadBridge() {
     const data = await API.get('/api/brain-absorb/verify');
     if (!data) { el.textContent = 'Bridge state unavailable.'; return; }
     const healthy = !!data.healthy;
-    const dotColor = healthy ? '#22c55e' : (data.has_token === false ? '#ef4444' : '#f59e0b');
+    const dotColor = healthy ? '#16a34a' : (data.has_token === false ? '#dc2626' : '#ea580c');
     const stateLabel = healthy ? 'Healthy'
                      : (data.has_token === false ? 'Misconfigured — ARIA_API_TOKEN unset on this server'
                                                  : 'Degraded: ' + escHtml(data.reason || 'unknown'));
@@ -181,7 +181,7 @@ async function loadBridge() {
         '<span style="width:9px;height:9px;border-radius:50%;background:' + dotColor + ';display:inline-block"></span>' +
         '<strong>' + stateLabel + '</strong>' +
       '</div>' +
-      '<div style="font-size:12.5px;color:rgba(255,255,255,0.45)">' +
+      '<div style="font-size:12.5px;color:var(--sc-muted)">' +
         'Endpoint: <code>' + escHtml(data.url || '—') + '</code> · ' +
         'Status: ' + (data.status != null ? data.status : '—') + ' · ' +
         'Has token: ' + (data.has_token ? 'yes' : 'no') + ' · ' +
@@ -202,7 +202,7 @@ async function loadCatalogue() {
   try {
     const resp = await API.get('/api/aria/sources/seed/catalogue');
     if (!resp || !resp.ok || !resp.catalogue) {
-      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Catalogue endpoint unreachable.</div>';
+      body.innerHTML = '<div style="color:var(--sc-muted)">Catalogue endpoint unreachable.</div>';
       totalPill.textContent = '?';
       return;
     }
@@ -212,19 +212,19 @@ async function loadCatalogue() {
     // Tier breakdown (reliability hierarchy)
     const tiers = cat.by_tier || {};
     const tierLabels = {
-      tier_1a: { label: 'Tier 1a (regulator / primary / OEM IR)', colour: '#22c55e' },
-      tier_1b: { label: 'Tier 1b (think tanks / academic)',       colour: '#3b82f6' },
-      tier_2:  { label: 'Tier 2 (specialist + country press)',     colour: '#a855f7' },
+      tier_1a: { label: 'Tier 1a (regulator / primary / OEM IR)', colour: '#16a34a' },
+      tier_1b: { label: 'Tier 1b (think tanks / academic)',       colour: '#2563eb' },
+      tier_2:  { label: 'Tier 2 (specialist + country press)',     colour: '#7c3aed' },
     };
     let tierHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px">';
     Object.keys(tierLabels).forEach(k => {
       const count = tiers[k] || 0;
       const pct = cat.total_curated ? Math.round(count / cat.total_curated * 100) : 0;
       const meta = tierLabels[k];
-      tierHtml += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px">'
-                + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55);margin-bottom:4px">' + escHtml(meta.label) + '</div>'
+      tierHtml += '<div style="background:#f5f4ef;border:1px solid var(--sc-border);border-radius:8px;padding:12px">'
+                + '<div style="font-size:11.5px;color:var(--sc-muted);margin-bottom:4px">' + escHtml(meta.label) + '</div>'
                 + '<div style="font-size:22px;font-weight:600;color:' + meta.colour + '">' + count + '</div>'
-                + '<div style="font-size:11.5px;color:rgba(255,255,255,0.4)">' + pct + '%</div>'
+                + '<div style="font-size:11.5px;color:var(--sc-muted)">' + pct + '%</div>'
                 + '</div>';
     });
     tierHtml += '</div>';
@@ -232,17 +232,17 @@ async function loadCatalogue() {
     // Top topics
     const topics = cat.top_topics || {};
     const topicEntries = Object.entries(topics).sort((a,b) => b[1] - a[1]);
-    let topicHtml = '<div style="font-size:11.5px;color:rgba(255,255,255,0.55);margin-bottom:6px">Top topics covered</div>';
+    let topicHtml = '<div style="font-size:11.5px;color:var(--sc-muted);margin-bottom:6px">Top topics covered</div>';
     topicHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
     topicEntries.forEach(([t, n]) => {
-      topicHtml += '<span style="background:rgba(124,58,237,0.13);color:#c4b5fd;padding:3px 9px;border-radius:12px;font-size:11.5px">'
+      topicHtml += '<span style="background:var(--sc-prime-soft);color:var(--sc-prime-dark);padding:3px 9px;border-radius:12px;font-size:11.5px">'
                  + escHtml(t) + ' · ' + n + '</span>';
     });
     topicHtml += '</div>';
 
     body.innerHTML = tierHtml + topicHtml;
   } catch (e) {
-    body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Load error: ' + escHtml(e.message) + '</div>';
+    body.innerHTML = '<div style="color:var(--sc-muted)">Load error: ' + escHtml(e.message) + '</div>';
     totalPill.textContent = '?';
   }
 }
@@ -255,7 +255,7 @@ async function loadOemPool() {
     const resp = await API.get('/api/aria/oem/contacts');
     const contacts = (resp && resp.contacts) || (Array.isArray(resp) ? resp : []);
     if (!contacts.length) {
-      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No OEM contacts yet. Add via POST /api/aria/oem/contact</div>';
+      body.innerHTML = '<div style="color:var(--sc-muted)">No OEM contacts yet. Add via POST /api/aria/oem/contact</div>';
       summary.textContent = '0 / 0 filled';
       return;
     }
@@ -275,18 +275,18 @@ async function loadOemPool() {
     const oems = Object.entries(byOem).sort((a,b) => b[1].total - a[1].total);
 
     let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-bottom:14px">';
-    html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:12px">'
-          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Total slots</div>'
+    html += '<div style="background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:var(--sc-muted)">Total slots</div>'
           + '<div style="font-size:22px;font-weight:600">' + total + '</div></div>';
-    html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:12px">'
-          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Filled (operator-supplied)</div>'
-          + '<div style="font-size:22px;font-weight:600;color:#22c55e">' + filled + '</div></div>';
-    html += '<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px;padding:12px">'
-          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Empty (awaiting fill)</div>'
-          + '<div style="font-size:22px;font-weight:600;color:#f59e0b">' + empty + '</div></div>';
-    html += '<div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.18);border-radius:8px;padding:12px">'
-          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">OEMs tracked</div>'
-          + '<div style="font-size:22px;font-weight:600;color:#c4b5fd">' + oems.length + '</div></div>';
+    html += '<div style="background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:var(--sc-muted)">Filled (operator-supplied)</div>'
+          + '<div style="font-size:22px;font-weight:600;color:#16a34a">' + filled + '</div></div>';
+    html += '<div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:var(--sc-muted)">Empty (awaiting fill)</div>'
+          + '<div style="font-size:22px;font-weight:600;color:#ea580c">' + empty + '</div></div>';
+    html += '<div style="background:var(--sc-prime-soft);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:var(--sc-muted)">OEMs tracked</div>'
+          + '<div style="font-size:22px;font-weight:600;color:var(--sc-prime-dark)">' + oems.length + '</div></div>';
     html += '</div>';
 
     // Per-OEM table
@@ -294,20 +294,20 @@ async function loadOemPool() {
     html += '<thead><tr><th>OEM</th><th>HQ</th><th style="text-align:right">Filled</th><th style="text-align:right">Total</th><th>Coverage</th></tr></thead><tbody>';
     oems.forEach(([oem, s]) => {
       const pct = s.total ? Math.round(s.filled / s.total * 100) : 0;
-      const barColour = pct > 0 ? '#22c55e' : '#f59e0b';
+      const barColour = pct > 0 ? '#16a34a' : '#ea580c';
       html += '<tr>'
             + '<td><strong>' + escHtml(oem) + '</strong></td>'
-            + '<td style="font-size:11.5px;color:rgba(255,255,255,0.55)">' + escHtml(s.hq || '—') + '</td>'
+            + '<td style="font-size:11.5px;color:var(--sc-muted)">' + escHtml(s.hq || '—') + '</td>'
             + '<td style="text-align:right">' + s.filled + '</td>'
             + '<td style="text-align:right">' + s.total + '</td>'
-            + '<td><div style="background:rgba(255,255,255,0.05);height:6px;border-radius:3px;overflow:hidden;width:120px">'
+            + '<td><div style="background:#e9e6df;height:6px;border-radius:3px;overflow:hidden;width:120px">'
             + '<div style="height:100%;width:' + pct + '%;background:' + barColour + '"></div></div></td>'
             + '</tr>';
     });
     html += '</tbody></table>';
     body.innerHTML = html;
   } catch (e) {
-    body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Load error: ' + escHtml(e.message) + '</div>';
+    body.innerHTML = '<div style="color:var(--sc-muted)">Load error: ' + escHtml(e.message) + '</div>';
     summary.textContent = '?';
   }
 }
@@ -317,30 +317,30 @@ async function loadPythonSources() {
   const body = document.getElementById('pysrc-body');
   try {
     const data = await API.get('/api/aria/sources/uptime');
-    if (!data) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">No data — fly endpoint unreachable.</td></tr>'; return; }
+    if (!data) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No data — fly endpoint unreachable.</td></tr>'; return; }
     const sources = data.sources || data.uptime || [];
     if (!sources.length) {
-      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">No Python sources reported yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No Python sources reported yet.</td></tr>';
       return;
     }
     body.innerHTML = sources.map(s => {
       const status = s.status || s.state || (s.last_ok ? 'ok' : 'unknown');
       const isOk  = status === 'ok' || status === 'healthy';
       const isErr = status === 'error' || status === 'failed' || status === 'down';
-      const dot = isOk ? '#22c55e' : isErr ? '#ef4444' : '#f59e0b';
+      const dot = isOk ? '#16a34a' : isErr ? '#dc2626' : '#ea580c';
       const lastOk  = s.last_success || s.last_ok || s.last_success_at || '';
       const lastErr = s.last_error || s.last_fail || '';
-      const susp = s.suspended || s.disabled ? '<span style="color:#fbbf24">Yes</span>' : 'No';
+      const susp = s.suspended || s.disabled ? '<span style="color:#c2410c">Yes</span>' : 'No';
       return '<tr>' +
         '<td><strong>' + escHtml(s.name || s.source || '—') + '</strong></td>' +
         '<td><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + ';vertical-align:middle;margin-right:6px"></span><span style="font-size:12px;text-transform:capitalize">' + escHtml(status) + '</span></td>' +
-        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45)">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
-        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(String(lastErr || '')) + '">' + escHtml(String(lastErr || '—').slice(0, 80)) + '</td>' +
+        '<td style="font-size:11.5px;color:var(--sc-muted)">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
+        '<td style="font-size:11.5px;color:var(--sc-muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(String(lastErr || '')) + '">' + escHtml(String(lastErr || '—').slice(0, 80)) + '</td>' +
         '<td style="font-size:12px">' + susp + '</td>' +
       '</tr>';
     }).join('');
   } catch (e) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">Load error: ' + escHtml(e.message) + '</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">Load error: ' + escHtml(e.message) + '</td></tr>';
   }
 }
 
@@ -353,7 +353,7 @@ async function loadSectorStats() {
     const bs = data._by_sector || {};
     const keys = Object.keys(bs).filter(k => bs[k] && (bs[k].total || 0) > 0);
     if (!keys.length) {
-      el.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No sector-tagged signals recorded yet. After a chat turn from a user with sector set (R-F48), per-sector buckets begin populating here.</div>';
+      el.innerHTML = '<div style="color:var(--sc-muted)">No sector-tagged signals recorded yet. After a chat turn from a user with sector set (R-F48), per-sector buckets begin populating here.</div>';
       return;
     }
     keys.sort((a, b) => (bs[b].total || 0) - (bs[a].total || 0));
@@ -367,10 +367,10 @@ async function loadSectorStats() {
       html += '<tr>' +
         '<td><strong>' + escHtml(k) + '</strong></td>' +
         '<td>' + (v.total || 0) + '</td>' +
-        '<td style="color:#4ade80">' + (v.success || 0) + ' (' + successPct + '%)</td>' +
-        '<td style="color:#fca5a5">' + (v.fail || 0) + '</td>' +
-        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45)">' + lastTs + '</td>' +
-        '<td style="font-size:12px;color:rgba(255,255,255,0.6)">' + escHtml(topModules || '—') + '</td>' +
+        '<td style="color:#15803d">' + (v.success || 0) + ' (' + successPct + '%)</td>' +
+        '<td style="color:#b91c1c">' + (v.fail || 0) + '</td>' +
+        '<td style="font-size:11.5px;color:var(--sc-muted)">' + lastTs + '</td>' +
+        '<td style="font-size:12px;color:var(--sc-text)">' + escHtml(topModules || '—') + '</td>' +
       '</tr>';
     }
     html += '</tbody></table>';
@@ -409,7 +409,7 @@ async function loadAdversarial() {
     let bigPct = lastPct == null ? '—' : lastPct.toFixed(1) + '%';
     let pctColor = '#7c3aed';
     if (lastPct != null) {
-      pctColor = lastPct >= 95 ? '#22c55e' : lastPct >= 85 ? '#fbbf24' : '#fca5a5';
+      pctColor = lastPct >= 95 ? '#16a34a' : lastPct >= 85 ? '#c2410c' : '#b91c1c';
     }
 
     let trendHtml = '';
@@ -417,8 +417,8 @@ async function loadAdversarial() {
       trendHtml = trend.slice(0, 4).map(r => {
         const p = _passPct(r);
         const ts = r.run_at || r.timestamp || r.ts || '';
-        const c = p == null ? 'rgba(255,255,255,0.35)' : p >= 95 ? '#22c55e' : p >= 85 ? '#fbbf24' : '#fca5a5';
-        return '<div style="display:inline-block;text-align:center;margin-right:14px"><div style="font-size:14px;font-weight:700;color:' + c + '">' + (p == null ? '—' : p.toFixed(1) + '%') + '</div><div style="font-size:10.5px;color:rgba(255,255,255,0.4)">' + (ts ? fmtDateTime(ts).slice(0, 10) : '—') + '</div></div>';
+        const c = p == null ? '#9b968c' : p >= 95 ? '#16a34a' : p >= 85 ? '#c2410c' : '#b91c1c';
+        return '<div style="display:inline-block;text-align:center;margin-right:14px"><div style="font-size:14px;font-weight:700;color:' + c + '">' + (p == null ? '—' : p.toFixed(1) + '%') + '</div><div style="font-size:10.5px;color:var(--sc-muted)">' + (ts ? fmtDateTime(ts).slice(0, 10) : '—') + '</div></div>';
       }).join('');
     }
 
@@ -428,18 +428,18 @@ async function loadAdversarial() {
     el.innerHTML =
       '<div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:14px">' +
         '<div>' +
-          '<div style="font-size:12px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latest pass rate</div>' +
+          '<div style="font-size:12px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latest pass rate</div>' +
           '<div style="font-size:34px;font-weight:800;color:' + pctColor + ';line-height:1">' + bigPct + '</div>' +
-          '<div style="font-size:11.5px;color:rgba(255,255,255,0.4);margin-top:4px">' + (lastTs ? 'Run ' + fmtDateTime(lastTs) : 'No run recorded yet — click "Run weekly suite" or wait for the Wed/Sun 10:00 UTC schedule.') + '</div>' +
+          '<div style="font-size:11.5px;color:var(--sc-muted);margin-top:4px">' + (lastTs ? 'Run ' + fmtDateTime(lastTs) : 'No run recorded yet — click "Run weekly suite" or wait for the Wed/Sun 10:00 UTC schedule.') + '</div>' +
         '</div>' +
         (trendHtml ?
-          '<div style="border-left:1px solid rgba(255,255,255,0.06);padding-left:24px"><div style="font-size:12px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Last 4 runs</div>' +
+          '<div style="border-left:1px solid var(--sc-border);padding-left:24px"><div style="font-size:12px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Last 4 runs</div>' +
           trendHtml + '</div>'
           : '') +
       '</div>' +
-      '<div style="display:flex;gap:18px;font-size:12px;color:rgba(255,255,255,0.45);margin-top:6px">' +
-        '<div>Pending amendments: <strong style="color:' + (pending > 0 ? '#fbbf24' : 'rgba(255,255,255,0.7)') + '">' + pending + '</strong></div>' +
-        '<div>Regressions: <strong style="color:' + (regCount > 0 ? '#fca5a5' : 'rgba(255,255,255,0.7)') + '">' + regCount + '</strong></div>' +
+      '<div style="display:flex;gap:18px;font-size:12px;color:var(--sc-muted);margin-top:6px">' +
+        '<div>Pending amendments: <strong style="color:' + (pending > 0 ? '#c2410c' : 'var(--sc-text)') + '">' + pending + '</strong></div>' +
+        '<div>Regressions: <strong style="color:' + (regCount > 0 ? '#b91c1c' : 'var(--sc-text)') + '">' + regCount + '</strong></div>' +
       '</div>';
   } catch (e) {
     el.textContent = 'Adversarial stats load error: ' + e.message;

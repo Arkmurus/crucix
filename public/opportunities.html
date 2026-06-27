@@ -5,7 +5,7 @@
   <title>Opportunities — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -23,8 +23,8 @@
     <div id="opps-grid" class="sc-grid-3"></div>
   </div>
 </main>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('opportunities');
@@ -52,11 +52,11 @@ async function load() {
       </div>
       <div class="sc-card-body">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-          <div style="font-size:36px;font-weight:800;color:#913BFF">${o.score||0}</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div>
+          <div style="font-size:36px;font-weight:800;color:#7c3aed">${o.score||0}</div>
+          <div style="font-size:11px;color:#9b968c">/ 100<br>Score</div>
         </div>
-        ${o.conflict?`<div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:8px">
-          <i class="bi bi-exclamation-triangle" style="color:#FF7A41"></i>
+        ${o.conflict?`<div style="font-size:12px;color:#3d3a34;margin-bottom:8px">
+          <i class="bi bi-exclamation-triangle" style="color:#ea580c"></i>
           ${o.conflict.events||0} conflict events · ${o.conflict.fatalities||0} fatalities
         </div>`:''}
         ${(o.procurementNeeds||[]).length?`<div style="margin-bottom:10px">
@@ -67,9 +67,9 @@ async function load() {
           ${o.devFinanceActivity?`<span class="sc-badge sc-badge-blue" style="font-size:11px">Dev Finance</span>`:''}
           ${o.explorerSignals>0?`<span class="sc-badge sc-badge-muted" style="font-size:11px">${o.explorerSignals} intel signal${o.explorerSignals!==1?'s':''}</span>`:''}
         </div>
-        ${note?`<p style="font-size:12px;color:rgba(255,255,255,.55);margin-top:12px;line-height:1.6;border-top:1px solid rgba(255,255,255,.06);padding-top:10px">${escHtml(truncate(note,180))}</p>`:''}
+        ${note?`<p style="font-size:12px;color:#3d3a34;margin-top:12px;line-height:1.6;border-top:1px solid #e9e6df;padding-top:10px">${escHtml(truncate(note,180))}</p>`:''}
         ${(o.sources||[]).length?`<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
-          ${o.sources.slice(0,3).map(s=>s.url?`<a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="font-size:11px;color:#913BFF;text-decoration:none" title="${escHtml(s.title||'')}"><i class="bi bi-box-arrow-up-right"></i> ${escHtml(s.type||'source')}</a>`:'').join('')}
+          ${o.sources.slice(0,3).map(s=>s.url?`<a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="font-size:11px;color:#7c3aed;text-decoration:none" title="${escHtml(s.title||'')}"><i class="bi bi-box-arrow-up-right"></i> ${escHtml(s.type||'source')}</a>`:'').join('')}
         </div>`:''}
       </div>
     </div>`;

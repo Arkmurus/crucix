@@ -5,82 +5,82 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Watchlist — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.65; }
+    body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); line-height: 1.65; }
     .wl-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
-    .wl-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 8px; }
-    .wl-title { font-size: 28px; font-weight: 800; color: #fff; margin: 0 0 22px; letter-spacing: -0.02em; }
+    .wl-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 8px; }
+    .wl-title { font-size: 28px; font-weight: 800; color: var(--sc-heading); margin: 0 0 22px; letter-spacing: -0.02em; }
 
     .wl-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
     .wl-search {
       flex: 1; min-width: 240px; padding: 10px 14px; border-radius: 9px;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-      color: #fff; font-size: 14px; font-family: inherit; outline: none;
+      background: #fff; border: 1px solid var(--sc-border-strong);
+      color: var(--sc-heading); font-size: 14px; font-family: inherit; outline: none;
     }
-    .wl-search:focus { border-color: rgba(124,58,237,0.4); }
+    .wl-search:focus { border-color: var(--sc-prime); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
     .wl-btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 10px 16px; border-radius: 9px; border: none;
       background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
       font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
-      box-shadow: 0 2px 12px rgba(124,58,237,0.35);
+      box-shadow: 0 2px 12px rgba(124,58,237,0.25);
     }
-    .wl-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+    .wl-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.35); }
     .wl-btn.sec {
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-      box-shadow: none; color: rgba(255,255,255,0.75);
+      background: #fff; border: 1px solid var(--sc-border-strong);
+      box-shadow: none; color: var(--sc-text);
     }
-    .wl-btn.sec:hover { border-color: rgba(124,58,237,0.4); color: #fff; }
-    .wl-btn.danger { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.35); }
+    .wl-btn.sec:hover { border-color: var(--sc-prime); color: var(--sc-prime-dark); background: var(--sc-prime-soft); }
+    .wl-btn.danger { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.25); }
 
     .wl-table {
-      width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.02);
-      border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;
+      width: 100%; border-collapse: collapse; background: #fff;
+      border: 1px solid var(--sc-border); border-radius: 12px; overflow: hidden;
     }
     .wl-table thead th {
       text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
-      color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px;
-      background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);
+      color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1px;
+      background: #f5f4ef; border-bottom: 1px solid var(--sc-border-strong);
     }
-    .wl-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13.5px; vertical-align: middle; }
-    .wl-row:hover { background: rgba(124,58,237,0.04); }
+    .wl-table td { padding: 12px 14px; border-bottom: 1px solid var(--sc-border); font-size: 13.5px; vertical-align: middle; }
+    .wl-row:hover { background: var(--sc-prime-soft); }
 
     .wl-pill {
       display: inline-block; padding: 2px 8px; border-radius: 5px;
       font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
     }
-    .wl-pill.active { background: rgba(34,197,94,0.18); color: #4ade80; }
-    .wl-pill.inactive { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+    .wl-pill.active { background: rgba(22,163,74,0.12); color: #15803d; }
+    .wl-pill.inactive { background: #f2f0e9; color: var(--sc-muted); }
 
     .wl-empty {
-      padding: 48px 24px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px;
-      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px;
+      padding: 48px 24px; text-align: center; color: var(--sc-muted); font-size: 14px;
+      background: #f5f4ef; border: 1px dashed var(--sc-border-strong); border-radius: 12px;
     }
-    .wl-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
+    .wl-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: var(--sc-prime); }
 
     .wl-alerts-section { margin-top: 28px; }
-    .wl-alerts-section h2 { font-size: 18px; font-weight: 700; color: #fff; margin: 0 0 14px; }
+    .wl-alerts-section h2 { font-size: 18px; font-weight: 700; color: var(--sc-heading); margin: 0 0 14px; }
 
     .wl-alert {
       padding: 12px 16px; margin-bottom: 8px;
-      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      background: #fff; border: 1px solid var(--sc-border);
       border-radius: 9px; font-size: 13px; line-height: 1.5;
     }
-    .wl-alert:hover { border-color: rgba(124,58,237,0.2); }
+    .wl-alert:hover { border-color: var(--sc-prime); }
     .wl-alert .wl-alert-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
-    .wl-alert .wl-alert-entity { font-weight: 600; color: #fff; }
-    .wl-alert .wl-alert-date { font-size: 11px; color: rgba(255,255,255,0.35); }
-    .wl-alert .wl-alert-detail { color: rgba(255,255,255,0.6); font-size: 12px; }
+    .wl-alert .wl-alert-entity { font-weight: 600; color: var(--sc-heading); }
+    .wl-alert .wl-alert-date { font-size: 11px; color: #9b968c; }
+    .wl-alert .wl-alert-detail { color: #57534b; font-size: 12px; }
 
-    .wl-loading { padding: 36px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px; }
+    .wl-loading { padding: 36px; text-align: center; color: var(--sc-muted); font-size: 13px; }
 
     @media (max-width: 720px) {
       .wl-table thead { display: none; }
       .wl-table, .wl-table tbody, .wl-table tr, .wl-table td { display: block; }
-      .wl-table tr { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+      .wl-table tr { padding: 12px 14px; border-bottom: 1px solid var(--sc-border); }
       .wl-table td { padding: 3px 0; border: none; }
     }
   </style>
@@ -106,15 +106,15 @@
     </div>
 
     <div class="wl-alerts-section" id="wl-alerts-section" style="display:none">
-      <h2><i class="bi bi-bell" style="color:#c4b5fd;margin-right:8px"></i>Recent Alerts</h2>
+      <h2><i class="bi bi-bell" style="color:var(--sc-prime);margin-right:8px"></i>Recent Alerts</h2>
       <div id="wl-alerts"></div>
     </div>
 
   </div>
 </main>
 
-<script src="js/app.js?v=4"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('watchlist');
@@ -215,11 +215,11 @@ function renderTable(entries) {
     const status = e.active !== false ? '<span class="wl-pill active">Active</span>' : '<span class="wl-pill inactive">Inactive</span>';
     const lastChecked = e.last_checked ? new Date(e.last_checked).toLocaleString() : '—';
     html += '<tr class="wl-row">' +
-      '<td><strong style="color:#fff">' + escText(e.name || '(unnamed)') + '</strong></td>' +
-      '<td style="color:rgba(255,255,255,0.5)">' + escText(e.entity_type || '—') + '</td>' +
-      '<td style="color:rgba(255,255,255,0.5)">' + escText(e.jurisdiction || '—') + '</td>' +
+      '<td><strong style="color:var(--sc-heading)">' + escText(e.name || '(unnamed)') + '</strong></td>' +
+      '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '—') + '</td>' +
+      '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '—') + '</td>' +
       '<td>' + status + '</td>' +
-      '<td style="color:rgba(255,255,255,0.5);font-size:12px">' + lastChecked + '</td>' +
+      '<td style="color:var(--sc-muted);font-size:12px">' + lastChecked + '</td>' +
       '<td>' +
         // R-F1569 — these buttons formerly used inline onclick handlers that
         // interpolated the user-stored entity name into a single-quoted JS
@@ -229,7 +229,7 @@ function renderTable(entries) {
         // event delegation (CSP-safe, single HTML-attribute context) so no
         // name reaches a JS string literal in markup.
         '<button class="wl-btn sec wl-act-dd" data-name="' + escAttr(e.name) + '" style="padding:4px 10px;font-size:11px" title="Run DD on this entity"><i class="bi bi-search"></i></button> ' +
-        '<button class="wl-btn sec wl-act-remove" data-name="' + escAttr(e.name) + '" style="padding:4px 10px;font-size:11px;color:#fca5a5" title="Remove from watchlist"><i class="bi bi-trash"></i></button>' +
+        '<button class="wl-btn sec wl-act-remove" data-name="' + escAttr(e.name) + '" style="padding:4px 10px;font-size:11px;color:#b91c1c" title="Remove from watchlist"><i class="bi bi-trash"></i></button>' +
       '</td>' +
     '</tr>';
   }

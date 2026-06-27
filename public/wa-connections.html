@@ -8,11 +8,11 @@
     *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0c0919; color: #e2e8f0; min-height: 100vh;
+      background: #faf9f5; color: #3d3a34; min-height: 100vh;
     }
     .container { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
     h1 {
-      font-size: 1.3rem; font-weight: 700; color: #fff;
+      font-size: 1.3rem; font-weight: 700; color: #1f1e1c;
       display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
     }
     h1 .logo {
@@ -20,33 +20,34 @@
       background: linear-gradient(135deg, #913BFF, #0066FF);
       display: inline-block;
     }
-    .subtitle { font-size: 0.85rem; color: #94a3b8; margin-bottom: 24px; }
+    .subtitle { font-size: 0.85rem; color: #6b6862; margin-bottom: 24px; }
     .error {
-      background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3);
-      color: #fca5a5; padding: 10px 14px; border-radius: 8px;
+      background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.3);
+      color: #b91c1c; padding: 10px 14px; border-radius: 8px;
       font-size: 0.85rem; margin-bottom: 16px; display: none;
     }
     .error.show { display: block; }
     .card {
-      background: #1a1035; border: 1px solid rgba(255,255,255,0.08);
+      background: #ffffff; border: 1px solid #e9e6df;
       border-radius: 10px; padding: 16px; margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .card-header {
       display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 12px;
     }
-    .card-header h3 { font-size: 1rem; color: #fff; }
+    .card-header h3 { font-size: 1rem; color: #1f1e1c; }
     .badge {
       display: inline-flex; align-items: center; gap: 4px;
       padding: 3px 10px; border-radius: 20px; font-size: 0.75rem;
       font-weight: 600;
     }
-    .badge.connected { background: rgba(34,197,94,0.15); color: #86efac; }
-    .badge.connecting { background: rgba(251,191,36,0.15); color: #fde68a; }
-    .badge.qr-ready { background: rgba(96,165,250,0.15); color: #93c5fd; }
-    .badge.disconnected { background: rgba(239,68,68,0.15); color: #fca5a5; }
-    .badge.logged-out { background: rgba(168,85,247,0.15); color: #d8b4fe; }
-    .meta { font-size: 0.8rem; color: #64748b; margin-bottom: 12px; }
+    .badge.connected { background: rgba(22,163,74,0.12); color: #15803d; }
+    .badge.connecting { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .badge.qr-ready { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+    .badge.disconnected { background: rgba(220,38,38,0.12); color: #b91c1c; }
+    .badge.logged-out { background: rgba(124,58,237,0.12); color: #6d28d9; }
+    .meta { font-size: 0.8rem; color: #6b6862; margin-bottom: 12px; }
     .meta span { display: inline-block; margin-right: 16px; }
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
@@ -59,60 +60,62 @@
     }
     .btn-primary:hover { background: #6d28d9; }
     .btn-outline {
-      background: transparent; color: #93c5fd; border-color: rgba(147,197,253,0.3);
+      background: #fff; color: #2563eb; border-color: #dcd8cf;
     }
-    .btn-outline:hover { border-color: #93c5fd; }
+    .btn-outline:hover { border-color: #2563eb; }
     .btn-danger {
-      background: transparent; color: #fca5a5; border-color: rgba(239,68,68,0.3);
+      background: #fff; color: #dc2626; border-color: rgba(220,38,38,0.3);
     }
-    .btn-danger:hover { border-color: #fca5a5; }
-    .btn-danger.confirm { background: rgba(239,68,68,0.2); border-color: #ef4444; }
+    .btn-danger:hover { border-color: #dc2626; }
+    .btn-danger.confirm { background: rgba(220,38,38,0.1); border-color: #dc2626; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .create-bar {
       display: flex; gap: 8px; margin-bottom: 16px;
     }
     .create-bar input {
-      flex: 1; background: #1a1035; border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 6px; padding: 8px 12px; color: #fff; font-size: 0.85rem;
+      flex: 1; background: #ffffff; border: 1px solid #dcd8cf;
+      border-radius: 6px; padding: 8px 12px; color: #1f1e1c; font-size: 0.85rem;
       outline: none;
     }
     .create-bar input:focus { border-color: #7c3aed; }
-    .create-bar input::placeholder { color: #475569; }
+    .create-bar input::placeholder { color: #9b968c; }
     .empty-state {
-      text-align: center; padding: 48px 16px; color: #64748b;
+      text-align: center; padding: 48px 16px; color: #6b6862;
     }
     .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
-    .empty-state h3 { color: #94a3b8; margin-bottom: 8px; }
+    .empty-state h3 { color: #57534b; margin-bottom: 8px; }
     .empty-state p { font-size: 0.85rem; margin-bottom: 20px; }
-    .loading { text-align: center; padding: 48px; color: #64748b; }
+    .loading { text-align: center; padding: 48px; color: #6b6862; }
     .spinner {
-      width: 24px; height: 24px; border: 2px solid rgba(255,255,255,0.1);
+      width: 24px; height: 24px; border: 2px solid #e9e6df;
       border-top-color: #7c3aed; border-radius: 50%;
       animation: spin 0.8s linear infinite; margin: 0 auto 12px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     /* QR Modal */
     .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      position: fixed; inset: 0; background: rgba(15,23,42,0.45);
       display: flex; align-items: center; justify-content: center;
       z-index: 1000; animation: fadeIn 0.2s;
     }
     .modal {
-      background: #1a1035; border: 1px solid rgba(255,255,255,0.1);
+      background: #ffffff; border: 1px solid #e9e6df;
       border-radius: 12px; width: 90%; max-width: 420px;
       max-height: 90vh; overflow-y: auto; padding: 24px;
+      box-shadow: 0 10px 40px rgba(15,23,42,0.18);
       animation: slideUp 0.25s;
     }
-    .modal h2 { font-size: 1.1rem; color: #fff; margin-bottom: 8px; }
-    .modal p { font-size: 0.85rem; color: #94a3b8; margin-bottom: 20px; }
+    .modal h2 { font-size: 1.1rem; color: #1f1e1c; margin-bottom: 8px; }
+    .modal p { font-size: 0.85rem; color: #6b6862; margin-bottom: 20px; }
     .qr-frame {
       background: #fff; padding: 16px; border-radius: 12px;
       display: inline-block; margin: 0 auto 16px;
+      border: 1px solid #e9e6df;
     }
     .qr-frame svg { display: block; margin: 0 auto; max-width: 100%; }
     .modal-close {
       position: absolute; top: 12px; right: 12px;
-      background: none; border: none; color: #94a3b8;
+      background: none; border: none; color: #6b6862;
       font-size: 1.2rem; cursor: pointer;
     }
     .modal-wrap { position: relative; }
@@ -120,29 +123,30 @@
     @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-      background: #1a1035; border: 1px solid rgba(255,255,255,0.1);
+      background: #ffffff; border: 1px solid #e9e6df; color: #3d3a34;
       padding: 10px 20px; border-radius: 8px; font-size: 0.85rem;
       z-index: 2000; animation: slideUp 0.3s; display: none;
+      box-shadow: 0 4px 18px rgba(15,23,42,0.12);
     }
     .toast.show { display: block; }
-    .toast.success { border-color: rgba(34,197,94,0.3); color: #86efac; }
-    .toast.error { border-color: rgba(239,68,68,0.3); color: #fca5a5; }
+    .toast.success { border-color: rgba(22,163,74,0.3); color: #15803d; }
+    .toast.error { border-color: rgba(220,38,38,0.3); color: #b91c1c; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .status-dot {
       width: 8px; height: 8px; border-radius: 50%; display: inline-block;
       margin-right: 4px;
     }
-    .status-dot.connected { background: #22c55e; }
-    .status-dot.connecting { background: #fbbf24; animation: pulse 1s infinite; }
-    .status-dot.qr-ready { background: #60a5fa; animation: pulse 1s infinite; }
-    .status-dot.disconnected { background: #ef4444; }
-    .status-dot.logged-out { background: #a855f7; }
+    .status-dot.connected { background: #16a34a; }
+    .status-dot.connecting { background: #ea580c; animation: pulse 1s infinite; }
+    .status-dot.qr-ready { background: #2563eb; animation: pulse 1s infinite; }
+    .status-dot.disconnected { background: #dc2626; }
+    .status-dot.logged-out { background: #7c3aed; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
     .refresh-bar {
       display: flex; justify-content: flex-end; margin-bottom: 12px;
     }
     .refresh-bar .btn { font-size: 0.78rem; }
-    .delete-id { font-size: 0.7rem; color: #475569; word-break: break-all; }
+    .delete-id { font-size: 0.7rem; color: #9b968c; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -190,9 +194,9 @@
         <p>Open <strong>WhatsApp</strong> → <strong>Settings</strong> → <strong>Linked Devices</strong> → <strong>Link a Device</strong></p>
         <div id="qrContent" class="text-center" style="text-align:center">
           <div class="spinner" style="margin:20px auto"></div>
-          <p style="color:#64748b;font-size:0.85rem">Generating QR code…</p>
+          <p style="color:#6b6862;font-size:0.85rem">Generating QR code…</p>
         </div>
-        <div id="qrStatus" style="text-align:center;margin-top:12px;font-size:0.8rem;color:#64748b"></div>
+        <div id="qrStatus" style="text-align:center;margin-top:12px;font-size:0.8rem;color:#6b6862"></div>
       </div>
     </div>
   </div>
@@ -360,7 +364,7 @@
     async function showQr(id) {
       document.getElementById('qrModal').style.display = '';
       document.getElementById('qrTitle').textContent = 'Loading QR…';
-      document.getElementById('qrContent').innerHTML = '<div class="spinner" style="margin:20px auto"></div><p style="color:#64748b;font-size:0.85rem">Generating QR code…</p>';
+      document.getElementById('qrContent').innerHTML = '<div class="spinner" style="margin:20px auto"></div><p style="color:#6b6862;font-size:0.85rem">Generating QR code…</p>';
       document.getElementById('qrStatus').textContent = '';
       try {
         const data = await apiFetch('/accounts/' + id);
@@ -372,11 +376,11 @@
           document.getElementById('qrStatus').textContent = 'QR code ready — scan within 60 seconds';
         } else {
           document.getElementById('qrTitle').textContent = 'No QR Available';
-          document.getElementById('qrContent').innerHTML = '<p style="color:#94a3b8;padding:20px">' + (data.account?.status === 'connected' ? 'Already connected — no QR needed' : 'No QR code yet. Try again in a few seconds.') + '</p>';
+          document.getElementById('qrContent').innerHTML = '<p style="color:#6b6862;padding:20px">' + (data.account?.status === 'connected' ? 'Already connected — no QR needed' : 'No QR code yet. Try again in a few seconds.') + '</p>';
         }
       } catch (e) {
         document.getElementById('qrTitle').textContent = 'Error';
-        document.getElementById('qrContent').innerHTML = '<p style="color:#fca5a5;padding:20px">' + escHtml(e.message) + '</p>';
+        document.getElementById('qrContent').innerHTML = '<p style="color:#b91c1c;padding:20px">' + escHtml(e.message) + '</p>';
       }
     }
 

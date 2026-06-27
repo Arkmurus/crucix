@@ -5,44 +5,44 @@
   <title>BD Intelligence — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
-    .bd-tabs { display:flex; gap:2px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:20px; flex-wrap:wrap; }
-    .bd-tab { background:none; border:none; border-bottom:2px solid transparent; color:rgba(255,255,255,0.45); font-size:13px; font-weight:500; padding:10px 16px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; white-space:nowrap; }
-    .bd-tab:hover { color:rgba(255,255,255,0.8); }
-    .bd-tab.active { color:#fff; border-bottom-color:#913BFF; font-weight:600; }
+    .bd-tabs { display:flex; gap:2px; border-bottom:1px solid var(--sc-border); margin-bottom:20px; flex-wrap:wrap; }
+    .bd-tab { background:none; border:none; border-bottom:2px solid transparent; color:var(--sc-muted); font-size:13px; font-weight:500; padding:10px 16px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; white-space:nowrap; }
+    .bd-tab:hover { color:var(--sc-text); }
+    .bd-tab.active { color:var(--sc-prime); border-bottom-color:var(--sc-prime); font-weight:600; }
     .bd-tab i { font-size:15px; }
     .bd-panel { display:none; } .bd-panel.active { display:block; }
-    .intel-card { background:#1d1245; border:1px solid rgba(255,255,255,0.08); border-left:4px solid #913BFF; border-radius:12px; margin-bottom:12px; overflow:hidden; transition:transform .18s, box-shadow .18s; }
-    .intel-card:hover { transform:translateY(-2px); box-shadow:0 6px 24px rgba(145,59,255,0.2); }
+    .intel-card { background:#ffffff; border:1px solid var(--sc-border); border-left:4px solid var(--sc-prime); border-radius:12px; margin-bottom:12px; overflow:hidden; transition:transform .18s, box-shadow .18s; box-shadow:0 1px 3px rgba(15,23,42,0.04); }
+    .intel-card:hover { transform:translateY(-2px); box-shadow:0 6px 24px rgba(124,58,237,0.15); }
     .ic-top { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 16px 8px; }
     .ic-body { padding:0 16px 12px; }
-    .ic-title { font-size:14px; font-weight:600; color:#fff; line-height:1.5; margin-bottom:5px; }
-    .ic-text { font-size:12px; color:rgba(255,255,255,0.6); line-height:1.55; }
-    .ic-foot { display:flex; align-items:center; gap:10px; padding:8px 16px 10px; border-top:1px solid rgba(255,255,255,0.05); font-size:12px; flex-wrap:wrap; }
-    .ic-row { display:flex; align-items:baseline; gap:6px; font-size:13px; color:rgba(255,255,255,0.8); margin-top:4px; }
-    .ic-lbl { font-size:11px; color:rgba(255,255,255,0.35); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
-    .ic-nextstep { display:flex; align-items:flex-start; gap:6px; margin-top:8px; padding:8px 10px; background:rgba(255,213,79,0.07); border-left:3px solid rgba(255,213,79,0.4); border-radius:0 6px 6px 0; font-size:12px; color:#fff9c4; }
-    .ic-share { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:rgba(255,255,255,0.5); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .15s; margin-left:auto; flex-shrink:0; }
-    .ic-share:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
+    .ic-title { font-size:14px; font-weight:600; color:var(--sc-heading); line-height:1.5; margin-bottom:5px; }
+    .ic-text { font-size:12px; color:#57534b; line-height:1.55; }
+    .ic-foot { display:flex; align-items:center; gap:10px; padding:8px 16px 10px; border-top:1px solid var(--sc-border); font-size:12px; flex-wrap:wrap; }
+    .ic-row { display:flex; align-items:baseline; gap:6px; font-size:13px; color:var(--sc-text); margin-top:4px; }
+    .ic-lbl { font-size:11px; color:#9b968c; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+    .ic-nextstep { display:flex; align-items:flex-start; gap:6px; margin-top:8px; padding:8px 10px; background:rgba(234,88,12,0.08); border-left:3px solid rgba(234,88,12,0.4); border-radius:0 6px 6px 0; font-size:12px; color:#c2410c; }
+    .ic-share { background:#f5f4ef; border:1px solid var(--sc-border); border-radius:6px; color:var(--sc-muted); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .15s; margin-left:auto; flex-shrink:0; }
+    .ic-share:hover { background:var(--sc-prime-soft); color:var(--sc-prime); }
     /* Share sheet */
-    .share-sheet { position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:999; display:none; align-items:flex-end; justify-content:center; padding:20px; }
+    .share-sheet { position:fixed; inset:0; background:rgba(15,23,42,0.45); z-index:999; display:none; align-items:flex-end; justify-content:center; padding:20px; }
     .share-sheet.open { display:flex; }
     @media(min-width:600px){ .share-sheet { align-items:center; } }
-    .share-panel { background:#1d1245; border:1px solid rgba(255,255,255,0.1); border-radius:16px 16px 0 0; width:100%; max-width:420px; }
+    .share-panel { background:#ffffff; border:1px solid var(--sc-border); border-radius:16px 16px 0 0; width:100%; max-width:420px; box-shadow:0 12px 40px rgba(15,23,42,0.08); }
     @media(min-width:600px){ .share-panel { border-radius:16px; } }
-    .share-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.07); font-size:14px; font-weight:600; color:#fff; }
-    .share-preview { padding:10px 18px; font-size:12px; color:rgba(255,255,255,0.45); font-style:italic; line-height:1.5; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05); }
+    .share-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--sc-border); font-size:14px; font-weight:600; color:var(--sc-heading); }
+    .share-preview { padding:10px 18px; font-size:12px; color:var(--sc-muted); font-style:italic; line-height:1.5; background:#f5f4ef; border-bottom:1px solid var(--sc-border); }
     .share-btns { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:16px 18px 8px; }
-    .share-btn { display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); color:rgba(255,255,255,0.6); cursor:pointer; font-size:11px; font-weight:600; transition:all .15s; }
+    .share-btn { display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 8px; border-radius:10px; border:1px solid var(--sc-border); background:#f5f4ef; color:#57534b; cursor:pointer; font-size:11px; font-weight:600; transition:all .15s; }
     .share-btn:hover { transform:translateY(-2px); }
-    .share-btn.wa:hover { background:rgba(37,211,102,0.15); color:#25d366; }
-    .share-btn.tg:hover { background:rgba(36,161,222,0.15); color:#24a1de; }
-    .share-btn.em:hover { background:rgba(0,102,255,0.15); color:#64b5f6; }
-    .share-btn.cp:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
-    .share-copy-btn { display:flex; align-items:center; justify-content:center; margin:8px 18px 16px; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.6); cursor:pointer; font-size:13px; font-weight:600; transition:all .15s; width:calc(100% - 36px); }
-    .share-copy-btn:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
+    .share-btn.wa:hover { background:rgba(37,211,102,0.15); color:#1a7a40; }
+    .share-btn.tg:hover { background:rgba(36,161,222,0.15); color:#1d7fb0; }
+    .share-btn.em:hover { background:rgba(37,99,235,0.12); color:#1d4ed8; }
+    .share-btn.cp:hover { background:var(--sc-prime-soft); color:var(--sc-prime); }
+    .share-copy-btn { display:flex; align-items:center; justify-content:center; margin:8px 18px 16px; padding:10px; border-radius:8px; border:1px solid var(--sc-border); background:#f5f4ef; color:#57534b; cursor:pointer; font-size:13px; font-weight:600; transition:all .15s; width:calc(100% - 36px); }
+    .share-copy-btn:hover { background:var(--sc-prime-soft); color:var(--sc-prime); }
   </style>
 </head>
 <body>
@@ -78,7 +78,7 @@
   <div class="share-panel" id="share-panel">
     <div class="share-header">
       <span>Share Intelligence</span>
-      <button data-share="close" style="background:rgba(255,255,255,0.07);border:none;color:rgba(255,255,255,0.6);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
+      <button data-share="close" style="background:#f2f0e9;border:none;color:var(--sc-muted);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
     </div>
     <div class="share-preview" id="share-preview"></div>
     <div class="share-btns">
@@ -90,8 +90,8 @@
     <button class="share-copy-btn" data-share="copy"><i class="bi bi-clipboard"></i>&nbsp; Copy full text</button>
   </div>
 </div>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('bd');
@@ -150,9 +150,9 @@ function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
     <div class="ic-body">
       <div class="ic-title">${escHtml(title)}</div>
       ${summary?`<div class="ic-text">${escHtml(truncate(summary,200))}</div>`:''}
-      ${nextstep?`<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:14px"></i>${escHtml(nextstep)}</div>`:''}
+      ${nextstep?`<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ea580c;font-size:14px"></i>${escHtml(nextstep)}</div>`:''}
     </div>
-    ${url?`<div class="ic-foot"><a href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>`:''}
+    ${url?`<div class="ic-foot"><a href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>`:''}
   </div>`;
 }
 
@@ -171,11 +171,11 @@ function freshnessPill(item) {
   if (diffMs < 0) return '';  // future timestamps — skip
   var mins = Math.floor(diffMs / 60000);
   var label, colour;
-  if (mins < 60) { label = mins + 'm ago'; colour = '#4ade80'; }
-  else if (mins < 24 * 60) { label = Math.floor(mins / 60) + 'h ago'; colour = '#86efac'; }
-  else if (mins < 7 * 24 * 60) { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#fbbf24'; }
-  else { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#fca5a5'; }
-  return '<span style="font-size:11px;color:' + colour + ';margin-left:8px;padding:1px 6px;background:rgba(255,255,255,0.05);border-radius:4px">' + label + '</span>';
+  if (mins < 60) { label = mins + 'm ago'; colour = '#15803d'; }
+  else if (mins < 24 * 60) { label = Math.floor(mins / 60) + 'h ago'; colour = '#16a34a'; }
+  else if (mins < 7 * 24 * 60) { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#c2410c'; }
+  else { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#b91c1c'; }
+  return '<span style="font-size:11px;color:' + colour + ';margin-left:8px;padding:1px 6px;background:#f2f0e9;border-radius:4px">' + label + '</span>';
 }
 
 async function load() {
@@ -210,28 +210,28 @@ async function load() {
   // Stats
   var hotCount = tenders.filter(function(t) { return t.leadQuality === 'HOT'; }).length;
   document.getElementById('bd-stats').innerHTML = [
-    ['Sales Leads', allLeads.length, '#913BFF'],
+    ['Sales Leads', allLeads.length, '#7c3aed'],
     ['All Tenders', tenders.length, '#0066FF'],
     ['HOT Priority', hotCount, '#ef4444'],
     ['Brain Ideas', brainLeads.length, '#FF7A41'],
-  ].map(function(a) { var lbl=a[0],val=a[1],col=a[2]; return '<div style="background:#1d1245;border:1px solid rgba(255,255,255,0.07);border-top:3px solid '+col+';border-radius:8px;padding:8px 14px;text-align:center;min-width:70px"><div style="font-size:1.3rem;font-weight:800;color:'+col+'">'+val+'</div><div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">'+lbl+'</div></div>'; }).join('');
+  ].map(function(a) { var lbl=a[0],val=a[1],col=a[2]; return '<div style="background:#ffffff;border:1px solid var(--sc-border);border-top:3px solid '+col+';border-radius:8px;padding:8px 14px;text-align:center;min-width:70px;box-shadow:0 1px 3px rgba(15,23,42,0.04)"><div style="font-size:1.3rem;font-weight:800;color:'+col+'">'+val+'</div><div style="font-size:10px;color:#9b968c;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">'+lbl+'</div></div>'; }).join('');
 
   // ── Brain Strategy panel ──
   if (brain) {
     var bHtml = '';
     // R-F2002 — honesty banner: this panel is AI-generated from live signals.
-    bHtml += '<div style="font-size:11px;color:rgba(255,255,255,0.45);background:rgba(255,213,79,0.06);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;padding:7px 10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> AI-generated from live signals. Named buyers, OEMs, deal values and dates are estimates — verify independently before acting.</div>';
+    bHtml += '<div style="font-size:11px;color:#57534b;background:rgba(234,88,12,0.08);border-left:3px solid rgba(234,88,12,0.4);border-radius:0 6px 6px 0;padding:7px 10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> AI-generated from live signals. Named buyers, OEMs, deal values and dates are estimates — verify independently before acting.</div>';
     // Weekly priority
     if (brain.weeklyPriority && brain.weeklyPriority.action) {
       var wp = brain.weeklyPriority;
       bHtml += '<div class="intel-card" style="border-left-color:#ef4444"><div class="ic-top">' + chip('TOP PRIORITY','sc-badge-prime') + chip(wp.market||'','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml('TOP PRIORITY: ' + wp.action + (wp.whyNow ? '\nWhy now: ' + wp.whyNow : '') + (wp.firstStep ? '\nNext step: ' + wp.firstStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(wp.action) + '</div>';
       if (wp.whyNow) bHtml += '<div class="ic-text" style="margin-top:4px"><strong>Why now:</strong> ' + escHtml(wp.whyNow) + '</div>';
-      if (wp.firstStep) bHtml += '<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:14px"></i>' + escHtml(wp.firstStep) + '</div>';
+      if (wp.firstStep) bHtml += '<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ea580c;font-size:14px"></i>' + escHtml(wp.firstStep) + '</div>';
       bHtml += '</div></div>';
     }
     // Action plan
     if (brain.actionPlan && brain.actionPlan.length) {
-      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Action Plan</h4>';
+      bHtml += '<h4 style="color:#57534b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Action Plan</h4>';
       brain.actionPlan.forEach(function(a) {
         bHtml += '<div class="intel-card"><div class="ic-top">' + chip(a.market||'','sc-badge-blue') + (a.winProb ? chip('Win: '+a.winProb+'%','sc-badge-green') : '') + '<button class="ic-share" data-sharetext="' + escHtml((a.market||'') + ': ' + (a.deal||'') + (a.winProb ? ' (Win: '+a.winProb+'%)' : '') + (a.steps&&a.steps.length ? '\nSteps:\n' + a.steps.map(function(s,i){return (i+1)+'. '+s;}).join('\n') : '') + (a.deadline ? '\nDeadline: '+a.deadline : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(a.deal||'') + '</div>';
         if (a.steps && a.steps.length) bHtml += '<div class="ic-text">' + a.steps.map(function(s,i){return (i+1)+'. '+escHtml(s);}).join('<br>') + '</div>';
@@ -241,14 +241,14 @@ async function load() {
     }
     // Market intelligence
     if (brain.marketIntelligence && brain.marketIntelligence.length) {
-      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Market Intelligence</h4>';
+      bHtml += '<h4 style="color:#57534b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Market Intelligence</h4>';
       brain.marketIntelligence.forEach(function(m) {
         bHtml += renderCard(m.market + ' — ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', m.market + ': ' + (m.signal||'') + (m.recommendation ? '\nRecommendation: ' + m.recommendation : ''));
       });
     }
     // Knowledge gaps
     if (brain.knowledgeGaps && brain.knowledgeGaps.length) {
-      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Knowledge Gaps</h4>';
+      bHtml += '<h4 style="color:#57534b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Knowledge Gaps</h4>';
       brain.knowledgeGaps.forEach(function(g) {
         bHtml += '<div class="intel-card" style="border-left-color:#FF7A41"><div class="ic-top"><button class="ic-share" data-sharetext="' + escHtml('Knowledge Gap: ' + (g.question||'') + (g.howToFind ? '\nHow to find: ' + g.howToFind : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(g.question||'') + '</div><div class="ic-text">' + escHtml(g.howToFind||'') + '</div></div></div>';
       });
@@ -256,14 +256,14 @@ async function load() {
     // Self learning
     if (brain.selfLearning) {
       var sl = brain.selfLearning;
-      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Brain Learning</h4>';
+      bHtml += '<h4 style="color:#57534b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Brain Learning</h4>';
       bHtml += '<div class="intel-card" style="border-left-color:#22c55e"><div class="ic-body">';
       if (sl.strategyAdjustment) bHtml += '<div class="ic-text"><strong>Strategy:</strong> '+escHtml(sl.strategyAdjustment)+'</div>';
       if (sl.nextSweepFocus) bHtml += '<div class="ic-text" style="margin-top:6px"><strong>Next focus:</strong> '+escHtml(sl.nextSweepFocus)+'</div>';
       if (sl.patternsObserved && sl.patternsObserved.length) bHtml += '<div class="ic-text" style="margin-top:6px"><strong>Patterns:</strong> '+sl.patternsObserved.map(function(p){return escHtml(p);}).join('; ')+'</div>';
       bHtml += '</div></div>';
     }
-    if (brain.confidence != null) bHtml += '<div style="text-align:right;font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px">Brain confidence: '+Math.round(brain.confidence*100)+'%</div>';
+    if (brain.confidence != null) bHtml += '<div style="text-align:right;font-size:11px;color:#9b968c;margin-top:8px">Brain confidence: '+Math.round(brain.confidence*100)+'%</div>';
     document.getElementById('panel-brain').innerHTML = bHtml || '<p class="text-muted">Brain analysis available after next sweep.</p>';
   } else {
     document.getElementById('panel-brain').innerHTML = '<p class="text-muted">Brain strategy not available — requires LLM to be configured and a completed sweep.</p>';
@@ -277,10 +277,10 @@ async function load() {
     var qLabel = l.leadQuality==='HOT'?'HOT':l.leadQuality==='WARM'?'WARM':'Intel Signal';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
       escHtml(l.market||'Global') + freshnessPill(l) + '</div>' + chip(qLabel,qBadge) + '</div><div class="sc-card-body">' +
-      (l.signalCount > 0 ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:24px;font-weight:800;color:#913BFF">' + l.signalCount + '</span><span style="font-size:11px;color:rgba(255,255,255,.4)">intel signals</span></div>' : '') +
-      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||l.market||'',120)) + '</div>' +
-      (l.summary ? '<p style="font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;margin-bottom:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px">' + escHtml(truncate(l.summary,300)) + '</p>' : '') +
-      (l.source==='Brain' ? '<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:6px"><i class="bi bi-info-circle"></i> AI-generated from live signals — verify independently</div>' : '') +
+      (l.signalCount > 0 ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:24px;font-weight:800;color:var(--sc-prime)">' + l.signalCount + '</span><span style="font-size:11px;color:#9b968c">intel signals</span></div>' : '') +
+      '<div style="font-size:13px;font-weight:600;color:var(--sc-heading);margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||l.market||'',120)) + '</div>' +
+      (l.summary ? '<p style="font-size:12px;color:#57534b;line-height:1.6;margin-bottom:8px;border-top:1px solid var(--sc-border);padding-top:10px">' + escHtml(truncate(l.summary,300)) + '</p>' : '') +
+      (l.source==='Brain' ? '<div style="font-size:11px;color:#9b968c;margin-top:6px"><i class="bi bi-info-circle"></i> AI-generated from live signals — verify independently</div>' : '') +
       '</div></div>';
   }).join('') + '</div>' : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
 
@@ -290,12 +290,12 @@ async function load() {
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
       escHtml(t.market||'Global') + freshnessPill(t) + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ' — ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
-      '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (t.score||0) + '</div>' +
-      '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
+      '<div style="font-size:28px;font-weight:800;color:var(--sc-prime)">' + (t.score||0) + '</div>' +
+      '<div style="font-size:11px;color:#9b968c">/ 100<br>Score</div></div>' +
       (t.leadQuality ? '<div style="margin-bottom:8px">' + chip(t.leadQuality,qBadge) + (t.winProbability?chip('Fit '+t.winProbability+'/100','sc-badge-green'):'') + '</div>' : '') +
-      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px;line-height:1.5">' + escHtml(truncate(t.title||'',120)) + '</div>' +
-      (t.summary ? '<p style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;margin-bottom:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
-      (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
+      '<div style="font-size:13px;font-weight:600;color:var(--sc-heading);margin-bottom:6px;line-height:1.5">' + escHtml(truncate(t.title||'',120)) + '</div>' +
+      (t.summary ? '<p style="font-size:12px;color:#57534b;line-height:1.5;margin-bottom:8px;border-top:1px solid var(--sc-border);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
+      (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
       '</div></div>';
   }).join('') + '</div>' : '<p class="text-muted">No tenders found — tenders are extracted from procurement feeds during sweeps.</p>';
 
@@ -304,13 +304,13 @@ async function load() {
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
       (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '<button class="ic-share" data-sharetext="' + escHtml((i.market||'') + ' — ' + (i.type||'IDEA') + ' (Score: ' + (i.score||0) + ')\n' + (i.rationale||'') + (i.actionStep ? '\nAction: ' + i.actionStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
-      '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (i.score||0) + '</div>' +
-      '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
-      '<div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:8px">' +
-        '<i class="bi bi-broadcast" style="color:#FF7A41"></i> ' + (i.signals||0) + ' signals' +
-        (i.devFinance ? ' · <span style="color:#22c55e">Dev Finance</span>' : '') + '</div>' +
-      (i.rationale ? '<p style="font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;border-top:1px solid rgba(255,255,255,.06);padding-top:8px;margin-bottom:8px">' + escHtml(truncate(i.rationale,180)) + '</p>' : '') +
-      (i.actionStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(255,213,79,0.07);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#fff9c4"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(i.actionStep,150)) + '</div>' : '') +
+      '<div style="font-size:28px;font-weight:800;color:var(--sc-prime)">' + (i.score||0) + '</div>' +
+      '<div style="font-size:11px;color:#9b968c">/ 100<br>Score</div></div>' +
+      '<div style="font-size:12px;color:#57534b;margin-bottom:8px">' +
+        '<i class="bi bi-broadcast" style="color:#ea580c"></i> ' + (i.signals||0) + ' signals' +
+        (i.devFinance ? ' · <span style="color:#15803d">Dev Finance</span>' : '') + '</div>' +
+      (i.rationale ? '<p style="font-size:12px;color:#57534b;line-height:1.6;border-top:1px solid var(--sc-border);padding-top:8px;margin-bottom:8px">' + escHtml(truncate(i.rationale,180)) + '</p>' : '') +
+      (i.actionStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(234,88,12,0.08);border-left:3px solid rgba(234,88,12,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#c2410c"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ea580c;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(i.actionStep,150)) + '</div>' : '') +
       '</div></div>';
   }).join('') + '</div>' : '<p class="text-muted">No strategic ideas — ideas are generated from multi-source intelligence convergence.</p>';
 

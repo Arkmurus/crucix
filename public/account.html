@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Account & Billing — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     .acct-shell { max-width: 960px; margin: 0 auto; padding: 28px 24px 60px; }
@@ -13,32 +13,32 @@
     .acct-banner {
       display: flex; align-items: center; gap: 14px;
       padding: 14px 18px; border-radius: 12px; margin-bottom: 24px;
-      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
-      color: rgba(255,255,255,0.75); font-size: 13.5px;
+      background: rgba(234,88,12,0.08); border: 1px solid rgba(234,88,12,0.25);
+      color: var(--sc-text); font-size: 13.5px;
     }
-    .acct-banner i { color: #fbbf24; font-size: 18px; }
-    .acct-banner.info { background: rgba(0,102,255,0.07); border-color: rgba(0,102,255,0.22); }
-    .acct-banner.info i { color: #60a5fa; }
+    .acct-banner i { color: #c2410c; font-size: 18px; }
+    .acct-banner.info { background: rgba(37,99,235,0.07); border-color: rgba(37,99,235,0.22); }
+    .acct-banner.info i { color: #1d4ed8; }
 
     .acct-tier {
-      background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(37,99,235,0.08));
-      border: 1px solid rgba(124,58,237,0.25);
+      background: linear-gradient(135deg, #f1ecfb, #f3f1ea);
+      border: 1px solid rgba(124,58,237,0.3);
       border-radius: 14px; padding: 22px;
       margin-bottom: 22px;
     }
     .acct-tier-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .acct-tier-name { font-size: 22px; font-weight: 700; color: #fff; }
-    .acct-tier-price { font-size: 15px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+    .acct-tier-name { font-size: 22px; font-weight: 700; color: var(--sc-heading); }
+    .acct-tier-price { font-size: 15px; color: #57534b; margin-top: 2px; }
     .acct-tier-status {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
       letter-spacing: 0.5px; text-transform: uppercase;
     }
-    .acct-tier-status.active   { background: rgba(34,197,94,0.15);  color: #4ade80; }
-    .acct-tier-status.trialing { background: rgba(0,102,255,0.15);  color: #60a5fa; }
-    .acct-tier-status.past_due { background: rgba(245,158,11,0.15); color: #fbbf24; }
-    .acct-tier-status.canceled { background: rgba(239,68,68,0.15);  color: #fca5a5; }
-    .acct-tier-status.none     { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+    .acct-tier-status.active   { background: rgba(22,163,74,0.12);  color: #15803d; }
+    .acct-tier-status.trialing { background: rgba(37,99,235,0.12);  color: #1d4ed8; }
+    .acct-tier-status.past_due { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .acct-tier-status.canceled { background: rgba(220,38,38,0.12);  color: #b91c1c; }
+    .acct-tier-status.none     { background: #f2f0e9; color: var(--sc-muted); }
 
     .acct-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -47,15 +47,15 @@
       gap: 14px; margin-bottom: 28px;
     }
     .acct-usage-card {
-      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 12px; padding: 16px;
+      background: #ffffff; border: 1px solid var(--sc-border);
+      border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     }
-    .acct-usage-label { font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-    .acct-usage-value { font-size: 22px; font-weight: 700; color: #fff; }
-    .acct-usage-cap { font-size: 13px; color: rgba(255,255,255,0.4); font-weight: 500; }
+    .acct-usage-label { font-size: 11px; color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .acct-usage-value { font-size: 22px; font-weight: 700; color: var(--sc-heading); }
+    .acct-usage-cap { font-size: 13px; color: var(--sc-muted); font-weight: 500; }
     .acct-usage-bar {
       margin-top: 10px; height: 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.06); overflow: hidden;
+      background: #e9e6df; overflow: hidden;
     }
     .acct-usage-bar-fill {
       height: 100%; background: linear-gradient(90deg, #7c3aed, #2563eb);
@@ -64,7 +64,7 @@
     .acct-usage-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #ef4444); }
 
     .acct-section-title {
-      font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45);
+      font-size: 12px; font-weight: 700; color: var(--sc-muted);
       letter-spacing: 1.5px; text-transform: uppercase; margin: 30px 0 14px;
     }
 
@@ -73,25 +73,25 @@
       gap: 16px;
     }
     .pricing-card {
-      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07);
+      background: #ffffff; border: 1px solid var(--sc-border);
       border-radius: 14px; padding: 22px;
-      display: flex; flex-direction: column; gap: 14px;
+      display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     }
-    .pricing-card.current { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.05); }
-    .pricing-card.featured { border-color: rgba(0,102,255,0.4); }
+    .pricing-card.current { border-color: var(--sc-prime); background: var(--sc-prime-soft); }
+    .pricing-card.featured { border-color: rgba(37,99,235,0.5); }
     .pricing-card-head { display: flex; align-items: baseline; justify-content: space-between; }
-    .pricing-name { font-size: 17px; font-weight: 700; color: #fff; }
+    .pricing-name { font-size: 17px; font-weight: 700; color: var(--sc-heading); }
     .pricing-current-pill {
       font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
-      background: rgba(124,58,237,0.18); color: #c4b5fd; letter-spacing: 0.4px;
+      background: rgba(124,58,237,0.15); color: var(--sc-prime-dark); letter-spacing: 0.4px;
     }
-    .pricing-price { font-size: 28px; font-weight: 800; color: #fff; }
-    .pricing-price-suffix { font-size: 13px; color: rgba(255,255,255,0.45); font-weight: 500; }
+    .pricing-price { font-size: 28px; font-weight: 800; color: var(--sc-heading); }
+    .pricing-price-suffix { font-size: 13px; color: var(--sc-muted); font-weight: 500; }
     .pricing-features { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 7px; }
-    .pricing-features li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: rgba(255,255,255,0.7); }
-    .pricing-features li i { color: #4ade80; font-size: 14px; flex-shrink: 0; margin-top: 2px; }
-    .pricing-features li.dim { color: rgba(255,255,255,0.3); }
-    .pricing-features li.dim i { color: rgba(255,255,255,0.2); }
+    .pricing-features li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--sc-text); }
+    .pricing-features li i { color: #15803d; font-size: 14px; flex-shrink: 0; margin-top: 2px; }
+    .pricing-features li.dim { color: #9b968c; }
+    .pricing-features li.dim i { color: var(--sc-border-strong); }
     .pricing-cta { margin-top: auto; }
     .pricing-cta-btn {
       width: 100%; padding: 11px; border-radius: 9px; border: none;
@@ -103,10 +103,10 @@
     }
     .pricing-cta-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 24px rgba(124,58,237,0.5); }
     .pricing-cta-btn.outline {
-      background: transparent; border: 1px solid rgba(255,255,255,0.12);
-      color: rgba(255,255,255,0.7);
+      background: transparent; border: 1px solid var(--sc-border-strong);
+      color: var(--sc-text);
     }
-    .pricing-cta-btn.outline:hover { border-color: rgba(124,58,237,0.4); color: #fff; }
+    .pricing-cta-btn.outline:hover { border-color: var(--sc-prime); color: var(--sc-prime); }
     .pricing-cta-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
   </style>
 </head>
@@ -156,36 +156,36 @@
     <!-- R-F42 API keys (only renders when ENABLE_PUBLIC_API=1 server-side) -->
     <div id="acct-keys-section" style="display:none">
       <div class="acct-section-title">API keys</div>
-      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:18px;">
-        <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px">
+      <div style="background:#ffffff;border:1px solid var(--sc-border);border-radius:12px;padding:18px;box-shadow:0 1px 3px rgba(15,23,42,0.04);">
+        <div style="font-size:13px;color:#57534b;margin-bottom:12px">
           Use API keys to access ARIA from your own scripts and integrations.
           Keys count against your tier's daily message quota and are rate-limited to 60 req/min per key.
           Pro Intelligence tier required.
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
           <input id="keys-name-input" type="text" placeholder="Key label (e.g. Backend service)"
-                 style="flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:8px;padding:9px 12px;color:#fff;font-size:13px;font-family:inherit">
+                 style="flex:1;background:#ffffff;border:1px solid var(--sc-border-strong);
+                        border-radius:8px;padding:9px 12px;color:var(--sc-heading);font-size:13px;font-family:inherit">
           <button id="keys-create-btn" class="sc-btn sc-btn-primary sc-btn-sm">Create new key</button>
         </div>
         <div id="keys-just-created" style="display:none;margin:10px 0 14px;padding:12px;
-             background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.25);border-radius:8px">
-          <div style="font-size:12px;color:#4ade80;margin-bottom:6px;font-weight:600">
+             background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.25);border-radius:8px">
+          <div style="font-size:12px;color:#15803d;margin-bottom:6px;font-weight:600">
             <i class="bi bi-check-circle-fill"></i> Key created — copy now, you won't see it again
           </div>
           <code id="keys-just-created-value"
-                style="display:block;padding:8px;background:rgba(0,0,0,0.4);border-radius:6px;
-                       font-size:12px;color:#fff;word-break:break-all;user-select:all"></code>
+                style="display:block;padding:8px;background:#f2f0e9;border:1px solid var(--sc-border);border-radius:6px;
+                       font-size:12px;color:var(--sc-heading);word-break:break-all;user-select:all"></code>
         </div>
-        <div id="keys-list" style="font-size:13px;color:rgba(255,255,255,0.4)">Loading…</div>
+        <div id="keys-list" style="font-size:13px;color:var(--sc-muted)">Loading…</div>
       </div>
     </div>
 
   </div>
 </main>
 
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('account');
@@ -243,7 +243,7 @@ Sidebar.init('account');
     if (billingOn && meResp.tier !== 'free') {
       var manage = document.createElement('button');
       manage.className = 'sc-btn sc-btn-sm';
-      manage.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7)';
+      manage.style.cssText = 'background:transparent;border:1px solid var(--sc-border-strong);color:var(--sc-text)';
       manage.textContent = 'Manage subscription';
       manage.onclick = function() { openPortal(this); };
       actions.appendChild(manage);
@@ -443,11 +443,11 @@ Sidebar.init('account');
       keys.forEach(function(k) {
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
-          + 'padding:10px 0;border-top:1px solid rgba(255,255,255,0.05)';
+          + 'padding:10px 0;border-top:1px solid var(--sc-border)';
         const left = document.createElement('div');
-        left.innerHTML = '<div style="color:#fff;font-weight:600;font-size:13px">'
+        left.innerHTML = '<div style="color:var(--sc-heading);font-weight:600;font-size:13px">'
           + escapeHtml(k.name || 'API key') + '</div>'
-          + '<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:3px">'
+          + '<div style="font-size:11px;color:var(--sc-muted);margin-top:3px">'
           + escapeHtml(k.prefix || 'crx_live_') + '…' + escapeHtml(k.last4 || '') + ' · '
           + 'created ' + (k.createdAt ? k.createdAt.slice(0, 10) : '')
           + (k.lastUsedAt ? ' · last used ' + k.lastUsedAt.slice(0, 10) : ' · never used')
@@ -457,8 +457,8 @@ Sidebar.init('account');
         if (!k.revokedAt) {
           const btn = document.createElement('button');
           btn.className = 'sc-btn sc-btn-sm';
-          btn.style.cssText = 'background:transparent;border:1px solid rgba(239,68,68,0.3);'
-            + 'color:#fca5a5;font-size:11px';
+          btn.style.cssText = 'background:transparent;border:1px solid rgba(220,38,38,0.4);'
+            + 'color:#b91c1c;font-size:11px';
           btn.textContent = 'Revoke';
           btn.onclick = async function() {
             if (!confirm('Revoke "' + (k.name || 'this key') + '"? This cannot be undone.')) return;
@@ -474,7 +474,7 @@ Sidebar.init('account');
           };
           right.appendChild(btn);
         } else {
-          right.innerHTML = '<span style="font-size:11px;color:rgba(255,255,255,0.3)">revoked</span>';
+          right.innerHTML = '<span style="font-size:11px;color:#9b968c">revoked</span>';
         }
         row.appendChild(left); row.appendChild(right);
         listEl.appendChild(row);

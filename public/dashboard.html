@@ -6,7 +6,7 @@
   <title>Intelligence Brief — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -23,9 +23,9 @@
        this banner makes that visible to the operator instead of letting
        the page look "loading" when it's actually broken. -->
   <div id="fetch-failure-banner" role="alert"
-       style="display:none;background:#3d2818;border:1px solid #5c2125;
+       style="display:none;background:#fef2f2;border:1px solid #fecaca;
               border-radius:6px;padding:10px 14px;margin-bottom:14px;
-              color:#fed7aa;font-size:13px;line-height:1.5"></div>
+              color:#b91c1c;font-size:13px;line-height:1.5"></div>
 
   <!-- Page Header -->
   <div class="sc-page-header">
@@ -36,13 +36,13 @@
   </div>
 
   <!-- R-F2016: source provenance — this dashboard shows ARIA's brain data -->
-  <p style="margin:-4px 0 18px;color:#8b949e;font-size:12px;line-height:1.5">
-    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong> — live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:#913BFF">View detailed brain stats</a>
+  <p style="margin:-4px 0 18px;color:var(--sc-muted);font-size:12px;line-height:1.5">
+    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong> — live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:var(--sc-prime)">View detailed brain stats</a>
   </p>
 
   <!-- KPI Tiles — ARIA's actual capabilities -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#ef4444"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">—</div><div class="sc-stat-label">DD Reports</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">—</div><div class="sc-stat-label">DD Reports</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">—</div><div class="sc-stat-label">Watchlist</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">—</div><div class="sc-stat-label">Active Deals</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up-arrow"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
@@ -80,7 +80,7 @@
       <span class="sc-badge sc-badge-muted" id="brief-toggle">Show</span>
     </div>
     <div id="brief-content" style="display:none">
-      <p style="margin:8px 14px 0;color:#8b949e;font-size:12px;line-height:1.5">
+      <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
         <i class="bi bi-info-circle"></i> Live OSINT market sweep (Node intelligence tier) — distinct from ARIA's brain knowledge base above.
       </p>
       <div class="sc-card-body">
@@ -93,13 +93,13 @@
         </div>
         <div class="sc-grid-2">
           <div>
-            <h3 style="font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Situation Awareness</h3>
+            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Situation Awareness</h3>
             <div id="correlations-list" style="max-height:320px;overflow-y:auto">
               <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
             </div>
           </div>
           <div>
-            <h3 style="font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Telegram OSINT</h3>
+            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Telegram OSINT</h3>
             <div id="osint-list" style="max-height:320px;overflow-y:auto">
               <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
             </div>
@@ -132,8 +132,8 @@
   </div>
 
 </main>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('brief');
@@ -159,7 +159,7 @@ function _renderFetchFailureBanner() {
     return;
   }
   const head = [..._fetchFailures.entries()]
-    .map(([p, r]) => `<code style="color:#fed7aa">${p}</code> <span style="color:#8b949e">(${r})</span>`)
+    .map(([p, r]) => `<code style="color:#b91c1c">${p}</code> <span style="color:var(--sc-muted)">(${r})</span>`)
     .join(', ');
   const noun = _fetchFailures.size === 1 ? 'endpoint' : 'endpoints';
   banner.innerHTML =
@@ -235,10 +235,10 @@ async function loadData() {
   const ddKpi = document.getElementById('kpi-dd-total');
   ddKpi.textContent = ddTotal;
   if (ddHardStop > 0) {
-    ddKpi.style.color = '#ef4444';
+    ddKpi.style.color = '#dc2626';
     ddKpi.title = ddHardStop + ' HARD_STOP, ' + ddRed + ' RED';
   } else if (ddRed > 0) {
-    ddKpi.style.color = '#FF7A41';
+    ddKpi.style.color = '#ea580c';
     ddKpi.title = ddRed + ' RED';
   }
 
@@ -282,11 +282,11 @@ async function loadData() {
         const risk = r.risk_classification || '—';
         const date = r.generated_at || r.created_at || '';
         const dateStr = date ? new Date(date).toLocaleDateString() : '';
-        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--sc-border);display:flex;align-items:center;gap:10px">'
           + severityPill(risk)
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
-          + '<div style="font-size:11px;color:rgba(255,255,255,0.35)">' + dateStr + '</div>'
+          + '<div style="font-size:13px;font-weight:600;color:var(--sc-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + '<div style="font-size:11px;color:#9b968c">' + dateStr + '</div>'
           + '</div></div>';
       }).join('');
     }
@@ -304,11 +304,11 @@ async function loadData() {
       wlList.innerHTML = entries.map(function(w) {
         const name = w.name || 'Unknown';
         const type = w.entity_type || '';
-        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--sc-border);display:flex;align-items:center;gap:10px">'
           + '<i class="bi bi-shield" style="color:#6b7280;font-size:16px"></i>'
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-size:13px;font-weight:600;color:#fff">' + escHtml(name) + '</div>'
-          + '<div style="font-size:11px;color:rgba(255,255,255,0.35)">' + escHtml(type) + '</div>'
+          + '<div style="font-size:13px;font-weight:600;color:var(--sc-heading)">' + escHtml(name) + '</div>'
+          + '<div style="font-size:11px;color:#9b968c">' + escHtml(type) + '</div>'
           + '</div></div>';
       }).join('');
     }
@@ -324,7 +324,7 @@ async function loadData() {
     const vix = data.markets ? data.markets.vix ? data.markets.vix.value : null : null;
     const d = vix > 25 ? 'risk-off' : (vix && vix < 15) ? 'risk-on' : 'neutral';
     document.getElementById('kpi-direction').textContent = d.toUpperCase();
-    document.getElementById('kpi-direction').style.color = d === 'risk-off' ? '#ef4444' : d === 'risk-on' ? '#22c55e' : '#FF7A41';
+    document.getElementById('kpi-direction').style.color = d === 'risk-off' ? '#dc2626' : d === 'risk-on' ? '#16a34a' : '#ea580c';
     document.getElementById('kpi-vix').textContent = vix ? vix.toFixed(1) : '—';
     document.getElementById('kpi-brent').textContent = data.energy && data.energy.brent ? '$' + data.energy.brent : '—';
     document.getElementById('kpi-osint').textContent = (data.tg && data.tg.urgent || []).length;
@@ -336,15 +336,15 @@ async function loadData() {
       corrEl.innerHTML = '<p class="text-muted" style="padding:8px">No critical correlations detected.</p>';
     } else {
       corrEl.innerHTML = corrs.slice(0,5).map(function(c) {
-        const sevColor = c.severity === 'critical' ? '#ef4444' : '#FF7A41';
+        const sevColor = c.severity === 'critical' ? '#dc2626' : '#ea580c';
         const sevBg = c.severity === 'critical' ? 'rgba(239,68,68,0.12)' : 'rgba(255,122,65,0.10)';
-        return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:8px;overflow:hidden">'
+        return '<div style="background:#f5f4ef;border:1px solid var(--sc-border);border-radius:8px;margin-bottom:8px;overflow:hidden">'
           + '<div style="background:' + sevBg + ';padding:6px 10px;display:flex;align-items:center;gap:6px">'
           + '<i class="bi ' + (c.severity==='critical'?'bi-exclamation-octagon':'bi-exclamation-triangle') + '" style="color:' + sevColor + '"></i>'
-          + '<strong style="color:#fff;font-size:12px">' + escHtml(c.region) + '</strong>'
+          + '<strong style="color:var(--sc-heading);font-size:12px">' + escHtml(c.region) + '</strong>'
           + '<span class="sc-badge ' + (c.severity==='critical'?'sc-badge-red':'sc-badge-orange') + ' ms-auto">' + escHtml(c.severity||'').toUpperCase() + '</span>'
           + '</div>'
-          + '<div style="padding:6px 10px;font-size:11px;color:rgba(255,255,255,0.55)">'
+          + '<div style="padding:6px 10px;font-size:11px;color:#57534b">'
           + (c.signalCount||0) + ' signals · ' + (c.sourceCount||0) + ' sources · score ' + (c.totalScore||0)
           + '</div></div>';
       }).join('');
@@ -357,12 +357,12 @@ async function loadData() {
       osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
     } else {
       osintEl.innerHTML = posts.slice(0,6).map(function(p) {
-        return '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+        return '<div style="padding:8px 0;border-bottom:1px solid var(--sc-border)">'
           + '<div style="display:flex;justify-content:space-between;margin-bottom:2px">'
-          + '<span style="font-size:10px;font-weight:700;color:#913BFF">' + escHtml(p.channel||'OSINT') + '</span>'
-          + '<span style="font-size:10px;color:rgba(255,255,255,0.35)">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
+          + '<span style="font-size:10px;font-weight:700;color:var(--sc-prime)">' + escHtml(p.channel||'OSINT') + '</span>'
+          + '<span style="font-size:10px;color:#9b968c">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
           + '</div>'
-          + '<p style="font-size:12px;color:rgba(255,255,255,0.65);line-height:1.5;margin:0">' + escHtml(truncate(p.text||'',150)) + '</p>'
+          + '<p style="font-size:12px;color:var(--sc-text);line-height:1.5;margin:0">' + escHtml(truncate(p.text||'',150)) + '</p>'
           + '</div>';
       }).join('');
     }
@@ -392,9 +392,9 @@ async function loadData() {
     if (def.length && typeof def !== 'string') {
       document.getElementById('defence-section').style.display = '';
       document.getElementById('defence-list').innerHTML = (Array.isArray(def) ? def : []).slice(0,5).map(function(s) {
-        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
-          + '<div style="font-size:13px;font-weight:600;color:#913BFF;margin-bottom:4px">' + escHtml(s.title||'') + '</div>'
-          + '<p style="font-size:12px;color:rgba(255,255,255,0.6);line-height:1.5;margin:0">' + escHtml(truncate(s.content||s.description||'',200)) + '</p>'
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--sc-border)">'
+          + '<div style="font-size:13px;font-weight:600;color:var(--sc-prime);margin-bottom:4px">' + escHtml(s.title||'') + '</div>'
+          + '<p style="font-size:12px;color:#57534b;line-height:1.5;margin:0">' + escHtml(truncate(s.content||s.description||'',200)) + '</p>'
           + '</div>';
       }).join('');
     }

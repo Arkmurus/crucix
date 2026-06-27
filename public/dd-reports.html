@@ -5,63 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.65; }
+    body { background: var(--sc-bg); margin: 0; font-family: 'gorditaregular', 'Segoe UI', system-ui, -apple-system, sans-serif; color: var(--sc-text); line-height: 1.65; }
     .dd-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
-    .dd-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 8px; }
-    .dd-title { font-size: 28px; font-weight: 800; color: #fff; margin: 0 0 22px; letter-spacing: -0.02em; }
+    .dd-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 8px; }
+    .dd-title { font-size: 28px; font-weight: 800; color: var(--sc-heading); margin: 0 0 22px; letter-spacing: -0.02em; }
 
     .dd-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
     .dd-search {
       flex: 1; min-width: 240px; padding: 10px 14px; border-radius: 9px;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-      color: #fff; font-size: 14px; font-family: inherit; outline: none;
+      background: #fff; border: 1px solid var(--sc-border-strong);
+      color: var(--sc-heading); font-size: 14px; font-family: inherit; outline: none;
     }
-    .dd-search:focus { border-color: rgba(124,58,237,0.4); }
+    .dd-search:focus { border-color: var(--sc-prime); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
     .dd-new-btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 10px 16px; border-radius: 9px; border: none;
       background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
       font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
-      box-shadow: 0 2px 12px rgba(124,58,237,0.35);
+      box-shadow: 0 2px 12px rgba(124,58,237,0.25);
     }
-    .dd-new-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+    .dd-new-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.35); }
 
     .dd-empty {
-      padding: 48px 24px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px;
-      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px;
+      padding: 48px 24px; text-align: center; color: var(--sc-muted); font-size: 14px;
+      background: #f5f4ef; border: 1px dashed var(--sc-border-strong); border-radius: 12px;
     }
-    .dd-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
+    .dd-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: var(--sc-prime); }
 
     .dd-table {
-      width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.02);
-      border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;
+      width: 100%; border-collapse: collapse; background: #fff;
+      border: 1px solid var(--sc-border); border-radius: 12px; overflow: hidden;
     }
     .dd-table thead th {
-      text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
-      color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px;
-      background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);
+      text-align: left; padding: 11px 14px; font-size: 11px; font-weight: 700;
+      color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1px;
+      background: #f5f4ef; border-bottom: 1px solid var(--sc-border-strong);
     }
-    .dd-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13.5px; vertical-align: top; }
+    .dd-table td { padding: 12px 14px; border-bottom: 1px solid var(--sc-border); font-size: 13.5px; vertical-align: top; }
     .dd-row { cursor: pointer; transition: background .12s; }
-    .dd-row:hover { background: rgba(124,58,237,0.06); }
-    .dd-row.expanded { background: rgba(124,58,237,0.08); }
-    .dd-row td.col-entity { font-weight: 600; color: #fff; }
-    .dd-row td.col-meta { color: rgba(255,255,255,0.5); font-size: 12.5px; }
+    .dd-row:hover { background: var(--sc-prime-soft); }
+    .dd-row.expanded { background: var(--sc-prime-soft); }
+    .dd-row td.col-entity { font-weight: 600; color: var(--sc-heading); }
+    .dd-row td.col-meta { color: var(--sc-muted); font-size: 12.5px; }
 
     .dd-pill {
       display: inline-block; padding: 2px 8px; border-radius: 5px;
       font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
     }
-    .dd-pill.hard_stop { background: rgba(239,68,68,0.18); color: #fca5a5; }
-    .dd-pill.high { background: rgba(245,158,11,0.18); color: #fbbf24; }
-    .dd-pill.medium { background: rgba(0,102,255,0.18); color: #60a5fa; }
-    .dd-pill.low { background: rgba(34,197,94,0.18); color: #4ade80; }
-    .dd-pill.clean { background: rgba(34,197,94,0.13); color: #4ade80; }
-    .dd-pill.unknown { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+    .dd-pill.hard_stop { background: rgba(220,38,38,0.12); color: #b91c1c; }
+    .dd-pill.high { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .dd-pill.medium { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+    .dd-pill.low { background: rgba(22,163,74,0.12); color: #15803d; }
+    .dd-pill.clean { background: rgba(22,163,74,0.12); color: #15803d; }
+    .dd-pill.unknown { background: #f2f0e9; color: var(--sc-muted); }
 
     /* R-F608 (2026-05-16) — "shared by colleague at same company" badge.
        Appears next to entity name when a teammate's DD shows up in your
@@ -72,52 +72,52 @@
       padding: 1px 7px; margin-left: 4px;
       border-radius: 4px; font-size: 10.5px; font-weight: 600;
       letter-spacing: 0.3px; text-transform: uppercase;
-      background: rgba(124,58,237,0.16); color: #c4b5fd;
-      border: 1px solid rgba(124,58,237,0.28);
+      background: rgba(124,58,237,0.12); color: var(--sc-prime-dark);
+      border: 1px solid rgba(124,58,237,0.25);
       vertical-align: middle;
     }
     .dd-shared-badge i { font-size: 11px; }
 
-    .dd-detail-row td { padding: 0; background: #14102a; }
+    .dd-detail-row td { padding: 0; background: #f5f4ef; }
     .dd-detail {
-      padding: 22px 28px; border-top: 1px solid rgba(124,58,237,0.18);
-      border-bottom: 1px solid rgba(124,58,237,0.18);
+      padding: 22px 28px; border-top: 1px solid var(--sc-border-strong);
+      border-bottom: 1px solid var(--sc-border-strong);
     }
     .dd-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
     .dd-act-btn {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 13px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.03); color: rgba(255,255,255,0.75);
+      padding: 7px 13px; border-radius: 7px; border: 1px solid var(--sc-border-strong);
+      background: #fff; color: var(--sc-text);
       font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
     }
-    .dd-act-btn:hover { color: #fff; border-color: rgba(124,58,237,0.4); }
+    .dd-act-btn:hover { color: var(--sc-prime-dark); border-color: var(--sc-prime); background: var(--sc-prime-soft); }
     .dd-act-btn.primary { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; border-color: transparent; }
 
     /* R-F1997: dead .dd-pipeline/.dd-tool CSS removed — the manual pipeline
        panel was deleted in R-F1993 (primitives now auto-run inside the DD
        orchestrator + are reachable via natural language in chat). */
     .dd-md {
-      font-size: 13.5px; line-height: 1.7; color: rgba(255,255,255,0.78);
+      font-size: 13.5px; line-height: 1.7; color: var(--sc-text);
       max-height: 60vh; overflow-y: auto; padding-right: 8px;
     }
-    .dd-md::-webkit-scrollbar { width: 5px; }
-    .dd-md::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
-    .dd-md h1 { font-size: 19px; color: #fff; margin: 16px 0 8px; }
-    .dd-md h2 { font-size: 16px; color: #e9e3ff; margin: 14px 0 6px; }
-    .dd-md h3 { font-size: 13px; color: #c4b5fd; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .dd-md::-webkit-scrollbar { width: 6px; }
+    .dd-md::-webkit-scrollbar-thumb { background: #dcd8cf; border-radius: 3px; }
+    .dd-md h1 { font-size: 19px; color: var(--sc-heading); margin: 16px 0 8px; }
+    .dd-md h2 { font-size: 16px; color: var(--sc-heading); margin: 14px 0 6px; }
+    .dd-md h3 { font-size: 13px; color: var(--sc-prime-dark); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
     .dd-md ul, .dd-md ol { padding-left: 22px; margin: 6px 0; }
     .dd-md li { margin: 3px 0; }
-    .dd-md strong { color: #e9e3ff; }
-    .dd-md code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 5px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: #c4b5fd; }
+    .dd-md strong { color: var(--sc-heading); }
+    .dd-md code { background: rgba(124,58,237,0.10); border: 1px solid rgba(124,58,237,0.20); padding: 1px 5px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: var(--sc-prime-dark); }
     .dd-md p { margin: 0 0 8px; }
-    .dd-md blockquote { border-left: 3px solid rgba(124,58,237,0.35); padding: 4px 14px; color: rgba(255,255,255,0.6); font-style: italic; margin: 8px 0; }
+    .dd-md blockquote { border-left: 3px solid var(--sc-border-strong); padding: 4px 14px; color: var(--sc-muted); font-style: italic; margin: 8px 0; }
 
-    .dd-loading { padding: 36px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px; }
+    .dd-loading { padding: 36px; text-align: center; color: var(--sc-muted); font-size: 13px; }
 
     @media (max-width: 720px) {
       .dd-table thead { display: none; }
       .dd-table, .dd-table tbody, .dd-table tr, .dd-table td { display: block; }
-      .dd-table tr { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+      .dd-table tr { padding: 12px 14px; border-bottom: 1px solid var(--sc-border); }
       .dd-table td { padding: 3px 0; border: none; }
       .dd-detail-row td { padding: 0; }
       .dd-detail { padding: 18px 16px; }
@@ -147,7 +147,7 @@
       <a class="dd-act-btn" href="/vls-chain.html" style="padding:10px 14px;font-size:13px;text-decoration:none" title="VLS chain verification">
         <i class="bi bi-shield-check"></i> VLS Chain
       </a>
-      <button class="dd-act-btn" id="dd-vault-btn" style="padding:10px 14px;font-size:13px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.25);border-radius:9px;color:#a78bfa;cursor:pointer" title="DD Vault">
+      <button class="dd-act-btn" id="dd-vault-btn" style="padding:10px 14px;font-size:13px;background:var(--sc-prime-soft);border:1px solid rgba(124,58,237,0.25);border-radius:9px;color:var(--sc-prime-dark);cursor:pointer" title="DD Vault">
         <i class="bi bi-archive"></i> Vault
       </button>
     </div>
@@ -162,21 +162,21 @@
       <h2 class="dd-title" style="font-size:20px;margin-bottom:12px">Persistent case storage</h2>
 
       <div id="dd-vault-stats" style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap">
-        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
-          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#fff">--</div>
-          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Total Cases</div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:#fff;border:1px solid var(--sc-border);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:var(--sc-heading)">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Total Cases</div>
         </div>
-        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
-          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#22c55e">--</div>
-          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Cross-References</div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:#fff;border:1px solid var(--sc-border);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#16a34a">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Cross-References</div>
         </div>
-        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
-          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#3b82f6">--</div>
-          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Run Last 7d</div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:#fff;border:1px solid var(--sc-border);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#2563eb">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px">Run Last 7d</div>
         </div>
-        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center">
-          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#f59e0b">--</div>
-          <div class="dd-vault-stat-label" style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-top:4px">By Type</div>
+        <div class="dd-vault-stat" style="flex:1;min-width:120px;padding:16px;background:#fff;border:1px solid var(--sc-border);border-radius:10px;text-align:center">
+          <div class="dd-vault-stat-num" style="font-size:28px;font-weight:800;color:#d97706">--</div>
+          <div class="dd-vault-stat-label" style="font-size:11px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px">By Type</div>
         </div>
       </div>
 
@@ -190,7 +190,7 @@
       </div>
 
       <div id="dd-vault-case-detail" style="display:none;margin-top:20px">
-        <button class="dd-act-btn" id="dd-vault-back-btn" style="margin-bottom:12px;cursor:pointer;background:none;border:none;color:#a78bfa;font-size:13px">
+        <button class="dd-act-btn" id="dd-vault-back-btn" style="margin-bottom:12px;cursor:pointer;background:none;border:none;color:var(--sc-prime-dark);font-size:13px">
           <i class="bi bi-arrow-left"></i> Back to vault
         </button>
         <div id="dd-vault-case-content"></div>
@@ -200,8 +200,8 @@
   </div>
 </main>
 
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('dd-reports');
@@ -314,7 +314,7 @@ function renderTable(reports) {
     }
     html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
       '<td class="col-entity">' + escText(r.entity_name || '(unknown)') +
-        (r.jurisdiction ? ' <span style="color:rgba(255,255,255,0.4);font-weight:400">· ' + escText(r.jurisdiction) + '</span>' : '') +
+        (r.jurisdiction ? ' <span style="color:#9b968c;font-weight:400">· ' + escText(r.jurisdiction) + '</span>' : '') +
         sharedBadge +
       '</td>' +
       '<td>' + severityPill(sev) + '</td>' +
@@ -784,21 +784,21 @@ loadReports();
         return;
       }
       var c = data.case;
-      var html = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:20px">';
+      var html = '<div style="background:#fff;border:1px solid #e9e6df;border-radius:12px;padding:20px">';
       html += '<h3 style="color:#fff;margin:0 0 8px">' + escHtml(c.entity_name) + '</h3>';
-      html += '<div style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:16px">';
+      html += '<div style="color:#6b6862;font-size:13px;margin-bottom:16px">';
       html += 'Type: ' + escHtml(c.entity_type) + ' &middot; Jurisdiction: ' + escHtml(c.jurisdiction || '--');
       html += ' &middot; Risk: <span class="dd-pill ' + (c.risk_level || '').toLowerCase() + '">' + escHtml(c.risk_level || 'unknown') + '</span>';
       html += ' &middot; Runs: ' + (c.run_count || 1);
       html += '</div>';
       if (c.findings_summary) {
-        html += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px;color:rgba(255,255,255,0.7);white-space:pre-wrap">' + escHtml(c.findings_summary) + '</div>';
+        html += '<div style="background:#f5f4ef;border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px;color:#3d3a34;white-space:pre-wrap">' + escHtml(c.findings_summary) + '</div>';
       }
       if (data.cross_references && data.cross_references.length > 0) {
         html += '<h4 style="color:#22c55e;font-size:13px;margin:12px 0 8px">Cross-References</h4>';
         html += '<div style="font-size:12px">';
         data.cross_references.forEach(function(ref) {
-          html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">';
+          html += '<div style="padding:6px 0;border-bottom:1px solid #e9e6df">';
           html += '<strong>' + escHtml(ref.relationship) + '</strong>: ' + escHtml(ref.target_entity || ref.source_entity);
           if (ref.finding_summary) html += ' &mdash; ' + escHtml(ref.finding_summary);
           html += '</div>';

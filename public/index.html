@@ -10,34 +10,34 @@
     *,*::before,*::after { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; }
     body {
-      background: #0c0919;
+      background: linear-gradient(160deg, #ffffff 0%, #f1ecfb 100%);
       font-family: 'Gordita', system-ui, -apple-system, 'Segoe UI', sans-serif;
-      color: #fff;
+      color: #1f1e1c;
       display: flex; align-items: center; justify-content: center;
     }
     .splash { text-align: center; }
     .logo-mark {
       width: 56px; height: 56px; border-radius: 14px;
       background: linear-gradient(135deg, #913BFF, #0066FF);
-      box-shadow: 0 0 30px rgba(145,59,255,.45);
+      box-shadow: 0 8px 30px rgba(124,58,237,.28);
       margin: 0 auto 18px;
     }
     .brand {
       font-size: 14px; font-weight: 700; letter-spacing: 5px;
-      text-transform: uppercase; color: #fff; margin-bottom: 24px;
+      text-transform: uppercase; color: #1f1e1c; margin-bottom: 24px;
     }
     .spinner {
       width: 22px; height: 22px; margin: 0 auto;
-      border: 2px solid rgba(255,255,255,0.14);
+      border: 2px solid #e9e6df;
       border-top-color: #913BFF; border-radius: 50%;
       animation: spin .9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .fallback {
-      margin-top: 18px; font-size: 12px; color: rgba(255,255,255,0.4);
+      margin-top: 18px; font-size: 12px; color: #9b968c;
     }
-    .fallback a { color: #c4b5fd; text-decoration: none; }
-    .fallback a:hover { color: #fff; }
+    .fallback a { color: #6d28d9; text-decoration: none; }
+    .fallback a:hover { color: #4c1d95; }
   </style>
 </head>
 <body>

@@ -5,71 +5,71 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Intelligence Explorer — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="css/crucix.css?v=5">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.55; }
+    body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); line-height: 1.55; }
 
     .ex-shell { max-width: 1280px; margin: 0 auto; padding: 24px 24px 60px; }
 
     /* ─── Hero search ─── */
     .ex-hero {
-      background: linear-gradient(135deg, rgba(124,58,237,0.10), rgba(37,99,235,0.06));
-      border: 1px solid rgba(124,58,237,0.18); border-radius: 14px;
+      background: linear-gradient(135deg, #f1ecfb, #f3f1ea);
+      border: 1px solid var(--sc-border); border-radius: 14px;
       padding: 26px 28px 22px; margin-bottom: 22px;
     }
-    .ex-eyebrow { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: rgba(196,181,253,0.85); font-weight: 700; margin-bottom: 6px; }
-    .ex-title { font-size: 26px; font-weight: 800; color: #fff; margin: 0 0 4px; letter-spacing: -0.02em; }
-    .ex-sub   { font-size: 13.5px; color: rgba(255,255,255,0.55); margin: 0 0 18px; }
+    .ex-eyebrow { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 6px; }
+    .ex-title { font-size: 26px; font-weight: 800; color: var(--sc-heading); margin: 0 0 4px; letter-spacing: -0.02em; }
+    .ex-sub   { font-size: 13.5px; color: var(--sc-muted); margin: 0 0 18px; }
 
     .ex-search-wrap { position: relative; }
     .ex-search-row { display: flex; gap: 10px; align-items: stretch; }
     .ex-search {
       flex: 1; padding: 14px 18px; font-size: 15px;
-      background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.10);
-      border-radius: 11px; color: #fff; font-family: inherit; outline: none;
+      background: #fff; border: 1px solid var(--sc-border-strong);
+      border-radius: 11px; color: var(--sc-heading); font-family: inherit; outline: none;
       transition: border-color .15s, box-shadow .15s;
     }
-    .ex-search:focus { border-color: rgba(124,58,237,0.55); box-shadow: 0 0 0 3px rgba(124,58,237,0.12); }
+    .ex-search:focus { border-color: var(--sc-prime); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
     .ex-search-btn {
       padding: 0 22px; border: none; border-radius: 11px;
       background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
       font-size: 14px; font-weight: 600; cursor: pointer;
-      box-shadow: 0 2px 14px rgba(124,58,237,0.35);
+      box-shadow: 0 2px 14px rgba(124,58,237,0.25);
       transition: transform .12s, box-shadow .12s;
     }
-    .ex-search-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 22px rgba(124,58,237,0.55); }
+    .ex-search-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 22px rgba(124,58,237,0.35); }
     .ex-search-btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
     .ex-search-btn i { margin-right: 6px; }
 
     /* Autocomplete dropdown */
     .ex-suggest {
       position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-      background: #1a1430; border: 1px solid rgba(255,255,255,0.10);
+      background: #fff; border: 1px solid var(--sc-border-strong);
       border-radius: 11px; padding: 6px; z-index: 30;
       max-height: 320px; overflow-y: auto; display: none;
-      box-shadow: 0 14px 38px rgba(0,0,0,0.45);
+      box-shadow: 0 14px 38px rgba(15,23,42,0.12);
     }
     .ex-suggest.show { display: block; }
     .ex-sugg-item {
       padding: 9px 12px; border-radius: 7px; cursor: pointer;
       display: flex; align-items: center; gap: 10px; font-size: 13px;
-      color: rgba(255,255,255,0.78);
+      color: var(--sc-text);
     }
-    .ex-sugg-item:hover, .ex-sugg-item.focus { background: rgba(124,58,237,0.15); color: #fff; }
-    .ex-sugg-icon { color: rgba(196,181,253,0.7); font-size: 14px; }
-    .ex-sugg-meta { margin-left: auto; font-size: 11px; color: rgba(255,255,255,0.35); }
+    .ex-sugg-item:hover, .ex-sugg-item.focus { background: var(--sc-prime-soft); color: var(--sc-heading); }
+    .ex-sugg-icon { color: var(--sc-prime); font-size: 14px; }
+    .ex-sugg-meta { margin-left: auto; font-size: 11px; color: #9b968c; }
 
     /* ─── Sample queries ─── */
     .ex-samples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
     .ex-sample-chip {
       padding: 5px 12px; border-radius: 6px; cursor: pointer;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-      color: rgba(255,255,255,0.65); font-size: 12px;
+      background: #f5f4ef; border: 1px solid var(--sc-border);
+      color: var(--sc-text); font-size: 12px;
       transition: all .12s;
     }
-    .ex-sample-chip:hover { background: rgba(124,58,237,0.13); border-color: rgba(124,58,237,0.32); color: #fff; }
+    .ex-sample-chip:hover { background: var(--sc-prime-soft); border-color: var(--sc-prime); color: var(--sc-prime-dark); }
 
     /* ─── Layout (sidebar + main) ─── */
     .ex-body {
@@ -105,70 +105,70 @@
     /* ─── Tabs ─── */
     .ex-tabs {
       display: flex; gap: 2px; flex-wrap: wrap; margin-bottom: 14px;
-      background: rgba(255,255,255,0.02); border-radius: 10px; padding: 4px;
-      border: 1px solid rgba(255,255,255,0.05);
+      background: #f5f4ef; border-radius: 10px; padding: 4px;
+      border: 1px solid var(--sc-border);
     }
     .ex-tab {
       flex: 1; min-width: 0; padding: 9px 12px; cursor: pointer;
       background: transparent; border: none; border-radius: 7px;
-      color: rgba(255,255,255,0.55); font-size: 12.5px; font-weight: 600;
+      color: var(--sc-muted); font-size: 12.5px; font-weight: 600;
       font-family: inherit; transition: all .12s; white-space: nowrap;
       display: flex; align-items: center; justify-content: center; gap: 6px;
     }
-    .ex-tab:hover { color: #fff; }
-    .ex-tab.active { background: rgba(124,58,237,0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(124,58,237,0.32); }
+    .ex-tab:hover { color: var(--sc-heading); }
+    .ex-tab.active { background: var(--sc-prime-soft); color: var(--sc-prime-dark); box-shadow: inset 0 0 0 1px rgba(124,58,237,0.32); }
     .ex-tab-badge {
-      background: rgba(124,58,237,0.22); color: #c4b5fd;
+      background: var(--sc-prime-soft); color: var(--sc-prime-dark);
       font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9px; min-width: 18px; text-align: center;
     }
-    .ex-tab.active .ex-tab-badge { background: rgba(124,58,237,0.4); color: #fff; }
-    .ex-tab-badge.warn { background: rgba(245,158,11,0.22); color: #fbbf24; }
-    .ex-tab-badge.bad  { background: rgba(239,68,68,0.22);  color: #fca5a5; }
+    .ex-tab.active .ex-tab-badge { background: var(--sc-prime); color: #fff; }
+    .ex-tab-badge.warn { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .ex-tab-badge.bad  { background: rgba(220,38,38,0.12);  color: #b91c1c; }
 
     /* ─── Tab panel ─── */
     .ex-panel { display: none; }
     .ex-panel.active { display: block; }
 
     .ex-card {
-      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      background: #fff; border: 1px solid var(--sc-border);
       border-radius: 11px; padding: 16px 18px; margin-bottom: 12px;
       transition: border-color .12s;
     }
-    .ex-card:hover { border-color: rgba(124,58,237,0.22); }
+    .ex-card:hover { border-color: var(--sc-prime); }
     .ex-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
     .ex-card-source {
-      font-size: 11px; font-weight: 700; color: #c4b5fd; text-transform: uppercase; letter-spacing: 1px;
+      font-size: 11px; font-weight: 700; color: var(--sc-prime-dark); text-transform: uppercase; letter-spacing: 1px;
     }
-    .ex-card-meta { font-size: 11px; color: rgba(255,255,255,0.4); }
-    .ex-card-title { font-size: 14px; font-weight: 600; color: #fff; margin: 4px 0; line-height: 1.45; }
-    .ex-card-body { font-size: 13px; color: rgba(255,255,255,0.65); line-height: 1.6; }
+    .ex-card-meta { font-size: 11px; color: var(--sc-muted); }
+    .ex-card-title { font-size: 14px; font-weight: 600; color: var(--sc-heading); margin: 4px 0; line-height: 1.45; }
+    .ex-card-body { font-size: 13px; color: var(--sc-text); line-height: 1.6; }
     .ex-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
     .ex-card-tag {
       font-size: 10.5px; padding: 2px 7px; border-radius: 5px; font-weight: 600;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.55);
+      background: #f2f0e9; border: 1px solid var(--sc-border); color: var(--sc-muted);
     }
-    .ex-card-tag.tier-1 { background: rgba(34,197,94,0.13); color: #4ade80; border-color: rgba(34,197,94,0.25); }
-    .ex-card-tag.tier-2 { background: rgba(0,102,255,0.13); color: #60a5fa; border-color: rgba(0,102,255,0.25); }
-    .ex-card-tag.tier-3 { background: rgba(245,158,11,0.13); color: #fbbf24; border-color: rgba(245,158,11,0.25); }
-    .ex-card a { color: #c4b5fd; text-decoration: none; }
-    .ex-card a:hover { color: #fff; text-decoration: underline; }
+    .ex-card-tag.tier-1 { background: rgba(22,163,74,0.12); color: #15803d; border-color: rgba(22,163,74,0.25); }
+    .ex-card-tag.tier-2 { background: rgba(37,99,235,0.12); color: #1d4ed8; border-color: rgba(37,99,235,0.25); }
+    .ex-card-tag.tier-3 { background: rgba(234,88,12,0.12); color: #c2410c; border-color: rgba(234,88,12,0.25); }
+    .ex-card a { color: var(--sc-prime-dark); text-decoration: none; }
+    .ex-card a:hover { color: var(--sc-prime); text-decoration: underline; }
 
     /* ─── Empty / loading / error states ─── */
     .ex-state {
       padding: 50px 20px; text-align: center; font-size: 13.5px;
-      color: rgba(255,255,255,0.4);
-      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.07);
+      color: var(--sc-muted);
+      background: #f5f4ef; border: 1px dashed var(--sc-border-strong);
       border-radius: 11px;
     }
-    .ex-state i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
-    .ex-state.error { color: #fca5a5; border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.05); }
-    .ex-state.loading { color: rgba(196,181,253,0.7); }
+    .ex-state i { font-size: 28px; display: block; margin-bottom: 10px; color: var(--sc-prime); }
+    .ex-state.error { color: #b91c1c; border-color: rgba(220,38,38,0.25); background: rgba(220,38,38,0.06); }
+    .ex-state.loading { color: var(--sc-prime); }
 
     .ex-skel {
-      background: rgba(255,255,255,0.03); border-radius: 9px;
+      background: #eef1f5; border-radius: 9px;
       height: 86px; margin-bottom: 8px;
       animation: shimmer 1.4s ease-in-out infinite;
-      background-image: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 100%);
+      background-image: linear-gradient(90deg, #eef1f5 0%, #f5f4ef 50%, #eef1f5 100%);
       background-size: 200% 100%;
     }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -178,46 +178,46 @@
       position: sticky; top: 76px;
     }
     .ex-rail-card {
-      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      background: #fff; border: 1px solid var(--sc-border);
       border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
     }
     .ex-rail-title {
-      font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5);
+      font-size: 11px; font-weight: 700; color: var(--sc-muted);
       letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 10px;
     }
     .ex-action {
       display: flex; align-items: center; gap: 9px;
       padding: 9px 11px; margin-bottom: 4px; border-radius: 7px;
       cursor: pointer; transition: all .12s;
-      background: rgba(255,255,255,0.03); border: 1px solid transparent;
-      font-size: 12.5px; color: rgba(255,255,255,0.78);
+      background: #f5f4ef; border: 1px solid transparent;
+      font-size: 12.5px; color: var(--sc-text);
     }
-    .ex-action:hover { background: rgba(124,58,237,0.13); border-color: rgba(124,58,237,0.3); color: #fff; }
+    .ex-action:hover { background: var(--sc-prime-soft); border-color: var(--sc-prime); color: var(--sc-prime-dark); }
     .ex-action-icon {
       width: 26px; height: 26px; border-radius: 6px;
-      background: rgba(124,58,237,0.15); color: #c4b5fd;
+      background: var(--sc-prime-soft); color: var(--sc-prime);
       display: flex; align-items: center; justify-content: center; font-size: 13px;
       flex-shrink: 0;
     }
     .ex-action-name { flex: 1; font-weight: 600; }
-    .ex-action-rfn  { font-size: 10px; color: rgba(255,255,255,0.3); }
+    .ex-action-rfn  { font-size: 10px; color: #9b968c; }
 
     /* Verdict pill at the top of the Overview tab when search resolves */
     .ex-verdict {
       padding: 14px 16px; border-radius: 11px; margin-bottom: 14px;
       display: flex; align-items: flex-start; gap: 12px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.06);
+      background: #f5f4ef;
+      border: 1px solid var(--sc-border);
     }
     .ex-verdict-icon {
       width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center; font-size: 18px;
     }
-    .ex-verdict.green .ex-verdict-icon { background: rgba(34,197,94,0.18); color: #4ade80; }
-    .ex-verdict.amber .ex-verdict-icon { background: rgba(245,158,11,0.18); color: #fbbf24; }
-    .ex-verdict.red   .ex-verdict-icon { background: rgba(239,68,68,0.20); color: #fca5a5; }
-    .ex-verdict-text  { font-size: 13px; color: rgba(255,255,255,0.78); line-height: 1.6; }
-    .ex-verdict-headline { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 3px; }
+    .ex-verdict.green .ex-verdict-icon { background: rgba(22,163,74,0.12); color: #15803d; }
+    .ex-verdict.amber .ex-verdict-icon { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .ex-verdict.red   .ex-verdict-icon { background: rgba(220,38,38,0.12); color: #b91c1c; }
+    .ex-verdict-text  { font-size: 13px; color: var(--sc-text); line-height: 1.6; }
+    .ex-verdict-headline { font-size: 14px; font-weight: 700; color: var(--sc-heading); margin-bottom: 3px; }
   </style>
 </head>
 <body>
@@ -300,8 +300,8 @@
   </div>
 </main>
 
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('explorer');
@@ -580,8 +580,8 @@ Sidebar.init('explorer');
         </div>
         <div class="ex-card-title">${escapeHtml(div.narrative || '—')}</div>
         <div class="ex-card-body">
-          <strong style="color:#c4b5fd">Listed:</strong> ${escapeHtml((div.jurisdictions_listed||[]).join(', ') || '—')}<br>
-          <strong style="color:#c4b5fd">Not listed:</strong> ${escapeHtml((div.jurisdictions_not_listed||[]).join(', ') || '—')}
+          <strong style="color:var(--sc-prime-dark)">Listed:</strong> ${escapeHtml((div.jurisdictions_listed||[]).join(', ') || '—')}<br>
+          <strong style="color:var(--sc-prime-dark)">Not listed:</strong> ${escapeHtml((div.jurisdictions_not_listed||[]).join(', ') || '—')}
         </div>
       </div>`);
       // Per-match detail. R-F133 (2026-05-10): hide UNMAPPED dataset
@@ -598,7 +598,7 @@ Sidebar.init('explorer');
         const bodyParts = mapped.map(li =>
           `<div>• <strong>${escapeHtml(li.jurisdiction)}:</strong> ${escapeHtml(li.list)}</div>`);
         if (unmappedCount > 0) {
-          bodyParts.push(`<div style="color:#8b949e;font-size:0.85em">+ ${unmappedCount} other list${unmappedCount > 1 ? 's' : ''} (Wikidata / PEP annotations / regional)</div>`);
+          bodyParts.push(`<div style="color:var(--sc-muted);font-size:0.85em">+ ${unmappedCount} other list${unmappedCount > 1 ? 's' : ''} (Wikidata / PEP annotations / regional)</div>`);
         }
         out.push(`<div class="ex-card">
           <div class="ex-card-head">
@@ -624,7 +624,7 @@ Sidebar.init('explorer');
       </div>`);
     }
     if (!out.length) {
-      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-check"></i>No direct sanctions matches found for "${escapeHtml(q)}". <br><span style="font-size:12px;color:#fbbf24"><strong>NOT A CLEARANCE</strong> — OpenSanctions divergence returned zero only. Counter-intel, RCA, and substance checks (suggested-actions rail) MUST run before treating this as cleared. R-F219.</span></div>`;
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-check"></i>No direct sanctions matches found for "${escapeHtml(q)}". <br><span style="font-size:12px;color:#c2410c"><strong>NOT A CLEARANCE</strong> — OpenSanctions divergence returned zero only. Counter-intel, RCA, and substance checks (suggested-actions rail) MUST run before treating this as cleared. R-F219.</span></div>`;
     } else {
       panel.innerHTML = out.join('');
     }
@@ -644,7 +644,7 @@ Sidebar.init('explorer');
     // OFAC/FCDO adapters. Until a dedicated enforcement endpoint
     // exists, this tab is a heuristic and operator must treat results
     // as leads, not verified enforcement findings.
-    const honestBanner = `<div class="ex-state" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);color:#fbbf24;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a DOJ/SEC/SFO feed</strong> — this tab is a keyword filter (FCPA/indict/guilty/etc) over generic web_search results. For verified enforcement findings, run a full DD via /dd/orchestrate. R-F220.</div>`;
+    const honestBanner = `<div class="ex-state" style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);color:#c2410c;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a DOJ/SEC/SFO feed</strong> — this tab is a keyword filter (FCPA/indict/guilty/etc) over generic web_search results. For verified enforcement findings, run a full DD via /dd/orchestrate. R-F220.</div>`;
     if (!results.length) {
       panel.innerHTML = honestBanner + `<div class="ex-state"><i class="bi bi-hammer"></i>No keyword matches in web_search results for "${escapeHtml(data && data._q || 'entity')}".</div>`;
       return;
@@ -660,7 +660,7 @@ Sidebar.init('explorer');
     // endpoint, NOT a relationship graph. Network analysis (UBO /
     // shareholdings / officer overlaps) requires the DD orchestrator's
     // network_walker, exposed at /dd/orchestrate (not here).
-    const honestBanner = `<div class="ex-state" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);color:#fbbf24;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a relationship graph</strong> — this tab shows name-match entities from the autocomplete index, not UBO/shareholding/officer overlaps. For real network analysis, run /dd/orchestrate which fires network_walker against company registries. R-F220.</div>`;
+    const honestBanner = `<div class="ex-state" style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);color:#c2410c;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a relationship graph</strong> — this tab shows name-match entities from the autocomplete index, not UBO/shareholding/officer overlaps. For real network analysis, run /dd/orchestrate which fires network_walker against company registries. R-F220.</div>`;
     if (!ents.length) {
       panel.innerHTML = honestBanner + `<div class="ex-state"><i class="bi bi-diagram-3"></i>No name-match entities in the autocomplete index.</div>`;
       $('#ex-related-card').style.display = 'none';
@@ -712,12 +712,12 @@ Sidebar.init('explorer');
         </div>
         <div class="ex-card-title">${escapeHtml(data.narrative || '—')}</div>
         <div class="ex-card-body">
-          <div><strong style="color:#c4b5fd">Tier distribution:</strong>
+          <div><strong style="color:var(--sc-prime-dark)">Tier distribution:</strong>
             <span class="ex-card-tag tier-1">tier 1: ${tier.tier_1 || 0}</span>
             <span class="ex-card-tag tier-2">tier 2: ${tier.tier_2 || 0}</span>
             <span class="ex-card-tag tier-3">tier 3: ${tier.tier_3 || 0}</span>
           </div>
-          <div style="margin-top:8px"><strong style="color:#c4b5fd">Pattern scores:</strong></div>
+          <div style="margin-top:8px"><strong style="color:var(--sc-prime-dark)">Pattern scores:</strong></div>
           ${Object.entries(data.patterns || {}).map(([k, v]) =>
             `<div style="margin-left:12px">• ${escapeHtml(k)}: ${escapeHtml(v)}</div>`
           ).join('')}

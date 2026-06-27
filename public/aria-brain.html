@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ARIA Brain — Command Control Centre</title>
 <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-<link rel="stylesheet" href="css/crucix.css?v=3">
+<link rel="stylesheet" href="css/crucix.css?v=5">
 <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 <style>
-  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9;
-          --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
-          --purple: #bc8cff; }
+  :root { --bg: #faf9f5; --card: #ffffff; --border: #e9e6df; --text: #3d3a34;
+          --green: #16a34a; --yellow: #ca8a04; --red: #dc2626; --blue: #2563eb;
+          --purple: #7c3aed; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 0; overflow-x: hidden; }
   /* R-F127 (2026-05-10): hard guard against content overflow.
@@ -22,37 +22,37 @@
   .card pre, .card code { white-space: pre-wrap; overflow-wrap: anywhere; }
   /* Wrap tables narrower than parents so they scroll, not overflow */
   .card table { display: block; overflow-x: auto; max-width: 100%; }
-  h1 { color: #fff; margin-bottom: 4px; font-size: 1.6em; }
-  .subtitle { color: #8b949e; margin-bottom: 20px; font-size: 0.9em; }
+  h1 { color: #1f1e1c; margin-bottom: 4px; font-size: 1.6em; }
+  .subtitle { color: #6b6862; margin-bottom: 20px; font-size: 0.9em; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; min-width: 0; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(15,23,42,0.06); }
   .card h2 { font-size: 1em; color: var(--blue); margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; gap: 8px; }
+  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #e9e6df; gap: 8px; }
   .metric:last-child { border-bottom: none; }
-  .metric .label { color: #8b949e; font-size: 0.85em; flex: 0 1 auto; }
+  .metric .label { color: #6b6862; font-size: 0.85em; flex: 0 1 auto; }
   .metric .value { font-weight: 600; font-size: 1.1em; flex: 1 1 auto; text-align: right; min-width: 0; }
   .good { color: var(--green); }
   .warn { color: var(--yellow); }
   .bad { color: var(--red); }
   .neutral { color: var(--text); }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
-  .badge-green { background: #0d3117; color: var(--green); border: 1px solid #1a4d2e; }
-  .badge-yellow { background: #3d2e00; color: var(--yellow); border: 1px solid #5c4600; }
-  .badge-red { background: #3d1418; color: var(--red); border: 1px solid #5c2125; }
-  .badge-blue { background: #0d2137; color: var(--blue); border: 1px solid #1a3d5c; }
+  .badge-green { background: rgba(22,163,74,0.12); color: #15803d; border: 1px solid rgba(22,163,74,0.25); }
+  .badge-yellow { background: rgba(202,138,4,0.12); color: #a16207; border: 1px solid rgba(202,138,4,0.25); }
+  .badge-red { background: rgba(220,38,38,0.10); color: #b91c1c; border: 1px solid rgba(220,38,38,0.25); }
+  .badge-blue { background: rgba(37,99,235,0.10); color: #1d4ed8; border: 1px solid rgba(37,99,235,0.25); }
   table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-  th { text-align: left; color: #8b949e; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-  td { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+  th { text-align: left; color: #6b6862; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid #e9e6df; }
   .heatmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
   .heat-cell { padding: 8px; border-radius: 4px; text-align: center; font-size: 0.75em; }
   .refresh-btn { background: var(--blue); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
   .refresh-btn:hover { opacity: 0.8; }
-  .timestamp { color: #8b949e; font-size: 0.8em; }
-  #status-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 10px 16px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); }
+  .timestamp { color: #6b6862; font-size: 0.8em; }
+  #status-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 10px 16px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(15,23,42,0.06); }
   .wide { grid-column: 1 / -1; }
-  .audit-entry { font-size: 0.8em; padding: 4px 0; border-bottom: 1px solid #21262d; }
-  .dlq-entry { background: #3d1418; border: 1px solid #5c2125; border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 0.8em; }
-  .loading { color: #8b949e; font-style: italic; }
+  .audit-entry { font-size: 0.8em; padding: 4px 0; border-bottom: 1px solid #e9e6df; }
+  .dlq-entry { background: rgba(220,38,38,0.10); border: 1px solid rgba(220,38,38,0.25); border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 0.8em; }
+  .loading { color: #6b6862; font-style: italic; }
   /* R-F391 (2026-05-13): honesty banner — visible whenever any panel
      fetch returns null or {error:...}. Without this, every panel below
      rendered fallback values ("DOWN", "0", "--", "OFF") that looked
@@ -62,15 +62,15 @@
     display: none;
     margin-bottom: 16px;
     padding: 12px 16px;
-    background: #3d1418;
-    border: 1px solid #f85149;
+    background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.30);
     border-radius: 8px;
-    color: #ffb4ab;
+    color: #b91c1c;
     font-size: 0.9em;
     line-height: 1.55;
   }
-  #fetch-failure-banner strong, #js-error-banner strong { color: #fff; }
-  #js-error-banner code { color: #fed7aa; }
+  #fetch-failure-banner strong, #js-error-banner strong { color: #1f1e1c; }
+  #js-error-banner code { color: #c2410c; }
   /* Offset content for sidebar */
   #app-main { margin-left: 240px; padding: 20px; min-width: 0; max-width: calc(100vw - 240px); overflow-x: hidden; }
   @media (max-width: 1024px) { #app-main { margin-left: 0; max-width: 100vw; } }
@@ -86,42 +86,42 @@
      fires in a session, which made the Approve/Reject buttons look broken
      even though the click handlers were running fine. -->
 <div id="op-modal" style="display:none;position:fixed;inset:0;z-index:9999;
-     background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+     background:rgba(15,23,42,0.45);align-items:center;justify-content:center;
      padding:24px" role="dialog" aria-modal="true">
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;
-       max-width:520px;width:100%;padding:24px 26px;box-shadow:0 10px 40px rgba(0,0,0,.6)">
-    <h3 id="op-modal-title" style="margin:0 0 6px;color:#fff;font-size:18px;font-weight:600">
+  <div style="background:#ffffff;border:1px solid #e9e6df;border-radius:10px;
+       max-width:520px;width:100%;padding:24px 26px;box-shadow:0 10px 40px rgba(15,23,42,0.18)">
+    <h3 id="op-modal-title" style="margin:0 0 6px;color:#1f1e1c;font-size:18px;font-weight:600">
       Confirm action
     </h3>
-    <p id="op-modal-sub" style="margin:0 0 16px;color:#8b949e;font-size:13px;line-height:1.55"></p>
+    <p id="op-modal-sub" style="margin:0 0 16px;color:#6b6862;font-size:13px;line-height:1.55"></p>
     <div id="op-modal-phrase-row" style="margin-bottom:14px;display:none">
-      <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px"
+      <label style="display:block;color:#6b6862;font-size:12px;margin-bottom:4px"
              id="op-modal-phrase-label">Type to confirm</label>
       <input id="op-modal-phrase" type="text" autocomplete="off"
-             style="width:100%;background:rgba(0,0,0,0.3);border:1px solid #30363d;
-                    color:#fff;padding:8px 10px;border-radius:4px;font-size:13px;
+             style="width:100%;background:#fff;border:1px solid #dcd8cf;
+                    color:#1f1e1c;padding:8px 10px;border-radius:4px;font-size:13px;
                     font-family:'SF Mono','Menlo','Consolas',monospace">
     </div>
     <div style="margin-bottom:16px">
-      <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px"
+      <label style="display:block;color:#6b6862;font-size:12px;margin-bottom:4px"
              id="op-modal-notes-label">Notes (required, audit-logged)</label>
       <textarea id="op-modal-notes" rows="3"
-                style="width:100%;background:rgba(0,0,0,0.3);border:1px solid #30363d;
-                       color:#fff;padding:8px 10px;border-radius:4px;font-size:13px;
+                style="width:100%;background:#fff;border:1px solid #dcd8cf;
+                       color:#1f1e1c;padding:8px 10px;border-radius:4px;font-size:13px;
                        resize:vertical;line-height:1.5"></textarea>
     </div>
     <div id="op-modal-error" role="alert"
-         style="display:none;margin-bottom:12px;padding:8px 12px;background:#3d1418;
-                border:1px solid #5c2125;border-radius:4px;color:#ffb4ab;font-size:12px">
+         style="display:none;margin-bottom:12px;padding:8px 12px;background:rgba(220,38,38,0.10);
+                border:1px solid rgba(220,38,38,0.25);border-radius:4px;color:#b91c1c;font-size:12px">
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button id="op-modal-cancel" type="button"
-              style="background:transparent;color:#c9d1d9;border:1px solid #30363d;
+              style="background:#fff;color:#3d3a34;border:1px solid #dcd8cf;
                      padding:7px 16px;border-radius:4px;cursor:pointer;font-size:13px">
         Cancel
       </button>
       <button id="op-modal-submit" type="button"
-              style="background:#1f6feb;color:#fff;border:1px solid #2f81f7;
+              style="background:#2563eb;color:#fff;border:1px solid #2563eb;
                      padding:7px 18px;border-radius:4px;cursor:pointer;font-size:13px;
                      font-weight:600">
         Confirm
@@ -142,7 +142,7 @@
     var rows = seen.slice(-5).map(function (e) {
       return '<code>' + (e.where || 'error') + '</code> — ' + (e.msg || 'unknown');
     }).join('<br>');
-    var more = seen.length > 5 ? ' <span style="color:#8b949e">(+' + (seen.length - 5) + ' earlier)</span>' : '';
+    var more = seen.length > 5 ? ' <span style="color:#6b6862">(+' + (seen.length - 5) + ' earlier)</span>' : '';
     el.innerHTML =
       '<strong>⚠️ Page-script error — UI handlers may not work.</strong> '
       + 'Hard-refresh (Ctrl+Shift+R) often clears stale cache. Recent:' + more + '<br>' + rows;
@@ -167,8 +167,8 @@
   });
 })();
 </script>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/sidebar.js?v=5"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('brain');
@@ -288,7 +288,7 @@ window.addEventListener('DOMContentLoaded', function () {
 
   <!-- Predictor -->
   <div class="card">
-    <h2>Predictor Forecasts <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,0.45)">· advisory only — does not block tasks (R-F181)</span></h2>
+    <h2>Predictor Forecasts <span style="font-size:11px;font-weight:400;color:#9b968c">· advisory only — does not block tasks (R-F181)</span></h2>
     <div id="predictor-metrics" class="loading">Loading...</div>
   </div>
 
@@ -311,11 +311,11 @@ window.addEventListener('DOMContentLoaded', function () {
        and requires ALL to appear, so "angola_procurement" finds facts
        about Angola AND procurement (not just one or the other). -->
   <div class="card wide">
-    <h2>Knowledge Inventory <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,0.45)">· tag-aware fact lookup (R-F245/F247)</span></h2>
+    <h2>Knowledge Inventory <span style="font-size:11px;font-weight:400;color:#9b968c">· tag-aware fact lookup (R-F245/F247)</span></h2>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
       <input id="inv-tag" type="text" placeholder="tag (e.g. angola_procurement, sam.gov, wagner)"
-             style="flex:1;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);
-                    color:#fff;padding:7px 10px;border-radius:6px;font-size:13px;outline:none"
+             style="flex:1;background:#fff;border:1px solid #dcd8cf;
+                    color:#1f1e1c;padding:7px 10px;border-radius:6px;font-size:13px;outline:none"
              >
       <button id="invRunBtn"
               style="background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;border:0;
@@ -323,7 +323,7 @@ window.addEventListener('DOMContentLoaded', function () {
         Lookup
       </button>
     </div>
-    <div id="inv-results" style="font-size:12px;color:#8b949e">
+    <div id="inv-results" style="font-size:12px;color:#6b6862">
       Enter a tag to see every fact ARIA has indexed under it.
     </div>
   </div>
@@ -340,10 +340,10 @@ window.addEventListener('DOMContentLoaded', function () {
        domain freshness windows + structural coverage gaps. -->
   <div class="card wide">
     <h2>Coverage Heatmap (Domain x Jurisdiction) <span class="badge" id="cov-score">—</span></h2>
-    <div id="cov-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="cov-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="cov-heatmap" class="loading">Loading…</div>
     <div id="cov-gaps" style="margin-top:14px"></div>
-    <div style="margin-top:10px;font-size:0.75em;color:#8b949e;line-height:1.55">
+    <div style="margin-top:10px;font-size:0.75em;color:#6b6862;line-height:1.55">
       Cell intensity = fact density (absent / thin / moderate / strong / deep).
       Red border = cell is in the priority targeting list (R-F90).
       The autonomous task selector preferentially fires tasks tagged for these domains.
@@ -354,7 +354,7 @@ window.addEventListener('DOMContentLoaded', function () {
        domains haven't seen a refresh within their max-staleness window. -->
   <div class="card wide">
     <h2>Domain Freshness <span class="badge" id="fresh-stale-count">—</span></h2>
-    <div id="fresh-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="fresh-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="fresh-list" class="loading">Loading…</div>
   </div>
 
@@ -367,9 +367,9 @@ window.addEventListener('DOMContentLoaded', function () {
        question that hurt team trust at MVP launch. -->
   <div class="card wide" id="hallucination-panel">
     <h2>Hallucination & Guard Violations <span class="badge" id="halluc-rate-badge">—</span></h2>
-    <div id="halluc-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="halluc-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="halluc-metrics" class="loading">Loading…</div>
-    <div style="margin-top:10px;font-size:0.75em;color:#8b949e;line-height:1.55">
+    <div style="margin-top:10px;font-size:0.75em;color:#6b6862;line-height:1.55">
       R-F401 self_claim_guard catches architectural-self-claim hallucinations
       (invented TTLs, "I will forget", "overwrites older", fuzzy counts).
       Stream guards catch officeholder / commitment / tool_claim /
@@ -455,9 +455,9 @@ function _renderFetchFailureBanner() {
   }
   const entries = [..._fetchFailures.entries()];
   const head = entries.slice(0, 5)
-    .map(([p, r]) => `<code style="color:#fed7aa">${p}</code> <span style="color:#8b949e">(${r})</span>`)
+    .map(([p, r]) => `<code style="color:#c2410c">${p}</code> <span style="color:#6b6862">(${r})</span>`)
     .join(', ');
-  const more = entries.length > 5 ? ` <span style="color:#8b949e">(+${entries.length - 5} more)</span>` : '';
+  const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
   const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
   banner.innerHTML =
     `<strong>⚠️ DATA UNAVAILABLE — ${entries.length} ${noun} failed to fetch.</strong> `
@@ -498,10 +498,10 @@ function scoreClass(v, good=0.7, warn=0.4) {
   return v >= good ? 'good' : v >= warn ? 'warn' : 'bad';
 }
 function heatColor(score) {
-  if (score >= 0.8) return '#0d3117';
-  if (score >= 0.6) return '#3d2e00';
-  if (score >= 0.4) return '#3d2818';
-  return '#3d1418';
+  if (score >= 0.8) return 'rgba(22,163,74,0.12)';
+  if (score >= 0.6) return 'rgba(202,138,4,0.12)';
+  if (score >= 0.4) return 'rgba(234,88,12,0.10)';
+  return 'rgba(220,38,38,0.10)';
 }
 
 function metricRow(label, value, cls='neutral') {
@@ -568,7 +568,7 @@ async function loadMode() {
 
   let html = metricRow('Current Mode', d.mode, d.mode === 'NORMAL' ? 'good' : 'warn');
   if (d.history?.length) {
-    html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">Recent transitions:</div>';
+    html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Recent transitions:</div>';
     d.history.slice(0, 5).forEach(h => {
       html += `<div style="font-size:0.75em;padding:2px 0">${h.from} → ${h.to} — ${h.reason} (${h.at})</div>`;
     });
@@ -642,7 +642,7 @@ async function loadAmendments() {
   // R-F103 (2026-05-09): added bulk-reject button + better explainer
   let html = metricRow('Queue depth', d.queue_depth || amendments.length,
                        (d.queue_depth || 0) > 5 ? 'warn' : 'neutral');
-  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e;line-height:1.55">'
+  html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862;line-height:1.55">'
         + 'Operator triage: each amendment is a constitutional change candidate '
         + 'staged from a failed adversarial attack. Reject invalid ones with a '
         + 'reason (audit-logged). Accepting means deploying via '
@@ -655,10 +655,10 @@ async function loadAmendments() {
   // listeners eliminates the inline-handler drop scenario entirely
   // (some browser extensions / ad-blocker rule sets strip onclick=
   // attributes silently, leaving the button looking like a dead element).
-  html += '<div style="margin-top:10px;padding:8px;background:rgba(110,44,44,0.1);border-radius:6px;font-size:0.8em">'
+  html += '<div style="margin-top:10px;padding:8px;background:rgba(220,38,38,0.10);border-radius:6px;font-size:0.8em">'
         + '<strong>Bulk reject</strong> all amendments matching a pattern: '
         + '<button data-action="bulk-reject-stale" '
-        + 'style="background:#6e2c2c;color:#fff;border:0;padding:4px 12px;'
+        + 'style="background:#dc2626;color:#fff;border:0;padding:4px 12px;'
         + 'border-radius:4px;cursor:pointer;font-size:0.85em;margin-left:6px">'
         + 'Reject all amendments older than 7 days</button></div>';
   // R-F431 (2026-05-13): operator follow-up after R-F430 — "should be line
@@ -677,20 +677,20 @@ async function loadAmendments() {
     // R-F422 (2026-05-13): fail-count colouring. >=5 = critical (red),
     // >=3 = priority (yellow), else neutral.
     const failCount = a.fail_count || 1;
-    const failColor = failCount >= 5 ? '#f85149' : failCount >= 3 ? '#d29922' : '#8b949e';
+    const failColor = failCount >= 5 ? '#dc2626' : failCount >= 3 ? '#ca8a04' : '#6b6862';
     const lastFailed = (a.last_failed_at || a.staged_at || '').slice(0, 16).replace('T', ' ');
     const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
 
     html +=
       `<div style="margin-top:${idx === 0 ? '12px' : '8px'};padding:14px 16px;`
-      + `background:rgba(0,0,0,0.18);border:1px solid #21262d;border-radius:6px">`
+      + `background:#f5f4ef;border:1px solid #e9e6df;border-radius:6px">`
       // Header line: ID
       + `<div style="font-family:'SF Mono','Menlo','Consolas',monospace;`
-      + `font-weight:600;color:#e6edf3;font-size:0.92em;letter-spacing:0.01em;`
+      + `font-weight:600;color:#1f1e1c;font-size:0.92em;letter-spacing:0.01em;`
       + `overflow-wrap:anywhere">${escapeHtml(attackId)}</div>`
       // Subhead: friendly name (muted)
       + (attackName
-          ? `<div style="color:#8b949e;font-size:0.86em;margin-top:3px;`
+          ? `<div style="color:#6b6862;font-size:0.86em;margin-top:3px;`
             + `line-height:1.4;overflow-wrap:anywhere">${escapeHtml(attackName)}</div>`
           : '')
       // Metadata + actions row (flex, wraps cleanly on narrow widths)
@@ -698,13 +698,13 @@ async function loadAmendments() {
       + `gap:14px;font-size:0.82em">`
       // Left: metadata chips
       + `<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;flex:1;min-width:0">`
-      + `<span style="color:#8b949e">Clauses: `
-      + `<span style="color:#c9d1d9;font-family:'SF Mono','Menlo','Consolas',monospace">`
+      + `<span style="color:#6b6862">Clauses: `
+      + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
       + `${escapeHtml(clauses) || '—'}</span></span>`
-      + `<span style="color:#8b949e">Fails: `
+      + `<span style="color:#6b6862">Fails: `
       + `<span style="color:${failColor};font-weight:600">${failCount}×</span></span>`
-      + `<span style="color:#8b949e">Last failed: `
-      + `<span style="color:#c9d1d9;font-family:'SF Mono','Menlo','Consolas',monospace">`
+      + `<span style="color:#6b6862">Last failed: `
+      + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
       + `${escapeHtml(lastFailed) || '—'}</span></span>`
       + `</div>`
       // Right: actions
@@ -712,11 +712,11 @@ async function loadAmendments() {
       // header comment above for rationale.
       + `<div style="display:inline-flex;gap:8px;align-items:center;white-space:nowrap">`
       + `<button data-action="approve" data-attack-id="${safeAttackId}" `
-      + `style="background:#1f4f2c;color:#fff;border:1px solid #2e6b3f;`
+      + `style="background:#16a34a;color:#fff;border:1px solid #15803d;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Approve</button>`
       + `<button data-action="reject" data-attack-id="${safeAttackId}" `
-      + `style="background:#6e2c2c;color:#fff;border:1px solid #8a3838;`
+      + `style="background:#dc2626;color:#fff;border:1px solid #b91c1c;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Reject</button>`
       + `</div>`
@@ -787,8 +787,8 @@ function showOperatorModal(opts) {
     notesInput.placeholder = opts.notesPlaceholder || '';
     errorEl.style.display = 'none';
     submitBtn.textContent = opts.submitLabel || 'Confirm';
-    submitBtn.style.background = opts.danger ? '#6e2c2c' : '#1f6feb';
-    submitBtn.style.borderColor = opts.danger ? '#8a3838' : '#2f81f7';
+    submitBtn.style.background = opts.danger ? '#dc2626' : '#2563eb';
+    submitBtn.style.borderColor = opts.danger ? '#b91c1c' : '#2563eb';
 
     modal.style.display = 'flex';
     setTimeout(() => (opts.phrase ? phraseInput : notesInput).focus(), 50);
@@ -838,13 +838,13 @@ function showOperatorModal(opts) {
 // don't depend on dialogs the browser may also suppress.
 function showOperatorToast(msg, kind) {
   const node = document.createElement('div');
-  const bg = kind === 'error' ? '#3d1418' : kind === 'success' ? '#0d3117' : '#161b22';
-  const fg = kind === 'error' ? '#ffb4ab' : kind === 'success' ? '#a7f1b8' : '#c9d1d9';
-  const border = kind === 'error' ? '#5c2125' : kind === 'success' ? '#1a4d2e' : '#30363d';
+  const bg = kind === 'error' ? 'rgba(220,38,38,0.10)' : kind === 'success' ? 'rgba(22,163,74,0.12)' : '#f5f4ef';
+  const fg = kind === 'error' ? '#b91c1c' : kind === 'success' ? '#15803d' : '#3d3a34';
+  const border = kind === 'error' ? 'rgba(220,38,38,0.25)' : kind === 'success' ? 'rgba(22,163,74,0.25)' : '#e9e6df';
   node.style.cssText =
     `position:fixed;top:24px;right:24px;z-index:10000;max-width:420px;`
     + `padding:12px 16px;background:${bg};border:1px solid ${border};color:${fg};`
-    + `border-radius:6px;font-size:13px;line-height:1.5;box-shadow:0 6px 22px rgba(0,0,0,.5);`
+    + `border-radius:6px;font-size:13px;line-height:1.5;box-shadow:0 6px 22px rgba(15,23,42,0.12);`
     + `font-family:'Segoe UI',system-ui,sans-serif;white-space:pre-wrap`;
   node.textContent = msg;
   document.body.appendChild(node);
@@ -912,7 +912,7 @@ async function rejectAmendment(attackId) {
   try {
     r = await showOperatorModal({
       title: `Reject amendment`,
-      sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${attackId}</span><br>`
          + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
          + `constitution unchanged for this attack.`,
       notesLabel: 'Reason (required)',
@@ -965,7 +965,7 @@ async function approveAmendment(attackId) {
   try {
     r = await showOperatorModal({
       title: `Approve amendment`,
-      sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${attackId}</span><br>`
          + `This <strong>stages</strong> a constitution change in self_improve. `
          + `It is <strong>not live</strong> until you separately `
          + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
@@ -1031,32 +1031,32 @@ async function runInventory() {
   }
   if (!r.facts || r.facts.length === 0) {
     out.innerHTML = `<span class="warn">0 hits for "${tag}".</span><br>` +
-      `<span style="font-size:11px;color:#8b949e">Either this is a starved tag (no facts ingested yet) ` +
+      `<span style="font-size:11px;color:#6b6862">Either this is a starved tag (no facts ingested yet) ` +
       `or the tag components don't match anything. Tag splits on _/-/space/dot; ALL ≥3-char components ` +
       `must appear in topic/content/source.</span>`;
     return;
   }
   let html = `<div style="margin-bottom:6px"><span class="good">${r.hits} fact${r.hits === 1 ? '' : 's'}</span> for "<code>${escapeHtml(r.tag)}</code>":</div>`;
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
-  html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">'
-        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Topic</th>'
-        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Content</th>'
-        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600;white-space:nowrap">Conf</th>'
-        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Source</th>'
-        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600;white-space:nowrap">Updated</th>'
+  html += '<thead><tr style="border-bottom:1px solid #e9e6df">'
+        + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600">Topic</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600">Content</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600;white-space:nowrap">Conf</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600">Source</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600;white-space:nowrap">Updated</th>'
         + '</tr></thead><tbody>';
   for (const f of r.facts) {
     const updated = (f.updatedAt || f.createdAt || '').slice(0, 10);
     const confClass = f.confidence === 'CONFIRMED' ? 'good'
                     : f.confidence === 'PROBABLE'  ? 'neutral'
                     : 'warn';
-    html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">'
+    html += '<tr style="border-bottom:1px solid #f2f0e9">'
           + '<td style="padding:5px 8px;vertical-align:top">' + escapeHtml((f.topic || '').slice(0, 80)) + '</td>'
-          + '<td style="padding:5px 8px;vertical-align:top;color:rgba(255,255,255,0.65)">'
+          + '<td style="padding:5px 8px;vertical-align:top;color:#57534b">'
               + escapeHtml((f.content || '').slice(0, 200)) + (f.content && f.content.length > 200 ? '…' : '') + '</td>'
           + '<td style="padding:5px 8px;vertical-align:top;white-space:nowrap"><span class="' + confClass + '" style="font-size:10px;font-weight:600">' + escapeHtml(f.confidence || '?') + '</span></td>'
-          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:rgba(255,255,255,0.5)">' + escapeHtml((f.source || '').slice(0, 40)) + '</td>'
-          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:rgba(255,255,255,0.5);white-space:nowrap">' + escapeHtml(updated) + '</td>'
+          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:#6b6862">' + escapeHtml((f.source || '').slice(0, 40)) + '</td>'
+          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:#6b6862;white-space:nowrap">' + escapeHtml(updated) + '</td>'
           + '</tr>';
   }
   html += '</tbody></table>';
@@ -1083,7 +1083,7 @@ async function loadLayer5c() {
     + metricRow('Latest run', d.latest_run_at || '--', 'neutral');
   const flagged = d.top_flagged_jurisdictions || [];
   if (flagged.length) {
-    html += '<div style="margin-top:8px;font-weight:600;color:#d29922">Top flagged jurisdictions</div>';
+    html += '<div style="margin-top:8px;font-weight:600;color:#ca8a04">Top flagged jurisdictions</div>';
     html += '<table><tr><th>Jurisdiction</th><th>Flagged runs</th></tr>';
     flagged.forEach(j => {
       html += `<tr><td>${j.jurisdiction}</td><td class="warn">${j.flagged}</td></tr>`;
@@ -1105,7 +1105,7 @@ async function loadPredictor() {
     });
     html += '</table>';
   } else {
-    html += '<div style="font-size:0.8em;color:#8b949e;margin-top:8px">No blocks recorded yet</div>';
+    html += '<div style="font-size:0.8em;color:#6b6862;margin-top:8px">No blocks recorded yet</div>';
   }
   document.getElementById('predictor-metrics').innerHTML = html;
 }
@@ -1163,7 +1163,7 @@ async function loadHeatmap() {
         const cls = scoreClass(score, 0.7, 0.4);
         html += `<td style="background:${bg};text-align:center;font-size:0.75em" class="${cls}">${pct(score)}</td>`;
       } else {
-        html += '<td style="text-align:center;color:#30363d;font-size:0.7em">--</td>';
+        html += '<td style="text-align:center;color:#dcd8cf;font-size:0.7em">--</td>';
       }
     });
     html += '</tr>';
@@ -1258,16 +1258,16 @@ async function loadComposite() {
   let html = metricRow('Composite Score', pct(d.composite_score) + pendingNote, scoreClass(d.composite_score, 0.7, 0.5));
   html += metricRow('Tier', `${d.tier_name} (${d.tier})`, d.tier >= 3 ? 'good' : d.tier >= 2 ? 'warn' : 'bad');
   if (d.override) html += metricRow('OVERRIDE', d.override, 'bad');
-  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">Signal breakdown:</div>';
+  html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Signal breakdown:</div>';
   const weights = d.weights || {};
   for (const [sig, val] of Object.entries(signals)) {
     const w = weights[sig] ? ` (${(weights[sig]*100).toFixed(0)}%)` : '';
     const display = val != null ? pct(val) : '50%*';
-    const note = val == null ? ' <span style="font-size:0.75em;color:#8b949e">(default — no data yet)</span>' : '';
+    const note = val == null ? ' <span style="font-size:0.75em;color:#6b6862">(default — no data yet)</span>' : '';
     html += `<div class="metric"><span class="label">${sig}${w}</span><span class="value neutral">${display}${note}</span></div>`;
   }
   if (pending > 0) {
-    html += '<div style="margin-top:6px;font-size:0.75em;color:#8b949e">* Signals without data default to 50% (neutral prior). Score is half-calibrated until verification + grounded rate populate after first chat responses with tool use.</div>';
+    html += '<div style="margin-top:6px;font-size:0.75em;color:#6b6862">* Signals without data default to 50% (neutral prior). Score is half-calibrated until verification + grounded rate populate after first chat responses with tool use.</div>';
   }
   document.getElementById('composite-metrics').innerHTML = html;
 
@@ -1288,7 +1288,7 @@ async function loadCalibration() {
   html += metricRow('Accuracy (ground truth)', d.estimated_accuracy != null ? pct(d.estimated_accuracy) : '--', 'neutral');
   html += metricRow('Delta', d.calibration_delta != null ? `${(d.calibration_delta * 100).toFixed(1)}pp` : '--', statusCls);
   html += metricRow('Status', d.calibration_status?.replace('_', ' ')?.toUpperCase(), statusCls);
-  html += `<div style="margin-top:8px;font-size:0.8em;color:#8b949e">${d.recommendation || ''}</div>`;
+  html += `<div style="margin-top:8px;font-size:0.8em;color:#6b6862">${d.recommendation || ''}</div>`;
   document.getElementById('calibration-metrics').innerHTML = html;
 }
 
@@ -1309,7 +1309,7 @@ async function loadSurface() {
 
   // ── Column A — Auto-allowed last 24h ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#79c0ff;margin-bottom:6px">✅ Auto-allowed (24h)</div>';
+  html += '<div style="font-weight:600;color:#1d4ed8;margin-bottom:6px">✅ Auto-allowed (24h)</div>';
   html += metricRow('Autonomous task fires', auto.autonomous_task_fires ?? 0, 'good');
   html += metricRow('Chat turns served',     auto.chat_turns_served ?? 0,     'neutral');
   html += metricRow('Corpus ingests',        auto.corpus_ingests ?? 0,        'neutral');
@@ -1324,13 +1324,13 @@ async function loadSurface() {
       .slice(0,3)
       .map(c => `${c} ×${bl[c]}`)
       .join(', ');
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Top codes: ${topCodes}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Top codes: ${topCodes}</div>`;
   }
   html += '</div>';
 
   // ── Column B — Drafts awaiting review ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#d29922;margin-bottom:6px">📋 Drafts for review</div>';
+  html += '<div style="font-weight:600;color:#ca8a04;margin-bottom:6px">📋 Drafts for review</div>';
   const pendTotal = drafts.total_pending ?? 0;
   html += metricRow('Approvals pending', pendTotal, pendTotal > 0 ? 'warn' : 'good');
   html += metricRow('Source validator',  drafts.source_validator_pending ?? 0, 'neutral');
@@ -1354,14 +1354,14 @@ async function loadSurface() {
                      : verdict === 'ADEQUATE' ? 'good'
                      : verdict === 'SINGLE_POINT' ? 'warn'
                      : 'bad';
-    html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#0d1117; border:1px solid #30363d; border-radius:6px">';
-    html += `<div style="font-weight:600;color:#a371f7;margin-bottom:4px">🛡️ Resilience floor — ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
+    html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#f5f4ef; border:1px solid #e9e6df; border-radius:6px">';
+    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor — ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
     const providerChips = (resilience.providers || []).map(p => {
       const cls = p.status === 'active' ? 'good' : (p.status === 'cooling' ? 'warn' : 'neutral');
       return `<span class="value ${cls}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${p.name}: ${p.status}</span>`;
     }).join('');
     html += `<div style="margin-top:4px">${providerChips || '<span class="neutral">No LLM providers configured</span>'}</div>`;
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Local brain: ${resilience.local_brain_ready ? '<span class="value good">READY</span>' : '<span class="value bad">OFF</span>'}`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Local brain: ${resilience.local_brain_ready ? '<span class="value good">READY</span>' : '<span class="value bad">OFF</span>'}`;
     if ((resilience.local_brain_invocations_24h || 0) > 0) {
       html += ` · fired ${resilience.local_brain_invocations_24h}× in 24h (high count = LLM chain degraded)`;
     }
@@ -1371,13 +1371,13 @@ async function loadSurface() {
     memBits.push(`Redis: ${mem.redis_reachable ? '<span class="value good">up</span>' : '<span class="value bad">down</span>'}`);
     if ((mem.rag_chunks || 0) > 0) memBits.push(`RAG: ${mem.rag_chunks} chunks`);
     if ((mem.mem0_facts || 0) > 0) memBits.push(`mem0: ${mem.mem0_facts} facts`);
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Memory — ${memBits.join(' · ')}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Memory — ${memBits.join(' · ')}</div>`;
     html += '</div>';
   }
 
   // ── Column C — Operator queue ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#f85149;margin-bottom:6px">⚠️ Operator queue</div>';
+  html += '<div style="font-weight:600;color:#dc2626;margin-bottom:6px">⚠️ Operator queue</div>';
   const oemEmpty = queue.oem_slots_empty ?? 0;
   const oemTotal = queue.oem_slots_total ?? 0;
   html += metricRow('OEM slots empty',
@@ -1387,7 +1387,7 @@ async function loadSurface() {
     const worst = queue.oem_worst_oems
       .map(w => `${w.oem} (${w.filled}/${w.total})`)
       .join(', ');
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Priority: ${worst}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Priority: ${worst}</div>`;
   }
   // WA mirror: three states. GATED=warn, DEFERRED=neutral, LIVE=good.
   const waStatus = queue.wa_mirror_status || (queue.wa_mirror_gated ? 'GATED' : 'LIVE');
@@ -1396,9 +1396,9 @@ async function loadSurface() {
               : 'warn';
   html += metricRow('WA counterparty mirror', waStatus, waCls);
   if (waStatus === 'GATED' && (queue.wa_mirror_missing_env || []).length) {
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
   } else if (waStatus === 'DEFERRED') {
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Intentionally off — unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Intentionally off — unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
   }
   html += metricRow('Stale facts',        queue.stale_facts ?? 0,
                     (queue.stale_facts ?? 0) > 0 ? 'warn' : 'good');
@@ -1406,7 +1406,7 @@ async function loadSurface() {
                     (queue.contradicted_facts ?? 0) > 0 ? 'bad' : 'good');
   const recent = queue.bright_lines_recent || [];
   if (recent.length) {
-    html += '<div style="margin-top:6px;font-size:0.8em;color:#8b949e">';
+    html += '<div style="margin-top:6px;font-size:0.8em;color:#6b6862">';
     html += 'Recent bright-line fires: ';
     html += recent.slice(-3).map(r => r.code).join(', ');
     html += '</div>';
@@ -1414,7 +1414,7 @@ async function loadSurface() {
   html += '</div>';
 
   html += '</div>';
-  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">Per aria_autonomy_doctrine.md — internal actions auto-allowed; client-facing drafts only; no auto-spend.</div>`;
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#9b968c">Per aria_autonomy_doctrine.md — internal actions auto-allowed; client-facing drafts only; no auto-spend.</div>`;
 
   el.innerHTML = html;
   el.classList.remove('loading');
@@ -1442,7 +1442,7 @@ async function loadLearning() {
 
   // ── Column A: 24/7 learning loop ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#79c0ff;margin-bottom:6px">🧠 24/7 Learning Loop</div>';
+  html += '<div style="font-weight:600;color:#1d4ed8;margin-bottom:6px">🧠 24/7 Learning Loop</div>';
   const totalExamples = te.total_examples ?? 0;
   html += metricRow('Training examples staged',
                     totalExamples,
@@ -1454,14 +1454,14 @@ async function loadLearning() {
       .map(([k, v]) => `${k}: ${v}`)
       .join(' · ');
     if (sources) {
-      html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">${sources}</div>`;
+      html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">${sources}</div>`;
     }
   }
   // R-F176 (2026-05-11): honest qualifier — staged examples are NOT
   // consumed by any live model. They're corpus for the future R-F92
   // fine-tune run (RunPod, ~$30-45). Without this caveat the headline
   // implied "active learning" when the JSONL files are inert until SFT.
-  html += `<div style="margin-top:4px;font-size:0.78em;color:rgba(255,255,255,0.42);font-style:italic">corpus for R-F92 fine-tune — no model currently consumes these</div>`;
+  html += `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;font-style:italic">corpus for R-F92 fine-tune — no model currently consumes these</div>`;
   html += metricRow('Spider fetches 24h',       sp.fetches_24h ?? 0, 'neutral');
   html += metricRow('Spider ingests 24h',       sp.ingests_24h ?? 0,
                     (sp.ingests_24h ?? 0) > 0 ? 'good' : 'neutral');
@@ -1471,13 +1471,13 @@ async function loadLearning() {
                     (re.urls_queued_24h ?? 0) > 0 ? 'good' : 'neutral');
   if ((re.stalled_cells || []).length) {
     const stalled = re.stalled_cells.map(c => c.cell).slice(0, 2).join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#d29922">Stalled cells need operator source: ${stalled}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#ca8a04">Stalled cells need operator source: ${stalled}</div>`;
   }
   html += '</div>';
 
   // ── Column B: Self-reflection + verification ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#a371f7;margin-bottom:6px">🔍 Self-Reflection & Verification</div>';
+  html += '<div style="font-weight:600;color:#7c3aed;margin-bottom:6px">🔍 Self-Reflection & Verification</div>';
   html += metricRow('Journal hours recorded', mj.hours_recorded ?? 0, 'neutral');
   const sRatio = mj.success_to_failure_ratio;
   html += metricRow('Success-to-failure ratio',
@@ -1501,7 +1501,7 @@ async function loadLearning() {
 
   // ── Column C: Compliance gates + quarantine ──
   html += '<div>';
-  html += '<div style="font-weight:600;color:#f85149;margin-bottom:6px">🛑 Compliance Gates</div>';
+  html += '<div style="font-weight:600;color:#dc2626;margin-bottom:6px">🛑 Compliance Gates</div>';
   const blTotal = bl.total_24h ?? 0;
   html += metricRow('Bright-lines fired 24h', blTotal,
                     blTotal > 0 ? 'warn' : 'good');
@@ -1511,7 +1511,7 @@ async function loadLearning() {
       .slice(0, 3)
       .map(([k, v]) => `${k} ×${v}`)
       .join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Top: ${topCodes}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Top: ${topCodes}</div>`;
   }
   // R-F180 (2026-05-11): split open vs closed counts. The "3
   // quarantined" headline was a constant for weeks because all three
@@ -1530,7 +1530,7 @@ async function loadLearning() {
   html += metricRow('DD runs quarantined — open', qnOpen,
                     qnOpen > 0 ? 'warn' : 'good');
   if (qnClosed > 0) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">+ ${qnClosed} closed (seed, F3-incident)</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">+ ${qnClosed} closed (seed, F3-incident)</div>`;
   }
   if (qnOpen > 0) {
     const openIds = (qn.items || [])
@@ -1538,7 +1538,7 @@ async function loadLearning() {
       .slice(0, 2)
       .map(q => q.run_id)
       .join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#fbbf24">Open: ${openIds}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#c2410c">Open: ${openIds}</div>`;
   }
   html += metricRow('Sanctions OEMs tracked', sx.oems_covered ?? 0, 'good');
   const sl = d.style_learner || {};
@@ -1550,7 +1550,7 @@ async function loadLearning() {
       .slice(0,3)
       .map(([k,v]) => `${k}:${v}`)
       .join(' · ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Styles: ${topTopics}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Styles: ${topTopics}</div>`;
   }
   // Memory durability row (backup freshness + retention)
   const mb = d.memory_backup || {};
@@ -1558,7 +1558,7 @@ async function loadLearning() {
   html += metricRow('Memory backups on disk', backupCount,
                     backupCount > 0 ? 'good' : 'warn');
   if (mb.newest_backup) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Last: ${mb.newest_backup} · ${mb.total_kb_on_disk ?? 0} KB</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Last: ${mb.newest_backup} · ${mb.total_kb_on_disk ?? 0} KB</div>`;
   }
   // Off-host email shipping status (Phase 2a)
   const shipStatus = mb.email_shipping_status || 'UNKNOWN';
@@ -1567,18 +1567,18 @@ async function loadLearning() {
                 : 'warn';
   html += metricRow('Off-host email shipping', shipStatus, shipCls);
   if (shipStatus === 'LIVE' && mb.email_destination) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">→ ${mb.email_destination}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">→ ${mb.email_destination}</div>`;
   } else if (shipStatus === 'GATED') {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Set ARIA_SMTP_HOST/USER/PASS on fly.io to enable</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Set ARIA_SMTP_HOST/USER/PASS on fly.io to enable</div>`;
   }
   html += '</div>';
 
   html += '</div>';
-  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">`;
-  html += `Endpoints — <a href="/api/aria/learning/stats" style="color:#58a6ff">/learning/stats</a> · `;
-  html += `<a href="/api/aria/verification/stats" style="color:#58a6ff">/verification/stats</a> · `;
-  html += `<a href="/api/aria/dd/quarantine" style="color:#58a6ff">/dd/quarantine</a> · `;
-  html += `<a href="/api/aria/autonomy/surface" style="color:#58a6ff">/autonomy/surface</a>`;
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#9b968c">`;
+  html += `Endpoints — <a href="/api/aria/learning/stats" style="color:#2563eb">/learning/stats</a> · `;
+  html += `<a href="/api/aria/verification/stats" style="color:#2563eb">/verification/stats</a> · `;
+  html += `<a href="/api/aria/dd/quarantine" style="color:#2563eb">/dd/quarantine</a> · `;
+  html += `<a href="/api/aria/autonomy/surface" style="color:#2563eb">/autonomy/surface</a>`;
   html += `</div>`;
 
   el.innerHTML = html;
@@ -1621,16 +1621,16 @@ async function loadLlmCost() {
   const utilBarColour = util >= 80 ? 'var(--red)' : util >= 50 ? 'var(--yellow)' : 'var(--green)';
   let html = '';
   html += `<div style="display:flex;flex-wrap:wrap;gap:18px;align-items:baseline;margin-bottom:8px">`;
-  html += `<div><div style="font-size:0.78em;color:#8b949e">Spent this month</div>`;
+  html += `<div><div style="font-size:0.78em;color:#6b6862">Spent this month</div>`;
   html += `<div class="${utilCls}" style="font-size:1.6em;font-weight:600;line-height:1.1">$${spent.toFixed(2)}</div></div>`;
-  html += `<div><div style="font-size:0.78em;color:#8b949e">Projected month-end</div>`;
+  html += `<div><div style="font-size:0.78em;color:#6b6862">Projected month-end</div>`;
   html += `<div class="${projCls}" style="font-size:1.2em;font-weight:600;line-height:1.1">$${projected.toFixed(2)}</div></div>`;
-  html += `<div><div style="font-size:0.78em;color:#8b949e">Total calls</div>`;
+  html += `<div><div style="font-size:0.78em;color:#6b6862">Total calls</div>`;
   html += `<div class="neutral" style="font-size:1.2em;font-weight:600;line-height:1.1">${(d.total_calls||0).toLocaleString()}</div></div>`;
-  html += `<div style="margin-left:auto;font-size:0.78em;color:#8b949e">Cap $${cap.toFixed(0)} · ${util.toFixed(1)}% used</div>`;
+  html += `<div style="margin-left:auto;font-size:0.78em;color:#6b6862">Cap $${cap.toFixed(0)} · ${util.toFixed(1)}% used</div>`;
   html += `</div>`;
   // Utilisation bar
-  html += `<div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:14px">`;
+  html += `<div style="height:6px;background:#e9e6df;border-radius:3px;overflow:hidden;margin-bottom:14px">`;
   html += `<div style="height:100%;width:${utilWidth}%;background:${utilBarColour};transition:width .3s"></div>`;
   html += `</div>`;
   if (d.warn_only) {
@@ -1644,12 +1644,12 @@ async function loadLlmCost() {
   const byProv = d.by_provider || {};
   const provRows = Object.entries(byProv).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
   if (provRows.length) {
-    html += '<div><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Provider</div>';
+    html += '<div><div style="font-size:0.85em;color:#6b6862;margin-bottom:4px">By Provider</div>';
     html += '<table style="font-size:0.78em"><tr><th>Provider</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">%</th></tr>';
     for (const [name, row] of provRows) {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const cls = share >= 50 ? 'warn' : 'neutral';
-      html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td class="${cls}" style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#8b949e">${share.toFixed(0)}%</td></tr>`;
+      html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td class="${cls}" style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#6b6862">${share.toFixed(0)}%</td></tr>`;
     }
     html += '</table></div>';
   }
@@ -1658,13 +1658,13 @@ async function loadLlmCost() {
   const byFeat = d.by_feature || {};
   const featRows = Object.entries(byFeat).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0)).slice(0, 10);
   if (featRows.length) {
-    html += '<div><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Feature (top 10)</div>';
+    html += '<div><div style="font-size:0.85em;color:#6b6862;margin-bottom:4px">By Feature (top 10)</div>';
     html += '<table style="font-size:0.78em"><tr><th>Feature</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">%</th></tr>';
     for (const [name, row] of featRows) {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const fname = name.length > 22 ? name.slice(0, 21) + '…' : name;
       const cls = name === 'uncategorized' ? 'warn' : '';
-      html += `<tr><td title="${escapeHtml(name)}" class="${cls}">${escapeHtml(fname)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#8b949e">${share.toFixed(0)}%</td></tr>`;
+      html += `<tr><td title="${escapeHtml(name)}" class="${cls}">${escapeHtml(fname)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#6b6862">${share.toFixed(0)}%</td></tr>`;
     }
     html += '</table></div>';
   }
@@ -1672,7 +1672,7 @@ async function loadLlmCost() {
   // Top individual calls (collapsed by default)
   const topCalls = d.top_calls || [];
   if (topCalls.length) {
-    html += '<div><details><summary style="font-size:0.85em;color:#8b949e;cursor:pointer;margin-bottom:4px;outline:none">Top expensive calls (click to expand)</summary>';
+    html += '<div><details><summary style="font-size:0.85em;color:#6b6862;cursor:pointer;margin-bottom:4px;outline:none">Top expensive calls (click to expand)</summary>';
     html += '<table style="font-size:0.74em"><tr><th>Time</th><th>Feature</th><th style="text-align:right">Tk</th><th style="text-align:right">$</th></tr>';
     for (const c of topCalls.slice(0, 10)) {
       const when = c.ts ? new Date(c.ts * 1000).toLocaleString([], {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '--';
@@ -1690,15 +1690,15 @@ async function loadLlmCost() {
   try {
     const ext = await fetchJson('/cost/external');
     if (ext && (ext.by_service || ext.upstash)) {
-      html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #21262d">';
-      html += '<div style="font-size:0.85em;color:#8b949e;margin-bottom:6px">External services (non-LLM)</div>';
+      html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #e9e6df">';
+      html += '<div style="font-size:0.85em;color:#6b6862;margin-bottom:6px">External services (non-LLM)</div>';
       html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
 
       // Brave + other services
       const services = ext.by_service || {};
       const svcRows = Object.entries(services).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
       if (svcRows.length) {
-        html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">API spend</div>';
+        html += '<div><div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">API spend</div>';
         html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th></tr>';
         for (const [name, row] of svcRows) {
           const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
@@ -1706,7 +1706,7 @@ async function loadLlmCost() {
         }
         html += '</table></div>';
       } else {
-        html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">API spend</div>';
+        html += '<div><div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">API spend</div>';
         html += '<div class="neutral" style="font-size:0.78em">No external API calls recorded yet this window.</div></div>';
       }
 
@@ -1715,9 +1715,9 @@ async function loadLlmCost() {
       // backend; renders historical line if no Upstash creds present,
       // live usage if the operator ever re-attaches a cluster.)
       const ups = ext.upstash || {};
-      html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">State backend</div>';
+      html += '<div><div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">State backend</div>';
       if (ups.configured) {
-        html += '<div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
+        html += '<div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
         html += '<table style="font-size:0.78em">';
         if (ups.dbsize != null) {
           html += `<tr><td>DB size (keys)</td><td style="text-align:right">${(ups.dbsize||0).toLocaleString()}</td></tr>`;
@@ -1733,7 +1733,7 @@ async function loadLlmCost() {
           html += `<tr><td colspan="2" class="warn">Probe error: ${escapeHtml(ups.error)}</td></tr>`;
         }
         html += '</table>';
-        html += '<div style="margin-top:4px;font-size:0.72em;color:#6e7681">For bandwidth + commands billing, see Upstash Console</div>';
+        html += '<div style="margin-top:4px;font-size:0.72em;color:#9b968c">For bandwidth + commands billing, see Upstash Console</div>';
       } else if (ups.decommissioned) {
         html += `<div class="neutral" style="font-size:0.78em">SQLite (fly volume /data) · Upstash decommissioned 2026-05-12</div>`;
       } else {
@@ -1747,12 +1747,12 @@ async function loadLlmCost() {
     // Fail-silent — external panel is supplementary
   }
 
-  html += `<div style="margin-top:10px;font-size:0.72em;color:#6e7681">`;
+  html += `<div style="margin-top:10px;font-size:0.72em;color:#9b968c">`;
   html += `Month ${d.month || '--'} · `;
-  html += `<a href="/api/aria/cost/monthly" style="color:#58a6ff">/cost/monthly</a> · `;
-  html += `<a href="/api/aria/cost/cumulative" style="color:#58a6ff">/cost/cumulative</a> · `;
-  html += `<a href="/api/aria/cost/recent" style="color:#58a6ff">/cost/recent</a> · `;
-  html += `<a href="/api/aria/cost/external" style="color:#58a6ff">/cost/external</a>`;
+  html += `<a href="/api/aria/cost/monthly" style="color:#2563eb">/cost/monthly</a> · `;
+  html += `<a href="/api/aria/cost/cumulative" style="color:#2563eb">/cost/cumulative</a> · `;
+  html += `<a href="/api/aria/cost/recent" style="color:#2563eb">/cost/recent</a> · `;
+  html += `<a href="/api/aria/cost/external" style="color:#2563eb">/cost/external</a>`;
   html += `</div>`;
 
   el.innerHTML = html;
@@ -1789,13 +1789,13 @@ async function loadSystemHealth() {
   if (d.modules && d.modules.length) {
     html += '<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">';
     for (const m of d.modules) {
-      const colour = m.worst_status === 'PASS' ? '#0d3117' :
-                     m.worst_status === 'WARN' ? '#3d2e00' : '#3d1418';
+      const colour = m.worst_status === 'PASS' ? 'rgba(22,163,74,0.12)' :
+                     m.worst_status === 'WARN' ? 'rgba(202,138,4,0.12)' : 'rgba(220,38,38,0.10)';
       const tag = m.worst_status === 'PASS' ? '✓' : m.worst_status === 'WARN' ? '⚠' : '✗';
-      const critBadge = m.critical ? ' <span style="color:#f97583;font-size:0.75em">[CRIT]</span>' : '';
+      const critBadge = m.critical ? ' <span style="color:#dc2626;font-size:0.75em">[CRIT]</span>' : '';
       // First non-PASS check note for tooltip
       const firstIssue = (m.checks || []).find(c => c.status !== 'PASS');
-      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#8b949e;margin-top:4px">${firstIssue.check}: ${firstIssue.note.slice(0,80)}</div>` : '';
+      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">${firstIssue.check}: ${firstIssue.note.slice(0,80)}</div>` : '';
       html += `<div style="padding:8px;background:${colour};border-radius:6px">
         <div><span style="font-weight:600">${tag} ${m.name}</span>${critBadge}</div>
         ${issueNote}
@@ -1805,7 +1805,7 @@ async function loadSystemHealth() {
   }
 
   if (d.generated_at) {
-    html += `<div style="margin-top:8px;font-size:0.75em;color:#8b949e">Refreshed ${new Date(d.generated_at).toLocaleTimeString()}${d._from_cache ? ' (cached)' : ''}</div>`;
+    html += `<div style="margin-top:8px;font-size:0.75em;color:#6b6862">Refreshed ${new Date(d.generated_at).toLocaleTimeString()}${d._from_cache ? ' (cached)' : ''}</div>`;
   }
 
   el.innerHTML = html;
@@ -1840,11 +1840,11 @@ async function loadCoverageHeatmap() {
     if (gaps && gaps.gaps) {
       gaps.gaps.forEach(g => priorityKeys.add(`${g.domain}::${g.jurisdiction}`));
       // Render gap chips
-      gapEl.innerHTML = `<div style="font-size:0.85em;color:#8b949e;margin-bottom:6px">
+      gapEl.innerHTML = `<div style="font-size:0.85em;color:#6b6862;margin-bottom:6px">
         <strong>Top gap targets (R-F90):</strong></div>
         <div style="display:flex;flex-wrap:wrap;gap:5px">
         ${gaps.gaps.slice(0, 12).map(g =>
-          `<span style="font-size:0.75em;padding:3px 8px;border-radius:5px;background:rgba(245,158,11,0.13);border:1px solid rgba(245,158,11,0.3);color:#fbbf24">
+          `<span style="font-size:0.75em;padding:3px 8px;border-radius:5px;background:rgba(245,158,11,0.13);border:1px solid rgba(245,158,11,0.3);color:#c2410c">
              ${escapeHtml(g.domain)} × ${escapeHtml(g.jurisdiction)}
              <span style="opacity:0.7">(${g.tier})</span>
            </span>`).join('')}
@@ -1857,27 +1857,27 @@ async function loadCoverageHeatmap() {
   const juris = d.jurisdictions || [];
   const groups = d.jurisdiction_groups || {};
   const tierColor = {
-    absent:   '#3d1418',
-    thin:     '#3d2818',
-    moderate: '#3d2e00',
-    strong:   '#1f3320',
-    deep:     '#0d3117',
+    absent:   'rgba(220,38,38,0.10)',
+    thin:     'rgba(234,88,12,0.10)',
+    moderate: 'rgba(202,138,4,0.12)',
+    strong:   'rgba(22,163,74,0.12)',
+    deep:     'rgba(22,163,74,0.12)',
   };
   // Compact render — show jurisdiction abbreviations
   let html = '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:0.7em">';
-  html += '<tr><th style="text-align:left;padding:4px 6px;background:#161b22;color:#8b949e;position:sticky;left:0">Domain</th>';
+  html += '<tr><th style="text-align:left;padding:4px 6px;background:#f5f4ef;color:#6b6862;position:sticky;left:0">Domain</th>';
   juris.forEach(j => {
     const abbr = j.length > 3 ? j.slice(0, 3) : j;
-    html += `<th style="padding:3px 4px;background:#161b22;color:#8b949e" title="${escapeHtml(j)}">${escapeHtml(abbr)}</th>`;
+    html += `<th style="padding:3px 4px;background:#f5f4ef;color:#6b6862" title="${escapeHtml(j)}">${escapeHtml(abbr)}</th>`;
   });
   html += '</tr>';
   domains.forEach(dom => {
-    html += `<tr><td style="padding:3px 6px;background:#161b22;color:#c4b5fd;position:sticky;left:0;font-weight:600">${escapeHtml(dom.replace(/_/g,' '))}</td>`;
+    html += `<tr><td style="padding:3px 6px;background:#f5f4ef;color:#7c3aed;position:sticky;left:0;font-weight:600">${escapeHtml(dom.replace(/_/g,' '))}</td>`;
     juris.forEach(j => {
       const cell = (d.matrix[dom] || {})[j] || { tier: 'absent' };
       const isPriority = priorityKeys.has(`${dom}::${j}`);
       const colour = tierColor[cell.tier] || tierColor.absent;
-      const border = isPriority ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.04)';
+      const border = isPriority ? '1px solid #f59e0b' : '1px solid #f2f0e9';
       const titleParts = [
         `${dom} × ${j}`,
         `tier: ${cell.tier}`,
@@ -1944,11 +1944,11 @@ async function loadFreshness() {
     const dom = rec.domain || '';
     const src = rec.last_refresh_source || '—';
     html += `<tr>
-      <td style="font-family:'Cascadia Code',monospace;color:#c4b5fd;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(dom)}">${escapeHtml(dom)}</td>
+      <td style="font-family:'Cascadia Code',monospace;color:#7c3aed;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(dom)}">${escapeHtml(dom)}</td>
       <td style="white-space:nowrap"><span class="${cls}">${stat}</span></td>
       <td style="white-space:nowrap">${escapeHtml(hours)}</td>
       <td style="white-space:nowrap">${escapeHtml(win)}</td>
-      <td style="font-size:0.85em;color:#8b949e;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(src)}">${escapeHtml(src)}</td>
+      <td style="font-size:0.85em;color:#6b6862;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(src)}">${escapeHtml(src)}</td>
       <td style="white-space:nowrap">${rec.facts_count || 0} / ${rec.signals_count || 0}</td>
     </tr>`;
   });
@@ -2006,7 +2006,7 @@ async function loadHallucination() {
   // R-F401 self_claim_guard breakdown
   const byPat = scg.violations_24h_by_pattern || {};
   if (Object.keys(byPat).length > 0) {
-    html += '<div style="margin-top:6px;font-size:0.85em;color:#8b949e">R-F401 by pattern (24h):</div>';
+    html += '<div style="margin-top:6px;font-size:0.85em;color:#6b6862">R-F401 by pattern (24h):</div>';
     html += '<table style="font-size:0.82em;margin-top:4px">';
     for (const [pid, count] of Object.entries(byPat)) {
       const cls = count > 0 ? 'warn' : 'neutral';
@@ -2018,7 +2018,7 @@ async function loadHallucination() {
   // Stream guards breakdown
   const sgBy = sg.violations_24h_by_guard || {};
   if (Object.keys(sgBy).length > 0) {
-    html += '<div style="margin-top:10px;font-size:0.85em;color:#8b949e">Stream guards by type (24h):</div>';
+    html += '<div style="margin-top:10px;font-size:0.85em;color:#6b6862">Stream guards by type (24h):</div>';
     html += '<table style="font-size:0.82em;margin-top:4px">';
     for (const [g, count] of Object.entries(sgBy)) {
       const cls = count > 0 ? 'warn' : 'neutral';
@@ -2029,7 +2029,7 @@ async function loadHallucination() {
   // Recent violations
   const recent = (scg.recent || []).concat(sg.recent || []);
   if (recent.length > 0) {
-    html += '<div style="margin-top:10px;font-size:0.85em;color:#8b949e">Recent (last 20):</div>';
+    html += '<div style="margin-top:10px;font-size:0.85em;color:#6b6862">Recent (last 20):</div>';
     html += '<table style="font-size:0.78em;margin-top:4px"><tr>'
           + '<th>When</th><th>Pattern</th><th>Phrase</th><th>Trace</th></tr>';
     for (const r of recent.slice(0, 20)) {
