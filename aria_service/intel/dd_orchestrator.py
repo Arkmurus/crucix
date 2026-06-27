@@ -298,7 +298,7 @@ async def _extract_entity_from_url(url: str) -> dict:
     # otherwise bypass the guard above).
     try:
         import httpx as _httpx
-        async with _httpx.AsyncClient(
+        async with _httpx.AsyncClient(  # no-breaker: per-DD one-shot page fetch (each DD hits a different host), SSRF-guarded + 4-hop cap + tight timeout — not a shared backend where breaker state applies
             timeout=_httpx.Timeout(_URL_FETCH_TIMEOUT_S),
             follow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)"},
@@ -517,7 +517,7 @@ async def _mine_entity_website(url: str, *, max_pages: int = 5, budget_s: float 
         return (m.group(1).strip() if m else "")[:200]
 
     try:
-        async with _httpx.AsyncClient(
+        async with _httpx.AsyncClient(  # no-breaker: per-DD one-shot entity-website mine (different host each DD), timeout-bounded — not a shared backend
             timeout=_httpx.Timeout(_URL_FETCH_TIMEOUT_S),
             follow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)"},
@@ -584,6 +584,114 @@ def _looks_like_url_or_domain(text: str) -> bool:
     return bool(_URL_OR_DOMAIN_NAME_RE.match(s))
 
 
+# R-F1991 — pull noise out of a DD entity name. The chat capture regex
+# (routes/aria.py:4500 `name = m.group(1)…`) grabs the WHOLE tail after "dd on …",
+# so a name can arrive as "Modirum Gespi, their website is https://x.com/en · Finland".
+# That noise forks canonical_entity_id (every phrasing → a different name hash →
+# a NEW case file instead of a new VERSION — the Modirum-Gespi-×5 bug). Extract
+# any embedded URL into `website` and strip trailing descriptors so the stored +
+# displayed name is just the org. Root fix at the orchestrator chokepoint, so
+# EVERY entry path (chat, WhatsApp, web, /dd/orchestrate) is covered.
+_EMBEDDED_URL_RE = re.compile(
+    r"(https?://[^\s,;)]+|(?<![\w@/.])(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?)",
+    re.IGNORECASE,
+)
+# Connector phrases require an explicit "is"/":"/"=" so legit names like
+# "Site One Landscape" or "Web Solutions" are NOT mangled.
+_NAME_NOISE_RE = re.compile(
+    r"\b(?:their|its|our|the)?\s*(?:web\s?site|home\s?page|web\s?page|url)\s+is\s+"
+    r"|\b(?:web\s?site|home\s?page|url|domain)\s*[:=]\s*",
+    re.IGNORECASE,
+)
+
+
+def _clean_entity_name(raw: str) -> tuple[str, str]:
+    """Split a noisy DD entity string into (clean_name, website_or_empty).
+
+    'Modirum Gespi, their website is https://modirumgespi.com/en · Finland'
+        → ('Modirum Gespi', 'https://modirumgespi.com/en')
+    Returns ('', url) when the input is ONLY a URL/domain (caller's existing
+    pure-URL resolution then recovers the real org name). Returns the input
+    unchanged when there's nothing to clean.
+    """
+    if not raw or not isinstance(raw, str):
+        return (raw or "", "")
+    s = raw.strip()
+    # 1. extract the first embedded URL/domain → website
+    website = ""
+    m = _EMBEDDED_URL_RE.search(s)
+    if m:
+        website = m.group(0).rstrip(".,;)")
+        s = (s[:m.start()] + " " + s[m.end():])
+    # 2. drop a "· Country" / "| …" jurisdiction tail (jurisdiction is parsed
+    #    separately) — only on explicit middot / bullet / pipe separators.
+    for sep in ("·", "•", "|"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    # 3. remove connector phrases ("their website is", "url:", …)
+    s = _NAME_NOISE_RE.sub(" ", s)
+    # 4. tidy stray empty parens + punctuation + whitespace
+    s = re.sub(r"\(\s*\)", " ", s)
+    s = re.sub(r"\s+", " ", s).strip(" ,;:.-–—\t()[]")
+    return (s, website)
+
+
+def _collapse_index(index: list, limit: int) -> list:
+    """R-F1980 + R-F1991 — collapse the report index to ONE entry per entity
+    (the latest version). Groups by the NORMALISED, cleaned entity name so the
+    historical noisy duplicates (different URL phrasings) merge too, not just
+    new clean reports. Jurisdiction-safe: two genuinely different same-named
+    entities in different countries stay separate; an entry with no jurisdiction
+    folds into the single populated one for that name (so the Modirum-Gespi
+    entries — 2 'Finland' + 3 blank — become one case file)."""
+    from . import dd_versioning as _ver
+
+    rows = [e for e in index[:limit] if isinstance(e, dict)]
+
+    def _name_key(e: dict) -> str:
+        clean, _ = _clean_entity_name(e.get("entity_name", "") or "")
+        return _ver.normalize_name(clean or e.get("entity_name", "") or "")
+
+    def _juris(e: dict) -> str:
+        return (e.get("jurisdiction") or "").strip().lower()
+
+    # which non-empty jurisdictions exist per name?
+    juris_by_name: dict[str, set] = {}
+    for e in rows:
+        nk = _name_key(e)
+        if not nk:
+            continue
+        j = _juris(e)
+        if j:
+            juris_by_name.setdefault(nk, set()).add(j)
+
+    collapsed: dict[str, dict] = {}
+    for e in rows:
+        nk = _name_key(e)
+        if not nk:
+            # un-nameable — fall back to a unique key so it isn't dropped
+            collapsed[e.get("run_id") or id(e)] = dict(e)
+            continue
+        j = _juris(e)
+        if not j:
+            pop = juris_by_name.get(nk, set())
+            # blank jurisdiction folds into the single populated one; if there
+            # are several distinct ones, keep blank as its own bucket.
+            j = next(iter(pop)) if len(pop) == 1 else ""
+        key = f"{nk}|{j}"
+        cur = collapsed.get(key)
+        if cur is None:
+            collapsed[key] = dict(e)
+        else:
+            cur_ts = cur.get("generated_at") or cur.get("created_at") or ""
+            e_ts = e.get("generated_at") or e.get("created_at") or ""
+            if e_ts > cur_ts:
+                collapsed[key] = dict(e)
+    result = list(collapsed.values())
+    result.sort(key=lambda e: e.get("generated_at") or e.get("created_at") or "", reverse=True)
+    return result[:limit]
+
+
 async def _enrich_target_from_url(target: dict) -> dict:
     """If the target dict has a website/URL but no name, fetch the URL and
     populate name, jurisdiction hints, and address from the page content.
@@ -605,6 +713,22 @@ async def _enrich_target_from_url(target: dict) -> dict:
     URL-shaped name is moved into `website` and cleared so the resolver below
     fetches the page <title> and recovers the real organisation name first.
     """
+    # R-F1991 — strip embedded URL + descriptors from a NOISY name first, so a
+    # real org name buried in query text ("Modirum Gespi, their website is
+    # https://… · Finland") is cleaned before canonicalisation (otherwise every
+    # phrasing forks the case file). The URL is preserved into `website` so the
+    # GLEIF / registry layers can still use it.
+    _raw = (target.get("name") or target.get("entity") or "").strip()
+    if _raw and not _looks_like_url_or_domain(_raw):
+        _clean, _site = _clean_entity_name(_raw)
+        if _site and not target.get("website"):
+            target["website"] = _site
+        if _clean and _clean != _raw:
+            target["name"] = _clean
+            if target.get("entity"):
+                target["entity"] = _clean
+            logger.info("R-F1991: cleaned DD name %r → %r (website=%r)", _raw, _clean, _site)
+
     _existing = (target.get("name") or target.get("entity") or "").strip()
     if _existing and not _looks_like_url_or_domain(_existing):
         return target  # real org name — no enrichment needed
@@ -3909,7 +4033,7 @@ async def _wayback_earliest(domain: str) -> dict | None:
     import httpx
     try:
         url = f"http://archive.org/wayback/available?url={domain}&timestamp=19960101"
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:  # no-breaker: best-effort per-DD wayback lookup, returns None on any failure
             r = await client.get(url)
             if r.status_code != 200:
                 return None
@@ -9307,26 +9431,9 @@ async def list_reports(
     # run log. 20+ entries for the same entity is noise, not intelligence.
     # When an entity has no canonical_id (pre-R-F573 entries), fall back
     # to entity_name as the grouping key.
-    collapsed: dict[str, dict] = {}
-    for entry in index[:limit]:
-        if not isinstance(entry, dict):
-            continue
-        cid = entry.get("canonical_entity_id") or entry.get("entity_name", "")
-        if not cid:
-            continue
-        existing = collapsed.get(cid)
-        if existing is None:
-            collapsed[cid] = dict(entry)
-        else:
-            # Keep the newer one
-            existing_ts = existing.get("generated_at") or existing.get("created_at") or ""
-            entry_ts = entry.get("generated_at") or entry.get("created_at") or ""
-            if entry_ts > existing_ts:
-                collapsed[cid] = dict(entry)
-    result = list(collapsed.values())
-    # Sort by most recent first
-    result.sort(key=lambda e: e.get("generated_at") or e.get("created_at") or "", reverse=True)
-    return result[:limit]
+    # R-F1991 — collapse by cleaned+normalised name (jurisdiction-safe) so the
+    # historical noisy duplicates merge, not just new clean reports.
+    return _collapse_index(index, limit)
 
 
 # =============================================================================

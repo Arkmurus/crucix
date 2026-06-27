@@ -138,7 +138,9 @@ def test_rf1854_wa_listener_has_shape_guard():
     # The guard must sit before the first msg.key access in the upsert loop.
     loop_at = src.index("for (const msg of messages) {")
     guard_at = src.index("if (!msg || !msg.key) continue;", loop_at)
-    first_key_at = src.index("if (msg.key.fromMe) continue;", loop_at)
+    # R-F1974 refactored the first msg.key read to `const _isFromMe = !!msg.key.fromMe;`
+    # (was `if (msg.key.fromMe) continue;`). Assert the guard still precedes it.
+    first_key_at = src.index("!!msg.key.fromMe", loop_at)
     assert loop_at < guard_at < first_key_at, "shape guard not before msg.key access"
 
 
