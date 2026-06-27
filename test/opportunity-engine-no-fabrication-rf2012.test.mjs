@@ -52,6 +52,12 @@ check('REAL signal scoring is preserved', () => {
 check('the real-signal threshold gate remains', () => {
   assert.ok(/if \(score < 5\) continue/.test(SRC));
 });
+check('R-F2014: matchOEMs is fed REAL needs only (no fabricated fallback)', () => {
+  assert.ok(!/market\.strategicNeeds \|\| \['small arms'/.test(SRC),
+    'matchOEMs must not fall back to strategicNeeds/hardcoded needs');
+  assert.ok(/const matchedOEMs = matchOEMs\(procurementNeeds\);/.test(SRC),
+    'matchOEMs must take the real detected procurementNeeds directly');
+});
 
 if (failures) { console.error(`\n${failures} test(s) FAILED`); process.exit(1); }
 console.log('\nAll R-F2012 opportunity-engine no-fabrication tests passed.');
