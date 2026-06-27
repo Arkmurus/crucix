@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2062,
+  "next_available": 2064,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14949,6 +14949,26 @@
       "r_number": "R-F2061",
       "title": "WA respond-only-when-called: gate image/doc review + keyword auto-response on name mention",
       "claimed_at": "2026-06-27T20:31:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "686960a6",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:40:46Z"
+    },
+    {
+      "r_number": "R-F2062",
+      "title": "Fix sanctions mastery",
+      "claimed_at": "2026-06-27T20:39:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2dcd4717",
+      "notes": null,
+      "shipped_at": "2026-06-27T20:53:08Z"
+    },
+    {
+      "r_number": "R-F2063",
+      "title": "response cache (stale-while-revalidate) for heavy /health + /health/perf endpoints",
+      "claimed_at": "2026-06-27T20:51:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

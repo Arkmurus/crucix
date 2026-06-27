@@ -165,6 +165,7 @@ from ..intel.deep_researcher import (
 )
 from ..intel import neural_memory
 from ..intel import knowledge as knowledge_mod
+from ..intel.endpoint_cache import cached_endpoint  # R-F2063 — stale-while-revalidate cache for heavy /health endpoints
 from ..intel import self_improve
 from ..intel import ocr as aria_ocr
 from ..intel.semantic_search import semantic_search, get_index_stats
@@ -22084,6 +22085,7 @@ async def llm_json_stats_ep():
 
 @router.get("/health")
 @fail_wire(module="aria", gap_type="engine_failure")
+@cached_endpoint(ttl_s=25.0, name="health")  # R-F2063 — ~21s aggregation; serve cached/stale-while-revalidate so polls don't tie up the single event loop
 async def health_check_ep():
     """Self-diagnosing health check with quality metrics — not just infra.
     Single endpoint an operator checks to know if ARIA is healthy AND accurate.
@@ -22284,6 +22286,7 @@ async def health_check_ep():
 
 @router.get("/health/perf")
 @fail_wire(module="aria", gap_type="engine_failure")
+@cached_endpoint(ttl_s=25.0, name="health_perf")  # R-F2063 — heaviest aggregation; cache + stale-while-revalidate
 async def health_perf_ep():
     """R-F396 — ARIA self-introspection endpoint. Returns
     performance-focused signals ARIA can cite directly in chat.
