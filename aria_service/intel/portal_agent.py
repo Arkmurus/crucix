@@ -237,19 +237,23 @@ class AdaptivePortalAgent:
             else:
                 self._log("captcha", "No captcha detected or solving deferred")
 
-            # Step 5: Submit the form
+            # Step 5: Capture pre-submit state for robust verification
+            pre_submit_url = self._page.url
+            pre_submit_html = await self._page.content()
+            self._log("verify", "Captured pre-submit state for change detection")
+
+            # Submit the form
             await self._pause(0.5, 1.0)
             submit_result = await self._submit_form()
             self._log("submitted", f"URL after submit: {submit_result['url']}")
 
-            # Step 6: Read the response
+            # Step 6: Robust verification — wait for URL change, error, or timeout
             await self._pause(1, 2)
-            response = await self._read_response()
-            self._log("response", f"Response: success={response['success']}, errors={response.get('errors', [])}")
+            response = await self._verify_submission(pre_submit_html, pre_submit_url)
+            self._log("response", f"Response: success={response['success']}, errors={response.get('errors', [])}, dup_email={response.get('dup_email', False)}")
 
             # Step 7: Handle "email already in use" — retry with alias
-            error_text = "; ".join(response.get("errors", []) or [])
-            if "already in use" in error_text.lower() or "already registered" in error_text.lower():
+            if response.get("dup_email"):
                 self._log("retry", "Email already registered — trying alias email")
                 local, at, domain = _ARIA_EMAIL.partition("@")
                 alias_email = f"{local}+{portal_id}@{domain}"
@@ -269,11 +273,13 @@ class AdaptivePortalAgent:
 
                 # Re-submit
                 await self._pause(0.5, 1.0)
+                pre_submit_url2 = self._page.url
+                pre_submit_html2 = await self._page.content()
                 submit_result2 = await self._submit_form()
                 self._log("submitted", f"URL after retry: {submit_result2['url']}")
 
                 await self._pause(1, 2)
-                response2 = await self._read_response()
+                response2 = await self._verify_submission(pre_submit_html2, pre_submit_url2)
                 self._log("response", f"Retry response: success={response2['success']}, errors={response2.get('errors', [])}")
 
                 if response2["success"]:
@@ -693,6 +699,67 @@ class AdaptivePortalAgent:
             "errors": errors,
             "url": url,
         }
+
+    async def _verify_submission(self, pre_html: str, pre_url: str) -> dict:
+        """Robust verification: wait for URL change, error, or timeout.
+
+        Compares page state before and after submission to detect:
+        - URL changed to success page -> real success
+        - Error messages (including duplicate email) -> failure
+        - Form disappeared + success text appeared -> AJAX success
+        - No change after timeout -> failure
+
+        Returns:
+            {"success": bool, "errors": [str], "dup_email": bool, "url": str}
+        """
+        success_indicators = ["welcome", "dashboard", "success", "registration complete",
+                             "account created", "api key", "your api key"]
+        duplicate_patterns = ["already registered", "already taken", "email exists",
+                             "already in use", "email address is already"]
+        error_indicators = ["error", "invalid", "failed", "try again", "incorrect"]
+
+        timeout = 20  # seconds to wait for a change
+        start = time.time()
+
+        while time.time() - start < timeout:
+            current_url = self._page.url
+            current_html = await self._page.content()
+            lower_html = current_html.lower()
+
+            # 1. Check if URL changed to a success route
+            if current_url != pre_url:
+                for ind in success_indicators:
+                    if ind.lower() in current_url.lower():
+                        return {"success": True, "errors": [], "dup_email": False, "url": current_url}
+
+            # 2. Check for duplicate email patterns
+            for dup in duplicate_patterns:
+                if dup in lower_html:
+                    return {"success": False, "errors": [dup], "dup_email": True, "url": current_url}
+
+            # 3. Check for other error messages
+            for err in error_indicators:
+                if err in lower_html:
+                    # Only flag as error if it's NEW content (not in pre-submit)
+                    if err not in pre_html.lower():
+                        return {"success": False, "errors": [f"Error: {err}"], "dup_email": False, "url": current_url}
+
+            # 4. Check if form disappeared and success text appeared (AJAX)
+            if any(ind.lower() in lower_html for ind in success_indicators):
+                # Check if submit button is gone
+                submit_btn = await self._page.query_selector(
+                    "button[type='submit'], input[type='submit']"
+                )
+                submit_gone = not submit_btn or not await submit_btn.is_visible()
+                if submit_gone:
+                    # Verify content actually changed (not cached)
+                    if len(current_html) != len(pre_html) or current_html != pre_html:
+                        return {"success": True, "errors": [], "dup_email": False, "url": current_url}
+
+            await asyncio.sleep(1)
+
+        # Timeout — no clear signal
+        return {"success": False, "errors": ["Verification timeout"], "dup_email": False, "url": self._page.url}
 
     # ── API Key Extraction ─────────────────────────────────────────────────
 
