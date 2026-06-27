@@ -50,6 +50,11 @@ EXEMPT_MODULES = {
 WIRING_EXEMPT_MODULES = {
     "__init__", "main", "routes", "engine_wiring", "brain_hook",
     "mistake_ledger", "capability_gaps", "intel_ledger",
+    # R-F2033 — grounding_reward is a PURE, deterministic math function (no LLM, no
+    # network, no success/failure branch) used as a GRPO/DPO training reward, called
+    # millions of times in a training loop. Wiring it to the brain is nonsensical and
+    # would flood the ledgers — it's a computation utility, not an engine.
+    "grounding_reward",
 }
 
 # R-F1961 — THIS file (and any future pattern-authoring file) literally contains

@@ -55,6 +55,7 @@ def make_reward_fn():
     score high. Robust to a missing/short context (reward handles empty context)."""
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
+        answerables = kwargs.get("answerable")   # R-F2033 — per-prompt answerability
         comps = completions or []
         if contexts is None:
             # Fall back to the prompt text as context (it carries the [Source:]
@@ -63,7 +64,8 @@ def make_reward_fn():
         out = []
         for i, c in enumerate(comps):
             ctx = contexts[i] if i < len(contexts) else ""
-            out.append(float(gr.reward(_completion_text(c), ctx or "")))
+            ans = answerables[i] if (answerables is not None and i < len(answerables)) else None
+            out.append(float(gr.reward(_completion_text(c), ctx or "", answerable=ans)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn
@@ -93,31 +95,47 @@ def load_dataset(path: Path) -> list[dict]:
 
 
 def dry_run(ds_path: Path) -> int:
-    """No-GPU pre-flight: validate dataset shape + exercise the reward fn on
-    synthetic grounded / fabricated / abstain completions, asserting the reward
-    ORDERS them correctly (grounded > abstain > fabricated). CLAUDE.md §24."""
+    """No-GPU pre-flight: validate dataset shape + exercise the ANSWERABLE-AWARE
+    reward (R-F2033). On an ANSWERABLE prompt a grounded answer must beat abstaining
+    (the fix for GRPO's abstention-gaming); on an UNANSWERABLE prompt abstaining
+    must beat answering. Fabrication is always worst. CLAUDE.md §24."""
     rows = load_dataset(ds_path)
     assert rows, f"empty dataset: {ds_path}"
     bad = [i for i, r in enumerate(rows)
-           if not isinstance(r.get("prompt"), list) or not r.get("context")]
-    assert not bad, f"{len(bad)} rows missing prompt(list)/context (e.g. idx {bad[:3]})"
-    print(f"[dry-run] dataset OK: {len(rows)} prompts, all have prompt[list]+context")
+           if not isinstance(r.get("prompt"), list) or not r.get("context")
+           or "answerable" not in r]
+    assert not bad, f"{len(bad)} rows missing prompt(list)/context/answerable (e.g. idx {bad[:3]})"
+    n_ans = sum(1 for r in rows if r.get("answerable"))
+    print(f"[dry-run] dataset OK: {len(rows)} prompts (answerable={n_ans}, "
+          f"unanswerable={len(rows) - n_ans}), all have prompt+context+answerable")
 
     rf = make_reward_fn()
-    # take a real context, pull a real source label from it, build 3 completions
-    sample = rows[0]
-    ctx = sample["context"]
+    ans_row = next((r for r in rows if r.get("answerable")), rows[0])
+    unans_row = next((r for r in rows if not r.get("answerable")), None)
+    ctx = ans_row["context"]
     real_src = (gr.extract_citations(ctx) or ["web_search:example"])[0]
     grounded = f"Per the evidence, the figure is X [Source: {real_src}]."
     fabricated = "The figure is definitely 12345 [Source: madeup_source_99]."
     abstain = "Based solely on the context, I cannot confirm that."
+
+    # ANSWERABLE prompt: grounded answering must beat abstaining (and fabrication).
     r_g, r_f, r_a = rf(completions=[grounded, fabricated, abstain],
-                       context=[ctx, ctx, ctx])
-    print(f"[dry-run] reward grounded={r_g:.3f}  abstain={r_a:.3f}  fabricated={r_f:.3f}")
-    assert r_g > r_f, f"grounded({r_g}) must beat fabricated({r_f})"
-    assert r_a > r_f, f"honest-abstain({r_a}) must beat fabricated({r_f})"
-    print("[dry-run] PASS — reward orders grounded/abstain above fabricated. "
-          "GRPO will push the policy toward grounded citations.")
+                       context=[ctx, ctx, ctx], answerable=[True, True, True])
+    print(f"[dry-run] ANSWERABLE: grounded={r_g:.3f}  abstain={r_a:.3f}  fabricated={r_f:.3f}")
+    assert r_g > r_a, f"on answerable, grounded({r_g}) must beat abstain({r_a}) — the R-F2033 fix"
+    assert r_g > r_f and r_a >= r_f, "fabrication must be worst"
+
+    if unans_row is not None:
+        uctx = unans_row["context"]
+        usrc = (gr.extract_citations(uctx) or ["web_search:example"])[0]
+        ugrounded = f"The figure is X [Source: {usrc}]."
+        r_ua, r_ug = rf(completions=[abstain, ugrounded],
+                        context=[uctx, uctx], answerable=[False, False])
+        print(f"[dry-run] UNANSWERABLE: abstain={r_ua:.3f}  answered={r_ug:.3f}")
+        assert r_ua > r_ug, f"on unanswerable, abstain({r_ua}) must beat answering({r_ug})"
+
+    print("[dry-run] PASS — answerable-aware reward ranks grounded-answer > abstain on "
+          "answerable Qs and abstain > answer on unanswerable Qs. Abstention-gaming closed.")
     return 0
 
 
@@ -151,7 +169,11 @@ def main() -> int:
 
     rows = load_dataset(args.dataset)
     print(f"[grpo] {len(rows)} prompts from {args.dataset}")
-    ds = Dataset.from_list([{"prompt": r["prompt"], "context": r["context"]} for r in rows])
+    ds = Dataset.from_list([
+        {"prompt": r["prompt"], "context": r["context"],
+         "answerable": bool(r.get("answerable", False))}   # R-F2033
+        for r in rows
+    ])
 
     quant = None
     if args.load_in_4bit:

@@ -46,6 +46,16 @@ def _is_abstention(answer: str) -> bool:
     return any(m in a for m in _ABSTAIN_MARKERS)
 
 
+def _keyword_recall(answer: str, keywords) -> float:
+    """Fraction of expected_keywords present in the answer — the 'did it actually
+    say the substantive fact' signal (R-F2033). 0.0 when no keywords given."""
+    ks = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+    if not ks:
+        return 0.0
+    a = (answer or "").lower()
+    return sum(1 for k in ks if k in a) / len(ks)
+
+
 @dataclass
 class RewardBreakdown:
     score: float
@@ -55,6 +65,8 @@ class RewardBreakdown:
     citation_precision: float = 0.0
     abstained: bool = False
     context_has_sources: bool = False
+    answerable: bool | None = None       # R-F2033 — was this question answerable from ctx?
+    keyword_recall: float = 0.0          # R-F2033 — substance signal (expected_keywords hit)
     reasons: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -66,13 +78,27 @@ class RewardBreakdown:
             "citation_precision": round(self.citation_precision, 4),
             "abstained": self.abstained,
             "context_has_sources": self.context_has_sources,
+            "answerable": self.answerable,
+            "keyword_recall": round(self.keyword_recall, 4),
             "reasons": self.reasons,
         }
 
 
-def score(answer: str, context: str, *, fabrication_weight: float = 0.6) -> RewardBreakdown:
+def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
+          answerable: bool | None = None, expected_keywords=None) -> RewardBreakdown:
     """Objective grounding reward in [0,1]. Higher = better grounded / honestly
-    abstained; near 0 = fabricated sources or answered when it should abstain."""
+    abstained; near 0 = fabricated sources, OR abstained when the answer WAS available.
+
+    R-F2033 — ANSWERABLE-AWARE. The original reward let an answer abstain "despite
+    context" for a flat 0.5, so GRPO learned to abstain ~90% of the time (it maxed
+    reward by never answering — held-out grounding stayed at the SFT 0.21). The fix:
+    when ``answerable`` is known, abstaining on an ANSWERABLE question is penalised
+    (you had the facts and refused), while abstaining on an UNANSWERABLE one is
+    rewarded (honest). ``expected_keywords`` adds a substance signal so a grounded
+    answer that actually states the expected facts scores above one that merely
+    carries a valid citation. Backward-compatible: answerable=None + no keywords ->
+    the original behaviour exactly.
+    """
     ctx_sources = set(extract_citations(context))
     ans_cites = extract_citations(answer)
     grounded = [c for c in ans_cites if c in ctx_sources]
@@ -84,6 +110,8 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6) -> Rewa
         fabricated_citations=len(fabricated),
         context_has_sources=bool(ctx_sources),
         abstained=_is_abstention(answer),
+        answerable=answerable,
+        keyword_recall=_keyword_recall(answer, expected_keywords),
     )
 
     # Case 1: context has no usable sources -> the only correct move is abstain.
@@ -96,23 +124,45 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6) -> Rewa
             b.score = 0.2; b.reasons.append("answered_without_grounding_no_context")
         return b
 
-    # Case 2: the answer abstains despite context — partial credit (over-cautious,
-    # but honest); reward higher if it still cited what little it used.
+    # Case 2: the answer ABSTAINS though the context has sources. R-F2033: this is the
+    # gaming hole — make it answerable-aware so GRPO can't farm reward by abstaining.
     if b.abstained and b.total_citations == 0:
-        b.score = 0.5; b.reasons.append("abstained_despite_context")
+        if answerable is True:
+            # the answer WAS in the context and it refused — the failure we're fixing.
+            b.score = 0.1; b.reasons.append("abstained_on_answerable")
+        elif answerable is False:
+            # context has sources but not for THIS question — honest abstention.
+            b.score = 1.0; b.reasons.append("correct_abstention_unanswerable")
+        else:
+            # answerability unknown — keep the original conservative partial credit.
+            b.score = 0.5; b.reasons.append("abstained_despite_context")
         return b
 
     # Case 3: answering response — reward precision, punish fabrication, require
-    # at least one grounded citation.
+    # at least one grounded citation; R-F2033 adds a substance (keyword) bonus.
     if b.total_citations == 0:
         b.score = 0.1; b.reasons.append("answered_without_any_citation")
         return b
     b.citation_precision = b.grounded_citations / b.total_citations
     fab_rate = b.fabricated_citations / b.total_citations
     # base = precision; fabrication penalised by its own weight on top.
-    b.score = max(0.0, b.citation_precision - fabrication_weight * fab_rate)
+    precision_score = max(0.0, b.citation_precision - fabrication_weight * fab_rate)
+    b.score = precision_score
+    # R-F2033: a genuinely grounded answer that also STATES the expected facts beats
+    # one that carries only a bare citation. Bonus applies ONLY when there is real
+    # grounding (>=1 grounded citation) so it can never reward a fabricated answer.
+    if expected_keywords and b.grounded_citations > 0:
+        b.score = 0.5 * precision_score + 0.5 * b.keyword_recall
+        if b.keyword_recall > 0:
+            b.reasons.append(f"keyword_recall={b.keyword_recall:.2f}")
     if b.grounded_citations == 0:
         b.score = min(b.score, 0.05); b.reasons.append("no_grounded_citation")
+    # R-F2033 (symmetry): if the gold was to ABSTAIN (context insufficient for this
+    # question) but the model answered anyway, that's over-claiming — cap it low so
+    # honest abstention (1.0) clearly beats answering. Prevents the reward from
+    # pushing the model to over-answer once abstention-gaming is penalised.
+    if answerable is False:
+        b.score = min(b.score, 0.25); b.reasons.append("answered_when_should_abstain")
     if b.fabricated_citations:
         b.reasons.append(f"{b.fabricated_citations}_fabricated_citation(s)")
     if b.citation_precision == 1.0:
@@ -120,6 +170,8 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6) -> Rewa
     return b
 
 
-def reward(answer: str, context: str) -> float:
+def reward(answer: str, context: str, *, answerable: bool | None = None,
+           expected_keywords=None) -> float:
     """Scalar reward (for GRPO / DPO ranking)."""
-    return score(answer, context).score
+    return score(answer, context, answerable=answerable,
+                 expected_keywords=expected_keywords).score

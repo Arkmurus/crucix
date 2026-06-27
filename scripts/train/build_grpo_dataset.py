@@ -27,7 +27,15 @@ OUT = REPO / "data" / "training" / "aria_grpo_prompts_v1.jsonl"
 
 
 def main() -> int:
-    kept, skipped_no_src, skipped_shape = 0, 0, 0
+    # R-F2033 — emit answerability so the reward can penalise abstention on
+    # ANSWERABLE questions (the gaming hole). label=="grounded" => the context
+    # supports an answer (answerable); "grounded_abstain"/"abstain" => the correct
+    # response is to abstain (unanswerable). We keep ALL records now (the
+    # unanswerable ones teach honest abstention — the balance prevents both
+    # over-abstention AND over-answering); the no-source examples are valid
+    # unanswerable cases (reward Case 1 handles them).
+    kept, skipped_shape = 0, 0
+    answerable_n, unanswerable_n = 0, 0
     with open(SRC, encoding="utf-8") as f, open(OUT, "w", encoding="utf-8") as w:
         for ln in f:
             ln = ln.strip()
@@ -40,15 +48,19 @@ def main() -> int:
                 skipped_shape += 1
                 continue
             content = user["content"]
-            if not gr.extract_citations(content):
-                skipped_no_src += 1   # no source labels -> reward can't grade grounding
-                continue
+            answerable = (d.get("label") == "grounded")
+            if answerable:
+                answerable_n += 1
+            else:
+                unanswerable_n += 1
             w.write(json.dumps({
                 "prompt": [{"role": "user", "content": content}],
                 "context": content,
+                "answerable": answerable,
             }) + "\n")
             kept += 1
-    print(f"[build_grpo] kept={kept}  skipped_no_source={skipped_no_src}  skipped_shape={skipped_shape}")
+    print(f"[build_grpo] kept={kept} (answerable={answerable_n}, unanswerable={unanswerable_n})  "
+          f"skipped_shape={skipped_shape}")
     print(f"[build_grpo] -> {OUT}")
     return 0 if kept else 1
 
