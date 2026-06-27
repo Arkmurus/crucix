@@ -34,6 +34,7 @@ def test_looks_forensic_gate():
     assert fi.looks_forensic("where is Wagner Group listed across sanctions lists?")
     assert fi.looks_forensic("screen this crypto wallet for me")
     assert fi.looks_forensic("which tier does student_quiz route to?")
+    assert fi.looks_forensic("is this a shell?")   # R-F2000: bare "shell" recall
     # non-forensic chit-chat must NOT pay for an LLM classification
     assert not fi.looks_forensic("how are you today?")
     assert not fi.looks_forensic("what's the weather in London")

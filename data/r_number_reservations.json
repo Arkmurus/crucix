@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2000,
+  "next_available": 2001,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14335,6 +14335,16 @@
       "r_number": "R-F1999",
       "title": "reset stale brain stats + set ARIA_DATA_DIR on Fly",
       "claimed_at": "2026-06-27T09:00:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4f7b41d1",
+      "notes": null,
+      "shipped_at": "2026-06-27T09:16:56Z"
+    },
+    {
+      "r_number": "R-F2000",
+      "title": "broaden forensic_intent gate to catch bare 'shell' (e2e probe found economic_substance recall miss)",
+      "claimed_at": "2026-06-27T09:22:02Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

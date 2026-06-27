@@ -101,7 +101,7 @@ _FORENSIC_KW = re.compile(
     r"\b(sanction\w*|divergen\w*|listed where|where .*listed|"
     r"relative\w*|associate\w*|rca|"
     r"fatf|typolog\w*|"
-    r"economic substance|shell (?:company|entity|firm)|front compan\w*|substance test|"
+    r"economic substance|\bshell\b|front compan\w*|substance test|paid[- ]?up capital|"
     r"tbml|trade[- ]based|invoice (?:value|price)|over[- ]?invoic\w*|under[- ]?invoic\w*|mis[- ]?invoic\w*|"
     r"crypto|wallet|bitcoin|\beth\b|\bbtc\b|tron|solana|on[- ]?chain address|"
     r"benford|fabricat\w*|cooked (?:books|numbers)|made[- ]?up numbers|"
