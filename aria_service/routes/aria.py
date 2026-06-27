@@ -14950,9 +14950,18 @@ async def autonomous_pause_ep(request: Request):
         except Exception:
             pass
         reason = (body.get("reason") if isinstance(body, dict) else "") or "(no reason)"
+        # R-F2004: honour an optional bounded pause duration so a pause always
+        # auto-expires (no more forgotten indefinite pauses starving the engine).
+        _minutes = None
+        if isinstance(body, dict) and body.get("minutes") is not None:
+            try:
+                _minutes = float(body.get("minutes"))
+            except (TypeError, ValueError):
+                _minutes = None
         from ..autonomous import safety as _safety
-        await _safety.pause_engine(reason=reason)
-        return {"ok": True, "paused": True, "reason": reason}
+        await _safety.pause_engine(reason=reason, minutes=_minutes)
+        return {"ok": True, "paused": True, "reason": reason,
+                "auto_resume_minutes": _minutes or (_safety._DEFAULT_MAX_PAUSE_S / 60.0)}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

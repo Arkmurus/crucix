@@ -87,6 +87,17 @@ CODER_MAX_FIXES_PER_HOUR = _env_int("ARIA_CODER_MAX_FIXES_PER_HOUR", 500)  # R-F
 _COST_KEY_FMT = "crucix:autonomous:cost:{date}"  # daily total
 _DEDUPE_KEY_FMT = "crucix:autonomous:dedupe:{task_id}:{entity_hash}"
 _PAUSE_KEY = "crucix:autonomous:paused"  # "1" if engine is paused
+# R-F2004: epoch-seconds the pause auto-expires. A pause WITHOUT this key is a
+# legacy indefinite pause (pre-R-F2004) and is auto-resumed — a forgotten
+# indefinite pause silently starved the entire live ecosystem for ~187h
+# (fire=0). The live organism must never be killable indefinitely by a single
+# forgotten "pause to verify".
+_PAUSE_UNTIL_KEY = "crucix:autonomous:paused_until"
+# Hard ceiling on how long a pause can last, even if a larger value is asked for.
+# A safety pause is meant to be brief; anything longer is almost certainly a
+# forgotten pause, and the ecosystem must come back to life on its own.
+_DEFAULT_MAX_PAUSE_S = int(os.getenv("ARIA_MAX_PAUSE_SECONDS", str(6 * 3600)))   # 6h default
+_HARD_MAX_PAUSE_S = 24 * 3600   # 24h absolute cap
 _PAUSE_TASK_FMT = "crucix:autonomous:paused:task:{task_id}"
 
 
@@ -420,8 +431,53 @@ async def is_engine_paused() -> bool:
     global _paused_inproc
     try:
         val = await rs.get(_PAUSE_KEY)
-        _paused_inproc = (val or "").strip() == "1"  # refresh mirror on success
-        return _paused_inproc
+        if (val or "").strip() != "1":
+            _paused_inproc = False
+            return False
+
+        # R-F2004: the pause flag is set — honour its expiry so a forgotten
+        # pause can't starve the live ecosystem forever.
+        until_raw = await rs.get(_PAUSE_UNTIL_KEY)
+        now = time.time()
+        if not until_raw:
+            # Legacy indefinite pause (set before R-F2004 with no expiry) —
+            # auto-resume. This self-heals the exact 187h fire=0 outage.
+            logger.warning(
+                "[autonomous safety] R-F2004: legacy indefinite pause found "
+                "(no expiry) — AUTO-RESUMING. The live ecosystem must not be "
+                "starved by a forgotten pause."
+            )
+            try:
+                if hasattr(rs, "delete"):
+                    await rs.delete(_PAUSE_KEY)
+                else:
+                    await rs.set(_PAUSE_KEY, "0")
+            except Exception:
+                pass
+            _paused_inproc = False
+            return False
+        try:
+            until = float(until_raw)
+        except (TypeError, ValueError):
+            until = 0.0
+        if now >= until:
+            logger.warning(
+                "[autonomous safety] R-F2004: pause expired — AUTO-RESUMING "
+                "(engine back to live)."
+            )
+            try:
+                if hasattr(rs, "delete"):
+                    await rs.delete(_PAUSE_KEY)
+                    await rs.delete(_PAUSE_UNTIL_KEY)
+                else:
+                    await rs.set(_PAUSE_KEY, "0")
+            except Exception:
+                pass
+            _paused_inproc = False
+            return False
+
+        _paused_inproc = True  # still within the pause window
+        return True
     except Exception:
         logger.warning(
             "[autonomous safety] is_engine_paused: Redis unreadable — failing "
@@ -432,14 +488,24 @@ async def is_engine_paused() -> bool:
 
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
-async def pause_engine(reason: str = "") -> None:
+async def pause_engine(reason: str = "", minutes: float | None = None) -> None:
     global _paused_inproc
     _paused_inproc = True  # R-F1693: set intent FIRST so pause holds even if the Redis write fails
+    # R-F2004: every pause now has a bounded lifetime. Honour an explicit
+    # `minutes` (capped at the 24h hard max), else fall back to the 6h default
+    # ceiling — so a pause ALWAYS auto-expires and the ecosystem self-heals.
+    if minutes and minutes > 0:
+        duration_s = min(float(minutes) * 60.0, float(_HARD_MAX_PAUSE_S))
+    else:
+        duration_s = float(_DEFAULT_MAX_PAUSE_S)
+    until = int(time.time() + duration_s)
     try:
         await rs.set(_PAUSE_KEY, "1")
+        await rs.set(_PAUSE_UNTIL_KEY, str(until))
         logger.warning(
-            "[autonomous safety] engine PAUSED via admin endpoint. Reason: %s",
-            reason or "(none)",
+            "[autonomous safety] engine PAUSED via admin endpoint. Reason: %s "
+            "(auto-resumes in %.0f min, at epoch %d)",
+            reason or "(none)", duration_s / 60.0, until,
         )
         wire_success(
             module="autonomous_safety",
@@ -464,8 +530,10 @@ async def resume_engine() -> None:
         # Use delete (atomic), not set "0" (would still be truthy)
         if hasattr(rs, "delete"):
             await rs.delete(_PAUSE_KEY)
+            await rs.delete(_PAUSE_UNTIL_KEY)   # R-F2004: clear the expiry too
         else:
             await rs.set(_PAUSE_KEY, "0")
+            await rs.set(_PAUSE_UNTIL_KEY, "0")
         logger.info("[autonomous safety] engine RESUMED via admin endpoint")
         wire_success(
             module="autonomous_safety",

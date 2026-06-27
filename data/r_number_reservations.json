@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2004,
+  "next_available": 2005,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14381,6 +14381,15 @@
       "commit_sha": "06a919c3",
       "notes": null,
       "shipped_at": "2026-06-27T10:27:20Z"
+    },
+    {
+      "r_number": "R-F2004",
+      "title": "autonomous pause auto-expiry - forgotten indefinite pause starved live ecosystem 187h; honor minutes + max ceiling + auto-clear legacy pause",
+      "claimed_at": "2026-06-27T10:39:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
