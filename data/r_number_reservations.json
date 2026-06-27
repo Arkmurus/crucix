@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2050,
+  "next_available": 2051,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14799,9 +14799,10 @@
       "title": "news_monitor ingests user sources into ledger (shared global, private owner-tagged)",
       "claimed_at": "2026-06-27T17:43:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "545bc2c7",
+      "notes": null,
+      "shipped_at": "2026-06-27T18:15:19Z"
     },
     {
       "r_number": "R-F2047",
@@ -14826,6 +14827,15 @@
       "r_number": "R-F2049",
       "title": "light corporate theme redesign + sidebar collapse fix + dd-reports sidebar",
       "claimed_at": "2026-06-27T18:06:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2050",
+      "title": "vault Add-Site: add API key/credential field (credential_ref) + agent-type + field review",
+      "claimed_at": "2026-06-27T18:23:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
