@@ -1319,6 +1319,9 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         finally:
             vault.close()
 
+    elif tool_kind == "fill_knowledge_gaps":
+        return await fill_knowledge_gaps(llm, dry_run=False, max_cells=5)
+
     # R-F1410: DRAIN-COLLAB-BRIDGE — drain Claude→ARIA notes from the
     # server-mediated collaboration bridge. Runs every ~1-2 min so Claude's
     # notes reach the ONE ARIA brain (intel/web/wa) without relay delay.
@@ -1583,7 +1586,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "dd_full_sweep",
                            "news_monitor_poll",
                            "portal_coverage_audit",
-                           "vault_registration_daily"):
+                           "vault_registration_daily",
+                           "fill_knowledge_gaps"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its
@@ -2046,3 +2050,120 @@ async def _feed_knowledge(task: Task, response_text: str) -> None:
             "[knowledge feed] stored %d fact(s) from task %s",
             facts_stored, task.id,
         )
+
+
+# R-F1985: autonomous knowledge gap filler. Runs periodically via the
+# autonomous engine to identify and fill the weakest heatmap cells.
+# This is the structural fix for Phase A Gate #2 — instead of manual
+# seed packs, ARIA continuously discovers and researches her own gaps.
+
+_GAP_FILLER_ELIGIBLE_DOMAINS = frozenset({
+    "market_intel", "osint", "legal", "technical",
+    "competitor_intel", "relationships", "finance", "geopolitics",
+})
+
+_GAP_FILLER_QUERY_TEMPLATES = {
+    "market_intel": "defence procurement market intelligence {region} 2025 2026",
+    "osint": "security and defence news {region} recent developments",
+    "legal": "regulatory and compliance framework defence sector {region}",
+    "technical": "defence technology capabilities and systems {region}",
+    "competitor_intel": "defence companies and competitors operating in {region}",
+    "relationships": "defence partnerships and alliances involving {region}",
+    "finance": "defence budget spending and financial trends {region}",
+    "geopolitics": "geopolitical situation and security dynamics {region}",
+}
+
+
+async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) -> dict:
+    """Identify and research the weakest knowledge cells.
+
+    Called by the autonomous engine as a scheduled task. Builds the
+    heatmap, finds the weakest cells via gap_targets(), and runs
+    targeted research queries for each one. Results are automatically
+    fed into the knowledge base by _feed_knowledge().
+
+    Args:
+        llm: LLM provider
+        dry_run: if True, log gaps but don't run research
+        max_cells: max cells to research per cycle (default 5)
+
+    Returns:
+        dict with results per cell
+    """
+    from ..intel.coverage_heatmap import build_heatmap, gap_targets, invalidate_heatmap_cache
+
+    t0 = time.time()
+    results = {
+        "ok": True,
+        "cells_researched": 0,
+        "cells_skipped": 0,
+        "errors": [],
+        "duration_ms": 0,
+    }
+
+    try:
+        heatmap = await asyncio.to_thread(build_heatmap)
+        targets = gap_targets(heatmap, max_targets=max_cells)
+    except Exception as e:
+        results["ok"] = False
+        results["errors"].append(f"heatmap build failed: {e}")
+        results["duration_ms"] = int((time.time() - t0) * 1000)
+        return results
+
+    if not targets:
+        logger.info("[knowledge gap filler] no gaps found — heatmap is healthy")
+        results["duration_ms"] = int((time.time() - t0) * 1000)
+        return results
+
+    for target in targets:
+        domain = target.get("domain", "")
+        jurisdiction = target.get("jurisdiction", "")
+        tier = target.get("tier", "absent")
+
+        if domain not in _GAP_FILLER_ELIGIBLE_DOMAINS:
+            results["cells_skipped"] += 1
+            continue
+
+        template = _GAP_FILLER_QUERY_TEMPLATES.get(domain, "defence {domain} {region}")
+        query = template.format(domain=domain, region=jurisdiction.replace("_", " "))
+
+        logger.info(
+            "[knowledge gap filler] researching %s x %s (tier=%s, facts=%d): %s",
+            domain, jurisdiction, tier, target.get("fact_count", 0), query,
+        )
+
+        if dry_run:
+            results["cells_skipped"] += 1
+            continue
+
+        try:
+            # Run the research through the existing chat pipeline
+            from .tasks import Task
+            research_task = Task(
+                id=f"gap_fill_{domain}_{jurisdiction}",
+                name=f"Research {domain} x {jurisdiction}",
+                tool_chain=[{"tool": "deep_research", "query": query}],
+                timeout_seconds=120,
+                cost_cap_usd=0.10,
+            )
+            record = await execute_task(research_task, llm, dry_run=False)
+            if record.get("status") == "error":
+                results["errors"].append(f"{domain}x{jurisdiction}: {record.get('error', 'unknown')}")
+            else:
+                results["cells_researched"] += 1
+        except Exception as e:
+            results["errors"].append(f"{domain}x{jurisdiction}: {e}")
+
+    # Invalidate heatmap cache so next read reflects new knowledge
+    try:
+        invalidate_heatmap_cache()
+    except Exception:
+        pass
+
+    results["duration_ms"] = int((time.time() - t0) * 1000)
+    logger.info(
+        "[knowledge gap filler] completed: %d researched, %d skipped, %d errors in %dms",
+        results["cells_researched"], results["cells_skipped"],
+        len(results["errors"]), results["duration_ms"],
+    )
+    return results

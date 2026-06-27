@@ -2395,3 +2395,27 @@ tasks:
       - "Venezuela"
       - "defence budget"
     mem0_tags: [commodities, oil, opec, producer_states, monitor, autonomous]
+
+  # R-F1985: autonomous knowledge gap filler. Runs every 6 hours to
+  # identify and research the weakest heatmap cells. This is the
+  # structural fix for Phase A Gate #2 — continuous self-improvement
+  # instead of manual seed packs.
+  - id: KNOWLEDGE-GAP-FILLER
+    name: Autonomous knowledge gap filler
+    description: |
+      Every 6 hours — build the heatmap, find the weakest cells via
+      gap_targets(), and run targeted research queries for each one.
+      Results are automatically fed into the knowledge base by the
+      existing _feed_knowledge() pipeline. Over time this lifts the
+      heatmap floor by continuously filling ARIA's weakest knowledge
+      areas without manual intervention.
+    cron: "0 */6 * * *"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.50
+    tool_chain:
+      - tool: fill_knowledge_gaps
+    delivery_channels: [mem0]
+    escalate_if: []
+    mem0_tags: [knowledge, gap-filler, infrastructure, autonomous]
