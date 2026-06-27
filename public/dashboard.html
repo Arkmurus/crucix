@@ -131,6 +131,45 @@
     <div class="sc-card-body" id="defence-list" style="max-height:420px;overflow-y:auto"></div>
   </div>
 
+  <!-- R-F2047 — My Sources: user adds their own data feeds → enrich the live intel -->
+  <div class="sc-card mb-24" id="my-sources-card">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sc-card-title"><i class="bi bi-rss"></i> My Sources</div>
+      <button id="btn-add-source" class="sc-btn sc-btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer"><i class="bi bi-plus-lg"></i> Add Source</button>
+    </div>
+    <p style="margin:0 14px;color:#8b949e;font-size:12px;line-height:1.5"><i class="bi bi-info-circle"></i> Add an RSS feed or site you want ARIA to monitor. It's auto-validated and starts feeding the live intel chain on the next news poll.</p>
+    <div class="sc-card-body" id="my-sources-list" style="max-height:320px;overflow-y:auto"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  </div>
+
+  <!-- R-F2047 — Add Source modal -->
+  <div id="add-source-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:48px 16px">
+    <div class="sc-card" style="max-width:480px;width:100%">
+      <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="sc-card-title"><i class="bi bi-plus-circle"></i> Add a Source</div>
+        <button id="add-source-close" style="background:transparent;border:none;color:#8b949e;font-size:20px;cursor:pointer">&times;</button>
+      </div>
+      <div class="sc-card-body" style="display:flex;flex-direction:column;gap:12px">
+        <div id="add-source-error" style="display:none;background:rgba(220,38,38,0.10);border:1px solid rgba(220,38,38,0.25);border-radius:6px;padding:8px 12px;color:#b91c1c;font-size:12px"></div>
+        <label style="font-size:12px;color:#8b949e">Source name *
+          <input id="src-name" type="text" placeholder="e.g. Reuters Aerospace &amp; Defense" style="width:100%;margin-top:4px;border-radius:6px;padding:9px 12px;font-size:13px">
+        </label>
+        <label style="font-size:12px;color:#8b949e">Feed / site URL *
+          <input id="src-url" type="url" placeholder="https://…/feed" style="width:100%;margin-top:4px;border-radius:6px;padding:9px 12px;font-size:13px">
+        </label>
+        <label style="font-size:12px;color:#8b949e">Type
+          <select id="src-type" style="width:100%;margin-top:4px;border-radius:6px;padding:9px 12px;font-size:13px">
+            <option value="rss">RSS / Atom feed</option>
+            <option value="website">Public website</option>
+          </select>
+        </label>
+        <label style="font-size:12px;color:#8b949e">Notes (optional)
+          <input id="src-notes" type="text" placeholder="why it's relevant to you" style="width:100%;margin-top:4px;border-radius:6px;padding:9px 12px;font-size:13px">
+        </label>
+        <button id="src-submit" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add Source</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 <script src="js/app.js?v=5"></script>
 <script src="js/sidebar.js?v=5"></script>
@@ -448,6 +487,74 @@ async function runSweep() {
 }
 
 loadData();
+
+// ── R-F2047 — My Sources (self-contained; does not touch loadData) ──────────
+(function () {
+  const listEl = document.getElementById('my-sources-list');
+  const modal = document.getElementById('add-source-modal');
+  const errEl = document.getElementById('add-source-error');
+
+  async function loadMySources() {
+    try {
+      const r = await authed('/api/aria/user/sources');
+      if (!r.ok) { listEl.innerHTML = '<p class="text-muted" style="padding:8px">Could not load your sources.</p>'; return; }
+      const data = await r.json();
+      const sources = (data && data.sources) || [];
+      if (!sources.length) {
+        listEl.innerHTML = '<p class="text-muted" style="padding:8px">No sources yet. Click <strong>Add Source</strong> to start feeding ARIA your own intel.</p>';
+        return;
+      }
+      listEl.innerHTML = sources.map(function (s) {
+        const nm = escHtml(s.site_name || s.site_id || 'source');
+        const url = escHtml(s.site_url || '');
+        const type = escHtml(s.site_type || '');
+        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
+          + '<i class="bi bi-rss" style="color:#913BFF"></i>'
+          + '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + nm + '</div>'
+          + '<div style="font-size:11px;color:rgba(255,255,255,0.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + url + '</div></div>'
+          + '<span class="sc-badge sc-badge-muted">' + type + '</span>'
+          + '<button class="src-del" data-id="' + escHtml(s.site_id) + '" title="Remove" style="background:transparent;border:none;color:#fca5a5;cursor:pointer;font-size:14px"><i class="bi bi-trash"></i></button>'
+          + '</div>';
+      }).join('');
+      listEl.querySelectorAll('.src-del').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          if (!confirm('Remove this source?')) return;
+          const r2 = await authed('/api/aria/user/sources/' + encodeURIComponent(b.dataset.id), { method: 'DELETE' });
+          if (r2.ok) loadMySources(); else alert('Failed to remove.');
+        });
+      });
+    } catch (e) { listEl.innerHTML = '<p class="text-muted" style="padding:8px">Network error loading sources.</p>'; }
+  }
+
+  document.getElementById('btn-add-source').addEventListener('click', function () { errEl.style.display = 'none'; modal.style.display = 'flex'; document.getElementById('src-name').focus(); });
+  document.getElementById('add-source-close').addEventListener('click', function () { modal.style.display = 'none'; });
+  modal.addEventListener('click', function (e) { if (e.target === modal) modal.style.display = 'none'; });
+
+  document.getElementById('src-submit').addEventListener('click', async function () {
+    const name = document.getElementById('src-name').value.trim();
+    const url = document.getElementById('src-url').value.trim();
+    const site_type = document.getElementById('src-type').value;
+    const notes = document.getElementById('src-notes').value.trim();
+    errEl.style.display = 'none';
+    if (!name || !url) { errEl.textContent = 'Name and URL are required.'; errEl.style.display = 'block'; return; }
+    if (!/^https?:\/\//i.test(url)) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; return; }
+    const btn = document.getElementById('src-submit'); btn.disabled = true; btn.textContent = 'Adding…';
+    const r = await authed('/api/aria/user/sources', { method: 'POST', body: JSON.stringify({ name: name, url: url, site_type: site_type, notes: notes }) });
+    let data = {}; try { data = await r.json(); } catch (e) {}
+    btn.disabled = false; btn.textContent = 'Add Source';
+    if (r.ok && data && data.success) {
+      ['src-name', 'src-url', 'src-notes'].forEach(function (id) { document.getElementById(id).value = ''; });
+      modal.style.display = 'none';
+      if (window.Toast) Toast.show('Source added — it starts feeding the intel chain on the next poll.', 'success');
+      loadMySources();
+    } else {
+      errEl.textContent = (data && data.error) || ('Failed to add (HTTP ' + r.status + ').');
+      errEl.style.display = 'block';
+    }
+  });
+
+  loadMySources();
+})();
 </script>
 <style>.spin{animation:spin .8s linear infinite}</style>
 </body>

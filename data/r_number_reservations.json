@@ -14828,9 +14828,10 @@
       "title": "light corporate theme redesign + sidebar collapse fix + dd-reports sidebar",
       "claimed_at": "2026-06-27T18:06:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0153971",
+      "notes": null,
+      "shipped_at": "2026-06-27T18:33:35Z"
     },
     {
       "r_number": "R-F2050",
@@ -14847,9 +14848,10 @@
       "title": "aria CLI: stop bridge-note hijack of operator task (deviation + non-completion root fix)",
       "claimed_at": "2026-06-27T18:28:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "91c75b62",
+      "notes": null,
+      "shipped_at": "2026-06-27T18:34:30Z"
     }
   ]
 }

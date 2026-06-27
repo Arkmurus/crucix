@@ -2516,6 +2516,22 @@ app.put('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
   ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'PUT' }));
 app.delete('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
   ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'DELETE' }));
+
+// R-F2045 — per-USER data sources (any signed-in user, scoped to themselves).
+// user_id is pinned from the JWT and never trusted from the client; the brain
+// scopes every read/write to agent_id="user:<uid>".
+app.get('/api/aria/user/sources', requireAuth, (req, res) => {
+  const p = new URLSearchParams(); p.set('user_id', req.user?.userId || '');
+  ariaProxy(req, res, `/api/aria/user/sources?${p.toString()}`);
+});
+app.post('/api/aria/user/sources', requireAuth, (req, res) => {
+  const p = new URLSearchParams(); p.set('user_id', req.user?.userId || '');
+  ariaProxy(req, res, `/api/aria/user/sources?${p.toString()}`, { method: 'POST' });
+});
+app.delete('/api/aria/user/sources/:siteId', requireAuth, (req, res) => {
+  const p = new URLSearchParams(); p.set('user_id', req.user?.userId || '');
+  ariaProxy(req, res, `/api/aria/user/sources/${encodeURIComponent(req.params.siteId)}?${p.toString()}`, { method: 'DELETE' });
+});
 });
 
 app.get('/api/aria/ledger', requireAuth, async (req, res) => {

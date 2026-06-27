@@ -24714,6 +24714,81 @@ async def vault_delete_ep(site_id: str) -> dict:
     return {"success": True, "deleted": site_id}
 
 
+# ── R-F2045 — per-USER data sources (their dashboard) ───────────────────────
+# A signed-in user adds their own data-point sites. These reuse the SAME vault
+# store + the SAME news_monitor ingestion (R-F2046) as admin sources — scoped by
+# agent_id="user:<uid>" so a user only ever reads/writes their own. Shared by
+# design (MVP): a user's public source enriches the global pool (benefits ARIA +
+# all users), per the operator's model. user_id is pinned from the JWT by the web
+# tier (requireAuth) and passed as a query param — never trusted from the client.
+_USER_SOURCE_LIMIT = 25
+
+
+@router.get("/user/sources")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def user_sources_list_ep(user_id: str = "") -> dict:
+    from ..intel.agent_signup_vault import get_vault
+    if not user_id:
+        return {"success": True, "sources": [], "count": 0}
+    entries = get_vault().list(agent_id=f"user:{user_id}", limit=200)
+    return {"success": True, "sources": entries, "count": len(entries)}
+
+
+@router.post("/user/sources")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
+    from ..intel.agent_signup_vault import get_vault
+    from ..intel import security as _sec
+    import hashlib
+    if not user_id:
+        return {"success": False, "error": "authentication required"}
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    url = (body.get("url") or "").strip()
+    site_type = (body.get("site_type") or "rss").lower()
+    notes = (body.get("notes") or "").strip()
+    if not name or not url:
+        return {"success": False, "error": "name and url are required"}
+    if site_type not in ("rss", "website"):
+        return {"success": False, "error": "site_type must be 'rss' or 'website'"}
+    ok, why = _sec.validate_url(url)
+    if not ok:
+        return {"success": False, "error": f"unsafe URL: {why}"}
+    owner = f"user:{user_id}"
+    vault = get_vault()
+    existing = vault.list(agent_id=owner, limit=500)
+    if len(existing) >= _USER_SOURCE_LIMIT:
+        return {"success": False, "error": f"source limit reached ({_USER_SOURCE_LIMIT}) — remove one first"}
+    for e in existing:
+        if (e.get("site_url") or "").strip() == url:
+            return {"success": False, "error": "you have already added this source"}
+    sid = "u_" + hashlib.sha1(f"{user_id}|{url}".encode()).hexdigest()[:16]
+    entry = vault.record(
+        site_id=sid, site_name=name, site_url=url, agent_id=owner,
+        site_type=site_type, agent_type="user_source", status="verified", notes=notes,
+    )
+    # Verify the write actually landed before reporting success (no false-success).
+    if not entry or vault.get(sid) is None:
+        return {"success": False, "error": "source could not be saved"}
+    return {"success": True, "entry": entry}
+
+
+@router.delete("/user/sources/{site_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def user_sources_delete_ep(site_id: str, user_id: str = "") -> dict:
+    from ..intel.agent_signup_vault import get_vault
+    if not user_id:
+        return {"success": False, "error": "authentication required"}
+    vault = get_vault()
+    entry = vault.get(site_id)
+    if not entry or entry.get("agent_id") != f"user:{user_id}":
+        return {"success": False, "error": "source not found or not yours"}
+    ok = vault.delete(site_id)
+    if not ok:
+        return {"success": False, "error": "delete failed"}
+    return {"success": True, "deleted": site_id}
+
+
 # ── Client Learning Sync ─────────────────────────────────────────────────
 
 @router.post("/learning/sync", dependencies=[Depends(require_aria_token)])  # R-F1347: was unauth brain WRITE
