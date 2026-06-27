@@ -72,7 +72,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "compliance_file":      ["compliance", "legal"],
     "symbolic_reasoner":    ["general"],
     "source_verifier":      ["osint"],
-    "sanctions":            ["compliance", "legal"],
+    "sanctions":            ["compliance", "legal", "sanctions"],
     "conflict_tracker":     ["geopolitics", "relationships"],
     "international_law":    ["legal", "compliance"],
     # Node.js seenode modules (via POST /api/aria/brain/absorb — registered
@@ -135,7 +135,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # NAK / SERBAN / F3 learnings (2026-04-17) — six new capabilities closing
     # the gaps observed on the live KNDS / FK-3000 engagement.
     "virtual_office_registry":    ["compliance", "osint", "finance"],
-    "sanctions_propagation":      ["compliance", "legal", "procurement"],
+    "sanctions_propagation":      ["compliance", "legal", "procurement", "sanctions"],
     "cited_artifact_verifier":    ["compliance", "legal", "osint"],
     "protective_reply_drafter":   ["compliance", "legal", "general"],
     # Tier 2 regional knowledge (2026-04-17 PM) — heat-map expansion
@@ -156,7 +156,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "domain_ownership_verifier":   ["compliance", "osint", "legal"],
     # F3 cascade remediation (2026-04-17 21:45-21:55)
     "run_quarantine":              ["compliance", "general"],
-    "sanctions_claim_guard":       ["compliance", "legal"],
+    "sanctions_claim_guard":       ["compliance", "legal", "sanctions"],
     # Continuous learning loop (2026-04-18)
     "training_export":             ["general"],
     "knowledge_spider":            ["osint", "general", "market_intel"],
@@ -186,8 +186,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # Direct primary-source DD adapters (Track B, 2026-04-18)
     "sources_sec_edgar":           ["finance", "compliance", "market_intel"],
     "sources_ofac_sdn":            ["compliance", "legal"],
-    "sources_fcdo_sanctions":      ["compliance", "legal"],
-    "sources_un_sc_sanctions":     ["compliance", "legal"],
+    "sources_fcdo_sanctions":      ["compliance", "legal", "sanctions"],
+    "sources_un_sc_sanctions":     ["compliance", "legal", "sanctions"],
     "sources_worldbank_debarred":  ["compliance", "legal", "procurement"],
     "sources_worldbank_documents": ["osint", "procurement", "market_intel"],
     "sources_acled":               ["geopolitics", "osint"],
@@ -269,7 +269,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "stream_honesty":       ["general", "compliance"],
     "reasoning_library":    ["general", "osint"],
     "regional_navigation":  ["osint", "general"],
-    "sanctions_divergence": ["compliance", "legal"],
+    "sanctions_divergence": ["compliance", "legal", "sanctions"],
     "autonomous_scheduler": ["general"],
     "autonomy_scorer":      ["general"],
     "operating_modes":      ["general"],

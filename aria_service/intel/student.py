@@ -143,6 +143,15 @@ TOPICS = [
     "compliance", "procurement", "market_intel", "technical",
     "geopolitics", "osint", "finance", "relationships",
     "competitor_intel", "legal", "general",
+    # R-F2062: sanctions was in HARD_FLOORS and _TOPIC_PATTERNS but NOT
+    # in TOPICS, so the student loop never proactively studied it and
+    # mastery only changed through incidental brain_hook signals.
+    # Adding it here makes get_due_topics() return it for reading sessions
+    # and self_quiz sampling.
+    "sanctions",
+    "nato_standards",
+    "strategic_geography",
+    "export_control",
 ]
 
 # Load-bearing capability tags — capability-only, region-agnostic.
@@ -246,7 +255,10 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("sanctions", re.compile(
         r"\b(?:ofac|ofsi|sdn(?:\s+list)?|specially\s+designated|"
         r"sanctions?\s+(?:list|regime|package|programme|program|target|"
-        r"designation|update|removal)|asset\s+freeze|"
+        r"designation|update|removal|check|screen|status|hits?|match|alert)|"
+        r"sanctioned\s+(?:entity|person|company|country|regime|list)|"
+        r"(?<!\w)sanctioned(?!\w)|"
+        r"asset\s+freeze|"
         r"sectoral\s+sanctions|secondary\s+sanctions|extraterritorial|"
         r"caatsa|magnitsky|opensanctions|eu\s+consolidated\s+(?:list|sanctions)|"
         r"un\s+sc(?:\s+sanctions)?|comprehensive\s+embargo|"
