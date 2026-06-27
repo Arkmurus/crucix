@@ -49,12 +49,18 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 # 3. push scripts + aria_service subtree + datasets + init adapter
 echo "[driver] pushing scripts + grounding_reward + datasets + init adapter…"
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel /workspace/checkpoints/aria_llm_init"
-for f in grpo_train.py grpo_pod_run.sh serve_eval_shim.py eval_aria_llm.py pod_selfstop_watch_v04.sh; do
+# R-F2037 — POD_RUN_SCRIPT selects the on-pod runner: default grpo_pod_run.sh
+# (HF generate, 4-bit), or grpo_vllm_pod_run.sh (vLLM colocate, A100-80, full dataset)
+# via USE_VLLM=1 bash scripts/train/run_grpo_cycle.sh.
+POD_RUN_SCRIPT="${POD_RUN_SCRIPT:-grpo_pod_run.sh}"
+[ "${USE_VLLM:-0}" = "1" ] && POD_RUN_SCRIPT="grpo_vllm_pod_run.sh"
+echo "[driver] on-pod runner: $POD_RUN_SCRIPT"
+for f in grpo_train.py grpo_pod_run.sh grpo_vllm_pod_run.sh serve_eval_shim.py eval_aria_llm.py pod_selfstop_watch_v04.sh; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" 2>/dev/null || \
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
 done
-# grpo_pod_run + selfstop also at /workspace root (launched from there)
-scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/grpo_pod_run.sh root@"$HOST":/workspace/ || exit 1
+# the selected runner + selfstop also at /workspace root (launched from there)
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$POD_RUN_SCRIPT" root@"$HOST":/workspace/ || exit 1
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN selfstop scp"
 for f in aria_service/__init__.py aria_service/intel/__init__.py aria_service/intel/grounding_reward.py; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$f" root@"$HOST":/workspace/crucix/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
@@ -72,7 +78,7 @@ $SSH -p "$PORT" root@"$HOST" \
    PROMPTS=/workspace/datasets/aria_grpo_prompts_v1.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
    DEEPSEEK_API_KEY='$DSK' \
-   setsid nohup bash /workspace/grpo_pod_run.sh > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
+   setsid nohup bash /workspace/$POD_RUN_SCRIPT > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
 $SSH -p "$PORT" root@"$HOST" \
   "POD_ID=$POD RP_KEY='$API_KEY' GRACE=1800 setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 < /dev/null & echo ARMED" || echo "[driver] WARN selfstop arm"
 

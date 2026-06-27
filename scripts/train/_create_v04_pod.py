@@ -18,9 +18,14 @@ the whole request (R-F1514 learned this the hard way)."""
 import json, os, urllib.request, urllib.error, pathlib
 
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
-GPUS = ["NVIDIA A40", "NVIDIA L40S", "NVIDIA RTX A6000", "NVIDIA L40",
+# R-F2037: ARIA_POD_GPUS env overrides the list (e.g. force A100-80 for vLLM
+# colocate, which needs >=70GB) — comma-separated valid enum strings.
+GPUS = (
+    [g.strip() for g in os.getenv("ARIA_POD_GPUS", "").split(",") if g.strip()]
+    or ["NVIDIA A40", "NVIDIA L40S", "NVIDIA RTX A6000", "NVIDIA L40",
         "NVIDIA RTX 6000 Ada Generation", "NVIDIA A100 80GB PCIe",
         "NVIDIA A100-SXM4-80GB"]
+)
 
 key = ""
 for ln in pathlib.Path(".env").read_text().splitlines():

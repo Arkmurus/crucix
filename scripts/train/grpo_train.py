@@ -154,8 +154,20 @@ def main() -> int:
     ap.add_argument("--max-prompt-len", type=int, default=3072)
     ap.add_argument("--max-completion-len", type=int, default=640)
     ap.add_argument("--load-in-4bit", action="store_true")
+    # R-F2033 Phase 3 — vLLM-accelerated generation. GRPO spends ~all its time
+    # generating G completions/prompt; HF generate on a 4-bit 7B was ~12 min/step
+    # (full run ~11h). vLLM (colocate: a second, bf16 copy of the policy on the same
+    # GPU, LoRA-synced each step) is 10-50x faster. Requires bf16 (NOT 4-bit) + a
+    # roomy GPU (A100-80) since vLLM holds its own weights + KV cache alongside training.
+    ap.add_argument("--use-vllm", action="store_true",
+                    help="vLLM colocate generation (needs bf16 + A100-80; not with --load-in-4bit)")
+    ap.add_argument("--vllm-gpu-mem", type=float, default=0.3,
+                    help="fraction of GPU mem reserved for the vLLM engine (rest = training)")
     ap.add_argument("--dry-run", action="store_true", help="validate dataset+reward, NO GPU/trl")
     args = ap.parse_args()
+    if args.use_vllm and args.load_in_4bit:
+        print("[grpo] WARNING: --use-vllm needs bf16 weights; ignoring --load-in-4bit.")
+        args.load_in_4bit = False
 
     if args.dry_run:
         return dry_run(args.dataset)
@@ -196,7 +208,7 @@ def main() -> int:
                                  target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                                                  "gate_proj", "up_proj", "down_proj"])
 
-    cfg = GRPOConfig(
+    cfg_kwargs = dict(
         output_dir=str(args.output_dir),
         num_generations=args.num_generations,
         per_device_train_batch_size=args.batch_size,
@@ -212,6 +224,16 @@ def main() -> int:
         gradient_checkpointing=True,
         report_to=[],
     )
+    if args.use_vllm:
+        # colocate: vLLM shares the training GPU (single-pod). The smoke gate
+        # exercises this exact path so a trl/vLLM version mismatch aborts cheaply.
+        cfg_kwargs.update(
+            use_vllm=True,
+            vllm_mode="colocate",
+            vllm_gpu_memory_utilization=args.vllm_gpu_mem,
+        )
+        print(f"[grpo] vLLM colocate ON (gpu_mem={args.vllm_gpu_mem}) — fast generation")
+    cfg = GRPOConfig(**cfg_kwargs)
     trainer = GRPOTrainer(
         model=model,
         reward_funcs=[make_reward_fn()],
