@@ -328,6 +328,58 @@ def _read_line_robust(prompt_fn, fallback_fn, on_box_failure=None) -> str:
     return fallback_fn()
 
 
+# ── R-F2053: proactive terminal-capability negotiation ──────────────────────
+# The anchored prompt_toolkit input box needs a real interactive console. Under
+# Git Bash / MSYS / winpty / a piped or redirected stdio, stdout is a pipe with
+# no Windows console screen buffer, so prompt_toolkit's Win32Output raises
+# NoConsoleScreenBufferError — historically AT PTPromptSession() construction,
+# which is upstream of _read_line_robust's per-prompt guard and so took down the
+# whole REPL on launch. Rather than build the box and crash, we decide UP FRONT
+# whether it can run and pick the input mode deliberately, telling the operator
+# which mode they're in and why. Cached after the first probe.
+_PT_CAPABILITY: tuple[bool, str] | None = None
+
+
+def _probe_prompt_toolkit_capability() -> tuple[bool, str]:
+    """Return (can_use_anchored_box, reason) for THIS terminal, without
+    constructing — and possibly crashing — the full prompt session.
+
+    The authoritative test is prompt_toolkit's own ``create_output()``: it is the
+    exact call that raises on a console-less terminal, so probing it here predicts
+    whether ``PTPromptSession()`` will succeed. A False result is normal control
+    flow (use the basic line-mode prompt), never an error."""
+    global _PT_CAPABILITY
+    if _PT_CAPABILITY is not None:
+        return _PT_CAPABILITY
+    if not PROMPT_TOOLKIT_AVAILABLE:
+        _PT_CAPABILITY = (False, "prompt_toolkit not installed")
+        return _PT_CAPABILITY
+    # Honour an explicit operator override either way (CI, odd terminals).
+    forced = os.getenv("ARIA_CLI_BASIC_PROMPT", "").strip().lower()
+    if forced in {"1", "true", "yes"}:
+        _PT_CAPABILITY = (False, "ARIA_CLI_BASIC_PROMPT set")
+        return _PT_CAPABILITY
+    # An anchored box requires an interactive TTY on both ends.
+    try:
+        if not (sys.stdin and sys.stdin.isatty() and sys.stdout and sys.stdout.isatty()):
+            _PT_CAPABILITY = (False, "stdin/stdout is not an interactive terminal")
+            return _PT_CAPABILITY
+    except Exception:  # noqa: BLE001 — a terminal we can't even query → basic mode
+        _PT_CAPABILITY = (False, "terminal not queryable")
+        return _PT_CAPABILITY
+    try:
+        from prompt_toolkit.output.defaults import create_output
+        create_output(stdout=sys.stdout)  # raises on a console-less terminal
+        _PT_CAPABILITY = (True, "interactive console")
+    except Exception as exc:  # noqa: BLE001 — any failure → basic line mode
+        _PT_CAPABILITY = (
+            False,
+            f"{type(exc).__name__}: no console screen buffer "
+            "(Git Bash / MSYS / winpty / redirected stdio)",
+        )
+    return _PT_CAPABILITY
+
+
 # ── Session log ─────────────────────────────────────────────────────────────
 _SESSION_DIR = Path.home() / ".aria" / "sessions"
 
@@ -1872,7 +1924,13 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     ui.start_session()
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
     print(color.dim("  /help for commands  ·  type a message or task"))
-    print(color.dim("  input box stays live while ARIA works — type + Enter to guide her mid-task\n"))
+    # R-F2053: only promise the live anchored box when this terminal can run it;
+    # the basic-mode notice below tells the operator what they actually get.
+    _box_capable, _ = _probe_prompt_toolkit_capability()
+    if _box_capable:
+        print(color.dim("  input box stays live while ARIA works — type + Enter to guide her mid-task\n"))
+    else:
+        print()
     last_task = ""
     _input_history: list[str] = []
     _history_idx = 0
@@ -1905,34 +1963,53 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
     pt_session = None
     _PT_SESSION = None  # R-F1407: reset module-level ref for bridge poller wake
     _LAST_SIGINT = [0.0]  # R-F1383 — double-Ctrl+C force-quit window
-    if PROMPT_TOOLKIT_AVAILABLE:
+    # R-F2053: negotiate the input mode up front instead of constructing the box
+    # and letting a console-less terminal crash the whole REPL on launch.
+    _box_ok, _box_reason = _probe_prompt_toolkit_capability()
+    if _box_ok:
         # R-F1279: Enter submits, Alt+Enter inserts a newline (see
         # _build_key_bindings). complete_while_typing=False so the
         # /command menu only appears on Tab — natural-language tasks
         # don't pop a menu on every keystroke.
-        kb = _build_key_bindings()
-        pt_session = PTPromptSession(
-            # R-F1308: surrogate-safe — a pasted emoji crashed
-            # the raw FileHistory write and froze the REPL.
-            history=PTSafeFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
-            auto_suggest=PTAutoSuggest(),
-            complete_while_typing=False,
-            completer=PTWordCompleter([
-                "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
-                "/claude", "/session", "/sessions", "/export", "/theme",
-                "/gaps", "/status", "/history", "/cost", "/model", "/compact",
-                "/memory", "/diff", "/plan", "/stats", "/think", "/clear",
-                "/version", "/uptime", "/config", "/reset",
-            ]),
-            style=PTStyle.from_dict({
-                "prompt": "bold cyan" if color.on else "",
-                "bottom-toolbar": "noreverse bg:#1c1f2e #8ea0c8" if color.on else "",
-            }),
-            key_bindings=kb,
-            multiline=True,
-            bottom_toolbar=lambda: _toolbar_text(cfg, self_mode),
-        )
-        _PT_SESSION = pt_session  # R-F1407: module-level ref for bridge poller wake
+        try:
+            kb = _build_key_bindings()
+            pt_session = PTPromptSession(
+                # R-F1308: surrogate-safe — a pasted emoji crashed
+                # the raw FileHistory write and froze the REPL.
+                history=PTSafeFileHistory(str(_ensure_session_dir() / "repl_history.txt")),
+                auto_suggest=PTAutoSuggest(),
+                complete_while_typing=False,
+                completer=PTWordCompleter([
+                    "/help", "/exit", "/quit", "/confirm", "/changes", "/chat",
+                    "/claude", "/session", "/sessions", "/export", "/theme",
+                    "/gaps", "/status", "/history", "/cost", "/model", "/compact",
+                    "/memory", "/diff", "/plan", "/stats", "/think", "/clear",
+                    "/version", "/uptime", "/config", "/reset",
+                ]),
+                style=PTStyle.from_dict({
+                    "prompt": "bold cyan" if color.on else "",
+                    "bottom-toolbar": "noreverse bg:#1c1f2e #8ea0c8" if color.on else "",
+                }),
+                key_bindings=kb,
+                multiline=True,
+                bottom_toolbar=lambda: _toolbar_text(cfg, self_mode),
+            )
+            _PT_SESSION = pt_session  # R-F1407: module-level ref for bridge poller wake
+        except Exception as _box_exc:  # noqa: BLE001 — probe passed but build failed
+            # Belt-and-suspenders: never let box construction crash the REPL.
+            pt_session = None
+            _PT_SESSION = None
+            _box_ok = False
+            _box_reason = f"{type(_box_exc).__name__} while building the input box"
+    if not _box_ok:
+        # Deliberate, transparent downgrade — the CLI is fully usable in basic
+        # line mode (type + Enter; mid-task typing still works via the stdin
+        # reader, resumed below and in the loop).
+        _resume_stdin_reader()
+        print(color.dim(
+            f"  input: basic line mode — {_box_reason}.\n"
+            "  type + Enter works; mid-task typing supported. For the live input "
+            "box, run aria in Windows Terminal or PowerShell."))
 
     # R-F1407: start the Claude bridge poller daemon (idle-wake for real-time notes)
     _CLAUDE_BRIDGE_BASE = find_repo_root(cwd)
@@ -2675,7 +2752,12 @@ def main(argv: list[str] | None = None) -> int:
     # stays paused so it can't steal keystrokes from the box.
     if interactive:
         _start_stdin_reader()
-        if PROMPT_TOOLKIT_AVAILABLE:
+        # R-F2053: pause the reader ONLY when the anchored box will actually run
+        # (it owns stdin). In basic line mode the reader must stay live so
+        # mid-task typing works — pausing it on mere import-availability left
+        # console-less terminals with no input at all.
+        box_ok, _ = _probe_prompt_toolkit_capability()
+        if box_ok:
             _pause_stdin_reader()
 
     if interactive:
