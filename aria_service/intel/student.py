@@ -71,6 +71,17 @@ CURRICULUM_KEY = "crucix:aria:student:curriculum"
 QUIZ_HISTORY_KEY = "crucix:aria:student:quiz_history"
 READING_LOG_KEY = "crucix:aria:student:reading_log"
 DIVERGENCE_KEY = "crucix:aria:student:divergence"
+# R-F1996 — full-length training fuel harvested from genuine divergences (local
+# stack answered but disagreed materially with the cloud teacher). The DIVERGENCE_KEY
+# log keeps only 300-char previews (for the curriculum/mastery view); training on
+# truncated answers would teach the model to truncate, so the fuel store keeps
+# training-grade full text. Each record is an SFT pair (chosen = cloud answer) with
+# the local answer retained as the DPO `rejected`. This closes the flywheel: the
+# exact questions where local reasoning is weak become the next cycle's training data.
+DIVERGENCE_FUEL_KEY = "crucix:aria:training:divergence_fuel"
+_FUEL_MAX = 1000
+_FUEL_SIMILARITY_CEILING = 0.5   # only capture genuine disagreements
+_FUEL_MIN_LOCAL_CHARS = 40       # local must have made a real attempt (a real "rejected")
 STUDENT_META_KEY = "crucix:aria:student:meta"
 
 # Mastery starts at 0.5 (neutral) and updates by EWMA
@@ -1536,6 +1547,48 @@ async def record_divergence(
 
 
 @fail_wire(module="student", gap_type="engine_failure")
+async def record_divergence_fuel(
+    question: str,
+    cloud_response: str,
+    local_response: str | None,
+    local_source: str | None,
+    similarity: float,
+) -> bool:
+    """R-F1996 — capture a genuine divergence as full-length training fuel.
+
+    Returns True if a fuel record was written. We only capture cases where the
+    LOCAL stack actually produced a substantive answer that materially disagreed
+    with the cloud teacher (similarity below the ceiling) — those are the highest-
+    value SFT/DPO pairs (the model has a wrong answer to correct, not just a gap).
+    Full text is kept (capped at training-grade lengths), never truncated previews.
+    """
+    lr = (local_response or "").strip()
+    if len(lr) < _FUEL_MIN_LOCAL_CHARS:
+        return False  # no real local attempt → nothing to mark as "rejected"
+    if similarity >= _FUEL_SIMILARITY_CEILING:
+        return False  # local agreed with the teacher → not a learning case
+    cr = (cloud_response or "").strip()
+    q = (question or "").strip()
+    if not q or len(cr) < _FUEL_MIN_LOCAL_CHARS:
+        return False
+    try:
+        fuel = await rs.get_json(DIVERGENCE_FUEL_KEY) or []
+        fuel.append({
+            "ts": time.time(),
+            "question": q[:3000],
+            "cloud_response": cr[:16000],     # SFT chosen — the teacher's answer
+            "local_response": lr[:16000],     # DPO rejected — local's wrong attempt
+            "local_source": local_source or "",
+            "similarity": round(similarity, 3),
+            "topics": detect_topics(q),
+        })
+        await rs.set_json(DIVERGENCE_FUEL_KEY, fuel[-_FUEL_MAX:], ex=45 * 86400)
+        return True
+    except Exception as e:
+        logger.debug("[student] divergence fuel capture failed (non-fatal): %s", e)
+        return False
+
+
 async def compare_local_silently(question: str, cloud_response: str) -> dict:
     """After a cloud LLM responds, run the local stack on the SAME question
     and compare. The cloud's answer is treated as the teacher's; the local
@@ -1554,6 +1607,9 @@ async def compare_local_silently(question: str, cloud_response: str) -> dict:
         local_source = local.get("source") if local.get("answered") else None
         similarity = _quick_similarity(local_response or "", cloud_response)
         await record_divergence(question, cloud_response, local_response, local_source, similarity)
+        # R-F1996 — full-length fuel capture for the training flywheel (no-op
+        # unless this is a genuine local-wrong divergence with a real attempt).
+        await record_divergence_fuel(question, cloud_response, local_response, local_source, similarity)
         return {
             "compared": True,
             "local_attempted": local.get("answered", False),

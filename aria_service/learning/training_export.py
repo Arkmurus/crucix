@@ -513,6 +513,65 @@ async def _apply_judge_gate(examples: list[dict]) -> list[dict]:
 # Main export
 # ═══════════════════════════════════════════════════════════════════════
 
+async def _collect_divergences(days: int) -> list[dict[str, Any]]:
+    """R-F1996 — local-vs-DeepSeek divergences as training fuel.
+
+    These are the questions where ARIA's local stack ANSWERED but materially
+    disagreed with the cloud teacher — the highest-value training signal for
+    making the local model independent. The cloud answer is the SFT `assistant`
+    (chosen); the local answer is retained in meta as the DPO `rejected`. The
+    judge gate downstream still validates the cloud answer is correct, so a wrong
+    teacher answer can't poison the corpus.
+    """
+    out: list[dict[str, Any]] = []
+    try:
+        from ..intel import redis_store as rs
+        from ..intel.student import DIVERGENCE_FUEL_KEY
+        fuel = await rs.get_json(DIVERGENCE_FUEL_KEY) or []
+        if not fuel:
+            _set_diag("divergences", 0, reason="no_divergence_fuel_captured")
+            return out
+        cutoff = None
+        try:
+            import time as _t
+            cutoff = _t.time() - days * 86400
+        except Exception:
+            cutoff = None
+        kept = 0
+        for d in fuel:
+            if not isinstance(d, dict):
+                continue
+            if cutoff is not None and float(d.get("ts", 0) or 0) < cutoff:
+                continue
+            q = (d.get("question") or "").strip()
+            cloud = (d.get("cloud_response") or "").strip()
+            local = (d.get("local_response") or "").strip()
+            if not q or not cloud:
+                continue
+            wc = len(cloud.split())
+            if wc < _MIN_WORD_COUNT or wc > _MAX_WORD_COUNT:
+                continue
+            if any(tag.lower() in cloud.lower() for tag in _EXCLUDE_TAGS):
+                continue
+            out.append({
+                "user": q[:3000],
+                "assistant": cloud[:16000],
+                "meta": {
+                    "source": "divergence",
+                    "rejected": local[:16000],   # DPO rejected (local's wrong attempt)
+                    "local_source": d.get("local_source", ""),
+                    "similarity": d.get("similarity"),
+                    "topics": d.get("topics", []),
+                },
+            })
+            kept += 1
+        _set_diag("divergences", kept,
+                  reason=None if kept else "all_divergences_outside_window_or_filtered")
+    except Exception as exc:
+        _set_diag("divergences", 0, error=f"{type(exc).__name__}: {exc}")
+    return out
+
+
 async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
     """Daily scheduled export. Writes one JSONL file per day.
 
@@ -550,8 +609,9 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
     dd_reports = await _collect_dd_reports(days_lookback)
     writers    = await _collect_writer_outputs(days_lookback)
     adversarial = await _collect_adversarial_passes(days_lookback)
+    divergences = await _collect_divergences(days_lookback)   # R-F1996 flywheel
 
-    all_examples = chat_turns + dd_reports + writers + adversarial
+    all_examples = chat_turns + dd_reports + writers + adversarial + divergences
 
     # De-dupe by hash of (user + assistant) — prevents repeat-ingesting
     # the same example across consecutive runs
