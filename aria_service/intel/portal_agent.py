@@ -47,8 +47,8 @@ _BROWSER_ARGS = [
 ]
 _PAGE_TIMEOUT = 30_000  # ms
 _SUBMIT_TIMEOUT = 20_000  # ms
-_CAPTCHA_POLL_INTERVAL = 2  # seconds
-_CAPTCHA_MAX_POLLS = 45  # ~90 seconds max
+_CAPTCHA_POLL_INTERVAL = 1  # seconds — poll faster
+_CAPTCHA_MAX_POLLS = 60  # ~60 seconds max
 
 # ARIA's identity for registrations
 _ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
@@ -298,8 +298,9 @@ class AdaptivePortalAgent:
 
             # Step 8: Handle other errors
             if not response["success"] and response.get("errors"):
+                err_msg = "; ".join(response["errors"][:3])
                 return self._finish(portal_id, False, t0,
-                                    f"Form rejected: {error_text}",
+                                    f"Form rejected: {err_msg}",
                                     errors=response["errors"])
 
             # Step 9: Success — extract and store API key
