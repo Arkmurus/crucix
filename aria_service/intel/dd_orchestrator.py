@@ -8192,6 +8192,121 @@ async def _orchestrate_dd_impl(
         except Exception as _fx_err:
             logger.debug("[dd_orchestrator] forensic layer failed (non-fatal): %s", _fx_err)
 
+        # ── LAYER 11: DETERMINISTIC PRIMITIVES (R-F1993 — auto-wired) ──────────
+        # The DD-relevant deterministic primitives that used to be MANUAL paste
+        # buttons in the reports UI now run automatically on EVERY DD, computed
+        # from the entity ARIA already resolved (FATF Rec 12 relatives, OECD/FATF
+        # economic-substance, FATF ML/TBML typology match, and — only when a
+        # wallet is present — OpenSanctions crypto screen). Each is best-effort,
+        # clamp-bounded, fail-open, and attaches to report.<field> for synthesis
+        # + rendering. The pure-diagnostic primitives (provenance lineage,
+        # prompt-injection grade, tier router) are NOT DD analytics and stay as
+        # internal/admin endpoints only — removed from the customer report UI.
+        layer_name = "deterministic_primitives"
+        report.layers_run.append(layer_name)
+        _prim_ran: list[str] = []
+
+        # R-F76 — RCA / relatives (FATF Rec 12 recursive screening). Name only.
+        try:
+            from . import rca_screening as _rca
+            _rca_out = await asyncio.wait_for(
+                _rca.screen_with_relatives(report.identity.entity_name or ""),
+                timeout=_clamp(10),
+            )
+            if isinstance(_rca_out, dict) and (_rca_out.get("relatives_screened")
+                                               or _rca_out.get("inherited_risks")):
+                try:
+                    report.rca_relatives = _rca_out  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                _prim_ran.append("rca_relatives")
+                if _rca_out.get("inherited_risks"):
+                    logger.warning("[dd_orchestrator] RCA inherited risk on %s: %d relative(s)",
+                                   report.identity.entity_name or "?", len(_rca_out["inherited_risks"]))
+        except asyncio.TimeoutError:
+            logger.warning("[dd_orchestrator] RCA/relatives timed out (non-fatal)")
+        except Exception as _e:
+            logger.debug("[dd_orchestrator] RCA/relatives failed (non-fatal): %s", _e)
+
+        # R-F77 — economic substance (front vs real). Profile from resolved
+        # identity + caller-supplied financials; run only with ≥2 real signals.
+        try:
+            from . import economic_substance as _es
+            _es_profile = {
+                "employees": target.get("employees"),
+                "claimed_revenue_usd": target.get("claimed_revenue_usd") or target.get("revenue_usd"),
+                "paid_up_capital_usd": target.get("paid_up_capital_usd") or target.get("capital_usd"),
+                "claimed_contract_size_usd": target.get("claimed_contract_size_usd"),
+                "incorporation_date": report.identity.incorporation_date,
+                "directors_count": len(report.identity.directors or []) or None,
+                "registered_address": report.identity.registered_address,
+            }
+            _signals = sum(1 for v in _es_profile.values() if v not in (None, "", 0))
+            if _signals >= 2:
+                _es_out = _es.score_substance(_es_profile)
+                if isinstance(_es_out, dict):
+                    try:
+                        report.economic_substance = _es_out  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    _prim_ran.append("economic_substance")
+                    if str(_es_out.get("grade") or "").upper() == "INSUBSTANTIVE":
+                        logger.warning("[dd_orchestrator] ECONOMIC SUBSTANCE insubstantive on %s: %.2f",
+                                       report.identity.entity_name or "?", _es_out.get("substance_score", 0))
+        except Exception as _e:
+            logger.debug("[dd_orchestrator] economic substance failed (non-fatal): %s", _e)
+
+        # R-F72 — FATF ML/TBML typology match. Profile from resolved identity +
+        # caller hints; run only when we have a jurisdiction to score against.
+        try:
+            from . import fatf_typologies as _fatf
+            _iso = (report.identity.jurisdiction_iso2 or "").strip()
+            if _iso:
+                _fatf_profile = {
+                    "jurisdictions": [_iso],
+                    "ubo_disclosure": ("disclosed" if (report.identity.ubo_chain
+                                       or report.identity.shareholders) else "undisclosed"),
+                    "payment_method": target.get("payment_method"),
+                    "entity_type": report.identity.entity_type,
+                    "registration_status": report.identity.registration_status,
+                }
+                _fatf_out = _fatf.match_typologies(_fatf_profile)
+                if isinstance(_fatf_out, dict) and (_fatf_out.get("matches") or _fatf_out.get("weak")):
+                    try:
+                        report.fatf_typologies = _fatf_out  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    _prim_ran.append("fatf_typologies")
+                    if _fatf_out.get("matches"):
+                        logger.warning("[dd_orchestrator] FATF typology match on %s: %d",
+                                       report.identity.entity_name or "?", len(_fatf_out["matches"]))
+        except Exception as _e:
+            logger.debug("[dd_orchestrator] FATF typologies failed (non-fatal): %s", _e)
+
+        # R-F74 — crypto wallet screen. ONLY when the caller supplied a wallet
+        # (not every entity has one — running it blind would be noise).
+        try:
+            _wallet = (target.get("wallet") or target.get("wallet_address")
+                       or target.get("crypto_wallet") or "").strip()
+            if _wallet:
+                from . import crypto_sanctions as _crypto
+                _cw = await asyncio.wait_for(_crypto.screen_wallet(_wallet), timeout=_clamp(6))
+                try:
+                    report.crypto_screen = {"wallet": _wallet[:12] + "…", "matches": _cw or []}  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                _prim_ran.append("crypto_screen")
+                if _cw:
+                    logger.warning("[dd_orchestrator] CRYPTO wallet hit on %s: %d match(es)",
+                                   report.identity.entity_name or "?", len(_cw))
+        except Exception as _e:
+            logger.debug("[dd_orchestrator] crypto screen failed (non-fatal): %s", _e)
+
+        if _prim_ran:
+            logger.info("[dd_orchestrator] deterministic primitives ran: %s", _prim_ran)
+        elif "deterministic_primitives" not in report.layers_skipped:
+            report.layers_skipped.append("deterministic_primitives")
+
         # ── R-F584/585/586/587 (2026-05-16) — extension shim block ──
         # Runs the 4 capability modules shipped earlier on 2026-05-16:
         #   - R-F584 court_records   → CourtListener + Bailii lookup
