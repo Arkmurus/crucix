@@ -2410,7 +2410,7 @@ tasks:
       heatmap floor by continuously filling ARIA's weakest knowledge
       areas without manual intervention.
     cron: "0 */6 * * *"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 600
     cost_cap_usd: 0.50
