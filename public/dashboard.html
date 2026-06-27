@@ -190,6 +190,16 @@ function severityPill(sev) {
   return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
 }
 
+// R-F2024 — authed(): thin fetch wrapper that attaches the JWT and returns the
+// raw Response (loadData consumes res.ok / res.json()). This helper was REFERENCED
+// at lines below but never defined (R-F2016) → ReferenceError threw inside the
+// Promise.allSettled([...]) call, crashing loadData() before a single request
+// fired → the whole dashboard rendered no data. Define it from the shared API
+// token/header helpers in app.js.
+function authed(path) {
+  return fetch(API.BASE + path, { headers: API.headers() });
+}
+
 async function loadData() {
   // ── Load ARIA Brain data (DD reports, watchlist, pipeline) ──
   const [ddRes, wlRes, pipeRes, oppRes, sweepRes] = await Promise.allSettled([

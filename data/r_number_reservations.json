@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2023,
+  "next_available": 2026,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14542,23 +14542,53 @@
       "title": "catch-up refresh override first + log every overdue skip + brain wire",
       "claimed_at": "2026-06-27T14:08:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4da5aa71",
+      "notes": null,
+      "shipped_at": "2026-06-27T14:22:08Z"
     },
     {
       "r_number": "R-F2021",
       "title": "brain_hook get_stats surface real _by_sector aggregate",
       "claimed_at": "2026-06-27T14:08:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4da5aa71",
+      "notes": null,
+      "shipped_at": "2026-06-27T14:22:09Z"
     },
     {
       "r_number": "R-F2022",
       "title": "source uptime monitor read real defence_source_seed catalogue + surface per-source array",
       "claimed_at": "2026-06-27T14:08:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4da5aa71",
+      "notes": null,
+      "shipped_at": "2026-06-27T14:22:09Z"
+    },
+    {
+      "r_number": "R-F2023",
+      "title": "fix adversarial empty-response scoring",
+      "claimed_at": "2026-06-27T14:36:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2024",
+      "title": "dashboard.html missing authed() helper - ReferenceError crashes loadData, no data fetched",
+      "claimed_at": "2026-06-27T14:37:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2025",
+      "title": "adversarial scoring excludes per-attack empty LLM responses (artifact fix)",
+      "claimed_at": "2026-06-27T14:38:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
