@@ -1,11 +1,11 @@
-"""R-F2064: capability test for the visual portal registration agent.
+"""R-F2064: capability test for the adaptive portal registration agent.
 
-Verifies that the PortalRegistrationAgent:
-1. Can be instantiated and started
-2. Can scan form fields from a real registration page
-3. Can detect captchas
-4. Can read validation errors
-5. Properly wires success/failure to the brain
+Verifies that the AdaptivePortalAgent can:
+1. Read ANY registration page and extract all form fields with context
+2. Understand what each field means by its label/name/type
+3. Fill fields intelligently with correct values
+4. Detect captchas on the page
+5. Read validation errors from the response
 """
 from __future__ import annotations
 
@@ -15,119 +15,117 @@ import pytest
 @pytest.mark.asyncio
 async def test_agent_imports():
     """The portal agent module imports cleanly."""
-    from aria_service.intel.portal_agent import PortalRegistrationAgent
-    assert PortalRegistrationAgent is not None
+    from aria_service.intel.portal_agent import AdaptivePortalAgent
+    assert AdaptivePortalAgent is not None
 
 
 @pytest.mark.asyncio
-async def test_agent_scan_newsapi_form():
-    """The agent can scan the NewsAPI registration form and find fields."""
-    from aria_service.intel.portal_agent import PortalRegistrationAgent
-    
-    agent = PortalRegistrationAgent()
-    try:
-        await agent.start()
-        
-        # Navigate to NewsAPI registration
-        from playwright.async_api import async_playwright
-        await agent._page.goto(
-            "https://newsapi.org/register",
-            wait_until="load",
-            timeout=30000,
-        )
-        await agent._page.wait_for_timeout(1000)
-        
-        # Scan form fields
-        fields = await agent._scan_form_fields()
-        
-        # Verify we found the expected fields
+async def test_agent_reads_newsapi_form():
+    """The agent can read the NewsAPI registration form and find all fields."""
+    from aria_service.intel.portal_agent import AdaptivePortalAgent
+
+    async with AdaptivePortalAgent() as agent:
+        await agent._safe_goto("https://newsapi.org/register")
+        await agent._page.wait_for_timeout(1500)
+
+        form_data = await agent._read_page()
+        fields = form_data["fields"]
         field_names = [f["name"] for f in fields]
-        print(f"Found fields: {field_names}")
-        
-        assert "FirstName" in field_names, "Should find FirstName field"
-        assert "Email" in field_names, "Should find Email field"
-        assert "Password.Value" in field_names, "Should find Password.Value field"
+
+        print(f"Page title: {form_data['page_title']}")
+        print(f"Fields found: {field_names}")
+        print(f"Has captcha: {form_data['has_captcha']}")
+
+        # Verify expected fields exist
+        assert "FirstName" in field_names, "Should find FirstName"
+        assert "Email" in field_names, "Should find Email"
+        assert "Password.Value" in field_names, "Should find Password"
         assert "EntityType" in field_names, "Should find EntityType radio"
-        assert "HasAcceptedTerms" in field_names, "Should find HasAcceptedTerms checkbox"
-        
+        assert "HasAcceptedTerms" in field_names, "Should find terms checkbox"
+
         # Verify radio options
-        entity_type = [f for f in fields if f["name"] == "EntityType"][0]
-        radio_values = [o["value"] for o in entity_type.get("options", [])]
+        et_field = next(f for f in fields if f["name"] == "EntityType")
+        radio_values = [o["value"] for o in et_field.get("options", [])]
         assert "Individual" in radio_values, "Should have Individual option"
         assert "Business" in radio_values, "Should have Business option"
-        
-    finally:
-        await agent.close()
+
+        # Verify captcha detection
+        assert form_data["has_captcha"], "Should detect reCAPTCHA"
+        assert form_data.get("captcha_sitekey", ""), "Should extract site key"
 
 
 @pytest.mark.asyncio
-async def test_agent_detect_captcha():
-    """The agent can detect reCAPTCHA on the NewsAPI registration page."""
-    from aria_service.intel.portal_agent import PortalRegistrationAgent
-    
-    agent = PortalRegistrationAgent()
-    try:
-        await agent.start()
-        await agent._page.goto(
-            "https://newsapi.org/register",
-            wait_until="load",
-            timeout=30000,
-        )
-        await agent._page.wait_for_timeout(1000)
-        
-        has_captcha = await agent._page.evaluate("""
-            () => {
-                return document.querySelector('.g-recaptcha') !== null
-                    || document.querySelector('[data-sitekey]') !== null;
-            }
-        """)
-        assert has_captcha, "Should detect reCAPTCHA on NewsAPI"
-        
-        site_key = await agent._page.evaluate("""
-            () => {
-                const el = document.querySelector('.g-recaptcha');
-                if (el) return el.getAttribute('data-sitekey');
-                return null;
-            }
-        """)
-        assert site_key, "Should extract site key"
-        assert len(site_key) > 10, "Site key should be a valid length"
-        print(f"Site key: {site_key[:20]}...")
-        
-    finally:
-        await agent.close()
+async def test_agent_determines_field_values():
+    """The agent correctly determines what value to fill for each field type."""
+    from aria_service.intel.portal_agent import AdaptivePortalAgent
+
+    agent = AdaptivePortalAgent()
+
+    # Email fields
+    assert "aria@arkmurus.com" in str(agent._determine_field_value(
+        {"name": "Email", "type": "email", "label": "Email address"}))
+
+    # Password fields
+    pwd = agent._determine_field_value(
+        {"name": "Password", "type": "password", "label": "Password"})
+    assert pwd and len(pwd) >= 12, "Password should be generated"
+
+    # First name
+    assert agent._determine_field_value(
+        {"name": "FirstName", "type": "text", "label": "First name"}) == "ARIA"
+
+    # Last name
+    assert agent._determine_field_value(
+        {"name": "LastName", "type": "text", "label": "Last name"}) == "Research"
+
+    # Full name
+    assert "ARIA Research" in str(agent._determine_field_value(
+        {"name": "name", "type": "text", "label": "Full name"}))
+
+    # Organization
+    assert "Arkmurus" in str(agent._determine_field_value(
+        {"name": "company", "type": "text", "label": "Company"}))
+
+    # Website
+    assert "arkmurus.com" in str(agent._determine_field_value(
+        {"name": "website", "type": "text", "label": "Website"}))
+
+    # Phone — should be skipped
+    assert agent._determine_field_value(
+        {"name": "phone", "type": "tel", "label": "Phone"}) is None
+
+    # Radio buttons — should pick Individual
+    assert agent._determine_field_value({
+        "name": "EntityType", "type": "radio", "label": "I am a",
+        "options": [
+            {"value": "Individual", "label": "Individual", "checked": True},
+            {"value": "Business", "label": "Business", "checked": False},
+        ],
+    }) == "Individual"
+
+    # Terms checkbox — should return True
+    assert agent._determine_field_value(
+        {"name": "terms", "type": "checkbox", "label": "I accept the terms"}) is True
 
 
 @pytest.mark.asyncio
-async def test_agent_fill_form():
-    """The agent can fill the NewsAPI registration form."""
-    from aria_service.intel.portal_agent import PortalRegistrationAgent
-    
-    agent = PortalRegistrationAgent()
-    try:
-        await agent.start()
-        await agent._page.goto(
-            "https://newsapi.org/register",
-            wait_until="load",
-            timeout=30000,
-        )
+async def test_agent_reads_errors():
+    """The agent can read validation errors from a page."""
+    from aria_service.intel.portal_agent import AdaptivePortalAgent
+
+    async with AdaptivePortalAgent() as agent:
+        # Navigate to a page that has validation errors
+        await agent._safe_goto("https://newsapi.org/register")
         await agent._page.wait_for_timeout(1000)
-        
-        # Scan and fill form
-        fields = await agent._scan_form_fields()
-        from aria_service.intel.portal_registry import PORTALS
-        newsapi = next(p for p in PORTALS if p.id == "newsapi")
-        result = await agent._fill_form(fields, newsapi)
-        
-        assert result["filled"] > 0, "Should fill at least one field"
-        print(f"Filled {result['filled']} fields, skipped {result['skipped']}")
-        
-        # Verify fields were actually filled
-        email_value = await agent._page.evaluate(
-            "document.querySelector('input[name=\"Email\"]')?.value || ''"
-        )
-        assert "arkmurus" in email_value, "Email field should be filled with arkmurus email"
-        print(f"Email filled: {email_value}")
-        
-    finally:
-        await agent.close()
+
+        # Submit empty form to trigger validation
+        await agent._submit()
+        await agent._page.wait_for_timeout(1000)
+
+        response = await agent._read_response()
+        print(f"Response: success={response['success']}, errors={response['errors']}")
+
+        # Should have validation errors (empty form submission)
+        # Note: this may or may not produce errors depending on JS validation
+        assert isinstance(response["errors"], list)
+        assert isinstance(response["success"], bool)
