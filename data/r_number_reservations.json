@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2039,
+  "next_available": 2040,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14716,6 +14716,16 @@
       "r_number": "R-F2038",
       "title": "dashboard missing proxy routes + API call validation",
       "claimed_at": "2026-06-27T16:48:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dd4c586d",
+      "notes": null,
+      "shipped_at": "2026-06-27T16:54:58Z"
+    },
+    {
+      "r_number": "R-F2039",
+      "title": "email.mjs trim CRLF-contaminated SMTP creds (real root cause); sender=aria mailbox; supersede R-F2032 SMTP_* approach",
+      "claimed_at": "2026-06-27T16:55:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

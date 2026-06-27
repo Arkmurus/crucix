@@ -1,13 +1,17 @@
 // test/email-smtp-cred-resolution-rf2032.test.mjs
 //
-// R-F2032 — lib/auth/email.mjs must read the SMTP_USER / SMTP_PASS namespace.
-// Live aria-web held the working mailbox creds under SMTP_USER/SMTP_PASS, but
-// the module only read EMAIL_* → ARIA_EMAIL_*, so auth failed ("Invalid login:
-// wrong user/password") while the right creds sat unread.
+// R-F2039 (supersedes R-F2032) — lib/auth/email.mjs credential resolution.
 //
-// Drives the REAL module (it resolves creds at import time + logs an [EMAIL]
-// boot line with the resolved user) in an isolated subprocess per case, so we
-// test the actual resolution, not a replica.
+// ACTUAL root cause of the live SMTP failure (verified on aria-web 2026-06-27):
+// CRLF contamination — every secret carried a trailing "\r" (e.g.
+// "ox.livemail.co.uk\r", "aria@arkmurus.com\r"), which broke DNS (ENOTFOUND)
+// and SMTP AUTH (535). The same creds authenticate the moment they're trimmed.
+// So the fix is to TRIM creds, and the sender is the ARIA mailbox (aria@) per
+// operator direction — NOT the SMTP_* namespace R-F2032 added (that points to a
+// different mailbox, acorrea@).
+//
+// Drives the REAL module (it resolves creds at import + logs an [EMAIL] boot
+// line with the resolved user) in isolated subprocesses.
 //
 // Run: node --test test/email-smtp-cred-resolution-rf2032.test.mjs
 
@@ -15,11 +19,8 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 
-// file:// URL — required for dynamic import() of an absolute path on Windows.
 const EMAIL_MJS = new URL('../lib/auth/email.mjs', import.meta.url).href;
 
-// Start from a clean copy of the parent env with ALL mail vars stripped, so the
-// host test environment can never leak EMAIL_*/SMTP_*/ARIA_* into a case.
 function _baseEnv() {
   const e = { ...process.env };
   for (const k of Object.keys(e)) {
@@ -37,38 +38,54 @@ function bootLog(caseVars) {
   return (r.stderr || '') + (r.stdout || '');
 }
 
-test('SMTP_USER/SMTP_PASS are used when EMAIL_USER is unset (the live bug)', () => {
+test('R-F2039: CRLF-contaminated creds are TRIMMED and still configure SMTP (the real bug)', () => {
   const log = bootLog({
-    EMAIL_HOST: 'ox.livemail.co.uk',
-    SMTP_USER: 'smtpbox@arkmurus.com',
-    SMTP_PASS: 'secret-smtp-pass',
+    EMAIL_HOST: 'ox.livemail.co.uk\r',
+    EMAIL_USER: 'aria@arkmurus.com\r',
+    EMAIL_PASS: 'secret\r',
   });
-  assert.match(log, /SMTP configured/, 'should be configured, not log-relay mode');
-  assert.match(log, /user=smtpbox@arkmurus\.com/, 'must resolve EMAIL_USER from SMTP_USER');
+  assert.match(log, /SMTP configured/, 'trailing \\r must not break configuration');
+  assert.match(log, /host=ox\.livemail\.co\.uk(?:\s|$)/m, 'host must be trimmed (no trailing \\r)');
+  assert.match(log, /user=aria@arkmurus\.com(?:\s|$)/m, 'user must be trimmed (no trailing \\r)');
 });
 
-test('dedicated EMAIL_USER still wins over SMTP_USER (additive, never overrides)', () => {
+test('R-F2039: sender falls back to the ARIA mailbox (aria@) when EMAIL_* is empty', () => {
+  const log = bootLog({
+    EMAIL_USER: '',                              // empty (live state)
+    ARIA_SMTP_HOST: 'ox.livemail.co.uk\r',
+    ARIA_EMAIL_USER: 'aria@arkmurus.com\r',
+    ARIA_EMAIL_PASS: 'p\r',
+    ARIA_SMTP_PORT: '465\r',
+  });
+  assert.match(log, /SMTP configured/);
+  assert.match(log, /user=aria@arkmurus\.com(?:\s|$)/m, 'sender must be the ARIA mailbox');
+});
+
+test('R-F2039: SMTP_* (a different mailbox) is NOT used as the sender', () => {
+  const log = bootLog({
+    EMAIL_USER: '',
+    SMTP_USER: 'acorrea@arkmurus.com',          // present, but must be ignored
+    SMTP_PASS: 'q',
+    ARIA_SMTP_HOST: 'ox.livemail.co.uk',
+    ARIA_EMAIL_USER: 'aria@arkmurus.com',
+    ARIA_EMAIL_PASS: 'p',
+  });
+  assert.match(log, /user=aria@arkmurus\.com(?:\s|$)/m, 'must resolve aria@, not the SMTP_* mailbox');
+  assert.doesNotMatch(log, /user=acorrea@arkmurus\.com/, 'SMTP_* must NOT win (R-F2032 reverted)');
+});
+
+test('R-F2039: dedicated EMAIL_USER keeps precedence over the ARIA fallback', () => {
   const log = bootLog({
     EMAIL_HOST: 'mail.dedicated.com',
     EMAIL_USER: 'dedicated@arkmurus.com',
     EMAIL_PASS: 'p',
-    SMTP_USER: 'smtpbox@arkmurus.com',
-    SMTP_PASS: 'q',
-  });
-  assert.match(log, /user=dedicated@arkmurus\.com/, 'EMAIL_* must keep precedence over SMTP_*');
-});
-
-test('ARIA fallback still works when neither EMAIL_* nor SMTP_* is set', () => {
-  const log = bootLog({
-    ARIA_EMAIL_HOST: 'ox.livemail.co.uk',
     ARIA_EMAIL_USER: 'aria@arkmurus.com',
     ARIA_EMAIL_PASS: 'p',
   });
-  assert.match(log, /SMTP configured/, 'ARIA inbound-bridge fallback must still configure SMTP');
-  assert.match(log, /user=aria@arkmurus\.com/, 'must fall back to ARIA_EMAIL_USER');
+  assert.match(log, /user=dedicated@arkmurus\.com/, 'explicit EMAIL_* override must win');
 });
 
-test('still log-relay mode when no credentials anywhere', () => {
-  const log = bootLog({ EMAIL_HOST: 'ox.livemail.co.uk' });  // host but no user/pass
-  assert.match(log, /SMTP NOT configured/, 'no creds anywhere → log-relay, not a broken send');
+test('R-F2039: still log-relay mode when no credentials anywhere', () => {
+  const log = bootLog({ ARIA_SMTP_HOST: 'ox.livemail.co.uk' });  // host but no user/pass
+  assert.match(log, /SMTP NOT configured/);
 });
