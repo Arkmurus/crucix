@@ -168,30 +168,14 @@ class AdaptivePortalAgent:
             response = await self._read_response()
             self._log("response", f"Response: success={response['success']}, errors={response['errors']}")
 
-            if response["success"]:
-                # Step 7: Extract and verify API key
-                api_key = await self._extract_api_key(portal)
-                if api_key:
-                    self._log("api_key", f"API key obtained and verified")
-                    await self._store_credentials(portal_id, api_key)
-                    return self._finish(portal_id, True, t0, "Registered successfully", api_key=api_key)
-                else:
-                    self._log("api_key", "No API key found on account page")
-                    return self._finish(portal_id, True, t0, "Registered but no API key found")
-
-            # Step 8: Handle errors — retry with fixes
-            if response["errors"]:
-                error_text = "; ".join(response["errors"][:3])
-                self._log("errors", f"Form rejected: {error_text}")
-
-                # Check if email is already in use — retry with alias
-                if any(kw in error_text.lower() for kw in ["already in use", "already registered", "already exists"]):
+            # Check for "email already in use" — retry with alias
+            error_text = "; ".join(response.get("errors", []) or [])
+            if not response["success"] or "already in use" in error_text.lower() or "already registered" in error_text.lower():
+                if "already in use" in error_text.lower() or "already registered" in error_text.lower():
                     self._log("retry", "Email already registered — trying alias email")
-                    # Generate alias email
                     local, at, domain = _ARIA_EMAIL.partition("@")
                     alias_email = f"{local}+{portal_id}@{domain}"
                     
-                    # Re-fill the email field with alias
                     for field in form_data["fields"]:
                         name = field.get("name", "").lower()
                         if "email" in name or "mail" in name:
@@ -199,12 +183,10 @@ class AdaptivePortalAgent:
                             self._log("retry", f"Changed email to {alias_email}")
                             break
                     
-                    # Re-handle captcha (it was consumed on first submit)
                     captcha_ok = await self._handle_captcha()
                     if captcha_ok:
                         self._log("captcha", "Captcha re-solved for retry")
                     
-                    # Re-submit
                     submit_result2 = await self._submit()
                     self._log("submitted", f"URL after retry submit: {submit_result2['url']}")
                     
@@ -219,14 +201,27 @@ class AdaptivePortalAgent:
                             return self._finish(portal_id, True, t0, "Registered with alias email", api_key=api_key)
                         return self._finish(portal_id, True, t0, "Registered with alias but no API key")
                     
-                    if response2["errors"]:
+                    if response2.get("errors"):
                         return self._finish(portal_id, False, t0,
                                             f"Retry also failed: {'; '.join(response2['errors'][:3])}",
                                             errors=response2["errors"])
+                    return self._finish(portal_id, False, t0, "Retry failed — unknown state")
+                
+                if response["errors"]:
+                    return self._finish(portal_id, False, t0,
+                                        f"Form rejected: {error_text}",
+                                        errors=response["errors"])
+                return self._finish(portal_id, False, t0, "Registration failed — unknown state")
 
-                return self._finish(portal_id, False, t0,
-                                    f"Form rejected: {error_text}",
-                                    errors=response["errors"])
+            # Success path
+            api_key = await self._extract_api_key(portal)
+            if api_key:
+                self._log("api_key", f"API key obtained and verified")
+                await self._store_credentials(portal_id, api_key)
+                return self._finish(portal_id, True, t0, "Registered successfully", api_key=api_key)
+            else:
+                self._log("api_key", "No API key found on account page")
+                return self._finish(portal_id, True, t0, "Registered but no API key found")
 
             return self._finish(portal_id, False, t0, "Unknown registration state")
 
