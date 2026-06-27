@@ -593,6 +593,19 @@ async def poll_feeds(
         len(sources), total_fetched, total_new, total_failed,
     )
 
+    # R-F2009c: wire success so the brain knows the monitor is alive even
+    # when no new articles are found. Pre-fix the brain signal only fired
+    # on new articles or failures, so a clean cycle with 0 new articles
+    # left the module appearing stale (190h) while it was actually running.
+    try:
+        wire_success(
+            module="news_monitor",
+            summary=f"News poll: {total_new} new / {total_fetched} fetched / {total_failed} failed feeds",
+            source_id=f"news_monitor:poll:{summary['polled_at']}",
+        )
+    except Exception:
+        pass
+
     return summary
 
 
