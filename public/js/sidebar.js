@@ -243,7 +243,6 @@ const Sidebar = {
         ${link('dd-reports',   '/dd-reports.html',        'bi-folder2-open',   'DD Reports')}
         ${link('watchlist',    '/watchlist.html',         'bi-eye',            'Watchlist')}
         ${link('vls-chain',    '/vls-chain.html',         'bi-shield-check',   'VLS Chain')}
-        ${link('coder',        '/coder.html',             'bi-code-slash',     'ARIA Coder')}
 
         <div class="sidebar-divider"></div>
         <div class="sidebar-section">System</div>
