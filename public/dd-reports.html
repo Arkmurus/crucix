@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=5">
+  <link rel="stylesheet" href="css/crucix.css?v=6">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -201,7 +201,7 @@
 </main>
 
 <script src="js/app.js?v=5"></script>
-<script src="js/sidebar.js?v=5"></script>
+<script src="js/sidebar.js?v=6"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('dd-reports');
@@ -233,14 +233,12 @@ function mdRender(text) {
   return s;
 }
 
-const authed = (url, opts = {}) => fetch(url, {
-  ...opts,
-  headers: {
-    ...(opts.headers || {}),
-    'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || ''),
-    ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
-  },
-});
+// R-F2052 — REMOVED the local `const authed` here. app.js (R-F2042) now defines
+// a global `function authed(path, opts)` with the same JWT-attaching behaviour.
+// A `const authed` in this inline <script> redeclared that global name in the
+// shared (classic-script) scope → "Identifier 'authed' has already been declared"
+// SyntaxError → the WHOLE inline block (incl. Sidebar.init) never executed → the
+// sidebar/menu was missing on this page only. Using the shared helper fixes it.
 
 let _allReports = [];
 let _expandedRow = null;

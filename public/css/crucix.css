@@ -105,7 +105,24 @@ body.sidebar-collapsed #app-sidebar { left: calc(0px - var(--sidebar-w)); }
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--sc-heading);
+  flex: 1;
 }
+
+/* R-F2052 — Claude-style collapse control lives at the TOP of the sidebar.
+   Clicking it retracts the menu (body.sidebar-collapsed); the header hamburger
+   then appears at the top-left to re-open. */
+.sidebar-collapse-btn {
+  background: none; border: none;
+  color: var(--sc-muted);
+  cursor: pointer;
+  font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.sidebar-collapse-btn:hover { color: var(--sc-heading); background: var(--sc-hover); }
 
 .sidebar-nav { padding: 12px 0; flex: 1; }
 
@@ -195,12 +212,15 @@ body.sidebar-collapsed #app-header { left: 0; }
   color: var(--sc-muted);
   cursor: pointer;
   font-size: 20px;
-  display: flex; align-items: center;
+  /* R-F2052 — hidden while the sidebar is open (collapse lives in the sidebar);
+     appears at the top-left only when collapsed, as the re-open control. */
+  display: none; align-items: center;
   padding: 6px;
   border-radius: 6px;
   transition: color 0.15s, background 0.15s;
 }
 .header-toggle:hover { color: var(--sc-heading); background: var(--sc-hover); }
+body.sidebar-collapsed .header-toggle { display: flex; }
 
 .header-brand {
   font-size: 11px;

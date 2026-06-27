@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2052,
+  "next_available": 2054,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14852,6 +14852,24 @@
       "commit_sha": "91c75b62",
       "notes": null,
       "shipped_at": "2026-06-27T18:34:30Z"
+    },
+    {
+      "r_number": "R-F2052",
+      "title": "dd-reports authed collision + app-main collapse gap + claude-style toggle",
+      "claimed_at": "2026-06-27T18:41:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2053",
+      "title": "aria CLI: proactive terminal-capability negotiation for the input box (no console-less crash)",
+      "claimed_at": "2026-06-27T18:43:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

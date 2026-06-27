@@ -23,26 +23,25 @@ const Sidebar = {
   },
 
   _bindEvents() {
-    // Sidebar toggle
-    const toggle = document.getElementById('sidebar-toggle');
+    // Sidebar toggle — R-F2052: there are now TWO toggles (Claude-style):
+    //  • the collapse button at the TOP of the sidebar (visible when open)
+    //  • the header hamburger (visible only when collapsed, to re-open)
+    // Both carry [data-sidebar-toggle]; bind them all to one handler.
     const sidebar = document.getElementById('app-sidebar');
     const overlay = document.getElementById('sidebar-overlay');
-
-    if (toggle && sidebar) {
-      toggle.addEventListener('click', () => {
-        if (window.innerWidth <= 1024) {
-          sidebar.classList.toggle('mobile-open');
-          overlay && overlay.classList.toggle('show');
-        } else {
-          // R-F2049 — toggle on <body> (not the sidebar) so the CSS that
-          // reclaims the main-content space (body.sidebar-collapsed #app-main)
-          // actually matches. The old #app-sidebar.collapsed ~ #app-main
-          // sibling rule never fired (sidebar is nested in a placeholder),
-          // so the page never expanded when the menu retracted.
-          document.body.classList.toggle('sidebar-collapsed');
-        }
-      });
-    }
+    const onToggle = () => {
+      if (window.innerWidth <= 1024) {
+        sidebar.classList.toggle('mobile-open');
+        overlay && overlay.classList.toggle('show');
+      } else {
+        // R-F2049 — toggle on <body> (not the sidebar) so the CSS that
+        // reclaims the main-content space (body.sidebar-collapsed #app-main)
+        // actually matches. The old #app-sidebar.collapsed ~ #app-main
+        // sibling rule never fired (sidebar is nested in a placeholder).
+        document.body.classList.toggle('sidebar-collapsed');
+      }
+    };
+    document.querySelectorAll('[data-sidebar-toggle]').forEach(t => t.addEventListener('click', onToggle));
 
     if (overlay) {
       overlay.addEventListener('click', () => {
@@ -236,6 +235,9 @@ const Sidebar = {
       <div class="sidebar-brand">
         <div class="sidebar-logo-mark"></div>
         <span class="sidebar-brand-name">ARKMURUS</span>
+        <button class="sidebar-collapse-btn" data-sidebar-toggle title="Collapse menu" aria-label="Collapse menu">
+          <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
+        </button>
       </div>
       <nav class="sidebar-nav">
         <div class="sidebar-section">Intelligence</div>
@@ -269,7 +271,7 @@ const Sidebar = {
   headerHtml() {
     return `
     <header id="app-header">
-      <button class="header-toggle" id="sidebar-toggle" title="Toggle sidebar" aria-label="Toggle navigation sidebar">
+      <button class="header-toggle" id="sidebar-toggle" data-sidebar-toggle title="Open menu" aria-label="Open navigation menu">
         <i class="bi bi-list" aria-hidden="true"></i>
       </button>
       <span class="header-brand d-none d-md-block">ARKMURUS INTELLIGENCE</span>

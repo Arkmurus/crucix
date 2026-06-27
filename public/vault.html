@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Signup Vault — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=5">
+  <link rel="stylesheet" href="css/crucix.css?v=6">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -127,7 +127,7 @@
   </div>
 </main>
 <script src="js/app.js?v=5"></script>
-<script src="js/sidebar.js?v=5"></script>
+<script src="js/sidebar.js?v=6"></script>
 <script>
 Sidebar.init('vault');
 // R-F2048 — the vault (controlled data-point catalogue) is admin/dev only.
@@ -263,8 +263,8 @@ setInterval(loadVault, 60000);
     const site_type = document.getElementById('as-type').value;
     const status = document.getElementById('as-status').value;
     const notes = document.getElementById('as-notes').value.trim();
-    const cred = document.getElementById('as-cred').value.trim();          // R-F2050
-    const topics = document.getElementById('as-topics').value.trim();      // R-F2050
+    const cred = document.getElementById('as-cred').value.trim();          // R-F2052
+    const topics = document.getElementById('as-topics').value.trim();      // R-F2052
     errEl.style.display = 'none';
     if (!name || !url) { errEl.textContent = 'Site name and URL are required.'; errEl.style.display = 'block'; return; }
     if (!/^https?:\/\//i.test(url)) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; return; }
@@ -277,14 +277,14 @@ setInterval(loadVault, 60000);
       agent_id: 'admin_manual',   // R-F2048: admin/dev-added entries
       site_type, status, notes,
     };
-    // R-F2050 — API key / credential for sites needing authenticated access
+    // R-F2052 — API key / credential for sites needing authenticated access
     // (maps to the vault's credential_ref) + optional relevance topics.
     if (cred) body.credential_ref = cred;
     if (topics) body.metadata = { topics: topics.split(',').map(t => t.trim()).filter(Boolean) };
     const res = await API.post('/api/aria/vault', body);
     btn.disabled = false; btn.textContent = 'Add to Vault';
     if (res.ok && res.data && res.data.success) {
-      // R-F2050 — clear the form so the next open is fresh
+      // R-F2052 — clear the form so the next open is fresh
       ['as-name', 'as-url', 'as-cred', 'as-topics', 'as-notes'].forEach(id => { document.getElementById(id).value = ''; });
       close();
       if (window.Toast) Toast.show('Site added to the vault.', 'success');
