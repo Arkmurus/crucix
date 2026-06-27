@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2032,
+  "next_available": 2033,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14640,14 +14640,25 @@
       "title": "approved_amendments dedup + idempotent approve (stop runaway duplicate pile)",
       "claimed_at": "2026-06-27T16:06:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "90f4a178",
+      "notes": null,
+      "shipped_at": "2026-06-27T16:19:41Z"
     },
     {
       "r_number": "R-F2031",
       "title": "amendment deploy-path coherence: honest deploy_status, no stale deploy commands",
       "claimed_at": "2026-06-27T16:06:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "90f4a178",
+      "notes": null,
+      "shipped_at": "2026-06-27T16:19:41Z"
+    },
+    {
+      "r_number": "R-F2032",
+      "title": "email.mjs read SMTP_USER/SMTP_PASS (and host/port) so auth uses the right credential namespace",
+      "claimed_at": "2026-06-27T16:24:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
