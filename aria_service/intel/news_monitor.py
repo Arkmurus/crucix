@@ -69,7 +69,7 @@ _http_client: Optional[httpx.AsyncClient] = None
 def _get_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(
+        _http_client = httpx.AsyncClient(  # no-breaker: a feed poller hits many INDEPENDENT feeds with per-feed bounded retries + failure marking; a single global breaker would wrongly cut all feeds when one is down (R-F2046)
             timeout=_TIMEOUT_S,
             follow_redirects=True,
             headers={
@@ -475,7 +475,7 @@ async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
     last_error = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            resp = await client.get(url)
+            resp = await client.get(url)  # no-ssrf-check: feed URLs are curated NEWS_SOURCES or vault URLs pre-validated via security.validate_url() in _get_vault_feed_sources (R-F2046)
             resp.raise_for_status()
             return resp.text
         except httpx.HTTPStatusError as e:
@@ -502,6 +502,51 @@ async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
+def _get_vault_feed_sources() -> list[tuple]:
+    """R-F2046 — admin-curated vault sites of FEED type, shaped as NEWS_SOURCES
+    tuples so poll_feeds ingests them through the exact same fetch→parse→ledger
+    path (zero duplicated logic). The Agent Signup Vault is the controlled
+    data-point catalogue (admin/dev add via vault.html, R-F2048); a site added
+    there with site_type rss/website becomes a LIVE ingestion feed that flows
+    into the dashboard via the existing correlate_signals chain. portal/api
+    types (need credentials) are skipped. Synchronous (small sqlite read) — same
+    cost class as the XML parsing already done inline in poll_feeds.
+    """
+    try:
+        from .agent_signup_vault import get_vault
+        entries = get_vault().list(limit=500) or []
+    except Exception as e:
+        logger.debug("[news_monitor] vault feed-source read failed: %s", e)
+        return []
+    out: list[tuple] = []
+    for e in entries:
+        try:
+            st = (e.get("site_type") or "").lower()
+            status = (e.get("status") or "").lower()
+            url = e.get("site_url") or ""
+            if st not in ("rss", "website"):
+                continue                      # portals/api need creds — not feeds
+            if status in ("failed", "expired", "cancelled"):
+                continue
+            if not url.startswith(("http://", "https://")):
+                continue
+            # R-F2046 — SSRF guard at entry. Vault URLs are admin-added
+            # (semi-untrusted), unlike the curated NEWS_SOURCES, so validate each
+            # against the SSRF blocklist (internal/private IPs, bad schemes)
+            # BEFORE it can ever reach the feed fetcher.
+            from . import security as _sec
+            _ok, _why = _sec.validate_url(url)
+            if not _ok:
+                logger.warning("[news_monitor] vault source rejected (unsafe URL %s): %s", url[:80], _why)
+                continue
+            name = e.get("site_name") or e.get("site_id") or url
+            # 6-field NEWS_SOURCES shape: (name, url, category, lang, tier, topics)
+            out.append((f"vault:{name}", url, "vault_curated", "en", "tier_2", ["custom"]))
+        except Exception:
+            continue
+    return out
+
+
 async def poll_feeds(
     categories: Optional[list[str]] = None,
     max_articles_per_feed: int = 10,
@@ -515,9 +560,13 @@ async def poll_feeds(
     Returns:
         dict with counts of fetched, new, and failed feeds.
     """
-    sources = NEWS_SOURCES
+    sources = list(NEWS_SOURCES)
     if categories:
         sources = [s for s in sources if s[2] in categories]
+    else:
+        # R-F2046 — also poll admin-curated vault feed sites (no category filter
+        # applies to them; they ride the same loop below).
+        sources = sources + _get_vault_feed_sources()
 
     total_fetched = 0
     total_new = 0

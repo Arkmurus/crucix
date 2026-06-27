@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2049,
+  "next_available": 2050,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14770,18 +14770,20 @@
       "title": "chat_stream_ep fast-lane parity (web basic-Q hang)",
       "claimed_at": "2026-06-27T17:26:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d3851b7",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:55:53Z"
     },
     {
       "r_number": "R-F2044",
       "title": "absorb encode off-loop + storm rate-limit (loop-stall WA/web starvation)",
       "claimed_at": "2026-06-27T17:26:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d3851b7",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:55:53Z"
     },
     {
       "r_number": "R-F2045",
@@ -14814,6 +14816,16 @@
       "r_number": "R-F2048",
       "title": "vault.html admin Add Site button + modal (wired to existing POST /api/aria/vault) + admin gate",
       "claimed_at": "2026-06-27T17:47:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5639147f",
+      "notes": null,
+      "shipped_at": "2026-06-27T17:53:54Z"
+    },
+    {
+      "r_number": "R-F2049",
+      "title": "light corporate theme redesign + sidebar collapse fix + dd-reports sidebar",
+      "claimed_at": "2026-06-27T18:06:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
