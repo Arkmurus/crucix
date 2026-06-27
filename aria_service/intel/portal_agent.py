@@ -48,7 +48,7 @@ _BROWSER_ARGS = [
 _PAGE_TIMEOUT = 30_000  # ms
 _SUBMIT_TIMEOUT = 20_000  # ms
 _CAPTCHA_POLL_INTERVAL = 1  # seconds — poll faster
-_CAPTCHA_MAX_POLLS = 60  # ~60 seconds max
+_CAPTCHA_MAX_POLLS = 120  # ~120 seconds max for slow solves
 
 # ARIA's identity for registrations
 _ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
