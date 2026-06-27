@@ -11,9 +11,55 @@
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
 <main id="app-main">
-  <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-key"></i> Agent Signup Vault</h1>
-    <p class="sc-page-sub">Every site/portal that DD agents have signed up to — unified registry.</p>
+  <div class="sc-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div>
+      <h1 class="sc-page-title"><i class="bi bi-key"></i> Agent Signup Vault</h1>
+      <p class="sc-page-sub">Every site/portal that DD agents have signed up to — unified registry.</p>
+    </div>
+    <!-- R-F2048 — admin/dev add a data-point site to the controlled vault -->
+    <button id="btn-add-site" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+      <i class="bi bi-plus-lg"></i> Add Site
+    </button>
+  </div>
+
+  <!-- R-F2048 — Add Site modal (admin/dev only) -->
+  <div id="add-site-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:48px 16px">
+    <div class="sc-card" style="max-width:520px;width:100%;background:#15151f">
+      <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="sc-card-title"><i class="bi bi-plus-circle"></i> Add Data-Point Site</div>
+        <button id="add-site-close" style="background:transparent;border:none;color:rgba(255,255,255,0.5);font-size:20px;cursor:pointer">&times;</button>
+      </div>
+      <div class="sc-card-body" style="display:flex;flex-direction:column;gap:12px">
+        <div id="add-site-error" style="display:none;background:#3d1a1a;border:1px solid #5c2125;border-radius:6px;padding:8px 12px;color:#fca5a5;font-size:12px"></div>
+        <label style="font-size:12px;color:rgba(255,255,255,0.6)">Site name *
+          <input id="as-name" type="text" placeholder="e.g. SIPRI Arms Transfers DB" style="width:100%;margin-top:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:9px 12px;font-size:13px;color:#fff">
+        </label>
+        <label style="font-size:12px;color:rgba(255,255,255,0.6)">Site URL *
+          <input id="as-url" type="url" placeholder="https://…" style="width:100%;margin-top:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:9px 12px;font-size:13px;color:#fff">
+        </label>
+        <div style="display:flex;gap:12px">
+          <label style="font-size:12px;color:rgba(255,255,255,0.6);flex:1">Site type
+            <select id="as-type" style="width:100%;margin-top:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:9px 12px;font-size:13px;color:#fff">
+              <option value="portal">Portal (login/registration)</option>
+              <option value="rss">RSS / Atom feed</option>
+              <option value="website">Public website</option>
+              <option value="api">API</option>
+            </select>
+          </label>
+          <label style="font-size:12px;color:rgba(255,255,255,0.6);flex:1">Initial status
+            <select id="as-status" style="width:100%;margin-top:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:9px 12px;font-size:13px;color:#fff">
+              <option value="pending">Pending</option>
+              <option value="registered">Registered</option>
+              <option value="verified">Verified</option>
+            </select>
+          </label>
+        </div>
+        <label style="font-size:12px;color:rgba(255,255,255,0.6)">Notes (topics, why relevant)
+          <textarea id="as-notes" rows="2" placeholder="e.g. arms-transfer data for Lusophone Africa coverage" style="width:100%;margin-top:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:9px 12px;font-size:13px;color:#fff;resize:vertical"></textarea>
+        </label>
+        <button id="as-submit" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">Add to Vault</button>
+      </div>
+    </div>
   </div>
 
   <!-- Summary row -->
@@ -78,6 +124,8 @@
 <script src="js/sidebar.js?v=3"></script>
 <script>
 Sidebar.init('vault');
+// R-F2048 — the vault (controlled data-point catalogue) is admin/dev only.
+if (!Auth.requireAdmin()) { /* redirected to /dashboard.html for non-admins */ }
 
 const STATUS_CONFIG = {
   pending:   { icon: 'bi-hourglass',      color: '#f59e0b' },
@@ -184,6 +232,54 @@ loadVault();
 
 // Auto-refresh every 60s
 setInterval(loadVault, 60000);
+
+// ── R-F2048 — Add Site (admin/dev) ──────────────────────────────────────────
+(function () {
+  const modal = document.getElementById('add-site-modal');
+  const errEl = document.getElementById('add-site-error');
+  const open = () => { errEl.style.display = 'none'; modal.style.display = 'flex'; document.getElementById('as-name').focus(); };
+  const close = () => { modal.style.display = 'none'; };
+  document.getElementById('btn-add-site').addEventListener('click', open);
+  document.getElementById('add-site-close').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  // Derive a stable, slug-like site_id from the URL host + name (the vault keys on site_id).
+  function slugId(name, url) {
+    let host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { host = ''; }
+    const base = (host || name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return base.slice(0, 60) || ('site_' + Date.now());
+  }
+
+  document.getElementById('as-submit').addEventListener('click', async () => {
+    const name = document.getElementById('as-name').value.trim();
+    const url = document.getElementById('as-url').value.trim();
+    const site_type = document.getElementById('as-type').value;
+    const status = document.getElementById('as-status').value;
+    const notes = document.getElementById('as-notes').value.trim();
+    errEl.style.display = 'none';
+    if (!name || !url) { errEl.textContent = 'Site name and URL are required.'; errEl.style.display = 'block'; return; }
+    if (!/^https?:\/\//i.test(url)) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; return; }
+    const btn = document.getElementById('as-submit');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    const res = await API.post('/api/aria/vault', {
+      site_id: slugId(name, url),
+      site_name: name,
+      site_url: url,
+      agent_id: 'admin_manual',   // R-F2048: admin/dev-added entries
+      site_type, status, notes,
+    });
+    btn.disabled = false; btn.textContent = 'Add to Vault';
+    if (res.ok && res.data && res.data.success) {
+      close();
+      if (window.Toast) Toast.show('Site added to the vault.', 'success');
+      loadVault();
+    } else {
+      errEl.textContent = (res.data && res.data.error) || ('Failed to add (HTTP ' + res.status + ').');
+      errEl.style.display = 'block';
+    }
+  });
+})();
 </script>
 </body>
 </html>

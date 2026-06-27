@@ -2357,7 +2357,9 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
         headers,
         signal: AbortSignal.timeout(resolvedTimeout),
       };
-      if (method === 'POST' && req.body) opts.body = JSON.stringify(req.body);
+      // R-F2048 — forward the body for all write methods (was POST-only, which
+      // silently dropped PUT/PATCH bodies, e.g. vault update_status).
+      if (req.body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) opts.body = JSON.stringify(req.body);
       const r = await fetch(url, opts);
       lastStatus = r.status;
       if (r.ok) {
@@ -2502,6 +2504,18 @@ app.post('/api/aria/knowledge/fact', requireAdmin, async (req, res) => {  // R-F
       res.json({ ok: true, message: 'Fact stored' });
     } catch (e) { res.status(500).json({ error: e.message }); }
   }});
+
+// R-F2048 — the Agent Signup Vault is the CONTROLLED data-point-site catalogue.
+// Adding/editing/removing sites is restricted to the ARIA admin/dev team. The
+// vault.html page is admin-gated client-side; these enforce it SERVER-side so a
+// non-admin token cannot write directly. (GET stays via the catch-all proxy; the
+// page itself is admin-only.)
+app.post('/api/aria/vault', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vault', { method: 'POST' }));
+app.put('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'PUT' }));
+app.delete('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'DELETE' }));
 });
 
 app.get('/api/aria/ledger', requireAuth, async (req, res) => {
