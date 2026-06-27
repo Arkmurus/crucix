@@ -251,8 +251,9 @@ async function loadData() {
 
   // Opportunities count
   let oppCount = 0;
+  let oppData = null;
   if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
-    const oppData = await oppRes.value.json();
+    oppData = await oppRes.value.json();
     oppCount = (oppData.opportunities || []).length;
   }
   document.getElementById('kpi-opportunities').textContent = oppCount;
@@ -362,8 +363,7 @@ async function loadData() {
   }
 
   // ── Opportunities preview ──
-  if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
-    const oppData = await oppRes.value.json();
+  if (oppData) {
     const opps = oppData.opportunities || [];
     if (opps.length) {
       document.getElementById('opps-section').style.display = '';
