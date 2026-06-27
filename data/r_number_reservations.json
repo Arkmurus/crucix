@@ -14407,18 +14407,20 @@
       "title": "engine liveness watchdog - alert operator if autonomous engine fire=0 / loop dead",
       "claimed_at": "2026-06-27T10:58:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ec625e6",
+      "notes": null,
+      "shipped_at": "2026-06-27T11:15:42Z"
     },
     {
       "r_number": "R-F2007",
       "title": "brain_hook absorb perf - adversarial_challenge absorb 36s trips circuit; size-gate/offload expensive tiers",
       "claimed_at": "2026-06-27T10:58:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ec625e6",
+      "notes": null,
+      "shipped_at": "2026-06-27T11:15:42Z"
     }
   ]
 }
