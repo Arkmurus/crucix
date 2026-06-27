@@ -14316,18 +14316,20 @@
       "title": "remove dead dd-pipeline/dd-tool CSS from dd-reports.html (boxes already gone R-F1993)",
       "claimed_at": "2026-06-27T08:55:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "42deefc3",
+      "notes": null,
+      "shipped_at": "2026-06-27T09:16:39Z"
     },
     {
       "r_number": "R-F1998",
       "title": "LLM forensic intent router - NL chat invokes 12 DD primitives across all surfaces",
       "claimed_at": "2026-06-27T08:55:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "91c39101",
+      "notes": null,
+      "shipped_at": "2026-06-27T09:16:39Z"
     },
     {
       "r_number": "R-F1999",
