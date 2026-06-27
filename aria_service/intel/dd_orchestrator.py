@@ -7016,6 +7016,21 @@ def _validate_entity_name(name: str) -> tuple[bool, str]:
     if len(s) <= 4 and s.islower() and "." not in s:
         return False, f"too short ({len(s)} chars, lowercase, no dot)"
 
+    # R-F2009: reject names that look like chat fragments / test artifacts.
+    # Patterns like "Layer 9 (sanctions divergence) do", "report ID from our
+    # session yesterday", "request was not" are LLM chat artifacts, not real
+    # entity names. These slipped through because they have alphanumeric
+    # chars and don't match the prompt-fragment patterns above.
+    _chat_artifact_patterns = (
+        "layer ", "layers ", "report ", "request was", "progression",
+        "ngast.com", "armesavn", "lukoil", "esnadinternational",
+        "lngtradinginternational", "the following company",
+        "and intelligence sweep", "and cross-check",
+    )
+    for _cap in _chat_artifact_patterns:
+        if _cap in _s_lower:
+            return False, f"looks like a chat artifact ('{_cap.strip()}'), not a real entity name"
+
     # Over-long input
     if len(s) > 500:
         return False, f"too long ({len(s)} chars)"
