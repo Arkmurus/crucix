@@ -340,6 +340,21 @@ def _most_recent_cron_match_epoch(cron: str, now_epoch: float, lookback_s: float
     return None
 
 
+def _wire_catchup(fired: int, skipped: dict, deferred: int) -> None:
+    """R-F2020 — wire the startup catch-up OUTCOME to the brain (§21a) so a silent
+    'caught up nothing' is observable from the brain, not invisible. Sync + best-
+    effort (engine_wiring.wire_success is sync; never let wiring break catch-up)."""
+    try:
+        from ..intel.engine_wiring import wire_success
+        wire_success(
+            module="autonomous_engine",
+            summary=f"startup catch-up: fired={fired} skipped={dict(skipped)} deferred={deferred}",
+            source_id="autonomous_engine:catchup_rf2017",
+        )
+    except Exception:
+        pass
+
+
 async def catch_up_overdue_tasks(llm) -> int:
     """R-F2013 — on engine startup, fire tasks that MISSED their scheduled cron
     slot while the engine was down/restarting. Bounded + safe:
@@ -349,59 +364,95 @@ async def catch_up_overdue_tasks(llm) -> int:
       - through the SAME enabled / pause / operating-mode / safety gates as a
         normal tick (so a paused or disabled engine catches up nothing).
     Returns the number of catch-up fires."""
+    # R-F2020 — refresh the runtime override FIRST. The polling loop refreshes it
+    # at the top of every tick (≈line 505), but catch-up runs BEFORE the loop, so
+    # without this it reads a STALE is_enabled() cache: a freshly re-enabled engine
+    # could skip all catch-up (or a freshly disabled one could fire). Root-kill of
+    # the stale-gate window that helped hide the R-F2004 187h fire=0 outage.
+    try:
+        await refresh_runtime_override()
+    except Exception as e:
+        logger.warning("[R-F2020 catch-up] runtime-override refresh failed (continuing): %s", e)
+
     if not is_enabled():
+        logger.warning("[R-F2020 catch-up] SKIPPED ALL: engine master-disabled (is_enabled=False)")
+        _wire_catchup(0, {"master_disabled": 1}, 0)
         return 0
     try:
         if await safety.is_engine_paused():
+            logger.warning("[R-F2020 catch-up] SKIPPED ALL: engine paused")
+            _wire_catchup(0, {"paused": 1}, 0)
             return 0
-    except Exception:
+    except Exception as e:
+        logger.warning("[R-F2020 catch-up] SKIPPED ALL: pause-check failed: %s", e)
+        _wire_catchup(0, {"pause_check_error": 1}, 0)
         return 0
 
     loaded = tasks_mod.get_loaded_tasks() or {}
     now_epoch = time.time()
     fired = 0
+    skipped: dict[str, int] = {}
+    deferred: list[str] = []
     try:
         from ..intel import operating_modes as _om
         mode = await _om.get_mode()
     except Exception:
         _om, mode = None, None
 
+    def _skip(reason: str, task_id: str) -> None:
+        # R-F2020 — every GENUINELY-OVERDUE task that gets dropped is logged at
+        # WARNING with its reason (was silent → a missed fire vanished without
+        # trace). This is the observability that lets us pin the exact gate.
+        skipped[reason] = skipped.get(reason, 0) + 1
+        logger.warning("[R-F2020 catch-up] OVERDUE %s NOT caught up: %s", task_id, reason)
+
     for task_id, task in loaded.items():
-        if fired >= _CATCH_UP_MAX_FIRES:
-            logger.warning("[R-F2013 catch-up] hit burst cap (%d) — remaining "
-                           "overdue tasks fire on their next normal cron", _CATCH_UP_MAX_FIRES)
-            break
         try:
             if not getattr(task, "enabled", False):
-                continue
+                continue  # disabled task — not a missed slot (not logged)
             match_epoch = _most_recent_cron_match_epoch(task.cron, now_epoch, _CATCH_UP_MAX_AGE_S)
             if match_epoch is None or (now_epoch - match_epoch) > _CATCH_UP_MAX_AGE_S:
-                continue
+                continue  # no recent slot — not overdue (not logged)
             last_fire = await _get_task_last_fire(task_id)
             if last_fire is not None and last_fire >= match_epoch:
-                continue  # already ran since its scheduled slot — not missed
+                continue  # already ran since its scheduled slot — not missed (not logged)
+            # ── From here the task is GENUINELY OVERDUE: every drop below is a real
+            #    missed fire being skipped, so it is logged with its reason. ──
+            if fired >= _CATCH_UP_MAX_FIRES:
+                deferred.append(task_id)
+                continue
             if _om is not None and mode is not None:
                 try:
                     if not _om.should_task_run(task_id, mode):
+                        _skip(f"operating_mode={mode}", task_id)
                         continue
                 except Exception:
                     pass
             try:
-                allowed, _why = await safety.can_task_run(task_id, task_id)
-            except Exception:
+                allowed, why = await safety.can_task_run(task_id, task_id)
+            except Exception as e:
+                _skip(f"safety_error:{type(e).__name__}", task_id)
                 continue
             if not allowed:
+                _skip(f"safety_gate:{why}", task_id)
                 continue
-            logger.warning("[R-F2013 catch-up] firing MISSED task %s (slot %ds ago, cron=%r)",
+            logger.warning("[R-F2020 catch-up] firing MISSED task %s (slot %ds ago, cron=%r)",
                            task_id, int(now_epoch - match_epoch), task.cron)
             await tasks_mod.execute_task(task=task, llm=llm, dry_run=is_dry_run())
             await _set_task_last_fire(task_id, now_epoch)
             fired += 1
         except Exception as e:
-            logger.warning("[R-F2013 catch-up] task %s failed: %s", task_id, e)
+            _skip(f"exec_error:{type(e).__name__}", task_id)
 
-    if fired:
-        logger.info("[R-F2013 catch-up] fired %d missed task(s) on startup", fired)
+    if deferred:
+        logger.warning("[R-F2020 catch-up] burst cap %d reached — DEFERRED %d overdue task(s) "
+                       "to their next normal cron: %s", _CATCH_UP_MAX_FIRES, len(deferred), deferred[:10])
+    # R-F2020 — ALWAYS emit a summary (the original logged nothing when fired==0,
+    # the exact blind spot that hid the stale-engine outage). WARNING level so it
+    # survives the INFO-suppressed flyctl log filter.
+    logger.warning("[R-F2020 catch-up] done: fired=%d skipped=%s deferred=%d",
+                   fired, skipped or {}, len(deferred))
+    _wire_catchup(fired, skipped, len(deferred))
     return fired
 
 

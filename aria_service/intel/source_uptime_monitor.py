@@ -67,28 +67,41 @@ _K_PING_HISTORY = "crucix:source_uptime:ping:{src}"      # list, newest first
 
 
 async def _get_registered_sources() -> list[dict]:
-    """Pull the list of sources tracked by web_atlas. Each entry:
-      {"name": str, "url": str, "reliability": float, "samples": int}
+    """R-F2022 — enumerate the REAL seeded defence-source catalogue.
 
-    We treat web_atlas as authoritative for what IS a source; this
-    module only adds the uptime dimension.
+    Root-kill: the old code getattr-probed web_atlas for list_sources /
+    get_all_sources / sources_with_scores — NONE of which exist (§3b: never call
+    an unverified function) — so it ALWAYS returned [], run_daily_ping no-op'd
+    ("no sources registered"), and the sources-page uptime panel was permanently
+    empty despite ~200 real sources being seeded. The authoritative registry of
+    what IS a source is defence_source_seed._DEFENCE_SOURCES (the tier-tagged URLs
+    actually seeded into web_atlas), so we read it directly.
+
+    Each entry: {"name", "url", "reliability", "tier"}. reliability defaults to a
+    neutral 0.5 — ≥ the auto-suspend threshold, so a source is only ever
+    auto-suspended on REAL consecutive ping failures combined with a low score,
+    never spuriously. (Per-source reliability-EMA enrichment is a follow-up; the
+    live ping ok/error is the real uptime signal the panel needs today.)
     """
     try:
-        from . import web_atlas
-        # web_atlas exposes various read helpers depending on version.
-        # Try the common ones.
-        for fn_name in ("list_sources", "get_all_sources", "sources_with_scores"):
-            fn = getattr(web_atlas, fn_name, None)
-            if callable(fn):
-                import inspect
-                res = fn()
-                if inspect.iscoroutine(res):
-                    res = await res
-                if res:
-                    return list(res)
+        from . import defence_source_seed as _seed
+        raw = list(getattr(_seed, "_DEFENCE_SOURCES", []) or [])
     except Exception as e:
-        logger.debug("[uptime_monitor] web_atlas read failed: %s", e)
-    return []
+        logger.warning("[uptime_monitor] could not read defence_source_seed catalogue: %s", e)
+        return []
+
+    sources: list[dict] = []
+    for entry in raw:
+        try:
+            url = entry[0]
+            name = entry[1]
+            tier = entry[2] if len(entry) > 2 else None
+        except Exception:
+            continue
+        if not url or not name:
+            continue
+        sources.append({"name": name, "url": url, "reliability": 0.5, "tier": tier})
+    return sources
 
 
 async def _ping_one(source: dict) -> dict:
@@ -105,16 +118,16 @@ async def _ping_one(source: dict) -> dict:
 
     t0 = time.time()
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: an uptime monitor MUST ping even down sources to detect downtime — a breaker would defeat its purpose
             timeout=_PING_TIMEOUT_S, follow_redirects=True,
         ) as client:
             # HEAD first — cheap. Some sites reject HEAD → fall back to GET.
             try:
-                r = await client.head(url, headers={"User-Agent": _UA})
+                r = await client.head(url, headers={"User-Agent": _UA})  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
                 if r.status_code == 405 or r.status_code >= 500:
-                    r = await client.get(url, headers={"User-Agent": _UA})
+                    r = await client.get(url, headers={"User-Agent": _UA})  # no-ssrf-check: curated catalogue URL, not user input
             except Exception:
-                r = await client.get(url, headers={"User-Agent": _UA})
+                r = await client.get(url, headers={"User-Agent": _UA})  # no-ssrf-check: curated catalogue URL, not user input
             latency_ms = int((time.time() - t0) * 1000)
             return {
                 "name": name, "url": url,
@@ -227,7 +240,15 @@ async def run_daily_ping() -> dict:
     """
     sources = await _get_registered_sources()
     if not sources:
-        return {"ok": False, "reason": "no sources registered in web_atlas"}
+        # §21a — the failure branch must reach the brain, not just return quietly.
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="source_uptime_monitor",
+            detail="run_daily_ping: defence_source_seed catalogue empty — no sources to ping",
+            gap_type="source_uptime_no_sources",
+            source="source_uptime_monitor:R-F2022",
+        )
+        return {"ok": False, "reason": "no defence sources registered (defence_source_seed catalogue empty)"}
 
     # Ping with bounded concurrency
     sem = asyncio.Semaphore(_MAX_CONCURRENT_PINGS)
@@ -276,6 +297,25 @@ async def run_daily_ping() -> dict:
     # Persist run summary
     up_count = sum(1 for p in ping_results if p.get("ok"))
     down_count = len(ping_results) - up_count
+    # R-F2022 — persist the REAL per-source results so health()/the sources-page
+    # panel can render the actual up/down state. The old summary stored only
+    # aggregate counts, so even a successful sweep gave the panel no rows to show.
+    suspended_set = await _get_suspended()
+    per_source = []
+    for p in ping_results:
+        nm = p.get("name") or ""
+        per_source.append({
+            "name": nm,
+            "url": p.get("url"),
+            "status": "ok" if p.get("ok") else "error",
+            "http_status": p.get("status"),
+            "latency_ms": p.get("latency_ms"),
+            "last_success": p.get("checked_at") if p.get("ok") else None,
+            "last_error": p.get("error"),
+            "checked_at": p.get("checked_at"),
+            "suspended": nm in suspended_set,
+        })
+    per_source.sort(key=lambda s: (s["status"] == "ok", s["name"]))  # down first
     summary = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "sources_checked": len(ping_results),
@@ -283,7 +323,8 @@ async def run_daily_ping() -> dict:
         "down": down_count,
         "suspended_now": sorted(newly_suspended),
         "recovered_now": sorted(recovered),
-        "currently_suspended": sorted(await _get_suspended()),
+        "currently_suspended": sorted(suspended_set),
+        "sources": per_source,
     }
 
     try:
@@ -320,6 +361,17 @@ async def run_daily_ping() -> dict:
         summary="Run Daily Ping",
         source_id="source_uptime_monitor:R-F996",
     )
+    # R-F2022/§21a — wire the FAILURE branch too: sources that went down are a
+    # real degradation signal the brain/coder should see (not just logged).
+    if down_count or newly_suspended:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="source_uptime_monitor",
+            detail=(f"uptime sweep: {down_count}/{len(ping_results)} source(s) down, "
+                    f"{len(newly_suspended)} newly suspended"),
+            gap_type="source_uptime_degraded",
+            source="source_uptime_monitor:R-F2022",
+        )
 
     return summary
 
@@ -328,10 +380,14 @@ async def health() -> dict:
     """Dashboard + capability_card read — last run + suspension state."""
     try:
         from . import redis_store as rs
-        last = await rs.get_json(_K_LAST_RUN)
+        last = await rs.get_json(_K_LAST_RUN) or {}
         suspended = sorted(await _get_suspended())
+        # R-F2022 — expose the per-source array at top level so the sources-page
+        # panel (reads data.sources) renders the real up/down rows, not just the
+        # aggregate counts it had no way to display before.
         return {
             "last_run": last or {"ran_at": None, "sources_checked": 0, "up": 0, "down": 0, "message": "No uptime sweep has run yet. Trigger via POST /api/aria/sources/uptime/run"},
+            "sources": last.get("sources", []),
             "currently_suspended": suspended,
             "suspended_count": len(suspended),
         }

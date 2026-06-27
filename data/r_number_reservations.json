@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2016,
+  "next_available": 2023,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14500,6 +14500,69 @@
       "commit_sha": "ae5f4cf9",
       "notes": null,
       "shipped_at": "2026-06-27T13:09:26Z"
+    },
+    {
+      "r_number": "R-F2016",
+      "title": "ARIA intelligence dashboard",
+      "claimed_at": "2026-06-27T13:27:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2017",
+      "title": "fix R-F2013 catch-up: refresh override before is_enabled + log every skip (news catch-up bailed silently)",
+      "claimed_at": "2026-06-27T13:56:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2018",
+      "title": "brain get_stats must return _by_sector (sources page per-sector panel dead)",
+      "claimed_at": "2026-06-27T13:56:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2019",
+      "title": "source_uptime_monitor: _get_registered_sources used non-existent web_atlas fns - enumerate real seeded sources",
+      "claimed_at": "2026-06-27T13:56:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2020",
+      "title": "catch-up refresh override first + log every overdue skip + brain wire",
+      "claimed_at": "2026-06-27T14:08:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2021",
+      "title": "brain_hook get_stats surface real _by_sector aggregate",
+      "claimed_at": "2026-06-27T14:08:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2022",
+      "title": "source uptime monitor read real defence_source_seed catalogue + surface per-source array",
+      "claimed_at": "2026-06-27T14:08:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

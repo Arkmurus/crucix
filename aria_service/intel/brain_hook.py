@@ -1682,6 +1682,13 @@ async def get_stats() -> dict:
         "circuit_breaker": breaker,
         "health": composite,
     }
+    # R-F2021 — surface the REAL per-sector aggregate. The module loop above
+    # correctly skips every "_"-prefixed key (they aren't modules), but that
+    # blanket filter ALSO dropped the genuine "_by_sector" rollup accumulated by
+    # absorb() — so the sources-page sector panel read an absent key and rendered
+    # empty despite real data existing. Explicitly re-expose it (root-kill: name
+    # the real aggregate, don't relax the module filter).
+    result["_by_sector"] = stats.get("_by_sector", {})
     # R-F1599: update cache
     _stats_cache = result
     _stats_cache_at = now
