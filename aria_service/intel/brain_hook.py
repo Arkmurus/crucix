@@ -1090,6 +1090,13 @@ _MODULE_LATENCY_OVERRIDES: dict[str, int] = {
     # their p95 naturally exceeds the 6s default threshold. The circuit
     # breaker was tripping every 2 minutes on these, skipping expensive
     # brain tiers for ALL modules — not just the hot-path ones.
+    # R-F2007: adversarial_challenge is a WEEKLY self-eval that absorbs a burst
+    # of results at once; under the boot/weekly storm its neural-tier p95 hit
+    # ~37s (live 2026-06-27 10:51), tripping the GLOBAL 6s breaker and skipping
+    # expensive tiers for EVERY module until cooldown. It is slow-but-correct and
+    # infrequent — give it headroom like the other bursty/slow modules so its
+    # latency never degrades everyone else's absorbs. (Facts are still WAL-safe.)
+    "adversarial_challenge": 60000,  # 60s — weekly burst self-eval
     "web_integrity_agent": 30000,   # 30s — probes endpoints every 60s
     "cost_tracker": 30000,          # 30s — records cost on every LLM call
     "_snapshot_throttle": 30000,    # 30s — snapshot on every absorb

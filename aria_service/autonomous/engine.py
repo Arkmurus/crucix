@@ -133,6 +133,73 @@ def is_enabled() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+async def check_engine_liveness(now: float | None = None) -> dict:
+    """R-F2006 — assess whether the autonomous engine is actually live AND firing.
+
+    The engine writes two heartbeats: `crucix:autonomous:last_tick_ts` (every
+    loop iteration, before the enable/pause gates) and `crucix:autonomous:
+    last_fire_ts` (when a task fires). This reads them and classifies:
+
+      - loop not ticking          -> the loop crashed / never started (ALERT)
+      - master-disabled           -> autonomy is dark (ALERT)
+      - paused                    -> controlled + auto-expires (R-F2004); NOT an alert
+      - alive but not firing >3h   -> tasks all blocked / cron bug (ALERT)
+
+    Returns {healthy, problem, tick_age_s, fire_age_s, paused, enabled}. Never
+    raises — the watchdog must keep running. This is the missing signal that let
+    the R-F2004 187h fire=0 outage go unnoticed.
+    """
+    import time as _t
+    n = float(now if now is not None else _t.time())
+    tick_stale_s = float(os.getenv("ARIA_ENGINE_TICK_STALE_S", "600"))          # 10 min
+    fire_stale_s = float(os.getenv("ARIA_ENGINE_FIRE_STALE_S", str(3 * 3600)))  # 3 h
+
+    async def _get(key: str):
+        try:
+            from ..intel import redis_store as rs
+            return await rs.get(key)
+        except Exception:
+            return None
+
+    def _age(raw):
+        try:
+            return n - float(raw) if raw else None
+        except (TypeError, ValueError):
+            return None
+
+    tick_age = _age(await _get("crucix:autonomous:last_tick_ts"))
+    fire_age = _age(await _get("crucix:autonomous:last_fire_ts"))
+
+    try:
+        from . import safety as _safety
+        paused = await _safety.is_engine_paused()
+    except Exception:
+        paused = False
+    enabled = is_enabled()
+
+    problem = None
+    if tick_age is not None and tick_age > tick_stale_s:
+        problem = (f"autonomous engine loop NOT TICKING — {int(tick_age)}s since "
+                   f"last tick (loop crashed or never started)")
+    elif not enabled:
+        problem = ("autonomous engine is MASTER-DISABLED (is_enabled=False) — "
+                   "autonomy is dark; re-enable via POST /autonomous/enable")
+    elif paused:
+        problem = None   # R-F2004 bounds + auto-expires pauses; not an alert
+    elif fire_age is not None and fire_age > fire_stale_s:
+        problem = (f"autonomous engine is alive but FIRING NOTHING — "
+                   f"{int(fire_age // 3600)}h since last task fire (tasks blocked?)")
+
+    return {
+        "healthy": problem is None,
+        "problem": problem,
+        "tick_age_s": tick_age,
+        "fire_age_s": fire_age,
+        "paused": paused,
+        "enabled": enabled,
+    }
+
+
 @fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def refresh_runtime_override() -> str | None:
     """Read the Redis override into the in-process cache. Called at
@@ -294,6 +361,17 @@ async def _engine_loop(llm) -> None:
                 await _reg_hb.tick_heartbeat("autonomous_engine", "running tasks")
             except Exception:
                 pass
+            # R-F2006 — liveness heartbeat for the engine WATCHDOG (a SEPARATE
+            # loop in main.py alerts the operator if this stops). Written every
+            # tick BEFORE the enabled/pause gates, so it proves the loop ITSELF
+            # is alive even while paused/disabled — letting the watchdog tell
+            # "loop dead/crashed" apart from "alive but not firing". This is the
+            # missing signal that let the R-F2004 187h fire=0 outage go unnoticed.
+            try:
+                from ..intel import redis_store as _rs_hb
+                await _rs_hb.set("crucix:autonomous:last_tick_ts", str(int(time.time())))
+            except Exception:
+                pass
 
             # Refresh the runtime override so /autonomous/disable takes
             # effect within one tick without restarting the service.
@@ -421,6 +499,9 @@ async def _engine_loop(llm) -> None:
                     new_val = await rs.incr("crucix:autonomous:fires_24h")
                     if new_val == 1:
                         await rs.expire("crucix:autonomous:fires_24h", 90_000)
+                    # R-F2006 — last-fire recency for the watchdog (distinguishes
+                    # "alive but firing nothing" from healthy firing).
+                    await rs.set("crucix:autonomous:last_fire_ts", str(int(time.time())))
                 except Exception as _e:
                     logger.debug("fires_24h counter incr failed: %s", _e)
 

@@ -2150,6 +2150,62 @@ async def lifespan(app: FastAPI):
     guardian_task = _bg_task(asyncio.create_task(_guardian_reconcile_loop(), name="guardian_reconcile"), factory=_guardian_reconcile_loop)
     logger.info("[R-F1979] Guardian check-in reconcile loop started (dead-man's switch)")
 
+    # R-F2006 — ENGINE LIVENESS WATCHDOG. A SEPARATE loop (so it survives the
+    # engine task dying) that alerts the operator if the autonomous engine goes
+    # dark — the exact failure that let the R-F2004 187h news/sweep fire=0 outage
+    # go unnoticed (a forgotten pause killed the engine and NOTHING flagged it).
+    # Checks every 15 min; one HIGH operator ticket per episode (6h re-alert).
+    # The brain_hook circuit breaker has its own per-episode ticket (R-F790), so
+    # this watches engine firing only — no duplication.
+    async def _engine_liveness_watchdog_loop():
+        await asyncio.sleep(360)   # let boot + the engine's 90s startup settle
+        import time as _t
+        from .autonomous import engine as _eng
+        _last_alert = 0.0
+        _RE_ALERT_S = 6 * 3600
+        while True:
+            try:
+                status = await _eng.check_engine_liveness()
+                if not status.get("healthy"):
+                    now = _t.time()
+                    if now - _last_alert > _RE_ALERT_S:
+                        _last_alert = now
+                        problem = status.get("problem") or "engine not healthy"
+                        logger.error("[R-F2006 watchdog] ENGINE DARK: %s (tick_age=%ss fire_age=%ss)",
+                                     problem, status.get("tick_age_s"), status.get("fire_age_s"))
+                        try:
+                            from .intel import pending_actions as _pa
+                            await _pa.record(
+                                promise="Autonomous engine must stay live (real-time ecosystem).",
+                                reason=problem,
+                                severity="HIGH",
+                                source="autonomous",
+                                resolver_kind="operator_action",
+                                resolver_ref="autonomous_engine_liveness",
+                                operator_prompt=(
+                                    "ARIA's autonomous engine is DARK: " + problem +
+                                    " — check POST /api/aria/autonomous/status; resume/enable as needed."
+                                ),
+                                metadata={"watchdog": "R-F2006", **{k: status.get(k) for k in
+                                          ("tick_age_s", "fire_age_s", "paused", "enabled")}},
+                            )
+                        except Exception as _pe:
+                            logger.warning("[R-F2006 watchdog] alert record failed: %s", _pe)
+                        try:
+                            from .intel.engine_wiring import wire_failure as _wf
+                            _wf(module="autonomous_engine",
+                                detail=f"liveness watchdog: {problem}",
+                                gap_type="agent_cycle_failure",
+                                source="autonomous_engine:watchdog_rf2006")
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning("[R-F2006 watchdog] error: %s", e)
+            await asyncio.sleep(900)   # every 15 min
+
+    liveness_task = _bg_task(asyncio.create_task(_engine_liveness_watchdog_loop(), name="engine_liveness_watchdog"), factory=_engine_liveness_watchdog_loop)
+    logger.info("[R-F2006] Engine liveness watchdog started (alerts if engine goes dark)")
+
     # R-F1766 — DEPLOY PROPRIOCEPTION loop: confirm ARIA's autonomous self-improve
     # commits ACTUALLY reached the live server (build_rev), turning a confabulated
     # "deployed" into a verified one. Every 5 min: flips committed items to

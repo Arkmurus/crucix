@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2005,
+  "next_available": 2008,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14391,6 +14391,34 @@
       "commit_sha": "a9ca2388",
       "notes": null,
       "shipped_at": "2026-06-27T10:50:17Z"
+    },
+    {
+      "r_number": "R-F2005",
+      "title": "fix VLS chain hash mismatch",
+      "claimed_at": "2026-06-27T10:50:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "847da212",
+      "notes": null,
+      "shipped_at": "2026-06-27T10:58:45Z"
+    },
+    {
+      "r_number": "R-F2006",
+      "title": "engine liveness watchdog - alert operator if autonomous engine fire=0 / loop dead",
+      "claimed_at": "2026-06-27T10:58:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2007",
+      "title": "brain_hook absorb perf - adversarial_challenge absorb 36s trips circuit; size-gate/offload expensive tiers",
+      "claimed_at": "2026-06-27T10:58:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
