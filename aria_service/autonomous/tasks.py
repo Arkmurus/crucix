@@ -2138,7 +2138,6 @@ async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) 
 
         try:
             # Run the research through the existing chat pipeline
-            from .tasks import Task
             research_task = Task(
                 id=f"gap_fill_{domain}_{jurisdiction}",
                 name=f"Research {domain} x {jurisdiction}",
