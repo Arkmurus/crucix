@@ -14377,9 +14377,10 @@
       "title": "brain-side honest opportunities endpoint - signal-backed only, no static templates (feeds accurate data to BD)",
       "claimed_at": "2026-06-27T10:16:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "06a919c3",
+      "notes": null,
+      "shipped_at": "2026-06-27T10:27:20Z"
     }
   ]
 }
