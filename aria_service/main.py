@@ -2919,6 +2919,18 @@ async def lifespan(app: FastAPI):
     except Exception as _sched_err:
         logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
 
+    # R-F2066 — start Portal Registration Scheduler (background loop)
+    _portal_scheduler_task = None
+    try:
+        from .intel.portal_scheduler import autonomous_registration_loop as _portal_loop
+        _portal_scheduler_task = _bg_task(
+            asyncio.create_task(_portal_loop(), name="portal_registration"),
+            factory=_portal_loop,
+        )
+        logger.info("[R-F2066] Portal registration scheduler started (every 1h)")
+    except Exception as _ps_err:
+        logger.warning("[R-F2066] Portal registration scheduler start failed (non-fatal): %s", _ps_err)
+
     # R-F1610 — start the self-healing actuator: re-spawns any registered bg
     # loop that dies, instead of only logging it. This is what makes ARIA
     # actually self-HEAL (not just detect). It runs only AFTER all loops above
