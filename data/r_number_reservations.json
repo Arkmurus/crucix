@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2056,
+  "next_available": 2057,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14889,6 +14889,16 @@
       "r_number": "R-F2055",
       "title": "per-user inline-DD fairness lock (one user cant starve others) - multi-user concurrency hardening",
       "claimed_at": "2026-06-27T19:01:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a31fa07f",
+      "notes": null,
+      "shipped_at": "2026-06-27T19:10:17Z"
+    },
+    {
+      "r_number": "R-F2056",
+      "title": "GIL offload: fitz PDF extraction + dd search_knowledge to thread pool (concurrent-DD loop relief)",
+      "claimed_at": "2026-06-27T19:41:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

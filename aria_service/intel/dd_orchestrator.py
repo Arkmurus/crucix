@@ -4324,7 +4324,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     # ── 5d. Knowledge base ──
     try:
         from . import knowledge
-        kb = knowledge.search_knowledge(name)
+        # R-F2056 — offload the synchronous knowledge scan to a worker thread (it
+        # self-yields the GIL via R-F939, and to_thread lets the event loop run
+        # during the scan) so concurrent DDs don't serialize on it. Mirrors the
+        # deep_researcher pattern.
+        kb = await asyncio.to_thread(knowledge.search_knowledge, name)
         if kb and kb.strip():
             report.digital.knowledge_base_hits.append({"query": name, "excerpt": kb[:1500], "tier": "aria_knowledge"})
             report.digital.meta.subcalls += 1

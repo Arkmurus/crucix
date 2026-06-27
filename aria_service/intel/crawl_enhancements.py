@@ -249,6 +249,44 @@ def _path_matches(path: str, rule: str) -> bool:
 
 # ── PDF fetch ─────────────────────────────────────────────────────────────
 
+def _extract_pdf_sync(content: bytes) -> dict:
+    """R-F2056 — fitz parse + text extraction, run OFF the event loop via
+    asyncio.to_thread. PyMuPDF is a C extension that RELEASES the GIL during
+    extraction, so threading genuinely frees the loop (unlike pure-Python work) —
+    a concurrent DD crawling a big PDF no longer stalls every other user.
+    Returns {text, pages, title, ok, error}."""
+    res = {"text": "", "pages": 0, "title": "", "ok": False, "error": None}
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        res["error"] = "PyMuPDF not installed — add pymupdf to requirements"
+        return res
+    try:
+        doc = fitz.open(stream=content, filetype="pdf")
+    except Exception as e:
+        res["error"] = f"PDF parse failed: {str(e)[:200]}"
+        return res
+    try:
+        text_parts: list[str] = []
+        for page in doc:
+            try:
+                text_parts.append(page.get_text())
+            except Exception:
+                continue
+        text = "\n\n".join(text_parts)
+        meta = doc.metadata or {}
+        res["text"] = text[:50000]
+        res["pages"] = len(doc)
+        res["title"] = (meta.get("title") or "").strip()
+        res["ok"] = bool(text.strip())
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+    return res
+
+
 async def fetch_pdf(url: str, timeout: float = 30.0) -> dict:
     """Fetch a PDF and extract text via PyMuPDF (already in requirements).
 
@@ -281,39 +319,28 @@ async def fetch_pdf(url: str, timeout: float = 30.0) -> dict:
         out["error"] = "content is not a valid PDF (wrong magic header)"
         return out
 
-    # Extract via PyMuPDF (fitz)
-    try:
-        import fitz  # pymupdf
-    except ImportError:
-        out["error"] = "PyMuPDF not installed — add pymupdf to requirements"
-        return out
-
-    try:
-        doc = fitz.open(stream=content, filetype="pdf")
-    except Exception as e:
-        out["error"] = f"PDF parse failed: {str(e)[:200]}"
-        return out
-
-    try:
-        text_parts: list[str] = []
-        for page in doc:
-            try:
-                text_parts.append(page.get_text())
-            except Exception:
-                continue
-        text = "\n\n".join(text_parts)
-        # PDF metadata title (if any)
-        meta = doc.metadata or {}
-        title = (meta.get("title") or "").strip()
-        out["text"] = text[:50000]
-        out["pages"] = len(doc)
-        out["title"] = title
-        out["ok"] = bool(text.strip())
-    finally:
+    # R-F2056 — extract via PyMuPDF OFF the event loop (fitz releases the GIL, so
+    # to_thread genuinely frees the loop) so a PDF-crawling DD can't stall others.
+    pdf = await asyncio.to_thread(_extract_pdf_sync, content)
+    if pdf.get("error"):
+        out["error"] = pdf["error"]
+        # R-F2056/§21a — a failed PDF source fetch is a real signal the brain
+        # should see (so the coder/self-heal can act on recurring bad sources).
         try:
-            doc.close()
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="crawl_enhancements",
+                detail=f"PDF fetch/extract failed for {url}: {pdf['error']}",
+                gap_type="pdf_fetch_failure",
+                source=f"crawl_enhancements:fetch_pdf",
+            )
         except Exception:
             pass
+        return out
+    out["text"] = pdf["text"]
+    out["pages"] = pdf["pages"]
+    out["title"] = pdf["title"]
+    out["ok"] = pdf["ok"]
     return out
 
 
