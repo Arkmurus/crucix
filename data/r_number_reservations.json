@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2028,
+  "next_available": 2030,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14601,14 +14601,34 @@
       "title": "update 8 stale tests to current contracts (async tiers / quarantine signal / web_integrity wire_success)",
       "claimed_at": "2026-06-27T14:52:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "77d771c8",
+      "notes": null,
+      "shipped_at": "2026-06-27T15:10:56Z"
     },
     {
       "r_number": "R-F2027",
       "title": "robust onboarding",
       "claimed_at": "2026-06-27T15:01:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2028",
+      "title": "Fix auth email-verification: register handler checked bare EMAIL_* vars; use email.mjs isConfigured (ARIA_EMAIL_* fallback)",
+      "claimed_at": "2026-06-27T15:21:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f5e9dc21",
+      "notes": null,
+      "shipped_at": "2026-06-27T15:27:00Z"
+    },
+    {
+      "r_number": "R-F2029",
+      "title": "adversarial scorer: suppress attack-quote violation false-positives + count false-premise corrections as resistance",
+      "claimed_at": "2026-06-27T15:42:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
