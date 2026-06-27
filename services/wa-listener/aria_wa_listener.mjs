@@ -2057,6 +2057,17 @@ function _parseDuration(t) {
   return isHour ? n * 60 : n;
 }
 
+// R-F1994 — recognise ARIA's OWN guardian template output so it is NEVER
+// re-ingested as a new command. Her stage-1 self-ping ECHOES the user's note
+// ("…check on me…") which re-matched the arm regex below → an infinite re-arm
+// loop; worse, the echo arrives `fromMe` so the spurious check-in keyed under
+// ARIA's OWN jid and then escalated to an EMPTY circle ("couldn't alert
+// anyone"), observed live 2026-06-27. These phrases appear ONLY in ARIA's
+// outbound guardian messages, never in a user command, so matching them is safe.
+export function _isAriaOwnGuardianEcho(text) {
+  return /(ARIA safety check-in|Check-in armed for|Check-in active|Glad you'?re safe|SOS sent|Guardian PAUSED|Guardian resumed)/i.test(text || '');
+}
+
 function _guardianIntent(text) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return null;
@@ -2265,6 +2276,12 @@ async function onMessagesUpsert(sock, account, ev) {
       if (typeof text === 'string' && text.length > _WA_MAX_TEXT) {
         text = text.slice(0, _WA_MAX_TEXT);
       }
+
+      // R-F1994 — loop guard (belt-and-suspenders behind the id-based skip at the
+      // top of the loop): drop ARIA's OWN guardian template output echoed back as
+      // `fromMe` on a linked account, so a self-ping can't re-arm a check-in and
+      // can't escalate under ARIA's own (empty) circle. See _isAriaOwnGuardianEcho.
+      if (_isFromMe && _isAriaOwnGuardianEcho(text)) continue;
 
       // R-F1974 — for the linked member's OWN (`fromMe`) messages, ONLY act on an
       // EXPLICIT "Aria, …" mention (the operator's "reply whenever her name is
@@ -2980,7 +2997,10 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
       if (!imgBuf || imgBuf.length === 0) {
         return res.status(400).json({ error: 'image_b64 is not valid base64' });
       }
-      await sock.sendMessage(target, { image: imgBuf, caption: (caption || '').slice(0, 1000) });
+      const _imgSent = await sock.sendMessage(target, { image: imgBuf, caption: (caption || '').slice(0, 1000) });
+      // R-F1994 — register this server-originated send so its `fromMe` echo is
+      // skipped by the loop guard at the top of onMessagesUpsert (id-based).
+      if (_imgSent?.key?.id) _markAriaSent(_imgSent.key.id);
       _waBrainSignal('wa_outbound_sent', `WA image sent to ${target} (${imgBuf.length} bytes)`,
         { chat_id: String(target), bytes: imgBuf.length, kind: 'image' });
       reportOutcome('wa', rid, 'outbound_send', 'delivered_real_answer', Date.now() - t0);
@@ -2989,7 +3009,10 @@ app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
     const chunks = splitMessage(text);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      await sock.sendMessage(target, { text: chunks[i] });
+      const _txtSent = await sock.sendMessage(target, { text: chunks[i] });
+      // R-F1994 — register so the `fromMe` echo of this server send (e.g. a
+      // Guardian self-ping) is skipped by the id-based loop guard above.
+      if (_txtSent?.key?.id) _markAriaSent(_txtSent.key.id);
     }
     _waBrainSignal('wa_outbound_sent', `WA outbound sent to ${target} (${text.length} chars)`,
       { chat_id: String(target), chars: text.length, parts: chunks.length });

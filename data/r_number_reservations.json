@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1981,
+  "next_available": 1995,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14140,14 +14140,150 @@
       "title": "ARIA Guardian Phase-0 — Action Gateway (risk class + consent tiers + trusted-circle vault + tamper-evident audit + panic kill-switch + durable queue + §25 outcome) + check-in/dead-mans-switch capability (operator Phase-A override)",
       "claimed_at": "2026-06-26T22:17:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c3baa996",
+      "notes": null,
+      "shipped_at": "2026-06-26T22:37:53Z"
     },
     {
       "r_number": "R-F1980",
       "title": "DD reports: collapse by entity, versioning, delete on rows, vault as source of truth",
       "claimed_at": "2026-06-26T22:24:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c3baa996",
+      "notes": null,
+      "shipped_at": "2026-06-26T22:40:57Z"
+    },
+    {
+      "r_number": "R-F1981",
+      "title": "Guardian Phase 1 — send-as-you (CONFIRM) + panic phrase (instant circle alert)",
+      "claimed_at": "2026-06-26T22:48:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "850f37b2",
+      "notes": null,
+      "shipped_at": "2026-06-26T23:10:24Z"
+    },
+    {
+      "r_number": "R-F1982",
+      "title": "Fix check-in misread as all-clear ('ensure I am safe') + deliver self-ping to origin chat + cleaner circle name",
+      "claimed_at": "2026-06-26T23:23:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "110064b0",
+      "notes": null,
+      "shipped_at": "2026-06-26T23:36:59Z"
+    },
+    {
+      "r_number": "R-F1983",
+      "title": "Guardian multilingual LLM intent comprehension — understand any language, not brittle English regex",
+      "claimed_at": "2026-06-26T23:30:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cd722773",
+      "notes": null,
+      "shipped_at": "2026-06-26T23:46:44Z"
+    },
+    {
+      "r_number": "R-F1984",
+      "title": "Guardian roadmap + full living-organism analysis doc (Layer 3 to-do + vision)",
+      "claimed_at": "2026-06-26T23:45:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-06-26T23:46:53Z"
+    },
+    {
+      "r_number": "R-F1985",
+      "title": "Autonomous knowledge gap filler - continuous heatmap improvement via autonomous engine",
+      "claimed_at": "2026-06-26T23:58:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "873536ac",
+      "notes": null,
+      "shipped_at": "2026-06-27T00:22:57Z"
+    },
+    {
+      "r_number": "R-F1986",
+      "title": "knowledge-to-mastery bridge",
+      "claimed_at": "2026-06-27T07:36:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1987",
+      "title": "design partner tracker",
+      "claimed_at": "2026-06-27T07:37:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1988",
+      "title": "Guardian voice notes name-only (wake-word required)",
+      "claimed_at": "2026-06-27T07:37:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1989",
+      "title": "Guardian send/forward image to trusted contact",
+      "claimed_at": "2026-06-27T07:37:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a75118eb",
+      "notes": null,
+      "shipped_at": "2026-06-27T07:57:11Z"
+    },
+    {
+      "r_number": "R-F1990",
+      "title": "Claude review fix: honest gate-2 mastery grading + complete R-F1987 design-partner tracker",
+      "claimed_at": "2026-06-27T07:52:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b3c5954",
+      "notes": null,
+      "shipped_at": "2026-06-27T08:05:07Z"
+    },
+    {
+      "r_number": "R-F1991",
+      "title": "DD entity-name cleaning at ingestion + collapse hardening (dedup case files)",
+      "claimed_at": "2026-06-27T08:04:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bf26d84c",
+      "notes": null,
+      "shipped_at": "2026-06-27T08:24:07Z"
+    },
+    {
+      "r_number": "R-F1992",
+      "title": "Guardian self-test/dry-run mode - panic button test must not reset gate #3",
+      "claimed_at": "2026-06-27T08:17:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1993",
+      "title": "Auto-run DD deterministic primitives in orchestrator + remove manual pipeline panel from DD report UI",
+      "claimed_at": "2026-06-27T08:19:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1994",
+      "title": "Guardian check-in self-ping re-ingested as command - infinite re-arm loop / false-emergency risk on linked WA account",
+      "claimed_at": "2026-06-27T08:22:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
