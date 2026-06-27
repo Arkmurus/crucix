@@ -425,7 +425,14 @@ async def _store_article(article: dict) -> None:
 
 
 async def _feed_to_brain(article: dict) -> None:
-    """Feed article to ARIA's brain for analysis."""
+    """Feed article to ARIA's brain for analysis.
+
+    R-F2001: also feeds into intel_ledger so signal_correlator can
+    correlate news articles with other signals by country. Best-effort
+    and non-fatal — if the ledger feed fails, the article is still stored
+    and the brain signal is still fired. Only articles with extractable
+    country mentions produce ledger signals (honest by construction).
+    """
     try:
         wire_success(
             module="news_monitor",
@@ -436,6 +443,27 @@ async def _feed_to_brain(article: dict) -> None:
         )
     except Exception as e:
         logger.debug("[news_monitor] brain feed failed: %s", e)
+
+    # R-F2001: feed into intel_ledger so signal_correlator sees news
+    try:
+        from . import intel_ledger as _il
+        _summary = f"{article['title']}"
+        _desc = article.get("summary", "")[:300]
+        if _desc:
+            _summary = f"{_summary} — {_desc}"
+        await _il.add_signal({
+            "summary": _summary[:500],
+            "source": f"news_monitor:{article.get('source', 'unknown')}",
+            "type": "news",
+            "url": article.get("url", ""),
+            "tags": [
+                article.get("category", ""),
+                str(article.get("topics", "")),
+            ],
+            "timestamp": article.get("detected_at", ""),
+        })
+    except Exception:
+        logger.debug("[news_monitor] intel_ledger feed failed", exc_info=True)
 
 
 # ── Feed fetching ─────────────────────────────────────────────────────────────
