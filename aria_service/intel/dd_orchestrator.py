@@ -6599,10 +6599,15 @@ async def _persist_report(report: ARKDDReport) -> None:
     except Exception as _sm:
         logger.debug("dd_orchestrator self_metrics failed: %s", _sm)
 
-    # ── R-F1182: VLS cryptographic proof (fire-and-forget) ──────────────────
+    # ──     # ---- R-F1182: VLS cryptographic proof (fire-and-forget) ---------------------
     # After the report is fully persisted, seal it with a cryptographic
     # proof (hash + ECDSA signature + chain link). Never blocks the DD
-    # pipeline — errors are caught and wired to the brain.
+    # pipeline -- errors are caught and wired to the brain.
+    #
+    # R-F2005: pass _body (the dict stored in Redis) instead of `report`
+    # (the dataclass). The stored body includes `rendered` and
+    # `version_diff` that report.as_dict() does NOT include, so the
+    # proof hash never matched the stored body -- breaking the chain.
     try:
         from . import verifiable_ledger as _vls
         from . import engine_wiring as _ew
@@ -6611,11 +6616,17 @@ async def _persist_report(report: ARKDDReport) -> None:
             summary=f"VLS proof requested for {report.run_id}",
             source_id=report.run_id,
         )
-        # Fire-and-forget: schedule but don't await
-        _ew._dispatch_fire_and_forget(lambda: _vls.record_report(report))
+        # Fire-and-forget: schedule but don't await.
+        # Pass _body (the stored dict) so the proof hash matches.
+        _vls_body = dict(_body)
+        _ew._dispatch_fire_and_forget(lambda: _vls.record_report(
+            run_id=report.run_id,
+            report_body=_vls_body,
+            canonical_entity_id=canonical_id,
+            version_number=version_number,
+        ))
     except Exception as _vls_e:
         logger.debug("dd_orchestrator: VLS hook failed (non-fatal): %s", _vls_e)
-
     # R-F1184: intel_ledger signal (fire-and-forget)
     # Every completed DD report produces a permanent signal in the intel
     # ledger so query_ledger() can surface DD findings.

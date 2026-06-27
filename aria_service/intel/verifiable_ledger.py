@@ -185,39 +185,65 @@ def _build_proof(
 # PUBLIC API
 # ============================================================================
 
-async def record_report(report: Any) -> dict:
+async def record_report(
+    report: Any = None,
+    *,
+    run_id: str = "",
+    report_body: dict | None = None,
+    canonical_entity_id: str | None = None,
+    version_number: int = 1,
+) -> dict:
     """Cryptographically seal a DD report and store the proof.
+
+    R-F2005: accepts EITHER a legacy ARKDDReport instance OR explicit
+    keyword arguments (run_id, report_body, canonical_entity_id,
+    version_number). The keyword path is preferred because it receives
+    the EXACT dict that was stored in Redis (including `rendered` and
+    `version_diff`), so the proof hash matches the stored body.
 
     Called fire-and-forget from _persist_report. Never raises — all
     errors are caught and wired to the brain as failures.
 
     Args:
-        report: ARKDDReport instance (must have run_id, as_dict(),
-            canonical_entity_id, version_number).
+        report: Legacy ARKDDReport instance (deprecated).
+        run_id: DD report run ID.
+        report_body: The EXACT dict stored in Redis (must include
+            rendered, version_diff, etc. for hash consistency).
+        canonical_entity_id: Canonical entity ID for chain linking.
+        version_number: Version number of this report.
 
     Returns:
         dict with "status": "ok" | "skipped" and "proof" if stored.
     """
     try:
-        run_id = getattr(report, "run_id", None)
-        if not run_id:
+        # Support both legacy (ARKDDReport) and new (explicit kwargs) paths
+        if report is not None:
+            # Legacy path — kept for backward compatibility
+            _run_id = getattr(report, "run_id", None)
+            _canonical = getattr(report, "canonical_entity_id", None)
+            _body = report.as_dict() if hasattr(report, "as_dict") else {}
+            _version = getattr(report, "version_number", 1)
+        else:
+            _run_id = run_id
+            _canonical = canonical_entity_id
+            _body = report_body or {}
+            _version = version_number
+
+        if not _run_id:
             wire_failure("verifiable_ledger", "record_report: no run_id", source="verifiable_ledger")
             return {"status": "skipped", "reason": "no run_id"}
 
-        canonical_id = getattr(report, "canonical_entity_id", None)
-        report_body = report.as_dict() if hasattr(report, "as_dict") else {}
-
-        if not report_body:
-            wire_failure("verifiable_ledger", f"record_report: empty body for {run_id}", source="verifiable_ledger")
+        if not _body:
+            wire_failure("verifiable_ledger", f"record_report: empty body for {_run_id}", source="verifiable_ledger")
             return {"status": "skipped", "reason": "empty body"}
 
         from . import redis_store as rs
 
         # Resolve the previous proof for chain linking
         previous_proof = None
-        if canonical_id:
+        if _canonical:
             try:
-                chain_key = f"{_VLS_CHAIN_PREFIX}:{canonical_id}"
+                chain_key = f"{_VLS_CHAIN_PREFIX}:{_canonical}"
                 chain = await rs.get_json(chain_key) or []
                 if chain:
                     last_run_id = chain[0]  # newest first
@@ -227,16 +253,16 @@ async def record_report(report: Any) -> dict:
                 logger.debug("VLS: chain resolve failed (non-fatal): %s", e)
 
         # Build and store the proof
-        proof = _build_proof(report_body, previous_proof)
-        proof_key = f"{_VLS_KEY_PREFIX}:{run_id}"
+        proof = _build_proof(_body, previous_proof)
+        proof_key = f"{_VLS_KEY_PREFIX}:{_run_id}"
         await rs.set_json(proof_key, proof)
 
         # Update the chain index
-        if canonical_id:
+        if _canonical:
             try:
-                chain_key = f"{_VLS_CHAIN_PREFIX}:{canonical_id}"
+                chain_key = f"{_VLS_CHAIN_PREFIX}:{_canonical}"
                 chain = await rs.get_json(chain_key) or []
-                chain.insert(0, run_id)
+                chain.insert(0, _run_id)
                 chain = chain[:100]  # cap at 100 versions
                 await rs.set_json(chain_key, chain)
             except Exception as e:
@@ -244,9 +270,9 @@ async def record_report(report: Any) -> dict:
 
         wire_success(
             module="verifiable_ledger",
-            summary=f"VLS proof stored for DD {run_id} v{proof['version']}",
-            entity_name=getattr(report, "canonical_entity_id", "") or run_id,
-            source_id=run_id,
+            summary=f"VLS proof stored for DD {_run_id} v{proof['version']}",
+            entity_name=_canonical or _run_id,
+            source_id=_run_id,
         )
 
         return {"status": "ok", "proof": proof}
