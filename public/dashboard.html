@@ -29,63 +29,83 @@
 
   <!-- Page Header -->
   <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-radar"></i> Intelligence Brief</h1>
+    <h1 class="sc-page-title"><i class="bi bi-shield-shaded"></i> ARIA Intelligence Dashboard</h1>
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <span class="sc-page-sub" id="last-updated">Loading…</span>
-      <button type="button" class="sc-btn sc-btn-primary sc-btn-sm" id="btn-sweep">
-        <i class="bi bi-arrow-repeat"></i> Run Sweep
-      </button>
     </div>
   </div>
 
-  <!-- R-F971 (2026-05-28): source provenance. This brief is the live OSINT
-       market sweep (Node intelligence tier), NOT ARIA's brain knowledge base.
-       Without this label a user reads the sweep's market/OSINT figures as
-       "ARIA's intelligence" — the two stores are distinct and their counts
-       will not match (see web_brain_correlation audit). -->
+  <!-- R-F2016: source provenance — this dashboard shows ARIA's brain data -->
   <p style="margin:-4px 0 18px;color:#8b949e;font-size:12px;line-height:1.5">
-    <i class="bi bi-info-circle"></i> Source: live <strong>OSINT market sweep</strong> (Node intelligence tier) — distinct from ARIA's brain knowledge base. See <a href="/aria-brain" style="color:#913BFF">ARIA Brain</a> for her learned facts &amp; composite score.
+    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong> — live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:#913BFF">View detailed brain stats</a>
   </p>
 
-  <!-- KPI Tiles -->
+  <!-- KPI Tiles — ARIA's actual capabilities -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bar-chart-line"></i></div><div><div class="sc-stat-value" id="kpi-vix">—</div><div class="sc-stat-label">VIX</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-fuel-pump"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-satellite"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#ef4444"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">—</div><div class="sc-stat-label">DD Reports</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">—</div><div class="sc-stat-label">Watchlist</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">—</div><div class="sc-stat-label">Active Deals</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up-arrow"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
   </div>
 
-  <!-- Main two-col -->
+  <!-- Main two-col: DD Activity + Watchlist -->
   <div class="sc-grid-2 mb-24">
-    <!-- Situation Awareness -->
+    <!-- Recent DD Activity -->
     <div class="sc-card">
       <div class="sc-card-header">
-        <div class="sc-card-title"><i class="bi bi-exclamation-triangle"></i> Situation Awareness</div>
+        <div class="sc-card-title"><i class="bi bi-shield-check"></i> Recent Due Diligence</div>
+        <a href="/dd-reports.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">View all</a>
       </div>
-      <div class="sc-card-body" id="correlations-list" style="max-height:420px;overflow-y:auto">
+      <div class="sc-card-body" id="dd-list" style="max-height:420px;overflow-y:auto">
         <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
       </div>
     </div>
 
-    <!-- OSINT Signals -->
+    <!-- Watchlist Status -->
     <div class="sc-card">
       <div class="sc-card-header">
-        <div class="sc-card-title"><i class="bi bi-broadcast"></i> OSINT Signals</div>
+        <div class="sc-card-title"><i class="bi bi-eye"></i> Watchlist</div>
+        <a href="/watchlist.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">Manage</a>
       </div>
-      <div class="sc-card-body" id="osint-list" style="max-height:420px;overflow-y:auto">
+      <div class="sc-card-body" id="watchlist-list" style="max-height:420px;overflow-y:auto">
         <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
       </div>
     </div>
   </div>
 
-  <!-- Leverageable Ideas -->
+  <!-- Intelligence Brief (OSINT market sweep — collapsible secondary) -->
   <div class="sc-card mb-24">
-    <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-lightbulb"></i> Leverageable Ideas</div>
-      <span class="sc-badge sc-badge-muted" id="ideas-source"></span>
+    <div class="sc-card-header" style="cursor:pointer" onclick="toggleBrief()">
+      <div class="sc-card-title"><i class="bi bi-radar"></i> OSINT Market Sweep</div>
+      <span class="sc-badge sc-badge-muted" id="brief-toggle">Show</span>
     </div>
-    <div class="sc-card-body" id="ideas-list">
-      <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+    <div id="brief-content" style="display:none">
+      <p style="margin:8px 14px 0;color:#8b949e;font-size:12px;line-height:1.5">
+        <i class="bi bi-info-circle"></i> Live OSINT market sweep (Node intelligence tier) — distinct from ARIA's brain knowledge base above.
+      </p>
+      <div class="sc-card-body">
+        <!-- KPI Tiles for market sweep -->
+        <div class="sc-grid-4 mb-16" id="sweep-kpi-row">
+          <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bar-chart-line"></i></div><div><div class="sc-stat-value" id="kpi-vix">—</div><div class="sc-stat-label">VIX</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-fuel-pump"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-satellite"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
+        </div>
+        <div class="sc-grid-2">
+          <div>
+            <h3 style="font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Situation Awareness</h3>
+            <div id="correlations-list" style="max-height:320px;overflow-y:auto">
+              <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Telegram OSINT</h3>
+            <div id="osint-list" style="max-height:320px;overflow-y:auto">
+              <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -149,135 +169,221 @@ function _renderFetchFailureBanner() {
   banner.style.display = 'block';
 }
 
-async function loadData() {
-  const data = await API.get('/api/data');
-  if (!data) {
-    _trackFetchFailure('/api/data', 'no response');
-    return;
-  }
-  _trackFetchSuccess('/api/data');
-
-  // KPIs — derive market direction from VIX
-  const vix = data.markets?.vix?.value;
-  const d = vix > 25 ? 'risk-off' : (vix && vix < 15) ? 'risk-on' : 'neutral';
-  document.getElementById('kpi-direction').textContent = d.toUpperCase();
-  document.getElementById('kpi-direction').style.color =
-    d === 'risk-off' ? '#ef4444' : d === 'risk-on' ? '#22c55e' : '#FF7A41';
-  document.getElementById('kpi-vix').textContent = vix ? vix.toFixed(1) : '—';
-  document.getElementById('kpi-brent').textContent = data.energy?.brent ? `$${data.energy.brent}` : '—';
-  document.getElementById('kpi-osint').textContent = (data.tg?.urgent || []).length;
-
-  // Last updated
-  const sweepTs = data.meta?.timestamp;
-  const srcOk   = data.meta?.sourcesOk ?? 0;
-  const srcTotal = data.meta?.sourcesQueried ?? 0;
-  const lu = document.getElementById('last-updated');
-  if (!sweepTs) {
-    lu.textContent = '';
+// ── Toggle OSINT brief visibility ──
+function toggleBrief() {
+  const el = document.getElementById('brief-content');
+  const btn = document.getElementById('brief-toggle');
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    btn.textContent = 'Hide';
   } else {
-    const base = `Updated: ${fmtDateTime(sweepTs)} · ${srcOk}/${srcTotal} sources`;
-    // R-F978 (2026-05-28): stale-sweep warning. The server (/api/data) flags
-    // the brief stale when the last sweep is older than 2 refresh cycles —
-    // e.g. a fresh container before its first sweep, or a wedged sweep loop.
-    // Without this, a stale brief looks identical to a live one.
-    const fresh = data._freshness || {};
-    if (fresh.stale && fresh.ageSeconds != null) {
-      const mins = Math.round(fresh.ageSeconds / 60);
-      const win = Math.round((fresh.staleAfterSeconds || 0) / 60);
-      lu.innerHTML = `${escHtml(base)} `
-        + `<span class="sc-badge sc-badge-orange" title="Last sweep ${mins} min ago — exceeds the ${win} min refresh window. Data may be out of date.">⚠ STALE · ${mins}m old</span>`;
-    } else {
-      lu.textContent = base;
-    }
-  }
-
-  // Correlations
-  const corrEl = document.getElementById('correlations-list');
-  const corrs = data.correlations || [];
-  if (!corrs.length) {
-    corrEl.innerHTML = '<p class="text-muted" style="padding:8px">No critical correlations detected.</p>';
-  } else {
-    corrEl.innerHTML = corrs.slice(0,6).map(c => `
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:10px;overflow:hidden">
-        <div style="background:${c.severity==='critical'?'rgba(239,68,68,0.12)':'rgba(255,122,65,0.10)'};padding:8px 12px;display:flex;align-items:center;gap:8px">
-          <i class="bi ${c.severity==='critical'?'bi-exclamation-octagon':'bi-exclamation-triangle'}" style="color:${c.severity==='critical'?'#ef4444':'#FF7A41'}"></i>
-          <strong style="color:#fff;font-size:13px">${escHtml(c.region)}</strong>
-          <span class="sc-badge ${c.severity==='critical'?'sc-badge-red':'sc-badge-orange'} ms-auto">${escHtml(c.severity||'').toUpperCase()}</span>
-        </div>
-        <div style="padding:10px 12px">
-          ${(c.topSignals||[]).slice(0,2).map(s=>`
-            <p style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:6px;line-height:1.5">${escHtml(truncate(s.text,200))}</p>
-          `).join('')}
-        </div>
-      </div>`).join('');
-  }
-
-  // OSINT
-  const osintEl = document.getElementById('osint-list');
-  const posts = data.tg?.urgent || [];
-  if (!posts.length) {
-    osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
-  } else {
-    osintEl.innerHTML = posts.slice(0,8).map(p => `
-      <div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:11px;font-weight:700;color:#913BFF">${escHtml(p.channel||'OSINT')}</span>
-          <span style="font-size:11px;color:rgba(255,255,255,0.35)">${p.date?fmtDateTime(p.date):''}</span>
-        </div>
-        <p style="font-size:13px;color:rgba(255,255,255,0.72);line-height:1.55;margin:0">${escHtml(truncate(p.text||'',200))}</p>
-      </div>`).join('');
-  }
-
-  // Ideas
-  const ideasEl = document.getElementById('ideas-list');
-  const ideas = data.ideas || [];
-  if (data.ideasSource) document.getElementById('ideas-source').textContent = data.ideasSource === 'llm' ? 'AI-generated' : data.ideasSource;
-  if (!ideas.length) {
-    ideasEl.innerHTML = '<p class="text-muted">No ideas generated — enable LLM via DeepSeek (active provider).</p>';
-  } else {
-    ideasEl.innerHTML = `<div class="sc-grid-3">${ideas.map(idea => {
-      const col = idea.type==='LONG'?'green':idea.type==='SHORT'?'red':'muted';
-      return `<div class="sc-card" style="border-left:3px solid var(--sc-${col==='muted'?'muted':col})">
-        <div class="sc-card-body">
-          <div style="display:flex;gap:6px;margin-bottom:8px">
-            <span class="sc-badge sc-badge-${col}">${escHtml(idea.type||'')}</span>
-            <span class="sc-badge sc-badge-muted">${escHtml(idea.confidence||'')}</span>
-          </div>
-          <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px">${escHtml(idea.title||'')}</div>
-          ${idea.ticker?`<div style="font-size:13px;color:var(--sc-prime);font-weight:700;margin-bottom:4px">${escHtml(idea.ticker)}</div>`:''}
-          <div style="font-size:12px;color:rgba(255,255,255,0.55)">${escHtml(truncate(idea.rationale||'',130))}</div>
-        </div>
-      </div>`;
-    }).join('')}</div>`;
-  }
-
-  // Opportunities
-  const opps = data.opportunities || [];
-  if (opps.length) {
-    document.getElementById('opps-section').style.display = '';
-    const tbody = document.querySelector('#opps-table tbody');
-    tbody.innerHTML = opps.slice(0,5).map(o => `
-      <tr>
-        <td><strong>${escHtml(o.market)}</strong>${o.lusophone?'<i class="bi bi-flag ms-1 text-prime" title="Lusophone"></i>':''}</td>
-        <td><span class="sc-badge sc-badge-prime">${o.score}/100</span></td>
-        <td><span class="sc-badge ${o.complianceStatus==='CLEAR'?'sc-badge-green':'sc-badge-red'}">${escHtml(o.complianceStatus||'')}</span></td>
-        <td style="font-size:12px">${(o.procurementNeeds||[]).slice(0,3).join(', ')}</td>
-      </tr>`).join('');
-  }
-
-  // Defence signals
-  const def = data.defenseNews || data.defenceSignals || [];
-  if (def.length) {
-    document.getElementById('defence-section').style.display = '';
-    document.getElementById('defence-list').innerHTML = def.slice(0,5).map(s => `
-      <div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-        <div style="font-size:13px;font-weight:600;color:#913BFF;margin-bottom:4px">${escHtml(s.title||'')}</div>
-        <p style="font-size:12px;color:rgba(255,255,255,0.6);line-height:1.5;margin:0">${escHtml(truncate(s.content||s.description||'',200))}</p>
-      </div>`).join('');
+    el.style.display = 'none';
+    btn.textContent = 'Show';
   }
 }
 
-document.getElementById('btn-sweep').addEventListener('click', runSweep);
+// ── Severity pill helper ──
+function severityPill(sev) {
+  if (!sev) return '<span class="sc-badge sc-badge-muted">—</span>';
+  const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
+  const map = { 'hard_stop': 'sc-badge-red', 'red': 'sc-badge-red', 'amber-light': 'sc-badge-orange', 'amber-dark': 'sc-badge-orange', 'green': 'sc-badge-green' };
+  return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
+}
+
+async function loadData() {
+  // ── Load ARIA Brain data (DD reports, watchlist, pipeline) ──
+  const [ddRes, wlRes, pipeRes, oppRes, sweepRes] = await Promise.allSettled([
+    authed('/api/aria/dd/reports?limit=100'),
+    authed('/api/aria/dd/watchlist'),
+    authed('/api/aria/bd-intelligence/pipeline'),
+    authed('/api/aria/opportunities'),
+    API.get('/api/data'),
+  ]);
+
+  // ── KPI Tiles ──
+  // DD Reports count
+  let ddTotal = 0, ddRed = 0, ddHardStop = 0;
+  if (ddRes.status === 'fulfilled' && ddRes.value.ok) {
+    const ddData = await ddRes.value.json();
+    const reports = ddData.reports || [];
+    ddTotal = reports.length;
+    for (const r of reports) {
+      const risk = (r.risk_classification || '').toUpperCase();
+      if (risk === 'RED') ddRed++;
+      if (risk === 'HARD_STOP') ddHardStop++;
+    }
+  }
+  const ddKpi = document.getElementById('kpi-dd-total');
+  ddKpi.textContent = ddTotal;
+  if (ddHardStop > 0) {
+    ddKpi.style.color = '#ef4444';
+    ddKpi.title = ddHardStop + ' HARD_STOP, ' + ddRed + ' RED';
+  } else if (ddRed > 0) {
+    ddKpi.style.color = '#FF7A41';
+    ddKpi.title = ddRed + ' RED';
+  }
+
+  // Watchlist count
+  let wlCount = 0;
+  if (wlRes.status === 'fulfilled' && wlRes.value.ok) {
+    const wlData = await wlRes.value.json();
+    wlCount = (wlData.watchlist || []).length;
+  }
+  document.getElementById('kpi-watchlist').textContent = wlCount;
+
+  // Pipeline count
+  let pipeCount = 0;
+  if (pipeRes.status === 'fulfilled' && pipeRes.value.ok) {
+    const pipeData = await pipeRes.value.json();
+    pipeCount = Array.isArray(pipeData) ? pipeData.length : 0;
+  }
+  document.getElementById('kpi-pipeline').textContent = pipeCount;
+
+  // Opportunities count
+  let oppCount = 0;
+  if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
+    const oppData = await oppRes.value.json();
+    oppCount = (oppData.opportunities || []).length;
+  }
+  document.getElementById('kpi-opportunities').textContent = oppCount;
+
+  // ── Last updated ──
+  const lu = document.getElementById('last-updated');
+  lu.textContent = 'Updated: ' + new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+
+  // ── Recent DD Activity ──
+  const ddList = document.getElementById('dd-list');
+  if (ddRes.status === 'fulfilled' && ddRes.value.ok) {
+    const ddData = await ddRes.value.json();
+    const reports = (ddData.reports || []).slice(0, 8);
+    if (!reports.length) {
+      ddList.innerHTML = '<p class="text-muted" style="padding:8px">No DD reports yet.</p>';
+    } else {
+      ddList.innerHTML = reports.map(function(r) {
+        const name = r.entity_name || 'Unknown';
+        const risk = r.risk_classification || '—';
+        const date = r.generated_at || r.created_at || '';
+        const dateStr = date ? new Date(date).toLocaleDateString() : '';
+        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
+          + severityPill(risk)
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + '<div style="font-size:11px;color:rgba(255,255,255,0.35)">' + dateStr + '</div>'
+          + '</div></div>';
+      }).join('');
+    }
+  } else {
+    ddList.innerHTML = '<p class="text-muted" style="padding:8px">Could not load DD reports.</p>';
+  }
+
+  // ── Watchlist ──
+  const wlList = document.getElementById('watchlist-list');
+  if (wlRes.status === 'fulfilled' && wlRes.value.ok) {
+    const wlData = await wlRes.value.json();
+    const entries = wlData.watchlist || [];
+    if (!entries.length) {
+      wlList.innerHTML = '<p class="text-muted" style="padding:8px">Watchlist is empty. Run a DD to auto-enroll entities.</p>';
+    } else {
+      wlList.innerHTML = entries.map(function(w) {
+        const name = w.name || 'Unknown';
+        const type = w.entity_type || '';
+        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:10px">'
+          + '<i class="bi bi-shield" style="color:#6b7280;font-size:16px"></i>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:600;color:#fff">' + escHtml(name) + '</div>'
+          + '<div style="font-size:11px;color:rgba(255,255,255,0.35)">' + escHtml(type) + '</div>'
+          + '</div></div>';
+      }).join('');
+    }
+  } else {
+    wlList.innerHTML = '<p class="text-muted" style="padding:8px">Could not load watchlist.</p>';
+  }
+
+  // ── OSINT Market Sweep (secondary, collapsible) ──
+  if (sweepRes.status === 'fulfilled' && sweepRes.value) {
+    const data = sweepRes.value;
+
+    // Sweep KPIs
+    const vix = data.markets ? data.markets.vix ? data.markets.vix.value : null : null;
+    const d = vix > 25 ? 'risk-off' : (vix && vix < 15) ? 'risk-on' : 'neutral';
+    document.getElementById('kpi-direction').textContent = d.toUpperCase();
+    document.getElementById('kpi-direction').style.color = d === 'risk-off' ? '#ef4444' : d === 'risk-on' ? '#22c55e' : '#FF7A41';
+    document.getElementById('kpi-vix').textContent = vix ? vix.toFixed(1) : '—';
+    document.getElementById('kpi-brent').textContent = data.energy && data.energy.brent ? '$' + data.energy.brent : '—';
+    document.getElementById('kpi-osint').textContent = (data.tg && data.tg.urgent || []).length;
+
+    // Correlations
+    const corrEl = document.getElementById('correlations-list');
+    const corrs = data.correlations || [];
+    if (!corrs.length) {
+      corrEl.innerHTML = '<p class="text-muted" style="padding:8px">No critical correlations detected.</p>';
+    } else {
+      corrEl.innerHTML = corrs.slice(0,5).map(function(c) {
+        const sevColor = c.severity === 'critical' ? '#ef4444' : '#FF7A41';
+        const sevBg = c.severity === 'critical' ? 'rgba(239,68,68,0.12)' : 'rgba(255,122,65,0.10)';
+        return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:8px;overflow:hidden">'
+          + '<div style="background:' + sevBg + ';padding:6px 10px;display:flex;align-items:center;gap:6px">'
+          + '<i class="bi ' + (c.severity==='critical'?'bi-exclamation-octagon':'bi-exclamation-triangle') + '" style="color:' + sevColor + '"></i>'
+          + '<strong style="color:#fff;font-size:12px">' + escHtml(c.region) + '</strong>'
+          + '<span class="sc-badge ' + (c.severity==='critical'?'sc-badge-red':'sc-badge-orange') + ' ms-auto">' + escHtml(c.severity||'').toUpperCase() + '</span>'
+          + '</div>'
+          + '<div style="padding:6px 10px;font-size:11px;color:rgba(255,255,255,0.55)">'
+          + (c.signalCount||0) + ' signals · ' + (c.sourceCount||0) + ' sources · score ' + (c.totalScore||0)
+          + '</div></div>';
+      }).join('');
+    }
+
+    // Telegram OSINT
+    const osintEl = document.getElementById('osint-list');
+    const posts = data.tg && data.tg.urgent || [];
+    if (!posts.length) {
+      osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
+    } else {
+      osintEl.innerHTML = posts.slice(0,6).map(function(p) {
+        return '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+          + '<div style="display:flex;justify-content:space-between;margin-bottom:2px">'
+          + '<span style="font-size:10px;font-weight:700;color:#913BFF">' + escHtml(p.channel||'OSINT') + '</span>'
+          + '<span style="font-size:10px;color:rgba(255,255,255,0.35)">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
+          + '</div>'
+          + '<p style="font-size:12px;color:rgba(255,255,255,0.65);line-height:1.5;margin:0">' + escHtml(truncate(p.text||'',150)) + '</p>'
+          + '</div>';
+      }).join('');
+    }
+  }
+
+  // ── Opportunities preview ──
+  if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
+    const oppData = await oppRes.value.json();
+    const opps = oppData.opportunities || [];
+    if (opps.length) {
+      document.getElementById('opps-section').style.display = '';
+      const tbody = document.querySelector('#opps-table tbody');
+      tbody.innerHTML = opps.slice(0,5).map(function(o) {
+        return '<tr>'
+          + '<td><strong>' + escHtml(o.market) + '</strong></td>'
+          + '<td><span class="sc-badge sc-badge-prime">' + (o.score||0) + '</span></td>'
+          + '<td><span class="sc-badge sc-badge-muted">' + (o.type||'') + '</span></td>'
+          + '<td style="font-size:12px">' + (o.signal_count||0) + ' signals</td>'
+          + '</tr>';
+      }).join('');
+    }
+  }
+
+  // ── Defence signals ──
+  if (sweepRes.status === 'fulfilled' && sweepRes.value) {
+    const data = sweepRes.value;
+    const def = data.defenseNews || data.defenceSignals || [];
+    if (def.length && typeof def !== 'string') {
+      document.getElementById('defence-section').style.display = '';
+      document.getElementById('defence-list').innerHTML = (Array.isArray(def) ? def : []).slice(0,5).map(function(s) {
+        return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+          + '<div style="font-size:13px;font-weight:600;color:#913BFF;margin-bottom:4px">' + escHtml(s.title||'') + '</div>'
+          + '<p style="font-size:12px;color:rgba(255,255,255,0.6);line-height:1.5;margin:0">' + escHtml(truncate(s.content||s.description||'',200)) + '</p>'
+          + '</div>';
+      }).join('');
+    }
+  }
+}
 
 async function runSweep() {
   var btn = document.getElementById('btn-sweep');
