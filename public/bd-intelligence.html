@@ -192,7 +192,11 @@ async function load() {
   var leads = tenders.filter(function(t) { return t.leadQuality === 'HOT' || t.leadQuality === 'WARM'; });
   // Combine with brain-generated sales leads
   var allLeads = leads.concat(brainLeads.map(function(l) {
-    return { title: l.lead || '', market: l.market || '', leadQuality: l.urgency || 'WARM', type: l.type || 'STRATEGIC', summary: (l.oemRecommendation || '') + ' ' + (l.estimatedValue || ''), nextStep: l.nextStep || '', url: l.portalUrl || '', source: 'Brain' };
+    // R-F2009: honest lead mapping — only signal-backed data, no fabricated fields
+    var summary = '';
+    if (l.signalSummary) { summary = l.signalSummary; }
+    else if (l.signalCount > 0) { summary = l.signalCount + ' intel signals'; }
+    return { title: l.lead || l.market || '', market: l.market || '', leadQuality: 'SIGNAL', type: 'INTEL', summary: summary, nextStep: '', url: '', source: 'Brain', signalCount: l.signalCount || 0 };
   }));
 
   document.getElementById('cnt-brain').textContent   = brain ? '1' : '0';
@@ -204,7 +208,7 @@ async function load() {
     allLeads.length + ' sales leads · ' + tenders.length + ' tenders · ' + ideas.length + ' ideas';
 
   // Stats
-  var hotCount = tenders.filter(function(t) { return t.leadQuality === 'HOT'; }).length + brainLeads.filter(function(l) { return l.urgency === 'HOT'; }).length;
+  var hotCount = tenders.filter(function(t) { return t.leadQuality === 'HOT'; }).length;
   document.getElementById('bd-stats').innerHTML = [
     ['Sales Leads', allLeads.length, '#913BFF'],
     ['All Tenders', tenders.length, '#0066FF'],
@@ -267,17 +271,16 @@ async function load() {
 
   // ── Sales Leads panel (grid cards like opportunities) ──
   document.getElementById('panel-leads').innerHTML = allLeads.length ? '<div class="sc-grid-3">' + allLeads.map(function(l) {
-    var qCol = l.leadQuality==='HOT'?'#ef4444':l.leadQuality==='WARM'?'#FF7A41':'#913BFF';
+    // R-F2009: honest card — no fabricated scores, probabilities, or contacts
+    var qCol = l.leadQuality==='HOT'?'#ef4444':l.leadQuality==='WARM'?'#FF7A41':'#6b7280';
     var qBadge = l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
+    var qLabel = l.leadQuality==='HOT'?'HOT':l.leadQuality==='WARM'?'WARM':'Intel Signal';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(l.market||'Global') + freshnessPill(l) + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '<button class="ic-share" data-sharetext="' + escHtml((l.leadQuality||'LEAD') + ' — ' + (l.market||'') + ': ' + (l.title||l.lead||'') + (l.nextStep ? '\nNext step: ' + l.nextStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
-      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><div style="font-size:28px;font-weight:800;color:'+qCol+'">' + escHtml(l.leadQuality||'—') + '</div>' +
-      (l.type ? '<div style="font-size:11px;color:rgba(255,255,255,.4)">'+escHtml(l.type)+'</div>' : '') +
-      (l.source==='Brain'?'<span class="sc-badge sc-badge-muted" style="font-size:10px">AI</span>':'') + '</div>' +
-      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||'',120)) + '</div>' +
-      (l.summary||l.description ? '<p style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;margin-bottom:8px">' + escHtml(truncate(l.summary||l.description||'',160)) + '</p>' : '') +
-      (l.nextStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(255,213,79,0.07);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#fff9c4;margin-top:8px"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(l.nextStep,150)) + '</div>' : '') +
-      (l.url ? '<div style="margin-top:8px"><a href="'+escHtml(l.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>' : '') +
+      escHtml(l.market||'Global') + freshnessPill(l) + '</div>' + chip(qLabel,qBadge) + '</div><div class="sc-card-body">' +
+      (l.signalCount > 0 ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:24px;font-weight:800;color:#913BFF">' + l.signalCount + '</span><span style="font-size:11px;color:rgba(255,255,255,.4)">intel signals</span></div>' : '') +
+      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||l.market||'',120)) + '</div>' +
+      (l.summary ? '<p style="font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;margin-bottom:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px">' + escHtml(truncate(l.summary,300)) + '</p>' : '') +
+      (l.source==='Brain' ? '<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:6px"><i class="bi bi-info-circle"></i> AI-generated from live signals — verify independently</div>' : '') +
       '</div></div>';
   }).join('') + '</div>' : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
 

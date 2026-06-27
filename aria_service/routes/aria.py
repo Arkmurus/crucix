@@ -17587,22 +17587,17 @@ async def proactive_lead_hunt_ep(request: Request, structured: bool = False, ref
         )
 
     if structured:
-        prompt = f"""You are ARIA on a lead-hunting cycle. From the intel below plus your defence-procurement knowledge, identify the 5 strongest leads Arkmurus should pursue NOW.
+        prompt = f"""You are ARIA on a lead-hunting cycle. From the intel below, identify markets where Arkmurus has real signal coverage.
 
 {opp_block}
 
 {tender_block}
 
 Return ONLY a JSON array (no prose, no markdown fences) of up to 5 objects, each with EXACTLY these keys:
-  "market"           (country),
-  "buyer"            (specific ministry/directorate),
-  "requirement"      (what they need),
-  "window"           (procurement stage / decision timeline),
-  "angle"            (Arkmurus relationship tier + which OEM partner),
-  "win_probability"  (integer 0-100),
-  "compliance_flags" (short string: sanctions / end-use / export control),
-  "first_action"     (specific action within 48h).
-Prioritise Lusophone Africa (incumbent advantage), then markets where Arkmurus has contacts, then high-value cold-entry with a clear angle."""
+  "market"           (country name only),
+  "signal_summary"   (what intel signals exist for this market, max 2 sentences),
+  "signal_count"     (integer — number of intel signals mentioning this market).
+Do NOT invent buyers, win probabilities, timelines, OEM partners, compliance flags, or action items. Only report what the intel actually says. If the intel is thin, say so honestly."""
         try:
             result = await llm.complete(
                 "ARIA — defence procurement lead generation specialist. Output strict JSON only.",
@@ -17633,20 +17628,13 @@ Prioritise Lusophone Africa (incumbent advantage), then markets where Arkmurus h
             for l in leads_in[:5]:
                 if not isinstance(l, dict):
                     continue
-                try:
-                    wp = int(l.get("win_probability") or 0)
-                except (ValueError, TypeError):
-                    wp = 0
+                market = str(l.get("market", ""))[:80]
+                if not market:
+                    continue
                 norm.append({
-                    "market": str(l.get("market", ""))[:80],
-                    "buyer": str(l.get("buyer", ""))[:160],
-                    "requirement": str(l.get("requirement", ""))[:300],
-                    "window": str(l.get("window", ""))[:160],
-                    "angle": str(l.get("angle", ""))[:300],
-                    "win_probability": max(0, min(100, wp)),
-                    "compliance_flags": str(l.get("compliance_flags", ""))[:200],
-                    "first_action": str(l.get("first_action", ""))[:300],
-                    "urgency": "HOT" if wp >= 60 else "WARM",
+                    "market": market,
+                    "signal_summary": str(l.get("signal_summary", ""))[:500],
+                    "signal_count": max(0, int(l.get("signal_count") or 0)),
                     "source": "brain_lead_hunt",
                 })
             generated_at = datetime.now(timezone.utc).isoformat()
