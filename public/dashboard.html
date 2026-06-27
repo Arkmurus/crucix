@@ -210,11 +210,20 @@ async function loadData() {
     API.get('/api/data'),
   ]);
 
+  // R-F2040 — parse each fetch Response body EXACTLY ONCE. A Response body is a
+  // one-shot stream; the KPI section and the list section below were each calling
+  // ddRes/wlRes .json() a SECOND time, which throws "body already consumed" and
+  // crashed loadData() at the DD-list render — leaving the DD + Watchlist panels
+  // stuck on "Loading…" while the (first-read) KPI counts rendered fine. Read
+  // once into ddData/wlData here and reuse everywhere.
+  let ddData = null, wlData = null;
+  if (ddRes.status === 'fulfilled' && ddRes.value.ok) ddData = await ddRes.value.json().catch(() => null);
+  if (wlRes.status === 'fulfilled' && wlRes.value.ok) wlData = await wlRes.value.json().catch(() => null);
+
   // ── KPI Tiles ──
   // DD Reports count
   let ddTotal = 0, ddRed = 0, ddHardStop = 0;
-  if (ddRes.status === 'fulfilled' && ddRes.value.ok) {
-    const ddData = await ddRes.value.json();
+  if (ddData) {
     const reports = ddData.reports || [];
     ddTotal = reports.length;
     for (const r of reports) {
@@ -235,8 +244,7 @@ async function loadData() {
 
   // Watchlist count
   let wlCount = 0;
-  if (wlRes.status === 'fulfilled' && wlRes.value.ok) {
-    const wlData = await wlRes.value.json();
+  if (wlData) {
     wlCount = (wlData.watchlist || []).length;
   }
   document.getElementById('kpi-watchlist').textContent = wlCount;
@@ -264,8 +272,7 @@ async function loadData() {
 
   // ── Recent DD Activity ──
   const ddList = document.getElementById('dd-list');
-  if (ddRes.status === 'fulfilled' && ddRes.value.ok) {
-    const ddData = await ddRes.value.json();
+  if (ddData) {
     const reports = (ddData.reports || []).slice(0, 8);
     if (!reports.length) {
       ddList.innerHTML = '<p class="text-muted" style="padding:8px">No DD reports yet.</p>';
@@ -289,8 +296,7 @@ async function loadData() {
 
   // ── Watchlist ──
   const wlList = document.getElementById('watchlist-list');
-  if (wlRes.status === 'fulfilled' && wlRes.value.ok) {
-    const wlData = await wlRes.value.json();
+  if (wlData) {
     const entries = wlData.watchlist || [];
     if (!entries.length) {
       wlList.innerHTML = '<p class="text-muted" style="padding:8px">Watchlist is empty. Run a DD to auto-enroll entities.</p>';
