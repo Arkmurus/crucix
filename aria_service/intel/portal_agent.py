@@ -719,7 +719,7 @@ class AdaptivePortalAgent:
                              "already in use", "email address is already"]
         error_indicators = ["error", "invalid", "failed", "try again", "incorrect"]
 
-        timeout = 20  # seconds to wait for a change
+        timeout = 30  # seconds to wait for a change
         start = time.time()
 
         while time.time() - start < timeout:
@@ -756,6 +756,10 @@ class AdaptivePortalAgent:
                     # Verify content actually changed (not cached)
                     if len(current_html) != len(pre_html) or current_html != pre_html:
                         return {"success": True, "errors": [], "dup_email": False, "url": current_url}
+
+            # 5. Check for API key on the page (strongest success signal)
+            if "your api key is" in lower_html or "api key is:" in lower_html:
+                return {"success": True, "errors": [], "dup_email": False, "url": current_url}
 
             await asyncio.sleep(1)
 
