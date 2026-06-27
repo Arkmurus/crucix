@@ -18,7 +18,7 @@ Correlation types:
   MARKET_HEATING      — multiple signals in same country within 7 days
   RISK_CONVERGENCE    — sanctions + compliance + political instability overlap"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import time
@@ -96,6 +96,15 @@ async def correlate_signals() -> list[dict]:
                 })
     except Exception as e:
         logger.debug("Ledger correlation failed: %s", e)
+        # R-F2008/§21a — the intel_ledger is the PRIMARY correlation source; if it
+        # can't be read the chain is degraded, so the brain must know (success is
+        # already wired below). Fire-and-forget; never breaks correlation.
+        try:
+            wire_failure(module="signal_correlator",
+                         detail=f"ledger read failed during correlation: {str(e)[:200]}",
+                         gap_type="agent_cycle_failure", source="signal_correlator:correlate")
+        except Exception:
+            pass
 
     # 2. Pipeline leads
     try:
@@ -256,7 +265,27 @@ def _generate_insight(country: str, signals: list[dict], signal_types: set, scor
             f"Review export control implications before advancing any deals."
         )
     else:
-        return None
+        # R-F2008 — this cluster ALREADY passed the score >= MIN_CORRELATION_SCORE
+        # and >= 2-signal-type gate in correlate_signals(). The old `return None`
+        # here silently DROPPED genuine opportunities that didn't match a specific
+        # multi-dimensional pattern — e.g. a budget increase + active tender with
+        # no warm contact yet (a textbook live window). The end-to-end chain test
+        # caught exactly this: news -> ledger -> correlate produced 0 insights for
+        # Angola despite budget+tender scoring 7.0. Never drop a gate-passing
+        # cluster; the missing relationship is the action item, not a reason to hide.
+        if has_budget and has_tender:
+            insight_type, emoji = "OPPORTUNITY_WINDOW", "🟢"
+            recommendation = (
+                f"{country.title()} shows budget momentum + active procurement "
+                f"({len(signals)} signals) but no warm contact detected yet — "
+                f"qualify the buyer and open a channel NOW; this is a live window."
+            )
+        else:
+            insight_type, emoji = "MARKET_SIGNAL", "🟠"
+            recommendation = (
+                f"{country.title()}: {len(signals)} correlated signals across "
+                f"{len(signal_types)} types (score {round(score, 1)}) — review for opportunity."
+            )
 
     return {
         "country": country.title(),
