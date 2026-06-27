@@ -144,6 +144,41 @@ class _SharedSentenceTransformerEmbeddingFn:
         self._model_name = model_name
 
     def __call__(self, input):  # noqa: A002 — chromadb protocol uses `input`
+        texts = list(input)
+        # R-F2044 — route the chromadb embed through the PROCESS-OFFLOADED
+        # encoder FIRST. This was the recurring loop-wedge root cause (captured
+        # live in /data/wedge_stacks): a RAG query → this __call__ → the OLD
+        # `_get_embedder()` below COLD-LOADED the in-process SentenceTransformer
+        # on the request path (10s+, under the event loop), and `_safe_encode`
+        # then ran an in-process GIL-bound `model.encode()` because chromadb
+        # passes convert_to_numpy=True (not in _safe_encode's {normalize_embeddings}
+        # offload allow-set) — so RAG-query encodes NEVER offloaded and stalled
+        # the loop 6-11s at a time, starving WA chat dispatch + web SSE. With
+        # offload ON (default) the in-process model is deliberately NOT prewarmed
+        # (main.py R-F1890) — so this path was guaranteed to cold-load. The
+        # offload worker owns a warmed model in its OWN process: no in-process
+        # load, no main-GIL encode. normalize=False matches chromadb's default
+        # (and the in-process fallback) so vectors stay identical to the existing
+        # persisted collection embeddings.
+        try:
+            from . import encode_offload as _eo
+            if _eo.is_enabled():
+                return _eo.encode(texts, normalize=False).tolist()
+        except Exception as _off_err:
+            # §21a/§25 — offload genuinely ERRORED (not merely disabled, which
+            # raises nothing here). Surface the encode-offload degradation to the
+            # brain so ARIA sees her embedding limb weakening, then fall back
+            # in-process below. Deduped by capability_gaps; never raises.
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="rag_store",
+                    detail=f"encode-offload degraded on RAG embed: {type(_off_err).__name__}: {_off_err}",
+                    gap_type="embedder_failure",
+                    source="rag_store:R-F2044",
+                )
+            except Exception:
+                pass
         from .semantic_search import _get_embedder, _safe_encode
         model = _get_embedder()
         if model is None:
@@ -156,7 +191,7 @@ class _SharedSentenceTransformerEmbeddingFn:
         # normalize_embeddings (cosine HNSW handles it index-side).
         # R-F530 — route through _safe_encode so the chromadb path
         # serialises against the semantic_search path's encode calls.
-        return _safe_encode(model, list(input), convert_to_numpy=True).tolist()
+        return _safe_encode(model, texts, convert_to_numpy=True).tolist()
 
     @fail_wire(module="rag_store", gap_type="embedder_failure")
     def embed_query(self, input: str | list[str]) -> list[list[float]]:

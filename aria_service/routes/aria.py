@@ -10004,6 +10004,30 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     llm = get_llm(request)
     intel = get_intel_data(request)
 
+    # R-F2043 — ADAPTIVE FAST-LANE PARITY with chat_ep (R-F1976). The web/SSE
+    # path previously ALWAYS built the full 9-layer context, so a trivial
+    # "how are you" paid the heavy grounded pipeline — under load (RAG-query
+    # encode stalling the event loop) that hung >60s with no `done`. A clearly
+    # basic, tool-free, entity-free question now gets a single lean LLM call and
+    # streams straight back. The router (_fast_lane_eligible) is CONSERVATIVE —
+    # any entity/URL/document/compliance/tool-intent/complex signal routes to the
+    # full generator below, so grounding is never weakened. auto_tools-only (a
+    # forced tool run stays full); an empty fast-lane reply falls through.
+    if req.auto_tools and _fast_lane_eligible(req.message):
+        _fl = None
+        try:
+            from ..aria_engine import fast_lane_chat
+            _fl = await fast_lane_chat(req.message, session_id, llm)
+        except Exception as _fle:
+            _log.warning("[chat/stream] fast-lane errored, falling through to full pipeline: %s", _fle)
+            _fl = None
+        if _fl:
+            _log.info("[chat/stream] fast-lane: %r → lean reply (%d chars)", req.message[:60], len(_fl))
+            async def _fast_lane_stream():
+                yield f'data: {json.dumps({"type":"chunk","text":_fl})}\n\n'
+                yield f'data: {json.dumps({"type":"done","session_id":session_id,"fast_lane":True})}\n\n'
+            return StreamingResponse(_fast_lane_stream(), media_type="text/event-stream")
+
     # R-F737 (2026-05-20) — tool detection + execution MOVED INSIDE the
     # SSE generator so `progress` events can fire DURING the wait, not
     # after. Pre-R-F737 the user saw nothing from POST until the LLM's
