@@ -14456,9 +14456,10 @@
       "title": "complete R-F2009: web-tier _mergeBrainLeads maps honest brain-lead shape (signal_summary/count), drops fabricated fields",
       "claimed_at": "2026-06-27T11:49:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80308707",
+      "notes": null,
+      "shipped_at": "2026-06-27T11:56:33Z"
     }
   ]
 }
