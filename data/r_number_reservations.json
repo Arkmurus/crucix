@@ -14485,18 +14485,20 @@
       "title": "R-F2012 follow-up: matchOEMs fed fabricated strategicNeeds fallback - derive OEM matches from real needs only",
       "claimed_at": "2026-06-27T12:59:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d7b4b24",
+      "notes": null,
+      "shipped_at": "2026-06-27T13:09:26Z"
     },
     {
       "r_number": "R-F2015",
       "title": "opportunity Phase 1 (ARIA audit): defence-relevance signal filter + min-evidence gate (no boost-inflated zero-signal markets)",
       "claimed_at": "2026-06-27T13:03:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ae5f4cf9",
+      "notes": null,
+      "shipped_at": "2026-06-27T13:09:26Z"
     }
   ]
 }
