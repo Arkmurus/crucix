@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2010,
+  "next_available": 2012,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14436,6 +14436,25 @@
       "r_number": "R-F2009",
       "title": "honest BD leads",
       "claimed_at": "2026-06-27T11:30:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4d6a05fe",
+      "notes": null,
+      "shipped_at": "2026-06-27T11:35:54Z"
+    },
+    {
+      "r_number": "R-F2010",
+      "title": "GRPO RLVR cycle: train ARIA-LLM directly against grounding_reward to kill citation fabrication",
+      "claimed_at": "2026-06-27T11:46:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2011",
+      "title": "complete R-F2009: web-tier _mergeBrainLeads maps honest brain-lead shape (signal_summary/count), drops fabricated fields",
+      "claimed_at": "2026-06-27T11:49:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -1656,19 +1656,20 @@ async function _mergeBrainLeads(bd) {
   const data = await r.json();
   const structured = Array.isArray(data.structured) ? data.structured : [];
   if (!structured.length) return bd;
+  // R-F2011 (completes ARIA's R-F2009): the brain lead-hunt no longer invents
+  // buyers, win-odds, timelines, OEM angles, compliance flags or next-actions —
+  // it returns only what the live signals actually say. Map the honest shape
+  // {market, signal_summary, signal_count} and DROP the old invented fields so
+  // the web tier never re-introduces fabrication. (Frontend already renders
+  // signalCount instead of HOT/WARM and shows no fabricated action items.)
   const mapped = structured.map(l => ({
-    lead:              (l.market ? l.market + ' — ' : '') + (l.requirement || 'opportunity'),
-    market:            l.market || '',
-    urgency:           l.urgency || 'WARM',
-    type:              'STRATEGIC',
-    oemRecommendation: l.angle || '',
-    estimatedValue:    (l.win_probability != null ? l.win_probability + '% win' : '')
-                       + (l.window ? ' · ' + l.window : ''),
-    nextStep:          l.first_action || '',
-    portalUrl:         '',
-    complianceFlags:   l.compliance_flags || '',
-    buyer:             l.buyer || '',
-    source:            'brain_lead_hunt',
+    lead:          l.market || '',
+    market:        l.market || '',
+    urgency:       'SIGNAL',
+    type:          'INTEL',
+    signalSummary: l.signal_summary || '',
+    signalCount:   l.signal_count || 0,
+    source:        'brain_lead_hunt',
   }));
   const out = { ...bd };
   out.brain = { ...(out.brain || {}) };
