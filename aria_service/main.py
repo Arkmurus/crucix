@@ -3657,19 +3657,19 @@ async def phase_gates():
         sources["eval"] = f"error: {e}"
 
     # Gate #7: >=4 design-partner convos
+    # R-F1987: reads from DesignPartnerTracker store instead of operator_pending.
     try:
-        from .intel import operator_pending as _op1643
-        pending = _op1643.list_keys()
-        # This is a manual gate — we report the count but can't auto-verify
-        convos = len(pending) if isinstance(pending, list) else -1
+        from .intel.design_partner_tracker import get_tracker as _dpt
+        _dpt_stats = _dpt().stats()
         gates["gate_7_design_partners"] = {
             "label": ">=4 design-partner convos",
-            "value": convos,
-            "pass": convos >= 4,
-            "note": "Manual gate — count from operator_pending list; requires operator confirmation",
-            "source": "operator_pending.list_keys()",
+            "value": _dpt_stats["total"],
+            "target": 4,
+            "pass": _dpt_stats["gate_pass"],
+            "by_status": _dpt_stats["by_status"],
+            "source": "design_partner_tracker.stats()",
         }
-        sources["design_partners"] = "operator_pending.list_keys()"
+        sources["design_partners"] = "design_partner_tracker.stats()"
     except Exception as e:
         gates["gate_7_design_partners"] = {"label": ">=4 design-partner convos", "value": None, "pass": False, "error": str(e)}
         sources["design_partners"] = f"error: {e}"

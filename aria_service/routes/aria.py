@@ -12514,7 +12514,7 @@ async def design_partners_list_ep():
     from ..intel.design_partner_tracker import get_tracker
     tracker = get_tracker()
     return {
-        "entries": tracker.list(),
+        "entries": tracker.list_all(),
         "stats": tracker.stats(),
     }
 

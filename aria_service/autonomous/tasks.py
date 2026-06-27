@@ -2057,12 +2057,114 @@ async def _feed_knowledge(task: Task, response_text: str) -> None:
 # This is the structural fix for Phase A Gate #2 — instead of manual
 # seed packs, ARIA continuously discovers and researches her own gaps.
 
-_GAP_FILLER_ELIGIBLE_DOMAINS = frozenset({
-    "market_intel", "osint", "legal", "technical",
-    "competitor_intel", "relationships", "finance", "geopolitics",
+# ── Coverage-matrix domain → mastery topic mapping ──────────────────────
+# The coverage matrix (coverage_heatmap.py) uses fine-grained domains like
+# "sanctions_screening", "eccn_classification" etc. The mastery heatmap
+# (student.py) uses broader topics like "compliance", "technical", etc.
+# This map bridges the two so research on a coverage cell can update the
+# corresponding mastery cell. R-F1986.
+_COVERAGE_DOMAIN_TO_TOPIC: dict[str, str] = {
+    # Compliance umbrella
+    "sanctions_screening": "compliance",
+    "sanctions_divergence": "compliance",
+    "rca_screening": "compliance",
+    # Export controls
+    "eccn_classification": "technical",
+    "euc_jurisdictions": "compliance",
+    "wassenaar_dual_use": "compliance",
+    "weapon_systems": "technical",
+    # Anti-financial-crime
+    "fatf_ml_typologies": "compliance",
+    "fatf_tbml": "compliance",
+    "fcpa_enforcement": "legal",
+    "economic_substance": "finance",
+    "virtual_assets": "finance",
+    # Counterparty
+    "defence_market_briefing": "market_intel",
+    "procurement_pipeline": "procurement",
+    "counter_intelligence": "osint",
+    # NATO + interoperability
+    "nato_standards": "technical",
+    "international_law": "legal",
+}
+
+# ── Coverage-matrix jurisdiction (country) → mastery region map ─────────
+# The coverage matrix uses country names; the mastery heatmap uses regions.
+# R-F1986.
+_COUNTRY_TO_REGION: dict[str, str] = {
+    # Anchors — map to their primary region
+    "US": "nato",
+    "UK": "europe",
+    "EU": "europe",
+    "UN": "global",
+    "NATO": "nato",
+    # Lusophone moat
+    "Angola": "lusophone",
+    "Mozambique": "lusophone",
+    "Cape Verde": "lusophone",
+    "Guinea-Bissau": "lusophone",
+    "Brazil": "latam_lusophone",
+    "São Tomé": "lusophone",
+    # Wider Africa
+    "Nigeria": "west_africa",
+    "Ghana": "west_africa",
+    "Kenya": "east_africa",
+    "Ethiopia": "east_africa",
+    "Tanzania": "east_africa",
+    "Senegal": "west_africa",
+    "Côte d'Ivoire": "west_africa",
+    "Cameroon": "central_africa",
+    "Rwanda": "central_africa",
+    "South Africa": "southern_africa",
+    "Algeria": "north_africa",
+    "Morocco": "north_africa",
+    # Gulf / MENA
+    "Saudi Arabia": "gulf",
+    "UAE": "gulf",
+    "Qatar": "gulf",
+    "Bahrain": "gulf",
+    "Kuwait": "gulf",
+    "Oman": "gulf",
+    "Jordan": "mena",
+    "Iraq": "mena",
+    "Lebanon": "mena",
+    "Israel": "mena",
+    "Turkey": "turkey",
+    "Egypt": "mena",
+    # Asia Pacific
+    "Indonesia": "southeast_asia",
+    "Vietnam": "southeast_asia",
+    "Philippines": "southeast_asia",
+    "Bangladesh": "south_asia",
+    "India": "south_asia",
+    "Pakistan": "south_asia",
+    "South Korea": "southeast_asia",
+    "Japan": "southeast_asia",
+    # LATAM
+    "Mexico": "latam_non_lusophone",
+    "Colombia": "latam_non_lusophone",
+    "Peru": "latam_non_lusophone",
+    "Venezuela": "latam_non_lusophone",
+    "Argentina": "latam_non_lusophone",
+    # Europe emerging
+    "Romania": "balkans",
+    "Poland": "europe",
+    "Ukraine": "europe",
+}
+
+# Topics that the gap filler is allowed to research (mastery topic names).
+# R-F1986: expanded from the old set (which only had mastery topic names
+# that never matched coverage-matrix domains) to include ALL topics that
+# have a mapping from coverage domains.
+_GAP_FILLER_ELIGIBLE_TOPICS = frozenset({
+    "compliance", "procurement", "market_intel", "osint", "legal",
+    "technical", "competitor_intel", "relationships", "finance",
+    "geopolitics",
 })
 
 _GAP_FILLER_QUERY_TEMPLATES = {
+    "compliance": "defence compliance sanctions export control {region} 2025 2026",
+    "procurement": "defence procurement contracts {region} 2025 2026",
     "market_intel": "defence procurement market intelligence {region} 2025 2026",
     "osint": "security and defence news {region} recent developments",
     "legal": "regulatory and compliance framework defence sector {region}",
@@ -2072,6 +2174,40 @@ _GAP_FILLER_QUERY_TEMPLATES = {
     "finance": "defence budget spending and financial trends {region}",
     "geopolitics": "geopolitical situation and security dynamics {region}",
 }
+
+
+async def _grade_researched_cell(topic: str, region: str, research_text: str) -> bool:
+    """Honest mastery grade for a freshly-researched cell (R-F1989, Claude review).
+
+    Replaces the old self-grading bridge that credited mastery with
+    ``correct=True`` whenever research merely returned text — a participation
+    trophy that inflated Phase A gate #2 without proving comprehension (CLAUDE.md
+    §1: close gate #2 via grounded improvement, NOT clamping).
+
+    Instead we apply the same honest test ``self_quiz`` uses: ask the LOCAL
+    reasoning stack a question about the cell and only count it correct if it can
+    actually answer AND its answer overlaps the research findings. This CAN fail
+    (the knowledge didn't take / isn't usable) — so mastery reflects real recall,
+    not the act of researching.
+    """
+    from ..intel import reasoning_router, student
+    if not research_text:
+        return False
+    question = (f"What are the most important {topic.replace('_', ' ')} facts and "
+                f"recent developments for {region.replace('_', ' ')}?")
+    try:
+        local = await reasoning_router.try_local_reasoning(question)
+    except Exception:
+        return False
+    if not local.get("answered"):
+        return False
+    resp = local.get("response") or ""
+    if not resp:
+        return False
+    try:
+        return student._quick_similarity(resp, research_text) >= 0.4
+    except Exception:
+        return False
 
 
 async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) -> dict:
@@ -2097,6 +2233,8 @@ async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) 
         "ok": True,
         "cells_researched": 0,
         "cells_skipped": 0,
+        "mastery_tested": 0,
+        "mastery_passed": 0,
         "errors": [],
         "duration_ms": 0,
     }
@@ -2120,16 +2258,32 @@ async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) 
         jurisdiction = target.get("jurisdiction", "")
         tier = target.get("tier", "absent")
 
-        if domain not in _GAP_FILLER_ELIGIBLE_DOMAINS:
+        # R-F1986: map coverage-matrix domain to mastery topic.
+        # The coverage matrix uses fine-grained domains like
+        # "sanctions_screening"; the mastery heatmap uses broader
+        # topics like "compliance". If no mapping exists, skip.
+        topic = _COVERAGE_DOMAIN_TO_TOPIC.get(domain)
+        if topic is None:
             results["cells_skipped"] += 1
             continue
 
-        template = _GAP_FILLER_QUERY_TEMPLATES.get(domain, "defence {domain} {region}")
-        query = template.format(domain=domain, region=jurisdiction.replace("_", " "))
+        if topic not in _GAP_FILLER_ELIGIBLE_TOPICS:
+            results["cells_skipped"] += 1
+            continue
+
+        # R-F1986: map coverage-matrix jurisdiction (country name) to
+        # mastery region. If no mapping exists, skip.
+        region = _COUNTRY_TO_REGION.get(jurisdiction)
+        if region is None:
+            results["cells_skipped"] += 1
+            continue
+
+        template = _GAP_FILLER_QUERY_TEMPLATES.get(topic, "defence {topic} {region}")
+        query = template.format(topic=topic, region=region.replace("_", " "))
 
         logger.info(
-            "[knowledge gap filler] researching %s x %s (tier=%s, facts=%d): %s",
-            domain, jurisdiction, tier, target.get("fact_count", 0), query,
+            "[knowledge gap filler] researching %s x %s (topic=%s, region=%s, tier=%s, facts=%d): %s",
+            domain, jurisdiction, topic, region, tier, target.get("fact_count", 0), query,
         )
 
         if dry_run:
@@ -2150,6 +2304,35 @@ async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) 
                 results["errors"].append(f"{domain}x{jurisdiction}: {record.get('error', 'unknown')}")
             else:
                 results["cells_researched"] += 1
+                # R-F1986 + Claude review (R-F1989): knowledge-to-mastery bridge,
+                # HONESTLY graded. The research itself improved the COVERAGE matrix
+                # (facts stored); mastery only moves on a REAL recall grade so gate
+                # #2 reflects comprehension, not participation (CLAUDE.md §1 — no
+                # clamping). update_regional_mastery filters by TOPICS internally,
+                # so an off-topic cell is a no-op.
+                try:
+                    from ..intel import student as _student
+                    response_text = record.get("response_preview", "") or ""
+                    response_len = record.get("response_length", 0)
+                    if response_len > 200:
+                        graded_correct = await _grade_researched_cell(
+                            topic, region, response_text)
+                        await _student.update_regional_mastery(
+                            topics=[topic], regions=[region],
+                            correct=graded_correct, weight=0.5,
+                        )
+                        results["mastery_tested"] = results.get("mastery_tested", 0) + 1
+                        if graded_correct:
+                            results["mastery_passed"] = results.get("mastery_passed", 0) + 1
+                        logger.info(
+                            "[knowledge gap filler] mastery graded: %s x %s -> %s (%d chars)",
+                            topic, region, "PASS" if graded_correct else "fail", response_len,
+                        )
+                except Exception as bridge_err:
+                    logger.debug(
+                        "[knowledge gap filler] mastery bridge failed (non-fatal): %s",
+                        bridge_err,
+                    )
         except Exception as e:
             results["errors"].append(f"{domain}x{jurisdiction}: {e}")
 
