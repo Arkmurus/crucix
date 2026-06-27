@@ -23961,6 +23961,60 @@ async def bd_strategy_generate_ep() -> dict:
     return await bd_strategy.generate_market_intelligence()
 
 
+@router.get("/opportunities")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def opportunities_ep() -> dict:
+    """R-F2003 — HONEST, signal-backed opportunities (brain side).
+
+    Unlike the web-tier opportunity engine (which pads the list with static
+    editorial templates for curated markets), this serves ONLY entities that
+    have REAL correlated signals — `signal_correlator.correlate_signals()` emits
+    a market only when it has >= the minimum real signals across multiple types
+    (intel_ledger + deal_pipeline + warm contacts), and the score is the summed
+    signal weight, never an editorial priority constant. No static templates, no
+    fabricated buyers/values/contacts. An empty list honestly means there is no
+    signal-backed opportunity right now. Every entry carries its backing signals
+    so the evidence is auditable — suitable as an accurate feed into BD.
+    """
+    from ..intel import signal_correlator as _sc
+    from ..intel import deal_pipeline as _dp
+
+    insights = await _sc.correlate_signals()
+    opportunities = []
+    for ins in insights:
+        sigs = ins.get("signals", []) or []
+        opportunities.append({
+            "market": (ins.get("country") or "").title(),
+            "score": round(float(ins.get("score") or 0), 1),
+            "type": ins.get("insight_type") or "SIGNAL",
+            "recommendation": ins.get("recommendation") or "",
+            "signal_count": len(sigs),
+            "signals": sigs,            # the real evidence behind every entry
+            "grounded": True,
+            "source": "signal_correlator",
+        })
+
+    try:
+        active_pipeline = await _dp.get_pipeline()
+    except Exception:
+        active_pipeline = []
+
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(opportunities),
+        "opportunities": opportunities,
+        "active_pipeline_count": len(active_pipeline),
+        "basis": (
+            "Signal-backed only: a market appears ONLY if it has the minimum real "
+            "correlated signals across multiple types; score = summed signal "
+            "weights, not editorial priority constants; no static templates, no "
+            "fabricated buyers/values/contacts. Empty = no signal-backed "
+            "opportunity right now (honest by construction)."
+        ),
+    }
+
+
 @router.get("/bd/strategy/history")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def bd_strategy_history_ep(limit: int = 20) -> dict:
