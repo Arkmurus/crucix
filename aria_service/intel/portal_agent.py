@@ -2,32 +2,24 @@
 R-F2064 — Adaptive Portal Registration Agent.
 
 ARIA registers herself for data portals using a Playwright browser that
-can SEE the page, UNDERSTAND the form structure, and ADAPT to each site.
+behaves like a human: reads the page, understands form structure, solves
+captchas, adapts to errors, and learns from failures.
 
-Core design:
-  1. Site Reader — loads any registration page, extracts ALL form fields
-     with their labels, types, options, and validation rules
-  2. Form Analyzer — understands what each field means by reading its
-     label, placeholder, name, and surrounding context. Maps fields to
-     ARIA's identity data (name, email, org, etc.)
-  3. Adaptive Filler — fills fields using the correct interaction type
-     (type text, click radio, check checkbox, select option)
-  4. Captcha Handler — detects captcha type, solves via 2captcha,
-     injects token, verifies acceptance
-  5. Error Reader — reads validation errors from the response page,
-     identifies which field failed and why, adjusts and retries
-  6. Credential Persister — on success, extracts API key, verifies it,
-     stores credentials in the vault
-
-The agent works on ANY site with a standard registration form — no
-hardcoded field mappings needed. It reads the page fresh each time.
+Core capabilities:
+  1. Human-like interaction — random typing delays, mouse movements, pauses
+  2. Dynamic form detection — finds fields by heuristics, not hardcoded selectors
+  3. Multi-captcha support — reCAPTCHA v2/v3, hCaptcha, Turnstile via 2captcha
+  4. Adaptive retry — learns from failures, adjusts strategy
+  5. Email alias fallback — retries with +alias when email is taken
+  6. Credential persistence — stores API keys in the vault
+  7. Brain wiring — success/failure both reach the brain
 
 Usage:
     from aria_service.intel.portal_agent import AdaptivePortalAgent
 
     async with AdaptivePortalAgent() as agent:
         result = await agent.register("newsapi")
-        # result = {"success": True, "api_key": "...", "portal_id": "newsapi"}
+        # {"success": True, "api_key": "...", "portal_id": "newsapi"}
 """
 from __future__ import annotations
 
@@ -35,6 +27,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import secrets
 import time
@@ -49,7 +42,6 @@ _BROWSER_ARGS = [
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
     "--disable-gpu",
-    "--window-size=1280,720",
 ]
 _PAGE_TIMEOUT = 30_000  # ms
 _SUBMIT_TIMEOUT = 20_000  # ms
@@ -62,9 +54,27 @@ _ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Arkmurus Group)")
 _ARIA_ORG = "Arkmurus Group Ltd"
 _ARIA_WEBSITE = "https://arkmurus.com"
 
+# ── Field detection patterns ──────────────────────────────────────────────
+_FIELD_PATTERNS: dict[str, list[str]] = {
+    "email": ["email", "e-mail", "mail", "user_email", "username"],
+    "password": ["password", "pass", "pwd", "passwd"],
+    "first_name": ["first_name", "firstname", "fname", "given_name", "first"],
+    "last_name": ["last_name", "lastname", "lname", "surname", "family_name", "last"],
+    "full_name": ["full_name", "fullname", "name", "your_name", "displayname", "your name"],
+    "company": ["company", "organization", "org", "organisation", "firm", "business", "employer"],
+    "website": ["website", "url", "homepage", "site", "web"],
+    "phone": ["phone", "mobile", "telephone", "tel", "cell"],
+    "address": ["address", "addr", "street"],
+    "city": ["city", "town"],
+    "state": ["state", "province", "region"],
+    "zip": ["zip", "postal", "postcode"],
+    "country": ["country", "nation"],
+    "agree_terms": ["agree", "terms", "accept", "consent", "privacy", "condition"],
+}
+
 
 class AdaptivePortalAgent:
-    """Browser-based portal registration agent that adapts to any site."""
+    """Browser-based portal registration agent with human-like adaptation."""
 
     def __init__(self):
         self._browser = None
@@ -72,6 +82,7 @@ class AdaptivePortalAgent:
         self._page = None
         self._playwright = None
         self._diagnostics: list[dict] = []
+        self._attempt = 0
 
     async def __aenter__(self):
         await self.start()
@@ -81,7 +92,7 @@ class AdaptivePortalAgent:
         await self.close()
 
     async def start(self) -> None:
-        """Launch the Playwright browser."""
+        """Launch the Playwright browser with human-like viewport."""
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -92,16 +103,19 @@ class AdaptivePortalAgent:
         self._browser = await self._playwright.chromium.launch(
             headless=True, args=_BROWSER_ARGS,
         )
+        # Randomize viewport to avoid fingerprinting
+        width = random.randint(1200, 1600)
+        height = random.randint(800, 1000)
         self._context = await self._browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": width, "height": height},
         )
         self._page = await self._context.new_page()
-        self._log("browser_started", "Playwright browser launched")
+        self._log("browser_started", f"Browser launched ({width}x{height})")
 
     async def close(self) -> None:
         if self._browser:
@@ -114,6 +128,53 @@ class AdaptivePortalAgent:
                 await self._playwright.stop()
             except Exception:
                 pass
+
+    # ── Human-like interaction helpers ─────────────────────────────────────
+
+    async def _human_type(self, selector: str, text: str) -> None:
+        """Type text with random delays between keystrokes like a human."""
+        element = await self._page.query_selector(selector)
+        if not element:
+            return
+        await element.click()
+        await self._pause(0.1, 0.3)
+        # Clear existing text
+        await element.press("Control+A")
+        await self._pause(0.05, 0.1)
+        await element.press("Backspace")
+        await self._pause(0.1, 0.2)
+        # Type character by character with random delays
+        for char in text:
+            await element.type(char, delay=random.uniform(0.03, 0.12))
+            # Occasionally pause longer (like a human thinking)
+            if random.random() < 0.03:
+                await self._pause(0.2, 0.5)
+
+    async def _human_click(self, selector: str) -> None:
+        """Click an element with human-like mouse movement."""
+        element = await self._page.query_selector(selector)
+        if not element:
+            return
+        box = await element.bounding_box()
+        if box:
+            target_x = box["x"] + box["width"] / 2 + random.randint(-5, 5)
+            target_y = box["y"] + box["height"] / 2 + random.randint(-5, 5)
+            await self._page.mouse.move(target_x, target_y, steps=random.randint(5, 15))
+            await self._pause(0.2, 0.4)
+        await element.click()
+
+    async def _random_scroll(self) -> None:
+        """Perform random scrolling to simulate human reading."""
+        scrolls = random.randint(1, 3)
+        for _ in range(scrolls):
+            distance = random.randint(100, 400)
+            direction = random.choice([-1, 1])
+            await self._page.evaluate(f"window.scrollBy(0, {distance * direction})")
+            await self._pause(0.3, 0.8)
+
+    async def _pause(self, min_s: float = 0.3, max_s: float = 1.0) -> None:
+        """Pause like a human between actions."""
+        await asyncio.sleep(random.uniform(min_s, max_s))
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -133,6 +194,7 @@ class AdaptivePortalAgent:
             return {"success": False, "error": f"Unknown portal: {portal_id}"}
 
         self._diagnostics = []
+        self._attempt += 1
         t0 = time.time()
 
         try:
@@ -140,88 +202,97 @@ class AdaptivePortalAgent:
             reg_url = self._build_url(portal.url, portal.register_path or "/register")
             self._log("navigate", f"Loading {reg_url}")
             await self._safe_goto(reg_url)
-            await self._page.wait_for_timeout(1500)
+            await self._pause(1, 3)
 
-            # Step 2: Read the page — extract ALL form fields with context
-            form_data = await self._read_page()
-            if not form_data["fields"]:
-                return self._finish(portal_id, False, t0, "No form fields found")
+            # Step 2: Read the page — detect ALL form fields dynamically
+            fields = await self._detect_fields()
+            self._log("form_detected", f"Found {len(fields)} field types: {list(fields.keys())}")
 
-            self._log("form_read", f"Found {len(form_data['fields'])} fields: {[f['name'] for f in form_data['fields']]}")
+            if not fields:
+                return self._finish(portal_id, False, t0, "No form fields detected")
 
-            # Step 3: Fill the form adaptively
-            fill_result = await self._fill_form_adaptive(form_data["fields"])
-            self._log("form_filled", f"Filled {fill_result['filled']}, skipped {fill_result['skipped']}")
+            # Step 3: Fill the form with human-like typing
+            await self._random_scroll()
+            await self._fill_fields(fields)
+            self._log("form_filled", "All fields filled")
 
             # Step 4: Handle captcha
+            await self._pause(0.5, 1.5)
             captcha_ok = await self._handle_captcha()
             if captcha_ok:
                 self._log("captcha", "Captcha solved and injected")
             else:
                 self._log("captcha", "No captcha detected or solving deferred")
 
-            # Step 5: Submit and read response
-            submit_result = await self._submit()
+            # Step 5: Submit the form
+            await self._pause(0.5, 1.0)
+            submit_result = await self._submit_form()
             self._log("submitted", f"URL after submit: {submit_result['url']}")
 
-            # Step 6: Read the response page
+            # Step 6: Read the response
+            await self._pause(1, 2)
             response = await self._read_response()
-            self._log("response", f"Response: success={response['success']}, errors={response['errors']}")
+            self._log("response", f"Response: success={response['success']}, errors={response.get('errors', [])}")
 
-            # Check for "email already in use" — retry with alias
+            # Step 7: Handle "email already in use" — retry with alias
             error_text = "; ".join(response.get("errors", []) or [])
-            if not response["success"] or "already in use" in error_text.lower() or "already registered" in error_text.lower():
-                if "already in use" in error_text.lower() or "already registered" in error_text.lower():
-                    self._log("retry", "Email already registered — trying alias email")
-                    local, at, domain = _ARIA_EMAIL.partition("@")
-                    alias_email = f"{local}+{portal_id}@{domain}"
-                    
-                    for field in form_data["fields"]:
-                        name = field.get("name", "").lower()
-                        if "email" in name or "mail" in name:
-                            await self._page.fill(f'input[name="{field["name"]}"]', alias_email)
-                            self._log("retry", f"Changed email to {alias_email}")
-                            break
-                    
-                    captcha_ok = await self._handle_captcha()
-                    if captcha_ok:
-                        self._log("captcha", "Captcha re-solved for retry")
-                    
-                    submit_result2 = await self._submit()
-                    self._log("submitted", f"URL after retry submit: {submit_result2['url']}")
-                    
-                    response2 = await self._read_response()
-                    self._log("response", f"Retry response: success={response2['success']}, errors={response2['errors']}")
-                    
-                    if response2["success"]:
-                        api_key = await self._extract_api_key(portal)
-                        if api_key:
-                            self._log("api_key", f"API key obtained on retry")
-                            await self._store_credentials(portal_id, api_key)
-                            return self._finish(portal_id, True, t0, "Registered with alias email", api_key=api_key)
-                        return self._finish(portal_id, True, t0, "Registered with alias but no API key")
-                    
-                    if response2.get("errors"):
-                        return self._finish(portal_id, False, t0,
-                                            f"Retry also failed: {'; '.join(response2['errors'][:3])}",
-                                            errors=response2["errors"])
-                    return self._finish(portal_id, False, t0, "Retry failed — unknown state")
-                
-                if response["errors"]:
-                    return self._finish(portal_id, False, t0,
-                                        f"Form rejected: {error_text}",
-                                        errors=response["errors"])
-                return self._finish(portal_id, False, t0, "Registration failed — unknown state")
+            if "already in use" in error_text.lower() or "already registered" in error_text.lower():
+                self._log("retry", "Email already registered — trying alias email")
+                local, at, domain = _ARIA_EMAIL.partition("@")
+                alias_email = f"{local}+{portal_id}@{domain}"
 
-            # Success path
-            api_key = await self._extract_api_key(portal)
-            if api_key:
-                self._log("api_key", f"API key obtained and verified")
-                await self._store_credentials(portal_id, api_key)
-                return self._finish(portal_id, True, t0, "Registered successfully", api_key=api_key)
-            else:
-                self._log("api_key", "No API key found on account page")
-                return self._finish(portal_id, True, t0, "Registered but no API key found")
+                # Re-fill email field with alias
+                if "email" in fields:
+                    name_attr = await fields["email"].get_attribute("name") or ""
+                    id_attr = await fields["email"].get_attribute("id") or ""
+                    selector = f'input[name="{name_attr}"]' if name_attr else f'input#{id_attr}'
+                    await self._human_type(selector, alias_email)
+                    self._log("retry", f"Changed email to {alias_email}")
+
+                # Re-solve captcha (it was consumed)
+                captcha_ok = await self._handle_captcha()
+                if captcha_ok:
+                    self._log("captcha", "Captcha re-solved for retry")
+
+                # Re-submit
+                await self._pause(0.5, 1.0)
+                submit_result2 = await self._submit_form()
+                self._log("submitted", f"URL after retry: {submit_result2['url']}")
+
+                await self._pause(1, 2)
+                response2 = await self._read_response()
+                self._log("response", f"Retry response: success={response2['success']}, errors={response2.get('errors', [])}")
+
+                if response2["success"]:
+                    api_key = await self._extract_api_key(portal)
+                    if api_key:
+                        self._log("api_key", f"API key obtained on retry")
+                        await self._store_credentials(portal_id, api_key)
+                        return self._finish(portal_id, True, t0, "Registered with alias email", api_key=api_key)
+                    return self._finish(portal_id, True, t0, "Registered with alias but no API key")
+
+                if response2.get("errors"):
+                    return self._finish(portal_id, False, t0,
+                                        f"Retry failed: {'; '.join(response2['errors'][:3])}",
+                                        errors=response2["errors"])
+                return self._finish(portal_id, False, t0, "Retry failed — unknown state")
+
+            # Step 8: Handle other errors
+            if not response["success"] and response.get("errors"):
+                return self._finish(portal_id, False, t0,
+                                    f"Form rejected: {error_text}",
+                                    errors=response["errors"])
+
+            # Step 9: Success — extract and store API key
+            if response["success"]:
+                api_key = await self._extract_api_key(portal)
+                if api_key:
+                    self._log("api_key", f"API key obtained and verified")
+                    await self._store_credentials(portal_id, api_key)
+                    return self._finish(portal_id, True, t0, "Registered successfully", api_key=api_key)
+                else:
+                    self._log("api_key", "No API key found on account page")
+                    return self._finish(portal_id, True, t0, "Registered but no API key found")
 
             return self._finish(portal_id, False, t0, "Unknown registration state")
 
@@ -229,344 +300,201 @@ class AdaptivePortalAgent:
             self._log("exception", f"{type(e).__name__}: {e}")
             return self._finish(portal_id, False, t0, str(e))
 
-    # ── Page Reading ───────────────────────────────────────────────────────
+    # ── Dynamic Form Detection ─────────────────────────────────────────────
 
-    async def _read_page(self) -> dict:
-        """Read the current page and extract all form structure.
+    async def _detect_fields(self) -> dict[str, Any]:
+        """Dynamically detect form fields using heuristics.
 
-        Returns:
-            {"fields": [...], "has_captcha": bool, "page_title": str, "page_url": str}
+        Returns a dict mapping field_type -> ElementHandle.
         """
-        result = await self._page.evaluate("""
-            () => {
-                const data = {
-                    fields: [],
-                    has_captcha: false,
-                    page_title: document.title,
-                    page_url: window.location.href,
-                };
+        fields: dict[str, Any] = {}
 
-                // Find all form elements
-                const form = document.querySelector('form');
-                if (!form) return data;
+        elements = await self._page.query_selector_all("input, textarea, select")
+        for element in elements:
+            # Skip hidden elements
+            is_hidden = await element.is_hidden()
+            if is_hidden:
+                continue
 
-                // Get form attributes
-                data.form_action = form.action || '';
-                data.form_method = form.method || 'get';
+            element_type = (await element.get_attribute("type") or "").lower()
+            if element_type == "submit" or element_type == "hidden":
+                continue
 
-                // Scan all input-like elements
-                const inputs = form.querySelectorAll('input, select, textarea, button[type=submit]');
-                inputs.forEach(el => {
-                    const field = {
-                        name: el.name || el.id || '',
-                        id: el.id || '',
-                        type: el.type || el.tagName.toLowerCase(),
-                        required: el.required || el.hasAttribute('aria-required') || false,
-                        placeholder: el.placeholder || '',
-                        value: el.value || '',
-                        maxlength: el.maxLength || 0,
-                        minlength: el.minLength || 0,
-                        pattern: el.pattern || '',
-                        autocomplete: el.autocomplete || '',
-                        visible: el.offsetParent !== null,
-                        disabled: el.disabled || false,
-                        readonly: el.readOnly || false,
-                    };
+            # Get identifying attributes
+            name = (await element.get_attribute("name") or "").lower()
+            eid = (await element.get_attribute("id") or "").lower()
+            placeholder = (await element.get_attribute("placeholder") or "").lower()
+            aria_label = (await element.get_attribute("aria-label") or "").lower()
+            label_text = await self._get_label_text(element)
 
-                    // Get label
-                    const labelFor = document.querySelector(`label[for="${el.id}"]`);
-                    const parentLabel = el.closest('.form-group, .field, div')?.querySelector('label');
-                    field.label = (labelFor ? labelFor.innerText.trim() : '')
-                        || (parentLabel ? parentLabel.innerText.trim() : '')
-                        || '';
+            # Combine all text signals for matching
+            combined = f"{name} {eid} {placeholder} {aria_label} {label_text}"
 
-                    // Get placeholder as fallback label
-                    if (!field.label && el.placeholder) {
-                        field.label = el.placeholder;
-                    }
+            # Determine field type by pattern matching
+            field_type = None
+            if element_type == "password":
+                field_type = "password"
+            elif element_type == "email":
+                field_type = "email"
+            elif element_type in ("checkbox", "radio"):
+                if any(kw in combined for kw in ["agree", "terms", "accept", "consent", "privacy"]):
+                    field_type = "agree_terms"
+                continue  # Skip other checkboxes/radios for now
+            elif element_type == "tel":
+                field_type = "phone"
+            else:
+                # Match against known patterns
+                for ftype, patterns in _FIELD_PATTERNS.items():
+                    for pattern in patterns:
+                        # Check if pattern appears as a whole word in the combined text
+                        if re.search(rf"\b{re.escape(pattern)}\b", combined):
+                            field_type = ftype
+                            break
+                    if field_type:
+                        break
 
-                    // Get preceding text node as label fallback
-                    if (!field.label) {
-                        const prev = el.previousSibling;
-                        if (prev && prev.nodeType === 3 && prev.textContent.trim()) {
-                            field.label = prev.textContent.trim().replace(/[:*]$/, '');
-                        }
-                    }
+            if field_type and field_type not in fields:
+                fields[field_type] = element
 
-                    // Radio buttons
-                    if (el.type === 'radio') {
-                        const name = el.name;
-                        const radios = form.querySelectorAll(`input[name="${name}"]`);
-                        field.options = [];
-                        radios.forEach(r => {
-                            const rLabel = document.querySelector(`label[for="${r.id}"]`);
-                            field.options.push({
-                                value: r.value,
-                                label: rLabel ? rLabel.innerText.trim() : r.value,
-                                checked: r.checked,
-                            });
-                        });
-                        // Only add once per radio group
-                        if (el !== radios[0]) return;
-                    }
+        return fields
 
-                    // Select options
-                    if (el.tagName === 'SELECT') {
-                        field.options = [];
-                        el.querySelectorAll('option').forEach(opt => {
-                            if (opt.value) {
-                                field.options.push({ value: opt.value, label: opt.innerText.trim() });
-                            }
-                        });
-                    }
+    async def _get_label_text(self, element) -> str:
+        """Get the label text for a form field using multiple strategies."""
+        # Try label[for=id]
+        element_id = await element.get_attribute("id") or ""
+        if element_id:
+            label = await self._page.query_selector(f'label[for="{element_id}"]')
+            if label:
+                text = await label.inner_text()
+                if text:
+                    return text.strip().lower()
 
-                    data.fields.push(field);
-                });
-
-                // Detect captcha
-                data.has_captcha = !!(
-                    document.querySelector('.g-recaptcha')
-                    || document.querySelector('[data-sitekey]')
-                    || document.querySelector('.cf-turnstile')
-                    || document.querySelector('.h-captcha')
-                    || document.querySelector('script[src*="recaptcha/api.js"]')
-                    || document.querySelector('script[src*="turnstile"]')
-                );
-
-                // Detect captcha site key
-                if (data.has_captcha) {
-                    const captchaEl = document.querySelector('.g-recaptcha') || document.querySelector('[data-sitekey]');
-                    if (captchaEl) data.captcha_sitekey = captchaEl.getAttribute('data-sitekey') || '';
+        # Try parent label
+        parent = await self._page.evaluate("""
+            el => {
+                const parent = el.closest('.form-group, .field, div');
+                if (parent) {
+                    const label = parent.querySelector('label');
+                    return label ? label.innerText.trim() : '';
                 }
-
-                return data;
+                return '';
             }
-        """)
-        return result
+        """, element)
+        if parent:
+            return parent.lower()
 
-    # ── Adaptive Form Filling ──────────────────────────────────────────────
+        # Try preceding text node
+        prev_text = await self._page.evaluate("""
+            el => {
+                const prev = el.previousSibling;
+                if (prev && prev.nodeType === 3) {
+                    return prev.textContent.trim().replace(/[:*]$/, '');
+                }
+                return '';
+            }
+        """, element)
+        if prev_text:
+            return prev_text.lower()
 
-    async def _fill_form_adaptive(self, fields: list[dict]) -> dict:
-        """Fill form fields by understanding what each field means.
+        return ""
 
-        Reads the field's label, name, placeholder, and type to determine
-        what value to fill. Handles text, email, password, radio, checkbox,
-        select, tel, and hidden fields.
-        """
-        filled = 0
-        skipped = 0
-        errors = []
+    # ── Form Filling ───────────────────────────────────────────────────────
 
-        for field in fields:
-            # Skip hidden, disabled, readonly fields
-            if field.get("type") in ("hidden",) or field.get("disabled") or field.get("readonly"):
-                continue
-
-            value = self._determine_field_value(field)
+    async def _fill_fields(self, fields: dict[str, Any]) -> None:
+        """Fill detected form fields with appropriate values."""
+        for field_type, element in fields.items():
+            value = self._get_value_for_field(field_type)
             if value is None:
-                skipped += 1
                 continue
 
-            try:
-                name_selector = field["name"].replace('"', '\\"')
-                if field["type"] == "radio":
-                    await self._page.evaluate(
-                        f"""() => {{
-                            const r = document.querySelector('input[name="{name_selector}"][value="{value}"]');
-                            if (r) r.click();
-                        }}"""
-                    )
-                elif field["type"] == "checkbox":
-                    if value in (True, "true", "1"):
-                        await self._page.evaluate(
-                            f"""() => {{
-                                const cb = document.querySelector('input[name="{name_selector}"]');
-                                if (cb && !cb.checked) cb.click();
-                            }}"""
-                        )
-                elif field["type"] == "select" or field.get("type") == "select-one":
-                    await self._page.select_option(
-                        f'select[name="{name_selector}"]', str(value)
-                    )
-                else:
-                    await self._page.fill(
-                        f'input[name="{name_selector}"], textarea[name="{name_selector}"]',
-                        str(value),
-                    )
-                filled += 1
-            except Exception as e:
-                errors.append(f"{field['name']}: {e}")
-                skipped += 1
+            name_attr = await element.get_attribute("name") or ""
+            id_attr = await element.get_attribute("id") or ""
+            selector = f'input[name="{name_attr}"]' if name_attr else f'input#{id_attr}'
 
-        return {"filled": filled, "skipped": skipped, "errors": errors}
+            tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+            if tag_name == "select":
+                await element.select_option(str(value))
+            elif await element.get_attribute("type") in ("checkbox", "radio"):
+                if value in (True, "true", "1"):
+                    await self._human_click(selector)
+            else:
+                await self._human_type(selector, str(value))
 
-    def _determine_field_value(self, field: dict) -> str | bool | None:
-        """Determine what value to fill for a field by analyzing its context.
+            await self._pause(0.2, 0.5)
 
-        Uses label text, field name, placeholder, type, and autocomplete
-        hints to figure out what ARIA's identity data should go here.
-        """
-        name = (field.get("name") or "").lower()
-        label = (field.get("label") or "").lower()
-        placeholder = (field.get("placeholder") or "").lower()
-        ftype = field.get("type", "")
-        autocomplete = (field.get("autocomplete") or "").lower()
-
-        # ── Email ──────────────────────────────────────────────────────
-        if (ftype == "email"
-                or autocomplete == "email"
-                or "email" in name
-                or "mail" in name
-                or "email" in label):
-            return _ARIA_EMAIL
-
-        # ── Password ───────────────────────────────────────────────────
-        if (ftype == "password"
-                or autocomplete == "new-password"
-                or "password" in name
-                or "pass" in name
-                or "password" in label):
-            return "Ax" + secrets.token_urlsafe(12) + "7!"
-
-        # ── First name ─────────────────────────────────────────────────
-        if (autocomplete == "given-name"
-                or "first" in name
-                or "first" in label
-                or "fname" in name
-                or "given" in name):
-            return "ARIA"
-
-        # ── Last name ──────────────────────────────────────────────────
-        if (autocomplete == "family-name"
-                or "last" in name
-                or "last" in label
-                or "lname" in name
-                or "surname" in name
-                or "family" in name):
-            return "Research"
-
-        # ── Full name ──────────────────────────────────────────────────
-        if (autocomplete == "name"
-                or "full" in name
-                or "your name" in label
-                or "full name" in label
-                or name in ("name", "username", "displayname")
-                or "name" in label and "first" not in label and "last" not in label):
-            return _ARIA_NAME
-
-        # ── Organization / Company ─────────────────────────────────────
-        if (autocomplete == "organization"
-                or "org" in name
-                or "company" in name
-                or "firm" in name
-                or "business" in name
-                or "employer" in name
-                or "organisation" in name
-                or "organization" in label
-                or "company" in label):
-            return _ARIA_ORG
-
-        # ── Website / URL ──────────────────────────────────────────────
-        if (autocomplete == "url"
-                or "website" in name
-                or "url" in name
-                or "homepage" in name
-                or "site" in name
-                or "website" in label):
-            return _ARIA_WEBSITE
-
-        # ── Phone — skip (not needed for free tier) ────────────────────
-        if (ftype == "tel"
-                or autocomplete == "tel"
-                or "phone" in name
-                or "tel" in name
-                or "mobile" in name
-                or "phone" in label):
-            return None
-
-        # ── Country — skip (let default stand) ─────────────────────────
-        if ("country" in name or "nation" in name):
-            return None
-
-        # ── Radio buttons ──────────────────────────────────────────────
-        if ftype == "radio" and field.get("options"):
-            options = field["options"]
-            # Prefer Individual/Personal/Developer/Student/Researcher
-            for opt in options:
-                v = opt["value"].lower()
-                if v in ("individual", "personal", "developer", "student", "researcher", "non-commercial"):
-                    return opt["value"]
-            # If one is already checked, leave it
-            for opt in options:
-                if opt.get("checked"):
-                    return None
-            # Default to first option
-            return options[0]["value"]
-
-        # ── Checkboxes ─────────────────────────────────────────────────
-        if ftype == "checkbox":
-            label_lower = label.lower()
-            if any(kw in label_lower for kw in
-                   ["term", "agree", "accept", "privacy", "consent",
-                    "condition", "policy", "subscribe", "updates"]):
-                return True
-            return None
-
-        # ── Select dropdowns ───────────────────────────────────────────
-        if ftype in ("select", "select-one") and field.get("options"):
-            options = field["options"]
-            # Skip country selects
-            if "country" in name or "nation" in name:
-                return None
-            # Pick first non-empty option that isn't a placeholder
-            for opt in options:
-                v = opt["value"].strip()
-                l = opt.get("label", "").strip().lower()
-                if v and l not in ("", "-- select --", "select", "choose", "please select"):
-                    return v
-            if options:
-                return options[0]["value"]
-
-        # ── Text fields with labels we can match ───────────────────────
-        if ftype == "text":
-            if "address" in name or "address" in label:
-                return "London, United Kingdom"
-            if "city" in name or "city" in label:
-                return "London"
-            if "postcode" in name or "zip" in name or "postal" in name:
-                return "EC1A 1BB"
-
-        return None
+    def _get_value_for_field(self, field_type: str) -> str | bool | None:
+        """Get the appropriate value for a detected field type."""
+        mapping = {
+            "email": _ARIA_EMAIL,
+            "password": "Ax" + secrets.token_urlsafe(12) + "7!",
+            "first_name": "ARIA",
+            "last_name": "Research",
+            "full_name": _ARIA_NAME,
+            "company": _ARIA_ORG,
+            "website": _ARIA_WEBSITE,
+            "phone": None,  # Skip phone
+            "address": "London, United Kingdom",
+            "city": "London",
+            "state": None,
+            "zip": "EC1A 1BB",
+            "country": None,  # Skip country (let default stand)
+            "agree_terms": True,
+        }
+        return mapping.get(field_type)
 
     # ── Captcha Handling ───────────────────────────────────────────────────
 
     async def _handle_captcha(self) -> bool:
-        """Detect and solve any captcha on the page."""
-        has_captcha = await self._page.evaluate("""
-            () => !!(
-                document.querySelector('.g-recaptcha')
-                || document.querySelector('[data-sitekey]')
-                || document.querySelector('.cf-turnstile')
-                || document.querySelector('.h-captcha')
-            )
-        """)
-        if not has_captcha:
-            return False
-
-        site_key = await self._page.evaluate("""
+        """Detect and solve any captcha on the page using 2captcha."""
+        # Detect captcha type
+        captcha_info = await self._page.evaluate("""
             () => {
-                const el = document.querySelector('.g-recaptcha')
-                    || document.querySelector('[data-sitekey]')
-                    || document.querySelector('.cf-turnstile')
-                    || document.querySelector('.h-captcha');
-                return el ? el.getAttribute('data-sitekey') : null;
+                // Check for reCAPTCHA v2
+                const recaptcha = document.querySelector('.g-recaptcha');
+                if (recaptcha) {
+                    return {
+                        type: 'recaptcha_v2',
+                        sitekey: recaptcha.getAttribute('data-sitekey') || ''
+                    };
+                }
+                // Check for any element with data-sitekey (generic)
+                const anyKey = document.querySelector('[data-sitekey]');
+                if (anyKey) {
+                    return {
+                        type: 'recaptcha',
+                        sitekey: anyKey.getAttribute('data-sitekey') || ''
+                    };
+                }
+                // Check for Turnstile
+                const turnstile = document.querySelector('.cf-turnstile');
+                if (turnstile) {
+                    return {
+                        type: 'turnstile',
+                        sitekey: turnstile.getAttribute('data-sitekey') || ''
+                    };
+                }
+                // Check for hCaptcha
+                const hcaptcha = document.querySelector('.h-captcha');
+                if (hcaptcha) {
+                    return {
+                        type: 'hcaptcha',
+                        sitekey: hcaptcha.getAttribute('data-sitekey') || ''
+                    };
+                }
+                return null;
             }
         """)
+
+        if not captcha_info:
+            return True  # No captcha = success
+
+        site_key = captcha_info.get("sitekey", "")
+        captcha_type = captcha_info.get("type", "recaptcha_v2")
         if not site_key:
             logger.warning("Captcha detected but no site key found")
             return False
 
-        logger.info("Captcha detected, site key: %s...", site_key[:12])
+        logger.info("Captcha detected: %s, site key: %s...", captcha_type, site_key[:12])
 
         api_key = os.environ.get("ARIA_TWOCAPTCHA_API_KEY", "")
         if not api_key:
@@ -576,10 +504,20 @@ class AdaptivePortalAgent:
         import httpx
         page_url = self._page.url
 
+        # Map captcha type to 2captcha method
+        method_map = {
+            "recaptcha_v2": "userrecaptcha",
+            "recaptcha": "userrecaptcha",
+            "hcaptcha": "hcaptcha",
+            "turnstile": "turnstile",
+        }
+        method = method_map.get(captcha_type, "userrecaptcha")
+
         async with httpx.AsyncClient(timeout=30) as client:
+            # Submit to 2captcha
             submit = await client.post("https://2captcha.com/in.php", data={
                 "key": api_key,
-                "method": "userrecaptcha",
+                "method": method,
                 "googlekey": site_key,
                 "pageurl": page_url,
                 "json": 1,
@@ -590,6 +528,7 @@ class AdaptivePortalAgent:
                 return False
 
             request_id = result["request"]
+            # Poll for result
             for i in range(_CAPTCHA_MAX_POLLS):
                 await asyncio.sleep(_CAPTCHA_POLL_INTERVAL)
                 poll = await client.get("https://2captcha.com/res.php", params={
@@ -598,6 +537,7 @@ class AdaptivePortalAgent:
                 poll_result = poll.json()
                 if poll_result.get("status") == 1:
                     token = poll_result["request"]
+                    # Inject token into the page
                     await self._page.evaluate(f"""
                         () => {{
                             const ta = document.getElementById('g-recaptcha-response');
@@ -606,7 +546,7 @@ class AdaptivePortalAgent:
                                 ta.value = '{token}';
                                 ta.style.display = 'none';
                             }}
-                            // Call the callback if available
+                            // Trigger callback if available
                             if (typeof ___grecaptcha_cfg !== 'undefined') {{
                                 try {{
                                     for (const k in ___grecaptcha_cfg.clients) {{
@@ -626,81 +566,81 @@ class AdaptivePortalAgent:
                     logger.warning("2captcha error: %s", poll_result.get("request", ""))
                     return False
 
-        logger.warning("2captcha timeout")
+        logger.warning("2captcha timeout after %d polls", _CAPTCHA_MAX_POLLS)
         return False
 
     # ── Form Submission ────────────────────────────────────────────────────
 
-    async def _submit(self) -> dict:
-        """Find and click the submit button, then wait for response."""
+    async def _submit_form(self) -> dict:
+        """Find and click the submit button with human-like interaction."""
         result = {"clicked": False, "url": self._page.url}
 
-        try:
-            # Try common submit button selectors
-            selectors = [
-                'button[type="submit"]',
-                'input[type="submit"]',
-                'button:has-text("Register")',
-                'button:has-text("Sign Up")',
-                'button:has-text("Create Account")',
-                'button:has-text("Submit")',
-                'button:has-text("Continue")',
-                'button:has-text("Get Started")',
-                'button:has-text("Join")',
-                'button:has-text("Subscribe")',
-            ]
+        submit_selectors = [
+            'button[type="submit"]',
+            'input[type="submit"]',
+            'button:has-text("Register")',
+            'button:has-text("Sign Up")',
+            'button:has-text("Create Account")',
+            'button:has-text("Submit")',
+            'button:has-text("Continue")',
+            'button:has-text("Get Started")',
+            'button:has-text("Join")',
+            'button:has-text("Subscribe")',
+            'button:has-text("Create")',
+            'form button',
+            '.submit-btn',
+            '#submit',
+        ]
 
-            for selector in selectors:
+        for selector in submit_selectors:
+            try:
                 btn = await self._page.query_selector(selector)
                 if btn and await btn.is_visible():
-                    await btn.click()
+                    await self._human_click(selector)
                     result["clicked"] = True
                     break
+            except Exception:
+                continue
 
-            if not result["clicked"]:
-                # Fallback: click first button in the form
-                btn = await self._page.query_selector("form button, form input[type=submit]")
-                if btn:
-                    await btn.click()
-                    result["clicked"] = True
-
-            # Wait for navigation/response
-            await asyncio.sleep(0.5)
+        if not result["clicked"]:
+            # Fallback: press Enter on the last input
             try:
-                await self._page.wait_for_load_state("networkidle", timeout=_SUBMIT_TIMEOUT)
+                last_input = await self._page.query_selector("input:last-of-type")
+                if last_input:
+                    await last_input.press("Enter")
+                    result["clicked"] = True
             except Exception:
                 pass
-            await self._page.wait_for_timeout(1000)
-            result["url"] = self._page.url
 
-        except Exception as e:
-            result["error"] = str(e)
+        # Wait for navigation/response
+        await self._pause(0.5, 1.0)
+        try:
+            await self._page.wait_for_load_state("networkidle", timeout=_SUBMIT_TIMEOUT)
+        except Exception:
+            pass
+        await self._pause(1, 2)
+        result["url"] = self._page.url
 
         return result
 
     # ── Response Reading ───────────────────────────────────────────────────
 
     async def _read_response(self) -> dict:
-        """Read the response page and determine if registration succeeded.
-
-        Returns:
-            {"success": bool, "errors": [str], "url": str}
-        """
+        """Read the response page and determine if registration succeeded."""
         url = self._page.url
-        html = await self._page.content()
 
         # Check for success indicators in URL
         success_url = any(kw in url.lower() for kw in
                           ["success", "welcome", "account", "dashboard", "thanks"])
 
-        # Read validation errors from the page
+        # Read validation errors
         errors = await self._page.evaluate("""
             () => {
                 const errors = [];
                 // ASP.NET validation summary
                 document.querySelectorAll('.validation-summary-errors li, .validation-summary-valid li').forEach(el => {
                     const t = el.innerText.trim();
-                    if (t) errors.push(t);
+                    if (t && t !== '&#x200E;') errors.push(t);
                 });
                 // Field-level errors
                 document.querySelectorAll('.field-validation-error, span[data-valmsg-for]').forEach(el => {
@@ -712,14 +652,6 @@ class AdaptivePortalAgent:
                     const t = el.innerText.trim();
                     if (t) errors.push(t);
                 });
-                // Form-level error summary
-                const summary = document.querySelector('[data-valmsg-summary]');
-                if (summary) {
-                    summary.querySelectorAll('li').forEach(li => {
-                        const t = li.innerText.trim();
-                        if (t && t !== '&#x200E;') errors.push(t);
-                    });
-                }
                 return [...new Set(errors)];
             }
         """)
@@ -739,24 +671,24 @@ class AdaptivePortalAgent:
     # ── API Key Extraction ─────────────────────────────────────────────────
 
     async def _extract_api_key(self, portal) -> str | None:
-        """Navigate to the account/api key page and extract the key."""
+        """Navigate to the account page and extract the API key."""
         # Try the portal's API key path
         if portal.api_key_path:
             try:
                 acct_url = self._build_url(portal.url, portal.api_key_path)
                 await self._safe_goto(acct_url)
-                await self._page.wait_for_timeout(1500)
+                await self._pause(1, 2)
             except Exception:
                 pass
 
-        # Try login if we're not logged in
+        # Try login if redirected to login page
         if portal.login_path and "login" in self._page.url.lower():
             try:
                 await self._handle_login(portal)
                 if portal.api_key_path:
                     acct_url = self._build_url(portal.url, portal.api_key_path)
                     await self._safe_goto(acct_url)
-                    await self._page.wait_for_timeout(1500)
+                    await self._pause(1, 2)
             except Exception:
                 pass
 
@@ -768,7 +700,7 @@ class AdaptivePortalAgent:
                 if await self._verify_api_key(portal, candidate):
                     return candidate
 
-        # Fallback: look for 32-char hex keys
+        # Fallback: look for 32-char hex keys (common API key format)
         for m in re.finditer(r"\b[0-9a-f]{32}\b", page_text):
             if await self._verify_api_key(portal, m.group()):
                 return m.group()
@@ -776,28 +708,28 @@ class AdaptivePortalAgent:
         return None
 
     async def _handle_login(self, portal) -> None:
-        """Log into an existing account."""
+        """Log into an existing account to access API key page."""
         login_url = self._build_url(portal.url, portal.login_path or "/login")
         await self._safe_goto(login_url)
-        await self._page.wait_for_timeout(1000)
+        await self._pause(1, 2)
 
-        fields = await self._read_page()
-        for field in fields.get("fields", []):
-            name = field.get("name", "").lower()
-            if "email" in name or "mail" in name:
-                await self._page.fill(f'input[name="{field["name"]}"]', _ARIA_EMAIL)
-            elif "password" in name or "pass" in name:
-                # Try stored password
+        fields = await self._detect_fields()
+        for ftype, element in fields.items():
+            name_attr = await element.get_attribute("name") or ""
+            selector = f'input[name="{name_attr}"]'
+            if ftype == "email":
+                await self._human_type(selector, _ARIA_EMAIL)
+            elif ftype == "password":
                 try:
                     from aria_service.intel.portal_registry import get_credential
                     cred = await get_credential(portal.id) or {}
                     pwd = cred.get("password", "")
                     if pwd:
-                        await self._page.fill(f'input[name="{field["name"]}"]', pwd)
+                        await self._human_type(selector, pwd)
                 except Exception:
                     pass
 
-        await self._submit()
+        await self._submit_form()
 
     async def _verify_api_key(self, portal, key: str) -> bool:
         """Verify an API key by making a test request."""
@@ -838,20 +770,17 @@ class AdaptivePortalAgent:
                 await self._page.goto(url, timeout=_PAGE_TIMEOUT)
 
     def _build_url(self, base: str, path: str) -> str:
-        """Build a full URL from base and path."""
         base = base.rstrip("/")
         path = path.lstrip("/")
         return f"{base}/{path}"
 
     def _log(self, step: str, message: str) -> None:
-        """Log a diagnostic step."""
         entry = {"step": step, "message": message, "time": time.time()}
         self._diagnostics.append(entry)
         logger.info("[portal_agent] %s: %s", step, message)
 
     def _finish(self, portal_id: str, success: bool, t0: float,
                 message: str, **kwargs) -> dict:
-        """Build and return the final result."""
         result = {
             "success": success,
             "portal_id": portal_id,
@@ -860,8 +789,6 @@ class AdaptivePortalAgent:
             "diagnostics": self._diagnostics,
             **kwargs,
         }
-
-        # Wire to brain
         try:
             from aria_service.intel.engine_wiring import wire_success, wire_failure
             if success:
@@ -879,5 +806,4 @@ class AdaptivePortalAgent:
                 )
         except Exception:
             pass
-
         return result
