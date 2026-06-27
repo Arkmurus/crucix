@@ -14438,9 +14438,9 @@
       "claimed_at": "2026-06-27T11:30:34Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "4d6a05fe",
+      "commit_sha": "9d8e5d7f",
       "notes": null,
-      "shipped_at": "2026-06-27T11:35:54Z"
+      "shipped_at": "2026-06-27T12:08:38Z"
     },
     {
       "r_number": "R-F2010",
@@ -14466,9 +14466,10 @@
       "title": "de-fabricate opportunity_engine: real-signal score only, drop editorial priors/strategicNeeds/stratContext/always-show-HIGH, honest compliance",
       "claimed_at": "2026-06-27T12:05:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "97885391",
+      "notes": null,
+      "shipped_at": "2026-06-27T12:10:39Z"
     }
   ]
 }
