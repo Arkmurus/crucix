@@ -33,6 +33,11 @@ RUN cd services/wa-listener && npm install --omit=dev
 # WA listener source
 COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_listener.mjs
 
+# R-F2069 — the listener imports `./send-retry.mjs` (extracted bounded send retry).
+# Same sibling-file cherry-pick trap as the lib/ copies below: MISSING it
+# crash-loops aria-wa (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
+COPY services/wa-listener/send-retry.mjs ./services/wa-listener/send-retry.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs

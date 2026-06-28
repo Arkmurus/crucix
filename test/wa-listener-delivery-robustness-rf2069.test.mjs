@@ -103,5 +103,26 @@ check('sendReply still honours the R-F1965 failure-truth guard (_failedOutcomeRe
 check('sendReply still reports send_failed on terminal failure',
   sendReplyBody.includes("'send_failed'"));
 
+// ── 5. Dockerfile.wa cherry-picks files — every LOCAL import the listener uses
+//    MUST be COPY'd into the image, or aria-wa crash-loops on boot
+//    (ERR_MODULE_NOT_FOUND — the R-F1970/R-F2069 trap). This guard would have
+//    caught send-retry.mjs being added without its COPY line. ──────────────────
+const DOCKERFILE = readFileSync(join(__dirname, '..', 'Dockerfile.wa'), 'utf8');
+// All relative imports in the listener: import ... from './x.mjs' | '../../lib/...'
+const relImports = [...SRC.matchAll(/from\s+'(\.\.?\/[^']+)'/g)].map((m) => m[1]);
+for (const rel of relImports) {
+  // Resolve the import (relative to services/wa-listener/) to a repo-root path.
+  const segs = ['services', 'wa-listener', ...rel.split('/')];
+  const stack = [];
+  for (const s of segs) {
+    if (s === '.' || s === '') continue;
+    if (s === '..') stack.pop();
+    else stack.push(s);
+  }
+  const repoPath = stack.join('/');
+  check(`Dockerfile.wa COPYs '${rel}' (-> ${repoPath})`,
+    DOCKERFILE.includes(`COPY ${repoPath} `));
+}
+
 console.log(failures === 0 ? '\nR-F2069 tests: PASS' : `\nR-F2069 tests: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);
