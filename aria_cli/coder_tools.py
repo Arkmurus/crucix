@@ -19,6 +19,20 @@ from pathlib import Path
 from .tools import ToolResult
 
 
+def _shq(value: str) -> str:
+    """R-F2095 — quote a value for the shell that Toolbox.run() uses (PowerShell
+    on Windows, POSIX sh elsewhere), so a path with spaces (`file (1).py`) or a
+    commit message with quotes/metacharacters can't break or inject into the
+    command. Was: raw f-string interpolation (`git add {f}`, and the main commit
+    message wasn't even quote-escaped)."""
+    s = str(value)
+    if sys.platform == "win32":
+        # PowerShell single-quoted string: embedded ' is doubled.
+        return "'" + s.replace("'", "''") + "'"
+    import shlex
+    return shlex.quote(s)
+
+
 class CoderToolbox:
     """Higher-level coding tools that wrap Toolbox for structured operations.
 
@@ -39,22 +53,21 @@ class CoderToolbox:
         (Co-Authored-By, Verified-by, etc.) as separate -m args."""
         if files:
             for f in files:
-                r = self._tb.run(f"git add {f}", timeout=30)
+                r = self._tb.run(f"git add {_shq(f)}", timeout=30)  # R-F2095 — quoted
                 if r.is_error:
                     return ToolResult(r.output, is_error=True)
         else:
             r = self._tb.run("git add -A", timeout=30)
             if r.is_error:
                 return ToolResult(r.output, is_error=True)
-        cmd = f'git commit -m "{message}"'
+        cmd = f"git commit -m {_shq(message)}"  # R-F2095 — quoted (was naive "{message}")
         for t in (trailers or []):
-            escaped = t.replace('"', '\\"')
-            cmd += f' -m "{escaped}"'
+            cmd += f" -m {_shq(t)}"
         return self._tb.run(cmd, timeout=30)
 
     def git_push(self, remote: str = "origin", branch: str = "main") -> ToolResult:
         """Push the current branch to remote."""
-        return self._tb.run(f"git push {remote} {branch}", timeout=60)
+        return self._tb.run(f"git push {_shq(remote)} {_shq(branch)}", timeout=60)  # R-F2095
 
     def git_diff(self, staged: bool = False, path: str = "") -> ToolResult:
         """Show uncommitted changes. staged=True shows staged diff."""

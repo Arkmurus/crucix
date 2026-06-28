@@ -15288,18 +15288,20 @@
       "title": "aria CLI root-fix remaining gaps: paged file reads, unknown-slash-command, terminal resize, git path quoting, robust kill",
       "claimed_at": "2026-06-28T17:52:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T17:59:55Z"
     },
     {
       "r_number": "R-F2096",
       "title": "aria-wa UX: image+mention double-reply continue guard + voice-failure §25 wiring (report to brain, reply only in always-reply mode)",
       "claimed_at": "2026-06-28T17:54:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd2c3331",
+      "notes": null,
+      "shipped_at": "2026-06-28T17:57:00Z"
     }
   ]
 }

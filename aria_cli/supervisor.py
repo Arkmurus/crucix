@@ -86,8 +86,10 @@ def _kill_tree(proc: "subprocess.Popen") -> None:
     grandchildren — pytest, a deploy — that would otherwise linger)."""
     try:
         if sys.platform == "win32":
+            # R-F2095 — 15s→5s so a wedged taskkill can't stall the supervisor's
+            # stall-kill path as long (falls back to proc.kill() on timeout).
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=15)
+                           capture_output=True, timeout=5)
         else:
             import os as _os
             import signal as _sig

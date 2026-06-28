@@ -833,6 +833,14 @@ def _sanitize_output(s: str) -> str:
     return _OUTPUT_CTRL_RE.sub('', s)
 
 
+def _is_mistyped_command(token: str) -> bool:
+    """R-F2095 — True when `token` is a single slash-command shape (/word), so an
+    unknown one is reported instead of silently becoming an agent task (which wastes
+    tokens + confuses the operator). A path (/etc/hosts) or a sentence does NOT
+    match — only a leading /word — so genuine input still runs as a task."""
+    return bool(_re.match(r"^/[A-Za-z][A-Za-z0-9_-]*$", token or ""))
+
+
 def _content(s: str) -> str:
     """Pad string to exactly 56 visible chars for box content.
     Strips ANSI codes before measuring so colored text aligns correctly.
@@ -2703,6 +2711,15 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim(f"  mode: {'self (crucix)' if self_mode else 'general'}"))
                 print(color.dim(f"  brain: {'wired' if brain_mod.brain_enabled(self_mode) else 'off'}"))
                 print(color.dim(f"  approval: {'autonomous' if agent.auto_approve else 'confirm each'}"))
+                continue
+            # R-F2095 — a command-like token (/word) that matched no known command
+            # above must NOT silently become an agent task (wastes tokens + confuses
+            # the operator). Only a leading "/word" single token is treated as a
+            # mistyped command; a path like /etc/hosts or a sentence still runs.
+            _first_tok = line.split()[0] if line.split() else ""
+            if _is_mistyped_command(_first_tok):
+                print(color.yellow(f"  Unknown command: {_first_tok}  —  type /help for the list"))
+                ui._log(f"[unknown-command] {_first_tok}")
                 continue
             last_task = line
             ui._log(f"[user] {line}")

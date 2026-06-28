@@ -26,6 +26,11 @@ from .safety import WriteGuard
 # Keep observations bounded so a single tool call can't blow the context window.
 _MAX_READ_BYTES = 100_000
 _MAX_OUTPUT_CHARS = 30_000
+# R-F2095 — read_file paging. Files up to this size can be read/paged in full;
+# bigger ones are refused with a pointer to offset/limit + grep (an OOM guard).
+_HARD_READ_BYTES = 10_000_000
+# Default line window per read_file call when the caller gives no explicit limit.
+_DEFAULT_READ_LINES = 1500
 _MAX_GREP_MATCHES = 200
 _MAX_GLOB_RESULTS = 400
 
@@ -91,25 +96,45 @@ class Toolbox:
 
     # ── read_file ─────────────────────────────────────────────────────────
     def read_file(self, path: str, offset: int = 0, limit: int = 0) -> ToolResult:
+        # R-F2095 — PAGED read. Was: read_bytes()[:100_000] then slice lines — which
+        # (a) capped the RAW read at 100 KB so offset/limit could never reach past the
+        # first ~2000 lines, and (b) truncated SILENTLY, so the agent got a partial
+        # file thinking it was complete and could refactor on missing code. Now: page
+        # by LINES over the whole file (bounded by a 10 MB OOM guard), and ALWAYS tell
+        # the agent the window + total + how to read the rest.
         p = self._resolve(path)
         if not p.exists():
             return ToolResult(f"error: file not found: {path}", is_error=True)
         if p.is_dir():
             return ToolResult(f"error: {path} is a directory (use list_dir)", is_error=True)
         try:
-            data = p.read_bytes()[:_MAX_READ_BYTES]
-            text = data.decode("utf-8", errors="replace")
+            size = p.stat().st_size
+        except Exception:  # noqa: BLE001
+            size = 0
+        if size > _HARD_READ_BYTES:
+            return ToolResult(
+                f"error: {path} is {size // 1024} KB — too large to read in full. "
+                f"Page it with read_file(\"{path}\", offset=N, limit=M), or use grep/run "
+                f"to inspect specific parts.", is_error=True)
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:  # noqa: BLE001
             return ToolResult(f"error reading {path}: {exc}", is_error=True)
-        lines = text.splitlines()
-        if offset or limit:
-            start = max(0, offset)
-            end = start + limit if limit else len(lines)
-            lines = lines[start:end]
+        all_lines = text.splitlines()
+        total = len(all_lines)
+        start = max(0, offset)
+        window = limit if (limit and limit > 0) else _DEFAULT_READ_LINES
+        end = min(total, start + window)
+        sel = all_lines[start:end]
+        numbered = "\n".join(f"{i + start + 1}\t{ln}" for i, ln in enumerate(sel))
+        if end < total:
+            hint = (f"\n\n[read_file: showing lines {start + 1}-{end} of {total} — "
+                    f"NOT the whole file. Continue with read_file(\"{path}\", offset={end}).]")
+        elif start > 0:
+            hint = f"\n\n[read_file: showing lines {start + 1}-{end} of {total} (end of file).]"
         else:
-            start = 0
-        numbered = "\n".join(f"{i + start + 1}\t{ln}" for i, ln in enumerate(lines))
-        return ToolResult(numbered or "(empty file)")
+            hint = ""  # whole (small) file shown — no marker noise
+        return ToolResult((numbered or "(empty file)") + hint)
 
     # ── write_file ────────────────────────────────────────────────────────
     def write_file(self, path: str, content: str) -> ToolResult:
@@ -324,8 +349,10 @@ class Toolbox:
         kill the process group."""
         try:
             if sys.platform == "win32":
+                # R-F2095 — 15s→5s: bound how long a wedged taskkill can block the
+                # kill path (on timeout the except below falls back to proc.kill()).
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                               capture_output=True, timeout=15)
+                               capture_output=True, timeout=5)
             else:
                 import os as _os
                 import signal as _signal
