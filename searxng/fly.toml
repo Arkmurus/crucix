@@ -19,3 +19,6 @@ primary_region = "lhr"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
+  # R-F2109: prevent OOM under heavy search load (deep DD can fire 20+ parallel searches).
+  # 256MB swap gives the kernel headroom to page before the OOM killer fires.
+  memory_swap = "768mb"

@@ -292,11 +292,13 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
 # ── Feed parsing ──────────────────────────────────────────────────────────────
 
 
-def _parse_rss(xml_text: str, source_name: str) -> list[dict]:
+async def _parse_rss(xml_text: str, source_name: str) -> list[dict]:
     """Parse RSS 2.0 XML into article dicts."""
     articles = []
     try:
-        root = ET.fromstring(xml_text)
+        # R-F2108: offload XML parsing to a thread — multi-MB RSS feeds can take
+        # 100-500ms to parse with ET.fromstring on the event loop.
+        root = await asyncio.to_thread(ET.fromstring, xml_text)
     except ET.ParseError as e:
         logger.warning("[news_monitor] RSS parse failed for %s: %s", source_name, e)
         return []
@@ -583,7 +585,7 @@ async def poll_feeds(
 
             feed_type = _detect_feed_type(xml_text)
             if feed_type == "rss":
-                articles = _parse_rss(xml_text, name)
+                articles = await _parse_rss(xml_text, name)
             elif feed_type == "atom":
                 articles = _parse_atom(xml_text, name)
             else:

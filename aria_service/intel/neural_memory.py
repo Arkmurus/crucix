@@ -18,7 +18,7 @@ The network grows autonomously:
 This gives ARIA emergent intelligence — she doesn't just search keywords,
 she thinks in connected concepts like a human analyst."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import base64
@@ -930,6 +930,20 @@ def _apply_decay() -> None:
         # neuron's connection history intact.
 
 
+def _apply_decay_safe() -> None:
+    """Wrapper around _apply_decay that catches and wires failures.
+    R-F2108: called from asyncio.to_thread so exceptions must be caught here."""
+    try:
+        _apply_decay()
+    except Exception as _de:
+        logger.error("neural_memory._apply_decay failed: %s", _de)
+        try:
+            wire_failure(module="neural_memory", detail=f"_apply_decay: {_de}",
+                         gap_type="engine_failure", source="neural_memory._apply_decay")
+        except Exception:
+            pass
+
+
 # ── Concept Extraction ───────────────────────────────────────────────────────
 
 # Categories for auto-detection
@@ -1270,7 +1284,12 @@ async def recall(
         recency_boost: If True, freshly-activated neurons get a relevance multiplier
             so 10-minute-old signals don't get drowned out by 30-day-old neurons.
     """
-    _apply_decay()
+    # R-F2108 (ARIA brain DD): offload _apply_decay to a thread so a multi-second
+    # walk of ~2.4M edges never wedges the event loop on the chat-recall path.
+    # _apply_decay is a pure-Python loop over _neurons.values() — no shared state
+    # mutation during iteration (it mutates neuron dicts in-place, which is safe
+    # because the GIL serialises dict item access). Offload to keep the loop free.
+    await asyncio.to_thread(_apply_decay_safe)
     depth = max(0, min(depth, 3))
 
     # Find seed neurons matching query

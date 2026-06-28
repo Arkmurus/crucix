@@ -23,7 +23,7 @@ Public API
     search(query: str, *, count: int = 10, lang: str = 'en') -> dict
     summary() -> dict"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
@@ -82,6 +82,8 @@ async def search(
     """
     if not query or not query.strip():
         return {"ok": False, "error": "empty query", "results": []}
+    # R-F2109: cap query length to prevent resource exhaustion on SearXNG.
+    query = query.strip()[:500]
     base = _base_url()
     if not base:
         return {
@@ -105,7 +107,7 @@ async def search(
         "count":      str(min(max(count, 1), 50)),
     }
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: SearXNG is a self-hosted internal service on Fly's private network, not an external API. Circuit breaker is at the caller (web_search._search_searxng).
             timeout=_DEFAULT_TIMEOUT,
             headers={"User-Agent": _USER_AGENT},
             follow_redirects=True,
@@ -114,6 +116,12 @@ async def search(
     except Exception as e:
         kind = "timeout" if "timeout" in str(e).lower() else "fetch_error"
         logger.warning("searxng search %s failed: %s: %s", query[:60], kind, e)
+        # R-F2109 §21a — wire failure so the brain knows SearXNG was unreachable
+        try:
+            wire_failure(module="search_searxng", detail=f"{kind}: {e}",
+                         gap_type="source_failure", source="search_searxng.search")
+        except Exception:
+            pass
         return {
             "ok":         False,
             "configured": True,
@@ -124,6 +132,12 @@ async def search(
         }
 
     if resp.status_code != 200:
+        # R-F2109 §21a — wire failure on non-200
+        try:
+            wire_failure(module="search_searxng", detail=f"HTTP {resp.status_code}",
+                         gap_type="source_failure", source="search_searxng.search")
+        except Exception:
+            pass
         return {
             "ok":         False,
             "configured": True,

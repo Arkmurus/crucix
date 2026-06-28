@@ -20,17 +20,18 @@ param(
     [switch]$Intel,
     [switch]$Web,
     [switch]$Wa,
+    [switch]$Searxng,
     [switch]$All
 )
 
 $ErrorActionPreference = "Stop"
 
 # Default: --all if no flags given
-if (-not $Intel -and -not $Web -and -not $Wa) {
+if (-not $Intel -and -not $Web -and -not $Wa -and -not $Searxng) {
     $All = $true
 }
 if ($All) {
-    $Intel = $true; $Web = $true; $Wa = $true
+    $Intel = $true; $Web = $true; $Wa = $true; $Searxng = $true
 }
 
 # R-F1163: $PSScriptRoot and $MyInvocation are empty when invoked via
@@ -47,7 +48,7 @@ $GIT_SHORT = git rev-parse --short=8 HEAD
 # ---- PUSH GUARD (R-F1122) ----
 Write-Host "=== ARIA bulletproof deploy (R-F1150, Windows) ==="
 Write-Host "  commit: $GIT_SHA ($GIT_SHORT)"
-Write-Host "  apps:   intel=$Intel web=$Web wa=$Wa"
+Write-Host "  apps:   intel=$Intel web=$Web wa=$Wa searxng=$Searxng"
 Write-Host ""
 
 $ORIGIN_SHA = git rev-parse origin/main 2>$null
@@ -204,6 +205,10 @@ if ($Web) {
 }
 if ($Wa) {
     $result = @(Deploy-And-Verify "aria-wa" "fly.wa.toml" 600)[-1]
+    if ($result -ne $true) { $failures++ }
+}
+if ($Searxng) {
+    $result = @(Deploy-And-Verify "aria-searxng" "searxng/fly.toml" 300)[-1]
     if ($result -ne $true) { $failures++ }
 }
 

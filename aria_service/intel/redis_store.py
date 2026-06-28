@@ -35,6 +35,7 @@ import os
 from typing import Any, Optional
 
 import redis.asyncio as aioredis
+from .engine_wiring import wire_success, wire_failure
 
 logger = logging.getLogger("aria.redis")
 
@@ -229,9 +230,23 @@ async def get_json(key: str) -> Any:
     raw = await get(key)
     if raw:
         try:
-            return json.loads(raw)
+            # R-F2108: offload JSON deserialization to a thread — a 50K-entry
+            # seen-urls dict can take 50-100ms to parse on the event loop.
+            result = await asyncio.to_thread(json.loads, raw)
+            # R-F2108 §21a — wire success so the brain knows redis_store is reachable
+            try:
+                wire_success(module="redis_store", summary="get_json OK",
+                             source_id="redis_store:get_json")
+            except Exception:
+                pass
+            return result
         except Exception as e:
             logger.warning("JSON parse failed for key %s: %s", key, e)
+            try:
+                wire_failure(module="redis_store", detail=f"get_json parse failed for {key}: {e}",
+                             gap_type="engine_failure", source="redis_store.get_json")
+            except Exception:
+                pass
     return None
 
 
@@ -274,7 +289,10 @@ async def get_json_strict(key: str) -> Any:
 
 async def set_json(key: str, obj: Any, ex: int | None = None,
                    keepttl: bool = False) -> None:
-    await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
+    # R-F2108: offload JSON serialization to a thread — a 50K-entry seen-urls
+    # dict can take 50-100ms to serialize on the event loop.
+    raw = await asyncio.to_thread(lambda: json.dumps(obj, default=str))
+    await set(key, raw, ex=ex, keepttl=keepttl)
 
 
 async def lpush(key: str, value: str, *, critical: bool = False) -> None:

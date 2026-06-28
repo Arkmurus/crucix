@@ -2738,6 +2738,14 @@ async function onMessagesUpsert(sock, account, ev) {
             // caption through a documentless chat (the double-error class).
             _docAnsweredCaption = true;
           }
+        } else {
+          // R-F2107 (ARIA wa DD): unsupported MIME type — tell the user instead
+          // of silently dropping their file. Honest feedback: "I can't read this
+          // format" rather than a silent no-op that looks like the file was ignored.
+          console.log(`[ARIA Listener] Unsupported document type: ${filename} (${mimetype}) — notifying user`);
+          await sendReply(chatId,
+            `📄 I received *${filename}* but can't read \`${mimetype || 'unknown'}\` format. Please send as PDF or text and I'll review it.`
+          , requestId).catch(() => {});
         }
       }
 
@@ -3080,10 +3088,31 @@ function _loadAsyncJobs() {
   }
 }
 
+// R-F2107 (ARIA wa DD): per-target rate limit for outbound sends — max 10
+// messages per minute per group, prevents accidental flood from brain or caller.
+const _sendRateLimits = new Map(); // "target:minute" → count
+function _sendRateLimited(target) {
+  const now = Date.now();
+  const key = `${target}:${Math.floor(now / 60000)}`;
+  const count = (_sendRateLimits.get(key) || 0) + 1;
+  _sendRateLimits.set(key, count);
+  // Prune entries older than 2 minutes
+  for (const [k, v] of _sendRateLimits) {
+    if (k.split(':').pop() < Math.floor((now - 120000) / 60000)) _sendRateLimits.delete(k);
+  }
+  return count > 10;
+}
+
 app.post('/api/wa-listener/send', requireAuth, async (req, res) => {
   const b      = req.body || {};
   const target = b.group_id || b.to || b.chat_id || b.jid || '';
   const text   = b.message  || b.text || '';
+  // R-F2107: rate limit before any work
+  if (target && _sendRateLimited(target)) {
+    _waBrainSignal('wa_outbound_rate_limited', `WA outbound rate-limited to ${target}`,
+      { chat_id: String(target), reason: 'rate_limit' });
+    return res.status(429).json({ error: 'Rate limit — max 10 messages/minute per group' });
+  }
   // R-F1989 — optional image payload (Guardian image forward). When present the
   // message goes out as an image (with optional caption) instead of plain text.
   const imageB64 = b.image_b64 || '';

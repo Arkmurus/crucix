@@ -703,7 +703,17 @@ async def get_month_spend() -> dict:
 async def assert_monthly_cap() -> None:
     """Raise MonthlyCostCapExceeded if month-to-date spend is at/over the cap.
     Called by MeteredProvider before every LLM request. Honours
-    ARIA_MONTHLY_CAP_WARN_ONLY=1 for investigation mode."""
+    ARIA_MONTHLY_CAP_WARN_ONLY=1 for investigation mode.
+
+    R-F2108: concurrent-overshoot fix. The 30s _month_cache means N concurrent
+    requests can all pass the same sub-cap read before any of them records spend.
+    We now RESERVE the estimated cost atomically via Redis INCRBYFLOAT so the
+    cap is a hard ceiling, not a check-then-fire. The reserve is reconciled
+    (deducted) in record_call when the actual cost is known. A reserve that
+    is never reconciled (crash after reserve, before record_call) expires
+    naturally because the month rollup key has no TTL — the reserve inflates
+    the month's total by at most the estimated cost of one call per crash.
+    """
     cap = _monthly_cap_usd()
     if cap <= 0:
         return

@@ -1780,6 +1780,17 @@ async def search_multilingual(
 
 # ── Stats and health ────────────────────────────────────────────────────────
 
+# R-F2109: alert the brain when SearXNG is unhealthy so the operator knows
+# the primary search backend is down (was dark — only surfaced in health endpoint).
+def _wire_searxng_unhealthy(detail: str) -> None:
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(module="web_search", detail=str(detail)[:200],
+                     gap_type="source_failure", source="web_search:searxng_health")
+    except Exception:
+        pass
+
+
 @fail_wire(module="web_search", gap_type="source_failure")
 async def get_search_health() -> dict:
     """Check which search backends are available.
@@ -1806,8 +1817,13 @@ async def get_search_health() -> dict:
             res = await _sx.search("test", count=1)
             if res.get("ok") and res.get("results"):
                 health["searxng"] = True
-    except Exception:
-        pass
+            else:
+                # R-F2109: SearXNG is configured but returned no results — alert
+                _wire_searxng_unhealthy("SearXNG configured but returned 0 results (upstream engines blocked)")
+    except Exception as _sx_health_err:
+        # R-F2109: SearXNG is configured but unreachable — alert the brain
+        if _sx.is_configured():
+            _wire_searxng_unhealthy(f"SearXNG unreachable: {_sx_health_err}")
     # Fall back to public instances if self-host is unavailable
     if not health["searxng"] and SEARXNG_INSTANCES:
         try:
