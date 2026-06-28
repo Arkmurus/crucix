@@ -1290,6 +1290,12 @@ class TerminalUI(AgentUI):
                 sys.stdout.write(self._stream_line_buf[: nl + 1])
                 sys.stdout.flush()
                 self._stream_line_buf = self._stream_line_buf[nl + 1:]
+            elif len(self._stream_line_buf) > 16384:
+                # R-F2129: a pathological stream with no newline must not grow the
+                # coalescing buffer unbounded — flush the partial and reset.
+                sys.stdout.write(self._stream_line_buf)
+                sys.stdout.flush()
+                self._stream_line_buf = ""
             return
         sys.stdout.write(text)
         sys.stdout.flush()

@@ -504,7 +504,13 @@ class Agent:
                 # identical args (the grep('safety') x200 incident) would run nearly
                 # forever now that the step cap is effectively unlimited. Nudge, then
                 # abort, so a degenerate loop self-breaks instead of burning the run.
-                sig = f"{name}|{raw_args}"
+                # R-F2129: canonicalize args so the loop guard can't be evaded by
+                # JSON whitespace/key-order variation (same call, different bytes).
+                try:
+                    _canon = json.dumps(json.loads(raw_args), sort_keys=True, separators=(",", ":"))
+                except Exception:  # noqa: BLE001 — non-JSON args: fall back to raw
+                    _canon = raw_args
+                sig = f"{name}|{_canon}"
                 sig_counts[sig] = sig_counts.get(sig, 0) + 1
                 rep = sig_counts[sig]
                 if rep >= LOOP_ABORT_AT:
