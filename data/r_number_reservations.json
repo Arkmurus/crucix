@@ -15030,9 +15030,10 @@
       "title": "WA delivery retry/backoff + structural gate regression guard",
       "claimed_at": "2026-06-28T00:56:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1b6d5a20",
+      "notes": null,
+      "shipped_at": "2026-06-28T01:19:21Z"
     }
   ]
 }
