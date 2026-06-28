@@ -458,7 +458,7 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
-                _cb.record_failure(reason=classify_status(resp.status_code))
+                _cb.record_failure(reason=_classify_http_status(resp.status_code))
                 return []
             # Parse RSS XML
             text = resp.text
@@ -605,7 +605,7 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
-                _cb.record_failure(reason=classify_status(resp.status_code))
+                _cb.record_failure(reason=_classify_http_status(resp.status_code))
                 return []
             text = resp.text
             results = []
