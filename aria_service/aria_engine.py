@@ -12,6 +12,16 @@ import json
 import logging
 import os  # R-F1337: _compact_prompt_active env checks
 import re
+
+# R-F2110 — hard ceiling on the pre-cloud "local reasoning" attempt. aria_chat /
+# aria_chat_stream try reasoning_router.try_local_reasoning() BEFORE the cloud LLM
+# (symbolic → reasoning_library → local_brain → grounded_reasoner → company_investigator
+# → ollama). The cloud LLM is bounded by _llm_timeout, but this walk had NO timeout at
+# the call site, so any slow/hung stage hung the WHOLE chat turn forever (loop free,
+# since it awaits external I/O) — the cause of "substantive/long messages + document
+# reviews never get answered" while a trivial "hi" (fast lane, skips this walk) answers
+# in ~2s. On timeout we fall through to the fast, bounded cloud LLM.
+_LOCAL_REASONING_TIMEOUT_S = float(os.getenv("ARIA_LOCAL_REASONING_TIMEOUT_S", "25"))
 import time
 import uuid
 from datetime import datetime, timezone
@@ -3593,7 +3603,15 @@ async def _aria_chat_impl(
     try:
         # R-F520 — strip chat_ep prefixes so reasoning_library + local_brain
         # see only the user's actual question. See _strip_chat_prefixes docstring.
-        local_attempt = await reasoning_router.try_local_reasoning(_strip_chat_prefixes(message))
+        try:
+            local_attempt = await asyncio.wait_for(
+                reasoning_router.try_local_reasoning(_strip_chat_prefixes(message)),
+                timeout=_LOCAL_REASONING_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[R-F2110] local reasoning exceeded %.0fs budget — "
+                           "falling through to the cloud LLM", _LOCAL_REASONING_TIMEOUT_S)
+            local_attempt = {"answered": False}
         if local_attempt.get("answered"):
             # Persist the interaction so we still build session memory
             try:
@@ -4498,7 +4516,15 @@ async def _aria_chat_stream_impl(
     # ── Local reasoning attempt ───────────────────────────────────────
     try:
         # R-F520 — strip chat_ep prefixes (see _strip_chat_prefixes docstring).
-        local_attempt = await reasoning_router.try_local_reasoning(_strip_chat_prefixes(message))
+        try:
+            local_attempt = await asyncio.wait_for(
+                reasoning_router.try_local_reasoning(_strip_chat_prefixes(message)),
+                timeout=_LOCAL_REASONING_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[R-F2110] local reasoning exceeded %.0fs budget — "
+                           "falling through to the cloud LLM", _LOCAL_REASONING_TIMEOUT_S)
+            local_attempt = {"answered": False}
         if local_attempt.get("answered"):
             try:
                 session = await _get_session(session_id)

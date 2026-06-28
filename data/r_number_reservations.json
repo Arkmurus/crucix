@@ -15368,72 +15368,80 @@
       "title": "wire dead per-user daily cost cap (user_quota.record_cost into cost_tracker.record_call) — ARIA brain DD",
       "claimed_at": "2026-06-28T19:40:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "318dab97",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:01:27Z"
     },
     {
       "r_number": "R-F2104",
       "title": "company_investigator §21a run-path wiring (wire_success/wire_failure on success/timeout/exception) — ARIA brain DD",
       "claimed_at": "2026-06-28T19:40:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "318dab97",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:01:28Z"
     },
     {
       "r_number": "R-F2105",
       "title": "fail-silent OSINT (email_breach/username_enum/gleif): wire_failure on genuine-error branches so a down API isn't a silent 'clean' — ARIA brain DD",
       "claimed_at": "2026-06-28T19:43:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "318dab97",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:01:28Z"
     },
     {
       "r_number": "R-F2106",
       "title": "aria-web: Zoom auth, /health/cross URL, /events SSE limit, chat/stream timeout, reportOutcome retry",
       "claimed_at": "2026-06-28T19:49:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6cec1283",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:03:23Z"
     },
     {
       "r_number": "R-F2107",
       "title": "aria-wa: voice failure reply, unsupported MIME, /send rate limit, embedded ask-aria outcome+timeout",
       "claimed_at": "2026-06-28T19:49:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6cec1283",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:03:23Z"
     },
     {
       "r_number": "R-F2108",
       "title": "aria-intel: record_cost wired, company_investigator Â§21a, neural_memory offload, OSINT errors, news_monitor offload, pdf_ingest offload",
       "claimed_at": "2026-06-28T19:49:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6cec1283",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:03:24Z"
     },
     {
       "r_number": "R-F2109",
       "title": "aria-searxng: auth, CI/CD, monitoring, query validation, resource limits",
       "claimed_at": "2026-06-28T19:49:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6cec1283",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:03:24Z"
     },
     {
       "r_number": "R-F2110",
       "title": "TEMP diagnostic: /debug/asyncio-tasks endpoint to dump hung chat task stack (find the substantive-chat await hang)",
       "claimed_at": "2026-06-28T19:56:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T20:10:12Z"
     }
   ]
 }
