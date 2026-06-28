@@ -31,6 +31,7 @@ from pre_commit_checks import (
     ARIA_SERVICE,
     REPO_ROOT,
     check_builtin_shadowing,   # R-F1958 — was CALLED (line ~195) but NOT imported → NameError crashed the whole checker on every run, so NO checks ran even before the hooks-path orphaning. Import it so the checker completes.
+    check_syntax,              # R-F2127 — fail-fast syntax gate (a broken .py must never commit)
     check_capability_tests,
     check_circuit_breaker,
     check_no_token_default,
@@ -177,6 +178,20 @@ def main():
     files = get_staged_files()
     if not files:
         return 0
+
+    # Check 0: SYNTAX GATE (R-F2127) — fail-fast. A staged .py with a SyntaxError
+    # must NEVER be committed: it breaks import and any deploy. Every other check
+    # below ast.parse()s and silently skips broken files, so without this gate a
+    # corrupted file (e.g. an autonomous annotation campaign inserting comments
+    # mid-expression) sails through. Run FIRST and short-circuit — other checks
+    # are unreliable on a file that doesn't parse.
+    syntax_issues = check_syntax(files)
+    if syntax_issues:
+        print("[pre-commit] VERIFICATION FAILED:")
+        for issue in syntax_issues:
+            print(issue)
+        print("\nFix the SyntaxError(s) above before committing — broken Python breaks import + any deploy.")
+        return 1
 
     # R-F1961 — per-file ADDED-line numbers + ADDED function names, so the
     # whole-file checks gate only what THIS commit introduces (not pre-existing

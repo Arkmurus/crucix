@@ -22,6 +22,43 @@ from typing import Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARIA_SERVICE = REPO_ROOT / "aria_service"
 
+
+def check_syntax(files: list[Path]) -> list[str]:
+    """R-F2127 — FAIL the commit on any staged .py with a SyntaxError.
+
+    Every OTHER check in this module ast.parse()s the file and silently
+    `continue`s on SyntaxError, so a syntactically BROKEN file passed all of
+    them and got committed. On 2026-06-28 an autonomous annotation campaign
+    committed 31 such files (comments inserted mid-expression, e.g.
+    `httpx.AsyncClient(timeout  # no-breaker: ...=3.0)`), making the whole tree
+    un-importable and any deploy a guaranteed boot failure — and the report
+    claimed it was "safe to deploy". This is the structural backstop: no broken
+    Python reaches a commit, regardless of which tool (annotation, autonomous
+    coder, human) produced it. Runs FIRST so it can't be masked by the
+    parse-and-skip checks.
+    """
+    issues = []
+    for fp in files:
+        if fp.suffix != ".py":
+            continue
+        try:
+            src = fp.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        try:
+            compile(src, str(fp), "exec")
+        except SyntaxError as e:
+            try:
+                rel = fp.relative_to(REPO_ROOT)
+            except ValueError:
+                rel = fp
+            issues.append(
+                f"  {rel}:{e.lineno} — SyntaxError: {e.msg}\n"
+                f"    {(e.text or '').rstrip()}\n"
+                f"    A broken .py must NEVER be committed — it breaks import and any deploy."
+            )
+    return issues
+
 KNOWN_ALIASES = {
     "rs": "aria_service.intel.redis_store",
     "il": "aria_service.intel.intel_ledger",
