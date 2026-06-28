@@ -1153,6 +1153,27 @@ async function _submitAndPollDoc(payload, chatId, filename, ack) {
   throw new Error('extraction timed out after 15 minutes');
 }
 
+// R-F2096 §25 — voice is a limb ARIA must FEEL. Pre-fix, a failed/exception voice
+// transcription was a pure console.warn → silent drop: the brain never learned the
+// voice limb failed, and the user got nothing. Now: ALWAYS surface the failure to
+// the brain (proprioception / coder-visible, like wa_image_processing_failed), and
+// tell the USER only when voice is in always-reply mode (else stay silent per the
+// R-F2061 respond-only-when-called rule — an un-mentioning voice note that failed
+// to transcribe should not trigger an uninvited reply).
+async function _reportVoiceFailure(groupName, chatId, errMsg) {
+  try {
+    brainPost('/api/aria/brain/signal', {
+      content: `WA voice transcription failed: ${String(errMsg || 'no response').slice(0, 200)}`,
+      source: `whatsapp_group:${groupName}`,
+      signal_type: 'wa_voice_failed',
+      metadata: { error: String(errMsg || 'no response').slice(0, 200), channel: 'whatsapp_listener' },
+    }).catch(() => {});
+  } catch { /* never let observability break the path */ }
+  if (VOICE_ALWAYS_REPLY) {
+    await sendReply(chatId, `🎙 I heard your voice note but couldn't make it out — please resend it or type your message and I'll help.`).catch(() => {});
+  }
+}
+
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
 // R-F982 (2026-05-28) — route EVERY chat through the async job+poll path.
 // History: R-F916 sent URL questions async, R-F940 added doc-grounded + >6k-char
@@ -2546,6 +2567,13 @@ async function onMessagesUpsert(sock, account, ev) {
           }
 
           await _handleOcrResult(extracted, ocrResult, filename, caption, groupName, senderName, senderJid, chatId, requestId);
+          // R-F2096 — the image+caption is now fully answered (grounded on the OCR'd
+          // image). Skip the rest of the loop like the no-text/timeout cases above,
+          // otherwise the caption falls through to the mention handler (~2803) and
+          // gets re-answered WITHOUT image grounding — a duplicate, ungrounded reply.
+          // R-F2061 made this universal (images only process when ARIA is mentioned,
+          // so every Aria-addressed image previously hit both handlers).
+          continue;
         } catch (e) {
           console.warn('[ARIA Listener] Image processing failed:', e.message);
           // R-F1311: clean customer-facing error — no internal diagnostics leaked
@@ -2737,9 +2765,11 @@ async function onMessagesUpsert(sock, account, ev) {
             console.log(`[ARIA Listener] 🎙 Voice note received in ${groupName} — transcription disabled (set ARIA_VOICE_TRANSCRIBE_ENABLED=1 on aria-intel).`);
           } else {
             console.warn(`[ARIA Listener] 🎙 Voice transcription failed: ${(tr && tr.error) || 'no response'}`);
+            _reportVoiceFailure(groupName, chatId, (tr && tr.error) || 'no response');
           }
         } catch (e) {
           console.warn('[ARIA Listener] Voice processing failed:', e.message);
+          _reportVoiceFailure(groupName, chatId, e.message);
         }
       }
 
