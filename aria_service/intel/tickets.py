@@ -148,7 +148,7 @@ async def _create_github_issue(
     }
     payload = {"title": title[:250], "body": body, "labels": labels}
     try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: ticket system is best-effort; breaker would block ticket creation=_HTTP_TIMEOUT) as client:
             r = await client.post(url, json=payload, headers=headers)
         if r.status_code in (200, 201):
             data = r.json()

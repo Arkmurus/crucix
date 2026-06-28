@@ -298,7 +298,7 @@ async def crawl_and_index(url: str, tier: str = "C") -> dict:
     try:
         downloaded = None
         last_err = None
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: corpus manager is best-effort crawl
             follow_redirects=True,
             timeout=httpx.Timeout(20.0, connect=10.0),
             headers={

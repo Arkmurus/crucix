@@ -836,7 +836,7 @@ async def _check_endpoint(
         # endpoint probe at 15s removes the false-negative without
         # extending the diagnostic's total wall-clock noticeably (probes
         # run with an 8-way semaphore).
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: self-diagnostic is read-only; breaker would hide health status=15.0) as client:
             # Try GET; some endpoints are POST-only and return 405.
             # R-F707 (2026-05-18) — append probe_query (e.g. ?entity=__probe__)
             # for endpoints whose required params would otherwise 422 on

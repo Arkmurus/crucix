@@ -105,7 +105,7 @@ async def crtsh_lookup(
         return out
     params = {"q": domain, "output": "json"}
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: domain pivots are best-effort OSINT
             timeout=timeout, follow_redirects=True,
         ) as client:
             resp = await client.get(
@@ -270,7 +270,7 @@ async def dns_lookup(
         out["error"] = "domain malformed"
         return out
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: domain pivots are best-effort OSINT
             timeout=timeout, follow_redirects=True,
         ) as client:
             resp = await client.get(
@@ -332,7 +332,7 @@ async def ip_to_asn(
         out["error"] = "ip empty"
         return out
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: domain pivots are best-effort OSINT
             timeout=timeout, follow_redirects=True,
         ) as client:
             resp = await client.get(

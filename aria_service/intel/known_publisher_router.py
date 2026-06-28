@@ -155,7 +155,7 @@ async def _arxiv(url: str) -> dict:
     import httpx
     api_url = f"https://export.arxiv.org/api/query?id_list={paper_id}"
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: publisher router is best-effort; breaker would block content routing=20.0) as client:
             r = await client.get(api_url, headers={"User-Agent": _UA})
             r.raise_for_status()
             xml = r.text

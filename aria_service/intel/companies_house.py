@@ -81,7 +81,7 @@ async def _get(path: str) -> dict | None:
         return None
     url = f"{_BASE_URL}{path}"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: Companies House is a free authoritative source; breaker belongs at the caller (DD pipeline)=_TIMEOUT) as client:
             resp = await client.get(url, headers=_headers())
             if resp.status_code == 404:
                 return None

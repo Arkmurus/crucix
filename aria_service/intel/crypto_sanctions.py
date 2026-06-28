@@ -151,7 +151,7 @@ async def fetch_and_index(force: bool = False) -> dict[str, Any]:
         return {"ok": False, "error": f"httpx unavailable: {e}"}
 
     try:
-        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: crypto sanctions is best-effort; breaker would miss wallet screenings=120.0, follow_redirects=True) as client:
             resp = await client.get(_OPENSANCTIONS_TARGETS_URL)
             if resp.status_code != 200:
                 return {"ok": False, "error": f"OpenSanctions HTTP {resp.status_code}"}

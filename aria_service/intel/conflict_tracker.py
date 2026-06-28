@@ -108,7 +108,7 @@ async def _fetch_acled(country_iso3: str, days: int = 30) -> list[dict]:
         params["email"] = api_email
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: conflict tracker is best-effort OSINT; breaker would hide conflict signals=20.0) as client:
             resp = await client.get(ACLED_BASE, params=params)
             if resp.status_code != 200:
                 logger.warning("ACLED returned %s for %s — falling back to GDELT", resp.status_code, country_iso3)

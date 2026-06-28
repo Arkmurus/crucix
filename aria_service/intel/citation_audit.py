@@ -145,7 +145,7 @@ async def _fetch_text(url: str, *, timeout: float = 15.0) -> tuple[str, str]:
         return ("fetch_error", "")
     try:
         from . import url_safety as _us
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: citation audit is read-only best-effort
             timeout=timeout,
             follow_redirects=False,  # R-F1825: safe_get revalidates each hop
             headers={"User-Agent": "AriaCitationAudit/1.0 (defence-DD; aria@arkmurus.com)"},

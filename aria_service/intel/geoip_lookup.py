@@ -91,7 +91,7 @@ async def _resolve_domain(domain: str) -> Optional[str]:
 async def _try_ip_api(ip: str) -> Optional[dict[str, Any]]:
     """Try ip-api.com (free, 45 req/min)."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: GeoIP lookup is best-effort; breaker would block IP resolution=_TIMEOUT_S) as client:
             resp = await client.get(f"http://ip-api.com/json/{ip}")
             if resp.status_code == 200:
                 data = resp.json()

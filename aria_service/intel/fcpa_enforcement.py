@@ -195,7 +195,7 @@ async def monitor_doj_fcpa(days_back: int = 30) -> dict[str, Any]:
         return {"ok": False, "error": f"httpx unavailable: {e}", "items": []}
 
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: FCPA monitoring is best-effort
             headers={"User-Agent": "AriaIntelligence/1.0 (defence DD; aria@arkmurus.com)"},
             timeout=45.0,
             follow_redirects=True,

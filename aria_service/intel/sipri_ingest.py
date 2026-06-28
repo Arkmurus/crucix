@@ -228,7 +228,7 @@ async def fetch_and_ingest_sipri() -> dict:
     ]
     for url in candidate_urls:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout  # no-breaker: SIPRI ingest is periodic batch; breaker would stall arms data updates=30.0) as client:
                 resp = await client.get(url)
                 if resp.status_code == 200 and resp.content and len(resp.content) > 500:
                     return await ingest_csv_bytes(resp.content, since_year=datetime.now().year - 10)

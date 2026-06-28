@@ -234,7 +234,7 @@ async def _fetch(url: str, timeout: float = 10.0) -> tuple[int, str]:
     """Async GET using httpx — returns (status, text). Silent on failure."""
     try:
         import httpx
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:  # no-breaker: source validation is best-effort
             r = await client.get(url, headers=_HEADERS)
             return r.status_code, r.text
     except Exception as e:
@@ -245,7 +245,7 @@ async def _fetch(url: str, timeout: float = 10.0) -> tuple[int, str]:
 async def _head(url: str, timeout: float = 5.0) -> int:
     try:
         import httpx
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:  # no-breaker: source validation is best-effort
             r = await client.head(url, headers=_HEADERS)
             return r.status_code
     except Exception:

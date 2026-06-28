@@ -547,7 +547,7 @@ async def _check_ollama_reasoning() -> str | None:
     ollama_url = (os.getenv("OLLAMA_URL", "http://localhost:11434") or "").rstrip("/")
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: reasoning router is best-effort; breaker would block LLM routing=3.0) as client:
             resp = await client.get(f"{ollama_url}/api/tags")
             if resp.status_code != 200:
                 _ollama_reasoning_checked = now

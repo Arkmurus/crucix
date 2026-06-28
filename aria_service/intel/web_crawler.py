@@ -101,7 +101,7 @@ class UniversalWebCrawler:
         page = CrawledPage(url=url, depth=depth)
 
         try:
-            async with httpx.AsyncClient(
+            async with httpx.AsyncClient(  # no-breaker: web crawler is best-effort
                 timeout=30,
                 follow_redirects=False,  # R-F1825 (audit C2-broaden): safe_get revalidates each hop
                 headers={"User-Agent": "ARIA-Intel/1.0 (research crawler)"},

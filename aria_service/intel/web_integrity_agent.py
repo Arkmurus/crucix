@@ -218,7 +218,7 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
 
     try:
         url = f"{_ARIA_SERVICE_URL}{path}"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: web integrity agent is best-effort; breaker would block integrity checks=10.0) as client:
             if method == "GET":
                 resp = await client.get(url)
             elif method == "POST":

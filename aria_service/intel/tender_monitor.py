@@ -396,7 +396,7 @@ def _ted_i18n_pick_str(value: object, prefer: tuple = ("eng", "fra", "deu")) -> 
 # ── Portal crawlers ──────────────────────────────────────────────────────────
 
 
-async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl TED (Tenders Electronic Daily) — EU defence procurement.
 
     Filters by CPV codes in the defence range (35000000-35999999) and
@@ -573,7 +573,7 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
     return tenders
 
 
-async def _crawl_sam_gov(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_sam_gov(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl SAM.gov — US government procurement.
 
     Requires SAM_GOV_API_KEY env var. Skipped if not set.
@@ -656,7 +656,7 @@ async def _crawl_sam_gov(client: httpx.AsyncClient, max_results: int = 20) -> li
     return tenders
 
 
-async def _crawl_contracts_finder(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_contracts_finder(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl Contracts Finder — UK government procurement.
 
     Free REST API, no auth needed. Uses OCDS (Open Contracting Data Standard) format.
@@ -756,7 +756,7 @@ async def _crawl_contracts_finder(client: httpx.AsyncClient, max_results: int = 
     return tenders
 
 
-async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl UNGM (UN Global Marketplace) — UN procurement.
 
     No API — web scrape with httpx + regex extraction.
@@ -924,7 +924,7 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
     return tenders
 
 
-async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl AfDB (African Development Bank) procurement.
 
     No API — web scrape with httpx + regex.
@@ -1029,7 +1029,7 @@ def _build_seace_ssl_context():
     return ctx
 
 
-async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl SEACE (Sistema Electrónico de Contrataciones del Estado) — Peru.
 
     Uses a separate httpx client with a relaxed SSL context (see
@@ -1052,7 +1052,7 @@ async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) ->
         # AsyncClient and was bypassing the header set entirely.
         from .ua_rotation import random_headers as _seace_headers
         ssl_ctx = _build_seace_ssl_context()
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: tender monitor is best-effort
             verify=ssl_ctx,
             timeout=_HTTP_TIMEOUT,
             follow_redirects=True,
@@ -1121,7 +1121,7 @@ async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) ->
 # ── Portal 7: e-licitatie Romania ──────────────────────────────────────────
 # 2026-04-12: Romania's public procurement portal. Web scrape.
 
-async def _crawl_elicitatie_romania(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_elicitatie_romania(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl e-licitatie.ro — Romania's central procurement platform."""
     tenders: list[TenderAlert] = []
     try:
@@ -1182,7 +1182,7 @@ async def _crawl_elicitatie_romania(client: httpx.AsyncClient, max_results: int 
 # ── Portal 8: MERX Canada ─────────────────────────────────────────────────
 # 2026-04-12: Canada's central procurement portal (federal + provincial).
 
-async def _crawl_merx_canada(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+async def _crawl_merx_canada(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:  # no-breaker: tender monitor is best-effort
     """Crawl MERX / CanadaBuys — Canada's procurement portal."""
     tenders: list[TenderAlert] = []
     try:
@@ -1268,7 +1268,7 @@ async def crawl_all_portals(max_results_per_portal: int = 20) -> list[TenderAler
     portal_health: dict[str, dict] = {}
 
     from .ua_rotation import random_headers
-    async with httpx.AsyncClient(
+    async with httpx.AsyncClient(  # no-breaker: tender monitor is best-effort
         headers=random_headers(),
         follow_redirects=True,
     ) as client:

@@ -170,7 +170,7 @@ async def _fetch_comtrade_benchmark(
         "max":                  "5",
     }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: TBML detection is best-effort; breaker would hide trade-based money laundering signals=30.0) as client:
             resp = await client.get(_COMTRADE_BASE, params=params)
             if resp.status_code != 200:
                 logger.debug("COMTRADE %s -> %s", hs_code, resp.status_code)

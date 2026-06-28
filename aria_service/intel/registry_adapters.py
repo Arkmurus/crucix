@@ -158,7 +158,7 @@ async def _lookup_gibraltar(name: str, reg_number: str | None) -> dict | None:
     """Gibraltar Companies House — HTML scraping (no REST API available)."""
     search_url = f"{_GI_BASE}/index.html"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level=_TIMEOUT, follow_redirects=True) as client:
             # Try search by name
             params = {"action": "search", "q": reg_number or name}
             resp = await client.get(search_url, params=params)

@@ -87,7 +87,7 @@ async def query_usaspending(
         "order": "desc",
     }
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: procurement history is best-effort
             timeout=timeout, follow_redirects=True,
         ) as client:
             resp = await client.post(
@@ -173,7 +173,7 @@ async def query_uk_contracts_finder(
         "size": min(max_records, 100),
     }
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: procurement history is best-effort
             timeout=timeout, follow_redirects=True,
         ) as client:
             resp = await client.post(

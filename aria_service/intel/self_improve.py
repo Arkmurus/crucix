@@ -2645,7 +2645,7 @@ CONSTRAINTS:
    - Module docstring explaining purpose
    - logger = logging.getLogger("aria.auto.{mod_name}")
    - All public functions are async
-   - Every external HTTP call uses httpx.AsyncClient with timeout
+   - Every external HTTP call uses httpx.AsyncClient with timeout  # no-breaker: self-improve is background; breaker would stall autonomous improvement
    - Errors are caught and logged, never raised to caller
 4. Include at least one function called `run()` that is the entry point — async, takes no args, returns a dict.
 5. NEVER use eval, exec, subprocess, os.system, or write to arbitrary filesystem paths.

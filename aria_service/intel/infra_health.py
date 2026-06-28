@@ -71,7 +71,7 @@ class InfraHealthMonitor:
         }
         
         results = {}
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: infra health checks are read-only; breaker would hide health status=10) as client:
             for name, url in services.items():
                 try:
                     r = await client.get(url)

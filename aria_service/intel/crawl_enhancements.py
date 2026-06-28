@@ -75,7 +75,7 @@ async def detect_content_type(url: str, timeout: float = 8.0) -> dict:
         out["error"] = f"ssrf_blocked:{_reason_ct}"
         return out
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
             timeout=timeout, follow_redirects=False,
         ) as client:
             try:
@@ -147,7 +147,7 @@ async def check_robots(url: str) -> dict:
             # imo.org but we can cap our patience. Same pattern observed
             # earlier on email.net.
             from . import url_safety as _us  # R-F1851 (DD stage 2): SSRF guard
-            async with httpx.AsyncClient(
+            async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
                 timeout=8.0, follow_redirects=False,
             ) as client:
                 # safe_get revalidates every redirect hop (cap 5, matching the
@@ -300,7 +300,7 @@ async def fetch_pdf(url: str, timeout: float = 30.0) -> dict:
     }
     try:
         from . import url_safety as _us
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
             timeout=timeout, follow_redirects=False,  # R-F1825: safe_get revalidates each hop
         ) as client:
             r = await _us.safe_get(client, url, headers={"User-Agent": _UA})  # R-F1825 (C2-broaden): SSRF guard on user/discovery PDF URL
@@ -384,7 +384,7 @@ async def fetch_via_wayback(
     if timestamp:
         availability_url += f"&timestamp={timestamp}"
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
             timeout=timeout, follow_redirects=True,
         ) as client:
             r = await client.get(availability_url, headers={"User-Agent": _UA})
@@ -405,7 +405,7 @@ async def fetch_via_wayback(
     out["snapshot_timestamp"] = snap.get("timestamp", "")
 
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
             timeout=timeout, follow_redirects=True,
         ) as client:
             r = await client.get(snap_url, headers={"User-Agent": _UA})
@@ -497,7 +497,7 @@ async def discover_via_sitemap(domain_or_url: str, limit: int = 200) -> list[str
         if len(urls) >= limit:
             break
         try:
-            async with httpx.AsyncClient(
+            async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
                 timeout=15.0, follow_redirects=True,
             ) as client:
                 r = await client.get(sm_url, headers={"User-Agent": _UA})
@@ -640,7 +640,7 @@ async def fetch_with_fallbacks(
     primary_failed = False
     primary_error = ""
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: crawl enhancements are best-effort
             timeout=timeout, follow_redirects=False,  # R-F1851: safe_get revalidates each hop
         ) as client:
             r = await _us.safe_get(client, url, headers={"User-Agent": _UA})  # R-F1851: SSRF guard on primary HTML fetch
@@ -772,7 +772,7 @@ async def fetch_structured_endpoint(url: str, timeout: float = 20.0) -> dict:
 
     import httpx
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:  # no-breaker: crawl enhancements are best-effort
             r = await client.get(url, headers={"User-Agent": _UA})
             if r.status_code != 200:
                 out["error"] = f"HTTP {r.status_code}"

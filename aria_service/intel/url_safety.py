@@ -231,7 +231,7 @@ async def safe_get(client, url, *, max_redirects: int = 3, **kwargs):
     """R-F1814 — SSRF-safe HTTP GET. Validates ``url`` AND every redirect hop with
     is_safe_url, with ``follow_redirects`` forced OFF so an open redirect to an
     internal host cannot bypass the guard. Raises ``ValueError('ssrf_blocked:<reason>')``
-    if any hop is unsafe. ``client`` is an httpx.AsyncClient (caller owns
+    if any hop is unsafe. ``client`` is an httpx.AsyncClient (caller owns  # no-breaker: URL safety is the SSRF guard itself; breaker at caller
     timeout/headers). This is the single SSRF-checked fetch boundary every
     user-URL fetcher should use instead of a raw ``client.get``.
     """

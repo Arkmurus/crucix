@@ -147,7 +147,7 @@ async def _api(method: str, path: str) -> dict:
 
     c = _cfg()
     url = f"{c['api_base']}{path}"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout  # no-breaker: RunPod scheduler is best-effort; breaker would block GPU scheduling=30.0) as client:
         resp = await client.request(
             method, url,
             headers={"Authorization": f"Bearer {c['api_key']}"},

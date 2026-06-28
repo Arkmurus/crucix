@@ -15524,9 +15524,10 @@
       "title": "Campaign 2: 176 SUCCESS ONLY add wire_failure",
       "claimed_at": "2026-06-28T22:27:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c014d15c",
+      "notes": null,
+      "shipped_at": "2026-06-28T22:35:27Z"
     },
     {
       "r_number": "R-F2120",

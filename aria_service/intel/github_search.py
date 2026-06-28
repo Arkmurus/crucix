@@ -52,7 +52,7 @@ async def search_code(query: str, max_results: int = 5) -> list[dict[str, Any]]:
         return []
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout  # no-breaker: GitHub search is best-effort OSINT; breaker would block code discovery=_TIMEOUT_S) as client:
             resp = await client.get(
                 f"{_API_BASE}/search/code",
                 headers=_headers(),

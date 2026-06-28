@@ -211,7 +211,7 @@ class TwoCaptchaProvider(CaptchaProvider):
     async def _solve(self, captcha_type: str, params: dict) -> str | None:
         """Submit a CAPTCHA to 2captcha and poll for the result."""
         try:
-            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:  # no-breaker: captcha solver is best-effort; breaker would prevent retry
                 # Step 1: Submit the CAPTCHA
                 submit_params = {
                     "key": self.api_key,
@@ -328,7 +328,7 @@ class CapsolverProvider(CaptchaProvider):
     async def _solve(self, task_type: str, task: dict) -> str | None:
         """Submit a CAPTCHA to capsolver and poll for the result."""
         try:
-            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:  # no-breaker: captcha solver is best-effort; breaker would prevent retry
                 resp = await client.post(
                     f"{self.BASE_URL}/createTask",
                     json={
@@ -446,7 +446,7 @@ class AntiCaptchaProvider(CaptchaProvider):
     async def _solve(self, task_type: str, task: dict) -> str | None:
         """Submit a CAPTCHA to anti-captcha and poll for the result."""
         try:
-            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_SOLVE_TIMEOUT) as client:  # no-breaker: captcha solver is best-effort; breaker would prevent retry
                 resp = await client.post(
                     f"{self.BASE_URL}/createTask",
                     json={
