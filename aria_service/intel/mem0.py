@@ -361,8 +361,16 @@ def retrieve_for_query(query: str) -> str:
     if not words:
         return ""
 
+    # R-F2099 — yield the GIL every 512 facts. retrieve_for_query runs inside the
+    # _build_7_layer_context thread pool; on a large knowledge base this O(all-facts)
+    # scan held the GIL long enough to wedge the event loop (this layer was the one
+    # that hung the whole chat turn >200s). The periodic yield lets the loop breathe;
+    # the R-F2099 layer budget caps the layer overall so it can never wedge the turn.
+    import time as _t_mem0
     scored: list[tuple[float, dict]] = []
-    for f in facts:
+    for _i, f in enumerate(facts):
+        if (_i & 0x1FF) == 0:
+            _t_mem0.sleep(0)
         source = (f.get("source") or "")
         if not source.startswith("mem0:"):
             continue

@@ -1795,11 +1795,37 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
 
     # Fetch all layers in parallel (up to 6 threads — IO-bound, not CPU-bound)
     results = {}
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    # R-F2099 — per-build LAYER BUDGET. Previously this used `as_completed(futures)`
+    # with NO timeout inside a `with ThreadPoolExecutor` whose shutdown(wait=True)
+    # blocks on still-running threads. So a SINGLE retrieval layer that hangs (a
+    # wedged RAG/chromadb query, a slow neural recall, a stuck ledger/state read)
+    # wedged the ENTIRE chat turn indefinitely — the cause of "long/substantive
+    # messages (and document reviews) never get answered" (live: >200s timeout,
+    # while the fast-lane single-LLM path answered in ~2s). Now: take whatever
+    # layers finish within the budget and PROCEED without the slow one(s). The
+    # attached document rides the user_prompt (not a context layer), so a dropped
+    # retrieval layer never removes the document under review. Tune via
+    # ARIA_CONTEXT_LAYER_BUDGET_S (default 20s — healthy layers finish in <7s).
+    from concurrent.futures import TimeoutError as _LayerTimeout
+    _layer_budget = float(os.getenv("ARIA_CONTEXT_LAYER_BUDGET_S", "20"))
+    pool = ThreadPoolExecutor(max_workers=6)
+    try:
         futures = {pool.submit(_safe_call, lyr): lyr[0] for lyr in all_layers}
-        for future in as_completed(futures):
-            name, text = future.result()
-            results[name] = text
+        try:
+            for future in as_completed(futures, timeout=_layer_budget):
+                name, text = future.result()
+                results[name] = text
+        except _LayerTimeout:
+            _slow = [n for f, n in futures.items() if not f.done()]
+            logger.warning(
+                "[R-F2099] 7-layer context: %.0fs budget exceeded — proceeding "
+                "WITHOUT slow/hung layer(s): %s (a stuck retrieval layer must NOT "
+                "wedge the whole chat turn / document review)", _layer_budget, _slow)
+    finally:
+        # wait=False + cancel_futures: never block the turn on a hung layer's thread
+        # (the old `with` exit did exactly that). Pending layers are cancelled; an
+        # already-running hung thread is abandoned (it finishes or harmlessly exits).
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # ── ASSEMBLE in priority order (primary first, recall second) ──
     total = ""

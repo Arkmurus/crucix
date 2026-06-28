@@ -15328,18 +15328,20 @@
       "title": "chat 7-layer context: per-build layer-budget timeout so a hung retrieval layer cannot wedge the whole chat turn (long/substantive messages hang)",
       "claimed_at": "2026-06-28T18:59:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T19:14:23Z"
     },
     {
       "r_number": "R-F2100",
       "title": "Phase 0 load-test harness (concurrent chat/DD knee-finder, read-only against canary)",
       "claimed_at": "2026-06-28T19:01:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "29327c72",
+      "notes": null,
+      "shipped_at": "2026-06-28T19:05:49Z"
     }
   ]
 }
