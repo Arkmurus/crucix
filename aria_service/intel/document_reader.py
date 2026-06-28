@@ -1272,3 +1272,141 @@ async def analyse_contract(
         "sitcl_triggers": sitcl_found,
         "reference": f"ARK-READ-{datetime.now().strftime('%Y%m%d%H%M%S')}",
     }
+
+
+@fail_wire(module="document_reader", gap_type="file_parse")
+async def analyse_contract_deep(
+    source: str,
+    llm: "LLMProvider | None" = None,
+    market: str = "",
+    comparison_source: str | None = None,
+) -> dict:
+    """Deep LLM-powered contract analysis with optional redline comparison.
+
+    Unlike analyse_contract() which does keyword-based SITCL/missing-clause
+    detection, this function uses the LLM to produce a full commercial
+    analysis: risk assessment, party-benefit analysis, negotiation
+    recommendations, and (when comparison_source is provided) a redline
+    comparison between two versions of a contract.
+
+    Args:
+        source: Path or URL to the primary contract document (newer version
+            in a redline comparison).
+        llm: LLM provider for the analysis.
+        market: Optional market context (e.g. "defence", "Peru").
+        comparison_source: Optional path/URL to the older version for
+            redline comparison.
+
+    Returns:
+        dict with keys:
+          status: "ANALYSED" | "UNREADABLE" | "ERROR"
+          analysis: LLM-generated analysis text
+          redline_changes: list of detected changes (if comparison provided)
+          risk_flags: list of high/medium/low risk items
+          negotiation_points: list of recommended negotiation items
+          extraction_method: how the document was read
+    """
+    # Read the primary document
+    extraction = await read_document(source, llm=llm, query="legal contract terms")
+    if not extraction.is_usable:
+        return {
+            "status": "UNREADABLE",
+            "extraction": extraction.summary,
+            "analysis": None,
+        }
+
+    # Read comparison document if provided
+    comparison_text = None
+    if comparison_source:
+        comp_extraction = await read_document(
+            comparison_source, llm=llm, query="legal contract terms comparison"
+        )
+        if comp_extraction.is_usable:
+            comparison_text = comp_extraction.text
+
+    # Build the analysis prompt
+    doc_text = extraction.text
+    # Truncate to avoid blowing the LLM context window
+    max_doc_chars = 25000
+    if len(doc_text) > max_doc_chars:
+        doc_text = doc_text[:max_doc_chars] + "\n\n[... document truncated ...]"
+
+    market_context = f" The contract relates to the {market} market." if market else ""
+
+    if comparison_text:
+        if len(comparison_text) > max_doc_chars:
+            comparison_text = comparison_text[:max_doc_chars] + "\n\n[... document truncated ...]"
+        prompt = (
+            f"You are a senior commercial contracts analyst. Analyse the following "
+            f"contract REDLINE COMPARISON between two versions (OLDER vs NEWER).{market_context}\n\n"
+            f"--- OLDER VERSION ---\n{comparison_text}\n\n"
+            f"--- NEWER VERSION ---\n{doc_text}\n\n"
+            f"Provide a structured analysis covering:\n"
+            f"1. KEY CHANGES: List each material change between versions, which party "
+            f"benefits, and the commercial impact.\n"
+            f"2. RISK ASSESSMENT: For each change and for the overall agreement, rate "
+            f"risk as HIGH/MEDIUM/LOW and explain why.\n"
+            f"3. NEGOTIATION RECOMMENDATIONS: Specific items the receiving party should "
+            f"push back on, with suggested language or approach.\n"
+            f"4. PARTY ANALYSIS: Which party does each clause favour? Is the overall "
+            f"agreement balanced or one-sided?\n"
+            f"5. STRUCTURAL ISSUES: Missing clauses, unbalanced termination provisions, "
+            f"liability caps, dispute resolution concerns.\n"
+            f"6. EXECUTIVE SUMMARY: 3-5 bullet points summarising the most important "
+            f"things to know about this agreement."
+        )
+    else:
+        prompt = (
+            f"You are a senior commercial contracts analyst. Analyse the following "
+            f"contract agreement.{market_context}\n\n"
+            f"--- CONTRACT ---\n{doc_text}\n\n"
+            f"Provide a structured analysis covering:\n"
+            f"1. PARTIES AND SCOPE: Who are the parties, what is the territory, "
+            f"what products/services are covered?\n"
+            f"2. KEY TERMS: Commission structure, exclusivity, term, termination rights.\n"
+            f"3. RISK ASSESSMENT: For each major clause, rate risk as HIGH/MEDIUM/LOW "
+            f"and explain why. Consider: termination provisions, liability caps, "
+            f"indemnities, governing law, dispute resolution, non-compete, IP rights.\n"
+            f"4. PARTY ANALYSIS: Which party does each clause favour? Is the overall "
+            f"agreement balanced or one-sided?\n"
+            f"5. NEGOTIATION RECOMMENDATIONS: Specific items to negotiate, with "
+            f"suggested approach.\n"
+            f"6. STRUCTURAL ISSUES: Missing clauses, unbalanced provisions, "
+            f"jurisdiction concerns.\n"
+            f"7. EXECUTIVE SUMMARY: 3-5 bullet points summarising the most important "
+            f"things to know."
+        )
+
+    if not llm or not llm.is_configured:
+        return {
+            "status": "ERROR",
+            "error": "LLM not configured — cannot perform deep analysis",
+            "extraction_method": extraction.method,
+        }
+
+    try:
+        result = await llm.complete(prompt, max_tokens=4000, temperature=0.3)
+        analysis_text = result.content if result and result.content else "Analysis failed to generate."
+    except Exception as e:
+        logger.error("analyse_contract_deep LLM call failed: %s", e)
+        return {
+            "status": "ERROR",
+            "error": f"LLM analysis failed: {e}",
+            "extraction_method": extraction.method,
+        }
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="document_reader",
+        summary="Deep contract analysis",
+        source_id="document_reader:R-F2078",
+    )
+
+    return {
+        "status": "ANALYSED",
+        "analysis": analysis_text,
+        "is_redline": comparison_text is not None,
+        "extraction_method": extraction.method,
+        "extraction_confidence": extraction.confidence,
+        "reference": f"ARK-CONTRACT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+    }

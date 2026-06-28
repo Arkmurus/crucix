@@ -5416,6 +5416,23 @@ def _detect_tool_intent(message: str) -> dict | None:
     ):
         return None
 
+    # ── R-F2078: Contract analysis intent ──
+    # When the user asks to review/analyse a contract or agreement (with or
+    # without an attached document), route to the deep contract analysis tool.
+    # This catches both explicit "/review-contract" and natural language like
+    # "analyse this agreement" or "review this contract".
+    _CONTRACT_REVIEW_RE = re.compile(
+        r"\b(?:review|analyse|analyze|redline)\s+(?:this\s+)?"
+        r"(?:contract|agreement|contractual)\b",
+        re.IGNORECASE,
+    )
+    if _CONTRACT_REVIEW_RE.search(msg):
+        return {
+            "tool": "contract_analysis",
+            "context": msg,
+            "_reason": "contract_review_intent_rf2078",
+        }
+
     # ── Pipeline command intent ──
     if msg.strip().lower().startswith("/pipeline") or msg.strip().lower() == "show pipeline":
         return {
@@ -7792,6 +7809,42 @@ async def _execute_tool(
                 f"tool-fetched from recalled.\n"
             )
 
+        if tool == "contract_analysis":
+            # R-F2078: Deep LLM-powered contract analysis with optional redline comparison.
+            # The context contains the user's message; the attached document(s) are
+            # extracted from the message by the caller before _execute_tool is called.
+            context = intent.get("context", "")
+            # Extract the document source from the context
+            doc_source = _extract_attached_document(context) if "[ATTACHED DOCUMENT" in context else ""
+            if not doc_source:
+                return (
+                    "\n\n[TOOL: contract_analysis]\n"
+                    "Please attach the contract document you'd like me to analyse. "
+                    "You can also attach a second (older) version for a redline comparison."
+                )
+            try:
+                from ..intel import document_reader as _dr
+                result = await _dr.analyse_contract_deep(
+                    source=doc_source,
+                    llm=llm,
+                    market=intent.get("market", ""),
+                )
+                if result.get("status") == "UNREADABLE":
+                    return (
+                        f"\n\n[TOOL: contract_analysis — UNREADABLE]\n"
+                        f"Could not read the document: {result.get('extraction', 'unknown reason')}"
+                    )
+                if result.get("status") == "ERROR":
+                    return (
+                        f"\n\n[TOOL: contract_analysis — ERROR]\n"
+                        f"{result.get('error', 'unknown error')}"
+                    )
+                analysis = result.get("analysis", "")
+                return f"\n\n[TOOL: contract_analysis]\n\n{analysis}\n\nReference: {result.get('reference', '')}"
+            except Exception as _ce:
+                _log.warning("contract_analysis tool failed: %s", _ce)
+                return f"\n\n[TOOL: contract_analysis — FAILED]\nError: {_ce}"
+
         if tool == "extract_url":
             # Multi-page DD extraction (Phase 2 fix, 2026-04-09 evening).
             # Fetches the URL plus 4 high-value internal links (about / team /
@@ -8371,6 +8424,11 @@ def _build_command_catalogue() -> dict[str, dict]:
             "description": "Correct a field in a document extraction",
             "usage": "/docfix ext_abc123 registration_number: 12345678",
             "note": "Only needed when ARIA asks you to correct a field.",
+        },
+        "/review-contract": {
+            "description": "Deep LLM-powered analysis of a contract or agreement",
+            "usage": "/review-contract, analyse this contract, review this agreement",
+            "note": "Attach the contract document. Optionally attach a second version for redline comparison. Returns risk assessment, negotiation recommendations, and party analysis.",
         },
     }
 
@@ -18404,6 +18462,34 @@ async def read_contract_ep(
             source=req.source,
             llm=llm,
             market=req.market,
+        )
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class AnalyseContractDeepRequest(BaseModel):
+    source: str
+    market: str = ""
+    comparison_source: str | None = None
+
+
+@router.post("/analyse-contract-deep")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def analyse_contract_deep_ep(
+    req: AnalyseContractDeepRequest,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/analyse-contract-deep — deep LLM-powered contract
+    analysis with optional redline comparison. Returns risk assessment,
+    negotiation recommendations, and party analysis."""
+    try:
+        from ..intel import document_reader
+        result = await document_reader.analyse_contract_deep(
+            source=req.source,
+            llm=llm,
+            market=req.market,
+            comparison_source=req.comparison_source,
         )
         return result
     except Exception as e:
