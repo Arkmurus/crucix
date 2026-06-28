@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2098,
+  "next_available": 2099,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15307,6 +15307,16 @@
       "r_number": "R-F2097",
       "title": "close dd/case+dd/vault IDOR: per-user ownership on dd_vault/dd_case (brain) + Node pin-routes",
       "claimed_at": "2026-06-28T18:20:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e8810f2a",
+      "notes": null,
+      "shipped_at": "2026-06-28T18:26:12Z"
+    },
+    {
+      "r_number": "R-F2098",
+      "title": "ARIA scaling readiness plan (1->100+ users) — sequenced gated roadmap doc",
+      "claimed_at": "2026-06-28T18:51:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
