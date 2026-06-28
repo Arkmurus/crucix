@@ -307,3 +307,55 @@ class RegistrationKnowledge:
                 "api_keys_obtained": api_keys,
                 "success_rate": round(successes / total_attempts, 3) if total_attempts else 0,
             }
+
+    def get_all_portals(self) -> list[dict[str, Any]]:
+        """Get all portals with their registration status for the vault.
+
+        Returns a list of dicts with keys: id, name, total_attempts,
+        last_attempt, api_key, status, success_count, fail_count.
+        """
+        from .portal_registry import PORTALS
+
+        # Build a name map from the portal registry
+        name_map = {p.id: p.name for p in PORTALS}
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get unique portal IDs from attempts and credentials
+            cur = conn.execute("""
+                SELECT DISTINCT portal_id FROM attempts
+                UNION
+                SELECT DISTINCT portal_id FROM credentials
+            """)
+            portal_ids = [row[0] for row in cur.fetchall()]
+
+            result = []
+            for pid in portal_ids:
+                site_info = self.get_site(pid)
+                cred = self.get_credential(pid)
+                has_api_key = bool(cred and cred.get("api_key"))
+
+                # Determine status
+                if has_api_key:
+                    status = "registered"
+                elif site_info and site_info.get("success_count", 0) > 0:
+                    status = "registered"
+                elif site_info and site_info.get("total_attempts", 0) > 0:
+                    status = "failed"
+                else:
+                    status = "pending"
+
+                result.append({
+                    "id": pid,
+                    "name": name_map.get(pid, pid),
+                    "total_attempts": site_info.get("total_attempts", 0) if site_info else 0,
+                    "success_count": site_info.get("success_count", 0) if site_info else 0,
+                    "fail_count": site_info.get("fail_count", 0) if site_info else 0,
+                    "last_attempt": site_info.get("last_attempt") if site_info else None,
+                    "last_success": site_info.get("last_success") if site_info else None,
+                    "api_key": cred.get("api_key")[:16] + "..." if cred and cred.get("api_key") else None,
+                    "status": status,
+                })
+
+            return result

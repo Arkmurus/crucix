@@ -298,6 +298,37 @@ class PortalScheduler:
         }
 
 
+async def _cleanup_temp_files():
+    """Remove stale .tmp files from /data that are older than 1 hour.
+
+    The knowledge module creates .aria_knowledge.*.json.tmp files during
+    disk flushes. These accumulate and fill the disk if not cleaned.
+    """
+    import glob
+    import os
+    import time
+
+    data_dir = "/data"
+    pattern = os.path.join(data_dir, ".aria_knowledge.*.json.tmp")
+    now = time.time()
+    deleted = 0
+    freed = 0
+
+    for f in glob.glob(pattern):
+        try:
+            age = now - os.path.getmtime(f)
+            if age > 3600:  # older than 1 hour
+                size = os.path.getsize(f)
+                os.remove(f)
+                deleted += 1
+                freed += size
+        except Exception:
+            pass
+
+    if deleted:
+        logger.info("[cleanup] Deleted %d stale temp files (%.0f MB)", deleted, freed / 1024 / 1024)
+
+
 async def autonomous_registration_loop(interval_s: int = _RUN_INTERVAL_S):
     """Background task that runs the registration scheduler continuously.
 
@@ -312,6 +343,9 @@ async def autonomous_registration_loop(interval_s: int = _RUN_INTERVAL_S):
 
     while True:
         try:
+            # Disk cleanup before each cycle
+            await _cleanup_temp_files()
+
             # Check engine pause flag
             try:
                 from aria_service.autonomous.safety import is_engine_paused
