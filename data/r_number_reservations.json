@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2093,
+  "next_available": 2094,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15262,6 +15262,16 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-06-28T14:06:23Z"
+    },
+    {
+      "r_number": "R-F2093",
+      "title": "aria CLI robustness: wcwidth box alignment + control-char sanitize untrusted output + interject buffer cap",
+      "claimed_at": "2026-06-28T17:43:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T17:48:00Z"
     }
   ]
 }

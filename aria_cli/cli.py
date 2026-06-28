@@ -143,8 +143,9 @@ def _stdin_reader() -> None:
                         buf = buf[:-1]
                     elif ch == "\x03":  # Ctrl+C
                         raise KeyboardInterrupt
-                    else:
-                        buf += ch
+                    elif len(buf) < 8192:   # R-F2093 — cap the interject buffer so a
+                        buf += ch           # huge mid-task paste can't grow unbounded
+                    # else: drop excess — an interject is a short message, not a file
                 else:
                     threading.Event().wait(0.05)
             except ImportError:
@@ -457,7 +458,7 @@ def _turn_worker(agent, line: str, color, ui=None) -> threading.Thread:
         try:
             agent.run_until_complete(line)
         except Exception as exc:  # noqa: BLE001 — surface, never kill the REPL
-            print("\n" + color.red(f"  ❌ Error: {exc}"))
+            print("\n" + color.red(f"  ❌ Error: {_sanitize_output(str(exc))}"))
             print(color.dim("  The LLM provider may be unavailable. Try again later."))
             try:
                 if agent.messages:
@@ -793,9 +794,43 @@ import re as _re
 
 
 def _visible_len(s: str) -> int:
-    """Return the visible length of a string, stripping ANSI escape codes.
-    Used only by _box_content (R-F1260)."""
-    return len(_re.sub(r'\033\[[0-9;]*m', '', s))
+    """Return the DISPLAY WIDTH (terminal columns) of a string, stripping ANSI
+    escape codes. R-F2093: was len() — which mis-measured emoji (✓/❌/🚀 and any
+    pasted emoji/CJK) as 1 column when they occupy 2, shifting every box border.
+    wcswidth counts wide chars as 2 and zero-width/combining as 0; it returns -1
+    on a non-printable control char, in which case we fall back to len()."""
+    plain = _re.sub(r'\033\[[0-9;]*m', '', s)
+    try:
+        from wcwidth import wcswidth
+        w = wcswidth(plain)
+        if w >= 0:
+            return w
+    except Exception:
+        pass
+    return len(plain)
+
+
+# R-F2093 — strip terminal control sequences + C0/C1 control chars from UNTRUSTED
+# text (tool/command output, file contents, exception messages) BEFORE printing.
+# A file or command whose output contains ANSI codes, a carriage return, a
+# backspace, or an OSC title-set sequence could otherwise corrupt or SPOOF the
+# operator's terminal (e.g. overwrite a line with a fake "success", or inject a
+# colored fake error). The coder agent runs in arbitrary repos, so its tool output
+# is untrusted. Keeps \t and \n; converts \r → \n so line structure survives.
+_OUTPUT_CTRL_RE = _re.compile(
+    r'\x1b\[[0-9;?]*[ -/]*[@-~]'        # CSI sequences (incl SGR colour)
+    r'|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)'  # OSC sequences (e.g. set-window-title)
+    r'|\x1b[@-Z\\-_]'                   # other single-char escape sequences
+    r'|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]'  # C0 (excl \t \n) + DEL + C1
+)
+
+
+def _sanitize_output(s: str) -> str:
+    """Make UNTRUSTED text safe to print to the terminal (see _OUTPUT_CTRL_RE)."""
+    if not s:
+        return s
+    s = s.replace('\r\n', '\n').replace('\r', '\n')
+    return _OUTPUT_CTRL_RE.sub('', s)
 
 
 def _content(s: str) -> str:
@@ -1342,7 +1377,7 @@ class TerminalUI(AgentUI):
         _hb_touch(force=True)  # R-F1310: every completed tool step = alive
         if result.is_error:
             self._error_count += 1
-            lines = result.output.splitlines()
+            lines = _sanitize_output(result.output).splitlines()  # R-F2093
             head = lines[0] if lines else ""
             # lead error line uses the branch glyph (dim) + red content.
             print(self._branch_lead(self.c.red(head[:200])))
@@ -1357,7 +1392,7 @@ class TerminalUI(AgentUI):
 
         if name == "run":
             if result.output:
-                output = result.output
+                output = _sanitize_output(result.output)  # R-F2093 — untrusted command output
                 # Check if output looks like code (has indentation, brackets, etc.)
                 if _looks_like_code(output):
                     # R-F1385 — CAP code-looking output. A pytest/build run that
@@ -1386,7 +1421,7 @@ class TerminalUI(AgentUI):
             self._log(f"[write] {result.mutation}")
 
         if name in {"update_plan", "ask_claude", "check_claude"}:
-            self._branch_lines(result.output.splitlines())
+            self._branch_lines(_sanitize_output(result.output).splitlines())  # R-F2093
 
     def _error_suggestion(self, name: str, output: str) -> str:
         """Suggest recovery steps after common errors (R-F1260)."""
@@ -1483,6 +1518,7 @@ class TerminalUI(AgentUI):
         """Live output line from a running command (R-F1260)."""
         if not line:
             return
+        line = _sanitize_output(line)  # R-F2093 — untrusted live command output
         self._last_output = line
         if not self._can_animate:
             now = time.monotonic()
