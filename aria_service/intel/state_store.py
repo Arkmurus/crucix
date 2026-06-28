@@ -711,6 +711,32 @@ async def connect(db_path: str | None = None) -> bool:
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
         await _conn.execute("PRAGMA busy_timeout=120000")
+        # R-F2116: reclaim any WAL left by a previous UNCLEAN shutdown, at boot.
+        # A SIGKILL/SIGTERM mid-write (crash-loop or contested-deploy) leaves the
+        # -wal file un-checkpointed; once it grows across crashes sqlite's default
+        # autocheckpoint can no longer truncate it. On 2026-06-28 aria_state.db-wal
+        # reached 591 MB and EVERY boot's WAL handling exceeded fly's 1-min health
+        # grace -> SIGTERM mid-recovery -> the next boot faced the same 591 MB WAL
+        # -> an infinite crash loop that took aria-intel down for ~30 min. A
+        # checkpoint(TRUNCATE) at connect is lossless (the frames are already in
+        # the main DB) and fast (<1s even at 591 MB), so every boot starts from a
+        # small, fast-opening DB and the loop can never seed itself again.
+        try:
+            await _conn.execute("PRAGMA wal_autocheckpoint=1000")
+            await _read_conn.execute("PRAGMA wal_autocheckpoint=1000")
+            _wal_file = _DB_PATH.with_name(_DB_PATH.name + "-wal")
+            _wal_before = _wal_file.stat().st_size if _wal_file.exists() else 0
+            await _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            await _conn.commit()
+            _wal_after = _wal_file.stat().st_size if _wal_file.exists() else 0
+            if _wal_before > 50 * 1024 * 1024:
+                logger.warning(
+                    "state_store: R-F2116 reclaimed bloated WAL at boot: "
+                    "%.1f MB -> %.1f MB (prevented crash-loop recurrence)",
+                    _wal_before / 1e6, _wal_after / 1e6)
+        except Exception as e:
+            # Never let WAL housekeeping block boot — autocheckpoint is the fallback.
+            logger.warning("state_store: R-F2116 boot WAL checkpoint skipped: %s", e)
         # R-F1541: _write_conn removed — all writes go through the bounded
         # async queue (_enqueue_write), which the background worker drains
         # through _conn. This avoids WAL lock contention between multiple
