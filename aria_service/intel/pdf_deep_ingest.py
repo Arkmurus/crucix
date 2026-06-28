@@ -27,6 +27,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
+from .engine_wiring import wire_success, wire_failure  # R-F2085 §21a explicit success/failure wiring
 
 logger = logging.getLogger("aria.intel.pdf_deep_ingest")
 
@@ -76,12 +77,18 @@ async def ingest_pdf_multi_page(
     except ImportError:
         out["errors"].append("fitz (PyMuPDF) not available — cannot ingest PDF")
         logger.warning("fitz not installed — pdf_deep_ingest cannot run")
+        wire_failure(module="pdf_deep_ingest",
+                     detail="fitz (PyMuPDF) not available — cannot ingest PDF",
+                     gap_type="file_parse", source="pdf_deep_ingest")
         return out
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as exc:
         out["errors"].append(f"PDF open failed: {str(exc)[:200]}")
+        wire_failure(module="pdf_deep_ingest",
+                     detail=f"PDF open failed for {filename}: {str(exc)[:160]}",
+                     gap_type="file_parse", source="pdf_deep_ingest")
         return out
 
     out["total_pages"] = doc.page_count
@@ -220,6 +227,24 @@ async def ingest_pdf_multi_page(
         )
     except Exception:
         pass
+
+    # R-F2085 §21a — explicit success/failure wiring (the brain_hook.absorb above
+    # also wires it, but granular success vs failure helps the coder + the
+    # proprioception surface see whether a PDF actually ingested).
+    if out["chunks_ingested"] > 0:
+        wire_success(
+            module="pdf_deep_ingest",
+            summary=(f"PDF deep-ingest: {filename} — {out['chunks_ingested']} chunks "
+                     f"({out['text_pages']} text pages, {out['images_ocrd']} images OCR'd)"),
+            source_id=pdf_hash,
+        )
+    else:
+        wire_failure(
+            module="pdf_deep_ingest",
+            detail=(f"PDF deep-ingest produced 0 chunks for {filename}"
+                    + (f" — {out['errors'][0][:160]}" if out["errors"] else "")),
+            gap_type="file_parse", source="pdf_deep_ingest",
+        )
 
     return out
 
