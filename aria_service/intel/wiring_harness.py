@@ -698,7 +698,7 @@ async def probe_wedge_stacks(brain_url: str = "https://aria-intel.fly.dev") -> d
 
     # Measure latency
     latencies = []
-    async with httpx.AsyncClient(timeout  # no-breaker: wiring harness is test infrastructure; breaker would block tests=10) as c:
+    async with httpx.AsyncClient(timeout=10) as c:  # no-breaker: wiring harness is test infrastructure; breaker would block tests
         for _ in range(10):
             t0 = time.monotonic()
             try:

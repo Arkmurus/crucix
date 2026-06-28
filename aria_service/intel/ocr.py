@@ -262,7 +262,7 @@ async def _ocr_via_ocrspace(image_data: bytes, mime: str) -> Optional[dict]:
             "detectOrientation": "true",
             "base64Image": data_uri,
         }
-        async with httpx.AsyncClient(timeout  # no-breaker: OCR is best-effort per-provider; breaker would need to be per-provider (ocrspace/anthropic/openai/gemini/ollama)=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # no-breaker: OCR is best-effort per-provider; breaker would need to be per-provider (ocrspace/anthropic/openai/gemini/ollama)
             resp = await client.post(OCRSPACE_API, data=data)
             if resp.status_code != 200:
                 logger.warning("OCR.space returned HTTP %s: %s", resp.status_code, resp.text[:300])

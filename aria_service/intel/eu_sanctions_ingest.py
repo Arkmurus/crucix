@@ -230,7 +230,7 @@ async def fetch_and_ingest(*, max_rows: int = MAX_ROWS_DEFAULT) -> dict:
     # Try primary EU FSF endpoint
     for url in [EU_FSF_URL, EU_PORTAL_URL]:
         try:
-            async with httpx.AsyncClient(timeout  # no-breaker: EU sanctions ingest is periodic batch; breaker would stall sanctions updates=30.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:  # no-breaker: EU sanctions ingest is periodic batch; breaker would stall sanctions updates
                 resp = await client.get(url)
             if resp.status_code == 200 and resp.content:
                 result = await ingest_xml_bytes(resp.content, max_rows=max_rows)

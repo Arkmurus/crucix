@@ -84,7 +84,7 @@ async def poll_rss_feeds() -> list[dict]:
 
     for feed in _LEARNING_FEEDS[:5]:  # Process 5 per cycle
         try:
-            async with httpx.AsyncClient(timeout  # no-breaker: continuous learner is background; breaker would stall learning=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:  # no-breaker: continuous learner is background; breaker would stall learning
                 resp = await client.get(
                     feed["url"],
                     headers={"User-Agent": "ARIA-Learner/1.0 (arkmurus.com)"},

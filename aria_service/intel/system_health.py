@@ -72,7 +72,7 @@ class SystemHealthMonitor:
     async def _check_services(self):
         import httpx
         services = {"aria-intel": "https://aria-intel.fly.dev/health", "aria-web": "https://aria-web.fly.dev/healthz", "aria-wa": "https://aria-wa.fly.dev/health"}
-        async with httpx.AsyncClient(timeout  # no-breaker: system health is read-only; breaker would hide health status=5) as client:
+        async with httpx.AsyncClient(timeout=5) as client:  # no-breaker: system health is read-only; breaker would hide health status
             for name, url in services.items():
                 try:
                     r = await client.get(url)

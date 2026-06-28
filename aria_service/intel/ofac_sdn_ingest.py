@@ -239,7 +239,7 @@ async def fetch_and_ingest(*, max_rows: int = MAX_ROWS_DEFAULT) -> dict:
     """Fetch OFAC SDN.csv + ADD.csv (open data, no auth) and ingest as facts."""
     import httpx
     try:
-        async with httpx.AsyncClient(timeout  # no-breaker: OFAC SDN ingest is periodic batch; breaker would stall sanctions updates=60.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:  # no-breaker: OFAC SDN ingest is periodic batch; breaker would stall sanctions updates
             sdn = await client.get(SDN_URL)
             add = await client.get(ADD_URL)
         if sdn.status_code != 200 or not sdn.content:

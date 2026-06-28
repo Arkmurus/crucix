@@ -642,7 +642,7 @@ class AdaptivePortalAgent:
         }
         method = method_map.get(captcha_type, "userrecaptcha")
 
-        async with httpx.AsyncClient(timeout  # no-breaker: portal agent is best-effort; breaker would block portal registration=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:  # no-breaker: portal agent is best-effort; breaker would block portal registration
             # Submit to 2captcha
             submit = await client.post("https://2captcha.com/in.php", data={
                 "key": api_key,

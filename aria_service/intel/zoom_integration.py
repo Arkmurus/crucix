@@ -100,7 +100,7 @@ async def _get_access_token() -> str | None:
     try:
         import base64
         credentials = base64.b64encode(f"{_CLIENT_ID}:{_CLIENT_SECRET}".encode()).decode()
-        async with httpx.AsyncClient(timeout  # no-breaker: Zoom integration is best-effort; breaker would block meeting recording=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:  # no-breaker: Zoom integration is best-effort; breaker would block meeting recording
             resp = await client.post(
                 _TOKEN_URL,
                 params={"grant_type": "account_credentials", "account_id": _ACCOUNT_ID},

@@ -253,7 +253,7 @@ async def verify_domain(
 
     tld = _tld(domain)
     try:
-        async with httpx.AsyncClient(timeout  # no-breaker: domain verification is best-effort; breaker would block legitimate verification=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: domain verification is best-effort; breaker would block legitimate verification
             base = await _resolve_rdap_base(tld, client)
             if not base:
                 out["reason"] = f"No RDAP endpoint known for .{tld}"

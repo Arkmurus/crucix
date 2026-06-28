@@ -289,7 +289,7 @@ async def _scan_with_clamav(file_path: Path) -> Optional[dict[str, Any]]:
     """
     try:
         import httpx
-        async with httpx.AsyncClient(timeout  # no-breaker: content scanner is best-effort; breaker would block content discovery=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:  # no-breaker: content scanner is best-effort; breaker would block content discovery
             # ClamAV clamd HTTP interface
             resp = await client.get(f"http://127.0.0.1:3310/scan/{file_path}")
             if resp.status_code == 200:

@@ -208,7 +208,7 @@ async def fetch_and_ingest(*, max_rows: int = MAX_ROWS_DEFAULT) -> dict:
     """Fetch UK OFSI XML (open data, no auth) and ingest as facts."""
     import httpx
     try:
-        async with httpx.AsyncClient(timeout  # no-breaker: UK OFSI ingest is periodic batch; breaker would stall sanctions updates=60.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:  # no-breaker: UK OFSI ingest is periodic batch; breaker would stall sanctions updates
             resp = await client.get(OFSI_URL)
         if resp.status_code != 200 or not resp.content:
             msg = f"UK OFSI download failed: HTTP {resp.status_code}"

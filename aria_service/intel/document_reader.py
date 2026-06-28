@@ -1153,7 +1153,7 @@ async def _resolve_source(source: str) -> str | None:
         try:
             import httpx
             from . import url_safety as _us
-            async with httpx.AsyncClient(timeout  # no-breaker: uses url_safety.safe_get (SSRF guard); breaker belongs on safe_get itself=_REQUEST_TIMEOUT) as client:  # no-breaker: uses url_safety.safe_get (SSRF guard); breaker belongs on safe_get itself
+            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:  # no-breaker: uses url_safety.safe_get (SSRF guard); breaker belongs on safe_get itself  # no-breaker: uses url_safety.safe_get (SSRF guard); breaker belongs on safe_get itself
                 # R-F1814 (audit C2): SSRF-guarded fetch (validates url + every
                 # redirect hop; follow_redirects off). `source` is user-controlled.
                 resp = await _us.safe_get(client, source)
