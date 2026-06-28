@@ -57,11 +57,16 @@ console.log('\n3. loadData → tracker');
 {
   const idx = HTML.indexOf('async function loadData()');
   check('loadData defined', idx > -1);
-  const fn = HTML.slice(idx, idx + 600);
-  check('loadData calls _trackFetchFailure on null',
-        /if\s*\(\s*!data\s*\)[\s\S]+?_trackFetchFailure\(['"]\/api\/data['"]/.test(fn));
-  check('loadData calls _trackFetchSuccess on data',
-        fn.includes("_trackFetchSuccess('/api/data')"));
+  // R-F2080: assert the PROPERTY (loadData wires the banner for /api/data on both
+  // success and failure), not a brittle exact code shape. The R-F2049 redesign
+  // legitimately restructured loadData; what must hold is that the loud-fail
+  // tracker is actually CALLED (the redesign had dropped the calls — this test
+  // caught that real regression).
+  const fn = HTML.slice(idx, idx + 2500);
+  check('loadData tracks /api/data failure',
+        /_trackFetchFailure\(['"]\/api\/data['"]/.test(fn));
+  check('loadData tracks /api/data success',
+        /_trackFetchSuccess\(['"]\/api\/data['"]/.test(fn));
 }
 
 // ── 4. Banner copy is honest about stale-data risk ───────────────────

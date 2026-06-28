@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2079,
+  "next_available": 2083,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15090,32 +15090,74 @@
       "title": "aria-web security: DD-reports IDOR pinning route + explorer false-clean stale contracts",
       "claimed_at": "2026-06-28T11:37:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f86f7cb1",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:52:11Z"
     },
     {
       "r_number": "R-F2076",
       "title": "aria-web display-contract fixes: Active Deals path, news count, vault status vocab, watchlist fields, vls-chain empty-state",
       "claimed_at": "2026-06-28T11:37:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f86f7cb1",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:52:11Z"
     },
     {
       "r_number": "R-F2077",
       "title": "aria-web page-contract regression guard — anti-drift test that every page fetch URL resolves + read-fields exist",
       "claimed_at": "2026-06-28T11:37:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "87c20b11",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:52:11Z"
     },
     {
       "r_number": "R-F2078",
       "title": "Add LLM-powered deep contract analysis with redline comparison for chat/WA",
       "claimed_at": "2026-06-28T11:44:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "158cf02a",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:00:24Z"
+    },
+    {
+      "r_number": "R-F2079",
+      "title": "opportunities single source of truth: dashboard Opportunities KPI reads /api/opportunities (same engine as the opportunities page)",
+      "claimed_at": "2026-06-28T12:01:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7433302",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:07:01Z"
+    },
+    {
+      "r_number": "R-F2080",
+      "title": "clean up stale web tests (dd-reports-verb-rf457 forensic boxes removed by R-F1997; dashboard-banner-rf466 tracking removed by R-F2049 redesign)",
+      "claimed_at": "2026-06-28T12:01:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7433302",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:07:01Z"
+    },
+    {
+      "r_number": "R-F2081",
+      "title": "neural edges encode: orjson+gzip1 to kill 7-8s loop wedge (web slowness root cause)",
+      "claimed_at": "2026-06-28T12:02:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2082",
+      "title": "structural: shard neural edges like neurons (bounded per-persist work, infinite-memory)",
+      "claimed_at": "2026-06-28T12:02:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

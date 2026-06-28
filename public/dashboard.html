@@ -249,9 +249,34 @@ async function loadData() {
     // The real deal pipeline is the Node route '/api/bd-intelligence/pipeline'
     // (no 'aria' prefix) backed by getDealPipeline() which returns an array.
     authed('/api/bd-intelligence/pipeline'),
-    authed('/api/aria/opportunities'),
+    // R-F2079 (2026-06-28) — SINGLE SOURCE OF TRUTH for "Opportunities". This KPI
+    // used the brain's '/api/aria/opportunities' (procurement-backed, count=0)
+    // while opportunities.html shows the richer Node '/api/opportunities'
+    // (detectOpportunities: per-market score/tier/conflict/procurement/compliance/
+    // sources). The two contradicted (dashboard 0 vs page N). The KPI a user clicks
+    // through MUST match the page, so both now read the SAME '/api/opportunities'
+    // engine — one source, no divergence. (The brain endpoint remains a distinct,
+    // stricter procurement-backed metric; it is no longer the headline KPI.)
+    authed('/api/opportunities'),
     API.get('/api/data'),
   ]);
+
+  // R-F2080 (2026-06-28) — restore the R-F466 loud-fail wiring the R-F2049
+  // redesign silently dropped: loadData kept the #fetch-failure-banner machinery
+  // but stopped CALLING the trackers, so a failed panel blanked silently instead
+  // of warning the operator it was on stale/absent data. Register each critical
+  // fetch's outcome. /api/data is API.get (parsed body|null); the others are
+  // authed() Response objects (.ok), so treat a missing/!ok value as a failure.
+  const _track = (path, r) => {
+    const v = r.status === 'fulfilled' ? r.value : null;
+    const ok = !!v && (v.ok !== false);   // Response.ok, or a truthy parsed body
+    if (ok) _trackFetchSuccess(path);
+    else _trackFetchFailure(path, r.reason ? String(r.reason).slice(0, 80) : 'no response');
+  };
+  if (!sweepRes.value) _trackFetchFailure('/api/data', 'no response'); else _trackFetchSuccess('/api/data');
+  _track('/api/aria/dd/reports', ddRes);
+  _track('/api/aria/dd/watchlist', wlRes);
+  _track('/api/opportunities', oppRes);
 
   // R-F2040 — parse each fetch Response body EXACTLY ONCE. A Response body is a
   // one-shot stream; the KPI section and the list section below were each calling
@@ -300,12 +325,14 @@ async function loadData() {
   }
   document.getElementById('kpi-pipeline').textContent = pipeCount;
 
-  // Opportunities count
+  // Opportunities count — R-F2079: same shape the opportunities page reads
+  // ({opportunities:[...]} live, or a bare array when cached).
   let oppCount = 0;
   let oppData = null;
   if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
-    oppData = await oppRes.value.json();
-    oppCount = (oppData.opportunities || []).length;
+    oppData = await oppRes.value.json().catch(() => null);
+    const opps = (oppData && oppData.opportunities) || (Array.isArray(oppData) ? oppData : []);
+    oppCount = opps.length;
   }
   document.getElementById('kpi-opportunities').textContent = oppCount;
 

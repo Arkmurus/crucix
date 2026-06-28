@@ -130,4 +130,15 @@ describe('R-F2077 PART B — static regression locks (the 7 audit fixes)', () =>
     assert.ok(/last_risk/.test(s), 'watchlist must surface last_risk');
     assert.ok(/added_at/.test(s), 'watchlist must read added_at for Last Checked');
   });
+  it('#8 opportunities SINGLE SOURCE OF TRUTH: dashboard KPI + page read the same endpoint (R-F2079)', () => {
+    const dash = read('public/dashboard.html');
+    const page = read('public/opportunities.html');
+    // The opportunities page is the canonical view; the dashboard KPI must read
+    // the SAME engine so the two never show contradictory counts.
+    assert.ok(/['"]\/api\/opportunities['"]/.test(page), 'opportunities.html must read /api/opportunities');
+    assert.ok(/authed\(\s*['"]\/api\/opportunities['"]\s*\)/.test(dash),
+      'dashboard Opportunities KPI must read the same /api/opportunities engine');
+    assert.ok(!/authed\(\s*['"]\/api\/aria\/opportunities['"]/.test(dash),
+      'dashboard must NOT read the divergent brain /api/aria/opportunities for the headline KPI');
+  });
 });
