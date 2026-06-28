@@ -11871,31 +11871,43 @@ async def _read_document_ep_impl(request: Request):
         return _cached
 
     llm = get_llm(request)
-    result = await read_document(llm, content, filename, source, context)
-    # Surface the extracted text so callers (WA listener, email reader) can
-    # render the ATTACHED DOCUMENT block when local extraction failed and the
-    # backend's OCR / v3 fallback chain rescued the content.
-    if isinstance(result, dict) and "extracted_text" not in result:
-        result["extracted_text"] = content
-        result["extracted_chars"] = len(content)
-
-    # Document-intelligence pass: classify the form, pull a structured JSON
-    # of canonical fields, run red-flag rules, render a markdown overview,
-    # persist the discovered entities/officers/holders to the knowledge base.
-    # Best-effort — any failure leaves the original `result` intact.
-    # R-F880 (2026-05-25) — when the caller deferred intelligence (the async
-    # job path: large/scanned docs over WhatsApp), run document_intelligence
-    # as a BACKGROUND task instead of inline. process_document makes multiple
-    # LLM calls + a RAG embed that can cold-reload the sentence-transformer
-    # from HuggingFace (seen live consuming the 4-min poll window). Deferring
-    # it lets the job resolve on extracted_text alone — the operator gets the
-    # FULL document immediately (the R-F854 WA cache + "analyse this contract"
-    # follow-up work on the complete text); the overview + knowledge-absorb
-    # land shortly after, off the critical path. Sync callers (email reader,
-    # small uploads) keep the inline overview unchanged.
     _defer_intel = bool(body.get("defer_intel"))
+
     if _defer_intel:
+        # R-F2083 (2026-06-28) — ROOT-CAUSE FIX for the recurring WhatsApp doc
+        # failure ("document service didn't respond"). Pre-fix, researcher.
+        # read_document (per-chunk LLM fact-extraction + RAG embed) ran INLINE on
+        # the async job's critical path even though the comment below promised the
+        # job "resolves on extracted_text alone". On the single-core brain event
+        # loop a redline contract (two full versions inline ≈ 2× text → ~2× chunks
+        # and LLM calls) exceeded the R-F2070 600s cap → job failed → R-F2070
+        # resubmit re-ran the same chain → failed again → the user got "document
+        # service didn't respond." Live proof 2026-06-28: a trivial 48-char PDF
+        # took 46–104s via this path. FIX: return the already-extracted text NOW
+        # and run BOTH the learning chain (read_document) AND document_intelligence
+        # as held BACKGROUND tasks. The CPU-bound embed inside read_document
+        # already runs in a SEPARATE PROCESS (encode_offload, R-F2044), so the
+        # deferred work uses a spare core — "defer + process-offload" together.
+        # The WA review path only needs extracted_text (it builds the ATTACHED
+        # DOCUMENT block from it); facts/RAG/overview land shortly after, off path.
         import asyncio as _aio880
+
+        result = {
+            "ok": True,
+            "filename": filename,
+            "source": source,
+            "extracted_text": content,
+            "extracted_chars": len(content),
+            "facts_learned": 0,
+            "learning_deferred": True,
+            "doc_intel_deferred": True,
+        }
+
+        async def _learn_bg():
+            try:
+                await read_document(get_llm(request), content, filename, source, context)
+            except Exception as _e:
+                _log.debug("R-F2083 deferred read_document learning failed (non-fatal): %s", _e)
 
         async def _di_bg():
             try:
@@ -11908,10 +11920,21 @@ async def _read_document_ep_impl(request: Request):
             except Exception as _e:
                 _log.debug("R-F880 deferred doc_intelligence failed (non-fatal): %s", _e)
 
-        _aio880.create_task(_di_bg(), name="readdoc.di")
-        if isinstance(result, dict):
-            result["doc_intel_deferred"] = True
+        # R-F1377 — hold STRONG refs so the GC can't kill the learning tasks
+        # mid-flight (the bare-create_task weak-ref defect class).
+        _hold_job_task(_aio880.create_task(_learn_bg(), name="readdoc.learn"))
+        _hold_job_task(_aio880.create_task(_di_bg(), name="readdoc.di"))
     else:
+        # Sync callers (email reader, small uploads) keep the inline learning +
+        # document-intelligence pass unchanged — the job-resolves-fast concern is
+        # specific to the async (large/scanned WhatsApp doc) path above.
+        result = await read_document(llm, content, filename, source, context)
+        # Surface the extracted text so callers (WA listener, email reader) can
+        # render the ATTACHED DOCUMENT block when local extraction failed and the
+        # backend's OCR / v3 fallback chain rescued the content.
+        if isinstance(result, dict) and "extracted_text" not in result:
+            result["extracted_text"] = content
+            result["extracted_chars"] = len(content)
         try:
             from ..intel import document_intelligence as _di
             di = await _di.process_document(
