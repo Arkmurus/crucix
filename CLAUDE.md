@@ -108,6 +108,18 @@ Unpushed commits aren't deployed. After commit, YOU deploy directly to fly.io:
   - If it truly failed, add `[deploy]` to the commit message and push again
   - Do NOT ship-mark the R-number until the deploy is verified live
 
+## 11c. Pre-deploy compile gate + slow-boot diagnosis (R-F2126/R-F2122 — binding, 2026-06-28)
+
+Codified after a multi-hour aria-intel outage. Two lessons, both binding:
+
+**(a) NEVER deploy without compiling the WHOLE tree first.** ARIA's autonomous annotation campaigns (R-F2119/R-F2120) pushed **31 syntax errors** to `main` — comments inserted mid-expression (`httpx.AsyncClient(timeout  # no-breaker:…=3.0)`) and stray tokens in code-gen templates — making the entire tree un-importable. The live brain survived only because it predated the corruption. Before ANY deploy (manual or reviewing ARIA's), run a full-tree gate and refuse to deploy on any failure:
+```
+find aria_service -name "*.py" -not -path "*/tests/*" | while read f; do python -m py_compile "$f" || echo "BROKEN: $f"; done
+```
+An autonomous agent (or anyone) reporting "safe to deploy" is NOT sufficient — **independently compile-verify** (§23). Compile-green ≠ correct, but compile-red = guaranteed boot failure. The deploy scripts should enforce this gate; until they do, run it by hand.
+
+**(b) A slow boot is NOT a crash loop — wait the full boot before diagnosing or restarting.** aria-intel's boot loads ~223k facts + ~1.2M neural edges + 681k state keys **synchronously** → ~10 min to `/health` green (R-F2122 now defers the heavy graphs to background warmup). During those 10 min the machine shows `critical`/`000` but is NOT dead. **Restarting resets the 10-min clock** and prolongs the outage; a "patient" poll must EXCEED the real boot time. Before declaring a boot hung: check the boot log for forward progress (the last init that logged), confirm fly is actually SIGTERMing it (version/timestamp changing) vs just sitting `critical`, and only then conclude. Contested deploy leases (multiple agents/CI racing) SIGTERM each other's in-flight boots — coordinate one-deploy-at-a-time.
+
 ## 12. Check fly logs first
 
 At session start, ask operator for latest fly logs OR fetch via `gh` / flyctl. Prioritise from production reality, not from backlog assumptions.
