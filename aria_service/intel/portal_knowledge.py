@@ -322,19 +322,20 @@ class RegistrationKnowledge:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Get unique portal IDs from attempts and credentials
-            cur = conn.execute("""
-                SELECT DISTINCT portal_id FROM attempts
-                UNION
-                SELECT DISTINCT portal_id FROM credentials
-            """)
+            # Get unique portal IDs from attempts
+            cur = conn.execute("SELECT DISTINCT portal_id FROM attempts")
             portal_ids = [row[0] for row in cur.fetchall()]
 
             result = []
             for pid in portal_ids:
                 site_info = self.get_site(pid)
-                cred = self.get_credential(pid)
-                has_api_key = bool(cred and cred.get("api_key"))
+
+                # Check if any attempt obtained an API key
+                cur2 = conn.execute(
+                    "SELECT COUNT(*) as c FROM attempts WHERE portal_id = ? AND api_key_obtained = 1",
+                    (pid,),
+                )
+                has_api_key = cur2.fetchone()["c"] > 0
 
                 # Determine status
                 if has_api_key:
@@ -354,7 +355,7 @@ class RegistrationKnowledge:
                     "fail_count": site_info.get("fail_count", 0) if site_info else 0,
                     "last_attempt": site_info.get("last_attempt") if site_info else None,
                     "last_success": site_info.get("last_success") if site_info else None,
-                    "api_key": cred.get("api_key")[:16] + "..." if cred and cred.get("api_key") else None,
+                    "has_api_key": has_api_key,
                     "status": status,
                 })
 
