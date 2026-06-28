@@ -64,6 +64,45 @@ def _bg_task(task: asyncio.Task, name: str = "", factory=None) -> asyncio.Task:
     return task
 
 
+# ── R-F2073 (Tier 1) — PROCESS ROLE for multi-worker scaling ────────────────
+# The brain is a single-process asyncio app today (1 uvicorn worker → 1 event
+# loop). To "deploy more workers whenever needed" we must be able to run N
+# request-serving processes WITHOUT running N copies of the ~15 singleton
+# background loops (autonomous engine, research/self-improve/coder, schedulers,
+# monitors, deploy/guardian/weekly/watchlist/tender loops). N copies would mean
+# N× LLM cost, N× external API calls, N× git auto-deploys, and races on the
+# shared coder gap-queue. Role-split is the KEYSTONE that lets the rest become a
+# config flip.
+#
+#   ARIA_ROLE=engine  → runs singleton loops AND serves requests
+#   ARIA_ROLE=web     → serves requests ONLY (no singleton loops)
+#   unset / 'all'     → BOTH (today's single-process behavior — BACKWARD-COMPAT)
+#
+# Per-process warmers (embedder/ocr prewarm, rag init, stall detector, bg
+# supervisor, health precompute) are NOT singletons — they run on every role,
+# because each process needs its own warm caches and its own heartbeat.
+def _aria_role() -> str:
+    return (_os.getenv("ARIA_ROLE") or "all").strip().lower()
+
+
+def _runs_singletons() -> bool:
+    """True on the engine process, or the default all-in-one single process.
+    A 'web' role process returns False and starts no singleton loops."""
+    return _aria_role() in ("engine", "all", "")
+
+
+def _singleton_task(factory, name: str) -> "asyncio.Task | None":
+    """R-F2073 — start a SINGLETON background loop, but ONLY on a process that
+    owns the singletons (engine / all-in-one). On a 'web' role process the loop
+    is skipped (logged once) so N web workers never each run it. Mirrors
+    _bg_task registration so the bg supervisor can still respawn it on the
+    engine process. `factory` is the zero-arg coroutine function for the loop."""
+    if not _runs_singletons():
+        logger.info("[R-F2073] singleton loop '%s' SKIPPED (ARIA_ROLE=%s)", name, _aria_role())
+        return None
+    return _bg_task(asyncio.create_task(factory(), name=name), factory=factory)
+
+
 async def _bg_supervisor_loop() -> None:
     """R-F1610 — the self-healing ACTUATOR. Periodically checks every
     respawn-registered bg loop; if its task is no longer live (died/GC'd), it
@@ -1487,7 +1526,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(30 * 60)  # Every 30 minutes
 
-        research_task = _bg_task(asyncio.create_task(_research_loop(), name="research_loop"), factory=_research_loop)
+        research_task = _singleton_task(_research_loop, "research_loop")  # R-F2073 singleton
         logger.info("Research scheduler started (every 30min)")
 
     # ── R-F1207/R-F1209: Register all background loops in the agent registry ─────
@@ -1942,7 +1981,7 @@ async def lifespan(app: FastAPI):
                     reset_priority(_p)
                 await asyncio.sleep(2 * 3600)  # Every 2 hours
 
-        self_improve_task = _bg_task(asyncio.create_task(_self_improve_loop(), name="self_improve_loop"), factory=_self_improve_loop)
+        self_improve_task = _singleton_task(_self_improve_loop, "self_improve_loop")  # R-F2073 singleton
         logger.info("Self-improvement scheduler started (every 2h)")
 
     # ── ARIA STUDENT LOOPS ──────────────────────────────────────────────
@@ -2080,9 +2119,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Library consolidate failed: %s", e)
             await asyncio.sleep(24 * 3600)  # Daily
 
-    quiz_task = _bg_task(asyncio.create_task(_quiz_loop(), name="quiz_loop"), factory=_quiz_loop)
-    reading_task = _bg_task(asyncio.create_task(_reading_loop(), name="reading_loop"), factory=_reading_loop)
-    library_consolidate_task = _bg_task(asyncio.create_task(_library_consolidate_loop(), name="library_consolidate_loop"), factory=_library_consolidate_loop)
+    quiz_task = _singleton_task(_quiz_loop, "quiz_loop")  # R-F2073 singleton
+    reading_task = _singleton_task(_reading_loop, "reading_loop")  # R-F2073 singleton
+    library_consolidate_task = _singleton_task(_library_consolidate_loop, "library_consolidate_loop")  # R-F2073 singleton
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
 
     # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
@@ -2092,7 +2131,7 @@ async def lifespan(app: FastAPI):
     # Harmless no-op until RUNPOD_API_KEY + ARIA_RUNPOD_POD_ID secrets
     # are set. Loop ticks its own self_restart heartbeat.
     from .intel import runpod_scheduler as _runpod_sched
-    runpod_sched_task = _bg_task(asyncio.create_task(_runpod_sched.scheduler_loop(), name="runpod_scheduler"))
+    runpod_sched_task = _singleton_task(_runpod_sched.scheduler_loop, "runpod_scheduler")  # R-F2073 singleton (starts/stops GPU pods — N schedulers would race)
     logger.info(
         "[R-F1335] RunPod scheduler started (configured=%s)",
         _runpod_sched.configured(),
@@ -2123,8 +2162,44 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F1342] memory_wal drain error: %s", e)
             await asyncio.sleep(300)
 
-    memory_wal_task = _bg_task(asyncio.create_task(_memory_wal_drain_loop(), name="memory_wal_drain"), factory=_memory_wal_drain_loop)
+    memory_wal_task = _singleton_task(_memory_wal_drain_loop, "memory_wal_drain")  # R-F2073 singleton (shared WAL — one drainer avoids double-store races)
     logger.info("[R-F1342] memory WAL drain loop started (never-forget retry)")
+
+    # R-F2072 (Tier 0-finish) — PROACTIVE health precompute. The brain is a
+    # single-process asyncio app (one event loop); the heavy /api/aria/health +
+    # /health/perf aggregations (~21s of Redis/stats/breaker work) must NEVER run
+    # on the request path or they tie up the one loop and stall every concurrent
+    # request — the "huge CPU but slow" symptom. R-F2063 added a stale-while-
+    # revalidate cache, but a refresh still only fires when a request arrives (and
+    # the FIRST poll after a cold boot still pays the full compute). This loop is
+    # the finish: it warms BOTH caches on a fixed tick so the endpoints only ever
+    # READ a precomputed value. PER-PROCESS (each worker has its own in-process
+    # cache and serves /health), so it runs on every role — not a singleton.
+    async def _health_precompute_loop():
+        from .routes.aria import health_check_ep as _hc, health_perf_ep as _hp
+        await asyncio.sleep(10)   # let infra (redis/rag) come up so the first warm is real
+        while True:
+            for _name, _fn in (("health", _hc), ("health_perf", _hp)):
+                try:
+                    await _fn.refresh_now()
+                except Exception as e:
+                    logger.debug("[R-F2072] health precompute (%s) failed: %s", _name, e)
+                    # §21a — a precompute that keeps failing means the warm cache is
+                    # going stale; surface to the brain (deduped by capability_gaps).
+                    try:
+                        from .intel.engine_wiring import wire_failure
+                        wire_failure(
+                            module="health_precompute",
+                            detail=f"proactive health precompute '{_name}' failed: {type(e).__name__}: {e}",
+                            gap_type="engine_failure",
+                            source="main:_health_precompute_loop",
+                        )
+                    except Exception:
+                        pass
+            await asyncio.sleep(20)   # < the 25s cache TTL so a request never sees a cold/expired entry
+
+    health_precompute_task = _bg_task(asyncio.create_task(_health_precompute_loop(), name="health_precompute"), factory=_health_precompute_loop)
+    logger.info("[R-F2072] health precompute loop started (endpoints read-only, never compute on request path)")
 
     # R-F1979 — GUARDIAN check-in reconcile loop (dead-man's switch). The safety
     # guarantee: a check-in deadline that passes WITHOUT an all-clear fires an
@@ -2147,7 +2222,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F1979 guardian] reconcile error: %s", e)
             await asyncio.sleep(60)
 
-    guardian_task = _bg_task(asyncio.create_task(_guardian_reconcile_loop(), name="guardian_reconcile"), factory=_guardian_reconcile_loop)
+    guardian_task = _singleton_task(_guardian_reconcile_loop, "guardian_reconcile")  # R-F2073 singleton
     logger.info("[R-F1979] Guardian check-in reconcile loop started (dead-man's switch)")
 
     # R-F2006 — ENGINE LIVENESS WATCHDOG. A SEPARATE loop (so it survives the
@@ -2203,7 +2278,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F2006 watchdog] error: %s", e)
             await asyncio.sleep(900)   # every 15 min
 
-    liveness_task = _bg_task(asyncio.create_task(_engine_liveness_watchdog_loop(), name="engine_liveness_watchdog"), factory=_engine_liveness_watchdog_loop)
+    liveness_task = _singleton_task(_engine_liveness_watchdog_loop, "engine_liveness_watchdog")  # R-F2073 singleton (watches the engine — which only runs on the engine role)
     logger.info("[R-F2006] Engine liveness watchdog started (alerts if engine goes dark)")
 
     # R-F1766 — DEPLOY PROPRIOCEPTION loop: confirm ARIA's autonomous self-improve
@@ -2301,7 +2376,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[R-F1920] origin reconcile error: %s", e)
             await asyncio.sleep(300)
 
-    deploy_proprio_task = _bg_task(asyncio.create_task(_deploy_proprioception_loop(), name="deploy_proprioception"), factory=_deploy_proprioception_loop)
+    deploy_proprio_task = _singleton_task(_deploy_proprioception_loop, "deploy_proprioception")  # R-F2073 singleton
     logger.info("[R-F1766] deploy proprioception loop started (verify changes actually land)")
 
     # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
@@ -2341,7 +2416,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Proactive] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Every hour
 
-    proactive_task = _bg_task(asyncio.create_task(_proactive_loop(), name="proactive_loop"), factory=_proactive_loop)
+    proactive_task = _singleton_task(_proactive_loop, "proactive_loop")  # R-F2073 singleton
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
     # ── WEEKLY LEARNING REPORT ──────────────────────────────────────────
@@ -2390,7 +2465,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Weekly Report] Loop iteration failed: %s", e)
             await asyncio.sleep(3600)  # Check every hour (only fires on Monday 06-08 UTC)
 
-    weekly_report_task = _bg_task(asyncio.create_task(_weekly_report_loop(), name="weekly_report_loop"), factory=_weekly_report_loop)
+    weekly_report_task = _singleton_task(_weekly_report_loop, "weekly_report_loop")  # R-F2073 singleton
     logger.info("Weekly report loop started (fires Monday 06-08 UTC)")
 
     # ── WATCHLIST AUTO-RE-SCREEN ──────────────────────────────────────────
@@ -2455,7 +2530,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
             await asyncio.sleep(86400)  # Every 24 hours
 
-    watchlist_rescreen_task = _bg_task(asyncio.create_task(_watchlist_rescreen_loop(), name="watchlist_rescreen_loop"), factory=_watchlist_rescreen_loop)
+    watchlist_rescreen_task = _singleton_task(_watchlist_rescreen_loop, "watchlist_rescreen_loop")  # R-F2073 singleton
     logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
 
     # ── TENDER MONITOR ────────────────────────────────────────────────────
@@ -2495,7 +2570,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Tender Monitor] Cycle failed: %s", e)
             await asyncio.sleep(21600)  # Every 6 hours
 
-    tender_monitor_task = _bg_task(asyncio.create_task(_tender_monitor_loop(), name="tender_monitor_loop"), factory=_tender_monitor_loop)
+    tender_monitor_task = _singleton_task(_tender_monitor_loop, "tender_monitor_loop")  # R-F2073 singleton
     logger.info("Tender monitor started (every 6h)")
 
     # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
@@ -2533,7 +2608,7 @@ async def lifespan(app: FastAPI):
         # after a redeploy when the env var is missing — the Redis flag
         # survives restarts and gets picked up here on the next boot.
         await autonomous_engine.refresh_runtime_override()
-        if autonomous_engine.is_enabled():
+        if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
             started = autonomous_engine.start_engine(llm)
             if started:
                 logger.info(
@@ -2774,7 +2849,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[Knowledge Seed] unhandled error (non-fatal): %s", e)
 
-    knowledge_seed_task = _bg_task(asyncio.create_task(_seed_knowledge_bg(), name="seed_knowledge"))
+    knowledge_seed_task = _singleton_task(_seed_knowledge_bg, "seed_knowledge")  # R-F2073 singleton (writes shared knowledge store)
 
     # ── R-F803 (2026-05-22): autonomous self-coder boot ───────────────────
     # ARIACoder + GapDetector. R-F996: coder is ALWAYS enabled when ARIA_INTERNAL_TOKEN is set.
@@ -2784,21 +2859,24 @@ async def lifespan(app: FastAPI):
     # See aria_service/autonomous/coder_entrypoint.py for the actual gates.
     # Returns a list[Task] (or None if any gate refused).
     aria_coder_tasks: list[asyncio.Task] = []
-    try:
-        from .autonomous.coder_entrypoint import start_aria_coder
-        _coder_tasks = await start_aria_coder(app.state)
-        if _coder_tasks:
-            aria_coder_tasks = _coder_tasks
-            logger.info(
-                "[R-F803] ARIA-Coder started with %d background tasks",
-                len(aria_coder_tasks),
+    if not _runs_singletons():  # R-F2073 — coder is a singleton (one gap-queue drainer; N would race + N× cost)
+        logger.info("[R-F2073] ARIA-Coder SKIPPED (ARIA_ROLE=%s)", _aria_role())
+    else:
+        try:
+            from .autonomous.coder_entrypoint import start_aria_coder
+            _coder_tasks = await start_aria_coder(app.state)
+            if _coder_tasks:
+                aria_coder_tasks = _coder_tasks
+                logger.info(
+                    "[R-F803] ARIA-Coder started with %d background tasks",
+                    len(aria_coder_tasks),
+                )
+        except Exception as _coder_e:
+            # Never let a coder-init exception block the lifespan — the engine
+            # is non-essential for chat / DD traffic.
+            logger.warning(
+                "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
             )
-    except Exception as _coder_e:
-        # Never let a coder-init exception block the lifespan — the engine
-        # is non-essential for chat / DD traffic.
-        logger.warning(
-            "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
-        )
 
     # R-F1207 — start Web Integrity Agent (24/7 endpoint monitoring)
     # Monitors all 14 web endpoints every 60s, validates inputs/outputs,
@@ -2808,21 +2886,24 @@ async def lifespan(app: FastAPI):
     #   4. Cross-agent comms    5. Zero tolerance         6. Self-healing
     #   7. Never silent
     web_integrity_agent: Optional[Any] = None
-    try:
-        from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
-        from .intel import brain_hook as _bh_wia
-        web_integrity_agent = WebIntegrityAgent(
-            aria_service_url=f"http://localhost:{settings.effective_port}",
-            brain_hook=_bh_wia,
-            redis_store=rs if _state_connect_ok else None,
-        )
-        await web_integrity_agent.start()
-        logger.info(
-            "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
-            len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
-        )
-    except Exception as _wia_e:
-        logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
+    if not _runs_singletons():  # R-F2073 — one monitor (N would N× probe every endpoint)
+        logger.info("[R-F2073] Web Integrity Agent SKIPPED (ARIA_ROLE=%s)", _aria_role())
+    else:
+        try:
+            from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
+            from .intel import brain_hook as _bh_wia
+            web_integrity_agent = WebIntegrityAgent(
+                aria_service_url=f"http://localhost:{settings.effective_port}",
+                brain_hook=_bh_wia,
+                redis_store=rs if _state_connect_ok else None,
+            )
+            await web_integrity_agent.start()
+            logger.info(
+                "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
+                len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
+            )
+        except Exception as _wia_e:
+            logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
 
     # R-F1253 — auto-populate agent signup vault from portal registry on boot
     try:
@@ -2896,40 +2977,52 @@ async def lifespan(app: FastAPI):
     # no longer auto-wired into the HTTP surface.
 
     # R-F1550: start Eagle Eye codebase guardian
-    try:
-        from .intel import eagle_eye
-        await eagle_eye.start()
-    except Exception as _ee_err:
-        logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
+    if not _runs_singletons():  # R-F2073 singleton (one codebase guardian)
+        logger.info("[R-F2073] Eagle Eye SKIPPED (ARIA_ROLE=%s)", _aria_role())
+    else:
+        try:
+            from .intel import eagle_eye
+            await eagle_eye.start()
+        except Exception as _ee_err:
+            logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
 
     # R-F1552: start Wiring Monitor (M1-M5 background checks every hour)
     _wiring_monitor_task = None
-    try:
-        from .intel import wiring_monitor as _wm
-        _wiring_monitor_task = _wm.start_monitor()
-    except Exception as _wm_err:
-        logger.warning("[R-F1552] Wiring Monitor start failed (non-fatal): %s", _wm_err)
+    if _runs_singletons():  # R-F2073 singleton
+        try:
+            from .intel import wiring_monitor as _wm
+            _wiring_monitor_task = _wm.start_monitor()
+        except Exception as _wm_err:
+            logger.warning("[R-F1552] Wiring Monitor start failed (non-fatal): %s", _wm_err)
+    else:
+        logger.info("[R-F2073] Wiring Monitor SKIPPED (ARIA_ROLE=%s)", _aria_role())
 
     # R-F1574: start Autonomous Scheduler (DD monitor, gap fixing, diagnostics)
     _scheduler_task = None
-    try:
-        from .intel.autonomous_scheduler import AutonomousScheduler
-        _scheduler = AutonomousScheduler()
-        _scheduler_task = asyncio.create_task(_scheduler.start(), name="autonomous_scheduler")
-    except Exception as _sched_err:
-        logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
+    if _runs_singletons():  # R-F2073 singleton
+        try:
+            from .intel.autonomous_scheduler import AutonomousScheduler
+            _scheduler = AutonomousScheduler()
+            _scheduler_task = asyncio.create_task(_scheduler.start(), name="autonomous_scheduler")
+        except Exception as _sched_err:
+            logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
+    else:
+        logger.info("[R-F2073] Autonomous Scheduler SKIPPED (ARIA_ROLE=%s)", _aria_role())
 
     # R-F2066 — start Portal Registration Scheduler (background loop)
     _portal_scheduler_task = None
-    try:
-        from .intel.portal_scheduler import autonomous_registration_loop as _portal_loop
-        _portal_scheduler_task = _bg_task(
-            asyncio.create_task(_portal_loop(), name="portal_registration"),
-            factory=_portal_loop,
-        )
-        logger.info("[R-F2066] Portal registration scheduler started (every 1h)")
-    except Exception as _ps_err:
-        logger.warning("[R-F2066] Portal registration scheduler start failed (non-fatal): %s", _ps_err)
+    if not _runs_singletons():  # R-F2073 singleton (registers on external portals)
+        logger.info("[R-F2073] Portal registration scheduler SKIPPED (ARIA_ROLE=%s)", _aria_role())
+    else:
+        try:
+            from .intel.portal_scheduler import autonomous_registration_loop as _portal_loop
+            _portal_scheduler_task = _bg_task(
+                asyncio.create_task(_portal_loop(), name="portal_registration"),
+                factory=_portal_loop,
+            )
+            logger.info("[R-F2066] Portal registration scheduler started (every 1h)")
+        except Exception as _ps_err:
+            logger.warning("[R-F2066] Portal registration scheduler start failed (non-fatal): %s", _ps_err)
 
     # R-F1610 — start the self-healing actuator: re-spawns any registered bg
     # loop that dies, instead of only logging it. This is what makes ARIA

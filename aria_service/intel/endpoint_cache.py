@@ -124,6 +124,22 @@ def cached_endpoint(ttl_s: float = 25.0, *, name: str = "") -> Callable:
                     pass
                 return res
 
+        async def _refresh_now(*a: Any, **kw: Any) -> Any:
+            """R-F2072 (Tier 0-finish) — directly recompute and store the value,
+            for a PROACTIVE background warmer loop. Unlike the request-path
+            stale-while-revalidate (which only refreshes when a request arrives),
+            a loop calling this on a fixed tick keeps the cache permanently warm so
+            the endpoint NEVER computes on the request path — not even on the first
+            poll after a cold boot. Single-flight via the same lock the cold path
+            uses, so it can't race a request-triggered compute into a double-run."""
+            async with entry.lock:
+                res = await fn(*a, **kw)
+                entry.value = res
+                entry.ts = time.monotonic()
+                entry.refreshing = False
+                return res
+
+        wrapper.refresh_now = _refresh_now   # type: ignore[attr-defined]
         wrapper.cache_entry = entry          # type: ignore[attr-defined]
         wrapper.cache_stats = lambda: {       # type: ignore[attr-defined]
             "name": label, "ttl_s": ttl_s, "hits": entry.hits,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2072,
+  "next_available": 2075,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15040,14 +15040,43 @@
       "title": "WA document-read robustness: auto-resubmit dropped extraction + brain async wall-clock cap + kill caption double-error",
       "claimed_at": "2026-06-28T10:35:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8dc944bc",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:07:47Z"
     },
     {
       "r_number": "R-F2071",
       "title": "Fix classify_status NameError in web_search.py backends",
       "claimed_at": "2026-06-28T10:42:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8dc944bc",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:02:18Z"
+    },
+    {
+      "r_number": "R-F2072",
+      "title": "Tier0-finish: pre-compute /api/aria/health in bg tick (read-only endpoint)",
+      "claimed_at": "2026-06-28T10:57:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2073",
+      "title": "Tier1: ARIA_ROLE web|engine role-split gate on singleton bg loops",
+      "claimed_at": "2026-06-28T10:57:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2074",
+      "title": "Add test-count verifier script to prevent per-file test count hallucinations",
+      "claimed_at": "2026-06-28T11:09:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
