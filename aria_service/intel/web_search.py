@@ -39,8 +39,73 @@ import httpx
 
 from .ua_rotation import random_ua
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
+from .circuit_breaker import classify_status  # R-F2071: canonical HTTP-status classifier
 
 logger = logging.getLogger("aria.web_search")
+
+# ── R-F2071: import-time name-resolution guard ──────────────────────────────
+# Every bare-name function call in this module must resolve to an imported
+# name, a locally defined name, or a builtin. This assertion runs at import
+# time (not at runtime on a specific code path), so a NameError like the
+# `classify_status` bug (called but never imported) is caught immediately
+# on deploy rather than silently lurking until a non-200 HTTP response.
+# The guard is intentionally simple: it only checks public lower-case names
+# (not _-prefixed internals, not dunder methods). It does NOT check method
+# calls (obj.method()) or attribute access — those are resolved at runtime
+# by the object's type and are not susceptible to this failure class.
+if os.getenv("ARIA_SKIP_IMPORT_GUARD", "").lower() not in ("1", "true", "yes"):
+    import ast as _import_guard_ast
+    import sys as _import_guard_sys
+    _guard_frame = _import_guard_sys._getframe()
+    _guard_src = _guard_frame.f_code.co_filename
+    try:
+        with open(_guard_src, encoding="utf-8") as _guard_f:
+            _guard_tree = _import_guard_ast.parse(_guard_f.read())
+    except Exception:
+        pass
+    else:
+        _guard_imports: set[str] = set()
+        _guard_defs: set[str] = set()
+        for _guard_node in _import_guard_ast.walk(_guard_tree):
+            if isinstance(_guard_node, _import_guard_ast.Import):
+                for _guard_alias in _guard_node.names:
+                    _guard_name = _guard_alias.asname or _guard_alias.name
+                    _guard_imports.add(_guard_name)
+                    if "." in _guard_name:
+                        _guard_imports.add(_guard_name.split(".")[-1])
+            elif isinstance(_guard_node, _import_guard_ast.ImportFrom):
+                for _guard_alias in _guard_node.names:
+                    _guard_imports.add(_guard_alias.asname or _guard_alias.name)
+            elif isinstance(_guard_node, (_import_guard_ast.FunctionDef,
+                                          _import_guard_ast.AsyncFunctionDef)):
+                _guard_defs.add(_guard_node.name)
+            elif isinstance(_guard_node, _import_guard_ast.Assign):
+                for _guard_t in _guard_node.targets:
+                    if isinstance(_guard_t, _import_guard_ast.Name):
+                        _guard_defs.add(_guard_t.id)
+            elif isinstance(_guard_node, _import_guard_ast.AnnAssign):
+                if isinstance(_guard_node.target, _import_guard_ast.Name):
+                    _guard_defs.add(_guard_node.target.id)
+        _guard_builtins: set[str] = set()
+        try:
+            import builtins as _guard_builtins_mod
+            _guard_builtins = set(dir(_guard_builtins_mod))
+        except Exception:
+            _guard_builtins = set()
+        _guard_calls: set[str] = set()
+        for _guard_node in _import_guard_ast.walk(_guard_tree):
+            if isinstance(_guard_node, _import_guard_ast.Call):
+                if isinstance(_guard_node.func, _import_guard_ast.Name):
+                    _guard_name = _guard_node.func.id
+                    if _guard_name[0].islower() and not _guard_name.startswith("_"):
+                        _guard_calls.add(_guard_name)
+        _guard_unresolved = _guard_calls - _guard_imports - _guard_defs - _guard_builtins
+        if _guard_unresolved:
+            raise NameError(
+                f"R-F2071 import guard: function(s) called but not imported/defined/builtin "
+                f"in {_guard_src}: {sorted(_guard_unresolved)}. "
+                f"Add the missing import or define the function locally."
+            )
 
 # R-W5 (2026-05-11): per-call ecosystem snapshot for the most-recent
 # search() invocation. Operator / chat layer / dashboard reads via
@@ -81,22 +146,6 @@ SEARXNG_INSTANCES: list[str] = [
 ]
 REQUEST_TIMEOUT = 12.0
 MAX_RESULTS_PER_BACKEND = 15
-
-
-def _classify_http_status(status: int) -> str:
-    """Map an HTTP error status to a circuit-breaker failure reason.
-    Used to record the right capability_gap type when a backend trips
-    the breaker — billing/rate-limit/auth failures need different
-    operator action and should not all surface as 'timeout'."""
-    if status == 402:
-        return "billing"
-    if status == 429:
-        return "rate_limit"
-    if status in (401, 403):
-        return "auth"
-    if 500 <= status < 600:
-        return "server"
-    return "other"
 
 
 # Brave's `search_lang` rejects bare codes for languages with regional
@@ -458,7 +507,7 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
-                _cb.record_failure(reason=_classify_http_status(resp.status_code))
+                _cb.record_failure(reason=classify_status(resp.status_code))
                 return []
             # Parse RSS XML
             text = resp.text
@@ -605,7 +654,7 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
-                _cb.record_failure(reason=_classify_http_status(resp.status_code))
+                _cb.record_failure(reason=classify_status(resp.status_code))
                 return []
             text = resp.text
             results = []
