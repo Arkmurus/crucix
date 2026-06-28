@@ -92,6 +92,7 @@ _fixes_collection = None
 _failures_collection = None
 _structure_collection = None
 _constitutional_collection = None
+_CONST_SYNCED_VERSION = None  # R-F2130 — last constitutional-rules version synced this process
 _init_lock = threading.Lock()
 _init_done = False
 
@@ -487,6 +488,55 @@ def index_constitutional_rules(rules: list[dict]) -> int:
 
     logger.info("[CodingRAG] Indexed %d constitutional rules", count)
     return count
+
+
+def sync_constitutional_rules() -> dict:
+    """R-F2130 — populate coding_constitutional from the canonical rules module.
+
+    The collection was BUILT but never populated (index_constitutional_rules was
+    only called in tests), so the coder was never grounded in the playbook. This
+    clears stale docs then re-indexes constitutional_rules.CONSTITUTIONAL_RULES so
+    the collection always reflects the current rules EXACTLY (no orphans when a
+    rule's text changes — content-hashed ids would otherwise linger). Idempotent
+    within a process via a version guard. BLOCKING (chromadb + encode) — callers
+    in async contexts MUST wrap this in asyncio.to_thread(). Never raises.
+    """
+    global _CONST_SYNCED_VERSION
+    if not _ensure():
+        return {"ok": False, "reason": "coding RAG unavailable"}
+    try:
+        from . import constitutional_rules as _cr
+        rules = _cr.CONSTITUTIONAL_RULES
+        version = _cr.RULES_VERSION
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[CodingRAG] R-F2130 rules import failed: %s", e)
+        return {"ok": False, "reason": f"rules import failed: {e}"}
+
+    try:
+        existing_count = _constitutional_collection.count()
+    except Exception:  # noqa: BLE001
+        existing_count = 0
+    if _CONST_SYNCED_VERSION == version and existing_count > 0:
+        return {"ok": True, "skipped": True, "version": version, "count": existing_count}
+
+    # Clear stale docs first so an edited rule can't leave an orphaned old version.
+    try:
+        existing = _constitutional_collection.get()
+        ids = (existing or {}).get("ids", []) or []
+        if ids:
+            _constitutional_collection.delete(ids=ids)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CodingRAG] R-F2130 clear failed (continuing): %s", e)
+
+    try:
+        n = index_constitutional_rules(rules)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[CodingRAG] R-F2130 index failed: %s", e)
+        return {"ok": False, "reason": f"index failed: {e}"}
+
+    _CONST_SYNCED_VERSION = version
+    logger.info("[CodingRAG] R-F2130 synced %d constitutional rules (version %s)", n, version)
+    return {"ok": True, "indexed": n, "version": version}
 
 
 # ── Public API: Querying ──────────────────────────────────────────────────────

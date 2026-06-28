@@ -1509,7 +1509,16 @@ class ARIACoder:
             struct = await _aio.to_thread(_crag.query_codebase_context, gap.module, 3) or []
             q = f"{gap.title} {gap.description}"[:300]
             fixes = await _aio.to_thread(_crag.query_relevant_fixes, q, 3) or []
+            # R-F2130 — also ground in the constitutional/playbook RULES (how to write
+            # code correctly), not just structure + past fixes. Previously the coder
+            # never queried these, so it could violate conventions (e.g. the annotation
+            # campaign that shipped 31 syntax errors).
+            rules = await _aio.to_thread(_crag.query_constitutional_constraints, q, 3) or []
             parts: list[str] = []
+            for r in (rules or [])[:3]:
+                c = str((r or {}).get("rule", "")).strip()
+                if c:
+                    parts.append("• RULE (must follow): " + c[:500])
             for r in (struct or [])[:3]:
                 c = str((r or {}).get("content", "")).strip()
                 if c:
@@ -1524,7 +1533,7 @@ class ARIACoder:
                         fix_id, "context_rag",
                         f"Grounded in {len(parts)} code-RAG snippet(s)")
                 return (context or "") + (
-                    "\n\n## ARIA code-RAG knowledge (indexed structure + past fixes)\n"
+                    "\n\n## ARIA code-RAG knowledge (constitutional rules + structure + past fixes)\n"
                     + "\n".join(parts)
                 )
         except Exception as e:

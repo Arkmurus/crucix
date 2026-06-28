@@ -808,6 +808,23 @@ async def lifespan(app: FastAPI):
             logger.warning("[R-F2086] knowledge search prewarm failed (non-fatal, lazy build will retry): %s", exc)
     _bg_task(asyncio.create_task(_prewarm_knowledge_search_bg(), name="knowledge_search_prewarm"))
 
+    # ── R-F2130 — populate the coder's constitutional-rules RAG at boot ──────
+    # coding_constitutional was built but NEVER populated (index_constitutional_rules
+    # was only ever called in tests), so the autonomous coder was grounded in code
+    # STRUCTURE + past fixes but not in the playbook RULES — plausibly why its edits
+    # violated conventions (the annotation campaign that shipped 31 syntax errors).
+    # Sync the canonical rules off the loop, after the RAG client settles. Guarded;
+    # never blocks or breaks boot.
+    async def _sync_constitutional_rag_bg():
+        await asyncio.sleep(30)  # let chromadb/rag init settle (rag_init_bg sleeps 15)
+        try:
+            from .intel import coding_rag_indexer as _crag
+            res = await asyncio.to_thread(_crag.sync_constitutional_rules)
+            logger.info("[R-F2130] constitutional-rules RAG sync: %s", res)
+        except Exception as exc:
+            logger.warning("[R-F2130] constitutional RAG sync failed (non-fatal): %s", exc)
+    _bg_task(asyncio.create_task(_sync_constitutional_rag_bg(), name="constitutional_rag_sync"))
+
     # ── R-F1512 — seed baseline mastery for topics stuck at scaffold ───
     async def _seed_mastery_bg():
         try:
