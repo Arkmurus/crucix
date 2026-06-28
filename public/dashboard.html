@@ -519,6 +519,26 @@ async function runSweep() {
 
 loadData();
 
+// ── R-F2087 — periodic AUTO-REFRESH so the dashboard populates live without a
+// manual reload. Before this, loadData() ran once on page load and data only
+// updated after a manual "Run Sweep". Now it refreshes on an interval.
+// Guards for serving many concurrent users: (1) PAUSES when the tab is hidden
+// (no wasted brain load for backgrounded dashboards), (2) never overlaps a
+// refresh that is still in flight, (3) refreshes immediately when the tab
+// becomes visible again so a returning user sees current data at once.
+(function(){
+  var REFRESH_MS = 90000;   // 90s — fresher than the 5-min server sweep, light on the brain
+  var inFlight = false;
+  async function autoRefresh(){
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+    try { await loadData(); } catch (e) { /* keep last-good data on a transient error */ }
+    finally { inFlight = false; }
+  }
+  setInterval(autoRefresh, REFRESH_MS);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) autoRefresh(); });
+})();
+
 // ── R-F2047 — My Sources (self-contained; does not touch loadData) ──────────
 (function () {
   const listEl = document.getElementById('my-sources-list');

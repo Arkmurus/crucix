@@ -1548,7 +1548,12 @@ def search_knowledge(query: str) -> str:
         # R-F939 — yield the GIL during a cold/large scan so this worker thread
         # (the 7-layer-context pool) can't starve the event loop while it builds
         # the cache for the first time. Cheap once the cache is warm.
-        if (idx & 0x7FF) == 0:
+        # R-F2086 — yield every 256 facts (was 2048): a live wedge stack still
+        # caught this cold scan stalling the loop 5s+ post-deploy. 8x more
+        # frequent GIL release keeps any per-chunk hold to ~tens of ms. The boot
+        # prewarm (main.py) builds the cache off the request path so users never
+        # hit the cold scan; this is the in-scan safety net.
+        if (idx & 0xFF) == 0:
             time.sleep(0)
         content = f.get("content") or ""
         clen = len(content)

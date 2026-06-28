@@ -746,6 +746,23 @@ async def lifespan(app: FastAPI):
             await _prewarm_inprocess_model()
     _bg_task(asyncio.create_task(_embedder_prewarm_bg(), name="embedder_prewarm"))
 
+    # ── R-F2086 — prewarm the knowledge search lowercase cache (_search_lc) ──
+    # search_knowledge() builds a per-fact lowercased-text cache on its FIRST
+    # scan. That cold build is GIL-bound and, in the 7-layer-context worker pool
+    # on the chat path, still stalled the event loop ~5s post-deploy (live wedge
+    # stack). Warming it ONCE at boot (off the request path) means user requests
+    # always hit the warm cache — the cold scan never lands on a chat turn. One
+    # call scans all facts and populates the whole cache regardless of the query.
+    async def _prewarm_knowledge_search_bg():
+        await asyncio.sleep(20)   # let knowledge.init() load the fact cache first
+        try:
+            from .intel import knowledge as _kn
+            await asyncio.to_thread(_kn.search_knowledge, "warmup")
+            logger.info("[R-F2086] knowledge search cache prewarmed (cold scan off the request path)")
+        except Exception as exc:
+            logger.warning("[R-F2086] knowledge search prewarm failed (non-fatal, lazy build will retry): %s", exc)
+    _bg_task(asyncio.create_task(_prewarm_knowledge_search_bg(), name="knowledge_search_prewarm"))
+
     # ── R-F1512 — seed baseline mastery for topics stuck at scaffold ───
     async def _seed_mastery_bg():
         try:

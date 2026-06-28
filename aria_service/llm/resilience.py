@@ -66,8 +66,17 @@ _ARIA_LLM_CALL_TIMEOUT = float(os.getenv("ARIA_LLM_CALL_TIMEOUT_S", "12"))
 _ARIA_LLM_STREAM_TIMEOUT = float(os.getenv("ARIA_LLM_STREAM_TIMEOUT_S", "45"))
 _ARIA_LLM_WARM_TTL = float(os.getenv("ARIA_LLM_WARM_TTL_S", "120"))
 
-_QUEUE_MAX_CONCURRENT = int(os.getenv("ARIA_LLM_MAX_CONCURRENT", "5"))
-_QUEUE_MAX_SIZE = int(os.getenv("ARIA_LLM_QUEUE_MAX_SIZE", "100"))
+# R-F2088 — concurrency raised 5→24 + queue 100→200 for 50-100 concurrent users.
+# LLM calls are I/O-bound (outbound HTTPS to DeepSeek) — they do NOT block the
+# event loop, so a higher PARALLELISM ceiling just lets a burst of users be served
+# at once instead of serialising 5-at-a-time. This is the safe scaling lever: it
+# raises throughput/latency WITHOUT raising the cost RATE — the per-minute spend is
+# still bounded by the rate limiter (ARIA_LLM_RPM, default 50) and the $300/mo +
+# $20/user + $5/user/day cost caps, which are unchanged. To raise sustained
+# throughput further (and accept faster cost burn), raise ARIA_LLM_RPM — that is the
+# operator's spend decision, deliberately left at its current default here.
+_QUEUE_MAX_CONCURRENT = int(os.getenv("ARIA_LLM_MAX_CONCURRENT", "24"))
+_QUEUE_MAX_SIZE = int(os.getenv("ARIA_LLM_QUEUE_MAX_SIZE", "200"))
 _QUEUE_TIMEOUT = int(os.getenv("ARIA_LLM_QUEUE_TIMEOUT", "30"))
 
 _CACHE_MAX_SIZE = int(os.getenv("ARIA_LLM_CACHE_MAX_SIZE", "100"))

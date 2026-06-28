@@ -20,6 +20,7 @@ or paid vision APIs.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -87,6 +88,13 @@ async def ingest_pdf_multi_page(
     pdf_hash = hashlib.sha1(pdf_bytes[:1024] + pdf_bytes[-1024:]).hexdigest()[:12]
 
     for page_idx in range(doc.page_count):
+        # R-F2085 — yield the event loop between pages. The per-page work below
+        # (fitz get_text / Pixmap / tobytes, and Tesseract OCR when images are
+        # enabled) is synchronous CPU that runs ON the loop thread; without a
+        # yield a multi-page PDF starves every other task (incl. the /health/live
+        # probe the WA listener uses to decide the brain is "reachable"). A
+        # sleep(0) lets pending handlers run between pages.
+        await asyncio.sleep(0)
         try:
             page = doc[page_idx]
         except Exception as exc:

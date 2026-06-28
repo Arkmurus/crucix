@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2085,
+  "next_available": 2089,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15150,22 +15150,34 @@
       "title": "neural edges encode: orjson+gzip1 to kill 7-8s loop wedge (web slowness root cause)",
       "claimed_at": "2026-06-28T12:02:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7ae43f47",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:43:24Z"
     },
     {
       "r_number": "R-F2082",
       "title": "structural: shard neural edges like neurons (bounded per-persist work, infinite-memory)",
       "claimed_at": "2026-06-28T12:02:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7ae43f47",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:43:24Z"
     },
     {
       "r_number": "R-F2083",
       "title": "brain read-document: return extracted_text fast, defer LLM fact-extraction/RAG chain off the async critical path (root cause of WA doc timeouts)",
+      "claimed_at": "2026-06-28T12:26:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7ae43f47",
+      "notes": null,
+      "shipped_at": "2026-06-28T12:37:36Z"
+    },
+    {
+      "r_number": "R-F2084",
+      "title": "brain read-document: process-offload CPU-bound extract/embed to spare cores + doc-path async-complete callback",
       "claimed_at": "2026-06-28T12:26:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -15173,9 +15185,36 @@
       "notes": null
     },
     {
-      "r_number": "R-F2084",
-      "title": "brain read-document: process-offload CPU-bound extract/embed to spare cores + doc-path async-complete callback",
-      "claimed_at": "2026-06-28T12:26:42Z",
+      "r_number": "R-F2085",
+      "title": "keep brain event loop responsive during PDF ingest — skip image-OCR on async/WA doc path + yield per page (fixes /health/live stall -> WA false-abort -> doc fail)",
+      "claimed_at": "2026-06-28T12:57:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2086",
+      "title": "knowledge search _search_lc cold-build prewarm + tighter GIL yield (loop wedge)",
+      "claimed_at": "2026-06-28T12:57:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2087",
+      "title": "dashboard auto-refresh (live data population without manual reload)",
+      "claimed_at": "2026-06-28T12:57:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2088",
+      "title": "scale LLM concurrency/queue for 50-100 concurrent users (I/O-bound, cost-capped)",
+      "claimed_at": "2026-06-28T12:57:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

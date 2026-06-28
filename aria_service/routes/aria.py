@@ -11501,9 +11501,20 @@ async def _read_document_ep_impl(request: Request):
                     # -> document review silently broke. Follow the file's
                     # `import asyncio as _aioXXX` alias convention if a local is
                     # ever truly needed; never bare-import a module-global name.
+                    # R-F2085 (2026-06-28) — on the ASYNC (WhatsApp) doc path, skip
+                    # the per-page IMAGE OCR. ingest_pdf_multi_page does synchronous
+                    # fitz Pixmap/tobytes + Tesseract OCR per image ON THE EVENT LOOP
+                    # (no to_thread/yield), so a multi-page redline blocked the single
+                    # loop for 90s+ → /health/live stalled → the WA listener declared
+                    # the (alive, busy) brain "unreachable", tripped its circuit, and
+                    # the R-F2070 resubmit fast-failed → "document service didn't
+                    # respond" (live logs 12:42-12:46Z, reproduced 3×). The WA contract
+                    # review needs TEXT (already extracted + ingested per-page above);
+                    # image OCR is supplementary and the heaviest in-loop CPU. Sync
+                    # callers (email/small uploads) keep image OCR.
                     asyncio.create_task(pdf_deep_ingest.ingest_pdf_multi_page(
                         raw_bytes, filename, source_context=source,
-                        ingest_images=True,
+                        ingest_images=not bool(body.get("defer_intel")),
                     ))
                 except Exception as _ingest_err:
                     _log.debug("pdf_deep_ingest dispatch failed: %s", _ingest_err)
