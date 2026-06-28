@@ -22,6 +22,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin, urlparse, quote_plus
+from .engine_wiring import wire_success  # R-F2112 §21a — hook requires at least one wire call in every intel module
 
 import httpx
 
@@ -116,7 +117,7 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
     for attempt in range(max_attempts):
         try:
             from . import url_safety as _us
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:  # R-F1825: safe_get revalidates each hop
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:  # no-breaker: uses url_safety.safe_get (SSRF guard) which wraps the actual HTTP call; breaker belongs on safe_get itself
                 resp = await _us.safe_get(client, url, headers={  # R-F1825 (C2-broaden): SSRF guard on researched/discovered URL
                     "User-Agent": _random_ua(),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -1974,6 +1975,14 @@ Return JSON:
         )
     except Exception as _bh:
         logger.debug("deep_researcher network brain_hook failed: %s", _bh)
+
+    # R-F2112 §21a — wire success so the brain knows deep_researcher is active
+    try:
+        wire_success(module="deep_researcher",
+                     summary=f"network mapping: {total_facts} facts, {len(entity_names)} entities",
+                     source_id="deep_researcher:network_mapping")
+    except Exception:
+        pass
 
     return {
         "entities": entity_names,

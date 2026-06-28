@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Optional
+from .engine_wiring import wire_success, wire_failure  # R-F2112 §21a
 
 logger = logging.getLogger("aria.email_reader")
 
@@ -110,6 +111,12 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
             )
         except Exception:
             logger.debug("R-F1635 email_reader wire_failure failed (non-fatal)")
+        # R-F2112 §21a — wire failure so the brain knows email reader is misconfigured
+        try:
+            wire_failure(module="email_reader", detail="IMAP not configured",
+                         gap_type="source_failure", source="email_reader.read_emails")
+        except Exception:
+            pass
         return []
 
     try:
@@ -175,6 +182,12 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
 
     except Exception as e:
         logger.warning("[email_reader] read failed: %s", e)
+        # R-F2112 §21a — wire failure so the brain knows email reader is broken
+        try:
+            wire_failure(module="email_reader", detail=f"read failed: {e}",
+                         gap_type="source_failure", source="email_reader.read_emails")
+        except Exception:
+            pass
         return []
 
 
@@ -400,6 +413,14 @@ async def feed_to_brain(emails: list[dict]) -> int:
             except Exception as e:
                 logger.debug("[email_reader] brain feed failed: %s", e)
 
+    # R-F2112 §21a — wire success so the brain knows email reader is working
+    try:
+        if fed > 0:
+            wire_success(module="email_reader",
+                         summary=f"fed {fed} email(s) to brain",
+                         source_id="email_reader:feed_to_brain")
+    except Exception:
+        pass
     return fed
 
 

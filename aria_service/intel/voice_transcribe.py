@@ -20,7 +20,7 @@ WEDGE-SAFETY (the priority, given the 2026-05 event-loop history):
 Model is baked into the image (Dockerfile) so it loads from disk offline
 (HF_HUB_OFFLINE, R-F938) — no cold-start network download."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import io
@@ -106,8 +106,19 @@ async def transcribe_audio(audio_bytes: bytes, *, mime: str = "") -> dict:
     if not is_enabled():
         return {"ok": False, "skipped": "disabled"}
     if not audio_bytes or len(audio_bytes) < 100:
+        # R-F2112 §21a — wire failure so the brain knows voice limb was invoked but empty
+        try:
+            wire_failure(module="voice_transcribe", detail="empty audio",
+                         gap_type="engine_failure", source="voice_transcribe.transcribe_audio")
+        except Exception:
+            pass
         return {"ok": False, "error": "empty_audio"}
     if len(audio_bytes) > _MAX_AUDIO_BYTES:
+        try:
+            wire_failure(module="voice_transcribe", detail=f"audio too large ({len(audio_bytes)})",
+                         gap_type="engine_failure", source="voice_transcribe.transcribe_audio")
+        except Exception:
+            pass
         return {"ok": False, "error": f"audio_too_large ({len(audio_bytes)} > {_MAX_AUDIO_BYTES})"}
     t0 = time.time()
     try:
@@ -146,13 +157,29 @@ async def transcribe_audio(audio_bytes: bytes, *, mime: str = "") -> dict:
         elapsed = round(time.time() - t0, 1)
         if not text:
             logger.info("[voice] transcribed but empty (silence/noise?) %.1fs", elapsed)
+            try:
+                wire_failure(module="voice_transcribe", detail="no speech detected",
+                             gap_type="engine_failure", source="voice_transcribe.transcribe_audio")
+            except Exception:
+                pass
             return {"ok": False, "error": "no_speech", "language": lang,
                     "duration_s": round(dur, 1), "elapsed_s": elapsed}
         logger.info("[voice] transcribed %.1fs audio in %.1fs (lang=%s, %d chars)",
                     dur, elapsed, lang, len(text))
+        # R-F2112 §21a — wire success so the brain knows voice limb is working
+        try:
+            wire_success(module="voice_transcribe",
+                         summary=f"transcribed {dur:.1f}s audio in {elapsed:.1f}s (lang={lang})",
+                         source_id="voice_transcribe:transcribe_audio")
+        except Exception:
+            pass
         return {"ok": True, "text": text, "language": lang,
                 "duration_s": round(dur, 1), "elapsed_s": elapsed}
     except Exception as e:
         logger.warning("[voice] transcription failed: %s", e)
-
+        try:
+            wire_failure(module="voice_transcribe", detail=f"transcription failed: {e}",
+                         gap_type="engine_failure", source="voice_transcribe.transcribe_audio")
+        except Exception:
+            pass
         return {"ok": False, "error": str(e)[:200]}
