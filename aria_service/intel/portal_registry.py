@@ -2041,7 +2041,7 @@ async def _verify_api_key(portal: PortalDef, key: str) -> bool:
         return True  # nothing to test against — trust but unverified
     try:
         url = portal.api_key_test_url.replace("{key}", key)
-        async with httpx.AsyncClient(timeout  # no-breaker: portal registry is best-effort; breaker would block portal discovery=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:  # no-breaker: portal registry is best-effort; breaker would block portal discovery
             resp = await client.get(url)
         if 200 <= resp.status_code < 300:
             low = (resp.text or "")[:2000].lower()
