@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2099,
+  "next_available": 2101,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15317,6 +15317,25 @@
       "r_number": "R-F2098",
       "title": "ARIA scaling readiness plan (1->100+ users) — sequenced gated roadmap doc",
       "claimed_at": "2026-06-28T18:51:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4eadbd03",
+      "notes": null,
+      "shipped_at": "2026-06-28T18:58:19Z"
+    },
+    {
+      "r_number": "R-F2099",
+      "title": "chat 7-layer context: per-build layer-budget timeout so a hung retrieval layer cannot wedge the whole chat turn (long/substantive messages hang)",
+      "claimed_at": "2026-06-28T18:59:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2100",
+      "title": "Phase 0 load-test harness (concurrent chat/DD knee-finder, read-only against canary)",
+      "claimed_at": "2026-06-28T19:01:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
