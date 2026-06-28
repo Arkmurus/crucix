@@ -44,6 +44,18 @@ def _tokens(name: str) -> set[str]:
     return {t for t in _norm(name).split() if len(t) > 1}
 
 
+def _wire_lei_fail(detail: str) -> None:
+    """R-F2105 (ARIA brain DD) §21a — surface a GENUINE GLEIF/LEI lookup failure to
+    the brain so an API outage that returns [] isn't read as 'no entity found'.
+    Caller still gets [] for back-compat. Best-effort."""
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(module="gleif", detail=str(detail)[:200],
+                     gap_type="engine_failure", source="gleif.search_lei")
+    except Exception:
+        pass
+
+
 async def search_lei(name: str, *, country: str | None = None, limit: int = 5,
                      timeout: float = _TIMEOUT) -> list[dict]:
     """Look up legal entities by name on GLEIF. Best-effort: returns [] on any
@@ -63,7 +75,7 @@ async def search_lei(name: str, *, country: str | None = None, limit: int = 5,
         if len(cc) == 2:
             params["filter[entity.jurisdiction]"] = cc
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: best-effort authoritative lookup (GLEIF), timeout-bounded, returns []+wire_failure on error
             timeout=timeout,
             headers={"Accept": "application/vnd.api+json",
                      "User-Agent": "AriaIntelligence/1.0 (defence-DD; aria@arkmurus.com)"},
@@ -71,10 +83,12 @@ async def search_lei(name: str, *, country: str | None = None, limit: int = 5,
             r = await client.get(_API, params=params)
             if r.status_code != 200:
                 logger.debug("GLEIF HTTP %s for %r", r.status_code, q[:60])
+                _wire_lei_fail(f"GLEIF LEI lookup HTTP {r.status_code} for {str(q)[:60]}")
                 return []
             data = r.json().get("data") or []
     except Exception as e:
         logger.debug("GLEIF lookup failed for %r: %s", q[:60], e)
+        _wire_lei_fail(f"GLEIF LEI lookup FAILED ({type(e).__name__}) for {str(q)[:60]}")
         return []
 
     out: list[dict] = []
@@ -103,6 +117,15 @@ async def search_lei(name: str, *, country: str | None = None, limit: int = 5,
             "legal_address": addr,
             "source_url": f"https://search.gleif.org/#/record/{lei}" if lei else "https://search.gleif.org",
         })
+    # R-F2105 §21a — wire the successful LEI lookup so the brain knows GLEIF was
+    # reachable (distinguishes a real 'no match' from an outage []).
+    try:
+        from .engine_wiring import wire_success
+        wire_success(module="gleif",
+                     summary=f"GLEIF LEI lookup OK for {str(name)[:60]} ({len(out)} result(s))",
+                     entity_name=str(name)[:120])
+    except Exception:
+        pass
     return out
 
 

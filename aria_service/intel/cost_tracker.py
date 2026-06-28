@@ -555,6 +555,19 @@ async def record_call(
         await _update_month_rollup(record)
         # R-F1954 — per-user monthly sub-cap accounting (best-effort).
         await _record_user_month_spend(get_current_user(), cost_usd)
+        # R-F2103 (2026-06-28, ARIA brain DD) — wire the DEAD per-user DAILY cost
+        # cap. user_quota.record_cost was defined but NEVER called, so the
+        # ARIA_USER_DAILY_COST_USD_CAP ($5/user/day) never fired — only the global
+        # $300/mo bounded spend, so one heavy user could drain the budget. record
+        # it here on the SAME path that already knows the per-call USD + user (the
+        # cost_tracker.py:164 comment pointed here). Best-effort, never blocks.
+        try:
+            _u = get_current_user()
+            if _u and cost_usd > 0:
+                from . import user_quota as _uq
+                await _uq.record_cost(_u, cost_usd)
+        except Exception as _uqe:
+            logger.debug("cost_tracker: user_quota.record_cost failed (non-fatal): %s", _uqe)
     except Exception as e:
         logger.warning("cost_tracker.record_call persist failed: %s", e)
     return record

@@ -63,6 +63,18 @@ _PRIORITY_PLATFORMS = [
 ]
 
 
+def _wire_user_fail(detail: str) -> None:
+    """R-F2105 (ARIA brain DD) §21a — surface a GENUINE username-enum failure to the
+    brain so an API outage that returns [] isn't read as a clean 'no accounts' result.
+    Caller still gets [] for back-compat. Best-effort."""
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(module="osint_username_enum", detail=str(detail)[:200],
+                     gap_type="engine_failure", source="osint_username_enum.search_username")
+    except Exception:
+        pass
+
+
 async def search_username(
     username: str,
     timeout: float = 15.0,
@@ -97,12 +109,23 @@ async def search_username(
             asyncio.to_thread(_run_maigret, username, priority_only),
             timeout=timeout,
         )
+        # R-F2105 §21a — wire the successful enum so the brain knows maigret ran
+        # (distinguishes a real 'no accounts' result from a silent timeout/error []).
+        try:
+            from .engine_wiring import wire_success
+            wire_success(module="osint_username_enum",
+                         summary=f"username enum OK for {str(username)[:60]} ({len(result) if hasattr(result, '__len__') else '?'} platform hit(s))",
+                         entity_name=str(username)[:120])
+        except Exception:
+            pass
         return result
     except asyncio.TimeoutError:
         logger.debug("maigret timeout (%ss) for username %r", timeout, username)
+        _wire_user_fail(f"username enum TIMED OUT ({timeout}s) for {str(username)[:60]}")
         return []
     except Exception as e:
         logger.debug("maigret failed for username %r: %s", username, e)
+        _wire_user_fail(f"username enum FAILED ({type(e).__name__}) for {str(username)[:60]}")
         return []
 
 

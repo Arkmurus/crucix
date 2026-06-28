@@ -55,6 +55,11 @@ WIRING_EXEMPT_MODULES = {
     # millions of times in a training loop. Wiring it to the brain is nonsensical and
     # would flood the ledgers — it's a computation utility, not an engine.
     "grounding_reward",
+    # R-F2103 — cost_tracker is the per-LLM-call COST LEDGER (accounting infra, like
+    # intel_ledger above), invoked on every call. Wiring it with per-call wire_success
+    # would flood the brain ledgers; it already persists its own metrics. Same class
+    # as grounding_reward — a utility/ledger, not an engine with success/failure runs.
+    "cost_tracker",
 }
 
 # R-F1961 — THIS file (and any future pattern-authoring file) literally contains

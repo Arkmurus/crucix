@@ -33,6 +33,19 @@ _RATE_LIMIT_S = 1.6  # HIBP requires 1.5s between requests; we use 1.6 for margi
 _last_request: float = 0.0
 
 
+def _wire_breach_fail(detail: str) -> None:
+    """R-F2105 (ARIA brain DD) §21a — surface a GENUINE breach-check failure to the
+    brain. On a compliance product, an API outage that returns [] is indistinguishable
+    from a clean 'no breaches' result — so wire the error so the brain knows the source
+    was unavailable (the caller still gets [] for back-compat). Best-effort."""
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(module="osint_email_breach", detail=str(detail)[:200],
+                     gap_type="engine_failure", source="osint_email_breach.check_email_breaches")
+    except Exception:
+        pass
+
+
 async def check_email_breaches(
     email: str,
     timeout: float = 10.0,
@@ -60,7 +73,7 @@ async def check_email_breaches(
         await asyncio.sleep(_RATE_LIMIT_S - since_last)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:  # no-breaker: best-effort OSINT (HIBP), timeout-bounded, returns []+wire_failure on error
             resp = await client.get(
                 f"{HIBP_BASE}/breachedaccount/{email}",
                 headers={
@@ -98,11 +111,22 @@ async def check_email_breaches(
                 "description": str(breach.get("Description", "")[:200] if truncate else breach.get("Description", "")),
             })
 
+        # R-F2105 §21a — wire the successful breach lookup so the brain knows the
+        # source was reachable (distinguishes a real clean result from an outage []).
+        try:
+            from .engine_wiring import wire_success
+            wire_success(module="osint_email_breach",
+                         summary=f"HIBP breach check OK for {str(email)[:60]} ({len(results)} hit(s))",
+                         entity_name=str(email)[:120])
+        except Exception:
+            pass
         return results
 
     except httpx.TimeoutException:
         logger.debug("HIBP timeout for %r", email)
+        _wire_breach_fail(f"HIBP breach check TIMED OUT for {str(email)[:60]}")
         return []
     except Exception as e:
         logger.debug("HIBP failed for %r: %s", email, e)
+        _wire_breach_fail(f"HIBP breach check FAILED ({type(e).__name__}) for {str(email)[:60]}")
         return []

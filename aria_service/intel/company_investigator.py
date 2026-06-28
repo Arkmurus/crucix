@@ -228,6 +228,30 @@ async def investigate_company(
         report.error = str(e)[:500]
 
     report.duration_ms = (time.monotonic() - start) * 1000
+    # R-F2104 (2026-06-28, ARIA brain DD) §21a — surface the run OUTCOME to the brain.
+    # Pre-fix only an import-time wire_success('active') fired; every real run
+    # (success / timeout / exception) was logger-only, so the brain was blind to
+    # investigation failures and couldn't self-heal the "No findings for {company}"
+    # class. One wire here covers all three exits (report.error is set on
+    # timeout/exception above). Best-effort — never breaks the return.
+    try:
+        from .engine_wiring import wire_success, wire_failure
+        if report.error:
+            wire_failure(
+                module="company_investigator",
+                detail=f"investigate_company('{str(company_name)[:80]}'): {str(report.error)[:160]}",
+                gap_type="engine_failure",
+                source="company_investigator.investigate_company",
+            )
+        else:
+            wire_success(
+                module="company_investigator",
+                summary=(f"investigated '{str(company_name)[:80]}' "
+                         f"({jurisdiction or '?'}) in {report.duration_ms:.0f}ms"),
+                entity_name=str(company_name)[:120],
+            )
+    except Exception:
+        pass
     return report
 
 
