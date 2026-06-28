@@ -244,7 +244,11 @@ async function loadData() {
   const [ddRes, wlRes, pipeRes, oppRes, sweepRes] = await Promise.allSettled([
     authed('/api/aria/dd/reports?limit=100'),
     authed('/api/aria/dd/watchlist'),
-    authed('/api/aria/bd-intelligence/pipeline'),
+    // R-F2076 (2026-06-28 audit) — was '/api/aria/bd-intelligence/pipeline' which
+    // does NOT exist on the brain (404) → the Active Deals KPI was permanently 0.
+    // The real deal pipeline is the Node route '/api/bd-intelligence/pipeline'
+    // (no 'aria' prefix) backed by getDealPipeline() which returns an array.
+    authed('/api/bd-intelligence/pipeline'),
     authed('/api/aria/opportunities'),
     API.get('/api/data'),
   ]);

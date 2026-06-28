@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2075,
+  "next_available": 2079,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15084,6 +15084,42 @@
       "commit_sha": "54c98192",
       "notes": null,
       "shipped_at": "2026-06-28T11:17:05Z"
+    },
+    {
+      "r_number": "R-F2075",
+      "title": "aria-web security: DD-reports IDOR pinning route + explorer false-clean stale contracts",
+      "claimed_at": "2026-06-28T11:37:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2076",
+      "title": "aria-web display-contract fixes: Active Deals path, news count, vault status vocab, watchlist fields, vls-chain empty-state",
+      "claimed_at": "2026-06-28T11:37:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2077",
+      "title": "aria-web page-contract regression guard — anti-drift test that every page fetch URL resolves + read-fields exist",
+      "claimed_at": "2026-06-28T11:37:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2078",
+      "title": "Add LLM-powered deep contract analysis with redline comparison for chat/WA",
+      "claimed_at": "2026-06-28T11:44:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -2904,6 +2904,31 @@ app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
 // runs only". The Python endpoint also accepts `user_email_domain` for
 // R-F608 same-company visibility — wired here via findUserById lookup
 // so the JWT-only payload doesn't have to carry email.
+// R-F2075 (2026-06-28) — DD reports LIST per-user scoping. The R-F607 comment
+// above CLAIMED the proxy appends user_id for /dd/reports, but no such route ever
+// existed: the plural list hit the catch-all (server.mjs ~5110) which forwards the
+// query string VERBATIM with no user_id, and the brain treats an empty user_id as
+// "admin / see everything" → any authenticated web user could read EVERY user's DD
+// report metadata (entity names, jurisdictions, risk, dates). Latent only while
+// legacy reports have user_id=null; becomes a live cross-tenant leak the moment any
+// user runs a web DD (orchestrate stamps their user_id). Mirror /dd/report/:id
+// (R-F1820): strip any client-supplied user_id and pin the JWT identity, plus the
+// email domain for R-F608 same-company visibility. Audited 2026-06-28 (4-step DD).
+app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.delete('user_id');                 // never trust a client-supplied owner
+  params.set('user_id', userId);
+  try {
+    const u = findUserById(userId);
+    const email = String(u?.email || '').trim().toLowerCase();
+    const domain = email.includes('@') ? email.split('@').pop() : '';
+    if (domain) params.set('user_email_domain', domain);
+  } catch {}
+  return ariaProxy(req, res, `/api/aria/dd/reports?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
   // R-F1820 (audit H3): pin user_id from the JWT (strip any client value) so the
   // brain can enforce report ownership. Pre-fix this forwarded the client query

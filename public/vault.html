@@ -71,12 +71,13 @@
   <!-- Summary row -->
   <div class="sc-grid-4 mb-16" id="vault-summary">
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="vault-total">—</div><div class="sc-stat-label">Total Sites</div></div></div>
+    <!-- R-F2076: cards now map to the brain's real status vocabulary (was Registered/Pending/Failed, none of which the brain emits → 42/43 sites were invisible) -->
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="vault-verified">—</div><div class="sc-stat-label">Verified</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-person-check"></i></div><div><div class="sc-stat-value" id="vault-registered">—</div><div class="sc-stat-label">Registered</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass"></i></div><div><div class="sc-stat-value" id="vault-pending">—</div><div class="sc-stat-label">Pending</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass-split"></i></div><div><div class="sc-stat-value" id="vault-needs-operator">—</div><div class="sc-stat-label">Needs Operator</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-plug"></i></div><div><div class="sc-stat-value" id="vault-open-api">—</div><div class="sc-stat-label">Open API</div></div></div>
   </div>
   <div class="sc-grid-2 mb-24" id="vault-summary-2">
-    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-failed">—</div><div class="sc-stat-label">Failed</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-declined">—</div><div class="sc-stat-label">Declined</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="vault-stale">—</div><div class="sc-stat-label">Stale (30d+)</div></div></div>
   </div>
 
@@ -84,13 +85,13 @@
   <div class="sc-card mb-16">
     <div style="padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <select id="vault-filter-status" style="background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:7px 12px;font-size:13px;color:var(--sc-text);min-width:130px">
+        <!-- R-F2076: real brain status vocabulary -->
         <option value="">All statuses</option>
-        <option value="pending">Pending</option>
-        <option value="registered">Registered</option>
+        <option value="needs_operator">Needs Operator</option>
+        <option value="open_api">Open API</option>
         <option value="verified">Verified</option>
-        <option value="failed">Failed</option>
-        <option value="expired">Expired</option>
-        <option value="cancelled">Cancelled</option>
+        <option value="declined">Declined</option>
+        <option value="deferred">Deferred</option>
       </select>
       <input id="vault-filter-agent" type="text" placeholder="Agent ID" style="background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:7px 12px;font-size:13px;color:var(--sc-text);min-width:140px">
       <input id="vault-filter-search" type="text" placeholder="Search site name, URL, or notes" style="background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:7px 12px;font-size:13px;color:var(--sc-text);flex:1;min-width:180px">
@@ -133,10 +134,20 @@ Sidebar.init('vault');
 // R-F2048 — the vault (controlled data-point catalogue) is admin/dev only.
 if (!Auth.requireAdmin()) { /* redirected to /dashboard.html for non-admins */ }
 
+// R-F2076 (2026-06-28 audit) — the brain's real status vocabulary is
+// needs_operator / open_api / declined / verified / deferred. Pre-fix STATUS_CONFIG
+// only knew pending/registered/failed/expired/cancelled, so 42 of 43 rows fell to
+// the grey default "question" icon and the filter dropdown couldn't select any real
+// status. Map the real statuses; keep the legacy keys as harmless aliases.
 const STATUS_CONFIG = {
+  needs_operator: { icon: 'bi-hourglass-split', color: '#c2410c', label: 'Needs Operator' },
+  open_api:       { icon: 'bi-plug',            color: '#1d4ed8', label: 'Open API' },
+  verified:       { icon: 'bi-check-circle',    color: '#15803d', label: 'Verified' },
+  declined:       { icon: 'bi-x-circle',        color: '#b91c1c', label: 'Declined' },
+  deferred:       { icon: 'bi-clock-history',   color: '#6b6862', label: 'Deferred' },
+  // legacy aliases (kept so older rows still render with an icon)
   pending:   { icon: 'bi-hourglass',      color: '#c2410c' },
   registered:{ icon: 'bi-person-check',   color: '#1d4ed8' },
-  verified:  { icon: 'bi-check-circle',   color: '#15803d' },
   failed:    { icon: 'bi-x-circle',       color: '#b91c1c' },
   expired:   { icon: 'bi-clock',          color: '#6b6862' },
   cancelled: { icon: 'bi-x-octagon',      color: '#6b6862' },
@@ -144,9 +155,11 @@ const STATUS_CONFIG = {
 
 function statusHtml(status) {
   const cfg = STATUS_CONFIG[status] || { icon: 'bi-question', color: '#6b6862' };
+  // R-F2076 — prefer a human label (e.g. "Needs Operator") over the raw snake_case key.
+  const label = cfg.label || String(status || 'unknown').replace(/_/g, ' ');
   return `<span style="display:inline-flex;align-items:center;gap:5px">
     <i class="bi ${cfg.icon}" style="color:${cfg.color};font-size:14px"></i>
-    <span style="color:${cfg.color};font-weight:600;text-transform:capitalize">${escHtml(status || 'unknown')}</span>
+    <span style="color:${cfg.color};font-weight:600;text-transform:capitalize">${escHtml(label)}</span>
   </span>`;
 }
 
@@ -186,11 +199,13 @@ async function loadVault() {
     const stats = data.stats || {};
 
     // Update summary cards
+    // R-F2076 — read the brain's real by_status keys (needs_operator/open_api/declined).
+    const bs = stats.by_status || {};
     document.getElementById('vault-total').textContent = stats.total || 0;
-    document.getElementById('vault-verified').textContent = (stats.by_status && stats.by_status.verified) || 0;
-    document.getElementById('vault-registered').textContent = (stats.by_status && stats.by_status.registered) || 0;
-    document.getElementById('vault-pending').textContent = (stats.by_status && stats.by_status.pending) || 0;
-    document.getElementById('vault-failed').textContent = (stats.by_status && stats.by_status.failed) || 0;
+    document.getElementById('vault-verified').textContent = bs.verified || 0;
+    document.getElementById('vault-needs-operator').textContent = bs.needs_operator || 0;
+    document.getElementById('vault-open-api').textContent = bs.open_api || 0;
+    document.getElementById('vault-declined').textContent = bs.declined || 0;
     document.getElementById('vault-stale').textContent = stats.stale_unverified || 0;
 
     if (!entries.length) {

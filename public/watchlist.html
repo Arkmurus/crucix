@@ -210,15 +210,25 @@ function renderTable(entries) {
     content.innerHTML = '<div class="wl-empty"><i class="bi bi-eye-slash"></i>No watchlist entries yet. Click "Add Entity" to start monitoring a company or person.</div>';
     return;
   }
-  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Status</th><th>Last Checked</th><th>Actions</th></tr></thead><tbody>';
+  // R-F2076 (2026-06-28 audit) — surface the most important field, `last_risk`
+  // (the backend returns RED/AMBER/AMBER-LIGHT/GREEN), which the table previously
+  // never showed; and read the real timestamp field `added_at` (was `last_checked`,
+  // which the backend doesn't emit → column was always "—", looking never-screened).
+  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Last Checked</th><th>Actions</th></tr></thead><tbody>';
   for (const e of entries) {
-    const status = e.active !== false ? '<span class="wl-pill active">Active</span>' : '<span class="wl-pill inactive">Inactive</span>';
-    const lastChecked = e.last_checked ? new Date(e.last_checked).toLocaleString() : '—';
+    const risk = String(e.last_risk || '').toUpperCase();
+    const riskCls = risk === 'RED' || risk === 'HARD_STOP' ? 'red'
+                  : (risk === 'AMBER' || risk === 'AMBER-LIGHT' ? 'amber'
+                  : (risk === 'GREEN' || risk === 'CLEAR' ? 'green' : 'muted'));
+    const riskColor = riskCls === 'red' ? '#b91c1c' : riskCls === 'amber' ? '#c2410c' : riskCls === 'green' ? '#15803d' : '#9b968c';
+    const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(risk) + '</span>' : '<span style="color:#9b968c">not screened</span>';
+    const lastTs = e.last_checked || e.added_at;
+    const lastChecked = lastTs ? new Date(lastTs).toLocaleString() : '—';
     html += '<tr class="wl-row">' +
-      '<td><strong style="color:var(--sc-heading)">' + escText(e.name || '(unnamed)') + '</strong></td>' +
+      '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong></td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '—') + '</td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '—') + '</td>' +
-      '<td>' + status + '</td>' +
+      '<td>' + riskPill + '</td>' +
       '<td style="color:var(--sc-muted);font-size:12px">' + lastChecked + '</td>' +
       '<td>' +
         // R-F1569 — these buttons formerly used inline onclick handlers that

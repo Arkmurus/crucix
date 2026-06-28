@@ -196,6 +196,17 @@ async function verifyChain(canonicalId) {
       return;
     }
     const data = await r.json();
+    // R-F2076 (2026-06-28 audit) — the brain returns HTTP 200 {verified:false,
+    // error:"No VLS chain found …"} for an entity that simply has no ledger yet
+    // (NOT a 404). Pre-fix renderChain ran on that error object and painted a red
+    // cryptographic "FAIL 0/0/0", indistinguishable from a real signature failure.
+    // Detect the no-chain case (error + no entries) and show the friendly empty-state.
+    const noEntries = !data || !Array.isArray(data.results) || data.results.length === 0;
+    if (data && data.error && noEntries) {
+      content.innerHTML = '<div class="vls-empty"><i class="bi bi-search"></i>' + escText(data.error) +
+        ' Run a DD report for this entity to start its verification ledger.</div>';
+      return;
+    }
     renderChain(data, canonicalId);
   } catch (err) {
     content.innerHTML = '<div class="vls-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
