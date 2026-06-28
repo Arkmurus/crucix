@@ -15060,27 +15060,30 @@
       "title": "Tier0-finish: pre-compute /api/aria/health in bg tick (read-only endpoint)",
       "claimed_at": "2026-06-28T10:57:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "54c98192",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:28:58Z"
     },
     {
       "r_number": "R-F2073",
       "title": "Tier1: ARIA_ROLE web|engine role-split gate on singleton bg loops",
       "claimed_at": "2026-06-28T10:57:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "54c98192",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:28:58Z"
     },
     {
       "r_number": "R-F2074",
       "title": "Add test-count verifier script to prevent per-file test count hallucinations",
       "claimed_at": "2026-06-28T11:09:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "54c98192",
+      "notes": null,
+      "shipped_at": "2026-06-28T11:17:05Z"
     }
   ]
 }
