@@ -318,12 +318,12 @@ class CoderToolbox:
         if change_lines:
             if files:
                 for f in files:
-                    self._tb.run(f"git add {f}", timeout=30)
+                    self._tb.run(f"git add {_shq(f)}", timeout=30)  # R-F2128 — quoted
             else:
                 # R-F1479: stage only tracked-modified files — never blanket-add
                 # untracked runtime artifacts (DBs, reports, session files).
                 self._tb.run("git add -u", timeout=30)
-            c = self._tb.run(f'git commit -m "{msg}"', timeout=30)
+            c = self._tb.run(f"git commit -m {_shq(msg)}", timeout=30)  # R-F2128 — quoted (backticks/$() unsafe inside "...")
             if c.is_error:
                 return ToolResult(f"ci_deploy: commit failed:\n{c.output}", is_error=True)
         else:
@@ -335,7 +335,7 @@ class CoderToolbox:
                 # Only create an empty trigger commit if HEAD doesn't already carry
                 # the [deploy] tag (legacy CI path). For local deploys this is
                 # unnecessary but harmless.
-                c = self._tb.run(f'git commit --allow-empty -m "{msg}"', timeout=30)
+                c = self._tb.run(f"git commit --allow-empty -m {_shq(msg)}", timeout=30)  # R-F2128 — quoted
                 if c.is_error:
                     return ToolResult(f"ci_deploy: trigger commit failed:\n{c.output}", is_error=True)
 
@@ -501,7 +501,7 @@ class CoderToolbox:
         script = self.root / "scripts" / "admin" / "reserve_r_number.py"
         if not script.exists():
             return ToolResult(f"error: reservation script not found at {script}", is_error=True)
-        return self._tb.run(f'"{sys.executable}" {script} reserve "{title}"', timeout=30)
+        return self._tb.run(f'{_shq(sys.executable)} {_shq(str(script))} reserve {_shq(title)}', timeout=30)  # R-F2128 — quoted
 
     def ship_r_number(self, r_number: str, sha: str = "") -> ToolResult:
         """Mark an R-number as shipped with the given commit SHA."""
@@ -511,7 +511,7 @@ class CoderToolbox:
         if not sha:
             r = self._tb.run("git rev-parse HEAD", timeout=15)
             sha = r.output.splitlines()[0] if not r.is_error and r.output else "unknown"
-        return self._tb.run(f'"{sys.executable}" {script} ship {r_number} {sha}', timeout=30)
+        return self._tb.run(f'{_shq(sys.executable)} {_shq(str(script))} ship {_shq(r_number)} {_shq(sha)}', timeout=30)  # R-F2128 — quoted
 
     # ── self-review (adversarial self-critique — no Claude needed) ─────────
 
