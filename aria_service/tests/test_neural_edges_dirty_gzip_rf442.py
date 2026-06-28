@@ -124,24 +124,28 @@ def test_recall_pattern_does_not_write_edges():
         for p in patches:
             p.stop()
 
-    edges_writes = [k for k, _ in write_log if k == "crucix:aria:neural_edges"]
+    # R-F2082: edges (single blob OR shards) must not be written when clean.
+    edges_writes = [k for k, _ in write_log
+                    if k == "crucix:aria:neural_edges" or k.startswith("crucix:aria:neural_edges:")]
     assert edges_writes == [], (
         f"R-F442: edges should not have been written when _edges_dirty=False. "
         f"Got {len(edges_writes)} edges writes."
     )
-    # Neurons should still be written each time
-    neuron_writes = [k for k, _ in write_log if k == "crucix:aria:neurons"]
-    assert len(neuron_writes) == 5, (
-        f"Neurons should still write on every persist; got {len(neuron_writes)} writes."
+    # Neurons should still be written each time. R-F699 sharded them, so the
+    # write target is crucix:aria:neurons:shard:N (+ :meta), not the legacy key.
+    neuron_writes = [k for k, _ in write_log if k.startswith("crucix:aria:neurons:shard:")]
+    assert len(neuron_writes) >= 5, (
+        f"Neurons should still write on every persist; got {len(neuron_writes)} shard writes."
     )
 
 
 # ── Test 2: when edges DO change, they get written + gzipped ────────────
 
 
-def test_dirty_edges_are_written_gzipped():
-    """When _edges_dirty=True, _persist must write the edges blob and the
-    value must use the GZ1: prefix (gzip+base64 wrap)."""
+def test_dirty_edges_are_written_to_shards():
+    """R-F2082: when _edges_dirty=True, _persist writes the edges to SHARD keys
+    (each gzipped GZ1:), NOT the single legacy blob, and the sharded set round-
+    trips. (Superseded the single-blob GZ1: write the old R-F442 test asserted.)"""
     from aria_service.intel import neural_memory as nm
 
     nm._neurons = {"a": {"id": "a", "concept": "alpha", "activation": 0.5}}
@@ -157,19 +161,21 @@ def test_dirty_edges_are_written_gzipped():
         p.start()
     try:
         asyncio.run(nm._persist())
+        loaded = asyncio.run(nm._load_edges_sharded())
     finally:
         for p in patches:
             p.stop()
 
-    val = storage.get("crucix:aria:neural_edges")
-    assert isinstance(val, str), f"Expected gzipped string, got {type(val).__name__}"
-    assert val.startswith("GZ1:"), f"Expected GZ1: prefix, got: {val[:20]!r}"
-
-    # And it must round-trip cleanly back to the original edges
-    decoded = nm._decode_edges(val)
-    assert decoded == {"a": {"b": 0.7}}, f"Round-trip mismatch: {decoded}"
-
-    # Dirty flag should be cleared after a successful write
+    # The legacy single key must NOT be written any more.
+    assert storage.get("crucix:aria:neural_edges") is None, "legacy single blob must not be written"
+    # Edges go to shard keys, each a gzipped GZ1: blob.
+    shard_writes = [k for k, _ in write_log if k.startswith("crucix:aria:neural_edges:shard:")]
+    assert shard_writes, "edges must be written to shard keys"
+    nonempty = [storage[k] for k in shard_writes if isinstance(storage.get(k), str)]
+    assert any(v.startswith("GZ1:") for v in nonempty), "shard blobs must be gzipped GZ1:"
+    # And the sharded set round-trips back to the original edges.
+    assert loaded == {"a": {"b": 0.7}}, f"Sharded round-trip mismatch: {loaded}"
+    # Dirty flag clears after a successful write.
     assert nm._edges_dirty is False, "Dirty flag must clear after successful write"
 
 
@@ -256,9 +262,11 @@ def test_init_accepts_legacy_raw_json_edges():
     )
 
 
-def test_init_accepts_gzipped_edges_clean():
-    """After R-F442 has run once, edges are stored gzipped. init() must
-    decode the GZ1: blob AND leave dirty=False (no migration needed)."""
+def test_init_accepts_gzipped_legacy_edges_and_migrates_to_shards():
+    """R-F2082: a gzipped LEGACY single-blob still decodes correctly on init,
+    but now dirty=True so the first persist migrates it to the sharded form.
+    (Pre-R-F2082 a gzipped blob was 'in sync' → dirty=False; sharding supersedes
+    that — any single-blob is legacy until written as shards.)"""
     from aria_service.intel import neural_memory as nm
 
     edges_obj = {"n1": {"n2": 0.5, "n3": 0.2}, "n2": {"n1": 0.5}}
@@ -283,11 +291,11 @@ def test_init_accepts_gzipped_edges_clean():
         for p in patches:
             p.stop()
 
-    assert dict(nm._edges) == edges_obj, "Gzipped edges must decode correctly"
-    assert nm._edges_dirty is False, (
-        "After loading already-gzipped edges, dirty must be False — "
-        "disk is already in sync with memory"
+    assert dict(nm._edges) == edges_obj, "Gzipped legacy edges must decode correctly"
+    assert nm._edges_dirty is True, (
+        "R-F2082: a legacy single-blob must migrate to shards on first persist → dirty=True"
     )
+    assert nm._edges_sharded_initialized is False, "not yet in sharded form"
 
 
 # ── Test 6: encode/decode is lossless on real-shaped data ───────────────
@@ -447,8 +455,8 @@ def test_init_treats_bytes_gz_prefix_as_already_gzipped():
             p.stop()
 
     assert dict(nm._edges) == edges_obj, "bytes GZ1: blob must decode like str form"
-    assert nm._edges_dirty is False, (
-        "R-F443: bytes GZ1: prefix must NOT trigger a legacy-migration write"
+    assert nm._edges_dirty is True, (
+        "R-F2082: a legacy single-blob (bytes GZ1: form) migrates to shards → dirty=True"
     )
 
 

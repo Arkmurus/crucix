@@ -28,9 +28,11 @@ import json
 import logging
 import math
 import os
+import orjson  # R-F2081 — C-speed JSON encoder (in image; verified live); ~4x faster than stdlib json on the edges graph
 import re
 import time
 import uuid
+import zlib  # R-F2082 — stable crc32 shard hashing for edges
 from collections import defaultdict
 from typing import Any, Optional
 
@@ -60,6 +62,23 @@ NEURONS_SHARD_META_KEY = "crucix:aria:neurons:meta"
 NEURONS_SHARD_KEY_FMT = "crucix:aria:neurons:shard:{i}"
 NEURONS_SHARD_TARGET_BYTES = 500_000
 NEURONS_SHARD_MAX_PER_SHARD = 3000   # hard cap on neurons per shard
+
+# R-F2082 (2026-06-28) — SHARD THE EDGES GRAPH. The edges blob grew to ~70 MB
+# uncompressed / ~12 MB gzipped (2.4M edges across 22k groups) and was re-encoded
+# WHOLE on every dirty persist — a 7-8s GIL-bound json+gzip that wedged the single
+# event loop every few minutes (the brain-side root cause of slow web population;
+# R-F2081 cut the constant, this eliminates the CLASS). Edges are now split across
+# a FIXED number of shards by a stable crc32 of the group key, and each persist
+# re-encodes ONLY the shards whose edges changed since the last write — so the
+# per-persist CPU is O(changed shards), bounded regardless of how large the
+# infinite-memory graph grows. Each shard encodes in its own throttled worker call
+# with the loop free between, so even a full migration never wedges. "If size is
+# required, scale it": raise ARIA_NEURAL_EDGES_SHARDS to keep per-shard work small
+# as the graph grows (more shards → smaller chunks). Mirrors the R-F699 neuron
+# sharding (legacy single-blob fallback on read; migrates on first persist).
+EDGES_SHARD_META_KEY = "crucix:aria:neural_edges:meta"
+EDGES_SHARD_KEY_FMT = "crucix:aria:neural_edges:shard:{i}"
+EDGES_SHARD_COUNT = max(8, min(256, int(os.getenv("ARIA_NEURAL_EDGES_SHARDS", "32"))))
 
 # R-F240 (2026-05-11) — WARN thresholds, not hard caps.
 # Per the "ARIA has infinite memory" rule (memory/aria_infinite_memory.md),
@@ -156,6 +175,14 @@ def _rebuild_neuron_index() -> None:
 # after boot always syncs disk → Redis.
 _edges_dirty: bool = True
 
+# R-F2082 — per-shard dirty tracking for the sharded edges write. `_edges_dirty`
+# stays the cheap "anything changed at all" gate (skip the whole edges save when
+# False); this set records WHICH shards changed so _persist re-encodes only those.
+# `_edges_sharded_initialized` is False until we've written the sharded form once
+# (forces a full shard write on the first persist after a legacy-blob boot).
+_dirty_edge_shards: set[int] = set()
+_edges_sharded_initialized: bool = False
+
 # R-F986 (2026-05-28) — debounce window for _maybe_persist() (see below). The
 # high-frequency callers (learn_from_text = the absorb storm, recall = the chat
 # retrieval path) re-gzip the full neuron set on every call via _persist(), a
@@ -173,6 +200,19 @@ _NEURONS_MIN_WRITE_INTERVAL_S = float(
 # loader accept both gzipped (new) and raw-JSON (legacy) blobs so
 # existing Redis snapshots migrate forward on the next write.
 _GZ_PREFIX = "GZ1:"
+# R-F2081 (2026-06-28) — the edges graph is ~70 MB uncompressed / ~12 MB gzipped
+# in prod. Re-encoding the WHOLE blob on every dirty persist wedged the single
+# event loop for 7-8s (live wedge_677: heartbeat stale 8.40s/6.72s/7.61s, top
+# frame _encode_edges → json.dumps), every few minutes — the brain-side root
+# cause of "web slow to populate" (every dashboard/chat request stalls behind the
+# wedge). Even in a worker thread, json.dumps + gzip(level 6) of a 70 MB blob
+# holds the GIL the whole time, starving the loop. Measured on a prod-matched
+# payload: json+gzip6=4243ms (→7-8s under prod contention) vs orjson+gzip1=645ms
+# (~1.3s prod) — 6.6x, well under the 5s wedge threshold. gzip 1 costs ~+6 MB of
+# storage (12→19 MB) against a 1 GB DB — negligible. Env-overridable. The PERMANENT
+# fix (bounded work regardless of infinite-memory growth) is sharding the edges
+# like neurons (R-F699) — tracked as R-F2082.
+_EDGES_GZIP_LEVEL = max(1, min(9, int(os.getenv("ARIA_NEURAL_EDGES_GZIP_LEVEL", "1"))))
 
 
 def _encode_edges(edges_dict: dict) -> str:
@@ -200,11 +240,15 @@ def _encode_edges(edges_dict: dict) -> str:
     if _gc_was_enabled:
         gc.disable()
     try:
+        # R-F2081 — orjson (C, ~4x stdlib json) + gzip level 1. orjson.dumps
+        # returns bytes directly (no .encode). The except path mirrors the old
+        # default=str defence; OPT_NON_STR_KEYS keeps orjson as lenient as
+        # json.dumps was on a non-str key leaking in (orjson is strict by default).
         try:
-            raw = json.dumps(edges_dict).encode("utf-8")
-        except TypeError:
-            raw = json.dumps(edges_dict, default=str).encode("utf-8")
-        gz = gzip.compress(raw, compresslevel=6)
+            raw = orjson.dumps(edges_dict)
+        except (TypeError, orjson.JSONEncodeError):
+            raw = orjson.dumps(edges_dict, default=str, option=orjson.OPT_NON_STR_KEYS)
+        gz = gzip.compress(raw, compresslevel=_EDGES_GZIP_LEVEL)
         return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
     finally:
         if _gc_was_enabled:
@@ -383,6 +427,115 @@ async def _load_neurons_sharded() -> dict | None:
     return _merge_neurons_shards(shards)
 
 
+# ── R-F2082 — sharded edges helpers ─────────────────────────────────────────
+def _edge_shard_index(group_key: str) -> int:
+    """Stable shard for an edges group key (a neuron id). crc32 is fast and
+    deterministic across reboots, so a group always maps to the same shard
+    (no resharding) for as long as EDGES_SHARD_COUNT is fixed."""
+    return zlib.crc32(group_key.encode("utf-8", "ignore")) % EDGES_SHARD_COUNT
+
+
+def _mark_edge_shards_dirty(*group_keys: str) -> None:
+    """Record that the given edge groups changed → their shards need rewriting
+    on the next persist. Sync (called from the event loop's mutators), so no
+    lock needed."""
+    for k in group_keys:
+        _dirty_edge_shards.add(_edge_shard_index(k))
+
+
+def _mark_all_edge_shards_dirty() -> None:
+    """A graph-wide mutation (decay) touches every group → every shard dirty."""
+    _dirty_edge_shards.update(range(EDGES_SHARD_COUNT))
+
+
+async def _save_edges_sharded() -> dict:
+    """R-F2082 — write only the edge shards that changed since the last persist
+    (or ALL shards on the first persist after a legacy-blob boot, to migrate).
+
+    Each shard is encoded in its OWN throttled worker call with the loop free
+    between shards, so per-persist CPU is O(changed shards) and never holds the
+    GIL long enough to wedge — regardless of total graph size."""
+    global _edges_sharded_initialized
+    force_all = not _edges_sharded_initialized
+    shards_to_write = set(range(EDGES_SHARD_COUNT)) if force_all else set(_dirty_edge_shards)
+    if not shards_to_write:
+        return {"written": 0, "shard_count": EDGES_SHARD_COUNT}
+
+    # Clear the dirty marks NOW (before any await) so a concurrent mutation during
+    # the encode/write re-dirties its shard and we don't lose it. On failure we
+    # restore the marks so the next persist retries.
+    _dirty_edge_shards.difference_update(shards_to_write)
+
+    # Build per-shard snapshots SYNCHRONOUSLY (no await) so _edges isn't mutated
+    # mid-iteration, and COPY each inner dict so the encoder thread reads a stable
+    # snapshot even if the live graph is mutated while it runs.
+    per_shard: dict[int, dict] = {i: {} for i in shards_to_write}
+    for gkey, targets in _edges.items():
+        bucket = per_shard.get(_edge_shard_index(gkey))
+        if bucket is not None:
+            bucket[gkey] = dict(targets)
+
+    try:
+        from ._snapshot_throttle import run_in_thread_throttled
+        for si, d in per_shard.items():
+            # Encode one shard off-loop (small → bounded GIL hold), then write it,
+            # yielding to the loop between shards. Awaiting each write immediately
+            # (rather than gathering deferred coroutines) keeps writes ordered on
+            # the single state-store connection and lets the loop breathe.
+            blob = await run_in_thread_throttled(_encode_edges, d)
+            await rs.set(EDGES_SHARD_KEY_FMT.format(i=si), blob)
+        # Meta LAST so a reader sees a complete sharded set or falls back to legacy.
+        await rs.set(EDGES_SHARD_META_KEY, json.dumps({
+            "version": 1,
+            "shard_count": EDGES_SHARD_COUNT,
+            "written_at": time.time(),
+        }))
+        _edges_sharded_initialized = True
+        if force_all:
+            # §21a — wire the one-time migration success to the brain (low-noise:
+            # fires once per process when the legacy blob is sharded).
+            try:
+                wire_success(module="neural_memory",
+                             summary=f"R-F2082 edges migrated to {EDGES_SHARD_COUNT} shards",
+                             source_id="neural_memory:R-F2082")
+            except Exception:
+                pass
+        return {"written": len(per_shard), "shard_count": EDGES_SHARD_COUNT, "full": force_all}
+    except Exception:
+        _dirty_edge_shards.update(shards_to_write)  # restore → retry next persist
+        raise
+
+
+async def _load_edges_sharded() -> dict | None:
+    """Read the sharded edges set, merging all shards. Returns None when the meta
+    key is absent or the shard set is incomplete (→ caller falls back to the
+    legacy single EDGES_KEY blob)."""
+    meta_raw = await rs.get(EDGES_SHARD_META_KEY)
+    if not meta_raw:
+        return None
+    try:
+        meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+    except Exception:
+        return None
+    if not isinstance(meta, dict) or "shard_count" not in meta:
+        return None
+    n_shards = int(meta.get("shard_count", 0))
+    if n_shards <= 0:
+        return None
+    keys = [EDGES_SHARD_KEY_FMT.format(i=i) for i in range(n_shards)]
+    raws = await asyncio.gather(*(rs.get(k) for k in keys), return_exceptions=True)
+    merged: dict = {}
+    for r in raws:
+        if isinstance(r, Exception):
+            return None  # partial set — fall back to legacy
+        if r is None:
+            continue      # an empty shard is fine (no groups hashed there)
+        d = _decode_edges(r)
+        if isinstance(d, dict):
+            merged.update(d)
+    return merged
+
+
 async def _peek_neurons_disk_count() -> int:
     """R-F371 disk-check support: return the on-disk neuron count from
     the sharded meta key. Falls back to len(legacy NEURONS_KEY) on miss.
@@ -408,17 +561,24 @@ async def _peek_neurons_disk_count() -> int:
 # ── Init ─────────────────────────────────────────────────────────────────────
 @fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def init() -> None:
-    global _neurons, _edges, _meta, _loaded, _edges_dirty
+    global _neurons, _edges, _meta, _loaded, _edges_dirty, _edges_sharded_initialized
     try:
         # R-F699: prefer sharded read; fall back to legacy NEURONS_KEY
         # if sharded meta absent or shard set is incomplete.
         neurons_raw = await _load_neurons_sharded()
         if neurons_raw is None:
             neurons_raw = await rs.get_json(NEURONS_KEY)
-        # R-F442: edges may be gzipped (new) or raw JSON (legacy). Use the
-        # raw rs.get + _decode_edges so we can handle the GZ1: prefix.
-        edges_value = await rs.get(EDGES_KEY)
-        edges_raw = _decode_edges(edges_value)
+        # R-F2082: prefer the sharded edges read; fall back to the legacy single
+        # EDGES_KEY blob (gzipped or raw) which the first persist then migrates
+        # to shards. _decode_edges handles the GZ1: prefix on the legacy blob.
+        sharded_edges = await _load_edges_sharded()
+        if sharded_edges is not None:
+            edges_raw = sharded_edges
+            _loaded_from_shards = True
+        else:
+            edges_value = await rs.get(EDGES_KEY)
+            edges_raw = _decode_edges(edges_value)
+            _loaded_from_shards = False
         meta_raw = await rs.get_json(NEURAL_META_KEY)
 
         if neurons_raw and isinstance(neurons_raw, dict):
@@ -432,28 +592,20 @@ async def init() -> None:
         if not _meta.get("born"):
             _meta["born"] = time.time()
 
-        # R-F442: edges are in-sync with disk right after init, so the
-        # first _persist() call doesn't need to rewrite them unless a
-        # mutator runs first. If we just loaded a legacy raw-JSON blob,
-        # leave dirty=True so the next persist migrates it to gzipped.
-        #
-        # R-F443 (2026-05-13) — handle bytes-prefix too. The current
-        # backends return str (Upstash with decode_responses=True,
-        # state_store), but if a future backend returns bytes, a
-        # b"GZ1:..." payload would be flagged legacy and trigger a
-        # redundant migration write on every boot. Compare the prefix
-        # symmetrically across both string types.
-        _gz_prefix_bytes = _GZ_PREFIX.encode("ascii")
-        if edges_value is None:
-            _edges_dirty = False  # nothing on disk yet — first write will sync
-        elif isinstance(edges_value, str) and edges_value.startswith(_GZ_PREFIX):
-            _edges_dirty = False  # already gzipped, in sync
-        elif isinstance(edges_value, (bytes, bytearray)) and bytes(edges_value).startswith(_gz_prefix_bytes):
-            _edges_dirty = False  # already gzipped (bytes-form), in sync
-        elif isinstance(edges_value, (str, bytes, bytearray)):
-            _edges_dirty = True   # legacy raw JSON → migrate on next persist
+        # R-F2082: decide whether the first persist must (re)write edges.
+        #  - loaded from shards  → already in the new form, in sync, nothing to do.
+        #  - legacy blob present → migrate to shards on the first persist (dirty +
+        #    sharded_initialized=False forces a full shard write once).
+        #  - nothing on disk     → fresh; first mutation will dirty + write.
+        if _loaded_from_shards:
+            _edges_dirty = False
+            _edges_sharded_initialized = True
+        elif isinstance(edges_raw, dict) and len(edges_raw) > 0:
+            _edges_dirty = True            # migrate legacy single-blob → shards
+            _edges_sharded_initialized = False
         else:
-            _edges_dirty = False  # dict / other — already typed, no migration needed
+            _edges_dirty = False
+            _edges_sharded_initialized = False
 
         _loaded = True
         logger.info("Neural memory loaded: %d neurons, %d edge groups (R-F442 edges_dirty=%s)",
@@ -466,7 +618,7 @@ async def init() -> None:
 
 
 async def _persist() -> None:
-    global _edges_dirty
+    global _edges_dirty, _edges_sharded_initialized
     try:
         _meta["total_neurons"] = len(_neurons)
         _meta["total_edges"] = sum(len(v) for v in _edges.values())
@@ -506,12 +658,16 @@ async def _persist() -> None:
                     _neurons.update(disk_neurons)
                     _rebuild_neuron_index()  # R-F1932: re-index after the disk reload
                     try:
-                        # R-F442: disk edges may be gzipped — go through _decode_edges.
-                        disk_edges_raw = await rs.get(EDGES_KEY)
-                        disk_edges = _decode_edges(disk_edges_raw)
+                        # R-F2082: prefer sharded edges on the disk-reload too;
+                        # the legacy EDGES_KEY goes stale after migration.
+                        disk_edges = await _load_edges_sharded()
+                        if disk_edges is None:
+                            disk_edges = _decode_edges(await rs.get(EDGES_KEY))
                         if isinstance(disk_edges, dict):
                             _edges.clear()
                             _edges.update(disk_edges)
+                            _dirty_edge_shards.clear()
+                            _edges_sharded_initialized = True
                     except Exception:
                         pass
                     _meta["total_neurons"] = len(_neurons)
@@ -531,37 +687,25 @@ async def _persist() -> None:
         # applies (that's learning, not forgetting), but neurons never
         # expire from Redis. Was 90d TTL before 2026-04-21.
         #
-        # R-F442 (2026-05-13): only write EDGES_KEY when _edges_dirty.
-        # recall() persists frequently but never mutates _edges, so most
-        # _persist() calls skip the 4 MB edges write entirely. When edges
-        # ARE dirty, write them gzipped (~700 KB instead of 4.14 MB).
+        # R-F442 (2026-05-13): only touch edges when _edges_dirty. recall()
+        # persists frequently but never mutates _edges, so most _persist() calls
+        # skip the edges write entirely.
         write_edges = _edges_dirty
-        # R-F714 (2026-05-19): json.dumps + gzip.compress on ~4MB edges
-        # blob was running on the event loop; live fly stacks showed
-        # 5-25s wedges with `_encode_edges` at the top of the main
-        # thread. Move to a worker so concurrent chat-stream + brain
-        # absorb don't block each other.
-        if write_edges:
-            # R-F787 — throttle the edges-encoder thread the same way
-            # the neuron-shard encoder above is throttled. The edges
-            # blob is the heaviest single payload (~4MB pre-gzip) and
-            # piles onto the GIL when knowledge/intel_ledger are also
-            # encoding their own snapshots.
-            from ._snapshot_throttle import run_in_thread_throttled
-            encoded_edges = await run_in_thread_throttled(_encode_edges, dict(_edges))
-        else:
-            encoded_edges = None
 
         # R-F699 (2026-05-18) — sharded neurons write replaces the
-        # legacy single 4MB blob SET. Edges + meta keep their
-        # existing single-key writes (edges are already gzipped per
-        # R-F442; meta is small). The sharded write loop fires
-        # asyncio.gather across N shards (~500KB each) which the
-        # backend can pipeline efficiently and does not trigger the
-        # 4MB-warn threshold per individual key.
+        # legacy single 4MB blob SET.
         save_result = await _save_neurons_sharded(dict(_neurons))
         if write_edges:
-            await rs.set(EDGES_KEY, encoded_edges)
+            # R-F2082 — SHARDED edges write: re-encodes ONLY the shards whose
+            # edges changed since the last persist (or all shards once, to migrate
+            # off the legacy blob), each in its own throttled worker call with the
+            # loop free between. This replaces the single ~12 MB blob whose
+            # whole-graph json+gzip re-encode held the GIL 7-8s and wedged the
+            # loop (R-F2081 cut the constant; this eliminates the class).
+            edges_result = await _save_edges_sharded()
+            if edges_result.get("full"):
+                logger.info("[neural] R-F2082 migrated edges to %d shards",
+                            edges_result.get("shard_count"))
         await rs.set_json(NEURAL_META_KEY, _meta)
         if save_result.get("shard_count", 1) > 1:
             # Only log when actually sharded (avoid noise for tiny states)
@@ -669,6 +813,7 @@ def _offload_cold_edges(from_id: str) -> int:
 
     _edges[from_id] = keep
     _edges_dirty = True
+    _mark_edge_shards_dirty(from_id)  # R-F2082
 
     # Persist cold edges to Redis (fire-and-forget, never blocks)
     try:
@@ -699,6 +844,7 @@ def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOS
     _edges[to_id][from_id] = min(1.0, current_rev + boost)
     # R-F442: this is the hot mutator that recall() does NOT touch.
     _edges_dirty = True
+    _mark_edge_shards_dirty(from_id, to_id)  # R-F2082 — only these 2 shards rewrite next persist
 
     # R-F1512: soft cap — offload weakest edges when a neuron exceeds
     # _MAX_HOT_EDGES_PER_NEURON. This replaces the old warn-only approach
@@ -741,6 +887,7 @@ def _apply_decay() -> None:
     # R-F442: this pass mutates every edge weight, so the edges blob
     # needs writing on the next _persist().
     _edges_dirty = True
+    _mark_all_edge_shards_dirty()  # R-F2082 — decay touches every group
 
     for n in _neurons.values():
         days_since_decay = (now - n.get("last_decayed", now)) / 86400

@@ -6,21 +6,23 @@ Drives the REAL _encode_edges / _decode_edges.
 from __future__ import annotations
 
 import gc
-import json
+import orjson
 
 from aria_service.intel import neural_memory as NM
 
 
 def test_encode_edges_disables_gc_during_dump_and_restores(monkeypatch):
+    # R-F2081: _encode_edges now serialises with orjson (not stdlib json); the
+    # GC-disable-during-dump guarantee (R-F1639) is unchanged — spy the real encoder.
     gc.enable()
     seen = {}
-    real = json.dumps
+    real = orjson.dumps
 
     def _spy(obj, *a, **k):
         seen["gc_enabled_during_dump"] = gc.isenabled()
         return real(obj, *a, **k)
 
-    monkeypatch.setattr(NM.json, "dumps", _spy)
+    monkeypatch.setattr(NM.orjson, "dumps", _spy)
     out = NM._encode_edges({"a": {"b": 0.5}})
 
     assert seen.get("gc_enabled_during_dump") is False, "GC must be OFF during the edges dump"
@@ -41,7 +43,7 @@ def test_gc_restored_even_on_dump_error(monkeypatch):
     def _boom(*a, **k):
         raise ValueError("dump boom")
 
-    monkeypatch.setattr(NM.json, "dumps", _boom)
+    monkeypatch.setattr(NM.orjson, "dumps", _boom)
     raised = False
     try:
         NM._encode_edges({"a": {"b": 1.0}})
