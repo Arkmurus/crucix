@@ -113,7 +113,17 @@ class RateLimitedProvider(LLMProvider):
                    0 = auto (rpm * 0.2)
         """
         self._inner = inner
-        self._rpm = rpm or int(os.getenv("ARIA_LLM_RPM", "50"))
+        # R-F2089 — default raised 50→150 (operator-approved 2026-06-28) for
+        # 50-100 concurrent users. The $300/mo + $20/user + $5/user/day cost caps
+        # remain the hard global spend backstop; this is the soft rate ceiling.
+        self._rpm = rpm or int(os.getenv("ARIA_LLM_RPM", "150"))
+        # R-F2089 (Tier 2) — each PROCESS keeps its own in-memory request-time
+        # window, so with N web/engine workers (Tier 3) the GLOBAL rate would be
+        # N× this cap. Divide the budget by the worker count so the global rate
+        # stays ~ARIA_LLM_RPM regardless of how many workers run. Default 1 worker
+        # = unchanged single-process behavior; Tier 3 sets ARIA_TOTAL_LLM_WORKERS.
+        _llm_workers = max(1, int(os.getenv("ARIA_TOTAL_LLM_WORKERS", "1")))
+        self._rpm = max(1, self._rpm // _llm_workers)
         self._burst = burst or max(5, int(self._rpm * 0.2))
         self._request_times: list[float] = []
         self._lock = asyncio.Lock()

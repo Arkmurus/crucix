@@ -15772,17 +15772,33 @@ async def vision_status_ep(request: Request):
 # The caller polls /api/aria/ocr/result/{job_id} until status='done'.
 # Sync mode (default) returns the result inline as before.
 
-# In-memory OCR job store (mirrors _readdoc_jobs for read-document).
-_ocr_jobs: dict[str, dict] = {}
-_ocr_jobs_lock = asyncio.Lock()
+# R-F2089 (Tier 2) — OCR job store moved from an in-process dict to redis_store,
+# mirroring _readdoc_job_set/_chat_job_set. With multiple web workers (Tier 3) a
+# job created on worker A must be pollable on worker B; an in-memory dict gave
+# "job not found" across workers. TTL matches the readdoc poll window.
+_OCR_JOB_PREFIX = "crucix:aria:ocr_job:"
+_OCR_JOB_TTL_S = 3600  # 1h — long enough for a WA/web poll window + retries
 
-async def _ocr_job_set(job_id: str, data: dict) -> None:
-    async with _ocr_jobs_lock:
-        _ocr_jobs[job_id] = data
+async def _ocr_job_set(job_id: str, data: dict) -> bool:
+    """Store an OCR job. Returns True on success, False on store failure (so a
+    caller can answer 503 instead of falsely 202, per the _readdoc_job_set class)."""
+    try:
+        from ..intel import redis_store as _rs_ocr
+        import time as _t_ocr
+        await _rs_ocr.set_json(_OCR_JOB_PREFIX + job_id, {**data, "ts": _t_ocr.time()},
+                               ex=_OCR_JOB_TTL_S)
+        return True
+    except Exception as e:
+        _log.warning("R-F2089 ocr job-store set failed for %s: %s", job_id, e)
+        return False
 
 async def _ocr_job_get(job_id: str) -> Optional[dict]:
-    async with _ocr_jobs_lock:
-        return _ocr_jobs.get(job_id)
+    from ..intel import redis_store as _rs_ocr
+    try:
+        return await _rs_ocr.get_json(_OCR_JOB_PREFIX + job_id)
+    except Exception as e:
+        _log.warning("R-F2089 ocr job-store read failed for %s: %s", job_id, e)
+        return None
 
 
 @router.post("/ocr")

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2089,
+  "next_available": 2091,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15189,32 +15189,54 @@
       "title": "keep brain event loop responsive during PDF ingest — skip image-OCR on async/WA doc path + yield per page (fixes /health/live stall -> WA false-abort -> doc fail)",
       "claimed_at": "2026-06-28T12:57:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b5b71e9",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:06:53Z"
     },
     {
       "r_number": "R-F2086",
       "title": "knowledge search _search_lc cold-build prewarm + tighter GIL yield (loop wedge)",
       "claimed_at": "2026-06-28T12:57:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b5b71e9",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:16:46Z"
     },
     {
       "r_number": "R-F2087",
       "title": "dashboard auto-refresh (live data population without manual reload)",
       "claimed_at": "2026-06-28T12:57:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b5b71e9",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:16:47Z"
     },
     {
       "r_number": "R-F2088",
       "title": "scale LLM concurrency/queue for 50-100 concurrent users (I/O-bound, cost-capped)",
       "claimed_at": "2026-06-28T12:57:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0b5b71e9",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:16:47Z"
+    },
+    {
+      "r_number": "R-F2089",
+      "title": "Tier2: OCR job store + LLM rate-limiter shared across workers; RPM 50->150",
+      "claimed_at": "2026-06-28T13:13:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2090",
+      "title": "Tier3: multi-process web+engine serving with leader-elected singletons (flag-gated)",
+      "claimed_at": "2026-06-28T13:13:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
