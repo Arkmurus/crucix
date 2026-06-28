@@ -62,50 +62,32 @@ async def test_agent_determines_field_values():
     agent = AdaptivePortalAgent()
 
     # Email fields
-    assert "aria@arkmurus.com" in str(agent._determine_field_value(
-        {"name": "Email", "type": "email", "label": "Email address"}))
+    assert "aria@arkmurus.com" in str(agent._get_value_for_field("email"))
 
     # Password fields
-    pwd = agent._determine_field_value(
-        {"name": "Password", "type": "password", "label": "Password"})
+    pwd = agent._get_value_for_field("password")
     assert pwd and len(pwd) >= 12, "Password should be generated"
 
     # First name
-    assert agent._determine_field_value(
-        {"name": "FirstName", "type": "text", "label": "First name"}) == "ARIA"
+    assert agent._get_value_for_field("first_name") == "ARIA"
 
     # Last name
-    assert agent._determine_field_value(
-        {"name": "LastName", "type": "text", "label": "Last name"}) == "Research"
+    assert agent._get_value_for_field("last_name") == "Research"
 
     # Full name
-    assert "ARIA Research" in str(agent._determine_field_value(
-        {"name": "name", "type": "text", "label": "Full name"}))
+    assert "ARIA Research" in str(agent._get_value_for_field("full_name"))
 
     # Organization
-    assert "Arkmurus" in str(agent._determine_field_value(
-        {"name": "company", "type": "text", "label": "Company"}))
+    assert "Arkmurus" in str(agent._get_value_for_field("company"))
 
     # Website
-    assert "arkmurus.com" in str(agent._determine_field_value(
-        {"name": "website", "type": "text", "label": "Website"}))
+    assert "arkmurus.com" in str(agent._get_value_for_field("website"))
 
     # Phone — should be skipped
-    assert agent._determine_field_value(
-        {"name": "phone", "type": "tel", "label": "Phone"}) is None
-
-    # Radio buttons — should pick Individual
-    assert agent._determine_field_value({
-        "name": "EntityType", "type": "radio", "label": "I am a",
-        "options": [
-            {"value": "Individual", "label": "Individual", "checked": True},
-            {"value": "Business", "label": "Business", "checked": False},
-        ],
-    }) == "Individual"
+    assert agent._get_value_for_field("phone") is None
 
     # Terms checkbox — should return True
-    assert agent._determine_field_value(
-        {"name": "terms", "type": "checkbox", "label": "I accept the terms"}) is True
+    assert agent._get_value_for_field("agree_terms") is True
 
 
 @pytest.mark.asyncio

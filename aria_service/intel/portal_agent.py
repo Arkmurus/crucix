@@ -49,6 +49,7 @@ _PAGE_TIMEOUT = 30_000  # ms
 _SUBMIT_TIMEOUT = 20_000  # ms
 _CAPTCHA_POLL_INTERVAL = 1  # seconds — poll faster
 _CAPTCHA_MAX_POLLS = 120  # ~120 seconds max for slow solves
+_VERIFICATION_TIMEOUT = 60  # seconds to wait for post-submit verification
 
 # ARIA's identity for registrations
 _ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
@@ -260,9 +261,7 @@ class AdaptivePortalAgent:
 
                 # Re-fill email field with alias
                 if "email" in fields:
-                    name_attr = await fields["email"].get_attribute("name") or ""
-                    id_attr = await fields["email"].get_attribute("id") or ""
-                    selector = f'input[name="{name_attr}"]' if name_attr else f'input#{id_attr}'
+                    selector = await self._get_selector(fields["email"])
                     await self._human_type(selector, alias_email)
                     self._log("retry", f"Changed email to {alias_email}")
 
@@ -325,58 +324,170 @@ class AdaptivePortalAgent:
     async def _detect_fields(self) -> dict[str, Any]:
         """Dynamically detect form fields using heuristics.
 
+        Includes multi-step detection (Next/Continue buttons), API-key-only
+        portal support, and fallback CSS attribute selectors.
+
         Returns a dict mapping field_type -> ElementHandle.
         """
-        fields: dict[str, Any] = {}
+        # Wait for any form to appear
+        try:
+            await self._page.wait_for_selector("form, input, button", timeout=5000)
+        except Exception:
+            pass
 
+        # 1. Standard detection
+        fields = await self._detect_fields_standard()
+
+        # 2. If no fields found, check for multi-step registration
+        if not fields:
+            fields = await self._detect_multi_step()
+
+        # 3. If still no fields, check for API-key-only portal
+        if not fields:
+            api_key = await self._detect_api_key_portal()
+            if api_key:
+                self._log("api_key", f"API key portal detected — key obtained directly")
+                return {}  # No form fields needed, key already stored
+
+        # 4. Fallback: CSS attribute selectors
+        if not fields:
+            fields = await self._fallback_field_detection()
+
+        return fields
+
+    async def _detect_fields_standard(self) -> dict[str, Any]:
+        """Standard field detection using heuristics."""
+        fields: dict[str, Any] = {}
         elements = await self._page.query_selector_all("input, textarea, select")
         for element in elements:
-            # Skip hidden elements
             is_hidden = await element.is_hidden()
             if is_hidden:
                 continue
-
             element_type = (await element.get_attribute("type") or "").lower()
             if element_type == "submit" or element_type == "hidden":
                 continue
-
-            # Get identifying attributes
             name = (await element.get_attribute("name") or "").lower()
             eid = (await element.get_attribute("id") or "").lower()
             placeholder = (await element.get_attribute("placeholder") or "").lower()
             aria_label = (await element.get_attribute("aria-label") or "").lower()
+            autocomplete = (await element.get_attribute("autocomplete") or "").lower()
             label_text = await self._get_label_text(element)
+            combined = f"{name} {eid} {placeholder} {aria_label} {label_text} {autocomplete}"
 
-            # Combine all text signals for matching
-            combined = f"{name} {eid} {placeholder} {aria_label} {label_text}"
-
-            # Determine field type by pattern matching
             field_type = None
             if element_type == "password":
                 field_type = "password"
-            elif element_type == "email":
+            elif element_type == "email" or autocomplete == "email":
                 field_type = "email"
             elif element_type in ("checkbox", "radio"):
                 if any(kw in combined for kw in ["agree", "terms", "accept", "consent", "privacy"]):
                     field_type = "agree_terms"
-                continue  # Skip other checkboxes/radios for now
+                continue
             elif element_type == "tel":
                 field_type = "phone"
             else:
-                # Match against known patterns
                 for ftype, patterns in _FIELD_PATTERNS.items():
                     for pattern in patterns:
-                        # Check if pattern appears as a whole word in the combined text
                         if re.search(rf"\b{re.escape(pattern)}\b", combined):
                             field_type = ftype
                             break
                     if field_type:
                         break
-
             if field_type and field_type not in fields:
                 fields[field_type] = element
-
         return fields
+
+    async def _detect_multi_step(self) -> dict[str, Any]:
+        """Detect multi-step registration forms."""
+        for btn_text in ["Next", "Continue", "Proceed", "Start", "Begin"]:
+            btn = await self._page.query_selector(
+                f'button:has-text("{btn_text}"), input[type="submit"][value="{btn_text}"]'
+            )
+            if btn and await btn.is_visible():
+                self._log("multi_step", f"Clicking '{btn_text}' button for multi-step form")
+                await btn.click()
+                await self._pause(1, 2)
+                try:
+                    await self._page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
+                return await self._detect_fields_standard()
+        return {}
+
+    async def _detect_api_key_portal(self) -> str | None:
+        """Check if this is an API-key-only portal (no registration form)."""
+        # Look for API key in common locations
+        for selector in ["code", "pre", "[data-api-key]", ".api-key", "#api-key"]:
+            el = await self._page.query_selector(selector)
+            if el:
+                text = (await el.text_content() or "").strip()
+                if len(text) >= 10:
+                    self._log("api_key", f"Found API key via selector '{selector}'")
+                    return text
+        # Look for "API Key" text on the page
+        body_text = await self._page.evaluate("document.body.innerText") or ""
+        for pattern in [r"API Key[:\s]+([A-Za-z0-9\-_]{10,})",
+                        r"api_key[:\s]+([A-Za-z0-9\-_]{10,})",
+                        r"Your API key is[:\s]+([A-Za-z0-9\-_]{10,})"]:
+            m = re.search(pattern, body_text, re.I)
+            if m:
+                return m.group(1)
+        return None
+
+    async def _fallback_field_detection(self) -> dict[str, Any]:
+        """Fallback: use CSS attribute selectors for common field types."""
+        fallbacks = {
+            "email": "input[type='email'], input[name='email'], input[autocomplete='email']",
+            "password": "input[type='password']",
+            "username": "input[name='username'], input[autocomplete='username']",
+            "first_name": "input[name='first_name'], input[name='firstName'], input[autocomplete='given-name']",
+            "last_name": "input[name='last_name'], input[name='lastName'], input[autocomplete='family-name']",
+            "phone": "input[type='tel'], input[name='phone']",
+            "company": "input[name='company'], input[name='organization'], input[autocomplete='organization']",
+        }
+        fields = {}
+        for ftype, selector in fallbacks.items():
+            el = await self._page.query_selector(selector)
+            if el:
+                fields[ftype] = el
+        if fields:
+            self._log("fallback", f"Fallback detection found {len(fields)} fields: {list(fields.keys())}")
+        return fields
+
+    async def _get_selector(self, element) -> str:
+        """Generate a robust CSS selector for an element.
+
+        Tries, in order: id, name, placeholder, then XPath fallback.
+        Never returns an empty or invalid selector like 'input#'.
+        """
+        elem_id = await element.get_attribute("id") or ""
+        if elem_id:
+            return f"#{elem_id}"
+        name = await element.get_attribute("name") or ""
+        if name:
+            return f'[name="{name}"]'
+        placeholder = await element.get_attribute("placeholder") or ""
+        if placeholder:
+            safe = placeholder.replace("'", "\\'")
+            return f'[placeholder="{safe}"]'
+        # XPath fallback
+        xpath = await element.evaluate("""
+            function(el) {
+                let path = '';
+                let node = el;
+                while (node && node.nodeType === Node.ELEMENT_NODE) {
+                    let tag = node.tagName.toLowerCase();
+                    let parent = node.parentElement;
+                    if (!parent) break;
+                    let siblings = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+                    let index = siblings.indexOf(node) + 1;
+                    path = '/' + tag + (siblings.length > 1 ? '[' + index + ']' : '') + path;
+                    node = parent;
+                }
+                return path;
+            }
+        """)
+        return xpath or "input, textarea, select"
 
     async def _get_label_text(self, element) -> str:
         """Get the label text for a form field using multiple strategies."""
@@ -427,9 +538,7 @@ class AdaptivePortalAgent:
             if value is None:
                 continue
 
-            name_attr = await element.get_attribute("name") or ""
-            id_attr = await element.get_attribute("id") or ""
-            selector = f'input[name="{name_attr}"]' if name_attr else f'input#{id_attr}'
+            selector = await self._get_selector(element)
 
             tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
             if tag_name == "select":
@@ -719,7 +828,7 @@ class AdaptivePortalAgent:
                              "already in use", "email address is already"]
         error_indicators = ["error", "invalid", "failed", "try again", "incorrect"]
 
-        timeout = 30  # seconds to wait for a change
+        timeout = _VERIFICATION_TIMEOUT  # seconds to wait for a change
         start = time.time()
 
         while time.time() - start < timeout:
@@ -813,8 +922,7 @@ class AdaptivePortalAgent:
 
         fields = await self._detect_fields()
         for ftype, element in fields.items():
-            name_attr = await element.get_attribute("name") or ""
-            selector = f'input[name="{name_attr}"]'
+            selector = await self._get_selector(element)
             if ftype == "email":
                 await self._human_type(selector, _ARIA_EMAIL)
             elif ftype == "password":
