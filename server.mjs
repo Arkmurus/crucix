@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec, execSync } from 'child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
@@ -1791,7 +1791,9 @@ app.post('/api/share/brief', requireAuth, async (req, res) => {
   const bd = getBDIntelligence();
   if (!bd) return res.status(503).json({ error: 'No BD data available — run a sweep first' });
 
-  const token    = [...Array(24)].map(() => Math.random().toString(36)[2]).join('');
+  // R-F2094 (2026-06-28 DD): crypto-strong token. Math.random()'s V8 PRNG state is
+  // recoverable, so 7-day public BD-intel links were theoretically predictable.
+  const token    = randomBytes(24).toString('base64url');
   const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
   const payload  = { bd, createdAt: new Date().toISOString(), expiresAt };
 
@@ -3892,7 +3894,10 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
 
 // ── ARIA Messaging — send WhatsApp & email via ARIA ─────────────────────────
 
-app.post('/api/aria/send-whatsapp', requireAuth, async (req, res) => {
+// R-F2094 (2026-06-28 DD): requireAdmin, NOT requireAuth. Sends through the
+// operator's connected WhatsApp session — with self-serve signup live, any
+// auto-approved viewer could impersonate ARIA to arbitrary chats. Operator-only.
+app.post('/api/aria/send-whatsapp', requireAdmin, async (req, res) => {
   const { group_id, chat_id, message, ask_aria, question } = req.body || {};
   const target = group_id || chat_id;
 
@@ -3941,7 +3946,10 @@ app.post('/api/aria/send-whatsapp', requireAuth, async (req, res) => {
   res.json({ ok, sent_to: target, length: message.length });
 });
 
-app.post('/api/aria/send-email', requireAuth, async (req, res) => {
+// R-F2094 (2026-06-28 DD): requireAdmin, NOT requireAuth. Sends from the company
+// SMTP signed "ARIA — Arkmurus"; with self-serve signup live, requireAuth made
+// this an OPEN EMAIL RELAY (any viewer → arbitrary recipients from our domain).
+app.post('/api/aria/send-email', requireAdmin, async (req, res) => {
   const { to, subject, text, html, instruction, original_subject, original_body, cc, bcc } = req.body || {};
 
   let emailSend;
@@ -5172,7 +5180,10 @@ app.use('/api/aria', requireAuth, async (req, res, next) => {
 // If this is ever deployed to a multi-user or untrusted environment,
 // re-add `requireAdmin` here AND change the path away from /api/admin/
 // to make the security posture explicit.
-app.get('/api/admin/env-check', (req, res) => {
+app.get('/api/admin/env-check', requireAdmin, (req, res) => {
+  // R-F2094 (2026-06-28 DD): re-added requireAdmin. The route's own comment said
+  // to do this once the host became multi-user — self-serve signup made that true,
+  // and unauth it leaked the secret-presence map + token sha256 fingerprint + pid.
   const token = process.env.ARIA_API_TOKEN || '';
   // SHA-256 fingerprint (first 12 hex chars) — non-reversible. Lets us
   // compare the actual env value against an expected value without ever

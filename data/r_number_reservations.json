@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2094,
+  "next_available": 2096,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15272,6 +15272,24 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-06-28T17:48:00Z"
+    },
+    {
+      "r_number": "R-F2094",
+      "title": "aria-web security: send-email/send-whatsapp -> requireAdmin, env-check gate, dd/case+vault ownership pin-routes, share/brief crypto token",
+      "claimed_at": "2026-06-28T17:48:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2095",
+      "title": "aria CLI root-fix remaining gaps: paged file reads, unknown-slash-command, terminal resize, git path quoting, robust kill",
+      "claimed_at": "2026-06-28T17:52:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
