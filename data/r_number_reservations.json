@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2064,
+  "next_available": 2070,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -14969,6 +14969,66 @@
       "r_number": "R-F2063",
       "title": "response cache (stale-while-revalidate) for heavy /health + /health/perf endpoints",
       "claimed_at": "2026-06-27T20:51:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d304a723",
+      "notes": null,
+      "shipped_at": "2026-06-27T21:07:14Z"
+    },
+    {
+      "r_number": "R-F2064",
+      "title": "Visual portal registration agent",
+      "claimed_at": "2026-06-27T21:09:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7896479c",
+      "notes": null,
+      "shipped_at": "2026-06-27T23:28:47Z"
+    },
+    {
+      "r_number": "R-F2065",
+      "title": "VLS chain: add risk_classification to verify results",
+      "claimed_at": "2026-06-27T23:04:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3059411e",
+      "notes": null,
+      "shipped_at": "2026-06-27T23:14:24Z"
+    },
+    {
+      "r_number": "R-F2066",
+      "title": "Autonomous portal registration scheduler",
+      "claimed_at": "2026-06-27T23:43:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4811266e",
+      "notes": null,
+      "shipped_at": "2026-06-27T23:52:54Z"
+    },
+    {
+      "r_number": "R-F2067",
+      "title": "Truth verifier",
+      "claimed_at": "2026-06-27T23:56:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c6599951",
+      "notes": null,
+      "shipped_at": "2026-06-28T00:19:49Z"
+    },
+    {
+      "r_number": "R-F2068",
+      "title": "Fix portal agent: verification timeout, form detection, selector errors",
+      "claimed_at": "2026-06-28T00:22:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7254106a",
+      "notes": null,
+      "shipped_at": "2026-06-28T00:36:09Z"
+    },
+    {
+      "r_number": "R-F2069",
+      "title": "WA delivery retry/backoff + structural gate regression guard",
+      "claimed_at": "2026-06-28T00:56:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -137,6 +137,7 @@ function _untrustedBlock(text, label = 'USER CONTENT', maxLen = 2000) {
 }
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 import { isDegraded, classifyDeliveryOutcome, degradedDetail } from '../../lib/aria/deliveryOutcome.mjs';  // R-F1965
+import { sendChunkWithRetry } from './send-retry.mjs';  // R-F2069
 
 // R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
 // stream that lies about its declared size cannot exhaust memory before the
@@ -1508,15 +1509,37 @@ async function reportOutcome(surface, requestId, intendedResult, actualOutcome, 
   } catch { /* outcome reporting must never break the reply path */ }
 }
 
-async function sendReply(chatId, text, requestId) {
-  // R-F1930 (C1): answer on the socket the inbound message arrived on (the ALS
-  // store set by onMessagesUpsert), so a secondary number replies as ITSELF;
-  // fall back to the primary sock for proactive / out-of-context sends.
-  // account=null in the store means the primary/global connection.
+// R-F2069 — resolve the CURRENTLY-live socket for the inbound message's context.
+// Re-evaluated on every send attempt: a reconnect REASSIGNS the module-level
+// `sock`, so re-reading it (rather than capturing it once) picks up the NEW
+// socket after a mid-send disconnect instead of writing to a dead one. The ALS
+// store (set by onMessagesUpsert) routes a secondary number's reply to its own
+// socket; account=null means the primary/global connection.
+function _resolveLiveSock() {
   const _ctx = _waCtx.getStore();
   const _s = (_ctx && _ctx.sock) || sock;
   const _connected = _ctx ? (_ctx.account ? _ctx.account.connected : isConnected) : isConnected;
-  if (!_s || !_connected || !text) return;
+  return { sock: _s, connected: _connected };
+}
+
+// R-F2069 — thin wrapper over the extracted, unit-tested sendChunkWithRetry
+// (./send-retry.mjs) that supplies the listener's logger. Production keeps the
+// real backoff schedule; the retry behaviour itself is proven in
+// test/wa-send-retry-rf2069.test.mjs against a fake socket.
+function _sendChunkWithRetry(chatId, content, resolveSock) {
+  return sendChunkWithRetry(chatId, content, resolveSock, {
+    onAttemptFail: (n, total, e) =>
+      console.warn(`[ARIA Listener] R-F2069 send attempt ${n}/${total} to ${chatId} failed: ${e.message}`),
+  });
+}
+
+async function sendReply(chatId, text, requestId) {
+  // R-F1930 (C1): answer on the socket the inbound message arrived on; R-F2069:
+  // socket resolution + per-chunk retry now live in the helpers above, so a
+  // transient blip / mid-send reconnect no longer silently drops the reply.
+  // `!text` is the only cheap early-out — connection state is handled (with
+  // retry, and a real send_failed outcome if all retries fail) inside the send.
+  if (!text) return;
   const t0 = Date.now();
   try {
     // R-F1329 — format Markdown for WhatsApp before chunking
@@ -1524,7 +1547,7 @@ async function sendReply(chatId, text, requestId) {
     const chunks = splitMessage(formatted);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      const _sentMsg = await _s.sendMessage(chatId, { text: chunks[i] });
+      const _sentMsg = await _sendChunkWithRetry(chatId, { text: chunks[i] }, _resolveLiveSock);
       // R-F1974 — remember our OWN sent id so we never re-process it as a
       // linked-member `fromMe` invocation (loop guard).
       try { if (_sentMsg?.key?.id) _markAriaSent(_sentMsg.key.id); } catch {}
@@ -3119,14 +3142,21 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
   // R-F1930 (C1): deliver on the socket the job came in on. If the job was from a
   // secondary account (accountId set + still present), use its sock; otherwise the
   // primary. Falls back to primary if the account vanished (e.g. removed mid-flight).
-  const _acct = mapping.accountId ? _accounts.get(mapping.accountId) : null;
-  const _dsock = (_acct && _acct.sock) || sock;
+  // R-F1930 (C1) + R-F2069: deliver on the job's originating socket, re-resolved
+  // on each retry so a reconnect that swaps the socket mid-delivery doesn't drop
+  // the DD result. Falls back to the primary sock if the account vanished
+  // mid-flight. connected:true → always attempt (the retry's try/catch absorbs a
+  // dead-socket throw), so we never depend on an account-status field here.
+  const _resolveDsock = () => {
+    const _acct = mapping.accountId ? _accounts.get(mapping.accountId) : null;
+    return { sock: (_acct && _acct.sock) || sock, connected: true };
+  };
   const t0 = Date.now();
   try {
     const chunks = splitMessage(message);
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 500));
-      await _dsock.sendMessage(chatId, { text: chunks[i] });
+      await _sendChunkWithRetry(chatId, { text: chunks[i] }, _resolveDsock);
     }
     // R-F1870 (audit DD-24): mark delivered only AFTER all chunks send. The flag
     // used to be set before the send, so a mid-send failure left it true and a
