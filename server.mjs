@@ -1182,18 +1182,19 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
     res.status(503).json({ error: 'WA listener unreachable', detail: e.message });
   }
 });
-app.post('/api/aria/extract-document', async (req, res) => {
+app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
   const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
   if (!ARIA_URL) {
     return res.status(503).json({ error: 'ARIA service unavailable' });
   }
-  // Auth: require the client to have sent a Bearer header. Don't gate on
-  // requireAuth here because that middleware can vary by env and we want a
-  // clear 401 from fly when the token is wrong.
-  const clientAuth = req.headers.authorization || '';
-  if (!clientAuth.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  // R-F2101 (2026-06-28, ARIA web DD): now gated by requireAuth. Pre-fix this did
+  // only a `Bearer `-PREFIX presence check (any string passed — expired JWTs, junk)
+  // and then forwarded to the brain with the SERVER's token → effectively
+  // unauthenticated document extraction on the brain via our credential. requireAuth
+  // properly verifies the JWT (+ tokenVersion) or the internal token, so only real
+  // users / internal callers reach it; legit WA/internal callers still pass via the
+  // internal-token bypass. (requireAuth only reads the auth header — it does not
+  // touch the multipart body, so the streaming upload below is unaffected.)
   const ct = req.headers['content-type'] || '';
   if (!ct.includes('multipart/')) {
     return res.status(400).json({
@@ -2199,19 +2200,29 @@ function _ariaHeaders(extra = {}) {
 function reportOutcome(surface, requestId, intendedResult, actualOutcome, latencyMs, detail) {
   try {
     if (!ARIA_SERVICE_URL || !requestId) return;
-    fetch(`${ARIA_SERVICE_URL}/api/aria/outcome`, {
-      method: 'POST',
-      headers: _ariaHeaders(),
-      body: JSON.stringify({
-        surface,
-        request_id: requestId,
-        intended_result: intendedResult,
-        actual_outcome: actualOutcome,
-        latency_ms: latencyMs || 0,
-        detail: detail || '',
-      }),
-      signal: AbortSignal.timeout(3000),
-    }).catch((_oe) => { console.warn('[R-F1638] reportOutcome failed:', _oe?.message); });
+    const _payload = JSON.stringify({
+      surface,
+      request_id: requestId,
+      intended_result: intendedResult,
+      actual_outcome: actualOutcome,
+      latency_ms: latencyMs || 0,
+      detail: detail || '',
+    });
+    // R-F2101 (2026-06-28, ARIA web DD §25): ONE retry so a brain blip / mid-deploy
+    // doesn't blind the proprioception loop to a delivery outcome. Still fully
+    // best-effort + fire-and-forget — never awaited, never throws.
+    const _send = (attempt) => {
+      fetch(`${ARIA_SERVICE_URL}/api/aria/outcome`, {
+        method: 'POST',
+        headers: _ariaHeaders(),
+        body: _payload,
+        signal: AbortSignal.timeout(3000),
+      }).catch((_oe) => {
+        if (attempt < 1) setTimeout(() => _send(attempt + 1), 1500);
+        else console.warn('[R-F1638] reportOutcome failed (after 1 retry):', _oe?.message);
+      });
+    };
+    _send(0);
   } catch { /* outcome reporting must never break the reply path */ }
 }
 
@@ -6264,7 +6275,10 @@ if (ZOOM_BOT_URL) {
       res.status(502).json({ error: 'Zoom service unreachable', detail: e.message });
     }
   };
-  app.use('/api/zoom', zoomProxy);
+  // R-F2101 (2026-06-28, ARIA web DD): gate the proxy with requireAuth. It's only
+  // mounted when ZOOM_BOT_URL is set (unset today, so currently inactive), but as an
+  // open proxy forwarding to an internal service it must not be reachable unauthed.
+  app.use('/api/zoom', requireAuth, zoomProxy);
   console.log(`[Init] Zoom bot proxy → ${ZOOM_BOT_URL}`);
 }
 
