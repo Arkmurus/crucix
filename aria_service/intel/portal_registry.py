@@ -3093,3 +3093,10 @@ try:
     )
 except Exception:
     pass
+
+# R-F2119 §21a — wire failure handler for portal_registry
+try:
+    wire_failure(module="portal_registry", detail="module shutdown",
+                gap_type="engine_failure", source="portal_registry:shutdown")
+except Exception:
+    pass

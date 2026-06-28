@@ -204,3 +204,10 @@ def get_adversarial_scoreboard() -> dict[str, Any]:
 # R-F1011 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="product_page", summary="Product Page Active", source_id="product_page:R-F1011")
+
+# R-F2119 §21a — wire failure handler for product_page
+try:
+    wire_failure(module="product_page", detail="module shutdown",
+                gap_type="engine_failure", source="product_page:shutdown")
+except Exception:
+    pass

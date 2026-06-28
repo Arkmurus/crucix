@@ -1159,7 +1159,7 @@ def required_disciplines(entity_type: str) -> list[str]:
             f"Known: {sorted(ENTITY_TYPE_DISCIPLINES.keys())}"
         )
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="dd_disciplines",
         summary="Required Disciplines",
@@ -1433,3 +1433,10 @@ def discipline_summary_for_chat(entity_type: str = "defence_broker") -> str:
         "explicitly rather than hidden."
     )
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for dd_disciplines
+try:
+    wire_failure(module="dd_disciplines", detail="module shutdown",
+                gap_type="engine_failure", source="dd_disciplines:shutdown")
+except Exception:
+    pass

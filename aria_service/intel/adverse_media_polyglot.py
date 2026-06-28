@@ -206,3 +206,10 @@ def build_queries_for_languages(
         if q:
             out.append((lang_lc, q))
     return out
+
+# R-F2119 §21a — wire failure handler for adverse_media_polyglot
+try:
+    wire_failure(module="adverse_media_polyglot", detail="module shutdown",
+                gap_type="engine_failure", source="adverse_media_polyglot:shutdown")
+except Exception:
+    pass

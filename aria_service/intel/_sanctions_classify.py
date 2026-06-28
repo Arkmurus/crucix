@@ -704,3 +704,10 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         "total_matches": len(per_match),
         "noise_filtered": noise_filtered,
     }
+
+# R-F2119 §21a — wire failure handler for _sanctions_classify
+try:
+    wire_failure(module="_sanctions_classify", detail="module shutdown",
+                gap_type="engine_failure", source="_sanctions_classify:shutdown")
+except Exception:
+    pass

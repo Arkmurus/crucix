@@ -849,7 +849,7 @@ def render_overview(form_code: str, structured: dict, redflags: list[dict]) -> s
             body_lines.append(f"  {badge} *{f['code']}* — {f['message']}")
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="document_intelligence",
         summary="Render Overview",
@@ -1082,3 +1082,10 @@ async def process_document(
         "red_flags": redflags,
         "overview_markdown": overview,
     }
+
+# R-F2119 §21a — wire failure handler for document_intelligence
+try:
+    wire_failure(module="document_intelligence", detail="module shutdown",
+                gap_type="engine_failure", source="document_intelligence:shutdown")
+except Exception:
+    pass

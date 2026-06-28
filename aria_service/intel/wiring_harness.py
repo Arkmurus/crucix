@@ -759,3 +759,10 @@ def print_gate_results(results: dict[str, list[str]]) -> None:
     else:
         print("  ALL GATES PASS — harness is clean")
     print(f"{'=' * 60}")
+
+# R-F2119 §21a — wire failure handler for wiring_harness
+try:
+    wire_failure(module="wiring_harness", detail="module shutdown",
+                gap_type="engine_failure", source="wiring_harness:shutdown")
+except Exception:
+    pass

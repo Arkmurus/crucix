@@ -382,4 +382,8 @@ async def correlate_with_procurement(country: str, days: int = 60) -> dict:
                      summary="conflict_tracker module active",
                      source_id="conflict_tracker:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="conflict_tracker", detail="module init failed",
+                        gap_type="engine_failure", source="conflict_tracker:init")
+        except Exception:
+            pass

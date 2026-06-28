@@ -303,3 +303,10 @@ def summary() -> dict[str, Any]:
         "min_order_span":  _MIN_ORDER_SPAN,
         "expected_pct":    {d: round(_BENFORD_EXPECTED[d] * 100, 2) for d in range(1, 10)},
     }
+
+# R-F2119 §21a — wire failure handler for forensic_benford
+try:
+    wire_failure(module="forensic_benford", detail="module shutdown",
+                gap_type="engine_failure", source="forensic_benford:shutdown")
+except Exception:
+    pass

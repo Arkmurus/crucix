@@ -341,3 +341,10 @@ def summary() -> dict[str, Any]:
         "categories":   sorted({t["category"] for t in _TYPOLOGY_LIBRARY}),
         "sources":      sorted({t["source"] for t in _TYPOLOGY_LIBRARY}),
     }
+
+# R-F2119 §21a — wire failure handler for fatf_typologies
+try:
+    wire_failure(module="fatf_typologies", detail="module shutdown",
+                gap_type="engine_failure", source="fatf_typologies:shutdown")
+except Exception:
+    pass

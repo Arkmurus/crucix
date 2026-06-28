@@ -415,3 +415,10 @@ async def get_trace_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+# R-F2119 §21a — wire failure handler for trace_stream
+try:
+    wire_failure(module="trace_stream", detail="module shutdown",
+                gap_type="engine_failure", source="trace_stream:shutdown")
+except Exception:
+    pass

@@ -416,4 +416,8 @@ def _wire_engagement_use(function_name: str) -> None:
                      summary="engagement module active",
                      source_id="engagement:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="engagement", detail="module init failed",
+                        gap_type="engine_failure", source="engagement:init")
+        except Exception:
+            pass

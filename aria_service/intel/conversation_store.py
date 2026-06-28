@@ -177,3 +177,10 @@ async def rename_conversation(session_id: str, title: str, user_id: str | None =
         return False
     await rs.hset(meta_key, {"title": title.strip()[:100]})
     return True
+
+# R-F2119 §21a — wire failure handler for conversation_store
+try:
+    wire_failure(module="conversation_store", detail="module shutdown",
+                gap_type="engine_failure", source="conversation_store:shutdown")
+except Exception:
+    pass

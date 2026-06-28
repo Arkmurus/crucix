@@ -1035,3 +1035,10 @@ async def ingest_all_sections() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for due_diligence_playbooks
+try:
+    wire_failure(module="due_diligence_playbooks", detail="module shutdown",
+                gap_type="engine_failure", source="due_diligence_playbooks:shutdown")
+except Exception:
+    pass

@@ -167,3 +167,10 @@ def guard_commitments(response_text: str) -> dict:
         "violations": violations,
         "changed": changed,
     }
+
+# R-F2119 §21a — wire failure handler for commitment_guard
+try:
+    wire_failure(module="commitment_guard", detail="module shutdown",
+                gap_type="engine_failure", source="commitment_guard:shutdown")
+except Exception:
+    pass

@@ -196,3 +196,10 @@ def extract(response_text: str, tool_context: str = "") -> list[dict[str, Any]]:
     )
 
     return sources
+
+# R-F2119 §21a — wire failure handler for chat_sources
+try:
+    wire_failure(module="chat_sources", detail="module shutdown",
+                gap_type="engine_failure", source="chat_sources:shutdown")
+except Exception:
+    pass

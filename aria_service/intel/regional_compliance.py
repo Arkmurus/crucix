@@ -1151,3 +1151,10 @@ async def ingest_all_sections() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for regional_compliance
+try:
+    wire_failure(module="regional_compliance", detail="module shutdown",
+                gap_type="engine_failure", source="regional_compliance:shutdown")
+except Exception:
+    pass

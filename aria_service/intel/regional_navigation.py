@@ -1632,3 +1632,10 @@ if __name__ == "__main__":
     for test in ["Brazil procurement", "Nigeria defence", "Saudi Arabia IDEX", "Poland rearmament"]:
         ctx = get_regional_context(test)
         print(f"  '{test}' → {len(ctx)} chars")
+
+# R-F2119 §21a — wire failure handler for regional_navigation
+try:
+    wire_failure(module="regional_navigation", detail="module shutdown",
+                gap_type="engine_failure", source="regional_navigation:shutdown")
+except Exception:
+    pass

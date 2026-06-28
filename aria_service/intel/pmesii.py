@@ -197,3 +197,10 @@ for Arkmurus, with explicit relationship-tier note (incumbent / established / de
 CONFIDENCE DISCIPLINE
 Every material claim must carry one of: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN] [SPECULATIVE].
 A section with no available data should say so plainly — do NOT invent numbers."""
+
+# R-F2119 §21a — wire failure handler for pmesii
+try:
+    wire_failure(module="pmesii", detail="module shutdown",
+                gap_type="engine_failure", source="pmesii:shutdown")
+except Exception:
+    pass

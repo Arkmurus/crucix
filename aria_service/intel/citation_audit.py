@@ -329,3 +329,10 @@ def summary() -> dict[str, Any]:
         "supported_threshold": _SUPPORTED_THRESHOLD,
         "partial_threshold":   _PARTIAL_THRESHOLD,
     }
+
+# R-F2119 §21a — wire failure handler for citation_audit
+try:
+    wire_failure(module="citation_audit", detail="module shutdown",
+                gap_type="engine_failure", source="citation_audit:shutdown")
+except Exception:
+    pass

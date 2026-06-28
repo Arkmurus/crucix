@@ -126,4 +126,8 @@ def validate_entity_name(name: str) -> tuple[str, bool]:
                      summary="prompt_injection_guards module active",
                      source_id="prompt_injection_guards:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="prompt_injection_guards", detail="module init failed",
+                        gap_type="engine_failure", source="prompt_injection_guards:init")
+        except Exception:
+            pass

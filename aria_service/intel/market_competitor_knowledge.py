@@ -483,3 +483,10 @@ async def ingest_to_knowledge() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for market_competitor_knowledge
+try:
+    wire_failure(module="market_competitor_knowledge", detail="module shutdown",
+                gap_type="engine_failure", source="market_competitor_knowledge:shutdown")
+except Exception:
+    pass

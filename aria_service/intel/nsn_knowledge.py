@@ -377,3 +377,10 @@ def lookup_niin_status(code: str) -> Optional[str]:
         source_id="nsn_knowledge:R-F996",
     )
     return NIIN_STATUS.get(code.strip())
+
+# R-F2119 §21a — wire failure handler for nsn_knowledge
+try:
+    wire_failure(module="nsn_knowledge", detail="module shutdown",
+                gap_type="engine_failure", source="nsn_knowledge:shutdown")
+except Exception:
+    pass

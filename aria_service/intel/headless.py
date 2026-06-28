@@ -228,3 +228,10 @@ async def _fetch_rendered_html_locked(url: str, timeout: float) -> str:
                 await asyncio.wait_for(proc.wait(), timeout=3.0)
             except asyncio.TimeoutError:
                 proc.kill()
+
+# R-F2119 §21a — wire failure handler for headless
+try:
+    wire_failure(module="headless", detail="module shutdown",
+                gap_type="engine_failure", source="headless:shutdown")
+except Exception:
+    pass

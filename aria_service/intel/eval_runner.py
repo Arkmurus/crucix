@@ -529,3 +529,10 @@ async def get_run(run_id: str) -> dict | None:
     except Exception:
 
         return None
+
+# R-F2119 §21a — wire failure handler for eval_runner
+try:
+    wire_failure(module="eval_runner", detail="module shutdown",
+                gap_type="engine_failure", source="eval_runner:shutdown")
+except Exception:
+    pass

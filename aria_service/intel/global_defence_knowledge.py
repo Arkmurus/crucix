@@ -537,4 +537,8 @@ async def ingest_all_sections() -> dict:
                      summary="global_defence_knowledge module active",
                      source_id="global_defence_knowledge:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="global_defence_knowledge", detail="module init failed",
+                        gap_type="engine_failure", source="global_defence_knowledge:init")
+        except Exception:
+            pass

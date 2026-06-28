@@ -1785,3 +1785,10 @@ async def get_verification_summary() -> dict:
         tier = classifier.classify(url)
         score = TIER_SCORES[tier]
         print(f"  Tier {tier.value} ({score:.1f}) — {url[:60]}")
+
+# R-F2119 §21a — wire failure handler for verified_intel
+try:
+    wire_failure(module="verified_intel", detail="module shutdown",
+                gap_type="engine_failure", source="verified_intel:shutdown")
+except Exception:
+    pass

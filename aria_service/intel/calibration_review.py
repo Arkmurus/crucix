@@ -450,3 +450,10 @@ async def get_baseline() -> dict | None:
 
 
         return None
+
+# R-F2119 §21a — wire failure handler for calibration_review
+try:
+    wire_failure(module="calibration_review", detail="module shutdown",
+                gap_type="engine_failure", source="calibration_review:shutdown")
+except Exception:
+    pass

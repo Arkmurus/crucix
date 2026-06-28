@@ -252,4 +252,8 @@ class MemoryLeakDetector:
                      summary="memory_leak_detector module active",
                      source_id="memory_leak_detector:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="memory_leak_detector", detail="module init failed",
+                        gap_type="engine_failure", source="memory_leak_detector:init")
+        except Exception:
+            pass

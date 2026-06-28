@@ -257,3 +257,10 @@ def verify_cited_artifacts(
         except Exception as exc:
             logger.debug("cited_artifact brain dispatch failed: %s", exc)
     return result
+
+# R-F2119 §21a — wire failure handler for cited_artifact_verifier
+try:
+    wire_failure(module="cited_artifact_verifier", detail="module shutdown",
+                gap_type="engine_failure", source="cited_artifact_verifier:shutdown")
+except Exception:
+    pass

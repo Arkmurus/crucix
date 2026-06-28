@@ -445,3 +445,10 @@ def summary() -> dict[str, Any]:
         "by_severity": by_severity,
         "codes": [r.code for r in _RULES],
     }
+
+# R-F2119 §21a — wire failure handler for regional_bright_lines
+try:
+    wire_failure(module="regional_bright_lines", detail="module shutdown",
+                gap_type="engine_failure", source="regional_bright_lines:shutdown")
+except Exception:
+    pass

@@ -1492,4 +1492,8 @@ async def ingest_all_sections() -> dict:
                      summary="global_export_control module active",
                      source_id="global_export_control:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="global_export_control", detail="module init failed",
+                        gap_type="engine_failure", source="global_export_control:init")
+        except Exception:
+            pass

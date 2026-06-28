@@ -248,3 +248,10 @@ async def get_stats() -> dict[str, Any]:
         "recent": recent,
         "mode": "OBSERVE_ONLY — no rewrites applied to streamed response",
     }
+
+# R-F2119 §21a — wire failure handler for stream_guard_observer
+try:
+    wire_failure(module="stream_guard_observer", detail="module shutdown",
+                gap_type="engine_failure", source="stream_guard_observer:shutdown")
+except Exception:
+    pass

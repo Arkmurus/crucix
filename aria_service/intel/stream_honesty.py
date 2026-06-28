@@ -403,4 +403,8 @@ def build_correction_banner(result: dict) -> str | None:
                      summary="stream_honesty module active",
                      source_id="stream_honesty:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="stream_honesty", detail="module init failed",
+                        gap_type="engine_failure", source="stream_honesty:init")
+        except Exception:
+            pass

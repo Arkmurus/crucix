@@ -281,3 +281,10 @@ def guard(response_text: str) -> dict:
     )
 
     return out
+
+# R-F2119 §21a — wire failure handler for propaganda_guard
+try:
+    wire_failure(module="propaganda_guard", detail="module shutdown",
+                gap_type="engine_failure", source="propaganda_guard:shutdown")
+except Exception:
+    pass

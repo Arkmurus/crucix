@@ -161,3 +161,10 @@ class InfraHealthMonitor:
 # R-F1009 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="infra_health", summary="Infra Health Monitor Active", source_id="infra_health:R-F1009")
+
+# R-F2119 §21a — wire failure handler for infra_health
+try:
+    wire_failure(module="infra_health", detail="module shutdown",
+                gap_type="engine_failure", source="infra_health:shutdown")
+except Exception:
+    pass

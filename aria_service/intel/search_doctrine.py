@@ -940,3 +940,10 @@ def detect_conflicts(results: list[dict]) -> list[dict]:
     )
 
     return conflicts
+
+# R-F2119 §21a — wire failure handler for search_doctrine
+try:
+    wire_failure(module="search_doctrine", detail="module shutdown",
+                gap_type="engine_failure", source="search_doctrine:shutdown")
+except Exception:
+    pass

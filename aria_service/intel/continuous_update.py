@@ -218,3 +218,10 @@ def summary() -> dict[str, Any]:
         "data_sources": ["learning_progress (R-F88)", "coverage_heatmap (R-F89)"],
         "redis_key": _REDIS_KEY,
     }
+
+# R-F2119 §21a — wire failure handler for continuous_update
+try:
+    wire_failure(module="continuous_update", detail="module shutdown",
+                gap_type="engine_failure", source="continuous_update:shutdown")
+except Exception:
+    pass

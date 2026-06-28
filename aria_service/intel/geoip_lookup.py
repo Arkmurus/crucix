@@ -172,4 +172,8 @@ except Exception:
                      summary="geoip_lookup module active",
                      source_id="geoip_lookup:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="geoip_lookup", detail="module init failed",
+                        gap_type="engine_failure", source="geoip_lookup:init")
+        except Exception:
+            pass

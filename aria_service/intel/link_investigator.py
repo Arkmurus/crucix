@@ -1257,4 +1257,8 @@ async def get_tree(tree_id: str) -> Optional[dict]:
                      summary="link_investigator module active",
                      source_id="link_investigator:init")
     except Exception:
+        try:
+            wire_failure(module="link_investigator", detail="operation failed", gap_type="engine_failure", source="link_investigator")
+        except Exception:
+            pass
         pass

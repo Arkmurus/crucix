@@ -228,3 +228,10 @@ def peek_next(*, path: Path | None = None) -> str:
     while n in existing_nums:
         n += 1
     return f"R-F{n}"
+
+# R-F2119 §21a — wire failure handler for r_number_registry
+try:
+    wire_failure(module="r_number_registry", detail="module shutdown",
+                gap_type="engine_failure", source="r_number_registry:shutdown")
+except Exception:
+    pass

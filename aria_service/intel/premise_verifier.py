@@ -672,4 +672,8 @@ def format_for_system_prompt(report: VerifierReport) -> str:
                      summary="premise_verifier module active",
                      source_id="premise_verifier:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="premise_verifier", detail="module init failed",
+                        gap_type="engine_failure", source="premise_verifier:init")
+        except Exception:
+            pass

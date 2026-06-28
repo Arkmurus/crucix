@@ -252,3 +252,10 @@ async def stats() -> dict:
     if not snap:
         return {"ingested": 0, "note": "No SIPRI ingest has run yet."}
     return snap
+
+# R-F2119 §21a — wire failure handler for sipri_ingest
+try:
+    wire_failure(module="sipri_ingest", detail="module shutdown",
+                gap_type="engine_failure", source="sipri_ingest:shutdown")
+except Exception:
+    pass

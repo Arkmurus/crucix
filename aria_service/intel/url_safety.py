@@ -250,3 +250,10 @@ async def safe_get(client, url, *, max_redirects: int = 3, **kwargs):
                 continue
         return resp
     raise ValueError("ssrf_blocked:too_many_redirects")
+
+# R-F2119 §21a — wire failure handler for url_safety
+try:
+    wire_failure(module="url_safety", detail="module shutdown",
+                gap_type="engine_failure", source="url_safety:shutdown")
+except Exception:
+    pass

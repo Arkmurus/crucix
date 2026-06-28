@@ -377,3 +377,10 @@ def summary() -> dict[str, Any]:
         "mapped_datasets":       len(_DATASET_TO_JURISDICTION),
         "data_source":           "OpenSanctions (consolidates 100+ lists)",
     }
+
+# R-F2119 §21a — wire failure handler for sanctions_divergence
+try:
+    wire_failure(module="sanctions_divergence", detail="module shutdown",
+                gap_type="engine_failure", source="sanctions_divergence:shutdown")
+except Exception:
+    pass

@@ -575,4 +575,8 @@ def _wire_judge_result(result: dict) -> None:
                      summary="honesty_judge module active",
                      source_id="honesty_judge:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="honesty_judge", detail="module init failed",
+                        gap_type="engine_failure", source="honesty_judge:init")
+        except Exception:
+            pass

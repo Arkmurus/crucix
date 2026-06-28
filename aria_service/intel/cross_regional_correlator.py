@@ -234,3 +234,10 @@ def _to_dict(r: CrossRegionRule, matched_signal: str = "") -> dict[str, Any]:
         "confidence": r.confidence,
         "rationale": r.rationale,
     }
+
+# R-F2119 §21a — wire failure handler for cross_regional_correlator
+try:
+    wire_failure(module="cross_regional_correlator", detail="module shutdown",
+                gap_type="engine_failure", source="cross_regional_correlator:shutdown")
+except Exception:
+    pass

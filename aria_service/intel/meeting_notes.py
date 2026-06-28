@@ -473,4 +473,8 @@ def render_markdown(result: dict[str, Any]) -> str:
                      summary="meeting_notes module active",
                      source_id="meeting_notes:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="meeting_notes", detail="module init failed",
+                        gap_type="engine_failure", source="meeting_notes:init")
+        except Exception:
+            pass

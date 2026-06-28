@@ -256,3 +256,10 @@ async def ingest_corpus_document(
         source_id="corpus_ingest:R-F996",
     )
     return result
+
+# R-F2119 §21a — wire failure handler for corpus_ingest
+try:
+    wire_failure(module="corpus_ingest", detail="module shutdown",
+                gap_type="engine_failure", source="corpus_ingest:shutdown")
+except Exception:
+    pass

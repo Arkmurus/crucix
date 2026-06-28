@@ -218,3 +218,10 @@ class AheadOfGameEngine:
 # R-F1008 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="intel_quality", summary="Intel Quality Active", source_id="intel_quality:R-F1008")
+
+# R-F2119 §21a — wire failure handler for intel_quality
+try:
+    wire_failure(module="intel_quality", detail="module shutdown",
+                gap_type="engine_failure", source="intel_quality:shutdown")
+except Exception:
+    pass

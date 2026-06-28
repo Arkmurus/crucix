@@ -225,4 +225,8 @@ async def get_queue(limit: int = 50) -> list[dict]:
                      summary="ecosystem_reassess module active",
                      source_id="ecosystem_reassess:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="ecosystem_reassess", detail="module init failed",
+                        gap_type="engine_failure", source="ecosystem_reassess:init")
+        except Exception:
+            pass

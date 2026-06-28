@@ -267,4 +267,8 @@ async def _persist_state(diag: dict) -> None:
                      summary="verification_accumulator module active",
                      source_id="verification_accumulator:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="verification_accumulator", detail="module init failed",
+                        gap_type="engine_failure", source="verification_accumulator:init")
+        except Exception:
+            pass

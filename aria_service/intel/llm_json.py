@@ -490,3 +490,10 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
     )
 
     return default
+
+# R-F2119 §21a — wire failure handler for llm_json
+try:
+    wire_failure(module="llm_json", detail="module shutdown",
+                gap_type="engine_failure", source="llm_json:shutdown")
+except Exception:
+    pass

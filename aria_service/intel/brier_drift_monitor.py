@@ -239,3 +239,10 @@ async def check_thresholds_and_alert(
         "breaching": breaching[:10],
         "drift": drift,
     }
+
+# R-F2119 §21a — wire failure handler for brier_drift_monitor
+try:
+    wire_failure(module="brier_drift_monitor", detail="module shutdown",
+                gap_type="engine_failure", source="brier_drift_monitor:shutdown")
+except Exception:
+    pass

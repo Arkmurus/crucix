@@ -200,3 +200,10 @@ def get_gulf_context(query: str, max_blocks: int = 2) -> str:
 def list_blocks() -> list[str]:
     """Block IDs — used by the dashboard to verify module coverage."""
     return [e["id"] for e in _SEARCH_INDEX]
+
+# R-F2119 §21a — wire failure handler for knowledge_gulf
+try:
+    wire_failure(module="knowledge_gulf", detail="module shutdown",
+                gap_type="engine_failure", source="knowledge_gulf:shutdown")
+except Exception:
+    pass

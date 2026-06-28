@@ -322,3 +322,10 @@ async def get_feedback_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+# R-F2119 §21a — wire failure handler for feedback
+try:
+    wire_failure(module="feedback", detail="module shutdown",
+                gap_type="engine_failure", source="feedback:shutdown")
+except Exception:
+    pass

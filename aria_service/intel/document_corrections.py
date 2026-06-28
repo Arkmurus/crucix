@@ -431,3 +431,10 @@ def status_marker(rec: dict) -> str:
     if corrections:
         return f"✏️ *CORRECTED* — {len(corrections)} field(s) updated post-extraction"
     return "📝 *DRAFT* — awaiting human verification"
+
+# R-F2119 §21a — wire failure handler for document_corrections
+try:
+    wire_failure(module="document_corrections", detail="module shutdown",
+                gap_type="engine_failure", source="document_corrections:shutdown")
+except Exception:
+    pass

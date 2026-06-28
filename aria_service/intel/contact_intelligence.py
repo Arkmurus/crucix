@@ -166,6 +166,10 @@ async def add_contact(
             confidence="ASSESSED",
         )
     except Exception:
+        try:
+            wire_failure(module="contact_intelligence", detail="operation failed", gap_type="engine_failure", source="contact_intelligence")
+        except Exception:
+            pass
         pass
 
     logger.info("[contacts] New contact: %s — %s at %s", contact.id, name, org)
@@ -333,4 +337,8 @@ async def generate_contact_briefing() -> str:
                      summary="contact_intelligence module active",
                      source_id="contact_intelligence:init")
     except Exception:
+        try:
+            wire_failure(module="contact_intelligence", detail="operation failed", gap_type="engine_failure", source="contact_intelligence")
+        except Exception:
+            pass
         pass

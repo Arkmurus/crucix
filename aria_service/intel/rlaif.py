@@ -401,4 +401,8 @@ async def stats() -> dict:
                      summary="rlaif module active",
                      source_id="rlaif:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="rlaif", detail="module init failed",
+                        gap_type="engine_failure", source="rlaif:init")
+        except Exception:
+            pass

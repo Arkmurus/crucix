@@ -57,7 +57,7 @@ logger = logging.getLogger("aria.mistake_ledger")
 
 # R-F1318: wire mistake_ledger's own health to the brain
 try:
-    from .engine_wiring import wire_success as _ws1318
+    from .engine_wiring import wire_success as _ws1318, wire_failure
     _ws1318(
         module="mistake_ledger",
         summary="Mistake Ledger active — error tracking and prevention",
@@ -619,3 +619,10 @@ async def reindex_all(batch_size: int = 1000) -> dict:
         "errors": errors,
         "summary": summary,
     }
+
+# R-F2119 §21a — wire failure handler for mistake_ledger
+try:
+    wire_failure(module="mistake_ledger", detail="module shutdown",
+                gap_type="engine_failure", source="mistake_ledger:shutdown")
+except Exception:
+    pass

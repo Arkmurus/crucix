@@ -865,4 +865,8 @@ async def record_assessment_async(
                      summary="ground_truth_loop module active",
                      source_id="ground_truth_loop:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="ground_truth_loop", detail="module init failed",
+                        gap_type="engine_failure", source="ground_truth_loop:init")
+        except Exception:
+            pass

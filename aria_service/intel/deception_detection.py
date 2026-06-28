@@ -899,3 +899,10 @@ if __name__ == "__main__":
         print(f"  [{score.tier.value:8}] {score.percentage} — {claim[:70]}...")
     print()
     print("Module ready. Inject DECEPTION_DETECTION_SYSTEM_PROMPT into ARIA.")
+
+# R-F2119 §21a — wire failure handler for deception_detection
+try:
+    wire_failure(module="deception_detection", detail="module shutdown",
+                gap_type="engine_failure", source="deception_detection:shutdown")
+except Exception:
+    pass

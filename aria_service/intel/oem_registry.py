@@ -160,3 +160,10 @@ def canonicalise_capability(phrase: str) -> str:
         if alias in p:
             return _CAPABILITY_ALIASES[alias]
     return ""
+
+# R-F2119 §21a — wire failure handler for oem_registry
+try:
+    wire_failure(module="oem_registry", detail="module shutdown",
+                gap_type="engine_failure", source="oem_registry:shutdown")
+except Exception:
+    pass

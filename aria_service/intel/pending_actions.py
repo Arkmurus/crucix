@@ -333,3 +333,10 @@ def briefing_summary(open_items: list[dict]) -> str:
         for e in stuck[:5]:
             lines.append(f"  • {e.get('promise', '')[:160]}  (reason: {e.get('reason', '')[:80]})")
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for pending_actions
+try:
+    wire_failure(module="pending_actions", detail="module shutdown",
+                gap_type="engine_failure", source="pending_actions:shutdown")
+except Exception:
+    pass

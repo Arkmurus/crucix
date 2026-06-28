@@ -395,4 +395,8 @@ def _wire_introspect_hit(message: str) -> None:
                      summary="self_introspect_guard module active",
                      source_id="self_introspect_guard:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="self_introspect_guard", detail="module init failed",
+                        gap_type="engine_failure", source="self_introspect_guard:init")
+        except Exception:
+            pass

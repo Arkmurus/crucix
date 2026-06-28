@@ -411,3 +411,10 @@ async def export_training_data() -> dict:
             "ollama": 'ollama create aria-v1 -f Modelfile # then set LLM_PROVIDER=ollama LLM_MODEL=aria-v1',
         },
     }
+
+# R-F2119 §21a — wire failure handler for training_data
+try:
+    wire_failure(module="training_data", detail="module shutdown",
+                gap_type="engine_failure", source="training_data:shutdown")
+except Exception:
+    pass

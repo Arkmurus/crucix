@@ -302,4 +302,8 @@ async def generate_state_of_aria_briefing() -> str:
                      summary="self_assess module active",
                      source_id="self_assess:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="self_assess", detail="module init failed",
+                        gap_type="engine_failure", source="self_assess:init")
+        except Exception:
+            pass

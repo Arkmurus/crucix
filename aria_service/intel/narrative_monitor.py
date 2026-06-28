@@ -560,4 +560,8 @@ async def generate_narrative_briefing() -> str:
                      summary="narrative_monitor module active",
                      source_id="narrative_monitor:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="narrative_monitor", detail="module init failed",
+                        gap_type="engine_failure", source="narrative_monitor:init")
+        except Exception:
+            pass

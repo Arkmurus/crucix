@@ -202,3 +202,10 @@ def summary() -> dict[str, Any]:
         "curve_anchor_years": [y for y, _, _ in _LOCALISATION_CURVE],
         "final_target_pct": _LOCALISATION_CURVE[-1][1],
     }
+
+# R-F2119 §21a — wire failure handler for vision_2030_tracker
+try:
+    wire_failure(module="vision_2030_tracker", detail="module shutdown",
+                gap_type="engine_failure", source="vision_2030_tracker:shutdown")
+except Exception:
+    pass

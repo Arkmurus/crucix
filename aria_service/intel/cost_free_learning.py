@@ -269,7 +269,7 @@ def find_corroboration_candidates(
             cand.first_seen = ts
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="cost_free_learning",
         summary="Find Corroboration Candidates",
@@ -408,3 +408,10 @@ async def run_preview() -> dict[str, Any]:
         summary["loops"]["qa_distill"] = {"error": str(e)[:120]}
 
     return summary
+
+# R-F2119 §21a — wire failure handler for cost_free_learning
+try:
+    wire_failure(module="cost_free_learning", detail="module shutdown",
+                gap_type="engine_failure", source="cost_free_learning:shutdown")
+except Exception:
+    pass

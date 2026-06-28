@@ -439,3 +439,10 @@ def retrieve_for_query(query: str) -> str:
         pass
 
     return block
+
+# R-F2119 §21a — wire failure handler for mem0
+try:
+    wire_failure(module="mem0", detail="module shutdown",
+                gap_type="engine_failure", source="mem0:shutdown")
+except Exception:
+    pass

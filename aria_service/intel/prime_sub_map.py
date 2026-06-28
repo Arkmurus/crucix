@@ -641,3 +641,10 @@ def arkmurus_opportunities(prime: str, product: str = "") -> list[dict[str, Any]
     # Sort HIGH first, then MEDIUM, alphabetical within
     out.sort(key=lambda e: (0 if e["fit"] == "HIGH" else 1, e["sub_contractor"]))
     return out
+
+# R-F2119 §21a — wire failure handler for prime_sub_map
+try:
+    wire_failure(module="prime_sub_map", detail="module shutdown",
+                gap_type="engine_failure", source="prime_sub_map:shutdown")
+except Exception:
+    pass

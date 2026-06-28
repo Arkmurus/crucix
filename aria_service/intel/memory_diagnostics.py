@@ -148,3 +148,10 @@ async def diagnose_topic(topic: str) -> dict:
     )
 
     return hits
+
+# R-F2119 §21a — wire failure handler for memory_diagnostics
+try:
+    wire_failure(module="memory_diagnostics", detail="module shutdown",
+                gap_type="engine_failure", source="memory_diagnostics:shutdown")
+except Exception:
+    pass

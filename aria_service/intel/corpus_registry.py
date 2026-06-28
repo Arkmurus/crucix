@@ -218,3 +218,10 @@ def stats() -> dict[str, Any]:
         "cplp_relevant": sum(1 for s in sources if s.cplp_relevant),
         "registry_path": str(_REGISTRY_PATH),
     }
+
+# R-F2119 §21a — wire failure handler for corpus_registry
+try:
+    wire_failure(module="corpus_registry", detail="module shutdown",
+                gap_type="engine_failure", source="corpus_registry:shutdown")
+except Exception:
+    pass

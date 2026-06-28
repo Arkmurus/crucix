@@ -265,3 +265,10 @@ def addendum_for(alerts: list[dict]) -> str:
         "request explicitly contains a fresh source. Instead, name the POSITION and flag the gap."
     )
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for stale_knowledge_alerts
+try:
+    wire_failure(module="stale_knowledge_alerts", detail="module shutdown",
+                gap_type="engine_failure", source="stale_knowledge_alerts:shutdown")
+except Exception:
+    pass

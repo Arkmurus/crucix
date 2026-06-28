@@ -832,7 +832,7 @@ class ARKDDReport:
             f"*run_id:* {self.run_id}"
         )
         # R-F996 — wire to brain
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="dd_schema",
             summary="Render Markdown",
@@ -863,3 +863,10 @@ def weakest_confidence(tags: list[str]) -> str:
     if not ranked:
         return "ASSESSED"
     return min(ranked, key=lambda t: _CONFIDENCE_RANK[t])
+
+# R-F2119 §21a — wire failure handler for dd_schema
+try:
+    wire_failure(module="dd_schema", detail="module shutdown",
+                gap_type="engine_failure", source="dd_schema:shutdown")
+except Exception:
+    pass

@@ -3437,6 +3437,10 @@ async def seed_golden_set(*, force: bool = False) -> dict[str, Any]:
                 if sid:
                     existing_seed_ids.add(sid)
             except Exception:
+                try:
+                    wire_failure(module="eval_golden_seed", detail="operation failed", gap_type="engine_failure", source="eval_golden_seed")
+                except Exception:
+                    pass
                 pass
 
     added = skipped = errored = 0
@@ -3534,4 +3538,8 @@ def coverage_report(items: list[dict]) -> dict[str, Any]:
                      summary="eval_golden_seed module active",
                      source_id="eval_golden_seed:init")
     except Exception:
+        try:
+            wire_failure(module="eval_golden_seed", detail="operation failed", gap_type="engine_failure", source="eval_golden_seed")
+        except Exception:
+            pass
         pass

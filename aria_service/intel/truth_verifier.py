@@ -413,4 +413,8 @@ def verified_emit(
                      summary="truth_verifier module active",
                      source_id="truth_verifier:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="truth_verifier", detail="module init failed",
+                        gap_type="engine_failure", source="truth_verifier:init")
+        except Exception:
+            pass

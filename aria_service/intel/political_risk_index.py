@@ -233,3 +233,10 @@ def _to_dict(e: PoliticalRiskEntry) -> dict[str, Any]:
         "drivers": list(e.drivers),
         "notes": e.notes,
     }
+
+# R-F2119 §21a — wire failure handler for political_risk_index
+try:
+    wire_failure(module="political_risk_index", detail="module shutdown",
+                gap_type="engine_failure", source="political_risk_index:shutdown")
+except Exception:
+    pass

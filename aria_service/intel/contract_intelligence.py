@@ -718,4 +718,8 @@ async def get_correction_addendum() -> str:
                      summary="contract_intelligence module active",
                      source_id="contract_intelligence:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="contract_intelligence", detail="module init failed",
+                        gap_type="engine_failure", source="contract_intelligence:init")
+        except Exception:
+            pass

@@ -82,3 +82,10 @@ class PerformanceOptimizer:
 # R-F1006 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="performance_optimizer", summary="Performance Optimizer Active", source_id="performance_optimizer:R-F1006")
+
+# R-F2119 §21a — wire failure handler for performance_optimizer
+try:
+    wire_failure(module="performance_optimizer", detail="module shutdown",
+                gap_type="engine_failure", source="performance_optimizer:shutdown")
+except Exception:
+    pass

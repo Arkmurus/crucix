@@ -174,7 +174,7 @@ def looks_like_correction(message: str) -> bool:
     if not message or len(message) < 30:
         return False
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="correction_learner",
         summary="Looks Like Correction",
@@ -408,3 +408,10 @@ async def recent_corrections_addendum(message: str = "") -> str:
         lines.append(f"{i}. [{topic}] {content}")
         lines.append(f"   _source: {source} · {created}_")
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for correction_learner
+try:
+    wire_failure(module="correction_learner", detail="module shutdown",
+                gap_type="engine_failure", source="correction_learner:shutdown")
+except Exception:
+    pass

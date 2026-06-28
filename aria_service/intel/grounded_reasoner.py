@@ -703,7 +703,7 @@ class GroundedReasoner:
     ) -> None:
         """Absorb the result into brain_hook and reasoning_library."""
         try:
-            from .engine_wiring import wire_success
+            from .engine_wiring import wire_success, wire_failure
 
             wire_success(
                 module="grounded_reasoner",
@@ -815,7 +815,7 @@ async def reason(message: str, context: Optional[dict] = None) -> ReasonResult:
 
 # ── Wire to brain ───────────────────────────────────────────────────────────
 
-from .engine_wiring import wire_success  # noqa: E402
+from .engine_wiring import wire_success  # noqa: E402, wire_failure
 
 wire_success(
     module="grounded_reasoner",
@@ -824,3 +824,10 @@ wire_success(
            "gather → reason → verify → ground-or-abstain → absorb",
     source_id="grounded_reasoner:R-F1044",
 )
+
+# R-F2119 §21a — wire failure handler for grounded_reasoner
+try:
+    wire_failure(module="grounded_reasoner", detail="module shutdown",
+                gap_type="engine_failure", source="grounded_reasoner:shutdown")
+except Exception:
+    pass

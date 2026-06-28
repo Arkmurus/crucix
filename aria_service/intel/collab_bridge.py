@@ -240,4 +240,8 @@ async def drain_for_aria() -> dict:
                      summary="collab_bridge module active",
                      source_id="collab_bridge:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="collab_bridge", detail="module init failed",
+                        gap_type="engine_failure", source="collab_bridge:init")
+        except Exception:
+            pass

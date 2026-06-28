@@ -2976,4 +2976,8 @@ async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
                      summary="registry_adapters module active",
                      source_id="registry_adapters:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="registry_adapters", detail="module init failed",
+                        gap_type="engine_failure", source="registry_adapters:init")
+        except Exception:
+            pass

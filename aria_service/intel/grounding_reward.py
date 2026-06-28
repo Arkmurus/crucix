@@ -183,4 +183,8 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
                      summary="grounding_reward module active",
                      source_id="grounding_reward:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="grounding_reward", detail="module init failed",
+                        gap_type="engine_failure", source="grounding_reward:init")
+        except Exception:
+            pass

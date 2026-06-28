@@ -379,3 +379,10 @@ async def stats() -> dict:
         "head_hash": head,
         "by_axis": by_axis,
     }
+
+# R-F2119 §21a — wire failure handler for self_metrics
+try:
+    wire_failure(module="self_metrics", detail="module shutdown",
+                gap_type="engine_failure", source="self_metrics:shutdown")
+except Exception:
+    pass

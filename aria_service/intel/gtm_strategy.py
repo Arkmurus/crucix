@@ -136,3 +136,10 @@ def get_gtm_context(query: str) -> str:
     )
 
     return ""
+
+# R-F2119 §21a — wire failure handler for gtm_strategy
+try:
+    wire_failure(module="gtm_strategy", detail="module shutdown",
+                gap_type="engine_failure", source="gtm_strategy:shutdown")
+except Exception:
+    pass

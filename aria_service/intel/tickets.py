@@ -307,3 +307,10 @@ async def list_open_tickets(limit: int = 20) -> dict[str, Any]:
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("list_open_tickets exception: %s", e)
         return {"ok": False, "reason": "exception", "detail": str(e)[:200], "tickets": []}
+
+# R-F2119 §21a — wire failure handler for tickets
+try:
+    wire_failure(module="tickets", detail="module shutdown",
+                gap_type="engine_failure", source="tickets:shutdown")
+except Exception:
+    pass

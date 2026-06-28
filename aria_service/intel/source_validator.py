@@ -972,3 +972,10 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
             except Exception:
                 pass
     return {"suspended": len(suspended), "families": suspended}
+
+# R-F2119 §21a — wire failure handler for source_validator
+try:
+    wire_failure(module="source_validator", detail="module shutdown",
+                gap_type="engine_failure", source="source_validator:shutdown")
+except Exception:
+    pass

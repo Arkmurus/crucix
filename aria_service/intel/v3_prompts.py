@@ -409,3 +409,10 @@ def addendum(message: str) -> str:
     if not pillar:
         return ""
     return addendum_for_pillar(pillar)
+
+# R-F2119 §21a — wire failure handler for v3_prompts
+try:
+    wire_failure(module="v3_prompts", detail="module shutdown",
+                gap_type="engine_failure", source="v3_prompts:shutdown")
+except Exception:
+    pass

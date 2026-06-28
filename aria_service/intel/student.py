@@ -2152,3 +2152,10 @@ async def lift_all_topics(bump: float) -> dict[str, float]:
         direction, bump, len(new_scores),
     )
     return new_scores
+
+# R-F2119 §21a — wire failure handler for student
+try:
+    wire_failure(module="student", detail="module shutdown",
+                gap_type="engine_failure", source="student:shutdown")
+except Exception:
+    pass

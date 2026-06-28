@@ -105,7 +105,7 @@ async def search_companies(query: str, limit: int = 5) -> list[dict]:
         return []
     items = data.get("items") or []
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="companies_house",
         summary="Search Companies",
@@ -549,3 +549,10 @@ def format_for_prompt(investigation: dict) -> str:
             lines.append(f"  - {s}")
 
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for companies_house
+try:
+    wire_failure(module="companies_house", detail="module shutdown",
+                gap_type="engine_failure", source="companies_house:shutdown")
+except Exception:
+    pass

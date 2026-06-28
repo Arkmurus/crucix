@@ -770,3 +770,10 @@ def get_index_stats() -> dict:
 def get_stats() -> dict:
     """Alias for get_index_stats (used by status endpoints)."""
     return get_index_stats()
+
+# R-F2119 §21a — wire failure handler for semantic_search
+try:
+    wire_failure(module="semantic_search", detail="module shutdown",
+                gap_type="engine_failure", source="semantic_search:shutdown")
+except Exception:
+    pass

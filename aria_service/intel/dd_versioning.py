@@ -267,7 +267,7 @@ def resolve_version_chain(
     matching.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
     last = matching[0]
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="dd_versioning",
         summary="Resolve Version Chain",
@@ -415,3 +415,10 @@ def filter_index_by_canonical_id(
     ]
     matching.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
     return matching
+
+# R-F2119 §21a — wire failure handler for dd_versioning
+try:
+    wire_failure(module="dd_versioning", detail="module shutdown",
+                gap_type="engine_failure", source="dd_versioning:shutdown")
+except Exception:
+    pass

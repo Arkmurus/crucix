@@ -552,3 +552,10 @@ def build_footer(
         source_id="confidence_footer:R-F996",
     )
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for confidence_footer
+try:
+    wire_failure(module="confidence_footer", detail="module shutdown",
+                gap_type="engine_failure", source="confidence_footer:shutdown")
+except Exception:
+    pass

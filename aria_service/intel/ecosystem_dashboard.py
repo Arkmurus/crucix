@@ -361,4 +361,8 @@ async def get_ecosystem_status() -> dict[str, Any]:
                      summary="ecosystem_dashboard module active",
                      source_id="ecosystem_dashboard:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="ecosystem_dashboard", detail="module init failed",
+                        gap_type="engine_failure", source="ecosystem_dashboard:init")
+        except Exception:
+            pass

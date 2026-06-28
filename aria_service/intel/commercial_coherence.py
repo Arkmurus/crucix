@@ -1118,3 +1118,10 @@ async def layer_5c_stats(limit: int = 200) -> dict:
         ],
         "latest_run_at": latest_run_at,
     }
+
+# R-F2119 §21a — wire failure handler for commercial_coherence
+try:
+    wire_failure(module="commercial_coherence", detail="module shutdown",
+                gap_type="engine_failure", source="commercial_coherence:shutdown")
+except Exception:
+    pass

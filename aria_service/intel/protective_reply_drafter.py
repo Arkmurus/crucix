@@ -278,3 +278,10 @@ def draft_if_deception_high(
         unilateral_terms=unilateral_terms or [],
     )
     return draft_protective_reply(inp)
+
+# R-F2119 §21a — wire failure handler for protective_reply_drafter
+try:
+    wire_failure(module="protective_reply_drafter", detail="module shutdown",
+                gap_type="engine_failure", source="protective_reply_drafter:shutdown")
+except Exception:
+    pass

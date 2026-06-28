@@ -227,3 +227,10 @@ async def get_user_state(user_id: str) -> dict:
         "daily_cost_usd": round(_mem_cost_get(user_id), 6),
         "daily_cost_cap_usd": USER_DAILY_COST_CAP_USD,
     }
+
+# R-F2119 §21a — wire failure handler for user_quota
+try:
+    wire_failure(module="user_quota", detail="module shutdown",
+                gap_type="engine_failure", source="user_quota:shutdown")
+except Exception:
+    pass

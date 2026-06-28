@@ -321,4 +321,8 @@ def summary() -> dict[str, Any]:
                      summary="fcpa_enforcement module active",
                      source_id="fcpa_enforcement:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="fcpa_enforcement", detail="module init failed",
+                        gap_type="engine_failure", source="fcpa_enforcement:init")
+        except Exception:
+            pass

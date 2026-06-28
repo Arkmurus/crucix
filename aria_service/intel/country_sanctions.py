@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.intel.country_sanctions")
 
@@ -779,3 +779,10 @@ def format_regime_answer(country: str, source: str | None = None) -> dict:
             "lists before acting on this information."
         ),
     }
+
+# R-F2119 §21a — wire failure handler for country_sanctions
+try:
+    wire_failure(module="country_sanctions", detail="module shutdown",
+                gap_type="engine_failure", source="country_sanctions:shutdown")
+except Exception:
+    pass

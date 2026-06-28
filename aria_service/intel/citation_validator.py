@@ -174,4 +174,8 @@ def validate_citations(
                      summary="citation_validator module active",
                      source_id="citation_validator:init")
     except Exception:
+        try:
+            wire_failure(module="citation_validator", detail="operation failed", gap_type="engine_failure", source="citation_validator")
+        except Exception:
+            pass
         pass

@@ -280,3 +280,10 @@ async def guard_context_block(message: str) -> str:
         f"or link to the relevant primary-source URLs (OFAC SDN search, "
         f"EU Consolidated, OFSI, etc.)."
     )
+
+# R-F2119 §21a — wire failure handler for sanctions_claim_guard
+try:
+    wire_failure(module="sanctions_claim_guard", detail="module shutdown",
+                gap_type="engine_failure", source="sanctions_claim_guard:shutdown")
+except Exception:
+    pass

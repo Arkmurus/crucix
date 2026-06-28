@@ -521,3 +521,10 @@ def should_fallback_to_llm(intent: QueryIntent) -> bool:
     ) and not intent.entities:
         return True
     return False
+
+# R-F2119 §21a — wire failure handler for query_decomposer
+try:
+    wire_failure(module="query_decomposer", detail="module shutdown",
+                gap_type="engine_failure", source="query_decomposer:shutdown")
+except Exception:
+    pass

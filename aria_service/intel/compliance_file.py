@@ -401,4 +401,8 @@ async def get_provenance(entry_hash: str) -> dict:
                      summary="compliance_file module active",
                      source_id="compliance_file:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="compliance_file", detail="module init failed",
+                        gap_type="engine_failure", source="compliance_file:init")
+        except Exception:
+            pass

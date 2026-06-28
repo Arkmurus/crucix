@@ -241,3 +241,10 @@ def list_known_satisfaction_patterns() -> list[str]:
         source_id="mou_clause_gate_analyser:R-F996",
     )
     return list(_SATISFACTION_LANGUAGE)
+
+# R-F2119 §21a — wire failure handler for mou_clause_gate_analyser
+try:
+    wire_failure(module="mou_clause_gate_analyser", detail="module shutdown",
+                gap_type="engine_failure", source="mou_clause_gate_analyser:shutdown")
+except Exception:
+    pass

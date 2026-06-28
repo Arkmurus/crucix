@@ -1021,3 +1021,10 @@ async def ingest_to_knowledge() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for nato_standards
+try:
+    wire_failure(module="nato_standards", detail="module shutdown",
+                gap_type="engine_failure", source="nato_standards:shutdown")
+except Exception:
+    pass

@@ -302,4 +302,8 @@ def summary() -> dict[str, Any]:
                      summary="tbml_detection module active",
                      source_id="tbml_detection:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="tbml_detection", detail="module init failed",
+                        gap_type="engine_failure", source="tbml_detection:init")
+        except Exception:
+            pass

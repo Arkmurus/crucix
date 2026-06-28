@@ -311,4 +311,8 @@ def render_markdown(brief: dict[str, Any]) -> str:
                      summary="precall_brief module active",
                      source_id="precall_brief:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="precall_brief", detail="module init failed",
+                        gap_type="engine_failure", source="precall_brief:init")
+        except Exception:
+            pass

@@ -218,3 +218,10 @@ def get_openapi_spec() -> dict[str, Any]:
 # R-F1011 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="public_api", summary="Public Api Active", source_id="public_api:R-F1011")
+
+# R-F2119 §21a — wire failure handler for public_api
+try:
+    wire_failure(module="public_api", detail="module shutdown",
+                gap_type="engine_failure", source="public_api:shutdown")
+except Exception:
+    pass

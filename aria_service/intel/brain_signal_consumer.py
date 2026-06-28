@@ -85,4 +85,8 @@ except RuntimeError:
                      summary="brain_signal_consumer module active",
                      source_id="brain_signal_consumer:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="brain_signal_consumer", detail="module init failed",
+                        gap_type="engine_failure", source="brain_signal_consumer:init")
+        except Exception:
+            pass

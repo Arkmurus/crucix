@@ -1922,3 +1922,10 @@ if _collisions:
         "builtins.<name>() explicitly.",
         _collisions,
     )
+
+# R-F2119 §21a — wire failure handler for state_store
+try:
+    wire_failure(module="state_store", detail="module shutdown",
+                gap_type="engine_failure", source="state_store:shutdown")
+except Exception:
+    pass

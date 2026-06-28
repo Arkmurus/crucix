@@ -184,4 +184,8 @@ def stop_profiler(tasks: list[asyncio.Task] | None = None) -> None:
                      summary="continuous_profiler module active",
                      source_id="continuous_profiler:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="continuous_profiler", detail="module init failed",
+                        gap_type="engine_failure", source="continuous_profiler:init")
+        except Exception:
+            pass

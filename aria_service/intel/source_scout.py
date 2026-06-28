@@ -398,3 +398,10 @@ async def refresh_family(family: str) -> dict:
     except Exception as e:
         return {"ok": False, "family": family, "error": str(e)}
     return {"ok": False, "family": family, "error": "no extractor available"}
+
+# R-F2119 §21a — wire failure handler for source_scout
+try:
+    wire_failure(module="source_scout", detail="module shutdown",
+                gap_type="engine_failure", source="source_scout:shutdown")
+except Exception:
+    pass

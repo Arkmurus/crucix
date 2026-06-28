@@ -180,3 +180,10 @@ def _to_dict(e: BaykarExport) -> dict[str, Any]:
         "first_reported": e.first_reported,
         "notes": e.notes,
     }
+
+# R-F2119 §21a — wire failure handler for baykar_export_pipeline
+try:
+    wire_failure(module="baykar_export_pipeline", detail="module shutdown",
+                gap_type="engine_failure", source="baykar_export_pipeline:shutdown")
+except Exception:
+    pass

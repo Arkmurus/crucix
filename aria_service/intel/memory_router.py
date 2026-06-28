@@ -488,3 +488,10 @@ def get_routing_status():
     result = {"status": "active", "stores": 5}
     wire_success(module="memory_router", summary="Memory Router Status", source_id="memory_router:R-F1001")
     return result
+
+# R-F2119 §21a — wire failure handler for memory_router
+try:
+    wire_failure(module="memory_router", detail="module shutdown",
+                gap_type="engine_failure", source="memory_router:shutdown")
+except Exception:
+    pass

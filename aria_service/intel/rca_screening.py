@@ -273,4 +273,8 @@ def summary() -> dict[str, Any]:
                      summary="rca_screening module active",
                      source_id="rca_screening:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="rca_screening", detail="module init failed",
+                        gap_type="engine_failure", source="rca_screening:init")
+        except Exception:
+            pass

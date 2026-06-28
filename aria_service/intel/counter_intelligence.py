@@ -489,4 +489,8 @@ def summary() -> dict[str, Any]:
                      summary="counter_intelligence module active",
                      source_id="counter_intelligence:init")
     except Exception:
+        try:
+            wire_failure(module="counter_intelligence", detail="operation failed", gap_type="engine_failure", source="counter_intelligence")
+        except Exception:
+            pass
         pass

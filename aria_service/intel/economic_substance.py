@@ -399,3 +399,10 @@ def summary() -> dict[str, Any]:
         ],
         "insubstantive_threshold": _INSUBSTANTIVE_THRESHOLD,
     }
+
+# R-F2119 §21a — wire failure handler for economic_substance
+try:
+    wire_failure(module="economic_substance", detail="module shutdown",
+                gap_type="engine_failure", source="economic_substance:shutdown")
+except Exception:
+    pass

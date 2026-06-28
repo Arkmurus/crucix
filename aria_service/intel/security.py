@@ -466,3 +466,10 @@ def is_legitimate_lookup(country: str) -> bool:
     if not country:
         return False
     return country.lower().strip() in _LEGITIMATE_LOOKUP_COUNTRIES
+
+# R-F2119 §21a — wire failure handler for security
+try:
+    wire_failure(module="security", detail="module shutdown",
+                gap_type="engine_failure", source="security:shutdown")
+except Exception:
+    pass

@@ -89,3 +89,10 @@ def random_headers() -> dict:
 async def polite_delay(min_sec: float = 1.5, max_sec: float = 5.0) -> None:
     """Random delay between requests to avoid rate-limiting."""
     await asyncio.sleep(random.uniform(min_sec, max_sec))
+
+# R-F2119 §21a — wire failure handler for ua_rotation
+try:
+    wire_failure(module="ua_rotation", detail="module shutdown",
+                gap_type="engine_failure", source="ua_rotation:shutdown")
+except Exception:
+    pass

@@ -222,3 +222,10 @@ class UniversalWebCrawler:
 # R-F1010 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="web_crawler", summary="Web Crawler Active", source_id="web_crawler:R-F1010")
+
+# R-F2119 §21a — wire failure handler for web_crawler
+try:
+    wire_failure(module="web_crawler", detail="module shutdown",
+                gap_type="engine_failure", source="web_crawler:shutdown")
+except Exception:
+    pass

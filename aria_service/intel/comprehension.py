@@ -515,3 +515,10 @@ f) NOT-APPLICABLE TO TRIVIAL TURNS: Greetings, acknowledgements, and
    one-word replies are exempt. The UNDERSTOOD AS prefix applies to
    questions, instructions, and investigative asks only.
 """
+
+# R-F2119 §21a — wire failure handler for comprehension
+try:
+    wire_failure(module="comprehension", detail="module shutdown",
+                gap_type="engine_failure", source="comprehension:shutdown")
+except Exception:
+    pass

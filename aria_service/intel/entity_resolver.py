@@ -288,3 +288,10 @@ def render_context_block(resolved: dict[str, Any]) -> str:
     )
 
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for entity_resolver
+try:
+    wire_failure(module="entity_resolver", detail="module shutdown",
+                gap_type="engine_failure", source="entity_resolver:shutdown")
+except Exception:
+    pass

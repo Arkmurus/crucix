@@ -612,3 +612,10 @@ If no contradiction, return: {{"contradicts": false}}"""
         except Exception as e:
             logger.error(f"Redis claim load failed: {e}")
             return []
+
+# R-F2119 §21a — wire failure handler for counterparty_claim_ledger
+try:
+    wire_failure(module="counterparty_claim_ledger", detail="module shutdown",
+                gap_type="engine_failure", source="counterparty_claim_ledger:shutdown")
+except Exception:
+    pass

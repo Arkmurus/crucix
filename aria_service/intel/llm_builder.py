@@ -259,3 +259,10 @@ print(f"Training complete. Model saved to {config['output_dir']}/final")
 # R-F1001 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="llm_builder", summary="Llm Builder Active", source_id="llm_builder:R-F1001")
+
+# R-F2119 §21a — wire failure handler for llm_builder
+try:
+    wire_failure(module="llm_builder", detail="module shutdown",
+                gap_type="engine_failure", source="llm_builder:shutdown")
+except Exception:
+    pass

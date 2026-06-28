@@ -801,3 +801,10 @@ async def walk_ubo_chain(
         "warnings":            warnings,
         "verdict":             verdict,
     }
+
+# R-F2119 §21a — wire failure handler for network_walker
+try:
+    wire_failure(module="network_walker", detail="module shutdown",
+                gap_type="engine_failure", source="network_walker:shutdown")
+except Exception:
+    pass

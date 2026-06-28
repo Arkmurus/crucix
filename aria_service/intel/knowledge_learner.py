@@ -165,3 +165,10 @@ class ZeroCostLearner:
 # R-F1010 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="knowledge_learner", summary="Knowledge Learner Active", source_id="knowledge_learner:R-F1010")
+
+# R-F2119 §21a — wire failure handler for knowledge_learner
+try:
+    wire_failure(module="knowledge_learner", detail="module shutdown",
+                gap_type="engine_failure", source="knowledge_learner:shutdown")
+except Exception:
+    pass

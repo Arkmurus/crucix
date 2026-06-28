@@ -405,4 +405,8 @@ async def _generate_summary(llm: Any, report: dict) -> Optional[str]:
                      summary="weekly_report module active",
                      source_id="weekly_report:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="weekly_report", detail="module init failed",
+                        gap_type="engine_failure", source="weekly_report:init")
+        except Exception:
+            pass

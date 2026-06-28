@@ -202,7 +202,7 @@ async def get_freshness(domain: str) -> dict[str, Any]:
             "max_staleness_hours": _max_staleness_for(domain),
         }
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="learning_progress",
         summary="Get Freshness",
@@ -301,3 +301,10 @@ def summary() -> dict[str, Any]:
         "default_max_staleness_hours": DEFAULT_MAX_STALENESS_HOURS,
         "overrides_count":     len(_MAX_STALENESS_OVERRIDES),
     }
+
+# R-F2119 §21a — wire failure handler for learning_progress
+try:
+    wire_failure(module="learning_progress", detail="module shutdown",
+                gap_type="engine_failure", source="learning_progress:shutdown")
+except Exception:
+    pass

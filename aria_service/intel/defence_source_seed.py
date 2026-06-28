@@ -695,3 +695,10 @@ def catalogue_summary() -> dict:
             sorted(by_topic.items(), key=lambda kv: -kv[1])[:10]
         ),
     }
+
+# R-F2119 §21a — wire failure handler for defence_source_seed
+try:
+    wire_failure(module="defence_source_seed", detail="module shutdown",
+                gap_type="engine_failure", source="defence_source_seed:shutdown")
+except Exception:
+    pass

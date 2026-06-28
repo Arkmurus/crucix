@@ -745,4 +745,8 @@ def _wire_self_claim_violations(violations):
                      summary="self_claim_guard module active",
                      source_id="self_claim_guard:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="self_claim_guard", detail="module init failed",
+                        gap_type="engine_failure", source="self_claim_guard:init")
+        except Exception:
+            pass

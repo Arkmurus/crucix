@@ -378,3 +378,10 @@ def get_swiss_legal_context(query: str, max_blocks: int = 2) -> str:
 
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
+
+# R-F2119 §21a — wire failure handler for legal_swiss
+try:
+    wire_failure(module="legal_swiss", detail="module shutdown",
+                gap_type="engine_failure", source="legal_swiss:shutdown")
+except Exception:
+    pass

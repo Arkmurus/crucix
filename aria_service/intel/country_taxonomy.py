@@ -279,3 +279,10 @@ def all_known_iso2() -> set[str]:
     for members in REGIONS.values():
         known.update(members)
     return known
+
+# R-F2119 §21a — wire failure handler for country_taxonomy
+try:
+    wire_failure(module="country_taxonomy", detail="module shutdown",
+                gap_type="engine_failure", source="country_taxonomy:shutdown")
+except Exception:
+    pass

@@ -753,3 +753,10 @@ async def ingest_to_knowledge() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for procurement_knowledge
+try:
+    wire_failure(module="procurement_knowledge", detail="module shutdown",
+                gap_type="engine_failure", source="procurement_knowledge:shutdown")
+except Exception:
+    pass

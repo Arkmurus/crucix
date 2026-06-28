@@ -509,3 +509,10 @@ async def summary_for_dashboard() -> dict:
         "weakest_score": latest.get("weakest_score"),
         "fired_at": latest.get("fired_at"),
     }
+
+# R-F2119 §21a — wire failure handler for consistency_suite
+try:
+    wire_failure(module="consistency_suite", detail="module shutdown",
+                gap_type="engine_failure", source="consistency_suite:shutdown")
+except Exception:
+    pass

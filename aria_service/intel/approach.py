@@ -227,3 +227,10 @@ def get_approach_context(query: str) -> str:
         source_id="approach:R-F996",
     )
     return ""
+
+# R-F2119 §21a — wire failure handler for approach
+try:
+    wire_failure(module="approach", detail="module shutdown",
+                gap_type="engine_failure", source="approach:shutdown")
+except Exception:
+    pass

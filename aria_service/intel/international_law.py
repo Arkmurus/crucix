@@ -2530,4 +2530,8 @@ async def refresh_law_knowledge() -> dict:
                      summary="international_law module active",
                      source_id="international_law:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="international_law", detail="module init failed",
+                        gap_type="engine_failure", source="international_law:init")
+        except Exception:
+            pass

@@ -222,4 +222,8 @@ async def get_stats() -> dict:
                      summary="competitors module active",
                      source_id="competitors:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="competitors", detail="module init failed",
+                        gap_type="engine_failure", source="competitors:init")
+        except Exception:
+            pass

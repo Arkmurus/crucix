@@ -263,7 +263,7 @@ async def _run_task(task_id: str, llm: Any) -> None:
         logger.info("Research task %s complete in %dms", task_id, duration)
         # R-F1059 — wire task completion to brain
         try:
-            from .engine_wiring import wire_success as _ws
+            from .engine_wiring import wire_success as _ws, wire_failure
             _ws(
                 module="research_tasks",
                 summary=f"Research task complete: {task_id} ({task_type})",
@@ -598,3 +598,10 @@ async def get_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+# R-F2119 §21a — wire failure handler for research_tasks
+try:
+    wire_failure(module="research_tasks", detail="module shutdown",
+                gap_type="engine_failure", source="research_tasks:shutdown")
+except Exception:
+    pass

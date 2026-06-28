@@ -330,3 +330,10 @@ async def record_outcome(
         "feeds": feeds,
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+
+# R-F2119 §21a — wire failure handler for deal_predictor
+try:
+    wire_failure(module="deal_predictor", detail="module shutdown",
+                gap_type="engine_failure", source="deal_predictor:shutdown")
+except Exception:
+    pass

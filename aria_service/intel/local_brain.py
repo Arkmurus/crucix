@@ -722,3 +722,10 @@ def get_capability_surface() -> dict:
         "llm_calls_required": 0,
         "fallback_for_when": "DeepSeek/main LLM unreachable, rate-limited, or unconfigured",
     }
+
+# R-F2119 §21a — wire failure handler for local_brain
+try:
+    wire_failure(module="local_brain", detail="module shutdown",
+                gap_type="engine_failure", source="local_brain:shutdown")
+except Exception:
+    pass

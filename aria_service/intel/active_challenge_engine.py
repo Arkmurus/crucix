@@ -653,3 +653,10 @@ Return [] if no material unstated assumptions found."""
         }
         words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
         return [w for w in words if w not in stop][:4]
+
+# R-F2119 §21a — wire failure handler for active_challenge_engine
+try:
+    wire_failure(module="active_challenge_engine", detail="module shutdown",
+                gap_type="engine_failure", source="active_challenge_engine:shutdown")
+except Exception:
+    pass

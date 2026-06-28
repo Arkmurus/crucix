@@ -47,4 +47,8 @@ def clamp_percentage(value: float) -> float:
                      summary="coder_canary module active",
                      source_id="coder_canary:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="coder_canary", detail="module init failed",
+                        gap_type="engine_failure", source="coder_canary:init")
+        except Exception:
+            pass

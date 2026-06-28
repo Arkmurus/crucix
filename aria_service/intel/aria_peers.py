@@ -414,4 +414,8 @@ async def history(limit: int = 10) -> list[dict]:
                      summary="aria_peers module active",
                      source_id="aria_peers:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="aria_peers", detail="module init failed",
+                        gap_type="engine_failure", source="aria_peers:init")
+        except Exception:
+            pass

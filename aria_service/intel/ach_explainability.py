@@ -267,3 +267,10 @@ def summary() -> dict[str, Any]:
         "schema":    "ach.v1",
         "consumers": ["dd_orchestrator", "report writer", "audit log"],
     }
+
+# R-F2119 §21a — wire failure handler for ach_explainability
+try:
+    wire_failure(module="ach_explainability", detail="module shutdown",
+                gap_type="engine_failure", source="ach_explainability:shutdown")
+except Exception:
+    pass

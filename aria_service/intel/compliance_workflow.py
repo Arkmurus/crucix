@@ -370,3 +370,10 @@ async def _save_cases(cases: list[dict]) -> None:
         cases.sort(key=lambda c: c.get("updated_at", ""), reverse=True)
         cases = cases[:MAX_CASES]
     await rs.set_json(CASES_KEY, cases, ex=CASES_TTL)
+
+# R-F2119 §21a — wire failure handler for compliance_workflow
+try:
+    wire_failure(module="compliance_workflow", detail="module shutdown",
+                gap_type="engine_failure", source="compliance_workflow:shutdown")
+except Exception:
+    pass

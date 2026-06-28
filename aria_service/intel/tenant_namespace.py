@@ -256,3 +256,10 @@ def summary() -> dict[str, Any]:
             "encryption at rest per-tenant (Tier 4 — customer-held keys)",
         ],
     }
+
+# R-F2119 §21a — wire failure handler for tenant_namespace
+try:
+    wire_failure(module="tenant_namespace", detail="module shutdown",
+                gap_type="engine_failure", source="tenant_namespace:shutdown")
+except Exception:
+    pass

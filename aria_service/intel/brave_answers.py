@@ -57,7 +57,7 @@ async def fetch_answer(*_args, **_kwargs) -> dict:
 async def get_month_spend() -> dict:
     """R-F320 stub. Brave spend is $0 by definition now."""
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="brave_answers",
         summary="Get Month Spend",
@@ -78,3 +78,10 @@ async def get_month_spend() -> dict:
 def is_enabled() -> bool:
     """R-F320: Brave is permanently disabled."""
     return False
+
+# R-F2119 §21a — wire failure handler for brave_answers
+try:
+    wire_failure(module="brave_answers", detail="module shutdown",
+                gap_type="engine_failure", source="brave_answers:shutdown")
+except Exception:
+    pass

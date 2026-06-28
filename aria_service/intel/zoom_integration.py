@@ -742,3 +742,10 @@ async def get_meeting_log(limit: int = 20) -> list[dict]:
         except Exception:
             continue
     return out
+
+# R-F2119 §21a — wire failure handler for zoom_integration
+try:
+    wire_failure(module="zoom_integration", detail="module shutdown",
+                gap_type="engine_failure", source="zoom_integration:shutdown")
+except Exception:
+    pass

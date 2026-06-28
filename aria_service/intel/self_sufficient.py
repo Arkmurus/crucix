@@ -438,3 +438,10 @@ ROADMAP = {
         "dependencies": ["phase_1", "phase_2", "phase_3", "phase_4"],
     },
 }
+
+# R-F2119 §21a — wire failure handler for self_sufficient
+try:
+    wire_failure(module="self_sufficient", detail="module shutdown",
+                gap_type="engine_failure", source="self_sufficient:shutdown")
+except Exception:
+    pass

@@ -415,3 +415,10 @@ async def drill_stats() -> dict[str, Any]:
             "total_variants_tested": 0,
             "total_defenses_staged": 0,
         }
+
+# R-F2119 §21a — wire failure handler for generative_redteam
+try:
+    wire_failure(module="generative_redteam", detail="module shutdown",
+                gap_type="engine_failure", source="generative_redteam:shutdown")
+except Exception:
+    pass

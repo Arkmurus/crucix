@@ -139,4 +139,8 @@ def redact_pii(text: str) -> str:
                      summary="pii_redaction module active",
                      source_id="pii_redaction:init")
     except Exception:
+        try:
+            wire_failure(module="pii_redaction", detail="operation failed", gap_type="engine_failure", source="pii_redaction")
+        except Exception:
+            pass
         pass

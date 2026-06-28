@@ -738,4 +738,8 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
                      summary="euc_library module active",
                      source_id="euc_library:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="euc_library", detail="module init failed",
+                        gap_type="engine_failure", source="euc_library:init")
+        except Exception:
+            pass

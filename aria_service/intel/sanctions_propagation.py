@@ -380,3 +380,10 @@ def summary() -> dict[str, Any]:
         "regimes_tracked": list(_REGIMES.keys()),
         "currencies_mapped": [c for c in _CURRENCY_NEXUS if c != "*"],
     }
+
+# R-F2119 §21a — wire failure handler for sanctions_propagation
+try:
+    wire_failure(module="sanctions_propagation", detail="module shutdown",
+                gap_type="engine_failure", source="sanctions_propagation:shutdown")
+except Exception:
+    pass

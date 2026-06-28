@@ -336,3 +336,10 @@ wire_success(
            "TOML, JSON, Shell, C/C++, Java, Kotlin, Ruby, PHP, Swift, and more",
     source_id="multi_lang_coder:R-F1044",
 )
+
+# R-F2119 §21a — wire failure handler for multi_lang_coder
+try:
+    wire_failure(module="multi_lang_coder", detail="module shutdown",
+                gap_type="engine_failure", source="multi_lang_coder:shutdown")
+except Exception:
+    pass

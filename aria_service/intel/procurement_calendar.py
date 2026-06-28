@@ -609,4 +609,8 @@ async def refresh() -> dict:
                      summary="procurement_calendar module active",
                      source_id="procurement_calendar:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="procurement_calendar", detail="module init failed",
+                        gap_type="engine_failure", source="procurement_calendar:init")
+        except Exception:
+            pass

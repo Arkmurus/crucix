@@ -397,4 +397,8 @@ async def get_all_surface_health(hours: int = _DEFAULT_HEALTH_WINDOW_H) -> dict:
                      summary="outcome_wire module active",
                      source_id="outcome_wire:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="outcome_wire", detail="module init failed",
+                        gap_type="engine_failure", source="outcome_wire:init")
+        except Exception:
+            pass

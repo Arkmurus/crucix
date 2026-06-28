@@ -666,3 +666,10 @@ def _trajectory_label(ratio: float) -> str:
     if ratio >= 0.15: return "WARMING — local layer growing"
     if ratio > 0:    return "EARLY — most queries still hit the cloud"
     return "COLD START — no queries routed yet"
+
+# R-F2119 §21a — wire failure handler for reasoning_router
+try:
+    wire_failure(module="reasoning_router", detail="module shutdown",
+                gap_type="engine_failure", source="reasoning_router:shutdown")
+except Exception:
+    pass

@@ -184,4 +184,8 @@ def build_fix_prompt_section(
                      summary="rag_augmented_generator module active",
                      source_id="rag_augmented_generator:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="rag_augmented_generator", detail="module init failed",
+                        gap_type="engine_failure", source="rag_augmented_generator:init")
+        except Exception:
+            pass

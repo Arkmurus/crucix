@@ -330,4 +330,8 @@ def summary() -> dict[str, Any]:
                      summary="crypto_sanctions module active",
                      source_id="crypto_sanctions:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="crypto_sanctions", detail="module init failed",
+                        gap_type="engine_failure", source="crypto_sanctions:init")
+        except Exception:
+            pass

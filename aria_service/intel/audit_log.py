@@ -515,4 +515,8 @@ async def stats() -> dict:
                      summary="audit_log module active",
                      source_id="audit_log:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="audit_log", detail="module init failed",
+                        gap_type="engine_failure", source="audit_log:init")
+        except Exception:
+            pass

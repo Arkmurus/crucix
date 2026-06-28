@@ -469,3 +469,10 @@ def _infer_resolver(*, user_message: str, response_text: str) -> tuple[str, str,
         "this pending action and either (a) ask me again with a URL, or "
         "(b) let me know which autonomous task should cover it.",
     )
+
+# R-F2119 §21a — wire failure handler for tool_claim_guard
+try:
+    wire_failure(module="tool_claim_guard", detail="module shutdown",
+                gap_type="engine_failure", source="tool_claim_guard:shutdown")
+except Exception:
+    pass

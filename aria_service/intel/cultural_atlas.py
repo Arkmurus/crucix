@@ -726,3 +726,10 @@ def pair_compare(a_iso2: str, b_iso2: str) -> dict:
             f"signals correctly."
         ),
     }
+
+# R-F2119 §21a — wire failure handler for cultural_atlas
+try:
+    wire_failure(module="cultural_atlas", detail="module shutdown",
+                gap_type="engine_failure", source="cultural_atlas:shutdown")
+except Exception:
+    pass

@@ -260,3 +260,10 @@ def patterns() -> dict[str, str]:
         "report": _REPORT_RE.pattern,
         "dialogue_hints": _DIALOGUE_HINTS_RE.pattern,
     }
+
+# R-F2119 §21a — wire failure handler for dialogue_router
+try:
+    wire_failure(module="dialogue_router", detail="module shutdown",
+                gap_type="engine_failure", source="dialogue_router:shutdown")
+except Exception:
+    pass

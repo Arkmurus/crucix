@@ -450,3 +450,10 @@ async def snapshot_to_yaml() -> dict:
         return {"ok": True, "path": str(_YAML_MIRROR), "sources": len(snapshot["sources"])}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+# R-F2119 §21a — wire failure handler for web_atlas
+try:
+    wire_failure(module="web_atlas", detail="module shutdown",
+                gap_type="engine_failure", source="web_atlas:shutdown")
+except Exception:
+    pass

@@ -550,4 +550,8 @@ async def ingest_all_sections() -> dict:
                      summary="risk_indices module active",
                      source_id="risk_indices:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="risk_indices", detail="module init failed",
+                        gap_type="engine_failure", source="risk_indices:init")
+        except Exception:
+            pass

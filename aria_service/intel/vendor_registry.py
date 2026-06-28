@@ -601,3 +601,10 @@ async def _availability_ping_uncached() -> dict:
     _PING_CACHE["result"] = summary
     _PING_CACHE["fetched_at"] = time.monotonic()
     return summary
+
+# R-F2119 §21a — wire failure handler for vendor_registry
+try:
+    wire_failure(module="vendor_registry", detail="module shutdown",
+                gap_type="engine_failure", source="vendor_registry:shutdown")
+except Exception:
+    pass

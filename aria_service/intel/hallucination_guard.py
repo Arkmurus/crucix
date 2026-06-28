@@ -204,4 +204,8 @@ def check_response(response_text: str, tool_context: str = "") -> dict[str, Any]
                      summary="hallucination_guard module active",
                      source_id="hallucination_guard:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="hallucination_guard", detail="module init failed",
+                        gap_type="engine_failure", source="hallucination_guard:init")
+        except Exception:
+            pass

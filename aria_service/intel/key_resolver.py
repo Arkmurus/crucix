@@ -95,4 +95,8 @@ async def store_obtained_key(
                      summary="key_resolver module active",
                      source_id="key_resolver:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="key_resolver", detail="module init failed",
+                        gap_type="engine_failure", source="key_resolver:init")
+        except Exception:
+            pass

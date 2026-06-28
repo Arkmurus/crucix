@@ -561,3 +561,10 @@ async def run_security_weekly(llm_fn=None) -> dict:
         "by_category": by_cat,
         "results": cleaned,
     }
+
+# R-F2119 §21a — wire failure handler for security_challenge
+try:
+    wire_failure(module="security_challenge", detail="module shutdown",
+                gap_type="engine_failure", source="security_challenge:shutdown")
+except Exception:
+    pass

@@ -333,3 +333,10 @@ def addendum() -> str:
 def block_length() -> int:
     """For monitoring — how many chars the addendum adds when active."""
     return len(_RESEARCHER_PRINCIPLES_BLOCK)
+
+# R-F2119 §21a — wire failure handler for researcher_principles
+try:
+    wire_failure(module="researcher_principles", detail="module shutdown",
+                gap_type="engine_failure", source="researcher_principles:shutdown")
+except Exception:
+    pass

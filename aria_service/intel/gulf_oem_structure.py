@@ -277,3 +277,10 @@ def _to_dict(s: GulfOEMSubsidiary) -> dict[str, Any]:
         "joint_venture": s.joint_venture,
         "notes": s.notes,
     }
+
+# R-F2119 §21a — wire failure handler for gulf_oem_structure
+try:
+    wire_failure(module="gulf_oem_structure", detail="module shutdown",
+                gap_type="engine_failure", source="gulf_oem_structure:shutdown")
+except Exception:
+    pass

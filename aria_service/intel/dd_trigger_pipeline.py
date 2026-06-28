@@ -560,7 +560,7 @@ async def monitor_and_trigger() -> dict[str, Any]:
 
     # Wire to brain
     try:
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="dd_trigger_pipeline",
             summary=(
@@ -591,3 +591,10 @@ async def get_trigger_log(limit: int = 20) -> list[dict[str, Any]]:
         return log[:limit]
     except Exception:
         return []
+
+# R-F2119 §21a — wire failure handler for dd_trigger_pipeline
+try:
+    wire_failure(module="dd_trigger_pipeline", detail="module shutdown",
+                gap_type="engine_failure", source="dd_trigger_pipeline:shutdown")
+except Exception:
+    pass

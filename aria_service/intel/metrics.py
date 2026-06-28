@@ -97,4 +97,8 @@ def generate_metrics() -> str:
                      summary="metrics module active",
                      source_id="metrics:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="metrics", detail="module init failed",
+                        gap_type="engine_failure", source="metrics:init")
+        except Exception:
+            pass

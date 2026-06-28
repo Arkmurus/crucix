@@ -146,7 +146,7 @@ async def audit_portal_coverage() -> dict[str, Any]:
 
     # Wire to brain
     try:
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         _gap_summary = "; ".join(
             f"{g['name']} (tier {g['tier']})" for g in results["gaps"][:5]
         )
@@ -291,7 +291,7 @@ async def auto_register_gaps(max_portals: int = 3) -> list[dict[str, Any]]:
 
     # Wire results to brain
     try:
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         _success_count = sum(1 for r in results if r.get("success"))
         wire_success(
             module="portal_coverage_audit",
@@ -304,3 +304,10 @@ async def auto_register_gaps(max_portals: int = 3) -> list[dict[str, Any]]:
         logger.debug("[portal_coverage_audit] brain wiring failed", exc_info=True)
 
     return results
+
+# R-F2119 §21a — wire failure handler for portal_coverage_audit
+try:
+    wire_failure(module="portal_coverage_audit", detail="module shutdown",
+                gap_type="engine_failure", source="portal_coverage_audit:shutdown")
+except Exception:
+    pass

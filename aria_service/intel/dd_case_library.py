@@ -239,7 +239,7 @@ async def ingest_all_cases() -> dict:
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     logger.info("DD case library ingestion: %d/%d cases", success, len(ALL_CASES))
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="dd_case_library",
         summary="Ingest All Cases",
@@ -251,3 +251,10 @@ async def ingest_all_cases() -> dict:
         "total_cases": len(ALL_CASES),
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for dd_case_library
+try:
+    wire_failure(module="dd_case_library", detail="module shutdown",
+                gap_type="engine_failure", source="dd_case_library:shutdown")
+except Exception:
+    pass

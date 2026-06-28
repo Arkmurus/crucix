@@ -118,3 +118,10 @@ async def get_stats() -> dict:
         return await rs.get_json(_K_STATS) or {"hits": 0, "misses": 0}
     except Exception:
         return {"hits": 0, "misses": 0}
+
+# R-F2119 §21a — wire failure handler for response_cache
+try:
+    wire_failure(module="response_cache", detail="module shutdown",
+                gap_type="engine_failure", source="response_cache:shutdown")
+except Exception:
+    pass

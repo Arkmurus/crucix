@@ -453,6 +453,10 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
             confidence="ASSESSED",
         ))
     except RuntimeError:
+        try:
+            wire_failure(module="person_resolver", detail="operation failed", gap_type="engine_failure", source="person_resolver")
+        except Exception:
+            pass
         pass  # no event loop — skip (CLI / test context)
     except Exception as _bh:
         logger.debug("person_resolver brain_hook failed: %s", _bh)
@@ -465,4 +469,8 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
                      summary="person_resolver module active",
                      source_id="person_resolver:init")
     except Exception:
+        try:
+            wire_failure(module="person_resolver", detail="operation failed", gap_type="engine_failure", source="person_resolver")
+        except Exception:
+            pass
         pass

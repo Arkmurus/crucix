@@ -209,4 +209,8 @@ class DeadlockDetector:
                      summary="deadlock_detector module active",
                      source_id="deadlock_detector:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="deadlock_detector", detail="module init failed",
+                        gap_type="engine_failure", source="deadlock_detector:init")
+        except Exception:
+            pass

@@ -739,7 +739,7 @@ async def get_all_facts() -> list[dict]:
     """Return all facts in the knowledge base (for security audit scanning)."""
     cache = await _load()
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="knowledge",
         summary="Get All Facts",
@@ -1890,3 +1890,10 @@ async def purge_by_keywords(
         "keywords_used": needles,
         "removed_samples": removed_samples,
     }
+
+# R-F2119 §21a — wire failure handler for knowledge
+try:
+    wire_failure(module="knowledge", detail="module shutdown",
+                gap_type="engine_failure", source="knowledge:shutdown")
+except Exception:
+    pass

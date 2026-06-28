@@ -817,4 +817,8 @@ async def stats() -> dict:
                      summary="chain_correlator module active",
                      source_id="chain_correlator:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="chain_correlator", detail="module init failed",
+                        gap_type="engine_failure", source="chain_correlator:init")
+        except Exception:
+            pass

@@ -1239,3 +1239,10 @@ class WebIntegrityAgent:
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
+
+# R-F2119 §21a — wire failure handler for web_integrity_agent
+try:
+    wire_failure(module="web_integrity_agent", detail="module shutdown",
+                gap_type="engine_failure", source="web_integrity_agent:shutdown")
+except Exception:
+    pass

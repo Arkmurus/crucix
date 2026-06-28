@@ -321,3 +321,10 @@ def summary() -> dict[str, Any]:
         "by_risk": by_risk,
         "heuristic_patterns": ["PMB marker", "mailbox / mail-drop language"],
     }
+
+# R-F2119 §21a — wire failure handler for virtual_office_registry
+try:
+    wire_failure(module="virtual_office_registry", detail="module shutdown",
+                gap_type="engine_failure", source="virtual_office_registry:shutdown")
+except Exception:
+    pass

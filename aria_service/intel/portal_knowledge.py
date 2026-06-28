@@ -368,4 +368,8 @@ class RegistrationKnowledge:
                      summary="portal_knowledge module active",
                      source_id="portal_knowledge:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="portal_knowledge", detail="module init failed",
+                        gap_type="engine_failure", source="portal_knowledge:init")
+        except Exception:
+            pass

@@ -428,3 +428,10 @@ def summary() -> dict[str, Any]:
         "tlds_seeded": len(_RDAP_SEED),
         "bootstrap_cached": len(_BOOTSTRAP_CACHE),
     }
+
+# R-F2119 §21a — wire failure handler for domain_ownership_verifier
+try:
+    wire_failure(module="domain_ownership_verifier", detail="module shutdown",
+                gap_type="engine_failure", source="domain_ownership_verifier:shutdown")
+except Exception:
+    pass

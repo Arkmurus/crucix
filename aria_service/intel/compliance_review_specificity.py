@@ -176,3 +176,10 @@ def get_compliance_review_specificity_context(message: str) -> str:
     )
 
     return _ADDENDUM
+
+# R-F2119 §21a — wire failure handler for compliance_review_specificity
+try:
+    wire_failure(module="compliance_review_specificity", detail="module shutdown",
+                gap_type="engine_failure", source="compliance_review_specificity:shutdown")
+except Exception:
+    pass

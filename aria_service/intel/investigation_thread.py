@@ -244,3 +244,10 @@ def clear(session: dict | None) -> None:
     reset). In-place mutation."""
     if isinstance(session, dict):
         session["investigation_thread"] = _empty_thread()
+
+# R-F2119 §21a — wire failure handler for investigation_thread
+try:
+    wire_failure(module="investigation_thread", detail="module shutdown",
+                gap_type="engine_failure", source="investigation_thread:shutdown")
+except Exception:
+    pass

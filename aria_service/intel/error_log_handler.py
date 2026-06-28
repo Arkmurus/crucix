@@ -264,4 +264,8 @@ def uninstall() -> None:
                      summary="error_log_handler module active",
                      source_id="error_log_handler:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="error_log_handler", detail="module init failed",
+                        gap_type="engine_failure", source="error_log_handler:init")
+        except Exception:
+            pass

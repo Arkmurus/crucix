@@ -716,3 +716,10 @@ def summary() -> dict[str, Any]:
         "groups":               list(JURISDICTION_GROUPS.keys()),
         "purpose":              "domain × jurisdiction knowledge-coverage view",
     }
+
+# R-F2119 §21a — wire failure handler for coverage_heatmap
+try:
+    wire_failure(module="coverage_heatmap", detail="module shutdown",
+                gap_type="engine_failure", source="coverage_heatmap:shutdown")
+except Exception:
+    pass

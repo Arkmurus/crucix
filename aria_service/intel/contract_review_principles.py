@@ -298,3 +298,10 @@ def addendum() -> str:
 def block_length() -> int:
     """For monitoring — how many chars the addendum adds when active."""
     return len(_CONTRACT_REVIEW_BLOCK)
+
+# R-F2119 §21a — wire failure handler for contract_review_principles
+try:
+    wire_failure(module="contract_review_principles", detail="module shutdown",
+                gap_type="engine_failure", source="contract_review_principles:shutdown")
+except Exception:
+    pass

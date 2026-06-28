@@ -894,7 +894,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         _mark_meta_dirty()  # R-F268
         await _save_meta()
         # R-F1169 — wire no-match to brain so ARIA learns what she doesn't know
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="reasoning_library",
             summary=f"No match found (best score {best_score:.3f} < threshold {threshold})",
@@ -923,7 +923,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     await _save_meta()
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="reasoning_library",
         summary="Find Match",
@@ -1396,3 +1396,10 @@ async def consolidate() -> dict:
         "remaining": len(new_index),
         "pruned": pruned + archived,  # legacy field for old consumers; will be removed when consumers updated
     }
+
+# R-F2119 §21a — wire failure handler for reasoning_library
+try:
+    wire_failure(module="reasoning_library", detail="module shutdown",
+                gap_type="engine_failure", source="reasoning_library:shutdown")
+except Exception:
+    pass

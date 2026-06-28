@@ -331,7 +331,7 @@ async def run_learning_cycle() -> dict:
 
     # Wire to brain
     try:
-        from .engine_wiring import wire_success as _ws
+        from .engine_wiring import wire_success as _ws, wire_failure
         _ws(
             module="continuous_learner",
             summary=f"Learning cycle: {results['articles_learned']} articles, "
@@ -406,7 +406,7 @@ def start_learning_loops() -> list[asyncio.Task]:
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:
-    from .engine_wiring import wire_success as _ws
+    from .engine_wiring import wire_success as _ws, wire_failure
     _ws(
         module="continuous_learner",
         summary="Continuous Learning Engine active",
@@ -414,5 +414,12 @@ try:
                f"Gate: ARIA_CONTINUOUS_LEARNER_ENABLED=1",
         source_id="continuous_learner:R-F1064",
     )
+except Exception:
+    pass
+
+# R-F2119 §21a — wire failure handler for continuous_learner
+try:
+    wire_failure(module="continuous_learner", detail="module shutdown",
+                gap_type="engine_failure", source="continuous_learner:shutdown")
 except Exception:
     pass

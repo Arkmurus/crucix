@@ -568,3 +568,10 @@ def likely_needs_variants(name: str) -> bool:
         source_id="name_variants:R-F996",
     )
     return False
+
+# R-F2119 §21a — wire failure handler for name_variants
+try:
+    wire_failure(module="name_variants", detail="module shutdown",
+                gap_type="engine_failure", source="name_variants:shutdown")
+except Exception:
+    pass

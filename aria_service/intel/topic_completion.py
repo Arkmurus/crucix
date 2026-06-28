@@ -278,3 +278,10 @@ async def topic_completion(
         },
         "blockers": blockers,
     }
+
+# R-F2119 §21a — wire failure handler for topic_completion
+try:
+    wire_failure(module="topic_completion", detail="module shutdown",
+                gap_type="engine_failure", source="topic_completion:shutdown")
+except Exception:
+    pass

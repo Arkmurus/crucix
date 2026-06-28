@@ -342,3 +342,10 @@ def filter_citations_sync(text: str) -> tuple[str, list[str]]:
         flags=re.IGNORECASE,
     )
     return cleaned, found
+
+# R-F2119 §21a — wire failure handler for run_quarantine
+try:
+    wire_failure(module="run_quarantine", detail="module shutdown",
+                gap_type="engine_failure", source="run_quarantine:shutdown")
+except Exception:
+    pass

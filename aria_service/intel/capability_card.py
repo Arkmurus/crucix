@@ -442,3 +442,10 @@ async def render_markdown() -> str:
         source_id="capability_card:R-F996",
     )
     return "\n".join(lines)
+
+# R-F2119 §21a — wire failure handler for capability_card
+try:
+    wire_failure(module="capability_card", detail="module shutdown",
+                gap_type="engine_failure", source="capability_card:shutdown")
+except Exception:
+    pass

@@ -43,7 +43,7 @@ logger = logging.getLogger("aria.intel.ledger")
 
 # R-F1318: wire intel_ledger's own health to the brain
 try:
-    from .engine_wiring import wire_success as _ws1318b
+    from .engine_wiring import wire_success as _ws1318b, wire_failure
     _ws1318b(
         module="intel_ledger",
         summary="Intel Ledger active — permanent signal store",
@@ -916,3 +916,10 @@ async def all_signals() -> list[dict]:
 async def recent_signals(limit: int = 1000) -> list[dict]:
     """Alias for get_recent — same defensive reason as all_signals."""
     return await get_recent(limit=limit)
+
+# R-F2119 §21a — wire failure handler for intel_ledger
+try:
+    wire_failure(module="intel_ledger", detail="module shutdown",
+                gap_type="engine_failure", source="intel_ledger:shutdown")
+except Exception:
+    pass

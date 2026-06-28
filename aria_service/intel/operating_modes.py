@@ -187,3 +187,10 @@ def should_deliver_external(mode: Mode) -> bool:
         source_id="operating_modes:R-F996",
     )
     return mode == Mode.NORMAL
+
+# R-F2119 §21a — wire failure handler for operating_modes
+try:
+    wire_failure(module="operating_modes", detail="module shutdown",
+                gap_type="engine_failure", source="operating_modes:shutdown")
+except Exception:
+    pass

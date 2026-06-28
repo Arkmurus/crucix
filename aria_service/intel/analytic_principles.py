@@ -125,3 +125,10 @@ def addendum() -> str:
 def block_length() -> int:
     """For monitoring — how many chars the addendum adds to the system prompt."""
     return len(_ANALYTIC_PRINCIPLES_BLOCK)
+
+# R-F2119 §21a — wire failure handler for analytic_principles
+try:
+    wire_failure(module="analytic_principles", detail="module shutdown",
+                gap_type="engine_failure", source="analytic_principles:shutdown")
+except Exception:
+    pass

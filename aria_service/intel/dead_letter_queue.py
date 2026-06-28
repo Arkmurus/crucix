@@ -158,3 +158,10 @@ async def mark_resolved(index: int) -> bool:
         await rs.set_json(_K_QUEUE, queue, ex=_TTL_DAYS * 86400)
         return True
     return False
+
+# R-F2119 §21a — wire failure handler for dead_letter_queue
+try:
+    wire_failure(module="dead_letter_queue", detail="module shutdown",
+                gap_type="engine_failure", source="dead_letter_queue:shutdown")
+except Exception:
+    pass

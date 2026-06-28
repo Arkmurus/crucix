@@ -181,3 +181,10 @@ def get_north_africa_context(query: str, max_blocks: int = 2) -> str:
 
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
+
+# R-F2119 §21a — wire failure handler for knowledge_north_africa
+try:
+    wire_failure(module="knowledge_north_africa", detail="module shutdown",
+                gap_type="engine_failure", source="knowledge_north_africa:shutdown")
+except Exception:
+    pass

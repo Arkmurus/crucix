@@ -152,3 +152,10 @@ def get_west_africa_context(query: str, max_blocks: int = 1) -> str:
 
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
+
+# R-F2119 §21a — wire failure handler for knowledge_west_africa
+try:
+    wire_failure(module="knowledge_west_africa", detail="module shutdown",
+                gap_type="engine_failure", source="knowledge_west_africa:shutdown")
+except Exception:
+    pass

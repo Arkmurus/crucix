@@ -313,6 +313,10 @@ async def scan_sources() -> dict:
             extra_topics=["competitor_intel"],
         )
     except Exception:
+        try:
+            wire_failure(module="competitor_tracker", detail="operation failed", gap_type="engine_failure", source="competitor_tracker")
+        except Exception:
+            pass
         pass
     return {
         "tender_hits": tender_hits,
@@ -451,4 +455,8 @@ async def stats() -> dict:
                      summary="competitor_tracker module active",
                      source_id="competitor_tracker:init")
     except Exception:
+        try:
+            wire_failure(module="competitor_tracker", detail="operation failed", gap_type="engine_failure", source="competitor_tracker")
+        except Exception:
+            pass
         pass

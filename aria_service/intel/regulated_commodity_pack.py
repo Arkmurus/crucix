@@ -1296,3 +1296,10 @@ def industry_knowledge_summary() -> dict[str, Any]:
         ),
         "integration_status": "implemented but NOT yet integrated — opt-in via dd_orchestrator wiring or chat-context injection (operator decision)",
     }
+
+# R-F2119 §21a — wire failure handler for regulated_commodity_pack
+try:
+    wire_failure(module="regulated_commodity_pack", detail="module shutdown",
+                gap_type="engine_failure", source="regulated_commodity_pack:shutdown")
+except Exception:
+    pass

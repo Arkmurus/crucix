@@ -274,4 +274,8 @@ def check_all(
                      summary="self_protection module active",
                      source_id="self_protection:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="self_protection", detail="module init failed",
+                        gap_type="engine_failure", source="self_protection:init")
+        except Exception:
+            pass

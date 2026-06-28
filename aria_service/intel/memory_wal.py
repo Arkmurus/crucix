@@ -217,3 +217,10 @@ async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
         return {"error": str(e)[:200]}
     finally:
         _drain_in_progress = False
+
+# R-F2119 §21a — wire failure handler for memory_wal
+try:
+    wire_failure(module="memory_wal", detail="module shutdown",
+                gap_type="engine_failure", source="memory_wal:shutdown")
+except Exception:
+    pass

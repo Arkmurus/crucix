@@ -302,3 +302,10 @@ commits to a conclusion, that conclusion has been tested against its
 strongest counterargument — not just produced in a single forward
 pass from the input.
 """
+
+# R-F2119 §21a — wire failure handler for scratchpad
+try:
+    wire_failure(module="scratchpad", detail="module shutdown",
+                gap_type="engine_failure", source="scratchpad:shutdown")
+except Exception:
+    pass

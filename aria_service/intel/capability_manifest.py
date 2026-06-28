@@ -330,3 +330,10 @@ async def snapshot() -> dict:
             logger.debug("capability_manifest: self_metrics emit failed: %s", e)
 
     return new
+
+# R-F2119 §21a — wire failure handler for capability_manifest
+try:
+    wire_failure(module="capability_manifest", detail="module shutdown",
+                gap_type="engine_failure", source="capability_manifest:shutdown")
+except Exception:
+    pass

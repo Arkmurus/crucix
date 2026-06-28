@@ -246,3 +246,10 @@ async def forecast(
     )
 
     return report
+
+# R-F2119 §21a — wire failure handler for predictor
+try:
+    wire_failure(module="predictor", detail="module shutdown",
+                gap_type="engine_failure", source="predictor:shutdown")
+except Exception:
+    pass

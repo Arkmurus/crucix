@@ -431,7 +431,7 @@ async def ingest_all_sections() -> dict:
 
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="sipri_knowledge",
         summary="Ingest All Sections",
@@ -444,3 +444,10 @@ async def ingest_all_sections() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+# R-F2119 §21a — wire failure handler for sipri_knowledge
+try:
+    wire_failure(module="sipri_knowledge", detail="module shutdown",
+                gap_type="engine_failure", source="sipri_knowledge:shutdown")
+except Exception:
+    pass

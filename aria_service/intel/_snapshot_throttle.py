@@ -108,3 +108,10 @@ def reset_for_tests() -> None:
     never call this — production has exactly one loop."""
     global _snapshot_sem
     _snapshot_sem = None
+
+# R-F2119 §21a — wire failure handler for _snapshot_throttle
+try:
+    wire_failure(module="_snapshot_throttle", detail="module shutdown",
+                gap_type="engine_failure", source="_snapshot_throttle:shutdown")
+except Exception:
+    pass

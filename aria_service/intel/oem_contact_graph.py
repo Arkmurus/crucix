@@ -427,4 +427,8 @@ async def stats() -> dict:
                      summary="oem_contact_graph module active",
                      source_id="oem_contact_graph:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="oem_contact_graph", detail="module init failed",
+                        gap_type="engine_failure", source="oem_contact_graph:init")
+        except Exception:
+            pass

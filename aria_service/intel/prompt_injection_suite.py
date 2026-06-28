@@ -420,3 +420,10 @@ def summary() -> dict[str, Any]:
         "library_size": len(_LIBRARY),
         "severities":  sorted({a["severity"] for a in _LIBRARY}),
     }
+
+# R-F2119 §21a — wire failure handler for prompt_injection_suite
+try:
+    wire_failure(module="prompt_injection_suite", detail="module shutdown",
+                gap_type="engine_failure", source="prompt_injection_suite:shutdown")
+except Exception:
+    pass

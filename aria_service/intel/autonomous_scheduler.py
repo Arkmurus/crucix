@@ -369,4 +369,8 @@ class AutonomousScheduler:
                      summary="autonomous_scheduler module active",
                      source_id="autonomous_scheduler:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="autonomous_scheduler", detail="module init failed",
+                        gap_type="engine_failure", source="autonomous_scheduler:init")
+        except Exception:
+            pass

@@ -434,3 +434,10 @@ async def _rewrite_list(entries: list[dict]) -> None:
     # Re-push in reverse so the newest is at the head
     for entry in reversed(entries):
         await _rs.lpush(KEY, json.dumps(entry, default=str))
+
+# R-F2119 §21a — wire failure handler for capability_gaps
+try:
+    wire_failure(module="capability_gaps", detail="module shutdown",
+                gap_type="engine_failure", source="capability_gaps:shutdown")
+except Exception:
+    pass

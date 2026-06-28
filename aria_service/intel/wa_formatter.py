@@ -249,3 +249,10 @@ class WhatsAppFormatter:
 # R-F1012 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="wa_formatter", summary="WA Formatter Active", source_id="wa_formatter:R-F1012")
+
+# R-F2119 §21a — wire failure handler for wa_formatter
+try:
+    wire_failure(module="wa_formatter", detail="module shutdown",
+                gap_type="engine_failure", source="wa_formatter:shutdown")
+except Exception:
+    pass

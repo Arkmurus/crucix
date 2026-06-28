@@ -541,3 +541,10 @@ def is_known_publisher(url: str) -> bool:
     """Quick pre-flight check — caller uses this to decide whether to
     call fetch() instead of the regular crawler."""
     return detect_publisher(url) is not None
+
+# R-F2119 §21a — wire failure handler for known_publisher_router
+try:
+    wire_failure(module="known_publisher_router", detail="module shutdown",
+                gap_type="engine_failure", source="known_publisher_router:shutdown")
+except Exception:
+    pass

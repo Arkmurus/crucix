@@ -624,3 +624,10 @@ async def get_verification_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+# R-F2119 §21a — wire failure handler for source_verifier
+try:
+    wire_failure(module="source_verifier", detail="module shutdown",
+                gap_type="engine_failure", source="source_verifier:shutdown")
+except Exception:
+    pass

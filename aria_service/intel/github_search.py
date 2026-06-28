@@ -209,12 +209,19 @@ async def search_company(company_name: str) -> dict[str, Any]:
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:
-    from .engine_wiring import wire_success as _ws
+    from .engine_wiring import wire_success as _ws, wire_failure
     _ws(
         module="github_search",
         summary="GitHub Search Engine active",
         detail="Searches repos, code, orgs. Gate: ARIA_GITHUB_SEARCH_ENABLED=1",
         source_id="github_search:R-F1061",
     )
+except Exception:
+    pass
+
+# R-F2119 §21a — wire failure handler for github_search
+try:
+    wire_failure(module="github_search", detail="module shutdown",
+                gap_type="engine_failure", source="github_search:shutdown")
 except Exception:
     pass

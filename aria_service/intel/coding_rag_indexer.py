@@ -701,4 +701,8 @@ def get_stats() -> dict:
                      summary="coding_rag_indexer module active",
                      source_id="coding_rag_indexer:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="coding_rag_indexer", detail="module init failed",
+                        gap_type="engine_failure", source="coding_rag_indexer:init")
+        except Exception:
+            pass

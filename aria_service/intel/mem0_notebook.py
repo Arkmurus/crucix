@@ -44,3 +44,10 @@ def search(query: str, limit: int = 5) -> list[dict[str, Any]]:
     )
 
     return [{"context": str(ctx)[:2000], "query": query}]
+
+# R-F2119 §21a — wire failure handler for mem0_notebook
+try:
+    wire_failure(module="mem0_notebook", detail="module shutdown",
+                gap_type="engine_failure", source="mem0_notebook:shutdown")
+except Exception:
+    pass

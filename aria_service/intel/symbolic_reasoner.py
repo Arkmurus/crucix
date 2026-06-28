@@ -40,7 +40,7 @@ Usage
     # Otherwise fall through to LLM
     return await llm.complete(...)"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 from .wire import fail_wire  # R-F1788 §21 brain-wiring
 
 import logging
@@ -699,3 +699,10 @@ def get_capability_surface() -> dict:
         "licence_routes": sum(len(v) for v in LICENCE_ROUTES.values()),
         "llm_calls_required": 0,
     }
+
+# R-F2119 §21a — wire failure handler for symbolic_reasoner
+try:
+    wire_failure(module="symbolic_reasoner", detail="module shutdown",
+                gap_type="engine_failure", source="symbolic_reasoner:shutdown")
+except Exception:
+    pass

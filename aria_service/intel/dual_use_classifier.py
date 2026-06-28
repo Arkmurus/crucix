@@ -356,4 +356,8 @@ async def assess(
                      summary="dual_use_classifier module active",
                      source_id="dual_use_classifier:init")
     except Exception:
+        try:
+            wire_failure(module="dual_use_classifier", detail="operation failed", gap_type="engine_failure", source="dual_use_classifier")
+        except Exception:
+            pass
         pass

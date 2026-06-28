@@ -195,4 +195,8 @@ async def stats() -> dict[str, Any]:
                      summary="absorption_quarantine module active",
                      source_id="absorption_quarantine:init")
     except Exception:
+        try:
+            wire_failure(module="absorption_quarantine", detail="operation failed", gap_type="engine_failure", source="absorption_quarantine")
+        except Exception:
+            pass
         pass

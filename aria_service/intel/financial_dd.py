@@ -296,4 +296,8 @@ def financial_findings(profile: dict) -> list[dict]:
                      summary="financial_dd module active",
                      source_id="financial_dd:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="financial_dd", detail="module init failed",
+                        gap_type="engine_failure", source="financial_dd:init")
+        except Exception:
+            pass

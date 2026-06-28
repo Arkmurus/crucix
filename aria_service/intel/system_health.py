@@ -137,3 +137,10 @@ class SystemHealthMonitor:
 # R-F1006 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="system_health", summary="System Health Active", source_id="system_health:R-F1006")
+
+# R-F2119 §21a — wire failure handler for system_health
+try:
+    wire_failure(module="system_health", detail="module shutdown",
+                gap_type="engine_failure", source="system_health:shutdown")
+except Exception:
+    pass

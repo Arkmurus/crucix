@@ -31,7 +31,7 @@ BRAIN_HOOK_ENABLED = os.environ.get("ARIA_BRAIN_HOOK_ENABLED", "1") == "1"
 
 # R-F1316: wire brain_hook's own health to the brain
 try:
-    from .engine_wiring import wire_success as _ws1316
+    from .engine_wiring import wire_success as _ws1316, wire_failure
     _ws1316(
         module="brain_hook",
         summary="Brain Hook active — central learning relay",
@@ -1756,3 +1756,10 @@ async def get_stale_alerts() -> list[dict]:
             "detail": f"{mod} is registered but has never sent a signal to brain_hook",
         })
     return alerts
+
+# R-F2119 §21a — wire failure handler for brain_hook
+try:
+    wire_failure(module="brain_hook", detail="module shutdown",
+                gap_type="engine_failure", source="brain_hook:shutdown")
+except Exception:
+    pass

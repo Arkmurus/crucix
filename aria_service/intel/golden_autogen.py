@@ -381,3 +381,10 @@ async def stats() -> dict:
         "rejected_total": len(rejected),
         "pending_by_market": by_market,
     }
+
+# R-F2119 §21a — wire failure handler for golden_autogen
+try:
+    wire_failure(module="golden_autogen", detail="module shutdown",
+                gap_type="engine_failure", source="golden_autogen:shutdown")
+except Exception:
+    pass

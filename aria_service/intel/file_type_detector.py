@@ -125,7 +125,7 @@ def detect_file_type(raw_bytes: bytes) -> str:
     if _is_probably_text(raw_bytes):
         return "txt"
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="file_type_detector",
         summary="Detect File Type",
@@ -189,3 +189,10 @@ def file_type_matches_claim(
     if fname_lc and any(fname_lc.endswith(e) for e in exts):
         return True
     return False
+
+# R-F2119 §21a — wire failure handler for file_type_detector
+try:
+    wire_failure(module="file_type_detector", detail="module shutdown",
+                gap_type="engine_failure", source="file_type_detector:shutdown")
+except Exception:
+    pass

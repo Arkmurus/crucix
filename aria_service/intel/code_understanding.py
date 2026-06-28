@@ -727,4 +727,8 @@ def suggest_return_type(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> st
                      summary="code_understanding module active",
                      source_id="code_understanding:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="code_understanding", detail="module init failed",
+                        gap_type="engine_failure", source="code_understanding:init")
+        except Exception:
+            pass

@@ -285,3 +285,10 @@ def review_response(
     )
 
     return rewritten_text + "\n".join(warning_lines), demotions
+
+# R-F2119 §21a — wire failure handler for officeholder_guard
+try:
+    wire_failure(module="officeholder_guard", detail="module shutdown",
+                gap_type="engine_failure", source="officeholder_guard:shutdown")
+except Exception:
+    pass

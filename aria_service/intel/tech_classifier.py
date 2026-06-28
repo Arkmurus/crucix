@@ -687,3 +687,10 @@ def explain_item(designation: str) -> dict:
             "note": "Exact match not found — closest known systems shown.",
         }
     return {"designation": key, "found": False, "note": "Not in technical database."}
+
+# R-F2119 §21a — wire failure handler for tech_classifier
+try:
+    wire_failure(module="tech_classifier", detail="module shutdown",
+                gap_type="engine_failure", source="tech_classifier:shutdown")
+except Exception:
+    pass

@@ -412,4 +412,8 @@ def score_improvement(
                      summary="autonomy_scorer module active",
                      source_id="autonomy_scorer:init")
     except Exception:
-        pass
+        try:
+            wire_failure(module="autonomy_scorer", detail="module init failed",
+                        gap_type="engine_failure", source="autonomy_scorer:init")
+        except Exception:
+            pass

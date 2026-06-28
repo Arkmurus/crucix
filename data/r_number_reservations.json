@@ -15514,9 +15514,10 @@
       "title": "Campaign 1: 69 NO WIRING modules batch",
       "claimed_at": "2026-06-28T22:27:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cec12583",
+      "notes": null,
+      "shipped_at": "2026-06-28T22:30:51Z"
     },
     {
       "r_number": "R-F2119",
@@ -15541,9 +15542,10 @@
       "title": "Audit trail system per-organism",
       "claimed_at": "2026-06-28T22:27:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cec12583",
+      "notes": null,
+      "shipped_at": "2026-06-28T22:30:52Z"
     },
     {
       "r_number": "R-F2122",

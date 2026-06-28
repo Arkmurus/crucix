@@ -508,3 +508,10 @@ async def build_report(
         "investigation_facts": investigation_facts,
         "error": None,
     }
+
+# R-F2119 §21a — wire failure handler for report_builder
+try:
+    wire_failure(module="report_builder", detail="module shutdown",
+                gap_type="engine_failure", source="report_builder:shutdown")
+except Exception:
+    pass

@@ -410,3 +410,10 @@ async def dns_fingerprint(
                 out["errors"].append(f"ASN: {asn_res.get('error')}")
     out["ok"] = bool(out["a"] or out["mx"] or out["ns"] or out["txt"])
     return out
+
+# R-F2119 §21a — wire failure handler for domain_pivots
+try:
+    wire_failure(module="domain_pivots", detail="module shutdown",
+                gap_type="engine_failure", source="domain_pivots:shutdown")
+except Exception:
+    pass

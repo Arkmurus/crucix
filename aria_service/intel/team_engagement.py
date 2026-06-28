@@ -444,3 +444,10 @@ async def get_stats() -> dict:
         "quiet_list": [q["name"] for q in quiet],
         "profiles_configured": len(TEAM_PROFILES),
     }
+
+# R-F2119 §21a — wire failure handler for team_engagement
+try:
+    wire_failure(module="team_engagement", detail="module shutdown",
+                gap_type="engine_failure", source="team_engagement:shutdown")
+except Exception:
+    pass

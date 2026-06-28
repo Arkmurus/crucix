@@ -740,3 +740,10 @@ class PatternLearner:
 # R-F1004 - wire to brain
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="expert_coder", summary="Expert Coder Active", source_id="expert_coder:R-F1004")
+
+# R-F2119 §21a — wire failure handler for expert_coder
+try:
+    wire_failure(module="expert_coder", detail="module shutdown",
+                gap_type="engine_failure", source="expert_coder:shutdown")
+except Exception:
+    pass
