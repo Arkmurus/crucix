@@ -92,6 +92,14 @@ def start(*, warmup: bool = True) -> None:
         )
         _pool_broken = False
         logger.info("R-F1890 encode-offload pool started (1 worker, spawn, model=%s)", _MODEL_NAME)
+        # R-F2092 §21a — surface the embedding-offload limb coming up (proprioception:
+        # a boot-time event, NOT per-encode). Fail-safe — wiring must never break boot.
+        try:
+            from .engine_wiring import wire_success
+            wire_success(module="encode_offload",
+                summary=f"encode-offload pool started (model={_MODEL_NAME})")
+        except Exception:
+            pass
         if warmup:
             # Force worker spawn + model load NOW (pool workers are lazy), so the
             # first real encode isn't a ~30s cold load. Bounded; failure → broken.
@@ -99,11 +107,35 @@ def start(*, warmup: bool = True) -> None:
                 _pool.submit(_worker_encode, "warmup", True).result(timeout=_WARMUP_TIMEOUT_S)
                 logger.info("R-F1890 encode-offload worker warmed (model loaded in child process)")
             except Exception as e:
-                logger.warning("R-F1890 encode-offload warmup failed — marking broken, will fall back: %s", e)
-                _pool_broken = True
+                # R-F2092 — a warmup TIMEOUT / transient failure must NOT permanently
+                # mark the pool broken. Under cold-boot CPU contention (the torch model
+                # load in the child racing the parent's own boot work) the 90s warmup
+                # frequently loses the race — and latching `_pool_broken=True` here was
+                # the live regression: every aria-intel cold-boot then fell back to
+                # in-process sentence_transformers.encode() ON the event loop →
+                # "R-F703 event loop stalled 5-12s" → fly health fail → aria-wa
+                # 'brain unreachable' → WhatsApp not responding (2026-06-28 deploy storm).
+                # The worker PROCESS is alive; `_worker_encode` lazy-loads the model in
+                # the child on the first real encode (off the main loop — the whole
+                # point). Only a genuine BrokenProcessPool (caught in encode()) is
+                # terminal. Leave _pool_broken False so offload is still used.
+                logger.warning(
+                    "R-F2092 encode-offload warmup did not finish in %ss — NOT marking "
+                    "broken; the worker will lazy-load the model on the first encode "
+                    "(in-child, off the main loop): %s", _WARMUP_TIMEOUT_S, e,
+                )
     except Exception as e:
         _pool, _pool_broken = None, True
         logger.warning("R-F1890 encode-offload pool failed to start — in-process fallback: %s", e)
+        # R-F2092 §21a — the offload limb failed to come up; embeds will run
+        # in-process (loop-stall risk). Surface it so ARIA sees the degradation.
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(module="encode_offload",
+                detail=f"encode-offload pool failed to start ({type(e).__name__}: {e}) — in-process fallback",
+                gap_type="embedder_failure", source="encode_offload.start")
+        except Exception:
+            pass
 
 
 def stop() -> None:
@@ -132,10 +164,25 @@ def encode(text_or_texts, *, normalize: bool = True):
     except Exception as e:
         # BrokenProcessPool (worker crash) is terminal for this pool — mark it so
         # we stop hammering a dead pool every call and fall back cleanly.
-        from concurrent.futures import BrokenProcessPool
+        # R-F2092: Python 3.14 moved BrokenProcessPool out of the concurrent.futures
+        # top-level into .process — import robustly so the latch logic works on both
+        # the 3.13 fly image and 3.14 local (else this except handler would itself
+        # ImportError on 3.14 and never latch a genuinely dead pool).
+        try:
+            from concurrent.futures import BrokenProcessPool
+        except ImportError:  # pragma: no cover — version-dependent
+            from concurrent.futures.process import BrokenProcessPool
         if isinstance(e, BrokenProcessPool):
             _pool_broken = True
             logger.warning("R-F1890 encode-offload pool BROKEN — permanent fallback to in-process: %s", e)
+            # R-F2092 §21a — terminal limb failure; surface to the brain (once, on latch).
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(module="encode_offload",
+                    detail=f"encode-offload worker pool BROKEN (worker crash) — permanent in-process fallback: {e}",
+                    gap_type="embedder_failure", source="encode_offload.encode")
+            except Exception:
+                pass
         else:
             logger.debug("R-F1890 encode-offload call failed (%s) — fallback in-process", e)
         raise OffloadUnavailable(str(e)) from e

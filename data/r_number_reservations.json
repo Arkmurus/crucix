@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2092,
+  "next_available": 2093,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15249,9 +15249,19 @@
       "claimed_at": "2026-06-28T13:43:25Z",
       "claimed_by": "claude",
       "status": "shipped",
+      "commit_sha": "a2acfa10",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:53:14Z"
+    },
+    {
+      "r_number": "R-F2092",
+      "title": "encode_offload: warmup timeout must NOT latch pool broken — worker lazy-loads model on first encode (in-child, off main loop); fixes cold-boot in-process-encode loop stalls",
+      "claimed_at": "2026-06-28T14:03:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
       "commit_sha": "PENDING",
       "notes": null,
-      "shipped_at": "2026-06-28T13:46:07Z"
+      "shipped_at": "2026-06-28T14:06:23Z"
     }
   ]
 }
