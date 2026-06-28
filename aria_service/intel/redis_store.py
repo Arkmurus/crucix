@@ -34,6 +34,30 @@ import logging
 import os
 from typing import Any, Optional
 
+# R-F2116: monkey-patch aiosqlite to handle "Event loop is closed" during shutdown.
+# The aiosqlite worker thread crashes when the event loop is closed before the
+# connection worker finishes (Python 3.13 + aiosqlite 0.22.1). This is a known
+# issue: _connection_worker_thread catches BaseException but then tries to call
+# future.get_loop().call_soon_threadsafe() which raises RuntimeError on a closed
+# loop — and that second exception is unhandled, crashing the thread and the process.
+# We patch the inner _run_job or wrap the worker to catch RuntimeError gracefully.
+try:
+    import aiosqlite.core as _ac
+    _orig_worker = _ac._connection_worker_thread
+
+    def _patched_worker(tx):
+        try:
+            _orig_worker(tx)
+        except RuntimeError as _re:
+            # "Event loop is closed" during interpreter shutdown — ignore gracefully
+            if "Event loop is closed" in str(_re):
+                pass
+            else:
+                raise
+    _ac._connection_worker_thread = _patched_worker
+except Exception:
+    pass
+
 import redis.asyncio as aioredis
 from .engine_wiring import wire_success, wire_failure
 
