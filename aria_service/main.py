@@ -578,18 +578,20 @@ async def lifespan(app: FastAPI):
     # Initialize all intel modules — R-F1421: each isolated so one subsystem
     # failing degrades that subsystem instead of aborting the whole lifespan
     # (an unwrapped throw here = never reach `yield` = total outage, F28 class).
+    # R-F2122: only the CHEAP inits stay on the critical path. The two HEAVY
+    # graphs (knowledge ~223k facts, neural ~1.2M edges) are warmed in the
+    # background — see _warmup_heavy_graphs below — so boot reaches `yield`
+    # (and /health goes green) in seconds instead of ~10 min.
     _boot_init_failures = await _run_boot_inits([
-        ("knowledge", knowledge.init),
         ("intel_ledger", intel_ledger.init),
         ("contacts", contacts.init),
         ("competitors", competitors.init),
         ("training_data", training_data.init),
-        ("neural_memory", neural_memory.init),
     ])
     if _boot_init_failures:
         logger.error(
-            "[R-F1421] %d/6 intel subsystems failed to init: %s — ARIA is UP "
-            "but DEGRADED; these are unavailable until fixed/restarted.",
+            "[R-F1421] %d/4 cheap intel subsystems failed to init: %s — ARIA is "
+            "UP but DEGRADED; these are unavailable until fixed/restarted.",
             len(_boot_init_failures), _boot_init_failures,
         )
     try:
@@ -597,11 +599,48 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # ── R-F1621 — freeze the now-loaded long-lived graphs out of GC ──────
-    # knowledge/neural_memory/intel_ledger are warm above; freezing them here
-    # (after their init) is what makes the per-flush json.dump cheap. See
-    # _freeze_long_lived_state() + knowledge._write_to_disk_atomic.
-    _freeze_long_lived_state()
+    # ── R-F2122 — load the HEAVY graphs OFF the boot critical path ────────
+    # 2026-06-28 incident: loading knowledge (~223k facts) + neural_memory
+    # (~1.2M edges) SYNCHRONOUSLY before `yield` made boot take ~10 min —
+    # far past fly's 1-min health grace — so every restart was a 10-min
+    # outage that looked like a crash loop. These two are independent of the
+    # cheap inits above and of each other, and every query fn degrades to
+    # empty/partial while they are unloaded (knowledge.search_knowledge→"",
+    # knowledge.all_facts→[], neural_memory.recall→empty — verified), so we
+    # warm them in the background and serve /health immediately. Chat runs
+    # with reduced context for the warmup window, never errors/hangs.
+    # _freeze_long_lived_state() (R-F1621, was on the critical path) moves
+    # INTO the warmup — it must run AFTER the graphs are in RAM.
+    app.state.knowledge_ready = False
+    app.state.neural_ready = False
+
+    async def _warmup_heavy_graphs():
+        _heavy_failures = await _run_boot_inits([
+            ("knowledge", knowledge.init),
+            ("neural_memory", neural_memory.init),
+        ])
+        try:
+            app.state.knowledge_ready = "knowledge" not in _heavy_failures
+            app.state.neural_ready = "neural_memory" not in _heavy_failures
+        except Exception:
+            pass
+        if _heavy_failures:
+            logger.error(
+                "[R-F2122] heavy graph warmup failed: %s — chat runs with reduced "
+                "context until fixed/restarted.", _heavy_failures,
+            )
+        # Freeze the now-loaded graphs out of GC (R-F1621). Runs once, after
+        # warmup; a brief one-time GC pass on the serving loop is acceptable.
+        try:
+            _freeze_long_lived_state()
+        except Exception as _fz_e:
+            logger.warning("[R-F2122] freeze-after-warmup skipped (non-fatal): %s", _fz_e)
+        logger.info(
+            "[R-F2122] heavy graph warmup complete — knowledge_ready=%s neural_ready=%s",
+            app.state.knowledge_ready, app.state.neural_ready,
+        )
+
+    _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
 
     # ── R-F1891 — recover orphaned async jobs after a restart ────────────
     # A restart loses the in-memory chat/DD computation, so any job left at
@@ -754,7 +793,13 @@ async def lifespan(app: FastAPI):
     # always hit the warm cache — the cold scan never lands on a chat turn. One
     # call scans all facts and populates the whole cache regardless of the query.
     async def _prewarm_knowledge_search_bg():
-        await asyncio.sleep(20)   # let knowledge.init() load the fact cache first
+        # R-F2122: knowledge now loads in the background warmup, so wait for it
+        # to be ready (cap ~20 min) instead of a fixed 20s — otherwise we'd
+        # prewarm an empty cache and the cold scan would still land on a request.
+        for _ in range(600):  # 600 * 2s = 20 min cap
+            if getattr(app.state, "knowledge_ready", False):
+                break
+            await asyncio.sleep(2)
         try:
             from .intel import knowledge as _kn
             await asyncio.to_thread(_kn.search_knowledge, "warmup")
@@ -1185,7 +1230,14 @@ async def lifespan(app: FastAPI):
         # Defer a few seconds so all stores have finished their lazy
         # init (chromadb + knowledge + ledger + neural all warm up
         # asynchronously after lifespan starts).
+        # R-F2122: the heavy graphs now warm in the background, so wait for
+        # them to be ready (cap ~20 min) before snapshotting — otherwise the
+        # boot-state log reports misleading zeros for knowledge/neural.
         await asyncio.sleep(10)
+        for _ in range(600):  # 600 * 2s = 20 min cap
+            if getattr(app.state, "knowledge_ready", False) and getattr(app.state, "neural_ready", False):
+                break
+            await asyncio.sleep(2)
         snapshot = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         try:
             from .intel import knowledge as _kb
