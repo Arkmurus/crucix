@@ -953,9 +953,32 @@ async def dd_case_archive_stats_ep():
     return dd_case_archive.stats()
 
 
+# R-F2097 (2026-06-28 DD) — ownership oracle for the entity-keyed DD vault.
+# dd_cases / dd_vault have NO per-case owner column (a case is shared by canonical
+# entity, touched by every DD run on it), so cross-tenant reads were possible
+# (live-confirmed: dd/vault/search returned another tenant's case). Rather than a
+# fuzzy multi-owner schema migration, scope via the user's OWNED report index
+# (R-F607/R-F608, which DOES carry user_id + canonical_entity_id): a user may see a
+# case only for an entity they — or a same-email-domain colleague — have run a DD on.
+# Returns None for an empty user_id (internal/autonomous/admin caller = unrestricted),
+# matching the existing list_reports admin-sees-all convention.
+async def _dd_owned_entity_ids(user_id: str, user_email_domain: str = ""):
+    if not user_id:
+        return None
+    from ..intel import dd_orchestrator
+    try:
+        reports = await dd_orchestrator.list_reports(
+            limit=2000, user_id=user_id, user_email_domain=user_email_domain or None,
+        )
+    except Exception:
+        return set()  # fail CLOSED — on any error a real user sees nothing, not everything
+    return {r.get("canonical_entity_id") for r in (reports or []) if r.get("canonical_entity_id")}
+
+
 @router.get("/dd/case/{canonical_entity_id:path}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
+async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False,
+                     user_id: str = "", user_email_domain: str = ""):
     """R-F573 (2026-05-16) — return the full version chain for a single
     DD case file. canonical_entity_id is the deterministic key
     (`company:BR:0768900200018-89`, `person:johnsmith:GB:1972`, …)
@@ -978,6 +1001,14 @@ async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
     (`person:johnsmith:GB:1972`) survive URL routing without encoding.
     """
     from ..intel import dd_orchestrator
+    # R-F2097 — ownership gate (cheap, before the fetch). A real user may only read a
+    # case for an entity they own a report for; cross-tenant access 404s (no leak).
+    _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+    if _owned is not None and canonical_entity_id not in _owned:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no DD case file found for canonical_entity_id={canonical_entity_id}",
+        )
     chain = await dd_orchestrator.get_case_file(
         canonical_entity_id, include_reports=include_reports,
     )
@@ -23748,8 +23779,9 @@ async def dd_vault_stats_ep():
 
 @router.get("/dd/vault/search")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50):
-    """Search the DD vault."""
+async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50,
+                             user_id: str = "", user_email_domain: str = ""):
+    """Search the DD vault. R-F2097 — scoped to the caller's owned entities."""
     try:
         from ..intel.dd_vault import get_vault as _get_dd_vault
         vault = _get_dd_vault()
@@ -23759,17 +23791,25 @@ async def dd_vault_search_ep(q: str = "", status: str = "", limit: int = 50):
             results = vault.list_by_status(status, limit=limit)
         else:
             results = vault.list_all(limit=limit)
+        # R-F2097 — drop cases the caller doesn't own (entity-keyed vault, no owner col).
+        _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+        if _owned is not None:
+            results = [r for r in results if r.get("canonical_entity_id") in _owned]
         return {"success": True, "entries": results, "count": len(results)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @router.get("/dd/vault/case/{canonical_entity_id:path}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vault_case_ep(canonical_entity_id: str):
-    """Get a single DD case with cross-references."""
+async def dd_vault_case_ep(canonical_entity_id: str, user_id: str = "", user_email_domain: str = ""):
+    """Get a single DD case with cross-references. R-F2097 — ownership-scoped."""
     try:
         from ..intel.dd_vault import get_vault as _get_dd_vault
         vault = _get_dd_vault()
+        # R-F2097 — cross-tenant access returns the same "not found" (no existence leak).
+        _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+        if _owned is not None and canonical_entity_id not in _owned:
+            return {"success": False, "error": "Case not found"}
         case = vault.get_case(canonical_entity_id)
         if not case:
             return {"success": False, "error": "Case not found"}
@@ -23781,11 +23821,15 @@ async def dd_vault_case_ep(canonical_entity_id: str):
 
 @router.delete("/dd/vault/case/{canonical_entity_id:path}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vault_delete_ep(canonical_entity_id: str):
-    """Delete a DD case."""
+async def dd_vault_delete_ep(canonical_entity_id: str, user_id: str = "", user_email_domain: str = ""):
+    """Delete a DD case. R-F2097 — only the owner (or admin) may delete."""
     try:
         from ..intel.dd_vault import get_vault as _get_dd_vault
         vault = _get_dd_vault()
+        # R-F2097 — a real user may only delete a case for an entity they own.
+        _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+        if _owned is not None and canonical_entity_id not in _owned:
+            return {"success": False, "error": "Case not found"}
         deleted = vault.delete_case(canonical_entity_id)
         return {"success": deleted}
     except Exception as e:

@@ -2931,6 +2931,47 @@ app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
   } catch {}
   return ariaProxy(req, res, `/api/aria/dd/reports?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
+// R-F2097 (2026-06-28 DD) — pin the JWT user_id + email-domain onto the entity-keyed
+// DD vault/case endpoints so the brain (R-F2097) scopes them to the caller's owned
+// entities. Pre-fix these had NO explicit route → hit the catch-all (~5135) which
+// forwards the client query verbatim with no user_id → the brain returned ALL
+// tenants' cases (live-confirmed IDOR). Mirrors the /dd/reports pin (R-F2075). MUST
+// sit before the catch-all. `:cid` is one path segment — canonical ids use colons,
+// not slashes (company:GB:0768900200018-89), so a single-segment param is correct.
+function _ddPinUserParams(req) {
+  const userId = req.user?.userId || '';
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.delete('user_id');                 // never trust a client-supplied owner
+  params.set('user_id', userId);
+  try {
+    const u = findUserById(userId);
+    const email = String(u?.email || '').trim().toLowerCase();
+    const domain = email.includes('@') ? email.split('@').pop() : '';
+    if (domain) params.set('user_email_domain', domain);
+  } catch {}
+  return params;
+}
+app.get('/api/aria/dd/vault/search', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/vault/search?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/dd/vault/case/:cid', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/vault/case/${encodeURIComponent(req.params.cid)}?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.delete('/api/aria/dd/vault/case/:cid', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/vault/case/${encodeURIComponent(req.params.cid)}?${_ddPinUserParams(req).toString()}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
+});
+app.get('/api/aria/dd/case/:cid', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/case/${encodeURIComponent(req.params.cid)}?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
   // R-F1820 (audit H3): pin user_id from the JWT (strip any client value) so the
   // brain can enforce report ownership. Pre-fix this forwarded the client query

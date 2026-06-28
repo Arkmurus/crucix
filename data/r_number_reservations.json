@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2097,
+  "next_available": 2098,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15302,6 +15302,15 @@
       "commit_sha": "bd2c3331",
       "notes": null,
       "shipped_at": "2026-06-28T17:57:00Z"
+    },
+    {
+      "r_number": "R-F2097",
+      "title": "close dd/case+dd/vault IDOR: per-user ownership on dd_vault/dd_case (brain) + Node pin-routes",
+      "claimed_at": "2026-06-28T18:20:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
