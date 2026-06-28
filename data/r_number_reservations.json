@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2102,
+  "next_available": 2103,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15348,9 +15348,20 @@
       "title": "aria-web: requireAuth on extract-document (any-Bearer→server-token gap) + zoom proxy defense-auth + reportOutcome retry (from ARIA web DD)",
       "claimed_at": "2026-06-28T19:24:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "21b7f4a2",
+      "notes": null,
+      "shipped_at": "2026-06-28T19:25:58Z"
+    },
+    {
+      "r_number": "R-F2102",
+      "title": "neural recall BFS bound — cap candidates/activated/edges-per-node so spreading-activation can't explode (250M ops) and wedge the loop on substantive chat + doc review",
+      "claimed_at": "2026-06-28T19:33:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T19:36:57Z"
     }
   ]
 }

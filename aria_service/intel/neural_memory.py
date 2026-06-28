@@ -121,6 +121,16 @@ WARN_EDGES_PER_NEURON = _env_int("ARIA_NEURAL_WARN_EDGES_PER_NEURON", 2000)
 # on every absorb cycle. They're reloaded when the neuron is specifically
 # activated.
 _MAX_HOT_EDGES_PER_NEURON = _env_int("ARIA_NEURAL_MAX_HOT_EDGES", 5000)
+# R-F2102 — BOUND recall()'s spreading-activation BFS. A neuron can have up to
+# _MAX_HOT_EDGES_PER_NEURON (5000) edges, so an UNBOUNDED depth-2 spread from 10
+# seeds could touch 10×5000=50k nodes then 50k×5000=250M edge-ops — seconds of
+# GIL-bound work that ran on the event loop (via _prefetch_neural) and wedged the
+# WHOLE chat turn + every document review (live wedge_681). These caps make recall
+# O(bounded) regardless of graph density; the neural layer is supplementary context
+# so a bounded approximation is fine. Env-tunable.
+_RECALL_MAX_CANDIDATES = _env_int("ARIA_NEURAL_RECALL_MAX_CANDIDATES", 4000)
+_RECALL_MAX_NODES = _env_int("ARIA_NEURAL_RECALL_MAX_NODES", 1200)
+_RECALL_MAX_EDGES_PER_NODE = _env_int("ARIA_NEURAL_RECALL_MAX_EDGES_PER_NODE", 64)
 _COLD_EDGES_KEY_PREFIX = "crucix:aria:neural_cold_edges:"
 MIN_EDGE_WEIGHT = 0.001            # floor — edges decay TO this, not below
 _neural_warn_throttle = 0
@@ -1297,6 +1307,12 @@ async def recall(
         ids = _word_to_ids.get(w)
         if ids:
             _cand_ids |= ids
+    # R-F2102 — a very common query word (a long contract-review message has many)
+    # can map to tens of thousands of neurons; cap the candidate set so the
+    # seed-scoring loop below stays bounded instead of O(huge).
+    if len(_cand_ids) > _RECALL_MAX_CANDIDATES:
+        import itertools as _it_cand
+        _cand_ids = set(_it_cand.islice(_cand_ids, _RECALL_MAX_CANDIDATES))
 
     seeds = []
     for nid in _cand_ids:
@@ -1327,10 +1343,24 @@ async def recall(
         activated[seed["id"]] = score * seed["activation"]
 
     for d in range(depth):
+        if len(activated) >= _RECALL_MAX_NODES:
+            break  # R-F2102 — stop the cross-level explosion
         new_activations = {}
         decay_factor = 0.6 ** (d + 1)  # Activation drops with distance
-        for nid, act in activated.items():
-            for target_id, edge_weight in _edges.get(nid, {}).items():
+        # snapshot the frontier (list() is GIL-atomic, immune to a concurrent absorb)
+        for nid, act in list(activated.items()):
+            if len(activated) + len(new_activations) >= _RECALL_MAX_NODES:
+                break  # R-F2102 — bound total activated nodes
+            _en = _edges.get(nid)
+            if not _en:
+                continue
+            # R-F2102 — a node can hold up to 5000 edges; snapshot (GIL-atomic, so a
+            # concurrent edge mutation can't raise dict-changed-size) and cap how many
+            # we spread through so one high-degree hub can't blow up the traversal.
+            _items = list(_en.items())
+            if len(_items) > _RECALL_MAX_EDGES_PER_NODE:
+                _items = _items[:_RECALL_MAX_EDGES_PER_NODE]
+            for target_id, edge_weight in _items:
                 if target_id in activated:
                     continue
                 target_neuron = _neurons.get(target_id)
