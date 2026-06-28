@@ -138,6 +138,7 @@ function _untrustedBlock(text, label = 'USER CONTENT', maxLen = 2000) {
 import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 import { isDegraded, classifyDeliveryOutcome, degradedDetail } from '../../lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { sendChunkWithRetry } from './send-retry.mjs';  // R-F2069
+import { runDocWithResubmit } from './doc-resubmit.mjs';  // R-F2070: auto-resubmit a died doc extraction
 
 // R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
 // stream that lies about its declared size cannot exhaust memory before the
@@ -1051,6 +1052,21 @@ async function brainGet(path) {
 // Returns the read-document result dict on success; throws on failure/timeout;
 // falls back to a legacy sync result if the brain is an older build.
 async function readDocumentAsync(payload, chatId, filename) {
+  // R-F2070 — auto-resubmit a DIED extraction ONCE (we still hold the bytes), so a
+  // transient brain blip / restart-killed job / clean-failed stuck job (the new
+  // R-F2070 brain 600s async cap) no longer drops the whole document and forces the
+  // user to resend — the 2026-06-28 "document service didn't respond" failure on the
+  // Korvera redline. A genuine 15-min poll timeout (the job is still grinding) is
+  // NOT resubmitted: that would just double the load. The "📥 Reading" ack is sent
+  // at most once across both attempts (the operator saw it twice pre-R-F2070).
+  const _ack = { sent: false };
+  return runDocWithResubmit(
+    () => _submitAndPollDoc(payload, chatId, filename, _ack),
+    { backoffMs: 3000, log: (m) => console.warn(`[ARIA Listener] ${m}`) },
+  );
+}
+
+async function _submitAndPollDoc(payload, chatId, filename, ack) {
   // R-F1393 — retry the initial POST on retryable failures (5xx/429/network).
   // Live 2026-06-07 11:42Z: ONE transient 503 (brain job-store blip, R-F1380)
   // dropped the whole document and told the operator to resend. brainPost
@@ -1081,9 +1097,13 @@ async function readDocumentAsync(payload, chatId, filename) {
     // Older brain build without async support — it returned the sync result.
     return job && job.result ? job.result : (job || null);
   }
-  await sendReply(chatId,
-    `📥 Reading *${filename}* — a large or scanned document takes a minute. `
-    + `I'll send the overview as soon as it's ready.`).catch(() => {});
+  // R-F2070 — send the "Reading" ack at most once across the auto-resubmit retry.
+  if (!ack.sent) {
+    ack.sent = true;
+    await sendReply(chatId,
+      `📥 Reading *${filename}* — a large or scanned document takes a minute. `
+      + `I'll send the overview as soon as it's ready.`).catch(() => {});
+  }
   const POLL_MS = 5000, MAX_POLLS = 180;   // R-F1056: 5s x 180 = up to 15 minutes (was 10) × 120 = up to 10 minutes (was 8)
   // R-F880 — 8-min window (was 4): with document_intelligence deferred server-
   // side, a text-layer doc resolves in seconds, but a LENGTHY SCANNED PDF still
@@ -2672,6 +2692,12 @@ async function onMessagesUpsert(sock, account, ev) {
                   + `(it may be busy or restarting). Please resend in a minute, or paste the key clauses as text and `
                   + `I'll analyse those right away.`
                 , requestId).catch(() => {});
+                // R-F2070 — the read FAILED and we've sent the honest "couldn't read
+                // it" reply. Do NOT also re-route the caption ("review the document…")
+                // through a documentless chat below — that produced the contradictory
+                // SECOND error ("I hit a snag pulling that together") the operator saw
+                // on 2026-06-28. The caption is about THIS document.
+                _docAnsweredCaption = true;
               }
             }
           } catch (e) {
@@ -2680,6 +2706,9 @@ async function onMessagesUpsert(sock, account, ev) {
             await sendReply(chatId,
               `⚠️ I couldn't process *${filename}* (${e.message}). Try resending, or paste the text.`
             , requestId).catch(() => {});
+            // R-F2070 — terminal doc error already reported; don't re-route the
+            // caption through a documentless chat (the double-error class).
+            _docAnsweredCaption = true;
           }
         }
       }

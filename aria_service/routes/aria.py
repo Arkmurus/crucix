@@ -11129,15 +11129,38 @@ async def read_document_ep(request: Request):
                 detail="Async job store unavailable — try again or use sync mode",
             )
 
+        # R-F2070 — async read-document wall-clock cap. The async path previously
+        # had NO cap ("read to completion"), so a pathological / corrupt / huge
+        # file could sit in "processing" indefinitely (live probe 2026-06-28: a
+        # malformed PDF was STILL "processing" at 308s). The WA listener then
+        # waited its full 15-min poll window and told the user "document service
+        # didn't respond — resend". A generous cap (default 600s, well under the
+        # 15-min client window) makes a stuck extraction FAIL CLEANLY so the
+        # listener's R-F2070 auto-resubmit (or the honest paste-the-text message)
+        # fires promptly instead of a dead 15-min wait. wait_for interrupts the
+        # awaited to_thread extraction; an orphaned worker thread finishes on its
+        # own (Python can't force-kill threads) but the user is unblocked.
+        _async_cap = float(_r869_os.getenv("ARIA_READ_DOC_ASYNC_TIMEOUT_S", "600"))
+
         async def _r873_run():
             try:
-                _res = await _read_document_ep_impl(_r873_shim)
+                _res = await _r725_asyncio.wait_for(
+                    _read_document_ep_impl(_r873_shim), timeout=_async_cap,
+                )
                 if isinstance(_res, dict):
                     _job_data = {"status": "done", "result": _res, "filename": _fname, "user_id": _owner873}
                 else:
                     _sc = getattr(_res, "status_code", "?")
                     _job_data = {"status": "failed",
                                  "error": f"extraction returned HTTP {_sc}", "filename": _fname, "user_id": _owner873}
+            except _r725_asyncio.TimeoutError:
+                _log.warning(
+                    "R-F2070 async read-document job %s exceeded %.0fs cap — failing "
+                    "cleanly so the caller can resubmit / paste the text", _job_id, _async_cap,
+                )
+                _job_data = {"status": "failed",
+                             "error": f"extraction exceeded {int(_async_cap)}s cap (R-F2070)",
+                             "filename": _fname, "user_id": _owner873}
             except Exception as _e:
                 _log.warning("R-F873 async read-document job %s failed: %s", _job_id, _e)
                 _job_data = {"status": "failed", "error": str(_e)[:300], "filename": _fname, "user_id": _owner873}

@@ -4,6 +4,27 @@
     "r_number": 1183,
     "image": "registry.fly.io/aria-intel:deployment-abcdef12",
     "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-06-27T19:05:20.906325+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-06-27T19:00:58.089808+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+    "ts": "2026-06-27T15:08:55.799519+00:00"
+  },
+  {
+    "app": "aria-intel",
+    "r_number": 1183,
+    "image": "registry.fly.io/aria-intel:deployment-abcdef12",
+    "commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
     "ts": "2026-06-26T11:54:12.039250+00:00"
   },
   {

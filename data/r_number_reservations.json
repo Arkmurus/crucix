@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2070,
+  "next_available": 2072,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15034,6 +15034,24 @@
       "commit_sha": "1b6d5a20",
       "notes": null,
       "shipped_at": "2026-06-28T01:19:21Z"
+    },
+    {
+      "r_number": "R-F2070",
+      "title": "WA document-read robustness: auto-resubmit dropped extraction + brain async wall-clock cap + kill caption double-error",
+      "claimed_at": "2026-06-28T10:35:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2071",
+      "title": "Fix classify_status NameError in web_search.py backends",
+      "claimed_at": "2026-06-28T10:42:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -38,6 +38,11 @@ COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_li
 # crash-loops aria-wa (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
 COPY services/wa-listener/send-retry.mjs ./services/wa-listener/send-retry.mjs
 
+# R-F2070 — the listener imports `./doc-resubmit.mjs` (auto-resubmit a died doc
+# extraction). Same sibling-file cherry-pick trap: MISSING it crash-loops aria-wa
+# (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
+COPY services/wa-listener/doc-resubmit.mjs ./services/wa-listener/doc-resubmit.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs
