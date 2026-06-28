@@ -127,13 +127,22 @@ after pulling `129aa807`.** New binding rule added: CLAUDE.md §11c (pre-deploy 
 ARIA asked to fix her annotation tool (append at end-of-line + py_compile before commit).
 
 ## 4. STATUS + deploy runbook for tomorrow
-**Already committed + pushed to origin/main (NOT deployed — no `[deploy]` tag):**
+**Already committed + pushed to origin/main (NOT deployed — no `[deploy]` tag). origin/main = `4f5ab7bf`.**
 - `129aa807` **R-F2126** — 31 syntax-error fixes (unblocks deploy). origin/main repaired.
-- `99155792` **R-F2122** — lazy-load heavy graphs off the boot critical path. 4/4 tests pass; main.py
-  imports clean. **Full live-boot validation pending** (watch first deploy reach `/health` green <60s).
+- `99155792` **R-F2122** — lazy-load heavy graphs off the boot critical path. 4/4 tests; main imports
+  clean. **Full live-boot validation pending** (watch first deploy reach `/health` green <60s).
+- `c277fbb8` **R-F2127** — pre-commit SYNTAX GATE: blocks any broken `.py` at commit (the structural
+  backstop so an annotation/coder campaign can't ship un-importable code again). 4/4 tests + live-proven.
+- `4a8b0cca` **R-F2128** — aria CLI shell-injection fix (ci_deploy/reserve/ship now `_shq`-quoted). 3/3.
+- `2eb26bf3` **R-F2129** — aria CLI robustness (loop-guard JSON canonicalization + stream-buffer cap).
+  4/4. (3 of the 5 review findings were false positives — already guarded.)
+- `4f5ab7bf` **R-F2130** — ground the coder in the playbook: populate + query the empty
+  `coding_constitutional` RAG (24 rules) + wire the query into the main coder path. 5/5 + 13/13 regress.
+- CLAUDE.md §11c (pre-deploy full-tree compile gate) — `fd246621`.
 - Disk: `aria_rag` volume extended 10 GB → 30 GB online (done).
 - R-F2124 (health-grace bump): **declined** — operator reverted fly.toml to 90s; R-F2122 makes it
   unnecessary.
+- Whole tree: `python -m compileall aria_service` = clean (0 syntax errors).
 
 **Still TODO (reserved):** R-F2123 (root-cause + fix WAL bloat — diagnose first, §1), R-F2125 (dedupe
 the R-F2116 collision + verify R-F2110 chat-hang fix live).
