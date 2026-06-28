@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 
 from . import redis_store as rs
+from .engine_wiring import wire_success, wire_failure  # R-F2115 §21a
 
 logger = logging.getLogger("aria.deal_pipeline")
 
@@ -174,6 +175,13 @@ async def create_lead(
 
     logger.info("[pipeline] Lead created: %s — %s / %s ($%s)",
                 lead.id, country, buyer, f"{estimated_value_usd:,.0f}")
+    # R-F2115 §21a — wire success so the brain knows deal pipeline is working
+    try:
+        wire_success(module="deal_pipeline",
+                     summary=f"lead created: {country} / {buyer} (${estimated_value_usd:,.0f})",
+                     source_id=f"deal_pipeline:create_lead:{lead.id}")
+    except Exception:
+        pass
     return lead
 
 
@@ -210,6 +218,13 @@ async def update_lead(lead_id: str, **updates) -> dict | None:
             leads[i] = lead
             await _save(leads)
             logger.info("[pipeline] Lead updated: %s → stage=%s", lead_id, new_stage)
+            # R-F2115 §21a — wire success
+            try:
+                wire_success(module="deal_pipeline",
+                             summary=f"lead {lead_id[:12]} updated to stage={new_stage}",
+                             source_id=f"deal_pipeline:update_lead:{lead_id}")
+            except Exception:
+                pass
             return lead
     return None
 
@@ -228,6 +243,13 @@ async def delete_lead(lead_id: str) -> bool:
     leads = [l for l in leads if l.get("id") != lead_id]
     if len(leads) < before:
         await _save(leads)
+        # R-F2115 §21a — wire success
+        try:
+            wire_success(module="deal_pipeline",
+                         summary=f"lead {lead_id[:12]} deleted",
+                         source_id=f"deal_pipeline:delete_lead:{lead_id}")
+        except Exception:
+            pass
         return True
     return False
 
