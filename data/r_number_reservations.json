@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2117,
+  "next_available": 2126,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15494,6 +15494,88 @@
       "r_number": "R-F2116",
       "title": "Fix aiosqlite Event loop is closed crash during shutdown",
       "claimed_at": "2026-06-28T21:58:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "36d45c6",
+      "notes": null,
+      "shipped_at": "2026-06-28T22:10:58Z"
+    },
+    {
+      "r_number": "R-F2117",
+      "title": "Campaign 3: 51 HTTP NO BREAKER + infrastructure + remaining items",
+      "claimed_at": "2026-06-28T22:27:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2118",
+      "title": "Campaign 1: 69 NO WIRING modules batch",
+      "claimed_at": "2026-06-28T22:27:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2119",
+      "title": "Campaign 2: 176 SUCCESS ONLY add wire_failure",
+      "claimed_at": "2026-06-28T22:27:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2120",
+      "title": "Campaign 3: 51 NO BREAKER + infra + remaining",
+      "claimed_at": "2026-06-28T22:27:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2121",
+      "title": "Audit trail system per-organism",
+      "claimed_at": "2026-06-28T22:27:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2122",
+      "title": "lazy-load heavy boot data off critical path — kill the 10-min restart outage",
+      "claimed_at": "2026-06-28T22:28:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2123",
+      "title": "root-cause + fix state_store WAL operational bloat (12MB/min, no reset)",
+      "claimed_at": "2026-06-28T22:28:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2124",
+      "title": "fly health-check grace_period safety net for slow boot",
+      "claimed_at": "2026-06-28T22:28:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2125",
+      "title": "dedupe R-F2116 collision + verify R-F2110 chat-hang fix live",
+      "claimed_at": "2026-06-28T22:28:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -932,7 +932,7 @@ def detect_conflicts(results: list[dict]) -> list[dict]:
                 "sources": [u for _, u in items][:4],
             })
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="search_doctrine",
         summary="Detect Conflicts",

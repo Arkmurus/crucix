@@ -1009,7 +1009,7 @@ async def ingest_to_knowledge() -> dict:
                 success, len(ALL_SECTIONS), total_chunks)
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success  # R-F1349: was missing → NameError
+    from .engine_wiring import wire_success  # R-F1349: was missing → NameError, wire_failure
     wire_success(
         module="nato_standards",
         summary="NATO standards",

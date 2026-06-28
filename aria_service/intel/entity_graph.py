@@ -254,7 +254,7 @@ class ERGraph:
                 lines.append(f"  {n.risk_level.upper()}: {n.label} — {n.risk_reason}")
 
         # R-F996 — wire to brain
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="entity_graph",
             summary="Get Network Summary",

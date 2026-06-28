@@ -16,6 +16,7 @@ Three capabilities that elevate ARIA's contract review from competent to excepti
    similar contract, she checks for that pattern first.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import json
@@ -710,3 +711,11 @@ async def get_correction_addendum() -> str:
         lines.append(f"- {c.get('error_type', 'ERROR')}: {c.get('lesson', '')}")
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="contract_intelligence",
+                     summary="contract_intelligence module active",
+                     source_id="contract_intelligence:init")
+    except Exception:
+        pass

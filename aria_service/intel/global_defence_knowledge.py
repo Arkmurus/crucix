@@ -17,6 +17,7 @@ Sources are public domain / CC BY / US Government works.
 Last updated: 2026-04-13
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 
@@ -529,3 +530,11 @@ async def ingest_all_sections() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="global_defence_knowledge",
+                     summary="global_defence_knowledge module active",
+                     source_id="global_defence_knowledge:init")
+    except Exception:
+        pass

@@ -18,6 +18,7 @@ keys once at import; converting them to `resolve_key` is what makes an obtained
 key actually activate — see the R-F1711 onboarding plan.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
@@ -87,3 +88,11 @@ async def store_obtained_key(
     except Exception as e:
         logger.warning("store_obtained_key failed for %s: %s", portal_id, e)
         return False
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="key_resolver",
+                     summary="key_resolver module active",
+                     source_id="key_resolver:init")
+    except Exception:
+        pass

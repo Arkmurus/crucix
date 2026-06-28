@@ -40,7 +40,7 @@
 import logging
 from dataclasses import dataclass
 from typing import Optional
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.risk_indices")
 
@@ -543,3 +543,11 @@ async def ingest_all_sections() -> dict:
     except Exception as e:
         logger.error("Risk indices ingestion failed: %s", e)
         return {"sections_ingested": 0, "total_sections": 1, "total_chunks": 0, "error": str(e)}
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="risk_indices",
+                     summary="risk_indices module active",
+                     source_id="risk_indices:init")
+    except Exception:
+        pass

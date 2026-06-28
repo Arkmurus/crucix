@@ -400,12 +400,20 @@ def _wire_engagement_use(function_name: str) -> None:
     global _ENGAGEMENT_USES
     _ENGAGEMENT_USES += 1
     try:
-        from .engine_wiring import wire_success as _ws
+        from .engine_wiring import wire_success as _ws, wire_failure
         _ws(
             module="engagement",
             summary=f"Engagement: {function_name} used",
             detail=f"Total uses: {_ENGAGEMENT_USES}",
             source_id=f"engagement:{function_name}",
         )
+    except Exception:
+        pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="engagement",
+                     summary="engagement module active",
+                     source_id="engagement:init")
     except Exception:
         pass

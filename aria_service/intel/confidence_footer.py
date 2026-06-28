@@ -32,7 +32,7 @@ in time. The /honesty command surfaces it after the fact.
 """
 from __future__ import annotations
 
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 import logging
 import os
 import re

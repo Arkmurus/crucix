@@ -43,7 +43,7 @@ Public API
   async render_markdown() -> str
   async render_json() -> dict"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 from datetime import datetime, timezone

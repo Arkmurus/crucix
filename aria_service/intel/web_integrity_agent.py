@@ -702,7 +702,7 @@ class WebIntegrityAgent:
             )
         else:
             try:
-                from .engine_wiring import wire_success
+                from .engine_wiring import wire_success, wire_failure
                 wire_success(
                     module="web_integrity",
                     summary=f"Integrity cycle clean: all {len(checks)} endpoints healthy",

@@ -14,6 +14,7 @@ Portals:
   5. AfDB — African Development Bank procurement (web scrape)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import hashlib
@@ -1476,3 +1477,11 @@ async def get_stats() -> dict:
         "portal_health": health,
         "total_alerts_stored": alert_count,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="tender_monitor",
+                     summary="tender_monitor module active",
+                     source_id="tender_monitor:init")
+    except Exception:
+        pass

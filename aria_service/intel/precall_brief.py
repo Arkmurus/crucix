@@ -23,6 +23,7 @@ Public API
               sanctions_threshold=0.78) -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import time
@@ -303,3 +304,11 @@ def render_markdown(brief: dict[str, Any]) -> str:
                          "historical or political geography.")
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="precall_brief",
+                     summary="precall_brief module active",
+                     source_id="precall_brief:init")
+    except Exception:
+        pass

@@ -313,7 +313,7 @@ async def compute_composite() -> dict:
 
     # R-F1059 — wire composite score to brain
     try:
-        from .engine_wiring import wire_success as _ws
+        from .engine_wiring import wire_success as _ws, wire_failure
         _ws(
             module="autonomy_scorer",
             summary=f"Composite score: {composite:.3f} (tier={tier.name}, conf={confidence})",
@@ -405,3 +405,11 @@ def score_improvement(
         + compliance_risk * 0.20,
         4,
     )
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="autonomy_scorer",
+                     summary="autonomy_scorer module active",
+                     source_id="autonomy_scorer:init")
+    except Exception:
+        pass

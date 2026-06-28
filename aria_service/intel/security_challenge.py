@@ -542,7 +542,7 @@ async def run_security_weekly(llm_fn=None) -> dict:
     overall_score = max(0.0, round(base - penalty, 3))
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="security_challenge",
         summary="Run Security Weekly",

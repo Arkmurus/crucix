@@ -49,7 +49,7 @@ Public API
     run_suite(chat_fn) -> dict   — runs every attack against a chat fn,
                                     returns pass-rate + per-attack verdicts"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import re
 from typing import Any, Callable, Awaitable

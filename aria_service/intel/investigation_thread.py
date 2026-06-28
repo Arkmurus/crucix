@@ -229,7 +229,7 @@ def render_context_block(thread: dict[str, Any]) -> str:
         "the user is clearly asking about a different entity."
     )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="investigation_thread",
         summary="Render Context Block",

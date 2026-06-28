@@ -90,7 +90,7 @@ _MAX_STORED_TRIPLES = 10_000
 def is_enabled() -> bool:
     val = (os.getenv(_ENABLED_VAR, "0") or "0").strip().lower()
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="critique_collector",
         summary="Is Enabled",

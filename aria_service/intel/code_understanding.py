@@ -13,6 +13,7 @@ Capabilities:
   7. Similarity matching — find the most similar function in the codebase
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import ast
 import logging
@@ -719,3 +720,11 @@ def suggest_return_type(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> st
         return "Any"
 
     return "Any"
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="code_understanding",
+                     summary="code_understanding module active",
+                     source_id="code_understanding:init")
+    except Exception:
+        pass

@@ -27,7 +27,7 @@ import logging
 import hashlib
 from datetime import datetime, timezone
 from typing import Optional
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.international_law")
 
@@ -2523,3 +2523,11 @@ async def refresh_law_knowledge() -> dict:
         "sources_registered": register_result,
         "live_crawl": crawl_result,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="international_law",
+                     summary="international_law module active",
+                     source_id="international_law:init")
+    except Exception:
+        pass

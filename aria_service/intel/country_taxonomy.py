@@ -238,7 +238,7 @@ def to_iso2(value: str) -> Optional[str]:
     if len(upper) == 3 and upper.isalpha():
         return _ISO3_TO_ISO2.get(upper)
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="country_taxonomy",
         summary="To Iso2",

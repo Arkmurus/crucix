@@ -130,7 +130,7 @@ def get_baykar_context(query: str, max_hits: int = 5) -> str:
             f"[{e.status}, first reported {e.first_reported}]"
         )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="baykar_export_pipeline",
         summary="Get Baykar Context",

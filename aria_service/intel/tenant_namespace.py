@@ -127,7 +127,7 @@ def visibility_for_request(user: dict[str, Any] | None) -> dict[str, Any]:
         allowed.update(ALL_VISIBILITY_CLASSES)
 
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="tenant_namespace",
         summary="Visibility For Request",

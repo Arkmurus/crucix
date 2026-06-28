@@ -151,7 +151,7 @@ def get_latam_context(query: str, max_blocks: int = 1) -> str:
         return ""
     scored.sort(key=lambda x: -x[0])
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="knowledge_latam_non_lusophone",
         summary="Get Latam Context",

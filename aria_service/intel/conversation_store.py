@@ -127,7 +127,7 @@ async def get_conversation(session_id: str, user_id: str | None = None) -> dict 
     messages = (session_data or {}).get("messages", []) if session_data else []
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="conversation_store",
         summary="Get Conversation",

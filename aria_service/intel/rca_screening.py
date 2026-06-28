@@ -54,6 +54,7 @@ Public API
     summary() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 from typing import Any
@@ -265,3 +266,11 @@ def summary() -> dict[str, Any]:
         "max_relatives_per_match": _MAX_RELATIVES_PER_MATCH,
         "relationship_kinds":  list(_RELATIONSHIP_WEIGHT.keys()),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="rca_screening",
+                     summary="rca_screening module active",
+                     source_id="rca_screening:init")
+    except Exception:
+        pass

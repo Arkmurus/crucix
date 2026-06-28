@@ -288,7 +288,7 @@ def check_address(address: str) -> dict[str, Any]:
             logger.debug("virtual_office brain dispatch failed: %s", exc)
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="virtual_office_registry",
         summary="Check Address",

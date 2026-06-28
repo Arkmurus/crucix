@@ -47,7 +47,7 @@ differently-worded answers (the 21.6% v0.2 artifact class).
 A run produces a summary: pass_rate, mean_score, judge_coverage, count by
 bucket, and delta vs the previous run so regressions surface immediately."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 from . import eval_judge
 

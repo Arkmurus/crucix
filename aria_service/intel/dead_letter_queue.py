@@ -133,7 +133,7 @@ async def get_queue(include_resolved: bool = False) -> list[dict]:
     if not include_resolved:
         queue = [e for e in queue if not e.get("resolved")]
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="dead_letter_queue",
         summary="Get Queue",

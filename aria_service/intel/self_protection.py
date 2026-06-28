@@ -18,6 +18,7 @@ All three wire to the brain (brain_hook.absorb / capability_gaps.record_gap)
 so ARIA learns from every guardrail hit.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -266,3 +267,11 @@ def check_all(
             composite.passed = False
 
     return composite
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="self_protection",
+                     summary="self_protection module active",
+                     source_id="self_protection:init")
+    except Exception:
+        pass

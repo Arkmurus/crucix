@@ -32,7 +32,7 @@ Honest scope of this initial revision:
     inferred topic tags + writes a closed_case to reasoning_library
     so future predictions see this outcome."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import logging

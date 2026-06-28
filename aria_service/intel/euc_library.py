@@ -19,6 +19,7 @@ NOT a substitute for legal review. The gap detector flags missing clauses
 the broker must address; the controlling authority decides licence outcome.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -730,3 +731,11 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
         logger.debug("brain_hook/audit absorb failed (non-fatal): %s", e)
 
     return result
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="euc_library",
+                     summary="euc_library module active",
+                     source_id="euc_library:init")
+    except Exception:
+        pass

@@ -117,7 +117,7 @@ def is_enabled() -> bool:
     """Feature flag — default ON. Set ARIA_OFFICEHOLDER_GUARD=0 to disable."""
     val = os.getenv("ARIA_OFFICEHOLDER_GUARD", "1") or "1"
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="officeholder_guard",
         summary="Is Enabled",

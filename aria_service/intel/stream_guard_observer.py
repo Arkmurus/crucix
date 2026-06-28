@@ -232,7 +232,7 @@ async def get_stats() -> dict[str, Any]:
     rate = (total_24h / turns_observed_24h) if turns_observed_24h else None
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="stream_guard_observer",
         summary="Get Stats",

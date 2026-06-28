@@ -200,7 +200,7 @@ def get_risk_context(query: str) -> str:
             f"trajectory={h.trajectory}. Drivers: {drivers}."
         )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="political_risk_index",
         summary="Get Risk Context",

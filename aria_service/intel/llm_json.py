@@ -482,7 +482,7 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
         )
 
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="llm_json",
         summary="Parse Llm Json",

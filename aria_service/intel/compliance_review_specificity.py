@@ -168,7 +168,7 @@ def get_compliance_review_specificity_context(message: str) -> str:
         has_compliance_domain,
     )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="compliance_review_specificity",
         summary="Get Compliance Review Specificity Context",

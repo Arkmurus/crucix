@@ -430,7 +430,7 @@ def bridge_from_message(message: str, entity_hint: str = "") -> dict[str, Any] |
         pass
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="document_entity_bridge",
         summary="Bridge From Message",

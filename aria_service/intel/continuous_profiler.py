@@ -22,6 +22,7 @@ Environment:
   ARIA_PROFILER_REPORT_INTERVAL_S=60 (aggregation window)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -176,3 +177,11 @@ def stop_profiler(tasks: list[asyncio.Task] | None = None) -> None:
         for t in tasks:
             t.cancel()
     logger.info("[continuous_profiler] Stopped")
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="continuous_profiler",
+                     summary="continuous_profiler module active",
+                     source_id="continuous_profiler:init")
+    except Exception:
+        pass

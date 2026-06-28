@@ -18,6 +18,7 @@ Pairs with:
   - routes/aria.py:health_perf_ep (the live data source)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -385,5 +386,13 @@ def _wire_introspect_hit(message: str) -> None:
                 source_id="self_introspect_guard:detect_self_capability_question",
             ))
             _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="self_introspect_guard",
+                     summary="self_introspect_guard module active",
+                     source_id="self_introspect_guard:init")
     except Exception:
         pass

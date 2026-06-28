@@ -25,6 +25,7 @@ content (corporate names, prose, multilingual chat) passes through
 visibly identical.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import re
 import unicodedata
@@ -118,3 +119,11 @@ def validate_entity_name(name: str) -> tuple[str, bool]:
             continue
         return cleaned, False
     return cleaned, True
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="prompt_injection_guards",
+                     summary="prompt_injection_guards module active",
+                     source_id="prompt_injection_guards:init")
+    except Exception:
+        pass

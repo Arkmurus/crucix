@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.intel.financial_dd")
 
@@ -289,3 +289,11 @@ def financial_findings(profile: dict) -> list[dict]:
         })
 
     return findings
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="financial_dd",
+                     summary="financial_dd module active",
+                     source_id="financial_dd:init")
+    except Exception:
+        pass

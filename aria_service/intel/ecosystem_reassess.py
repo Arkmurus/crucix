@@ -15,6 +15,7 @@ Consumers: core_develop.py (drains top 3), the 05:45 team briefing,
            the /atlas/gaps endpoint.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import time
@@ -217,3 +218,11 @@ async def get_queue(limit: int = 50) -> list[dict]:
     """Return the current reassess queue (read-only)."""
     queue = await rs.get_json(_QUEUE_KEY) or []
     return queue[:limit]
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="ecosystem_reassess",
+                     summary="ecosystem_reassess module active",
+                     source_id="ecosystem_reassess:init")
+    except Exception:
+        pass

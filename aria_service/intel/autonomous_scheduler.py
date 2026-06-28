@@ -340,7 +340,7 @@ class AutonomousScheduler:
 
             # Wire to brain
             try:
-                from .engine_wiring import wire_success as _ws1653
+                from .engine_wiring import wire_success as _ws1653, wire_failure
                 _ws1653(
                     module="source_discovery",
                     summary=f"Source discovery: {total_new} new sources found, "
@@ -362,3 +362,11 @@ class AutonomousScheduler:
                 )
             except Exception:
                 pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="autonomous_scheduler",
+                     summary="autonomous_scheduler module active",
+                     source_id="autonomous_scheduler:init")
+    except Exception:
+        pass

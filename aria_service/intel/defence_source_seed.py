@@ -663,7 +663,7 @@ async def seed_web_atlas(skip_if_populated: bool = True) -> dict:
         added, skipped, errors,
     )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="defence_source_seed",
         summary="Seed Web Atlas",

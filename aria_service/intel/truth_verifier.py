@@ -29,6 +29,7 @@ Usage:
         print(f"Failed: {report['message']}")
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import json
@@ -405,3 +406,11 @@ def verified_emit(
             "message": task_description,
             "error": report.get("message", "Verification failed"),
         }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="truth_verifier",
+                     summary="truth_verifier module active",
+                     source_id="truth_verifier:init")
+    except Exception:
+        pass

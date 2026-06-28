@@ -342,7 +342,7 @@ class ARIACounterpartyClaimLedger:
                 )
                 return claim
         # R-F996 — wire to brain
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="counterparty_claim_ledger",
             summary="Verify Claim",

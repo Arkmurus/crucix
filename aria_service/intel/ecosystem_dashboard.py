@@ -4,6 +4,7 @@ Real-time dashboard showing task status, wiring coverage, security posture,
 autonomous loop status, and deploy status.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -353,3 +354,11 @@ async def get_ecosystem_status() -> dict[str, Any]:
             "aria-wa": "deployed",
         },
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="ecosystem_dashboard",
+                     summary="ecosystem_dashboard module active",
+                     source_id="ecosystem_dashboard:init")
+    except Exception:
+        pass

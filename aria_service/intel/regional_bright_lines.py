@@ -387,7 +387,7 @@ async def get_hits_24h() -> dict[str, Any]:
         c = it.get("code", "?")
         by_code[c] = by_code.get(c, 0) + 1
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="regional_bright_lines",
         summary="Get Hits 24H",

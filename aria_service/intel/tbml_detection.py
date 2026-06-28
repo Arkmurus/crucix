@@ -40,6 +40,7 @@ Public API
     summary() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
@@ -294,3 +295,11 @@ def summary() -> dict[str, Any]:
             "blatant": _THRESHOLD_BLATANT,
         },
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="tbml_detection",
+                     summary="tbml_detection module active",
+                     source_id="tbml_detection:init")
+    except Exception:
+        pass

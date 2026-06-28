@@ -142,7 +142,7 @@ def validate_url(url: str) -> tuple[bool, str]:
         return False, f"Low-value navigational URL (product help / footer): {hostname}{path_lower[:50]}"
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="security",
         summary="Validate Url",

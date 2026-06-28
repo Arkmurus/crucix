@@ -45,6 +45,7 @@ Wire-in points
     The LLM then has to acknowledge the refutation before answering.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -664,3 +665,11 @@ def format_for_system_prompt(report: VerifierReport) -> str:
     )
     lines.append("=== END PREMISE VERIFIER ===")
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="premise_verifier",
+                     summary="premise_verifier module active",
+                     source_id="premise_verifier:init")
+    except Exception:
+        pass

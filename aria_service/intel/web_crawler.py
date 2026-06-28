@@ -220,5 +220,5 @@ class UniversalWebCrawler:
         }
 
 # R-F1010 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="web_crawler", summary="Web Crawler Active", source_id="web_crawler:R-F1010")

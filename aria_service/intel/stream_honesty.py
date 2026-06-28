@@ -22,6 +22,7 @@ testable in isolation and so a future R-number can refactor the
 duplicated /chat non-stream block to call into here too.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -395,3 +396,11 @@ def build_correction_banner(result: dict) -> str | None:
         )
 
     return header + "\n──────────\n\n**Revised response:**\n\n" + rewritten
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="stream_honesty",
+                     summary="stream_honesty module active",
+                     source_id="stream_honesty:init")
+    except Exception:
+        pass

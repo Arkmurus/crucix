@@ -202,7 +202,7 @@ def get_cross_regional_context(query: str) -> str:
             f"{h['downstream_effect']}"
         )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="cross_regional_correlator",
         summary="Get Cross Regional Context",

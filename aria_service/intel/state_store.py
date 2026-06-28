@@ -1162,7 +1162,7 @@ async def get_json(key: str) -> Any:
         except Exception as e:
             logger.warning("state_store: JSON parse %s failed: %s", key, e)
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="state_store",
         summary="Get Json",

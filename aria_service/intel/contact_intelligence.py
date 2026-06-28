@@ -18,6 +18,7 @@ Re-engagement rules:
 Redis-backed with in-memory fallback.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -325,3 +326,11 @@ async def generate_contact_briefing() -> str:
         logger.debug("chain activation nudges failed (non-fatal): %s", _e)
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="contact_intelligence",
+                     summary="contact_intelligence module active",
+                     source_id="contact_intelligence:init")
+    except Exception:
+        pass

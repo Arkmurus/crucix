@@ -245,7 +245,7 @@ def build_status() -> dict[str, Any]:
     items.sort(key=_sort_key)
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="operator_pending",
         summary="Build Status",

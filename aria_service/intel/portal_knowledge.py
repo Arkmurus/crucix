@@ -12,6 +12,7 @@ Tables:
   - global_patterns: cross-domain patterns (submit button selectors, etc.)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -360,3 +361,11 @@ class RegistrationKnowledge:
                 })
 
             return result
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="portal_knowledge",
+                     summary="portal_knowledge module active",
+                     source_id="portal_knowledge:init")
+    except Exception:
+        pass

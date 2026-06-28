@@ -26,7 +26,7 @@ This module:
 
 This is NOT legal advice. It's a structural-pattern detector."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import re
 from dataclasses import dataclass

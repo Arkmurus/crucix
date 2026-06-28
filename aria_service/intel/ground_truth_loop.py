@@ -858,3 +858,11 @@ async def record_assessment_async(
     except Exception:
         pass
     return assessment_id
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="ground_truth_loop",
+                     summary="ground_truth_loop module active",
+                     source_id="ground_truth_loop:init")
+    except Exception:
+        pass

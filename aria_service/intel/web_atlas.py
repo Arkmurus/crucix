@@ -165,7 +165,7 @@ async def get_reliability(source_url: str, topic: str) -> dict:
     if data:
         return data
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="web_atlas",
         summary="Get Reliability",

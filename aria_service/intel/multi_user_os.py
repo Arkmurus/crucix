@@ -467,5 +467,5 @@ class TaskBroadcaster:
         )
 
 # R-F1002 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="multi_user_os", summary="Multi-User OS Active", source_id="multi_user_os:R-F1002")

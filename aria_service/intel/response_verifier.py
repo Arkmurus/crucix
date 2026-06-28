@@ -186,7 +186,7 @@ async def verify_and_tag_response(
         }
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="response_verifier",
         summary="Verify And Tag Response",

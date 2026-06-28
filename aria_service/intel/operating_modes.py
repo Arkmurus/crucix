@@ -18,7 +18,7 @@ Mode transitions:
 Mode is stored in Redis and checked by the autonomous engine + delivery.
 Manual override available via /api/aria/operating-mode/set."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import time

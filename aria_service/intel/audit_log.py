@@ -61,6 +61,7 @@ Public API
   await stats() -> dict                       # totals + last entry
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import hashlib
@@ -507,3 +508,11 @@ async def stats() -> dict:
             "entry_hash": last.get("entry_hash") if last else None,
         } if last else None,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="audit_log",
+                     summary="audit_log module active",
+                     source_id="audit_log:init")
+    except Exception:
+        pass

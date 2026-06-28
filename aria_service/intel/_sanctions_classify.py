@@ -553,7 +553,7 @@ def classify_match(match: dict, query_name: str = "") -> str:
     ):
         severity = "amber"
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="_sanctions_classify",
         summary="Classify Match",

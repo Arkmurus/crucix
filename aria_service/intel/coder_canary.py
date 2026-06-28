@@ -14,6 +14,7 @@ Once the coder has produced its first gold from this canary, the fixed version
 is a harmless, correct utility that can stay as a permanent fixture.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 
 def clamp_percentage(value: float) -> float:
@@ -39,3 +40,11 @@ def clamp_percentage(value: float) -> float:
         # R-F1857 fuel cleanup + the R-F1928 TestRunner-interpreter fix.
         return 100.0
     return value
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="coder_canary",
+                     summary="coder_canary module active",
+                     source_id="coder_canary:init")
+    except Exception:
+        pass

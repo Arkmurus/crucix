@@ -33,6 +33,7 @@ PUBLIC API:
     NameResolution.variants -> list[str]  # ordered by salience
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -457,3 +458,11 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
         logger.debug("person_resolver brain_hook failed: %s", _bh)
 
     return _resolution
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="person_resolver",
+                     summary="person_resolver module active",
+                     source_id="person_resolver:init")
+    except Exception:
+        pass

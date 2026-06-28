@@ -209,7 +209,7 @@ def is_safe_url(url: str) -> tuple[bool, str]:
             return (False, f"{reason}:{ip}")
 
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="url_safety",
         summary="Is Safe Url",

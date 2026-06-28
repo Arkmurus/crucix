@@ -27,6 +27,7 @@ Public API
   await latest() -> dict | None
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -294,3 +295,11 @@ async def generate_state_of_aria_briefing() -> str:
         )
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="self_assess",
+                     summary="self_assess module active",
+                     source_id="self_assess:init")
+    except Exception:
+        pass

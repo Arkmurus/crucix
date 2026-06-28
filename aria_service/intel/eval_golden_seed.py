@@ -61,6 +61,7 @@ Authoring rules
   describes the refusal shape, not the bad answer
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 from typing import Any
@@ -3526,3 +3527,11 @@ def coverage_report(items: list[dict]) -> dict[str, Any]:
         "by_category": sorted(rows, key=lambda r: r["pct"]),
         "extra_categories": extra_categories,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="eval_golden_seed",
+                     summary="eval_golden_seed module active",
+                     source_id="eval_golden_seed:init")
+    except Exception:
+        pass

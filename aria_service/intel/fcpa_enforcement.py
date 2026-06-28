@@ -56,6 +56,7 @@ Public API
     summary() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -313,3 +314,11 @@ def summary() -> dict[str, Any]:
         "priority_countries": len(_PRIORITY_COUNTRIES),
         "future_sources":     ["SEC FCPA", "UK SFO", "France PNF"],
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="fcpa_enforcement",
+                     summary="fcpa_enforcement module active",
+                     source_id="fcpa_enforcement:init")
+    except Exception:
+        pass

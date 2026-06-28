@@ -266,7 +266,7 @@ async def get_lineage(node_id: str, *, max_depth: int = 10) -> list[dict[str, An
             path.append(edge)
             queue.append((edge["src_id"], depth + 1))
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="provenance_chain",
         summary="Get Lineage",

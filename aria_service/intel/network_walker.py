@@ -786,7 +786,7 @@ async def walk_ubo_chain(
     # R-F1349: wire_success was called with NO import → NameError that the
     # caller caught as "UBO walk failed", bricking EVERY ownership walk (zero
     # ownership nodes / zero sanctioned-in-chain on every company DD).
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="network_walker",
         summary="Network walk",

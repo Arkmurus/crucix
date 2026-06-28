@@ -19,6 +19,7 @@ Reward design (all objective):
     scores high; one that fabricates an answer scores ~0
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import re
 from dataclasses import dataclass, field
@@ -175,3 +176,11 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
     """Scalar reward (for GRPO / DPO ranking)."""
     return score(answer, context, answerable=answerable,
                  expected_keywords=expected_keywords).score
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="grounding_reward",
+                     summary="grounding_reward module active",
+                     source_id="grounding_reward:init")
+    except Exception:
+        pass

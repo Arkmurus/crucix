@@ -22,6 +22,7 @@ Environment:
   ARIA_MEMORY_LEAK_THRESHOLD_MB=1024  (alert threshold, default 1024)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import gc
@@ -244,3 +245,11 @@ class MemoryLeakDetector:
             "analysis": analysis,
             "last_snapshot": self.snapshots[-1] if self.snapshots else None,
         }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="memory_leak_detector",
+                     summary="memory_leak_detector module active",
+                     source_id="memory_leak_detector:init")
+    except Exception:
+        pass

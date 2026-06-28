@@ -58,7 +58,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.counter_intelligence")
 
@@ -482,3 +482,11 @@ def summary() -> dict[str, Any]:
         "tier_1_hosts_known": len(_TIER_1_HOSTS),
         "tier_3_patterns":    len(_TIER_3_PATTERNS),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="counter_intelligence",
+                     summary="counter_intelligence module active",
+                     source_id="counter_intelligence:init")
+    except Exception:
+        pass

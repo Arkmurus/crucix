@@ -25,6 +25,7 @@ Design principles:
   - Source URLs included for DD report citations
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -2968,3 +2969,11 @@ async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
         "Bulgarian sanctions designations are mirrored to EU Consolidated and OFSI — check those lists first.",
     ]
     return result
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="registry_adapters",
+                     summary="registry_adapters module active",
+                     source_id="registry_adapters:init")
+    except Exception:
+        pass

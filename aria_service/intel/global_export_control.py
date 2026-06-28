@@ -28,12 +28,12 @@
 
 import logging
 
-# R-F1908 (G1) — the ONLY `from .engine_wiring import wired` text in this file
+# R-F1908 (G1) — the ONLY `from .engine_wiring import wired` text in this file, wire_failure
 # was buried inside a content string (export-control prose), so `wired` was never
 # actually imported and the `@wired(...)` decorator at module scope NameError'd at
 # import time → main.py's startup seeding of this library silently failed. Real
 # module-level import:
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.global_export_control")
 
@@ -61,7 +61,7 @@ technology is involved, or (d) a UK person is involved in arranging or
 negotiating the transfer anywhere in the world. The last point is the
 critical broker trap: UK trade controls apply to UK nationals operating
 from third countries on goods that never touch the UK.
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 ─────────────────────────────────────────────────────────────────────────────
 1.1 THE UK STRATEGIC EXPORT CONTROL LISTS (SECL)
@@ -1485,3 +1485,11 @@ async def ingest_all_sections() -> dict:
         "total_chunks": total_chunks,
         "detail": results,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="global_export_control",
+                     summary="global_export_control module active",
+                     source_id="global_export_control:init")
+    except Exception:
+        pass

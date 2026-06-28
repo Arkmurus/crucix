@@ -174,7 +174,7 @@ def build_adverse_query(entity: str, lang: str, *, max_terms: int = 6) -> str:
         return entity
     use_terms = terms[:max_terms]
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="adverse_media_polyglot",
         summary="Build Adverse Query",

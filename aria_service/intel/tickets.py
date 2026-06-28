@@ -245,7 +245,7 @@ async def raise_ticket(
             result.get("github", {}).get("reason"),
         )
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="tickets",
         summary="Raise Ticket",

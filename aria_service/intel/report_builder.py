@@ -26,7 +26,7 @@ Independent of any deployed chat path. Building a report is a separate
 endpoint (/api/aria/report) and slash command (/report). The chat handler
 itself is unmodified."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 from typing import Any

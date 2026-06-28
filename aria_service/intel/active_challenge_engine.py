@@ -51,7 +51,7 @@ class _ConfigShim:
     @property
     def model_standard(self) -> str:
         # R-F996 — wire to brain
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="active_challenge_engine",
             summary="Model Standard",

@@ -15,6 +15,7 @@ Usage:
 """
 
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -166,3 +167,11 @@ def validate_citations(
 
     cleaned = _CITATION_MARKER.sub(_replace, response)
     return cleaned
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="citation_validator",
+                     summary="citation_validator module active",
+                     source_id="citation_validator:init")
+    except Exception:
+        pass

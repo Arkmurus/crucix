@@ -1,3 +1,4 @@
+from .engine_wiring import wire_success, wire_failure
 """Pre-output hallucination guard (R-F1527).
 
 Runs AFTER the LLM generates a response but BEFORE it's sent to the user.
@@ -196,3 +197,11 @@ def check_response(response_text: str, tool_context: str = "") -> dict[str, Any]
         "red_flags": red_flags,
         "suggested_action": suggested_action,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="hallucination_guard",
+                     summary="hallucination_guard module active",
+                     source_id="hallucination_guard:init")
+    except Exception:
+        pass

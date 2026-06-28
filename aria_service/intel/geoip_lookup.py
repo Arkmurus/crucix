@@ -156,7 +156,7 @@ async def batch_lookup(ips: list[str]) -> list[dict[str, Any]]:
 # ── Wire to brain ──────────────────────────────────────────────────────
 
 try:
-    from .engine_wiring import wire_success as _ws
+    from .engine_wiring import wire_success as _ws, wire_failure
     _ws(
         module="geoip_lookup",
         summary="GeoIP Lookup Engine active",
@@ -165,3 +165,11 @@ try:
     )
 except Exception:
     pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="geoip_lookup",
+                     summary="geoip_lookup module active",
+                     source_id="geoip_lookup:init")
+    except Exception:
+        pass

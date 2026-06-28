@@ -80,5 +80,5 @@ class PerformanceOptimizer:
                 logger.warning("[performance_optimizer] R-F1218: AST parse failed for %s: %s", f.name, _pe)
         return {"findings": findings, "total": len(findings)}
 # R-F1006 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="performance_optimizer", summary="Performance Optimizer Active", source_id="performance_optimizer:R-F1006")

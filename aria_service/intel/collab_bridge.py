@@ -25,6 +25,7 @@ Design notes
   reach a sink.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -232,3 +233,11 @@ async def drain_for_aria() -> dict:
     await set_cursor("aria", last_seq)
     logger.info("[R-F1409] drained %d Claude→ARIA note(s), cursor→%d", drained, last_seq)
     return {"drained": drained, "last_seq": last_seq}
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="collab_bridge",
+                     summary="collab_bridge module active",
+                     source_id="collab_bridge:init")
+    except Exception:
+        pass

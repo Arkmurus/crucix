@@ -163,5 +163,5 @@ class ZeroCostLearner:
         }
 
 # R-F1010 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="knowledge_learner", summary="Knowledge Learner Active", source_id="knowledge_learner:R-F1010")

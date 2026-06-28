@@ -348,7 +348,7 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
                     pass
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="sanctions_divergence",
         summary="Analyze Divergence",

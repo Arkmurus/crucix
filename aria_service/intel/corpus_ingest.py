@@ -38,7 +38,7 @@ Public API
         tier/provenance metadata into extra_metadata. Returns the same
         dict shape as ingest_document."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import io
 import logging

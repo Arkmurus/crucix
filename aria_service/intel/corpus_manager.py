@@ -419,7 +419,7 @@ async def get_registry_summary() -> dict:
     """Return a summary of the current URL registry."""
     registry = await load_registry()
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="corpus_manager",
         summary="Get Registry Summary",

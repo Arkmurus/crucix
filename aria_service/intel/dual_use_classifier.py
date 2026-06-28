@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.dual_use_classifier")
 
@@ -349,3 +349,11 @@ async def assess(
         logger.debug("audit log write failed (non-fatal): %s", e)
 
     return result
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="dual_use_classifier",
+                     summary="dual_use_classifier module active",
+                     source_id="dual_use_classifier:init")
+    except Exception:
+        pass

@@ -3,6 +3,7 @@ R-F1835 — Prometheus /metrics endpoint for aria-intel.
 Exposes p50/p95/p99 latency, per-process RSS, LLM cost per feature.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import os
 import time
@@ -89,3 +90,11 @@ def generate_metrics() -> str:
         pass
 
     return "\n".join(lines) + "\n"
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="metrics",
+                     summary="metrics module active",
+                     source_id="metrics:init")
+    except Exception:
+        pass

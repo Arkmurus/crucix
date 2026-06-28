@@ -35,6 +35,7 @@ Storage:
   crucix:aria:chain_correlator:confirmed      append-only, max 1000
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import logging
@@ -809,3 +810,11 @@ async def stats() -> dict:
         "regions_covered": regions_covered,
         "generated_at": _now().isoformat(),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="chain_correlator",
+                     summary="chain_correlator module active",
+                     source_id="chain_correlator:init")
+    except Exception:
+        pass

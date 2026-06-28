@@ -28,7 +28,7 @@ Design:
   - RDAP endpoints discovered via IANA bootstrap (cached per-TLD)
   - 15s timeout; best-effort graceful degradation"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re

@@ -36,7 +36,7 @@ def search(query: str, limit: int = 5) -> list[dict[str, Any]]:
     if not ctx or not str(ctx).strip():
         return []
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="mem0_notebook",
         summary="Search",

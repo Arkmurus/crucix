@@ -1137,7 +1137,7 @@ async def ingest_all_sections() -> dict:
         success, len(ALL_SECTIONS), total_chunks,
     )
     # R-F994 — wire success to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="regional_compliance",
         summary=f"Regional compliance: {success}/{len(ALL_SECTIONS)} sections ingested ({total_chunks} chunks)",

@@ -81,7 +81,7 @@ async def get_cached(query: str, context: str = "") -> dict | None:
         )
         pass
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="response_cache",
         summary="Get Cached",

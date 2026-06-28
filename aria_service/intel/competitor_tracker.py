@@ -31,6 +31,7 @@ Public API
   stats() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import hashlib
@@ -443,3 +444,11 @@ async def stats() -> dict:
         "by_type": by_type,
         "generated_at": _now().isoformat(),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="competitor_tracker",
+                     summary="competitor_tracker module active",
+                     source_id="competitor_tracker:init")
+    except Exception:
+        pass

@@ -201,7 +201,7 @@ async def get_top_priority_domains(n: int = 5) -> list[str]:
     pr = await read_priorities()
     items = pr.get("priorities") or []
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="continuous_update",
         summary="Get Top Priority Domains",

@@ -8,6 +8,7 @@ intel brain sees web-tier intelligence.
 Background task: call `start_consumer()` from lifespan startup.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import json
@@ -77,3 +78,11 @@ except RuntimeError:
     # No running event loop (e.g. during import at module load time).
     # The consumer will be started when lifespan calls start_consumer().
     pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="brain_signal_consumer",
+                     summary="brain_signal_consumer module active",
+                     source_id="brain_signal_consumer:init")
+    except Exception:
+        pass

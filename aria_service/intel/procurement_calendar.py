@@ -33,6 +33,7 @@ Public API
   stats() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import logging
@@ -601,3 +602,11 @@ async def refresh() -> dict:
         "pushed_to_chain": pushed,
         "generated_at": _now().isoformat(),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="procurement_calendar",
+                     summary="procurement_calendar module active",
+                     source_id="procurement_calendar:init")
+    except Exception:
+        pass

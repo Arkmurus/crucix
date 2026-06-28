@@ -39,7 +39,7 @@ logger = logging.getLogger("aria.coding_rag")
 
 # R-F1531: wire module health to the brain on import
 try:
-    from .engine_wiring import wire_success as _ws1531
+    from .engine_wiring import wire_success as _ws1531, wire_failure
     _ws1531(
         module="coding_rag_indexer",
         summary="Coding RAG Indexer active — fix/failure memory ready",
@@ -694,3 +694,11 @@ def get_stats() -> dict:
             "total_codebase_chunks": 0,
             "total_constitutional_rules": 0,
         }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="coding_rag_indexer",
+                     summary="coding_rag_indexer module active",
+                     source_id="coding_rag_indexer:init")
+    except Exception:
+        pass

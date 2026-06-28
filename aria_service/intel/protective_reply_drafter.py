@@ -238,7 +238,7 @@ def draft_protective_reply(inp: ProtectiveReplyInput) -> dict[str, Any]:
         )
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="protective_reply_drafter",
         summary="Draft Protective Reply",

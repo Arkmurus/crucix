@@ -96,7 +96,7 @@ The result is a dataclass — `result.facts` is the fused findings,
 `result.provenance` is per-fact source attribution, `result.ecosystem`
 is the per-backend status snapshot. Always populated, even on errors."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging

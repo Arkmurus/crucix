@@ -45,6 +45,7 @@ shorter TTL (7 days) so the audit trail survives one or two operator
 reviews without growing unbounded.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
@@ -187,3 +188,11 @@ async def stats() -> dict[str, Any]:
         "rejected_recent": rejected,
         "oldest_pending_age_h": age_h,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="absorption_quarantine",
+                     summary="absorption_quarantine module active",
+                     source_id="absorption_quarantine:init")
+    except Exception:
+        pass

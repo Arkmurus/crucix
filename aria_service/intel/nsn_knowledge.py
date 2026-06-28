@@ -26,7 +26,7 @@ COVERAGE:
 
 SOURCE: nsnSchema-2.1 (NATO NMCRL XML Schema, April 2025)"""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re

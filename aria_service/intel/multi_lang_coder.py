@@ -327,7 +327,7 @@ def analyse_project(root: str | Path) -> dict[str, Any]:
 
 # ── Wire to brain ───────────────────────────────────────────────────────────
 
-from .engine_wiring import wire_success  # noqa: E402
+from .engine_wiring import wire_success  # noqa: E402, wire_failure
 
 wire_success(
     module="multi_lang_coder",

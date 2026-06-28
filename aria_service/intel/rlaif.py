@@ -54,6 +54,7 @@ Public API
       Sampling gate — read once per turn before evaluate().
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -393,3 +394,11 @@ async def stats() -> dict:
             for w in worst
         ],
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="rlaif",
+                     summary="rlaif module active",
+                     source_id="rlaif:init")
+    except Exception:
+        pass

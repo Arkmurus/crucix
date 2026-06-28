@@ -260,5 +260,5 @@ print(f"Training complete. Model saved to {config['output_dir']}/final")
         }
 
 # R-F1011 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="llm_pipeline", summary="Llm Pipeline Active", source_id="llm_pipeline:R-F1011")

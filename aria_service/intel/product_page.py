@@ -202,5 +202,5 @@ def get_adversarial_scoreboard() -> dict[str, Any]:
     }
 
 # R-F1011 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="product_page", summary="Product Page Active", source_id="product_page:R-F1011")

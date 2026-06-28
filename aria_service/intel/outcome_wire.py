@@ -20,6 +20,7 @@ Usage (any surface):
 R-F1411 — T0★ reusable outcome primitive.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -389,3 +390,11 @@ async def get_all_surface_health(hours: int = _DEFAULT_HEALTH_WINDOW_H) -> dict:
         "worst_surface": worst_surface,
         "worst_success_rate": worst_rate,
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="outcome_wire",
+                     summary="outcome_wire module active",
+                     source_id="outcome_wire:init")
+    except Exception:
+        pass

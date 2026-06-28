@@ -437,7 +437,7 @@ def load_vendors() -> list[Vendor]:
         except Exception as e:
             logger.warning("[vendor_registry] skipping malformed entry %r: %s", entry, e)
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="vendor_registry",
         summary="Load Vendors",

@@ -96,7 +96,7 @@ def detect_publisher(url: str) -> str | None:
         return "crossref_doi"
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="known_publisher_router",
         summary="Detect Publisher",

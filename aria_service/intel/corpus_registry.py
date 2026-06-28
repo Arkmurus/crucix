@@ -168,7 +168,7 @@ def get_sources(
             continue
         out.append(s)
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="corpus_registry",
         summary="Get Sources",

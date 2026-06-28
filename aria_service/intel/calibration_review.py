@@ -380,7 +380,7 @@ async def run_calibration_review() -> dict:
 
     # R-F1304 — wire to brain (§21a)
     try:
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="calibration_review",
             summary=f"Calibration review: {calibration_status} (mastery {overall_mastery:.0%}, accuracy {estimated_accuracy:.0%})",

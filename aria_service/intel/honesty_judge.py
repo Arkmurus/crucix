@@ -56,6 +56,7 @@ Important caveats
   failure in the judgment record but don't crash the trace.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import json
@@ -567,3 +568,11 @@ def _wire_judge_result(result: dict) -> None:
             )
     except Exception:
         pass  # wiring must never block the caller
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="honesty_judge",
+                     summary="honesty_judge module active",
+                     source_id="honesty_judge:init")
+    except Exception:
+        pass

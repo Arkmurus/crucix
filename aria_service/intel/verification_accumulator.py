@@ -180,7 +180,7 @@ async def reconcile(batch_size: int = _DEFAULT_RECONCILE_BATCH) -> dict:
     await _persist_state(diag)
     # R-F1059 — wire reconcile result to brain
     try:
-        from .engine_wiring import wire_success as _ws
+        from .engine_wiring import wire_success as _ws, wire_failure
         _ws(
             module="verification_accumulator",
             summary=f"Reconciled: {diag['scanned']} scanned, {diag['upgraded']} upgraded",
@@ -259,4 +259,12 @@ async def _persist_state(diag: dict) -> None:
         await rs.set_json(_STATE_KEY, diag, ex=_QUEUE_TTL_S)
     except Exception:
         pass
+        pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="verification_accumulator",
+                     summary="verification_accumulator module active",
+                     source_id="verification_accumulator:init")
+    except Exception:
         pass

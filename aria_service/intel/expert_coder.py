@@ -738,5 +738,5 @@ class PatternLearner:
         return [count for _, count in Counter(all_args).most_common(5)]
 
 # R-F1004 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="expert_coder", summary="Expert Coder Active", source_id="expert_coder:R-F1004")

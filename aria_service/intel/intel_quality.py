@@ -216,5 +216,5 @@ class AheadOfGameEngine:
         return self._signals[-50:]  # Last 50 signals
 
 # R-F1008 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="intel_quality", summary="Intel Quality Active", source_id="intel_quality:R-F1008")

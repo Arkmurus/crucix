@@ -574,7 +574,7 @@ def lookup(prime: str, product: str = "") -> dict[str, Any]:
         if not matched:
             matched = sorted(families.keys())   # fall back to "all"
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="prime_sub_map",
         summary="Lookup",

@@ -82,7 +82,7 @@ _current_trace_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 def get_current_trace_id() -> str:
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="trace_stream",
         summary="Get Current Trace Id",

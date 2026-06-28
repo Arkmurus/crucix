@@ -196,7 +196,7 @@ async def get_quarantine_entry(run_id: str) -> dict[str, str] | None:
     """Full metadata for a quarantined run, or None if clean."""
     entries = await _load()
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="run_quarantine",
         summary="Get Quarantine Entry",

@@ -25,6 +25,7 @@ Environment:
   ARIA_DEADLOCK_SCAN_INTERVAL_S=15  (how often to scan, default 15)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -201,3 +202,11 @@ class DeadlockDetector:
             "watched_threads": len(self._threads),
             "threads": watched,
         }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="deadlock_detector",
+                     summary="deadlock_detector module active",
+                     source_id="deadlock_detector:init")
+    except Exception:
+        pass

@@ -28,6 +28,7 @@ Module-level state:
     Recent events cached in Redis (24h TTL) so repeated queries don't hit the API.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import os
@@ -374,3 +375,11 @@ async def correlate_with_procurement(country: str, days: int = 60) -> dict:
         ),
         "disclaimer": "Based on ACLED/GDELT open-source event data. Cross-check with classified or commercial sources before acting.",
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="conflict_tracker",
+                     summary="conflict_tracker module active",
+                     source_id="conflict_tracker:init")
+    except Exception:
+        pass

@@ -321,7 +321,7 @@ async def convert(
     # brief below is the deliverable; it is no longer mirrored externally.
 
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="opportunity_converter",
         summary="Convert",

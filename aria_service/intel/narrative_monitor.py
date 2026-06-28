@@ -12,6 +12,7 @@ signals to identify:
      in specific markets (e.g., "Turkish drones unreliable" campaign in Africa)
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -552,3 +553,11 @@ async def generate_narrative_briefing() -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="narrative_monitor",
+                     summary="narrative_monitor module active",
+                     source_id="narrative_monitor:init")
+    except Exception:
+        pass

@@ -41,6 +41,7 @@ become gap tickets; ARIA proposes verdicts; nothing auto-sends, nothing
 auto-spends.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import json
 import logging
@@ -406,3 +407,11 @@ async def history(limit: int = 10) -> list[dict]:
         except Exception:
             continue
     return out
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="aria_peers",
+                     summary="aria_peers module active",
+                     source_id="aria_peers:init")
+    except Exception:
+        pass

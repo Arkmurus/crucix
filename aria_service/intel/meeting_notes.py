@@ -34,6 +34,7 @@ Public API
   def render_markdown(result) -> str
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import json
@@ -465,3 +466,11 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.append(f"**Next meeting:** {nm}")
 
     return "\n".join(lines)
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="meeting_notes",
+                     summary="meeting_notes module active",
+                     source_id="meeting_notes:init")
+    except Exception:
+        pass

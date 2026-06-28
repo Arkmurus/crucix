@@ -217,7 +217,7 @@ def lookup_oem(name_or_product: str) -> OEMSanctionsEntry | None:
             if alias.lower() in needle:
                 return entry
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="sanctions_propagation",
         summary="Lookup Oem",

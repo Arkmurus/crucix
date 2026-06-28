@@ -1607,7 +1607,7 @@ def get_regional_context(query: str) -> str:
     header = "[REGIONAL NAVIGATION INTELLIGENCE — Arkmurus BD operational guidance]\n"
     result = header + "\n\n".join(parts)
     # R-F994 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="regional_navigation",
         summary=f"Regional context: {len(matched_regions)} regions matched",

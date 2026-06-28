@@ -135,5 +135,5 @@ class SystemHealthMonitor:
         logs.reverse()
         return [{"timestamp": l.timestamp, "level": l.level, "module": l.module, "message": l.message[:200], "task_id": l.task_id} for l in logs[:limit]]
 # R-F1006 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="system_health", summary="System Health Active", source_id="system_health:R-F1006")

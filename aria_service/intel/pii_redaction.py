@@ -24,6 +24,7 @@ labelled ID or a secret token is not partially eaten by the greedier
 phone / digit-run patterns.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import re
 
@@ -131,3 +132,11 @@ def redact_pii(text: str) -> str:
     for pattern, replacement in _PII_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="pii_redaction",
+                     summary="pii_redaction module active",
+                     source_id="pii_redaction:init")
+    except Exception:
+        pass

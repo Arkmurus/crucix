@@ -186,7 +186,7 @@ def detect_language_signal(text: str) -> LanguageSignal:
     if hits == 1:
         return LanguageSignal.FLUENT_NON_NATIVE
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="comprehension",
         summary="Detect Language Signal",

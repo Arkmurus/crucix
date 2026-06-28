@@ -90,7 +90,7 @@ def topic_matches(topic: str, fact: dict) -> bool:
     if t in claim or t in entity:
         return True
     # R-F1001 - wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="topic_completion",
         summary="Topic Matches",

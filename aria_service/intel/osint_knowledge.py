@@ -17,7 +17,7 @@ for prompt-time injection (same pattern as
 All sources: open-source, publicly verifiable intelligence community
 doctrine and best practice."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 logger = logging.getLogger("aria.osint_knowledge")

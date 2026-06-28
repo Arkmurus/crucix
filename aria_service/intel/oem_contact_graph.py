@@ -36,6 +36,7 @@ Public API
   stats() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import hashlib
 import logging
@@ -419,3 +420,11 @@ async def stats() -> dict:
         "oems_tracked": len(_SEED_OEMS),
         "generated_at": _now().isoformat(),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="oem_contact_graph",
+                     summary="oem_contact_graph module active",
+                     source_id="oem_contact_graph:init")
+    except Exception:
+        pass

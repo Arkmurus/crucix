@@ -377,7 +377,7 @@ async def run_drill(
 
     # Wire to brain
     try:
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="generative_redteam",
             summary=(

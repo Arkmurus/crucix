@@ -407,7 +407,7 @@ def render_few_shot_block(examples: list[dict]) -> str:
         parts.append("```")
     parts.append("")
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="document_corrections",
         summary="Render Few Shot Block",

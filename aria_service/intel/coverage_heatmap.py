@@ -481,7 +481,7 @@ async def build_heatmap(
             _HEATMAP_INFLIGHT.pop(cache_key, None)
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="coverage_heatmap",
         summary="Build Heatmap",

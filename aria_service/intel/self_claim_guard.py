@@ -30,6 +30,7 @@ Usage:
         # log + (optionally) append warning block
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import re
 from typing import NamedTuple
@@ -735,5 +736,13 @@ def _wire_self_claim_violations(violations):
             source="self_claim_guard.record_violations",
         ))
         _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="self_claim_guard",
+                     summary="self_claim_guard module active",
+                     source_id="self_claim_guard:init")
     except Exception:
         pass

@@ -30,6 +30,7 @@ Operator notes:
     MAX_ERRORS = 200 with a 7-day TTL.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -256,3 +257,11 @@ def uninstall() -> None:
     logging.getLogger("aria").removeHandler(_installed_handler)
     logging.getLogger("ARIA").removeHandler(_installed_handler)  # R-F891
     _installed_handler = None
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="error_log_handler",
+                     summary="error_log_handler module active",
+                     source_id="error_log_handler:init")
+    except Exception:
+        pass

@@ -154,7 +154,7 @@ def verify_against_records(
         logger.debug("mem0 verification skipped: %s", exc)
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="cited_artifact_verifier",
         summary="Verify Against Records",

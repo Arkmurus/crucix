@@ -16,7 +16,7 @@ keyword matching for prompt-time injection (similar to
 
 All sources: open-source, publicly verifiable."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 logger = logging.getLogger("aria.procurement_knowledge")

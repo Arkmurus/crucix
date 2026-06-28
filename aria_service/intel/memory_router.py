@@ -482,7 +482,7 @@ class ARIAMemoryRouter:
         return "UNKNOWN"
 
 # R-F1001 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 def get_routing_status():
     result = {"status": "active", "stores": 5}

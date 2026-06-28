@@ -184,7 +184,7 @@ class CodeGenerator:
             '    # R-F1220: template placeholder — replaced by actual implementation\n'
             '    result = {{"status": "not_implemented"}}\n\n'
             '    # R-F999 — wire to brain\n'
-            '    from .engine_wiring import wire_success\n'
+            '    from .engine_wiring import wire_success\n', wire_failure
             '    wire_success(\n'
             '        module="{module_name}",\n'
             '        summary="{summary}",\n'
@@ -260,7 +260,7 @@ class CodeGenerator:
                 indent = " " * (len(line) - len(line.lstrip()))
                 wiring = (
                     f"\n{indent}    # R-F999 — wire to brain\n"
-                    f"{indent}    from .engine_wiring import wire_success\n"
+                    f"{indent}    from .engine_wiring import wire_success\n", wire_failure
                     f"{indent}    wire_success(\n"
                     f"{indent}        module=\"{module_name}\",\n"
                     f"{indent}        summary=\"{summary}\",\n"

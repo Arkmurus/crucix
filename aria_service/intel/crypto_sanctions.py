@@ -62,7 +62,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.crypto_sanctions")
 
@@ -323,3 +323,11 @@ def summary() -> dict[str, Any]:
         "source":  "OpenSanctions consolidated targets (free)",
         "chains":  [c for c, _ in _CHAIN_PATTERNS],
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="crypto_sanctions",
+                     summary="crypto_sanctions module active",
+                     source_id="crypto_sanctions:init")
+    except Exception:
+        pass

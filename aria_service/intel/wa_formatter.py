@@ -247,5 +247,5 @@ class WhatsAppFormatter:
         )
 
 # R-F1012 - wire to brain
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 wire_success(module="wa_formatter", summary="WA Formatter Active", source_id="wa_formatter:R-F1012")

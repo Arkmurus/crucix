@@ -224,7 +224,7 @@ def find_subsidiary_for_product(product_keyword: str) -> list[dict[str, Any]]:
     _scale = {"EDGE": 4, "SAMI": 3, "Tawazun": 2, "Barzan": 1}
     matches.sort(key=lambda s: -_scale.get(s.parent, 0))
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="gulf_oem_structure",
         summary="Find Subsidiary For Product",

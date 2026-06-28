@@ -36,7 +36,7 @@ all wrong, the user can supply the correct one; if any single variant
 is right, deep_research gets a non-zero result on the same turn
 instead of forcing the user back into the loop."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import re
 import unicodedata

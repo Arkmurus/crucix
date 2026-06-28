@@ -60,6 +60,7 @@
 # =============================================================================
 
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import logging
@@ -1249,3 +1250,11 @@ async def get_tree(tree_id: str) -> Optional[dict]:
         return await rs.get_json(_TREE_REDIS_KEY.format(tree_id=tree_id))
     except Exception:
         return None
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="link_investigator",
+                     summary="link_investigator module active",
+                     source_id="link_investigator:init")
+    except Exception:
+        pass

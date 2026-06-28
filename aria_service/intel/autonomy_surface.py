@@ -637,7 +637,7 @@ async def get_surface() -> dict[str, Any]:
         _safe(lambda: _resilience_floor(),       dict(_DEFAULT_RESILIENCE),    "resilience"),
     )
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="autonomy_surface",
         summary="Get Surface",

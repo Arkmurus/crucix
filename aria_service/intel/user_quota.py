@@ -212,7 +212,7 @@ async def get_user_state(user_id: str) -> dict:
     if not user_id:
         user_id = "__anon__"
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="user_quota",
         summary="Get User State",

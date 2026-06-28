@@ -24,7 +24,7 @@ logger = logging.getLogger("aria.rag_augmented_generator")
 
 # R-F1531: wire module health to the brain on import
 try:
-    from .engine_wiring import wire_success as _ws1531
+    from .engine_wiring import wire_success as _ws1531, wire_failure
     _ws1531(
         module="rag_augmented_generator",
         summary="RAG-Augmented Generator active — fix memory retrieval ready",
@@ -177,3 +177,11 @@ def build_fix_prompt_section(
         error_type=error_type,
     )
     return result.get("augmented_context", "")
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="rag_augmented_generator",
+                     summary="rag_augmented_generator module active",
+                     source_id="rag_augmented_generator:init")
+    except Exception:
+        pass

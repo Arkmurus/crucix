@@ -34,7 +34,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from .engine_wiring import wired
+from .engine_wiring import wired, wire_failure
 
 logger = logging.getLogger("aria.compliance_file")
 
@@ -394,3 +394,11 @@ async def get_provenance(entry_hash: str) -> dict:
             "the supporting trail, call /api/aria/audit/verify."
         ),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="compliance_file",
+                     summary="compliance_file module active",
+                     source_id="compliance_file:init")
+    except Exception:
+        pass

@@ -297,7 +297,7 @@ async def verify_response(
         )
 
     # R-F996 — wire to brain
-    from .engine_wiring import wire_success
+    from .engine_wiring import wire_success, wire_failure
     wire_success(
         module="citation_audit",
         summary="Verify Response",

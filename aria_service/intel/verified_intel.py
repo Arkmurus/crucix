@@ -788,7 +788,7 @@ class SourceIndependenceChecker:
                 groups_seen.add(source.independence_group)
                 count += 1
         # R-F996 — wire to brain
-        from .engine_wiring import wire_success
+        from .engine_wiring import wire_success, wire_failure
         wire_success(
             module="verified_intel",
             summary="Get Independent Count",

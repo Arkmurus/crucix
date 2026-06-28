@@ -3,6 +3,7 @@ Competitor Movement Tracker.
 Ported from lib/aria/competitors.mjs.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success, wire_failure
 
 import logging
 import re
@@ -214,3 +215,11 @@ async def get_stats() -> dict:
         "totalMoves": len(db["moves"]),
         "byCompetitor": dict(sorted(by_comp.items(), key=lambda x: x[1], reverse=True)[:15]),
     }
+
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="competitors",
+                     summary="competitors module active",
+                     source_id="competitors:init")
+    except Exception:
+        pass
