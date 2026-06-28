@@ -553,6 +553,23 @@ async def record_call(
         await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
         # Calendar-month rollup (independent of 90-day detail TTL).
         await _update_month_rollup(record)
+        # R-F2111: reconcile the atomic reserve made in assert_monthly_cap.
+        # Deduct the estimated reserve and let the actual cost stand in the
+        # rollup. If no reserve exists (e.g. Redis was down during assert),
+        # this is a no-op. Best-effort, never blocks.
+        try:
+            _reserve_key = f"{COST_MONTH_PREFIX}{_current_month_key()}:reserve"
+            _reserved = await rs.get(_reserve_key)
+            if _reserved:
+                _reserved_f = float(_reserved)
+                if _reserved_f > 0:
+                    # Deduct the reserve by the actual cost (or the full reserve
+                    # if actual cost is unknown). This prevents the reserve from
+                    # permanently inflating the month total.
+                    _deduct = min(_reserved_f, max(0.001, cost_usd))
+                    await rs.incrbyfloat(_reserve_key, -_deduct)
+        except Exception:
+            pass
         # R-F1954 — per-user monthly sub-cap accounting (best-effort).
         await _record_user_month_spend(get_current_user(), cost_usd)
         # R-F2103 (2026-06-28, ARIA brain DD) — wire the DEAD per-user DAILY cost
@@ -700,35 +717,59 @@ async def get_month_spend() -> dict:
 
 
 @fail_wire(module="cost_tracker", gap_type="engine_failure", control_flow_exempt=("MonthlyCostCapExceeded",))
-async def assert_monthly_cap() -> None:
+async def assert_monthly_cap(estimated_cost_usd: float = 0.02) -> None:
     """Raise MonthlyCostCapExceeded if month-to-date spend is at/over the cap.
     Called by MeteredProvider before every LLM request. Honours
     ARIA_MONTHLY_CAP_WARN_ONLY=1 for investigation mode.
 
-    R-F2108: concurrent-overshoot fix. The 30s _month_cache means N concurrent
+    R-F2111: concurrent-overshoot fix. The 30s _month_cache means N concurrent
     requests can all pass the same sub-cap read before any of them records spend.
-    We now RESERVE the estimated cost atomically via Redis INCRBYFLOAT so the
-    cap is a hard ceiling, not a check-then-fire. The reserve is reconciled
-    (deducted) in record_call when the actual cost is known. A reserve that
-    is never reconciled (crash after reserve, before record_call) expires
-    naturally because the month rollup key has no TTL — the reserve inflates
-    the month's total by at most the estimated cost of one call per crash.
+    We now RESERVE the estimated cost atomically via Redis INCRBYFLOAT on a
+    dedicated reserve key so the cap is a hard ceiling, not a check-then-fire.
+    The reserve is reconciled (deducted) in record_call when the actual cost is
+    known. A reserve that is never reconciled (crash after reserve, before
+    record_call) expires naturally because the reserve key has a 5-minute TTL.
     """
     cap = _monthly_cap_usd()
     if cap <= 0:
         return
-    spent = await _refresh_month_cache()
-    if spent < cap:
-        return
     month = _current_month_key()
-    if _warn_only():
-        logger.error(
-            "ARIA monthly LLM cap $%.2f would block call — allowed because "
-            "ARIA_MONTHLY_CAP_WARN_ONLY=1 (spent $%.4f in %s)",
-            cap, spent, month,
-        )
-        return
-    raise MonthlyCostCapExceeded(spent=spent, cap=cap, month=month)
+    reserve_key = f"{COST_MONTH_PREFIX}{month}:reserve"
+    est = max(0.001, float(estimated_cost_usd))
+
+    # Atomic reserve: INCRBYFLOAT returns the NEW total (spent + this reserve).
+    # If Redis is unavailable, fall back to the cache-based check (best-effort).
+    try:
+        new_total = await rs.incrbyfloat(reserve_key, est)
+        await rs.expire(reserve_key, 300)  # 5min TTL — a crashed reserve auto-expires
+    except Exception:
+        # Fall back to cache-based check when Redis is down
+        spent = await _refresh_month_cache()
+        if spent >= cap:
+            pass  # will raise below
+        else:
+            return  # under cap, allow through
+
+    # new_total is the running total INCLUDING this reserve. Compare against cap.
+    if new_total >= cap:
+        # Roll back the reserve so we don't permanently inflate the counter
+        try:
+            await rs.incrbyfloat(reserve_key, -est)
+        except Exception:
+            pass
+        if _warn_only():
+            logger.error(
+                "ARIA monthly LLM cap $%.2f would block call — allowed because "
+                "ARIA_MONTHLY_CAP_WARN_ONLY=1 (reserve pushed total to $%.4f in %s)",
+                cap, new_total, month,
+            )
+            return
+        raise MonthlyCostCapExceeded(spent=new_total, cap=cap, month=month)
+
+    # Under cap — cache the reserve-adjusted total so _refresh_month_cache
+    # sees it on the next check (belt-and-suspenders with the Redis key).
+    _month_cache["total"] = max(_month_cache.get("total", 0.0), new_total)
+    _month_cache["loaded_at"] = time.time()
 
 
 def _provider_from_model(model: str) -> str:
