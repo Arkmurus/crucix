@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2091,
+  "next_available": 2092,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15229,9 +15229,10 @@
       "title": "Tier2: OCR job store + LLM rate-limiter shared across workers; RPM 50->150",
       "claimed_at": "2026-06-28T13:13:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0d17aadb",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:29:23Z"
     },
     {
       "r_number": "R-F2090",
@@ -15241,6 +15242,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2091",
+      "title": "endpoint_cache: timeout on compute so a hung component cannot permanently wedge /api/aria/health (R-F2072 fragility)",
+      "claimed_at": "2026-06-28T13:43:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-06-28T13:46:07Z"
     }
   ]
 }

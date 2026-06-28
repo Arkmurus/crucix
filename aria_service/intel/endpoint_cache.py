@@ -55,11 +55,14 @@ class _Entry:
         self.stale_serves = 0
 
 
-async def _refresh(fn: Callable, entry: _Entry, label: str, args: tuple, kwargs: dict) -> None:
+async def _refresh(fn: Callable, entry: _Entry, label: str, args: tuple, kwargs: dict,
+                   timeout_s: float = 30.0) -> None:
     """Recompute in the background and replace the cached value. On failure, keep
     the existing (stale) value so a transient hiccup never blanks the endpoint."""
     try:
-        res = await fn(*args, **kwargs)
+        # R-F2091 — bound so a hung compute can't leave entry.refreshing stuck True
+        # (which would silently stop all future stale-while-revalidate refreshes).
+        res = await asyncio.wait_for(fn(*args, **kwargs), timeout=timeout_s)
         entry.value = res
         entry.ts = time.monotonic()
     except Exception as e:  # keep stale value; never propagate from a bg task
@@ -81,9 +84,19 @@ async def _refresh(fn: Callable, entry: _Entry, label: str, args: tuple, kwargs:
         entry.refreshing = False
 
 
-def cached_endpoint(ttl_s: float = 25.0, *, name: str = "") -> Callable:
+def cached_endpoint(ttl_s: float = 25.0, *, name: str = "",
+                    compute_timeout_s: float = 30.0) -> Callable:
     """Decorator for an async, param-less endpoint. Exposes `.cache_entry` +
-    `.cache_stats()` for tests/inspection."""
+    `.cache_stats()` for tests/inspection.
+
+    R-F2091 — `compute_timeout_s` bounds every `await fn()` (cold path AND the
+    proactive refresh_now). WITHOUT it, a single component that hangs on a bad
+    boot (cold rag/chromadb, a contended lock) would hold the entry lock forever
+    while the value is still _MISS — and every reader then blocks on that lock
+    indefinitely (live incident 2026-06-28: /api/aria/health hung >90s after the
+    first refresh_now wedged). With the timeout, a hung compute releases the lock,
+    raises, and the next refresh tick retries — so a transient slow component can
+    never PERMANENTLY wedge the endpoint."""
 
     def deco(fn: Callable) -> Callable:
         entry = _Entry()
@@ -102,7 +115,7 @@ def cached_endpoint(ttl_s: float = 25.0, *, name: str = "") -> Callable:
                 entry.stale_serves += 1
                 if not entry.refreshing:
                     entry.refreshing = True
-                    asyncio.create_task(_refresh(fn, entry, label, args, kwargs))
+                    asyncio.create_task(_refresh(fn, entry, label, args, kwargs, compute_timeout_s))
                 return v
             # cold: single-flight compute so concurrent first-callers don't stampede
             async with entry.lock:
@@ -110,7 +123,9 @@ def cached_endpoint(ttl_s: float = 25.0, *, name: str = "") -> Callable:
                     entry.hits += 1
                     return entry.value
                 entry.misses += 1
-                res = await fn(*args, **kwargs)
+                # R-F2091 — bound the cold compute so a hung component can't hold
+                # the lock forever (which would block every subsequent reader).
+                res = await asyncio.wait_for(fn(*args, **kwargs), timeout=compute_timeout_s)
                 entry.value = res
                 entry.ts = time.monotonic()
                 # §21a — record the endpoint cache going warm (cold→computed). Fires
@@ -133,7 +148,9 @@ def cached_endpoint(ttl_s: float = 25.0, *, name: str = "") -> Callable:
             poll after a cold boot. Single-flight via the same lock the cold path
             uses, so it can't race a request-triggered compute into a double-run."""
             async with entry.lock:
-                res = await fn(*a, **kw)
+                # R-F2091 — bounded so a hung component times out (releasing the
+                # lock) instead of wedging the endpoint until process restart.
+                res = await asyncio.wait_for(fn(*a, **kw), timeout=compute_timeout_s)
                 entry.value = res
                 entry.ts = time.monotonic()
                 entry.refreshing = False
