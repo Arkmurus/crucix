@@ -349,3 +349,59 @@ class TruthVerifier:
                 for c in self._verified_claims
             ],
         }
+
+
+def verified_emit(
+    task_description: str,
+    evidence_requirements: list[str],
+    verifier: TruthVerifier | None = None,
+) -> dict[str, Any]:
+    """Emit a success message only after verification.
+
+    This is the primary entry point for ARIA's claim reporting. Every
+    success message must pass through this function before being emitted.
+
+    Args:
+        task_description: Human-readable description of what was done.
+        evidence_requirements: List of evidence types to verify.
+        verifier: Optional existing verifier instance (creates one if None).
+
+    Returns:
+        Dict with:
+            - verified: bool
+            - message: str
+            - report: dict (verification report, only if verified)
+            - error: str (only if not verified)
+    """
+    if verifier is None:
+        verifier = TruthVerifier()
+
+    claim = Claim(
+        statement=task_description,
+        evidence_requirements=evidence_requirements,
+    )
+
+    ok, report = verifier.verify(claim)
+
+    if ok:
+        logger.info(
+            "✅ VERIFIED: %s — %d evidence checks passed",
+            task_description[:100],
+            len(report.get("evidence", [])),
+        )
+        return {
+            "verified": True,
+            "message": task_description,
+            "report": verifier.get_report(),
+        }
+    else:
+        logger.warning(
+            "❌ VERIFICATION FAILED: %s — %s",
+            task_description[:100],
+            report.get("message", "unknown"),
+        )
+        return {
+            "verified": False,
+            "message": task_description,
+            "error": report.get("message", "Verification failed"),
+        }
