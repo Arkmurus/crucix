@@ -154,6 +154,14 @@ def fail_wire(
     return decorator
 
 
+# R-F2149: recursion guard for fail_wire. When record_gap itself raises (e.g.
+# because a caller passed an unexpected kwarg), fail_wire catches it and calls
+# _wire_failure again, which calls record_gap again — creating an infinite loop.
+# This set tracks in-flight _wire_failure calls so we can detect and break the
+# recursion. Keyed by (module, func_name) to allow independent failures through.
+_WIRE_FAILURE_IN_FLIGHT: set = set()
+
+
 def _wire_failure(
     module: str,
     gap_type: str,
@@ -168,13 +176,31 @@ def _wire_failure(
       - Async (non-blocking I/O)
       - Deduped (R-F66: same gap_type+detail within 1h window is skipped)
       - Bounded (R-F1669: MAX_GAPS=500 cap)
+
+    R-F2149: recursion guard. If this module+func_name is already in-flight
+    (i.e., we're being called from within record_gap's own fail_wire handler),
+    we skip the wire_failure to prevent an infinite loop. The original error
+    is still logged at DEBUG level.
     """
     import asyncio
+
+    # R-F2149: recursion guard — break the loop if we're already recording
+    # a failure for this module+func_name (means record_gap itself failed).
+    _key = f"{module}:{func_name}"
+    if _key in _WIRE_FAILURE_IN_FLIGHT:
+        logger.debug(
+            "[fail_wire] recursion guard: skipping wire_failure for %s "
+            "(already in-flight — record_gap itself may have failed)",
+            _key,
+        )
+        return
+    _WIRE_FAILURE_IN_FLIGHT.add(_key)
 
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         logger.debug("[fail_wire] no running loop — skipping wire_failure for %s", module)
+        _WIRE_FAILURE_IN_FLIGHT.discard(_key)
         return
 
     full_detail = f"[{func_name}] {detail}"[:500]
@@ -193,6 +219,8 @@ def _wire_failure(
         except Exception as _e:
             # The wire itself must NEVER raise — would mask the original error
             logger.debug("[fail_wire] record_gap failed (non-fatal): %s", _e)
+        finally:
+            _WIRE_FAILURE_IN_FLIGHT.discard(_key)
 
     # R-F1776: hold a STRONG reference to prevent GC from collecting the
     # task before it records the gap (same bug class as R-F1363 — weak

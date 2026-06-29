@@ -213,6 +213,7 @@ async def record_gap(
     user_id: str = "",
     sector: str = "",
     severity: "int | str" = 0,
+    title: str = "",
 ) -> dict:
     """Record a capability gap to Redis.
 
@@ -233,6 +234,9 @@ async def record_gap(
                  already pass this; before R-F1843 record_gap rejected it with
                  TypeError, so those monitors' gaps were SILENTLY DROPPED (dark
                  §21 wiring). Accepted + stored now; default 0 = unspecified.
+        title: R-F2149 — optional title for the gap. Used by continuous_profiler,
+               memory_leak_detector, and deadlock_detector to provide a concise
+               headline alongside the detail. Stored in the gap entry if provided.
 
     Returns:
         The stored gap entry dict.
@@ -270,6 +274,9 @@ async def record_gap(
         "sector": (sector or "").strip()[:64],
         # R-F1843: severity tag from the self-monitoring agents (int or str).
         "severity": severity,
+        # R-F2149: optional title from self-monitoring agents (continuous_profiler,
+        # memory_leak_detector, deadlock_detector). Stored alongside detail.
+        "title": (title or "").strip()[:200],
     }
 
     # R-F1351: persist the gap as a CRITICAL write. Pre-R-F1351 a dropped
