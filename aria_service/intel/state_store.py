@@ -742,9 +742,13 @@ async def connect(db_path: str | None = None) -> bool:
             pass
 
     try:
-        _conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F2151: wrap connect in a timeout so a locked/WAL-recovering DB
+        # doesn't hang boot forever. 30s is generous for any SQLite open.
+        _conn = await asyncio.wait_for(
+            aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
         # R-F1449: also open the dedicated read connection
-        _read_conn = await aiosqlite.connect(str(_DB_PATH))
+        _read_conn = await asyncio.wait_for(
+            aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
         # R-F2132: set busy_timeout BEFORE journal_mode=WAL. The journal_mode
         # PRAGMA can trigger a WAL recovery that needs a database lock; if
         # busy_timeout is still at Python sqlite3's ~5s default, recovery of a
