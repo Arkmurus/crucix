@@ -143,10 +143,15 @@ async def connect(db_path: str | None = None) -> bool:
 
     try:
         _conn = await aiosqlite.connect(str(_DB_PATH) if _DB_PATH else db_path)
+        # R-F2132: busy_timeout BEFORE journal_mode=WAL, and 120s not 5s. A
+        # journal_mode PRAGMA can trigger a WAL recovery that needs a lock; at
+        # the 5s default a multi-GB WAL recovery raises 'database is locked'
+        # before the timeout applies (same boot-deadlock class as aria_state,
+        # 2026-06-29 outage).
+        await _conn.execute("PRAGMA busy_timeout=120000")
         await _conn.execute("PRAGMA journal_mode=WAL")
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=ON")
-        await _conn.execute("PRAGMA busy_timeout=5000")
         await _create_schema(_conn)
         await _conn.commit()
         if _DB_PATH:

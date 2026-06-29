@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2126,
+  "next_available": 2137,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15579,6 +15579,105 @@
       "r_number": "R-F2125",
       "title": "dedupe R-F2116 collision + verify R-F2110 chat-hang fix live",
       "claimed_at": "2026-06-28T22:28:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2126",
+      "title": "pre-commit syntax gate — block any broken .py from being committed (annotation-corruption backstop)",
+      "claimed_at": "2026-06-28T23:08:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2127",
+      "title": "pre-commit syntax gate backstop",
+      "claimed_at": "2026-06-28T23:09:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2128",
+      "title": "aria CLI coder_tools shell-injection — apply _shq to ci_deploy/reserve/ship",
+      "claimed_at": "2026-06-28T23:12:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2129",
+      "title": "aria CLI robustness follow-up — marker/stdout/poll-race/stream-cap/loop-guard from 4-step review",
+      "claimed_at": "2026-06-28T23:18:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2130",
+      "title": "wire coding_constitutional RAG — author CLAUDE.md/AGENTS.md rules into index_constitutional_rules so the coder is grounded in the playbook",
+      "claimed_at": "2026-06-28T23:24:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2131",
+      "title": "Fix state_store _reconnect busy_timeout mismatch",
+      "claimed_at": "2026-06-29T10:47:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2132",
+      "title": "state_store PRAGMA ordering: busy_timeout before journal_mode (boot-deadlock root cause)",
+      "claimed_at": "2026-06-29T11:13:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2133",
+      "title": "Fix state_store set() builtins shadowing + anti-hallucination laws 18-20",
+      "claimed_at": "2026-06-29T11:23:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2134",
+      "title": "Add coding convention rules + pre-commit checklist + RAG priming ritual",
+      "claimed_at": "2026-06-29T11:38:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2135",
+      "title": "Add compile-gate, capability-test, and PowerShell-safety checks to pre-commit hook",
+      "claimed_at": "2026-06-29T11:40:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2136",
+      "title": "Wire pre-commit hook failures into coding_failures RAG collection",
+      "claimed_at": "2026-06-29T11:50:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
