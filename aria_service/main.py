@@ -1465,7 +1465,7 @@ async def lifespan(app: FastAPI):
                 try:
                     await _tick_heartbeat("research_engine", "RSS feeds → fact extraction → hypothesis validation")
                     logger.info("[Research] Starting autonomous research cycle...")
-                    result = await research_and_learn(llm)
+                    result = await research_and_learn(getattr(app.state, "llm_provider", None))
                     await _wire_agent_success(
                         "research_engine",
                         f"Research cycle: {result.get('facts_learned', 0)} facts, "
@@ -1614,7 +1614,7 @@ async def lifespan(app: FastAPI):
         ))
 
     # Register self-improvement engine
-    if llm and llm.is_configured:
+    if getattr(app.state, "llm_provider", None) and getattr(app.state.llm_provider, "is_configured", False):
         asyncio.create_task(_register_agent(
             "self_improve", "autonomous_self_improve",
             "Error-ledger analysis → bug detection → auto-fix → auto-deploy (every 2h)",
@@ -1939,7 +1939,7 @@ async def lifespan(app: FastAPI):
 
     # Start autonomous self-improvement loop (every 2 hours)
     self_improve_task = None
-    if llm and llm.is_configured:
+    if getattr(app.state, "llm_provider", None) and getattr(app.state.llm_provider, "is_configured", False):
         async def _self_improve_loop():
             await asyncio.sleep(600)  # Wait 10 min after startup (staggered from research at 15min)
             while True:
@@ -1955,7 +1955,7 @@ async def lifespan(app: FastAPI):
                 try:
                     await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
-                    result = await self_improve.autonomous_improvement_cycle(llm)
+                    result = await self_improve.autonomous_improvement_cycle(getattr(app.state, "llm_provider", None))
                     await _wire_agent_success(
                         "self_improve",
                         f"Improvement cycle: {result.get('bugs_detected', 0)} bugs, "
@@ -2085,7 +2085,7 @@ async def lifespan(app: FastAPI):
             _t = cost_tracker.set_feature("student_reading")
             try:
                 await _tick_heartbeat("student_reading", "Study articles on weak topics")
-                result = await student.reading_session(llm=llm, num_articles=4)
+                result = await student.reading_session(llm=getattr(app.state, "llm_provider", None), num_articles=4)
                 await _wire_agent_success(
                     "student_reading",
                     f"Reading: {result.get('articles_read', 0)} articles on "
@@ -2629,7 +2629,7 @@ async def lifespan(app: FastAPI):
         # survives restarts and gets picked up here on the next boot.
         await autonomous_engine.refresh_runtime_override()
         if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
-            started = autonomous_engine.start_engine(llm)
+            started = autonomous_engine.start_engine(getattr(app.state, "llm_provider", None))
             if started:
                 logger.info(
                     "Autonomous engine started (dry_run=%s) — see /api/aria/autonomous/status",
@@ -3931,7 +3931,7 @@ async def zoom_webhook_ep(request: Request):
                 )
 
         llm = getattr(app.state, "llm_provider", None)
-        result = await zoom.handle_webhook(body, llm=llm)
+        result = await zoom.handle_webhook(body, llm=getattr(app.state, "llm_provider", None))
         return result
     except HTTPException:
         # R-F1349: let the 401 signature rejection propagate — the broad
