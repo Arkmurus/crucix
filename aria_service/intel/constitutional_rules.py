@@ -266,6 +266,63 @@ CONSTITUTIONAL_RULES: list[dict] = [
                       "'⚠️ committed but NOT deployed because <reason> — needs <action>'.",
         "consequence": "The operator discovers undeployed work himself — the worst outcome.",
     },
+    # ── R-F2133: coding convention rules ──────────────────────────────────
+    {
+        "name": "coding-convention-error-messages",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Error messages must be informative: include the operation that failed, "
+                       "the reason (exception text), and any relevant context (key name, module). "
+                       "Never log bare exceptions without context.",
+        "constraint": "Every logger.error/warning call includes a descriptive prefix and the "
+                      "relevant variables. Pattern: 'module: operation failed: {reason}'.",
+        "consequence": "Bare exceptions in logs are undiagnosable in production.",
+    },
+    {
+        "name": "coding-convention-import-ordering",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Imports follow a consistent order: standard library → third-party → "
+                       "local. Groups separated by blank lines. No wildcard imports.",
+        "constraint": "Within each file, imports are grouped: stdlib, then third-party, then "
+                      "local. Use explicit names, not `from module import *`.",
+        "consequence": "Mixed import orders make review harder and can hide circular imports.",
+    },
+    {
+        "name": "coding-convention-type-hints",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Every public function and method has type hints on all parameters "
+                       "and the return value. Internal helpers should also be typed.",
+        "constraint": "def func(param: type, ...) -> return_type: — no bare `def func(param)` "
+                      "without types. Use `from __future__ import annotations` for forward refs.",
+        "consequence": "Untyped code is harder to review, refactor, and maintain.",
+    },
+    {
+        "name": "coding-convention-docstrings",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Public functions and classes have docstrings explaining what they do, "
+                       "not how. Args/returns documented for non-trivial interfaces.",
+        "constraint": "Docstrings on every public callable. One-line is fine for simple "
+                      "functions. Multi-line for complex: summary line, blank, then details.",
+        "consequence": "Code without docstrings requires reading the implementation to understand intent.",
+    },
+    {
+        "name": "coding-convention-test-structure",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Tests follow arrange-act-assert pattern. Test names describe the "
+                       "scenario and expected outcome. Each test tests one thing.",
+        "constraint": "test_<scenario>_<expected_outcome>(). Arrange inputs, act on the function "
+                      "under test, assert the result. Avoid multiple assertions that test "
+                      "different behaviours.",
+        "consequence": "Poorly structured tests hide regressions and are hard to debug when they fail.",
+    },
+    {
+        "name": "coding-convention-no-dead-code",
+        "clause_number": "AGENTS.md §8.7 / R-F2133",
+        "description": "Every code path added is reachable and handled. No commented-out code, "
+                       "no TODO markers that are never actioned, no speculative abstractions.",
+        "constraint": "Before adding a function, ask: 'Is this called anywhere? Is the return "
+                      "value used?' Remove dead imports, unused variables, and stub functions.",
+        "consequence": "Dead code accumulates until it blocks a deploy (R-F2126: 31 syntax errors).",
+    },
 ]
 
 

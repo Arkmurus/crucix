@@ -83,6 +83,31 @@ overrides this file where they overlap.
    touch your changes (not just the new ones). Only sign off when every claim is
    backed by a passing test, a code grep, or a live probe. If a path is untestable
    (e.g. requires a live WA socket), flag it explicitly with risk level.
+
+8.7 **Pre-commit checklist (R-F2133, binding)** — before every `git commit`, run this
+    checklist. If any item is unchecked, fix it before committing:
+    - [ ] **Capability test exists** — does the diff include a test that drives the
+          broken path and asserts the user-visible outcome? (CLAUDE.md §3c)
+    - [ ] **Compile gate passed** — `find aria_service -name "*.py" -not -path "*/tests/*" | while read f; do python -m py_compile "$f" || echo "BROKEN: $f"; done`
+          (CLAUDE.md §11c)
+    - [ ] **Function names verified** — every `module.function()` call in the diff was
+          checked against `def function` in that module (CLAUDE.md §3b)
+    - [ ] **PowerShell-safe command strings** — no `curl` (use `curl.exe`), no `&&`
+          (use `;`), no `()` in message strings (anti-hallucination law 19)
+    - [ ] **No --no-verify** — if the pre-commit hook blocks you, fix the pre-existing
+          issue as a separate R-number first (anti-hallucination law 20)
+    - [ ] **RAG queried** — for any non-trivial change, queried `coding_constitutional`
+          for relevant constraints (CLAUDE.md §20 Open ritual)
+    - [ ] **Wiring verified** — both success and failure branches reach a brain sink
+          (anti-hallucination law 13)
+
+8.8 **Post-commit verification (R-F1187, binding)** — after every commit, before
+    declaring done:
+    - [ ] **Re-ran ALL tests** that touch changed files (not just new ones)
+    - [ ] **Re-read every changed file** — grep for the patterns you added
+    - [ ] **Cross-checked every claim** against evidence (file:line, test output, probe)
+    - [ ] **Recorded the lesson** via `remember()` — what pattern, what fix, what gap
+
 9. **Ship** — commit, push, and (when required) deploy. See below.
 
 ## The bulletproof bar — anti-hallucination laws (learned the hard way)
