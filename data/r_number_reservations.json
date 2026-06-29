@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2149,
+  "next_available": 2150,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15786,6 +15786,16 @@
       "r_number": "R-F2148",
       "title": "Fix incrbyfloat to use atomic SQL UPSERT instead of global lock",
       "claimed_at": "2026-06-29T22:19:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2af0532b",
+      "notes": null,
+      "shipped_at": "2026-06-29T22:47:57Z"
+    },
+    {
+      "r_number": "R-F2149",
+      "title": "Fix lifespan yield",
+      "claimed_at": "2026-06-29T23:36:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
