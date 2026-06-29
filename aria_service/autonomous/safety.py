@@ -99,6 +99,11 @@ _PAUSE_UNTIL_KEY = "crucix:autonomous:paused_until"
 _DEFAULT_MAX_PAUSE_S = int(os.getenv("ARIA_MAX_PAUSE_SECONDS", str(6 * 3600)))   # 6h default
 _HARD_MAX_PAUSE_S = 24 * 3600   # 24h absolute cap
 _PAUSE_TASK_FMT = "crucix:autonomous:paused:task:{task_id}"
+# R-F2141 — permanent kill switch. Unlike the auto-expiring pause (which
+# self-heals within 24h), this flag is MANUALLY cleared and NEVER auto-resumes.
+# Intended for operator-initiated emergency stop that must persist until
+# explicitly released. Checked BEFORE the pause flag in is_engine_paused.
+_SAFETY_STOP_KEY = "crucix:autonomous:safety_stop"
 
 
 # ── In-memory cost circuit breaker (H8) ───────────────────────────────────
@@ -430,6 +435,13 @@ async def is_engine_paused() -> bool:
     """
     global _paused_inproc
     try:
+        # R-F2141: safety_stop is checked FIRST — it NEVER auto-expires.
+        # If set, the engine stays stopped until explicitly released.
+        _safety_val = await rs.get(_SAFETY_STOP_KEY)
+        if (_safety_val or "").strip() == "1":
+            _paused_inproc = True
+            return True
+
         val = await rs.get(_PAUSE_KEY)
         if (val or "").strip() != "1":
             _paused_inproc = False
@@ -547,6 +559,62 @@ async def resume_engine() -> None:
             detail=f"Failed to resume engine: {e}",
             gap_type="redis_failure",
             source="autonomous_safety:resume_engine",
+        )
+
+
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
+async def safety_stop_engine(reason: str = "") -> None:
+    """R-F2141 — permanent engine stop. Unlike pause_engine(), this NEVER
+    auto-expires. Only safety_release_engine() clears it. Intended for
+    operator-initiated emergency stop that must persist until explicitly released."""
+    global _paused_inproc
+    _paused_inproc = True
+    try:
+        await rs.set(_SAFETY_STOP_KEY, "1")
+        logger.warning(
+            "[autonomous safety] SAFETY STOP engaged. Reason: %s. "
+            "Engine will NOT auto-resume — safety_release_engine() required.",
+            reason or "(none)",
+        )
+        wire_success(
+            module="autonomous_safety",
+            summary=f"Safety stop: {reason or 'no reason given'}",
+            source_id="autonomous_safety:safety_stop_engine",
+        )
+    except Exception as e:
+        logger.error("[autonomous safety] failed to set safety_stop flag: %s", e)
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Failed to set safety_stop: {e}",
+            gap_type="redis_failure",
+            source="autonomous_safety:safety_stop_engine",
+        )
+
+
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
+async def safety_release_engine() -> None:
+    """R-F2141 — release the permanent safety stop. Engine returns to normal
+    operation (subject to the regular pause/rate/cost checks)."""
+    global _paused_inproc
+    _paused_inproc = False
+    try:
+        if hasattr(rs, "delete"):
+            await rs.delete(_SAFETY_STOP_KEY)
+        else:
+            await rs.set(_SAFETY_STOP_KEY, "0")
+        logger.warning("[autonomous safety] SAFETY STOP released — engine back to normal.")
+        wire_success(
+            module="autonomous_safety",
+            summary="Safety stop released",
+            source_id="autonomous_safety:safety_release_engine",
+        )
+    except Exception as e:
+        logger.error("[autonomous safety] failed to clear safety_stop flag: %s", e)
+        wire_failure(
+            module="autonomous_safety",
+            detail=f"Failed to clear safety_stop: {e}",
+            gap_type="redis_failure",
+            source="autonomous_safety:safety_release_engine",
         )
 
 
