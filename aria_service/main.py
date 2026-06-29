@@ -1081,130 +1081,93 @@ async def lifespan(app: FastAPI):
 
     rag_backfill_task = _bg_task(asyncio.create_task(_rag_init_bg(), name="rag_init"))
 
-    # Create LLM provider with automatic fallback chain.
-    # Auto-detect the right API key based on the provider name so that
-    # setting ANTHROPIC_API_KEY + LLM_PROVIDER=anthropic works without
-    # also needing to duplicate the key into LLM_API_KEY.
-    _provider_key_map = {
-        "anthropic": settings.anthropic_api_key,
-        "openai": settings.openai_api_key,
-        "gemini": settings.gemini_api_key,
-        "deepseek": settings.deepseek_api_key,
-        "groq": _os.environ.get("GROQ_API_KEY", ""),
-    }
-    api_key = (
-        settings.llm_api_key
-        or _provider_key_map.get(settings.llm_provider.lower().strip(), "")
-        or settings.deepseek_api_key
-    )
-    llm = create_fallback_chain(
-        primary_provider=settings.llm_provider,
-        primary_key=api_key,
-        primary_model=settings.llm_model,
-        primary_base_url=settings.llm_base_url,
-    )
-    # F68 fix 2026-04-28: rehydrate any HARD (auth/billing) cooldowns
-    # that were mirrored to Redis before the previous process exited.
-    # Without this, every restart re-probes the failed backend and burns
-    # ~5 calls before the in-process cooldown re-engages.
-    if llm and hasattr(llm, "hydrate_from_redis"):
-        try:
-            n = await llm.hydrate_from_redis()
-            if n:
-                logger.info(
-                    "LLM fallback chain: rehydrated %d HARD cooldown(s) from Redis",
-                    n,
-                )
-        except Exception as e:
-            logger.warning("LLM cooldown hydrate failed (non-fatal): %s", e)
-    if not llm:
-        # No fallback providers either — use single provider
-        llm = create_llm_provider(
-            provider=settings.llm_provider,
-            api_key=api_key,
-            model=settings.llm_model,
-            base_url=settings.llm_base_url,
-            ollama_url=settings.ollama_url,
-            ollama_model=settings.ollama_model,
+    # ---- R-F2150 - LLM provider + resilience + dialogue_state in background -----
+    # These were on the critical path between boot_continuation and yield.
+    # Any one of them could hang (slow import, network timeout, DB lock) and
+    # block the server from ever starting. Moving them into a background task
+    # means the server starts serving in <2s.
+    app.state.llm_provider = None
+    app.state.current_data = None
+
+    async def _init_llm_and_dialogue_bg():
+        """Create LLM provider, resilience layer, and init dialogue_state
+        in the background so the lifespan yields immediately."""
+        import os as _os_bg
+        _provider_key_map = {
+            "anthropic": settings.anthropic_api_key,
+            "openai": settings.openai_api_key,
+            "gemini": settings.gemini_api_key,
+            "deepseek": settings.deepseek_api_key,
+            "groq": _os_bg.environ.get("GROQ_API_KEY", ""),
+        }
+        api_key = (
+            settings.llm_api_key
+            or _provider_key_map.get(settings.llm_provider.lower().strip(), "")
+            or settings.deepseek_api_key
         )
-    # Wrap the provider with the cost-tracking decorator so every
-    # llm.complete() call is metered automatically. Token counts come
-    # straight from LLMResult; USD cost from cost_tracker pricing table.
-    if llm:
-        try:
-            from .llm.metered import MeteredProvider
-            llm = MeteredProvider(llm)
-            logger.info("LLM provider wrapped with cost meter")
-        except Exception as e:
-            logger.warning("MeteredProvider wrap failed (non-fatal): %s", e)
-
-    # Wrap with priority-aware rate limiter so background loops don't
-    # starve interactive chat of Anthropic quota. Interactive requests
-    # always go through; background tasks yield when near the limit.
-    # ARIA_LLM_RPM env var sets the requests-per-minute cap (default 50).
-    if llm:
-        try:
-            from .llm.rate_limiter import RateLimitedProvider
-            llm = RateLimitedProvider(llm)
-            logger.info("LLM provider wrapped with rate limiter (rpm=%s)",
-                        _os.getenv("ARIA_LLM_RPM", "50"))
-        except Exception as e:
-            logger.warning("RateLimitedProvider wrap failed (non-fatal): %s", e)
-
-    app.state.llm_provider = llm
-    app.state.current_data = None  # Will be set by sweep integration
-
-    # ── R-F1368: LLM resilience layer — health checker, request queue, cache ──
-    # Start the background health probe for ARIA-LLM (sovereign 14B on RunPod).
-    # Only activates when ARIA_LLM_URL is set. The health checker updates the
-    # circuit_breaker registry so the fallback chain routes around a dead
-    # sovereign model without waiting for a user request to discover the outage.
-    llm_health_checker = None
-    llm_request_queue = None
-    llm_response_cache = None
-    try:
-        from .llm.resilience import LLMHealthChecker, LLMRequestQueue, LLMResponseCache
-        # 1. Health checker — background probe
-        llm_health_checker = LLMHealthChecker()
-        await llm_health_checker.start()
-        # 2. Request queue — semaphore-based concurrency limiter
-        llm_request_queue = LLMRequestQueue(llm)
-        # 3. Response cache — LRU cache for repeated queries
-        llm_response_cache = LLMResponseCache(llm_request_queue)
-        # Replace the LLM provider with the wrapped chain
-        app.state.llm_provider = llm_response_cache
-        logger.info(
-            "[R-F1368] LLM resilience layer active: health_checker=%s queue=%s cache=%s",
-            llm_health_checker.is_available() if hasattr(llm_health_checker, 'is_available') else False,
-            llm_request_queue.get_stats() if hasattr(llm_request_queue, 'get_stats') else {},
-            llm_response_cache.get_stats() if hasattr(llm_response_cache, 'get_stats') else {},
+        _llm = create_fallback_chain(
+            primary_provider=settings.llm_provider,
+            primary_key=api_key,
+            primary_model=settings.llm_model,
+            primary_base_url=settings.llm_base_url,
         )
-    except Exception as _resilience_e:
-        logger.warning("[R-F1368] LLM resilience layer init failed (non-fatal): %s", _resilience_e)
+        if _llm and hasattr(_llm, "hydrate_from_redis"):
+            try:
+                n = await _llm.hydrate_from_redis()
+                if n:
+                    logger.info("LLM fallback chain: rehydrated %d HARD cooldown(s) from Redis", n)
+            except Exception as e:
+                logger.warning("LLM cooldown hydrate failed (non-fatal): %s", e)
+        if not _llm:
+            _llm = create_llm_provider(
+                provider=settings.llm_provider, api_key=api_key,
+                model=settings.llm_model, base_url=settings.llm_base_url,
+                ollama_url=settings.ollama_url, ollama_model=settings.ollama_model,
+            )
+        if _llm:
+            try:
+                from .llm.metered import MeteredProvider
+                _llm = MeteredProvider(_llm)
+                logger.info("LLM provider wrapped with cost meter")
+            except Exception as e:
+                logger.warning("MeteredProvider wrap failed (non-fatal): %s", e)
+        if _llm:
+            try:
+                from .llm.rate_limiter import RateLimitedProvider
+                _llm = RateLimitedProvider(_llm)
+                logger.info("LLM provider wrapped with rate limiter (rpm=%s)",
+                            _os_bg.getenv("ARIA_LLM_RPM", "50"))
+            except Exception as e:
+                logger.warning("RateLimitedProvider wrap failed (non-fatal): %s", e)
 
-    if llm and llm.is_configured:
-        logger.info(f"LLM provider: {llm.name} ✓")
-    else:
-        logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
+        try:
+            from .llm.resilience import LLMHealthChecker, LLMRequestQueue, LLMResponseCache
+            _llm_health_checker = LLMHealthChecker()
+            await _llm_health_checker.start()
+            _llm_request_queue = LLMRequestQueue(_llm)
+            _llm_response_cache = LLMResponseCache(_llm_request_queue)
+            app.state.llm_provider = _llm_response_cache
+            logger.info("[R-F1368] LLM resilience layer active")
+        except Exception as _resilience_e:
+            logger.warning("[R-F1368] LLM resilience layer init failed (non-fatal): %s", _resilience_e)
+            app.state.llm_provider = _llm
 
-    # ── R-F673 (2026-05-17) — explicit dialogue_state DB init ──────────
-    # dialogue_state.py lazily creates its aiosqlite connection + schema
-    # on first call. That's fine for normal traffic, but it means a
-    # boot-time misconfiguration (volume not mounted, schema mismatch)
-    # only surfaces when the FIRST chat turn lands — sometimes minutes
-    # after deploy. Calling _ensure_conn here forces the failure into
-    # the boot log so /api/aria/health/live can't go green over a
-    # broken dialogue store.
-    try:
-        from .intel import dialogue_state as _ds_boot
-        await _ds_boot._ensure_conn()
-        logger.info("[R-F673] dialogue_state DB init ✓")
-    except Exception as _ds_e:
-        logger.warning(
-            "[R-F673] dialogue_state init failed at boot — open-question "
-            "tracking will be degraded until DB is reachable: %s",
-            _ds_e,
-        )
+        if app.state.llm_provider and getattr(app.state.llm_provider, "is_configured", False):
+            logger.info(f"LLM provider: {app.state.llm_provider.name}")
+        else:
+            logger.warning("LLM provider not configured - set LLM_PROVIDER + LLM_API_KEY")
+
+        try:
+            from .intel import dialogue_state as _ds_boot
+            await _ds_boot._ensure_conn()
+            logger.info("[R-F673] dialogue_state DB init")
+        except Exception as _ds_e:
+            logger.warning(
+                "[R-F673] dialogue_state init failed at boot - open-question "
+                "tracking will be degraded until DB is reachable: %s", _ds_e,
+            )
+
+    _bg_task(asyncio.create_task(_init_llm_and_dialogue_bg(), name="init_llm_and_dialogue"))
 
     # ── R-F248 (2026-05-11) — startup state snapshot ──────────────────────
     # Log a single "ARIA state at boot" line with the size of every
