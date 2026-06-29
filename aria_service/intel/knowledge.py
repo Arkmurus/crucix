@@ -548,8 +548,11 @@ async def _read_from_disk_chunked() -> dict | None:
     except Exception as e:
         logger.warning("knowledge: sidecar read failed, falling back to monolithic: %s", e)
 
-    # Fallback: the canonical monolithic load (today's behaviour, lossless).
-    data = _read_from_disk()
+    # Fallback: the canonical monolithic load — run in to_thread so the
+    # synchronous json.load (which holds the GIL for the whole 223k-fact
+    # parse) does NOT starve the event loop. Without this, a missing sidecar
+    # on first boot after deploy blocks /health/live for minutes.
+    data = await asyncio.to_thread(_read_from_disk)
     if data is not None:
         try:  # regenerate the sidecar off the boot critical path; pin the
             # marker to the file we just read so a concurrent rewrite can't
