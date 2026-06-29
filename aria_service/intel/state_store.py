@@ -106,6 +106,17 @@ _WRITE_QUEUE_MAX = int(os.getenv("ARIA_STATE_WRITE_QUEUE_MAX", "2000"))
 _WRITE_BATCH_SIZE = int(os.getenv("ARIA_STATE_WRITE_BATCH_SIZE", "50"))
 # How long the worker waits for more writes before flushing a partial batch.
 _WRITE_FLUSH_INTERVAL_S = float(os.getenv("ARIA_STATE_WRITE_FLUSH_INTERVAL_S", "0.1"))
+# R-F2137: runtime WAL maintenance. PRAGMA wal_autocheckpoint is PASSIVE — it
+# transfers frames into the DB but NEVER shrinks the -wal file, so under
+# sustained writes + reader pinning the file's high-water mark only grows at
+# runtime (110 MB observed 2026-06-29, feeding 'database is locked' contention).
+# R-F2116 only TRUNCATEs at boot. The write worker now also runs a periodic
+# wal_checkpoint(TRUNCATE) — which resets the file whenever it catches a
+# reader-free moment — gated on the -wal exceeding a threshold so the common
+# small-WAL case pays nothing.
+_WAL_CHECKPOINT_INTERVAL_S = float(os.getenv("ARIA_WAL_CHECKPOINT_INTERVAL_S", "60"))
+_WAL_TRUNCATE_THRESHOLD_BYTES = int(
+    os.getenv("ARIA_WAL_TRUNCATE_THRESHOLD_MB", "25")) * 1024 * 1024
 # Lazy lock — bound to whatever loop first acquires it. Required because the
 # module is imported BEFORE any event loop exists, and pytest spins up a new
 # loop per `asyncio.run(...)` test. Single-SQL operations don't need this
@@ -335,11 +346,18 @@ async def _start_write_worker() -> None:
     _QUEUED_WRITES = asyncio.Queue(maxsize=_WRITE_QUEUE_MAX)
 
     async def _worker_loop():
-        """Background loop: drain the write queue every 100ms."""
+        """Background loop: drain the write queue every 100ms, and periodically
+        TRUNCATE the WAL so it can't grow unbounded at runtime (R-F2137)."""
+        _ckpt_every = max(1, int(_WAL_CHECKPOINT_INTERVAL_S / 0.1))
+        _ckpt_counter = 0
         while True:
             try:
                 await asyncio.sleep(0.1)
                 await _flush_write_queue()
+                _ckpt_counter += 1
+                if _ckpt_counter >= _ckpt_every:
+                    _ckpt_counter = 0
+                    await _maybe_checkpoint_wal()
             except asyncio.CancelledError:
                 await _flush_write_queue()
                 break
@@ -418,6 +436,33 @@ async def _flush_write_queue() -> int:
             logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
             _schedule_reconnect_if_dead(e)
     return flushed
+
+
+async def _maybe_checkpoint_wal() -> None:
+    """R-F2137: periodically TRUNCATE the -wal so it cannot grow unbounded at
+    runtime. wal_autocheckpoint is PASSIVE (transfers frames but never resets
+    the file), so under sustained writes + reader pinning the -wal high-water
+    mark only grows (110 MB observed 2026-06-29). A checkpoint(TRUNCATE) resets
+    the file whenever it catches a reader-free moment; if a reader pins it the
+    call returns busy and we simply retry next interval — never fatal. Gated on
+    a size threshold so the common small-WAL case skips the checkpoint IO. Fully
+    guarded: a failure here must never break the write-drain loop."""
+    if _conn is None or _DB_PATH is None:
+        return
+    try:
+        _wal_file = _DB_PATH.with_name(_DB_PATH.name + "-wal")
+        _before = _wal_file.stat().st_size if _wal_file.exists() else 0
+        if _before < _WAL_TRUNCATE_THRESHOLD_BYTES:
+            return  # small enough — let PASSIVE autocheckpoint handle it
+        await _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        await _conn.commit()
+        _after = _wal_file.stat().st_size if _wal_file.exists() else 0
+        if _before - _after > 20 * 1024 * 1024:
+            logger.info(
+                "state_store: R-F2137 runtime WAL checkpoint reclaimed "
+                "%.1f MB -> %.1f MB", _before / 1e6, _after / 1e6)
+    except Exception as e:
+        logger.debug("state_store: R-F2137 runtime WAL checkpoint skipped: %s", e)
 
 
 async def _reconnect() -> None:
