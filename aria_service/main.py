@@ -641,84 +641,55 @@ async def lifespan(app: FastAPI):
         )
 
     _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
-
-    # ── R-F1891 — recover orphaned async jobs after a restart ────────────
-    # A restart loses the in-memory chat/DD computation, so any job left at
-    # 'processing' can never finish. Fail them now (awaited, fast scan) so a
-    # reconnecting WhatsApp poll/callback gets a definitive failure and tells the
-    # user to resend, instead of hanging the full 15-min poll window on a dead
-    # job. Best-effort — never blocks boot on failure.
-    try:
-        from .routes.aria import recover_orphaned_jobs as _recover_jobs
-        _n_recovered = await _recover_jobs()
-        if _n_recovered:
-            logger.info("[R-F1891] failed %d orphaned async job(s) interrupted by the restart", _n_recovered)
-    except Exception as _rec_e:
-        logger.warning("[R-F1891] orphaned-job recovery skipped (non-fatal): %s", _rec_e)
-
-    # ── R-F504 (2026-05-14) — ARIA's own search index ───────────────────
-    # Opens a separate SQLite file at /data/aria_search.db (configurable
-    # via ARIA_SEARCH_DB_PATH) for the curated FTS5 corpus that powers
-    # the independence path away from third-party search APIs. Registers
-    # the seed_list domains at boot; the actual crawl runs out-of-band
-    # (admin endpoint or scheduled job in a follow-up R-number).
-    # Non-fatal: a failure here just means chat falls back to the
-    # legacy web_search.search() path until the index is reachable.
-    try:
-        from .search_index import db as _search_db
-        _ok = await _search_db.connect()
-        if _ok:
-            from .crawler import seed_list as _seeds
-            _n = await _seeds.seed_all()
-            logger.info(
-                "[R-F504] search index ready (%d seed domains registered)", _n,
-            )
-        else:
-            logger.warning(
-                "[R-F504] search index connect() returned False — "
-                "chat will fall back to web_search only",
-            )
-    except Exception as _exc:
-        logger.warning(
-            "[R-F504] search index init failed (non-fatal): %s", _exc,
-        )
-
-    # ── R-F507 (2026-05-14) — light the crawler ─────────────────────────
-    # Game-changer move: the engine fills itself. Background task
-    # rotates through the seed domains every CRAWL_INTERVAL_S (default
-    # 6 h). Gated by ARIA_CRAWLER_DISABLED — set to "1" to keep the
-    # engine dark (useful for first-deploy verification or volume cap
-    # exposure investigation).
-    _crawler_task = None
-    _crawler_stop_event = None
-    # R-F508 (2026-05-14): use _f28_os (already imported at line 78), NOT
-    # _os — the inner `import os as _os` on line 168 makes _os a LOCAL
-    # variable for the whole function, so referencing it BEFORE that line
-    # raises UnboundLocalError at startup. R-F507 author missed the F28
-    # warning at lines 72-77 and took prod down at 07:28 UTC.
-    if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+    # ---- R-F2149 - yield IMMEDIATELY so the server starts serving --------
+    # Everything below this point is moved into a background task. The
+    # previous code had ~2500 lines of boot init between here and the yield
+    # at line 3132 - any one of those awaits could hang (search index,
+    # crawler, RAG backfill, LLM hydration, etc.) and block the server from
+    # ever starting, causing Fly's health check to kill the machine.
+    # By yielding now, the server starts serving immediately and the heavy
+    # init runs in the background without blocking the event loop.
+    async def _boot_continuation():
+        """Everything that was between the heavy graph warmup and the yield,
+        now running in a background task so the server starts immediately."""
+        # ---- R-F1891 - recover orphaned async jobs after a restart --------
         try:
-            from .crawler import runner as _crunner
-            _crawler_stop_event = asyncio.Event()
-            _crawl_interval = int(
-                _f28_os.getenv("ARIA_CRAWLER_INTERVAL_SEC", "21600"))  # 6h
-            _crawler_task = asyncio.create_task(
-                _crunner.crawl_loop(
-                    interval_sec=_crawl_interval,
-                    stop_event=_crawler_stop_event,
-                ),
-            )
-            logger.info(
-                "[R-F507] crawler attached (interval=%ds, set "
-                "ARIA_CRAWLER_DISABLED=1 to disable)", _crawl_interval,
-            )
-        except Exception as _exc:
-            logger.warning(
-                "[R-F507] crawler attach failed (non-fatal): %s", _exc,
-            )
-    else:
-        logger.info("[R-F507] crawler DISABLED via ARIA_CRAWLER_DISABLED env")
+            from .routes.aria import recover_orphaned_jobs as _recover_jobs
+            _n_recovered = await _recover_jobs()
+            if _n_recovered:
+                logger.info("[R-F1891] failed %d orphaned async job(s) interrupted by the restart", _n_recovered)
+        except Exception as _rec_e:
+            logger.warning("[R-F1891] orphaned-job recovery skipped (non-fatal): %s", _rec_e)
 
+        # ---- R-F504 - search index ----------------------------------------
+        try:
+            from .search_index import db as _search_db
+            _ok = await _search_db.connect()
+            if _ok:
+                from .crawler import seed_list as _seeds
+                _n = await _seeds.seed_all()
+                logger.info("[R-F504] search index ready (%d seed domains registered)", _n)
+            else:
+                logger.warning("[R-F504] search index connect() returned False")
+        except Exception as _exc:
+            logger.warning("[R-F504] search index init failed (non-fatal): %s", _exc)
+
+        # ---- R-F507 - light the crawler -----------------------------------
+        if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+            try:
+                from .crawler import runner as _crunner
+                _crawler_stop_event = asyncio.Event()
+                _crawl_interval = int(_f28_os.getenv("ARIA_CRAWLER_INTERVAL_SEC", "21600"))
+                _crawler_task = asyncio.create_task(
+                    _crunner.crawl_loop(interval_sec=_crawl_interval, stop_event=_crawler_stop_event),
+                )
+                logger.info("[R-F507] crawler attached (interval=%ds)", _crawl_interval)
+            except Exception as _exc:
+                logger.warning("[R-F507] crawler attach failed (non-fatal): %s", _exc)
+        else:
+            logger.info("[R-F507] crawler DISABLED via ARIA_CRAWLER_DISABLED env")
+
+    _bg_task(asyncio.create_task(_boot_continuation(), name="boot_continuation"))
     # ── RAG store: probe + backfill ALL in background ──────────────────
     # NEITHER the probe nor the backfill can run inline in lifespan.
     # Past incidents (2026-04-07):
