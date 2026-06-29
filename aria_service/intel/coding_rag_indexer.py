@@ -711,6 +711,41 @@ def query_constitutional_constraints(query: str, top_k: int = 3, min_similarity:
     return []
 
 
+def record_precommit_failure(
+    check_name: str,
+    file_path: str,
+    error_message: str,
+    r_number: str = "pre-commit",
+) -> str | None:
+    """R-F2136 — Record a pre-commit hook failure in the coding_failures RAG.
+
+    Called from scripts/pre-commit when a check blocks a commit. This creates
+    a FailureRecord and indexes it so the autonomous coder can learn from
+    pre-commit rejections (e.g., "don't use bare curl in shell scripts").
+
+    This is a sync, non-blocking function (chromadb ops are sync). Callers
+    in async contexts MUST wrap in asyncio.to_thread().
+
+    Returns the chromadb document ID, or None if indexing failed.
+    Never raises — failures are logged and swallowed.
+    """
+    try:
+        from datetime import datetime, timezone
+        record = FailureRecord(
+            r_number=r_number,
+            attempt_number=1,
+            error_type=f"precommit_{check_name}",
+            error_message=error_message[:500],
+            why_failed=f"Pre-commit hook '{check_name}' blocked commit on {file_path}",
+            next_approach="Fix the reported issue and retry the commit",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        return index_failure(record)
+    except Exception as e:
+        logger.debug("[R-F2136] record_precommit_failure failed: %s", e)
+        return None
+
+
 def get_stats() -> dict:
     """Return indexing statistics for monitoring.
 

@@ -336,6 +336,56 @@ def main():
         for issue in issues:
             print(issue)
         print("\nFix the issues above before committing.")
+
+        # R-F2136: record the first failure in coding_failures RAG so the
+        # autonomous coder can learn from pre-commit rejections. Fire-and-forget
+        # via subprocess — never blocks the commit rejection.
+        try:
+            _first = issues[0]
+            _check_name = "unknown"
+            if "COMPILE ERROR" in _first or "COMPILE GATE" in _first:
+                _check_name = "compile_gate"
+            elif "capability test" in _first.lower() or "NO capability test" in _first:
+                _check_name = "capability_test"
+            elif "curl" in _first.lower() or "double-ampersand" in _first.lower():
+                _check_name = "powershell_safety"
+            elif "SYNTAX" in _first or "SyntaxError" in _first:
+                _check_name = "syntax_gate"
+            elif "wiring" in _first.lower():
+                _check_name = "wiring"
+            elif "shadow" in _first.lower():
+                _check_name = "builtin_shadowing"
+            elif "circuit breaker" in _first.lower() or "breaker" in _first.lower():
+                _check_name = "circuit_breaker"
+            elif "token" in _first.lower() or "aria-internal" in _first:
+                _check_name = "token_default"
+            elif "SSRF" in _first or "ssrf" in _first:
+                _check_name = "ssrf_fetch"
+            elif "Windows" in _first or "windows" in _first:
+                _check_name = "windows_compat"
+            _file_hint = ""
+            for _fp in files:
+                if _fp.name in _first:
+                    _file_hint = str(_fp)
+                    break
+            if not _file_hint and files:
+                _file_hint = str(files[0])
+            subprocess.run(
+                [sys.executable, "-c",
+                 f"import sys; sys.path.insert(0, 'scripts'); "
+                 f"from pre_commit_checks import REPO_ROOT; "
+                 f"sys.path.insert(0, str(REPO_ROOT)); "
+                 f"from aria_service.intel.coding_rag_indexer import record_precommit_failure; "
+                 f"record_precommit_failure("
+                 f"check_name={_check_name!r}, "
+                 f"file_path={_file_hint!r}, "
+                 f"error_message={_first[:300]!r})"],
+                capture_output=True, timeout=10,
+                cwd=REPO_ROOT,
+            )
+        except Exception:
+            pass  # Never let RAG recording block the commit rejection
+
         return 1
 
     print(f"[pre-commit] OK — {len(files)} files checked.")
