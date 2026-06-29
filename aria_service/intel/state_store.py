@@ -463,7 +463,10 @@ async def _reconnect() -> None:
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA synchronous=NORMAL")
         await conn.execute("PRAGMA foreign_keys=OFF")
-        await conn.execute("PRAGMA busy_timeout=5000")
+        # R-F2131: match the boot-path busy_timeout (120s). The old 5s value
+        # caused reconnect to fail under WAL-replay contention, keeping the
+        # app on the in-memory fallback indefinitely.
+        await conn.execute("PRAGMA busy_timeout=120000")
         await conn.commit()
         _conn = conn  # R-F1397: swap only once the replacement is ready
         _op_timeout_counts["reconnect"] += 1
