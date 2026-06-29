@@ -87,7 +87,7 @@ async def test_upsert_raises_when_conn_none(monkeypatch):
     import sqlite3
     monkeypatch.setattr(state_store, "_conn", None)
     with pytest.raises(sqlite3.OperationalError):
-        await state_store.set("crucix:test:rf1397", "v")
+        await state_store.set_key("crucix:test:rf1397", "v")
 
 
 @pytest.mark.asyncio

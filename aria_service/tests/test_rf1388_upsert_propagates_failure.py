@@ -31,7 +31,7 @@ async def test_upsert_raises_on_dead_connection(tmp_path):
     """Capability: _upsert must raise when the SQLite connection is closed,
     so _chat_job_set can catch it and return False."""
     await ss.connect(str(tmp_path / "s.db"))
-    await ss.set("k", "v")
+    await ss.set_key("k", "v")
     assert await ss.get("k") == "v"
 
     # Kill the connection — the exact live failure mode.
@@ -39,7 +39,7 @@ async def test_upsert_raises_on_dead_connection(tmp_path):
 
     # _upsert must now raise (it used to silently log+return)
     with pytest.raises(Exception) as excinfo:
-        await ss.set("k2", "v2")
+        await ss.set_key("k2", "v2")
     # The exception should mention the closed connection
     err = str(excinfo.value).lower()
     assert any(s in err for s in ("closed", "cannot operate", "no active connection")), (
@@ -54,14 +54,14 @@ async def test_upsert_triggers_self_heal_on_dead_connection(tmp_path):
     """_upsert must trigger self-heal when the connection is dead,
     so subsequent writes can recover."""
     await ss.connect(str(tmp_path / "s.db"))
-    await ss.set("k", "v")
+    await ss.set_key("k", "v")
 
     # Kill the connection
     await ss._conn.close()
 
     # _upsert should trigger reconnect
     try:
-        await ss.set("k2", "v2")
+        await ss.set_key("k2", "v2")
     except Exception:
         pass
 
@@ -72,7 +72,7 @@ async def test_upsert_triggers_self_heal_on_dead_connection(tmp_path):
             break
 
     # After self-heal, writes should work again
-    await ss.set("k3", "v3")
+    await ss.set_key("k3", "v3")
     assert await ss.get("k3") == "v3"
     await ss.close()
 
@@ -81,6 +81,6 @@ async def test_upsert_triggers_self_heal_on_dead_connection(tmp_path):
 async def test_upsert_works_normally(tmp_path):
     """Normal operation must not be affected."""
     await ss.connect(str(tmp_path / "s.db"))
-    await ss.set("k", "v")
+    await ss.set_key("k", "v")
     assert await ss.get("k") == "v"
     await ss.close()

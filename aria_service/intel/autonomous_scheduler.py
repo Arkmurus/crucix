@@ -229,7 +229,7 @@ class AutonomousScheduler:
                 if not _last or (_t.time() - float(_last)) > 86400:
                     res = await email_portal_requirements_to_operator()
                     if res.get("sent") or res.get("counts"):
-                        await _ss.set("crucix:portal_registry:reqs_emailed_at", str(_t.time()))
+                        await _ss.set_key("crucix:portal_registry:reqs_emailed_at", str(_t.time()))
                         logger.info("[R-F1502] Emailed operator portal digest: %s", res.get("counts"))
         except Exception as e:
             logger.debug("[R-F1502] vault re-drive skipped: %s", e)

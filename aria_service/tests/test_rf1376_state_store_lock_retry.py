@@ -366,7 +366,7 @@ class TestCapabilityReadConnRetry:
         if _ss._conn is None:
             await _ss.connect()
         # Set a test key we can read back
-        await _ss.set("_test_rf1449_retry_key", "retry_value")
+        await _ss.set_key("_test_rf1449_retry_key", "retry_value")
         yield
         # Cleanup
         try:

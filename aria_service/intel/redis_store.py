@@ -221,7 +221,7 @@ async def set(key: str, value: str, ex: int | None = None,
         )
     if _use_sqlite():
         from . import state_store as _ss
-        await _ss.set(key, value, ex=ex, keepttl=keepttl)
+        await _ss.set_key(key, value, ex=ex, keepttl=keepttl)
         return
     if _client:
         try:

@@ -85,14 +85,14 @@ def test_rf669_is_infinite_key_excludes_non_knowledge(key):
 def test_rf669_set_raises_on_ttl_for_knowledge_key():
     """state_store.set('crucix:aria:knowledge:...', ..., ex=N) must raise."""
     async def runner():
-        await state_store.set("crucix:aria:knowledge:fact_42", "x", ex=86400)
+        await state_store.set_key("crucix:aria:knowledge:fact_42", "x", ex=86400)
     with pytest.raises(ValueError, match=r"R-F669.*TTL.*knowledge"):
         asyncio.run(runner())
 
 
 def test_rf669_set_raises_on_ttl_for_verified_intel():
     async def runner():
-        await state_store.set("crucix:aria:verified_intel:facts", "x", ex=3600)
+        await state_store.set_key("crucix:aria:verified_intel:facts", "x", ex=3600)
     with pytest.raises(ValueError, match=r"R-F669"):
         asyncio.run(runner())
 
@@ -127,7 +127,7 @@ def test_rf669_set_no_ttl_on_knowledge_key_is_allowed(monkeypatch, tmp_path):
 
     async def runner():
         # No raise expected — ex=None is the legitimate path
-        await state_store.set("crucix:aria:knowledge:abc", "x")
+        await state_store.set_key("crucix:aria:knowledge:abc", "x")
 
     asyncio.run(runner())
     assert captured["key"] == "crucix:aria:knowledge:abc"
@@ -146,7 +146,7 @@ def test_rf669_set_ttl_on_non_knowledge_key_is_allowed(monkeypatch):
     monkeypatch.setattr(state_store, "_upsert", _fake_upsert)
 
     async def runner():
-        await state_store.set("crucix:session:abc", "x", ex=3600)
+        await state_store.set_key("crucix:session:abc", "x", ex=3600)
 
     asyncio.run(runner())
     assert captured["key"] == "crucix:session:abc"

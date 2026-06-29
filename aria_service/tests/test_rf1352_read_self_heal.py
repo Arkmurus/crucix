@@ -44,7 +44,7 @@ def test_is_conn_dead_classifies():
 @pytest.mark.asyncio
 async def test_read_path_self_heals_on_dead_connection(tmp_path):
     await ss.connect(str(tmp_path / "s.db"))
-    await ss.set("k", "v")
+    await ss.set_key("k", "v")
     assert await ss.get("k") == "v"
 
     # Kill the shared connection out from under the reader (the live wedge).

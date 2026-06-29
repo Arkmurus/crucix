@@ -270,6 +270,55 @@ Examples from today:
 
 If a rule exists but you keep breaking it, the rule is not enough — it needs a guard.
 
+### Anti-hallucination law 18 — remote-shell globs are NOT ls wildcards (R-F2131)
+When you run a remote command via `flyctl ssh console -C "ls /path/to/pattern*"` and
+get `No such file or directory`, the glob may have failed to match — NOT that the
+files are gone. The remote shell (busybox ash) expands globs BEFORE passing them to
+the command; a non-matching glob is passed as a literal `*` character. **Always verify
+with a non-glob approach before concluding files are absent:**
+```bash
+# WRONG — glob may not match, giving false negative
+flyctl ssh console -a app -C "ls /data/aria_state.db*"
+
+# RIGHT — pipe to grep, no glob ambiguity
+flyctl ssh console -a app -C "ls -la /data/ | grep aria_state"
+```
+The tell: if the error message contains the literal `*` character, the glob didn't
+expand — use grep instead.
+
+### Anti-hallucination law 19 — PowerShell is not bash (R-F2131)
+You run on Windows. PowerShell is NOT bash. Three concrete traps that have bitten:
+1. **`curl` is `Invoke-WebRequest`** — `curl -s https://...` fails because `-s` is
+   not a valid PowerShell parameter. Use `curl.exe` (the real curl binary) or
+   `python -c "import urllib.request; print(urllib.request.urlopen('...').read())"`.
+2. **`&&` and `||` are not valid** — PowerShell uses `;` for sequencing and
+   `if ($?) { ... }` for conditional chaining. Write `git add X; git commit -m "msg"`
+   not `git add X && git commit -m "msg"`.
+3. **Parentheses in strings cause parser errors** — PowerShell interprets `()`
+   inside `"..."` strings as expressions. In commit messages, avoid `()` or use
+   single-word descriptions. Write `fix reconnect timeout` not `fix _reconnect()`.
+   
+**Pre-flight checklist before every shell command:**
+- Am I using `curl` (PowerShell alias) when I mean `curl.exe`?
+- Am I using `&&` or `||` when I need `;`?
+- Does my command string contain `()` that PowerShell will misinterpret?
+- Am I using `ls -la` (Linux) when I need `Get-ChildItem` or `dir`?
+
+### Anti-hallucination law 20 — never --no-verify for a pre-existing issue (R-F2131)
+When the pre-commit hook blocks your commit with a pre-existing issue (not caused by
+your change), do NOT use `--no-verify`. Instead:
+1. **Fix the pre-existing issue** as a separate R-number — it's blocking legitimate
+   work and will block the next person too.
+2. **If the fix is genuinely out of scope**, commit the pre-existing fix FIRST as its
+   own R-number, THEN commit your change on top.
+3. **The only exception** is an emergency hotfix where every minute of delay costs
+   production availability — and even then, file a follow-up R-number to fix the
+   pre-existing issue within 24h.
+   
+The `--no-verify` bypass is how pre-existing debt accumulates until it blocks a
+production deploy (R-F2126: 31 syntax errors from annotation campaigns that
+`--no-verify` let through). Every bypass today is tomorrow's outage.
+
 ## Shipping (self-mode)
 
 ### THE SHIPPING SEQUENCE — non-negotiable, never skip a step (rules set 2026-05-30)

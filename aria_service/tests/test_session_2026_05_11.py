@@ -62,7 +62,7 @@ class TestStateStoreSQLite:
         async def _t():
             assert await ss.connect()
             try:
-                await ss.set("k1", "v1")
+                await ss.set_key("k1", "v1")
                 assert await ss.get("k1") == "v1"
             finally:
                 await ss.close()
@@ -73,7 +73,7 @@ class TestStateStoreSQLite:
         async def _t():
             assert await ss.connect()
             try:
-                await ss.set("temp", "val", ex=1)
+                await ss.set_key("temp", "val", ex=1)
                 assert await ss.get("temp") == "val"
                 await asyncio.sleep(1.1)
                 assert await ss.get("temp") is None
@@ -86,7 +86,7 @@ class TestStateStoreSQLite:
         async def _t():
             assert await ss.connect()
             try:
-                await ss.set("doomed", "x")
+                await ss.set_key("doomed", "x")
                 assert await ss.delete("doomed") is True
                 assert await ss.delete("never_existed") is False
             finally:
@@ -188,9 +188,9 @@ class TestStateStoreSQLite:
         async def _t():
             assert await ss.connect()
             try:
-                await ss.set("crucix:k1", "x")
-                await ss.set("crucix:k2", "y")
-                await ss.set("other:foo", "z")
+                await ss.set_key("crucix:k1", "x")
+                await ss.set_key("crucix:k2", "y")
+                await ss.set_key("other:foo", "z")
                 keys = await ss.scan_keys("crucix:*")
                 assert set(keys) == {"crucix:k1", "crucix:k2"}
             finally:

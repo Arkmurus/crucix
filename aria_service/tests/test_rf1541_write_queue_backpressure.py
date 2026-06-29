@@ -42,7 +42,7 @@ async def test_write_queue_normal_operation():
     
     try:
         # Write a value
-        await _ss.set("_test_rf1541_normal", "hello_world")
+        await _ss.set_key("_test_rf1541_normal", "hello_world")
         
         # Read it back — should see the value (flush-on-read)
         val = await _ss.get("_test_rf1541_normal")
@@ -168,7 +168,7 @@ async def test_write_queue_flush_on_read():
     try:
         # Write multiple values in quick succession
         for i in range(10):
-            await _ss.set(f"_test_rf1541_batch_{i}", f"value_{i}")
+            await _ss.set_key(f"_test_rf1541_batch_{i}", f"value_{i}")
         
         # Read them all back — flush-on-read ensures they're all visible
         for i in range(10):

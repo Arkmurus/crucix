@@ -460,13 +460,15 @@ async def _reconnect() -> None:
         if _DB_PATH is None:
             return
         conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F2131/R-F2132: set busy_timeout (120s) BEFORE journal_mode=WAL.
+        # R-F2131: the old 5s value caused reconnect to fail under WAL-replay
+        # contention, keeping the app on the in-memory fallback indefinitely.
+        # R-F2132: journal_mode must not run first — a multi-GB WAL recovery
+        # raises 'database is locked' before the 120s timeout can apply.
+        await conn.execute("PRAGMA busy_timeout=120000")
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA synchronous=NORMAL")
         await conn.execute("PRAGMA foreign_keys=OFF")
-        # R-F2131: match the boot-path busy_timeout (120s). The old 5s value
-        # caused reconnect to fail under WAL-replay contention, keeping the
-        # app on the in-memory fallback indefinitely.
-        await conn.execute("PRAGMA busy_timeout=120000")
         await conn.commit()
         _conn = conn  # R-F1397: swap only once the replacement is ready
         _op_timeout_counts["reconnect"] += 1
@@ -698,22 +700,26 @@ async def connect(db_path: str | None = None) -> bool:
         _conn = await aiosqlite.connect(str(_DB_PATH))
         # R-F1449: also open the dedicated read connection
         _read_conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F2132: set busy_timeout BEFORE journal_mode=WAL. The journal_mode
+        # PRAGMA can trigger a WAL recovery that needs a database lock; if
+        # busy_timeout is still at Python sqlite3's ~5s default, recovery of a
+        # multi-GB WAL (contested-deploy bloat) raises 'database is locked'
+        # before boot ever reaches the R-F2116 checkpoint (the 2026-06-29
+        # outage). Setting the 120s timeout first lets recovery wait it out.
+        # (R-F1519: 120s also lets the single aiosqlite worker drain its boot
+        # write backlog of hundreds of concurrent _upserts.)
+        await _read_conn.execute("PRAGMA busy_timeout=120000")
         await _read_conn.execute("PRAGMA journal_mode=WAL")
         await _read_conn.execute("PRAGMA synchronous=NORMAL")
         await _read_conn.execute("PRAGMA foreign_keys=OFF")
-        # R-F1519: increased busy_timeout from 5000 to 30000. During boot,
-        # the aiosqlite single worker thread is backlogged with hundreds of
-        # concurrent writes (agent_registry, agent_contract, brain_hook stats).
-        # A 5s timeout caused every _upsert to fail during this window.
-        # 30s gives the worker thread enough time to drain its queue.
-        await _read_conn.execute("PRAGMA busy_timeout=120000")
         await _read_conn.commit()
         # WAL mode → concurrent readers don't block writers. Crucial for
         # the chat path while autonomous tasks are also writing.
+        # R-F2132: busy_timeout BEFORE journal_mode=WAL (see _read_conn above).
+        await _conn.execute("PRAGMA busy_timeout=120000")
         await _conn.execute("PRAGMA journal_mode=WAL")
         await _conn.execute("PRAGMA synchronous=NORMAL")
         await _conn.execute("PRAGMA foreign_keys=OFF")
-        await _conn.execute("PRAGMA busy_timeout=120000")
         # R-F2116: reclaim any WAL left by a previous UNCLEAN shutdown, at boot.
         # A SIGKILL/SIGTERM mid-write (crash-loop or contested-deploy) leaves the
         # -wal file un-checkpointed; once it grows across crashes sqlite's default
@@ -910,10 +916,11 @@ async def _ensure_read_conn() -> None:
     try:
         import aiosqlite
         new_conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F2132: busy_timeout BEFORE journal_mode=WAL (see connect()).
+        await new_conn.execute("PRAGMA busy_timeout=120000")
         await new_conn.execute("PRAGMA journal_mode=WAL")
         await new_conn.execute("PRAGMA synchronous=NORMAL")
         await new_conn.execute("PRAGMA foreign_keys=OFF")
-        await new_conn.execute("PRAGMA busy_timeout=120000")
         await new_conn.commit()
         _read_conn = new_conn
     except Exception as e:
@@ -1123,8 +1130,12 @@ def _is_infinite_key(key: str) -> bool:
     return any(key == p or key.startswith(p + ":") for p in _INFINITE_KEY_PREFIXES)
 
 
-async def set(key: str, value: str, ex: int | None = None,
-              keepttl: bool = False) -> None:
+async def set_key(key: str, value: str, ex: int | None = None,
+                  keepttl: bool = False) -> None:
+    """Set a string value. Renamed from `set` (R-F2133) to avoid shadowing
+    builtins.set(), which triggered the pre-commit hook and required --no-verify
+    bypass. All external callers go through redis_store.set() which dispatches
+    to state_store.set_key()."""
     # R-F669: refuse TTL on knowledge namespaces. Raise loudly so a
     # buggy caller fails in test, not in production six months later
     # when the data silently disappears.
@@ -1177,7 +1188,7 @@ async def get_json(key: str) -> Any:
 
 async def set_json(key: str, obj: Any, ex: int | None = None,
                    keepttl: bool = False) -> None:
-    await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
+    await set_key(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
 
 
 # ── List operations (row-per-entry) ─────────────────────────────────────
