@@ -551,6 +551,8 @@ def check_capability_tests(
         # Only check intel modules (not tests, not routes, not main)
         if "tests" in file_path.parts or "routes" in file_path.parts:
             continue
+        if "scripts" in file_path.parts:
+            continue
         if file_path.name in ("main.py", "__init__.py"):
             continue
         if not file_path.name.endswith(".py"):
@@ -604,6 +606,151 @@ def check_capability_tests(
                 )
 
     return issues
+
+
+# ── R-F2135: Pre-commit checklist checks ─────────────────────────────────────
+# These implement the AGENTS.md section 8.7 pre-commit checklist as automated
+# gates. Each check is a function that takes a list of staged file paths and
+# returns a list of issue strings (empty = pass).
+# NOTE: checks needing subprocess.run() live in scripts/pre-commit (where
+# subprocess is already imported). This file has only pure-Python logic.
+
+
+def check_capability_test_present(
+    files: list[Path],
+    changed_funcs: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """R-F2135 — If the diff adds or modifies a function in aria_service/intel/,
+    verify there is a corresponding test file that references it.
+
+    This is the structural guard for CLAUDE.md section 3c: every fix MUST include
+    a capability test that invokes the broken path. Unlike the existing
+    check_capability_tests() which checks ALL functions in a changed file,
+    this only checks functions whose names appear in the staged diff added
+    lines (R-F1961 scoping via the changed_funcs parameter).
+
+    When changed_funcs is None (CI --check-all mode), falls back to
+    checking all public functions in the file.
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+    test_dir = ARIA_SERVICE / "tests"
+
+    for fp in files:
+        if "intel" not in fp.parts or "tests" in fp.parts:
+            continue
+        if "scripts" in fp.parts:
+            continue
+        if fp.name in ("__init__.py", "main.py"):
+            continue
+        if fp.suffix != ".py":
+            continue
+
+        try:
+            content = fp.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        all_funcs = set()
+        for line in content.splitlines():
+            m = re.match(r"^\s*(?:async\s+)?def\s+(\w+)\s*\(", line)
+            if m:
+                all_funcs.add(m.group(1))
+
+        if changed_funcs is not None:
+            added = changed_funcs.get(fp.name, set())
+            funcs_to_check = all_funcs & added
+        else:
+            funcs_to_check = all_funcs
+
+        if not funcs_to_check:
+            continue
+
+        for func_name in sorted(funcs_to_check):
+            if func_name.startswith("_"):
+                continue
+            if func_name in ("main", "lifespan", "setup", "teardown"):
+                continue
+
+            found = False
+            for test_file in sorted(test_dir.glob("test_*.py")):
+                try:
+                    test_content = test_file.read_text(encoding="utf-8")
+                    if func_name in test_content:
+                        found = True
+                        break
+                except Exception:
+                    continue
+
+            if not found:
+                issues.append(
+                    f"  {fp.name}: function '{func_name}()' has NO capability test.\n"
+                    f"    Add a test in {test_dir}/test_rfXXXX_{fp.stem}.py that calls\n"
+                    f"    {func_name}() and asserts the user-visible outcome\n"
+                    f"    (CLAUDE.md section 3c — capability test requirement)."
+                )
+
+    return issues
+
+
+def check_powershell_safety(
+    files: list[Path],
+    added_lines_by_file: dict[str, set[int]] | None = None,
+) -> list[str]:
+    """R-F2135 — Flag known PowerShell-incompatible patterns in shell scripts
+    and documentation. This is the structural guard for anti-hallucination
+    law 19: PowerShell is not bash.
+
+    Checks for:
+    - curl without .exe (PowerShell aliases curl to Invoke-WebRequest)
+    - double-ampersand as command separator (PowerShell uses semicolon)
+
+    Only checks .ps1, .sh, .md files. When added_lines_by_file is provided
+    (pre-commit staged mode), only ADDED lines are checked.
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+    check_extensions = {".ps1", ".sh", ".md"}
+
+    for fp in files:
+        if fp.suffix not in check_extensions:
+            continue
+        if "tests" in fp.parts:
+            continue
+        if fp.name in _PATTERN_AUTHORING_FILES:
+            continue
+
+        try:
+            content = fp.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        _added = None if added_lines_by_file is None else added_lines_by_file.get(fp.name, set())
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            if _added is not None and (i + 1) not in _added:
+                continue
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith("//"):
+                continue
+
+            if re.search(r"(?<!\w)curl\s+(?!\.exe)", stripped) and "curl.exe" not in stripped:
+                issues.append(
+                    f"  {fp.name}:{i + 1} — bare curl (PowerShell aliases to Invoke-WebRequest)\n"
+                    f"    Line: {stripped[:100]}\n"
+                    f"    Use curl.exe on Windows, or python -c urllib for cross-platform."
+                )
+            if re.search(r"(?<!\$)(?<!\w)&&(?!\$)", stripped):
+                issues.append(
+                    f"  {fp.name}:{i + 1} — double-ampersand is not valid in PowerShell\n"
+                    f"    Line: {stripped[:100]}\n"
+                    f"    Use semicolon for sequencing, or if (dollar?) for conditional."
+                )
+
+    return issues
+
 
 
 # ── R-F1824 (Phase-4 prevention guards) ───────────────────────────────────────

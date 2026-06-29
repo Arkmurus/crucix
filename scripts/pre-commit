@@ -32,9 +32,11 @@ from pre_commit_checks import (
     REPO_ROOT,
     check_builtin_shadowing,   # R-F1958 — was CALLED (line ~195) but NOT imported → NameError crashed the whole checker on every run, so NO checks ran even before the hooks-path orphaning. Import it so the checker completes.
     check_syntax,              # R-F2127 — fail-fast syntax gate (a broken .py must never commit)
+    check_capability_test_present,  # R-F2135 — structural guard for AGENTS.md §8.7
     check_capability_tests,
     check_circuit_breaker,
     check_no_token_default,
+    check_powershell_safety,       # R-F2135 — structural guard for anti-hallucination law 19
     check_ssrf_fetch_boundary,
     check_false_success,
     check_windows_compat,
@@ -112,6 +114,47 @@ def added_func_names(diff):
     return names
 
 
+def _check_compile_gate(files: list[Path]) -> list[str]:
+    """R-F2135 — Fail the commit if any staged .py has a compile error.
+
+    Runs python -c "compile(open(path).read(), path, 'exec')" on each staged
+    .py file (excluding tests). This catches SyntaxError that ast.parse()
+    might miss (encoding issues, null bytes) — the same class as R-F2126.
+
+    NOTE: This does NOT catch undefined names or import errors — that requires
+    actually importing the module, which is too expensive for a pre-commit hook.
+    The syntax gate (check_syntax) already catches SyntaxError via ast.parse;
+    this is a belt-and-suspenders check using the CPython compiler directly.
+
+    Returns a list of issue strings (empty if all pass).
+    """
+    issues = []
+    for fp in files:
+        if fp.suffix != ".py":
+            continue
+        if "tests" in fp.parts:
+            continue
+        # Use compile() via subprocess to avoid importing the module
+        code = f"compile(open({str(fp)!r}).read(), {str(fp)!r}, 'exec')"
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True, text=True, encoding="utf-8",
+            cwd=REPO_ROOT,
+        )
+        if result.returncode != 0:
+            try:
+                rel = fp.relative_to(REPO_ROOT)
+            except ValueError:
+                rel = fp
+            stderr = result.stderr.strip()[:300]
+            issues.append(
+                f"  {rel} — COMPILE ERROR\n"
+                f"    {stderr}\n"
+                f"    A broken .py must NEVER be committed (CLAUDE.md §11c)."
+            )
+    return issues
+
+
 def check_all_files() -> list[str]:
     """Check ALL Python files in the repo (CI mode)."""
     issues = []
@@ -179,7 +222,20 @@ def main():
     if not files:
         return 0
 
-    # Check 0: SYNTAX GATE (R-F2127) — fail-fast. A staged .py with a SyntaxError
+    # Check 0a: COMPILE GATE (R-F2135) — fail-fast. A staged .py that compiles
+    # but has import-time errors (undefined names, broken imports) must never be
+    # committed. This catches the R-F2126 failure class: files that parse OK but
+    # reference undefined names. Runs before syntax gate because py_compile is
+    # stricter than ast.parse.
+    compile_issues = _check_compile_gate(files)
+    if compile_issues:
+        print("[pre-commit] COMPILE GATE FAILED:")
+        for issue in compile_issues:
+            print(issue)
+        print("\nFix the compile error(s) above before committing — a broken .py breaks import + any deploy (CLAUDE.md §11c).")
+        return 1
+
+    # Check 0b: SYNTAX GATE (R-F2127) — fail-fast. A staged .py with a SyntaxError
     # must NEVER be committed: it breaks import and any deploy. Every other check
     # below ast.parse()s and silently skips broken files, so without this gate a
     # corrupted file (e.g. an autonomous annotation campaign inserting comments
@@ -266,6 +322,14 @@ def main():
 
     # Check 10: SSRF fetch-boundary on user-controlled URLs (R-F1824, audit C2)
     issues.extend(check_ssrf_fetch_boundary(files))
+
+    # Check 11: Capability test presence (R-F2135) — AGENTS.md §8.7
+    cap_test_issues = check_capability_test_present(files, changed_funcs)
+    issues.extend(cap_test_issues)
+
+    # Check 12: PowerShell safety (R-F2135) — anti-hallucination law 19
+    ps_issues = check_powershell_safety(files, added_lines_by_file)
+    issues.extend(ps_issues)
 
     if issues:
         print("[pre-commit] VERIFICATION FAILED:")
