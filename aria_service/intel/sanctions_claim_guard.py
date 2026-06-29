@@ -165,11 +165,27 @@ async def live_primary_check(entity: str) -> dict[str, Any]:
             # Tolerate alternate shapes
             matches = getattr(screen, "matches", []) or []
         result["matches"] = matches
-        if not matches:
-            result["verdict"] = "CLEAN"
-        else:
+        # R-F2143: "no matches" is CLEAN ONLY when the source provably answered.
+        # R-F1696 surfaces this via screened/source_unavailable — when
+        # OpenSanctions is down / rate-limited / breaker-open, fuzzy_screen
+        # returns matches=[] with screened=False: a check that NEVER RAN, not a
+        # clean entity. Asserting "answer NO" there is an authoritative
+        # false-negative — the single worst output a compliance tool can emit.
+        _screened = bool(screen.get("screened")) if isinstance(screen, dict) else False
+        _src_unavail = bool(screen.get("source_unavailable")) if isinstance(screen, dict) else False
+        if matches:
             result["verdict"] = "HIT"
             result["top_match"] = matches[0] if isinstance(matches, list) else None
+        elif _screened and not _src_unavail:
+            result["verdict"] = "CLEAN"
+        else:
+            # Source did not actually answer — cannot assert clean.
+            result["verdict"] = "COULD_NOT_VERIFY"
+            result["source_unavailable"] = True
+            if not result["error"]:
+                result["error"] = (
+                    (screen.get("error") if isinstance(screen, dict) else "")
+                    or "sanctions_source_unavailable")
     except Exception as exc:
         logger.warning("live primary sanctions check failed for %s: %s", entity, exc)
         result["error"] = str(exc)[:240]
@@ -187,6 +203,22 @@ async def live_primary_check(entity: str) -> dict[str, Any]:
             f"Answer policy: if the user asks yes/no, answer NO and cite "
             f"this live check. Do NOT cite any mem0 recall or prior DD "
             f"assessment as a YES — past assessments can be defective."
+        )
+    elif result["verdict"] == "COULD_NOT_VERIFY":
+        # R-F2143: the screen was attempted but the source did not answer.
+        # This must NEVER read as "not sanctioned".
+        result["citation_block"] = (
+            f"[SANCTIONS LIVE CHECK — COULD NOT VERIFY]\n"
+            f"Entity: {entity}\n"
+            f"Tool: sanctions.fuzzy_screen (attempted live this turn)\n"
+            f"Verdict: THE SCREEN DID NOT COMPLETE — the sanctions source was "
+            f"unavailable (down / rate-limited / circuit-breaker open). No "
+            f"authoritative determination is possible right now.\n"
+            f"Answer policy — BINDING: you MUST NOT answer 'no' / 'not "
+            f"sanctioned' / 'clean'. An empty result here is NOT a clean result. "
+            f"Tell the user the live sanctions screen could not be completed and "
+            f"the status is UNVERIFIED; offer to retry or link the primary "
+            f"sources (OFAC SDN, EU Consolidated, UK OFSI)."
         )
     elif result["verdict"] == "HIT":
         top = result["top_match"] or {}
@@ -241,9 +273,14 @@ async def live_primary_check(entity: str) -> dict[str, Any]:
             detail=result.get("citation_block", "")[:2000],
             entity_name=entity,
             success=result["ran_live"],
-            gap_type=("sanctions_hit" if result["verdict"] == "HIT" else None),
+            gap_type=("sanctions_hit" if result["verdict"] == "HIT"
+                      else "sanctions_source_unavailable"
+                      if result["verdict"] == "COULD_NOT_VERIFY" else None),
             gap_detail=(f"HIT for {entity} via {result['source_tool']}"
-                        if result["verdict"] == "HIT" else None),
+                        if result["verdict"] == "HIT"
+                        else f"sanctions screen could NOT verify {entity} — "
+                             f"source unavailable (R-F2143)"
+                        if result["verdict"] == "COULD_NOT_VERIFY" else None),
             confidence="CONFIRMED" if result["ran_live"] else "ASSESSED",
         )
     except Exception:

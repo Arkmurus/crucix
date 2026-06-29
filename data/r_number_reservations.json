@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2138,
+  "next_available": 2144,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15687,6 +15687,60 @@
       "r_number": "R-F2137",
       "title": "runtime WAL periodic checkpoint-truncate to stop unbounded WAL growth",
       "claimed_at": "2026-06-29T17:35:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2138",
+      "title": "DD structural IDOR fix",
+      "claimed_at": "2026-06-29T18:14:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2139",
+      "title": "DD token scoping enable by default",
+      "claimed_at": "2026-06-29T18:14:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2140",
+      "title": "DD unauthenticated surface lockdown",
+      "claimed_at": "2026-06-29T18:14:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2141",
+      "title": "DD self-coder permanent kill switch",
+      "claimed_at": "2026-06-29T18:14:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2142",
+      "title": "DD WAL runtime truncate deploy",
+      "claimed_at": "2026-06-29T18:15:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2143",
+      "title": "sanctions honesty — never assert CLEAN when the screen did not run (return COULD_NOT_VERIFY)",
+      "claimed_at": "2026-06-29T18:21:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
