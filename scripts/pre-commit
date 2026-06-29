@@ -56,7 +56,10 @@ def get_staged_files():
     files = []
     for line in result.stdout.splitlines():
         line = line.strip()
-        if line.endswith(".py") and (REPO_ROOT / line).exists():
+        if not (REPO_ROOT / line).exists():
+            continue
+        # R-F2136: include .ps1, .sh, .md for PowerShell safety checks
+        if line.endswith(".py") or line.endswith(".ps1") or line.endswith(".sh") or line.endswith(".md"):
             files.append(REPO_ROOT / line)
     return files
 
