@@ -22404,6 +22404,14 @@ async def health_check_ep():
     breakers = cb.get_all_breakers()
     open_breakers = [b for b in breakers if b["state"] == "OPEN"]
 
+    # R-F2146 — coding RAG stats (constitutional rules, fixes, failures, structure)
+    coding_rag_stats = {}
+    try:
+        from ..intel import coding_rag_indexer as _cri
+        coding_rag_stats = _cri.get_stats()
+    except Exception:
+        pass
+
     # R-F266 (2026-05-11) — honest status reasoning.
     # The pre-R-F266 logic returned "healthy" iff redis+rag connected and
     # mode==NORMAL. That ignored every operational-state signal: an empty
@@ -22460,7 +22468,8 @@ async def health_check_ep():
         "build_source": _build_source,
         "degraded_reasons": degraded_reasons,
         "operating_mode": mode,
-        "infra": {"redis": redis_ok, "rag": rag_ok, "rag_stats": rag_stats if rag_ok else {}},
+        "infra": {"redis": redis_ok, "rag": rag_ok, "rag_stats": rag_stats if rag_ok else {},
+                   "coding_rag": coding_rag_stats},
         "quality": {
             "mastery_overall": mastery.get("overall"),
             "mastery_weighted": mastery.get("weighted"),

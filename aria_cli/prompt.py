@@ -5,6 +5,10 @@ Claude-Code-style operating contract: work autonomously through the tools,
 match the project's conventions, verify before claiming done, never truncate
 files. In self-mode the prompt also names the crucix guardrails so ARIA edits
 her own ecosystem the same disciplined way the autonomous coder does.
+
+R-F2145/R-F2147: the CLI coder now queries the live coding RAG (constitutional
+rules, codebase structure, past fixes) at prompt-build time, so every session
+starts grounded in accumulated coding knowledge — same as the autonomous coder.
 """
 from __future__ import annotations
 
@@ -162,13 +166,66 @@ def load_repo_guidance(repo_root: Path | None) -> str:
     return "\n\n".join(chunks)
 
 
+def _query_coding_rag(task_hint: str = "") -> str:
+    """R-F2145 — query the live coding RAG for constitutional rules, codebase
+    structure, and past fixes relevant to the current task. Best-effort: returns
+    empty string on any error (RAG unavailable, not in crucix repo, etc.).
+
+    Runs synchronously via a temporary event loop since this is called at
+    prompt-build time (before the async agent loop starts). The underlying
+    chromadb queries are blocking and run via asyncio.to_thread internally.
+    """
+    try:
+        import asyncio
+        from aria_service.intel import coding_rag_indexer as _crag
+
+        async def _query():
+            q = task_hint or "coding conventions project structure"
+            parts: list[str] = []
+            # Query constitutional rules (R-F2147 — task-specific retrieval)
+            rules = await asyncio.to_thread(_crag.query_constitutional_constraints, q, 3) or []
+            for r in (rules or [])[:3]:
+                c = str((r or {}).get("rule", "")).strip()
+                if c:
+                    parts.append("• CONSTITUTIONAL RULE (must follow): " + c[:500])
+            # Query codebase structure
+            struct = await asyncio.to_thread(_crag.query_codebase_context, q, 3) or []
+            for r in (struct or [])[:3]:
+                c = str((r or {}).get("content", "")).strip()
+                if c:
+                    parts.append("• codebase structure: " + c[:400])
+            # Query past fixes
+            fixes = await asyncio.to_thread(_crag.query_relevant_fixes, q, 3) or []
+            for r in (fixes or [])[:3]:
+                c = str((r or {}).get("content", "")).strip()
+                if c:
+                    parts.append("• past fix: " + c[:400])
+            if parts:
+                return (
+                    "\n\n## ARIA code-RAG knowledge (constitutional rules + structure + past fixes)\n"
+                    + "\n".join(parts)
+                )
+            return ""
+
+        return asyncio.run(_query())
+    except Exception:
+        # Best-effort: RAG unavailable (not in crucix repo, chromadb not
+        # installed, etc.) — silently skip. The coder still gets CLAUDE.md
+        # + AGENTS.md text via load_repo_guidance.
+        return ""
+
+
 def build_system_prompt(*, root: Path, self_mode: bool,
                         repo_root: Path | None = None) -> str:
     parts = [_IDENTITY, _OPERATING_CONTRACT, _ENGINEERING]
     if self_mode:
         parts.append(_SELF_MODE)
-        # R-F1191: constitutional validator removed. No note needed.
-        pass
+        # R-F2145: query the live coding RAG for task-specific knowledge.
+        # This runs BEFORE the flat-file guidance so RAG knowledge takes
+        # priority (semantically retrieved > full-file dump).
+        rag_knowledge = _query_coding_rag()
+        if rag_knowledge:
+            parts.append(rag_knowledge)
         guidance = load_repo_guidance(repo_root)
         if guidance:
             parts.append(
