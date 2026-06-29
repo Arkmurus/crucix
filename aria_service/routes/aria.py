@@ -194,6 +194,13 @@ from ..intel import honesty_judge
 import logging
 _log = logging.getLogger("aria.routes")
 
+# R-F2138 — module-level auth context. Set by require_aria_token on every
+# authenticated request. True when the internal/service token was used,
+# False when the user-facing API token was used. Defaults to True (unrestricted)
+# for backward compatibility with callers that bypass require_aria_token
+# (public-bypass paths, tests without auth middleware).
+_AUTH_IS_INTERNAL: bool = True
+
 # Router-wide bearer-token enforcement. The require_aria_token dependency
 # is defined below; the forward reference works because FastAPI resolves
 # dependencies at request time, not import time. Soft-rollout: no-op when
@@ -314,17 +321,18 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     # memory poisoning, and /learning/updates leaked ARIA's own capability-gaps
     # + mistake-ledger. They now require_aria_token (the terminal client already
     # holds the token for /client/chat, so it authenticates here too).
-    # R-F1399 (2026-06-07): agent-ecosystem introspection endpoints. Read-only
-    # aggregated metrics; no PII or secrets. ARIA must be able to self-audit
-    # her own agents without a bearer token — the operator dashboard and
-    # autonomous self-diagnostic loops both need these.
-    "/api/aria/agents",                       # agent registry — who's alive, what they're doing
-    "/api/aria/capability-gaps",              # what ARIA knows she can't do
-    "/api/aria/capability-gaps/summary",      # gap summary for dashboards
-    "/api/aria/self/mistakes/stats",          # mistake ledger stats
-    "/api/aria/self/mistakes/recent",         # recent mistakes (read-only, no PII)
-    "/api/aria/vault/stats",                  # agent signup vault stats
-    "/api/aria/vault",                        # vault entries list (read-only)
+    # R-F2140 (2026-06-29 DD): REMOVED /agents, /capability-gaps, /vault/stats,
+    # /vault from the public bypass. These leak operational posture (what ARIA
+    # knows she can't do, agent registry, vault contents) to unauthenticated
+    # callers. The operator dashboard and autonomous self-diagnostic loops both
+    # hold the bearer token and authenticate normally.
+    # "/api/aria/agents",                     # REMOVED R-F2140 — agent registry leak
+    # "/api/aria/capability-gaps",            # REMOVED R-F2140 — capability posture leak
+    # "/api/aria/capability-gaps/summary",    # REMOVED R-F2140 — capability posture leak
+    # "/api/aria/self/mistakes/stats",        # REMOVED R-F2140 — mistake ledger leak
+    # "/api/aria/self/mistakes/recent",       # REMOVED R-F2140 — mistake ledger leak
+    # "/api/aria/vault/stats",                # REMOVED R-F2140 — vault stats leak
+    # "/api/aria/vault",                      # REMOVED R-F2140 — vault contents leak
 })
 
 
@@ -376,6 +384,15 @@ def require_aria_token(request: Request) -> None:
     import hmac as _hmac
     if not any(_hmac.compare_digest(presented, t) for t in accepted):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
+
+    # R-F2138 — record which token type authenticated, so downstream
+    # per-user-route logic can distinguish internal (service-to-service,
+    # unrestricted) from external (user-facing API token, must scope).
+    # Internal token = service-to-service (WA listener, web proxy, CLI).
+    # API token = user-facing (external callers, must have user_id).
+    global _AUTH_IS_INTERNAL
+    _api_tok = _aria_token()
+    _AUTH_IS_INTERNAL = bool(_api_tok and not _hmac.compare_digest(presented, _api_tok))
 
     # R-F1827 (audit Phase 3, STAGED — OFF by default). Per-service token scoping:
     # when ARIA_TOKEN_SCOPING=1 AND ARIA_OPERATOR_TOKEN is set, control/destructive
@@ -962,8 +979,19 @@ async def dd_case_archive_stats_ep():
 # case only for an entity they — or a same-email-domain colleague — have run a DD on.
 # Returns None for an empty user_id (internal/autonomous/admin caller = unrestricted),
 # matching the existing list_reports admin-sees-all convention.
+# R-F2138: when user_id is empty AND the request came via the user-facing API token
+# (not the internal service token), return empty set — an external caller without
+# a user_id must not see everything. Internal callers (WA listener, web proxy, CLI)
+# carry the internal token and keep the unrestricted path.
+# Uses _AUTH_IS_INTERNAL (set by require_aria_token on the current request's state)
+# to distinguish token types. Falls back to unrestricted (True) when no auth context
+# is available (legacy callers, tests without auth middleware).
 async def _dd_owned_entity_ids(user_id: str, user_email_domain: str = ""):
     if not user_id:
+        # R-F2138: external (API token) caller with no user_id → deny.
+        # Internal (service token) caller → unrestricted (keep existing behaviour).
+        if not _AUTH_IS_INTERNAL:
+            return set()
         return None
     from ..intel import dd_orchestrator
     try:
