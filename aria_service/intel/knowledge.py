@@ -437,6 +437,130 @@ def _read_from_disk() -> dict | None:
     return None
 
 
+# ── R-F2144: derived JSONL facts sidecar for chunked, loop-safe boot reads ──
+# The canonical store stays the monolithic aria_knowledge.json (write path
+# unchanged — already GIL-yielding via R-F1668). But a single json.load of the
+# ~223k-fact blob at boot holds the GIL for the whole parse+object-construction
+# and starves the one event loop (the 2026-06-29 warmup starvation; verified:
+# to_thread/orjson do NOT help a monolithic GIL-bound parse). This sidecar
+# stores facts LINE-DELIMITED so boot can stream them in chunks with
+# `await asyncio.sleep(0)` yields. It is DERIVED + best-effort: written beside
+# the canonical file, and a missing/stale/corrupt sidecar simply FALLS BACK to
+# the monolithic load (today's behaviour) — so a sidecar bug can never lose data.
+
+def _sidecar_paths() -> tuple[str, str]:
+    base = str(_DISK_PATH)
+    return base + ".facts.jsonl", base + ".meta.json"
+
+
+def _canonical_marker() -> dict | None:
+    """mtime+size of the canonical file — used to verify a sidecar is current."""
+    try:
+        st = os.stat(_DISK_PATH)
+        return {"mtime": st.st_mtime, "size": st.st_size}
+    except OSError:
+        return None
+
+
+def _write_facts_sidecar(data: dict, marker: dict | None = None) -> None:
+    """Best-effort: (re)write the derived JSONL facts + meta sidecar from `data`.
+    Never raises — the canonical write already succeeded; this is a read
+    optimisation. GIL-yielding (time.sleep(0)) so it is safe in the flush thread.
+
+    `marker` lets a caller pin the canonical mtime+size that `data` came from
+    (the fallback-regen path), so a concurrent canonical rewrite can't leave a
+    stale-but-marker-valid sidecar. When None, the marker is taken now (the
+    canonical write path, where the file was just written)."""
+    if not (isinstance(data, dict) and isinstance(data.get("facts"), list)):
+        return
+    jsonl_path, meta_path = _sidecar_paths()
+    target_dir = os.path.dirname(jsonl_path) or "."
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".aria_kn_facts.", suffix=".jsonl.tmp", dir=target_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for _i, _fact in enumerate(list(data["facts"])):
+                    f.write(json.dumps(_fact, default=str))
+                    f.write("\n")
+                    if (_i & 0x7FF) == 0:
+                        time.sleep(0)  # release GIL between chunks
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, jsonl_path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        meta = {k: v for k, v in data.items() if k != "facts"}
+        meta["_canonical"] = marker if marker is not None else _canonical_marker()
+        meta["_n_facts"] = len(data["facts"])
+        fd2, tmp2 = tempfile.mkstemp(prefix=".aria_kn_meta.", suffix=".json.tmp", dir=target_dir)
+        try:
+            with os.fdopen(fd2, "w", encoding="utf-8") as f:
+                json.dump(meta, f, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp2, meta_path)
+        except Exception:
+            try:
+                os.unlink(tmp2)
+            except OSError:
+                pass
+            raise
+    except Exception as e:  # best-effort — never fatal
+        logger.debug("knowledge: facts sidecar write skipped (non-fatal): %s", e)
+
+
+async def _read_from_disk_chunked() -> dict | None:
+    """R-F2144: prefer the derived JSONL sidecar — stream facts in GIL-yielding
+    chunks so a boot load never starves the event loop. The sidecar is used only
+    when it is CURRENT vs the canonical file (mtime+size match, or the canonical
+    file is absent and the sidecar is the only surviving copy). Absent/stale/
+    corrupt → fall back to the monolithic load and regenerate the sidecar off the
+    boot path so the next boot is fast."""
+    jsonl_path, meta_path = _sidecar_paths()
+    try:
+        if os.path.exists(jsonl_path) and os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            if isinstance(meta, dict):
+                marker = meta.get("_canonical")
+                current = _canonical_marker()
+                if marker == current or current is None:
+                    facts: list = []
+                    with open(jsonl_path, "r", encoding="utf-8") as f:
+                        for _i, line in enumerate(f):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            facts.append(json.loads(line))
+                            if (_i & 0x3FF) == 0:        # every 1024 facts
+                                await asyncio.sleep(0)   # yield the event loop
+                    data = {k: v for k, v in meta.items()
+                            if k not in ("_canonical", "_n_facts")}
+                    data["facts"] = facts
+                    logger.info(
+                        "knowledge: loaded %d facts from JSONL sidecar "
+                        "(R-F2144 chunked, loop-safe)", len(facts))
+                    return data
+    except Exception as e:
+        logger.warning("knowledge: sidecar read failed, falling back to monolithic: %s", e)
+
+    # Fallback: the canonical monolithic load (today's behaviour, lossless).
+    data = _read_from_disk()
+    if data is not None:
+        try:  # regenerate the sidecar off the boot critical path; pin the
+            # marker to the file we just read so a concurrent rewrite can't
+            # leave a stale-but-marker-valid sidecar.
+            _mk = _canonical_marker()
+            asyncio.create_task(asyncio.to_thread(_write_facts_sidecar, data, _mk))
+        except Exception:
+            pass
+    return data
+
+
 def _fsync_dir(dir_path: str) -> None:
     """R-F1420 — fsync a directory so a contained rename is durable.
     Best-effort: directory fsync is unsupported on some platforms
@@ -544,6 +668,13 @@ def _write_to_disk_atomic(data: dict) -> None:
             os.fsync(f.fileno())
         os.replace(tmp_path, target)
         _fsync_dir(target_dir)  # R-F1420: make the rename entry itself durable
+        # R-F2144: refresh the derived JSONL facts sidecar so the next boot can
+        # stream facts in loop-yielding chunks. Best-effort — the canonical write
+        # above already succeeded; a sidecar failure must NOT fail the flush.
+        try:
+            _write_facts_sidecar(data)
+        except Exception:
+            pass
     except Exception:
         try:
             os.unlink(tmp_path)
@@ -640,7 +771,10 @@ async def _load() -> dict:
         return _cache
 
     # 1. Prefer disk — this is the canonical store post-F94.
-    data = _read_from_disk()
+    # R-F2144: chunked sidecar read (falls back to the monolithic load) so the
+    # ~223k-fact boot load streams in loop-yielding chunks and never starves the
+    # single event loop (the 2026-06-29 warmup starvation).
+    data = await _read_from_disk_chunked()
     if data:
         _cache = data
         logger.info(

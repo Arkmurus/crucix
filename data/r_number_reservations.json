@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2144,
+  "next_available": 2145,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15741,6 +15741,15 @@
       "r_number": "R-F2143",
       "title": "sanctions honesty — never assert CLEAN when the screen did not run (return COULD_NOT_VERIFY)",
       "claimed_at": "2026-06-29T18:21:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2144",
+      "title": "reliability Phase-1: off-load boot warmup graph loads + gc.freeze so the event loop never starves",
+      "claimed_at": "2026-06-29T18:30:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
