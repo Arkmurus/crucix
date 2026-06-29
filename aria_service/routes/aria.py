@@ -394,15 +394,14 @@ def require_aria_token(request: Request) -> None:
     _api_tok = _aria_token()
     _AUTH_IS_INTERNAL = bool(_api_tok and not _hmac.compare_digest(presented, _api_tok))
 
-    # R-F1827 (audit Phase 3, STAGED — OFF by default). Per-service token scoping:
-    # when ARIA_TOKEN_SCOPING=1 AND ARIA_OPERATOR_TOKEN is set, control/destructive
-    # routes require the OPERATOR token — the shared service token (held by the WA
-    # listener + web tier) can chat/read/telemetry but cannot drive the control
-    # plane (autonomous, self-deploy, cost-cap, purge, credentials, restore). Until
-    # the flag + operator secret are set, all accepted tokens keep full access (no
-    # behavior change). Cutover runbook: docs/phase3_token_split_runbook.md.
+    # R-F2139 — Per-service token scoping: ON by default when ARIA_OPERATOR_TOKEN
+    # is set. Control/destructive routes require the OPERATOR token — the shared
+    # service token (held by the WA listener + web tier) can chat/read/telemetry
+    # but cannot drive the control plane (autonomous, self-deploy, cost-cap, purge,
+    # credentials, restore). Set ARIA_TOKEN_SCOPING=0 to disable (not recommended).
     import os as _os_p3  # local alias — require_aria_token rebinds _os later (UnboundLocal otherwise)
-    if (_os_p3.getenv("ARIA_TOKEN_SCOPING") or "").strip() == "1":
+    _scoping_disabled = (_os_p3.getenv("ARIA_TOKEN_SCOPING") or "").strip() == "0"
+    if not _scoping_disabled:
         _op = _aria_operator_token()
         if _op and _OPERATOR_ONLY_RE.search(request.url.path or ""):
             if not _hmac.compare_digest(presented, _op):
