@@ -1620,19 +1620,85 @@ async def incr(key: str, amount: int = 1, *, critical: bool = False) -> int:
 
 
 async def incrbyfloat(key: str, amount: float, *, critical: bool = False) -> float:
-    """Atomic float increment."""
-    async def _op():
-        row = await _row(key, expected_kind="string")
-        try:
-            current = float(row[0]) if row else 0.0
-        except Exception:
-            current = 0.0
-        new_val = current + amount
-        expires_at = row[2] if row else None
-        await _upsert(key, f"{new_val:.6f}", kind="string",
-                      expires_at=expires_at, keepttl=True)
-        return new_val
-    return await _run_locked("incrbyfloat", _op, default=0.0, critical=critical)  # R-F1341/1351
+    """Atomic float increment.
+
+    R-F2148: uses a single SQL UPSERT (atomic at the SQLite level) instead
+    of holding the Python-level lock for a read-modify-write cycle. Previously
+    this held _get_lock() for the entire _row + _upsert sequence via _run_locked,
+    which could block for 15+ seconds under write contention, causing the
+    state_store lock storm that wedged the app and caused health-check timeouts.
+
+    Falls back to the locked path only when the atomic UPSERT fails.
+    """
+    if _conn is None:
+        import sqlite3
+        e = sqlite3.OperationalError(
+            f"state_store: no connection (reconnect in progress) writing {key}")
+        _schedule_reconnect_if_dead(e)
+        if critical:
+            raise StateWriteError(f"incrbyfloat: no connection") from e
+        return 0.0
+
+    # R-F1933 (M4): flush queued set()s first. This UPSERT increments the CURRENT
+    # DB row; a queued set(k) that hasn't landed would make incrbyfloat compute on
+    # a stale value (then the set flushes after and clobbers the increment).
+    await _flush_write_queue()
+    try:
+        # Atomic UPSERT: INSERT if missing (value=amount), else increment.
+        # SQLite serialises writes through its single worker thread — no
+        # Python-level lock needed. This avoids the _run_locked contention
+        # that caused the 2026-06-29 state_store wedge.
+        await _conn.execute(
+            "INSERT INTO state(key, value, kind, expires_at) "
+            "VALUES(?, CAST(? AS TEXT), 'string', NULL) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "  value = CAST(CAST(value AS REAL) + ? AS TEXT)",
+            (key, amount, amount),
+        )
+        await _conn.commit()
+        # Read back the new value
+        cur = await _conn.execute(
+            "SELECT value FROM state WHERE key = ?", (key,)
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return float(row[0]) if row else amount
+    except Exception as e:
+        err_str = str(e).lower()
+        # Retry ONCE with a short delay on transient contention before
+        # falling back to the locked path.
+        if "database is locked" in err_str or "busy" in err_str:
+            try:
+                await asyncio.sleep(0.5)
+                await _conn.execute(
+                    "INSERT INTO state(key, value, kind, expires_at) "
+                    "VALUES(?, CAST(? AS TEXT), 'string', NULL) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "  value = CAST(CAST(value AS REAL) + ? AS TEXT)",
+                    (key, amount, amount),
+                )
+                await _conn.commit()
+                cur = await _conn.execute(
+                    "SELECT value FROM state WHERE key = ?", (key,)
+                )
+                row = await cur.fetchone()
+                await cur.close()
+                return float(row[0]) if row else amount
+            except Exception:
+                pass  # fall through to locked path below
+        logger.debug("[R-F2148] atomic incrbyfloat failed for %s: %s — falling back to locked path", key, e)
+        async def _op():
+            row = await _row(key, expected_kind="string")
+            try:
+                current = float(row[0]) if row else 0.0
+            except Exception:
+                current = 0.0
+            new_val = current + amount
+            expires_at = row[2] if row else None
+            await _upsert(key, f"{new_val:.6f}", kind="string",
+                          expires_at=expires_at, keepttl=True)
+            return new_val
+        return await _run_locked("incrbyfloat", _op, default=0.0, critical=critical)
 
 
 async def expire(key: str, seconds: int) -> bool:
