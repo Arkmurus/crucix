@@ -2401,6 +2401,70 @@ async def _identity_primary_source_screen(
     return hard_stop
 
 
+async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDReport") -> int:
+    """R-F2195 (Pipeline 3 of the vault review) — DD consults the operator-curated
+    Agent Signup Vault for the entity.
+
+    Operators trust manually-added websites as a reliable data source; this makes a DD
+    run actually CONSULT them: each ingestable vault website/feed is fetched (bounded,
+    SSRF-guarded via researcher.extract_url_text) and, if it mentions the entity, cited
+    as an INFO finding so the manual source informs the report.
+
+    BULLETPROOF by construction: fully best-effort, time-bounded, capped at a small
+    number of sources, never raises, and only ever ADDS info-severity findings — it can
+    never block, slow materially, or alter the hard-stop logic of the core DD path.
+    Returns the number of citations added.
+    """
+    try:
+        from .agent_signup_vault import get_vault
+        entries = get_vault().list(limit=200) or []
+    except Exception:
+        return 0
+
+    sites = [
+        e for e in entries
+        if (e.get("site_type") or "").lower() in ("website", "rss")
+        and (e.get("status") or "").lower() not in ("failed", "expired", "cancelled")
+        and str(e.get("site_url") or "").startswith(("http://", "https://"))
+    ][:6]  # cap the per-run fetch
+    if not sites or not (name or "").strip():
+        return 0
+
+    needle = name.lower().strip()
+    added = 0
+
+    async def _check(entry: dict) -> None:
+        nonlocal added
+        url = str(entry.get("site_url") or "")
+        try:
+            from . import researcher as _r
+            res = await asyncio.wait_for(_r.extract_url_text(url, timeout=10.0), timeout=12.0)
+        except Exception:
+            return
+        text = str((res or {}).get("text", "") or "")
+        if not text or needle not in text.lower():
+            return
+        idx = text.lower().find(needle)
+        snippet = text[max(0, idx - 120): idx + 200].strip().replace("\n", " ")
+        try:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Mentioned in curated source: {entry.get('site_name') or url}",
+                detail=f"'{name}' appears in an operator-curated vault source. Context: …{snippet}…",
+                source=f"vault:{entry.get('site_id') or url}",
+                confidence="ASSESSED",
+            ))
+            added += 1
+        except Exception:
+            return
+
+    try:
+        await asyncio.gather(*[_check(e) for e in sites], return_exceptions=True)
+    except Exception:
+        return added
+    return added
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -2897,6 +2961,13 @@ async def _run_identity(
     # hard-stop on a real OFAC/UN/OFSI match; OR-combine so we never unset one.
     if await _identity_primary_source_screen(name, jurisdiction, report):
         hard_stop = True
+
+    # ── 1a1b. R-F2195 — consult operator-curated VAULT sources (Pipeline 3). Bounded,
+    # best-effort, additive INFO findings only; never blocks or alters the hard-stop.
+    try:
+        await _consult_vault_sources(name, jurisdiction, report)
+    except Exception as e:
+        logger.debug("Identity: vault-source consult skipped: %s", e)
 
     # ── 1a2. Extract contact names from email / phone / explicit fields ──
     # When the user provides emails like branislav.takac@btg.sk or
