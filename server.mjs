@@ -6145,6 +6145,26 @@ async function start() {
     }, 4 * 60 * 1000);
     console.log('[Crucix] Self-ping enabled (every 4min) — server will stay awake 24/7');
 
+    // R-F2180 — LIVENESS HEARTBEAT to the brain (proprioception). The self-ping
+    // above keeps the HOST awake; this tells the BRAIN the web limb is ALIVE so
+    // its per-limb liveness registry (R-F2178) can affirmatively answer "is the
+    // web limb up?" instead of only learning from failures. Fire-and-forget — a
+    // missed beat IS the signal (the brain marks the limb stale when beats stop).
+    if (ARIA_SERVICE_URL) {
+      const _webBeatMs = 3 * 60 * 1000;
+      const _sendWebBeat = () => {
+        fetch(`${ARIA_SERVICE_URL}/api/aria/liveness/beat`, {
+          method: 'POST',
+          headers: _ariaHeaders(),
+          body: JSON.stringify({ limb: 'aria-web', status: 'alive', interval_s: Math.round(_webBeatMs / 1000) }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      };
+      _sendWebBeat();
+      setInterval(_sendWebBeat, _webBeatMs);
+      console.log('[Crucix] Brain liveness heartbeat enabled (every 3min)');
+    }
+
     cron.schedule('0 7 * * *', async () => {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }

@@ -1043,6 +1043,30 @@ async function brainGet(path) {
   return r.json();
 }
 
+// R-F2179 — LIVENESS HEARTBEAT: tell the brain aria-wa is ALIVE (proprioception).
+// Before this the brain only learned aria-wa's state from FAILURE signals; a
+// periodic beat populates the brain's per-limb liveness registry (R-F2178) so it
+// can affirmatively answer "is the WA limb up?". Fire-and-forget — a missed beat
+// is itself the signal (the brain marks the limb stale when beats stop).
+const HEARTBEAT_INTERVAL_MS = 180000; // 3 min
+let _heartbeatTimer = null;
+async function sendHeartbeat() {
+  try {
+    await brainPost('/api/aria/liveness/beat', {
+      limb: 'aria-wa',
+      status: 'alive',
+      interval_s: Math.round(HEARTBEAT_INTERVAL_MS / 1000),
+      meta: { wa_connected: !!sock },
+    });
+  } catch { /* missed beat → brain marks stale; nothing to do here */ }
+}
+function ensureHeartbeat() {
+  if (_heartbeatTimer) return;            // idempotent (startListener runs on reconnect)
+  sendHeartbeat();                         // immediate first beat right after boot
+  _heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  if (_heartbeatTimer.unref) _heartbeatTimer.unref();
+}
+
 // R-F873 — full-document reads run as a BACKGROUND JOB on the brain so a large /
 // scanned contract (multi-page OCR — e.g. the Forcados SPA / MT199 / DLC MT700)
 // reads to completion even when the autonomous absorb storm slows the event
@@ -1942,6 +1966,7 @@ async function startListener() {
     try { sock.end?.(undefined); } catch { /* best-effort */ }
     sock = null;
   }
+  ensureHeartbeat();  // R-F2179 — start the brain liveness beat (idempotent)
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);

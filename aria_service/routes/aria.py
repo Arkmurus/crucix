@@ -13911,6 +13911,33 @@ async def coder_rag_record_ep(payload: dict):
         return {"ok": False, "error": str(e)[:300]}
 
 
+# R-F2178 — living-organism proprioception: per-limb heartbeat/liveness.
+# Limbs (aria-wa, aria-web, aria-searxng) POST a periodic "I'm alive" beat here;
+# the brain marks a limb stale when its beat ages out and records a coder-visible
+# gap (see liveness.check_stale_and_gap, called by the liveness watchdog). Before
+# this the brain only knew a limb's state when it FAILED — never that it was up.
+@router.post("/liveness/beat")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def liveness_beat_ep(payload: dict):
+    from ..intel import liveness as _lv
+    meta = (payload or {}).get("meta")
+    entry = await _lv.record_beat(
+        limb=str((payload or {}).get("limb", "")),
+        status=str((payload or {}).get("status", "alive")),
+        interval_s=int((payload or {}).get("interval_s", 0) or 0),
+        meta=meta if isinstance(meta, dict) else {},
+    )
+    return {"ok": True, "recorded": entry}
+
+
+@router.get("/liveness")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def liveness_get_ep():
+    """Per-channel health surface (§25.3): which limbs are alive/stale right now."""
+    from ..intel import liveness as _lv
+    return await _lv.get_liveness()
+
+
 # ── ARIA-Coder LLM Proxy (R-F803) ───────────────────────────────────────────
 #
 # Endpoint the autonomous self-coder (aria_service/autonomous/sovereign_llm.py)

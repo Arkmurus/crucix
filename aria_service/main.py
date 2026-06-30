@@ -2459,6 +2459,17 @@ async def lifespan(app: FastAPI):
                             pass
             except Exception as e:
                 logger.warning("[R-F2006 watchdog] error: %s", e)
+            # R-F2178: also check EXTERNAL-LIMB heartbeats (aria-wa/web/searxng).
+            # A stale limb beat → coder-visible gap so a dark limb is acted on,
+            # not discovered only when a user request fails. Own try so a limb
+            # check error never affects the engine check above.
+            try:
+                from .intel import liveness as _lv2178
+                _stale_limbs = await _lv2178.check_stale_and_gap()
+                if _stale_limbs:
+                    logger.warning("[R-F2178 liveness] STALE limbs: %s", ", ".join(_stale_limbs))
+            except Exception as _le2178:
+                logger.debug("[R-F2178 liveness] limb check failed: %s", _le2178)
             await asyncio.sleep(900)   # every 15 min
 
     liveness_task = _singleton_task(_engine_liveness_watchdog_loop, "engine_liveness_watchdog")  # R-F2073 singleton (watches the engine — which only runs on the engine role)
