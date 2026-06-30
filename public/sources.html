@@ -12,9 +12,43 @@
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
 <main id="app-main">
-  <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-activity"></i> Source Health</h1>
-    <p class="sc-page-sub">Real-time status of all intelligence data sources</p>
+  <div class="sc-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div>
+      <h1 class="sc-page-title"><i class="bi bi-activity"></i> Source Health</h1>
+      <p class="sc-page-sub">Real-time status of all intelligence data sources</p>
+    </div>
+    <!-- R-F2194 — add an intel source that ARIA auto-ingests (data output + intel + DD) -->
+    <button id="btn-add-intel-source" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+      <i class="bi bi-plus-lg"></i> Add intel source
+    </button>
+  </div>
+
+  <!-- R-F2194 — Add intel source modal. Feeds the SAME robust vault pipeline (R-F2190/2191):
+       a website/feed added here is auto-scraped → dashboard data output + brain RAG (intel). -->
+  <div id="add-src-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:48px 16px">
+    <div class="sc-card" style="max-width:500px;width:100%;background:#fff">
+      <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="sc-card-title"><i class="bi bi-plus-circle"></i> Add intel source</div>
+        <button id="add-src-close" style="background:transparent;border:none;color:var(--sc-muted);font-size:20px;cursor:pointer">&times;</button>
+      </div>
+      <div class="sc-card-body" style="display:flex;flex-direction:column;gap:12px">
+        <div id="add-src-error" style="display:none;background:rgba(220,38,38,0.10);border:1px solid rgba(220,38,38,0.25);border-radius:6px;padding:8px 12px;color:#b91c1c;font-size:12px"></div>
+        <p style="font-size:12px;color:var(--sc-muted);margin:0">ARIA will auto-ingest this source into the live data output and its intelligence knowledge.</p>
+        <label style="font-size:12px;color:var(--sc-muted)">Source name *
+          <input id="add-src-name" type="text" placeholder="e.g. Defense News — Air" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
+        </label>
+        <label style="font-size:12px;color:var(--sc-muted)">Source URL *
+          <input id="add-src-url" type="url" placeholder="https://…" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
+        </label>
+        <label style="font-size:12px;color:var(--sc-muted)">Type
+          <select id="add-src-type" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
+            <option value="website" selected>Public website (scraped)</option>
+            <option value="rss">RSS / Atom feed</option>
+          </select>
+        </label>
+        <button id="add-src-submit" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add &amp; start ingesting</button>
+      </div>
+    </div>
   </div>
 
   <!-- Summary row -->
@@ -513,6 +547,47 @@ setInterval(() => {
   loadSectorStats();
 }, 60000);
 setInterval(loadAdversarial, 5 * 60 * 1000);
+</script>
+<script>
+// R-F2194 — "Add intel source" → the robust vault ingestion pipeline (R-F2190/2191).
+// A website/feed added here is auto-scraped into the dashboard data output + brain RAG.
+(function () {
+  function slugId(name, url) {
+    var host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
+    var base = (host || name || 'src').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return base.slice(0, 60) || ('src_' + Date.now());
+  }
+  var modal = document.getElementById('add-src-modal');
+  var errEl = document.getElementById('add-src-error');
+  function openM() { if (modal) { modal.style.display = 'flex'; if (errEl) errEl.style.display = 'none'; } }
+  function closeM() { if (modal) modal.style.display = 'none'; }
+  var addBtn = document.getElementById('btn-add-intel-source');
+  if (addBtn) addBtn.addEventListener('click', openM);
+  var closeBtn = document.getElementById('add-src-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeM);
+  if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) closeM(); });
+  var submit = document.getElementById('add-src-submit');
+  if (submit) submit.addEventListener('click', async function () {
+    var name = document.getElementById('add-src-name').value.trim();
+    var url = document.getElementById('add-src-url').value.trim();
+    var type = document.getElementById('add-src-type').value;
+    if (errEl) errEl.style.display = 'none';
+    if (!name || !url) { if (errEl) { errEl.textContent = 'Name and URL are required.'; errEl.style.display = 'block'; } return; }
+    if (!/^https?:\/\//i.test(url)) { if (errEl) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; } return; }
+    submit.disabled = true; submit.textContent = 'Adding…';
+    var body = { site_id: slugId(name, url), site_name: name, site_url: url, agent_id: 'admin_manual', site_type: type, status: 'verified' };
+    var res = await API.post('/api/aria/vault', body);
+    submit.disabled = false; submit.textContent = 'Add & start ingesting';
+    if (res.ok && res.data && res.data.success) {
+      document.getElementById('add-src-name').value = '';
+      document.getElementById('add-src-url').value = '';
+      closeM();
+      if (window.Toast) Toast.show('Source added — ARIA will start ingesting it.', 'success');
+    } else {
+      if (errEl) { errEl.textContent = (res.data && res.data.error) || ('Failed (HTTP ' + res.status + ').'); errEl.style.display = 'block'; }
+    }
+  });
+})();
 </script>
 </body>
 </html>
