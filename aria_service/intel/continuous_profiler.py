@@ -124,16 +124,25 @@ async def _report_loop() -> None:
                 try:
                     from . import capability_gaps as _cg
                     import asyncio as _aio
+                    # R-F2177: record_gap takes `detail` and `source`, NOT
+                    # `description`/`module`. The old kwargs raised TypeError on
+                    # EVERY call, swallowed by the except below → the CPU-hotspot
+                    # gap was SILENTLY DROPPED (DARK §21a). That dropped the exact
+                    # signal that names a loop hog (e.g. neural_memory._decode_edges),
+                    # so the autonomous coder never saw — or could fix — its own CPU
+                    # hotspots. Use the real param names so the gap actually lands.
                     _aio.create_task(_cg.record_gap(
                         gap_type="performance",
                         severity=2,
                         title=f"CPU hotspot: {top_frames[0][0]}",
-                        description=(
+                        detail=(
                             f"Frame {top_frames[0][0]} occupied "
                             f"{top_frames[0][1]/total*100:.0f}% of "
-                            f"{total} samples in {_REPORT_INTERVAL_S}s"
+                            f"{total} samples in {_REPORT_INTERVAL_S}s — sustained "
+                            f"CPU on the event-loop thread. Fix: offload the "
+                            f"CPU-bound call with asyncio.to_thread or a process pool."
                         ),
-                        module="continuous_profiler",
+                        source="continuous_profiler",
                     ))
                 except Exception:
                     pass

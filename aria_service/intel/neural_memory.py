@@ -424,10 +424,18 @@ async def _load_neurons_sharded() -> dict | None:
     raws = await asyncio.gather(
         *(rs.get(k) for k in keys), return_exceptions=True,
     )
+    if any(isinstance(r, Exception) or r is None for r in raws):
+        return None  # partial set — caller falls back to legacy
+    # R-F2176: offload the json decode + merge off the event loop (same loop-stall
+    # class as the edges path; the R-F371 disk-reload guard calls this at runtime).
+    return await asyncio.to_thread(_decode_merge_neuron_shards, raws)
+
+
+def _decode_merge_neuron_shards(raws: list) -> dict | None:
+    """R-F2176 — pure CPU neuron-shard json-decode+merge, run in a worker thread.
+    Returns None if any shard fails to parse (→ caller falls back to legacy)."""
     shards: list[dict] = []
     for r in raws:
-        if isinstance(r, Exception) or r is None:
-            return None  # partial set — caller falls back to legacy
         try:
             s = json.loads(r) if isinstance(r, str) else r
             if isinstance(s, dict):
@@ -534,12 +542,23 @@ async def _load_edges_sharded() -> dict | None:
         return None
     keys = [EDGES_SHARD_KEY_FMT.format(i=i) for i in range(n_shards)]
     raws = await asyncio.gather(*(rs.get(k) for k in keys), return_exceptions=True)
+    if any(isinstance(r, Exception) for r in raws):
+        return None  # partial set — fall back to legacy
+    # R-F2176: offload the CPU-bound gzip-decompress + json decode + merge to a
+    # worker thread. Run inline on the event loop it held the GIL for multi-second
+    # bursts — wedge_681 captured the main thread in _decode_edges → gzip.decompress
+    # during a _persist R-F371 disk-reload, stalling the loop 5.4s. gzip releases
+    # the GIL while decompressing, so a worker thread lets the loop keep running.
+    return await asyncio.to_thread(_decode_merge_edge_shards, raws)
+
+
+def _decode_merge_edge_shards(raws: list) -> dict:
+    """R-F2176 — pure CPU edge-shard decode+merge, run in a worker thread (off the
+    event loop). An empty/None shard is fine (no groups hashed there)."""
     merged: dict = {}
     for r in raws:
-        if isinstance(r, Exception):
-            return None  # partial set — fall back to legacy
         if r is None:
-            continue      # an empty shard is fine (no groups hashed there)
+            continue
         d = _decode_edges(r)
         if isinstance(d, dict):
             merged.update(d)
@@ -672,7 +691,9 @@ async def _persist() -> None:
                         # the legacy EDGES_KEY goes stale after migration.
                         disk_edges = await _load_edges_sharded()
                         if disk_edges is None:
-                            disk_edges = _decode_edges(await rs.get(EDGES_KEY))
+                            # R-F2176: offload the legacy-blob gzip decode too.
+                            _legacy_edges_raw = await rs.get(EDGES_KEY)
+                            disk_edges = await asyncio.to_thread(_decode_edges, _legacy_edges_raw)
                         if isinstance(disk_edges, dict):
                             _edges.clear()
                             _edges.update(disk_edges)
