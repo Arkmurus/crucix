@@ -742,6 +742,24 @@ async def lifespan(app: FastAPI):
     app.state.neural_ready = False
 
     async def _warmup_heavy_graphs():
+        # R-F2201 — LEAN WEB WORKERS. A 'web' role process (R-F2174 election)
+        # serves requests but SKIPS the heavy in-memory graph load (knowledge
+        # ~223k facts + neural ~1.2M edges) so that 1 engine + N web workers fit
+        # in the per-machine RAM (the 8GB OOM constraint — each worker otherwise
+        # loads its own ~GB-scale copy). Web workers still serve grounded chat
+        # via the PROCESS-SHARED RAG store (chromadb on the /data volume) + the
+        # LLM; the doc-lane (R-F2196) + fast-lane skip the 7-layer build entirely,
+        # and the full 7-layer build degrades gracefully (each layer is
+        # _safe_call-wrapped + budget-bounded) when knowledge/neural aren't
+        # loaded. The ENGINE role keeps the full graphs for autonomous work.
+        if _aria_role() == "web":
+            app.state.knowledge_ready = False
+            app.state.neural_ready = False
+            logger.info(
+                "[R-F2201] LEAN WEB WORKER — heavy graph warmup SKIPPED "
+                "(serves via shared RAG + LLM; engine holds the full graphs). "
+                "Saves the per-worker in-memory knowledge+neural footprint.")
+            return
         _heavy_failures = await _run_boot_inits([
             ("knowledge", knowledge.init),
             ("neural_memory", neural_memory.init),
