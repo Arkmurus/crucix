@@ -34,17 +34,25 @@ export function SignInForm() {
         setError('Invalid email or password.');
         return;
       }
-      const data = (await res.json()) as { token?: string };
+      const data = (await res.json()) as { token?: string; user?: unknown };
       if (!data.token) {
         setError('Login succeeded but no token was returned.');
         return;
       }
-      // 2) Park the JWT in an httpOnly cookie via our route handler.
+      // 2a) Park the JWT in an httpOnly cookie (used by the new aria-app pages SSR/middleware).
       await fetch('/api/session', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: data.token }),
       });
+      // 2b) Also seed localStorage with aria-web's keys so UNMIGRATED pages proxied from
+      // server.mjs (which auth via localStorage Bearer) share this session during migration.
+      try {
+        localStorage.setItem('crucix_token', data.token);
+        if (data.user) localStorage.setItem('crucix_user', JSON.stringify(data.user));
+      } catch {
+        /* localStorage unavailable — new pages still work via the cookie */
+      }
       // 3) Route to the right panel. Only honour a SAME-ORIGIN relative `next`
       // (must start with a single '/', not '//' or a scheme) to prevent an
       // open-redirect phishing vector via ?next=https://evil.com.

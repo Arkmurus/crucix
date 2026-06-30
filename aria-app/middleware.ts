@@ -1,41 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decodeToken, roleAllows, TOKEN_COOKIE, type Role } from '@/lib/auth';
 
-// Route-group gating. Route groups (customer)/(support)/(admin) don't appear in the URL,
-// so we map URL prefixes to the role(s) they require. The backend re-enforces on every
-// /api call (requireRole, R-F2170) — this middleware is the UX gate only.
-const ADMIN_PREFIXES = ['/admin', '/brain', '/gaps', '/design', '/flags', '/users', '/status'];
-const SUPPORT_PREFIXES = ['/support', '/accounts', '/tickets'];
+// aria-app is the public front door (intel.arkmurus.com). The middleware must gate ONLY
+// the pages aria-app actually SERVES — everything else (unmigrated pages, marketing,
+// legal, signup, /api/*, /healthz, static) falls through to be proxied to aria-web by the
+// next.config catch-all rewrite, and aria-web enforces its own auth there. Gating those
+// here would wrongly bounce them to /signin (R-F2175).
+//
+// As new pages are migrated, add their prefix here.
+const ADMIN_PREFIXES = ['/admin'];
+const SUPPORT_PREFIXES = ['/support'];
+const CUSTOMER_PREFIXES = ['/dashboard', '/reports', '/opportunities', '/watchlist', '/vault', '/account', '/chat'];
 
-// Always-public (no auth needed).
-const PUBLIC_PREFIXES = ['/signin', '/api/session', '/_next', '/favicon', '/assets'];
+function matchPrefix(pathname: string, list: string[]): boolean {
+  return list.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
 
+/** Roles required for an aria-app-owned page, or null if this path is NOT an owned page. */
 function requiredRoles(pathname: string): Role[] | null {
-  if (ADMIN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) return ['admin'];
-  if (SUPPORT_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) return ['support'];
-  // Everything else under the app requires an authenticated customer (or above).
-  return ['customer', 'support', 'admin'];
+  if (matchPrefix(pathname, ADMIN_PREFIXES)) return ['admin'];
+  if (matchPrefix(pathname, SUPPORT_PREFIXES)) return ['support'];
+  if (matchPrefix(pathname, CUSTOMER_PREFIXES)) return ['customer', 'support', 'admin'];
+  return null;
 }
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
-    return NextResponse.next();
-  }
+  const need = requiredRoles(req.nextUrl.pathname);
+  if (!need) return NextResponse.next(); // not an owned page -> serve/proxy untouched
 
-  const token = req.cookies.get(TOKEN_COOKIE)?.value;
-  const user = decodeToken(token);
-
+  const user = decodeToken(req.cookies.get(TOKEN_COOKIE)?.value);
   if (!user) {
     const url = req.nextUrl.clone();
     url.pathname = '/signin';
-    url.searchParams.set('next', pathname);
+    url.searchParams.set('next', req.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
-  const need = requiredRoles(pathname);
-  if (need && !roleAllows(user.role, need)) {
-    // Authenticated but wrong panel — bounce to their own home, never expose a 403 dead-end.
+  if (!roleAllows(user.role, need)) {
     const url = req.nextUrl.clone();
     url.pathname = user.role === 'admin' ? '/admin' : user.role === 'support' ? '/support' : '/dashboard';
     return NextResponse.redirect(url);
@@ -45,9 +46,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on page routes only. EXCLUDE /api — those are same-origin proxies to the
-  // backend (server.mjs), which enforces its own auth (requireAuth/requireRole);
-  // gating them here would block unauthenticated login + the API proxy. Also skip
-  // Next internals + static files.
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|assets).*)'],
+  // Skip Next internals + static; the handler itself decides what to gate vs pass through.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets).*)'],
 };
