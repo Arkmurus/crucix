@@ -481,7 +481,7 @@ async def _feed_to_brain(article: dict) -> None:
             await _bh.absorb(
                 module="news_monitor",
                 summary=str(article.get("title", ""))[:200],
-                detail=str(article.get("full_text") or article.get("summary", ""))[:2000],
+                detail=str(article.get("full_text") or article.get("summary", ""))[:6000],  # R-F2203 — richer RAG content
                 entity_name=_name[:120],
                 source_id=f"vault_source:{_article_hash(article.get('url', ''))}",
                 confidence="PROBABLE",
@@ -585,29 +585,45 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
     Content-hash dedup: an unchanged page is not re-ingested every poll; a changed page
     re-ingests. Returns {"fetched", "new"}.
     """
+    from . import researcher as _r
+    # 1) Cheap single-page PROBE for change-detection so the poll loop is not deep-crawling
+    #    every vault source every cycle — deep extraction fires only on first-ingest or change.
     try:
-        from . import researcher as _r
-        res = await _r.extract_url_text(url, timeout=20.0)
+        probe = await _r.extract_url_text(url, timeout=20.0)
     except Exception as e:
-        logger.debug("[news_monitor] vault website scrape failed for %s: %s", url, e)
+        logger.debug("[news_monitor] vault website probe failed for %s: %s", url, e)
         return {"fetched": 0, "new": 0}
 
-    text = str((res or {}).get("text", "") or "").strip()
-    if not res or not res.get("extraction_ok") or not text:
+    ptext = str((probe or {}).get("text", "") or "").strip()
+    if not probe or not probe.get("extraction_ok") or not ptext:
         return {"fetched": 0, "new": 0}
 
-    chash = _article_hash(url + "|" + hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16])
+    chash = _article_hash(url + "|" + hashlib.sha256(ptext.encode("utf-8", "ignore")).hexdigest()[:16])
     seen_key = f"scrape:{chash}"
     if await _is_seen(seen_key):
         return {"fetched": 1, "new": 0}      # unchanged since last poll
     await _mark_seen(seen_key)
 
-    title = str((res.get("title") or name or url))[:200]
+    # 2) R-F2203 — NEW or CHANGED → richer MULTI-PAGE deep extraction (homepage + high-value
+    #    internal pages: about/team/products/contact + structured extractors), so the operator's
+    #    curated source actually yields RICH data, not just a single homepage. Best-effort: falls
+    #    back to the probe text if deep extraction fails or returns less.
+    text = ptext
+    title = str((probe.get("title") or name or url))
+    try:
+        deep = await asyncio.wait_for(_r.extract_url_deep(url, max_pages=4, timeout=15.0), timeout=45.0)
+        dtext = str((deep or {}).get("text", "") or "").strip()
+        if deep and deep.get("extraction_ok", True) and len(dtext) > len(text):
+            text = dtext
+            title = str(deep.get("title") or title)
+    except Exception:
+        pass  # keep the homepage probe text — deep extraction is an enrichment, never required
+
     article = {
         "url": url,
-        "title": title,
-        "summary": text[:500],
-        "full_text": text[:5000],
+        "title": title[:200],
+        "summary": text[:1200],               # R-F2203 — raised 500 -> 1200
+        "full_text": text[:24000],            # R-F2203 — raised 5000 -> 24000 (deep multi-page)
         "source": name,                       # already shaped "vault:<site name>"
         "category": category,
         "language": lang,

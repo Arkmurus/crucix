@@ -15,10 +15,13 @@ from unittest.mock import patch, AsyncMock
 from aria_service.intel import news_monitor as nm
 
 
-def _scrape(seen=False, ok=True, text="Extracted page content about Acme Corp defense contracts."):
+def _scrape(seen=False, ok=True, text="Extracted page content about Acme Corp defense contracts.",
+            deep_text="DEEP multi-page profile of Acme Corp: about, leadership, products, contacts — far richer."):
     async def _run():
         with patch("aria_service.intel.researcher.extract_url_text",
                    AsyncMock(return_value={"extraction_ok": ok, "text": text, "title": "Acme Page"})), \
+             patch("aria_service.intel.researcher.extract_url_deep",
+                   AsyncMock(return_value={"extraction_ok": True, "text": deep_text, "title": "Acme Deep"})), \
              patch.object(nm, "_is_seen", AsyncMock(return_value=seen)), \
              patch.object(nm, "_mark_seen", AsyncMock()), \
              patch.object(nm, "_store_article", AsyncMock()) as store, \
@@ -36,9 +39,20 @@ def test_vault_website_scraped_and_ingested():
     art = store.await_args.args[0]
     assert art["source"] == "vault:Acme"
     assert art["category"] == "vault_curated"      # → triggers brain absorb (Pipeline 2)
-    assert art["title"] == "Acme Page"
+    # R-F2203: on a NEW/changed page, the richer DEEP multi-page extraction is preferred.
+    assert art["title"] == "Acme Deep"
+    assert "richer" in art["full_text"]
     assert "Acme" in art["full_text"]
     assert brain.await_count == 1, "must feed brain (ledger + RAG absorb)"
+
+
+def test_deep_failure_falls_back_to_probe_text():
+    # R-F2203: deep extraction is best-effort — if it returns LESS, keep the probe text.
+    res, store, brain = _scrape(deep_text="")   # deep yields nothing → fall back
+    assert res == {"fetched": 1, "new": 1}
+    art = store.await_args.args[0]
+    assert art["title"] == "Acme Page"            # probe title kept
+    assert "Acme Corp defense" in art["full_text"]
 
 
 def test_unchanged_website_not_reingested():
