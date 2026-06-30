@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2178,
+  "next_available": 2186,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16022,50 +16022,131 @@
       "title": "cost_tracker write-coalescing: collapse per-LLM-call hot-key RMW (cost:index/aggregate/month) into periodic flush — kill residual self-DOS (R-F2157 pattern), cap-safe (reserve stays atomic)",
       "claimed_at": "2026-06-30T19:09:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d9d1759",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:07:29Z"
     },
     {
       "r_number": "R-F2173",
       "title": "aria-app P1 customer panel: dashboard/reports/opportunities/watchlist/vault/account/chat wired + icons + smoke",
       "claimed_at": "2026-06-30T19:24:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5f994fb4",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:53:12Z"
     },
     {
       "r_number": "R-F2174",
       "title": "Tier-3 engine-role election: state_store atomic set_if_absent claim + opt-in fail-safe startup election so 1 engine is auto-elected among N uvicorn workers (default OFF = unchanged); failover via worker-respawn+lease-TTL",
       "claimed_at": "2026-06-30T19:32:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d9d1759",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:07:30Z"
     },
     {
       "r_number": "R-F2175",
       "title": "aria-app front-door catch-all proxy (intel.arkmurus.com cutover) + 4-step review fixes (open-redirect, logout 303, opportunities field, mobile nav)",
       "claimed_at": "2026-06-30T19:37:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7fc62c73",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:53:12Z"
     },
     {
       "r_number": "R-F2176",
       "title": "neural_memory persist gzip-decode blocks event loop — offload off main thread",
       "claimed_at": "2026-06-30T19:46:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d9d1759",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:06:30Z"
     },
     {
       "r_number": "R-F2177",
       "title": "wire event-loop stall detection to capability_gaps so the autonomous coder can fix loop stalls",
       "claimed_at": "2026-06-30T19:50:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d9d1759",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:06:30Z"
+    },
+    {
+      "r_number": "R-F2178",
+      "title": "brain heartbeat/liveness registry + receiver + per-limb health surface (living-organism proprioception)",
+      "claimed_at": "2026-06-30T20:13:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "edbe7bbb",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:35:17Z"
+    },
+    {
+      "r_number": "R-F2179",
+      "title": "aria-wa heartbeat emitter to brain liveness",
+      "claimed_at": "2026-06-30T20:13:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "edbe7bbb",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:35:17Z"
+    },
+    {
+      "r_number": "R-F2180",
+      "title": "aria-web heartbeat emitter to brain liveness",
+      "claimed_at": "2026-06-30T20:13:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "edbe7bbb",
+      "notes": null,
+      "shipped_at": "2026-06-30T20:35:17Z"
+    },
+    {
+      "r_number": "R-F2181",
+      "title": "aria-searxng fly healthcheck + scheduled brain liveness probe",
+      "claimed_at": "2026-06-30T20:13:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2182",
+      "title": "aria-web top-level crash + research-path wired to brain",
+      "claimed_at": "2026-06-30T20:13:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2183",
+      "title": "aria-wa dedup-before-media + remove stale wa-listener build config",
+      "claimed_at": "2026-06-30T20:13:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2184",
+      "title": "autonomous engine master-switch auto-recovery (heal lost flag, respect deliberate disable)",
+      "claimed_at": "2026-06-30T20:13:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2185",
+      "title": "adaptive load governor: autonomy self-regulates — sheds tick when state_store write-queue backs up or event-loop stalls, auto-resumes when calm; self-aware (wires shed to brain). The self-healing mechanism that stops background work starving serving on single-process brain",
+      "claimed_at": "2026-06-30T20:38:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
