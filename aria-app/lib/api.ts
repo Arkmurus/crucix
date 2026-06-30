@@ -25,3 +25,20 @@ export async function apiServer<T = unknown>(path: string, init?: RequestInit): 
   if (!res.ok) throw new Error(`API ${path} -> ${res.status}`);
   return (await res.json()) as T;
 }
+
+/**
+ * Resilient variant for page rendering: returns { data } on success or { error }
+ * on any failure (backend down, non-2xx, bad JSON) so a page degrades to an
+ * honest empty/offline state instead of a 500. Never throws.
+ */
+export async function tryApiServer<T = unknown>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T | null; error: string | null }> {
+  try {
+    const data = await apiServer<T>(path, init);
+    return { data, error: null };
+  } catch (e) {
+    return { data: null, error: e instanceof Error ? e.message : 'request failed' };
+  }
+}
