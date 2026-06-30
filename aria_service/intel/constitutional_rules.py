@@ -268,6 +268,18 @@ CONSTITUTIONAL_RULES: list[dict] = [
     },
     # ── R-F2133: coding convention rules ──────────────────────────────────
     {
+        "name": "never-read-large-files-sequentially",
+        "clause_number": "R-F2193 / loop-guard incident",
+        "description": "Reading large files in sequential 200-line chunks triggers the 40-call "
+                       "loop guard and wastes tool calls. Always grep for structure first (def/class/"
+                       "function signatures), then read only critical sections.",
+        "constraint": "For any file >500 lines: grep -n 'def |class |async def |app\\.|router\\.' "
+                      "first to get the structure map. Read only the critical functions/sections. "
+                      "After 15 read_file calls, pause and assess if you have enough data. Never "
+                      "read a file linearly from line 1 to end in fixed-size chunks.",
+        "consequence": "Loop guard fires at 40 calls; operator sees stalled progress.",
+    },
+    {
         "name": "coding-convention-error-messages",
         "clause_number": "AGENTS.md §8.7 / R-F2133",
         "description": "Error messages must be informative: include the operation that failed, "
