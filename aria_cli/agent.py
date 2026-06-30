@@ -134,16 +134,40 @@ class _LLMCallTimeout(Exception):
 LOOP_NUDGE_AT = max(2, _env_int("ARIA_CODER_LOOP_NUDGE", 3))
 LOOP_ABORT_AT = max(LOOP_NUDGE_AT + 1, _env_int("ARIA_CODER_LOOP_ABORT", 8))
 
+# R-F2166 — no-progress guard. The identical-call guard above only trips on a
+# SINGLE repeated signature; a long oscillation (A,B,C,…,A,B,C…) keeps each
+# signature under LOOP_ABORT_AT for a long time and burns calls under the
+# effectively-unlimited step cap. So also abort when many tool calls pass with no
+# NEW signature appearing — real progress keeps producing new calls; a stuck loop
+# only repeats old ones.
+NO_PROGRESS_ABORT = max(12, _env_int("ARIA_CODER_NO_PROGRESS_ABORT", 40))
+
+# R-F2164 — auto-compaction. self.messages grows unbounded; on a long session it
+# drifts into the model's context ceiling (deepseek-chat ~64K tokens), where the
+# provider returns a HARD (non-resumable) context-length error and the turn dies.
+# When the running history exceeds this many chars, stub the OLDEST bulky tool
+# outputs (file reads, command output — the real context hogs) to a short marker,
+# keeping recent tool results and ALL reasoning intact. Non-destructive of the
+# conversation structure, so tool_call/response pairing stays valid.
+COMPACT_CHAR_BUDGET = max(40000, _env_int("ARIA_CODER_COMPACT_CHARS", 180000))
+COMPACT_KEEP_RECENT_TOOLS = max(2, _env_int("ARIA_CODER_COMPACT_KEEP_TOOLS", 6))
+
 
 class Agent:
     def __init__(self, *, llm: LLMClient, toolbox: Toolbox, system_prompt: str,
                  ui: AgentUI, auto_approve: bool = False,
-                 coder_toolbox: CoderToolbox | None = None) -> None:
+                 coder_toolbox: CoderToolbox | None = None,
+                 task_rag: bool = False) -> None:
         self.llm = llm
         self.toolbox = toolbox
         self.coder_toolbox = coder_toolbox or CoderToolbox(toolbox)
         self.ui = ui
         self.auto_approve = auto_approve
+        # R-F2162: when True, query the coding RAG with the OPERATOR'S TASK at the
+        # start of each top-level task and inject the hits, so every task is
+        # grounded in task-relevant constitutional rules + past fixes (not the
+        # generic session-build query). Set by the CLI in self-mode.
+        self.task_rag = task_rag
         self.retry_backoff = 2.0  # seconds, exponential; overridden to 0 in tests
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
         # Merge base + coder tool schemas for the LLM
@@ -206,6 +230,30 @@ class Agent:
             self.messages = out
         return repairs
 
+    def _compact(self, force: bool = False) -> int:
+        """R-F2164 — shrink history to stay under the context ceiling by stubbing
+        the OLDEST large tool outputs (keeping the most recent ones and all
+        reasoning). Non-destructive of message structure, so tool-call/response
+        pairing stays valid. Returns chars reclaimed. ``force`` ignores the budget
+        (used by the manual /compact)."""
+        total = sum(len(str(m.get("content") or "")) for m in self.messages)
+        if not force and total <= COMPACT_CHAR_BUDGET:
+            return 0
+        tool_idxs = [i for i, m in enumerate(self.messages) if m.get("role") == "tool"]
+        if len(tool_idxs) <= COMPACT_KEEP_RECENT_TOOLS:
+            return 0
+        stub = "[older tool output elided to fit context — re-run the tool if you need it again]"
+        reclaimed = 0
+        for i in tool_idxs[:-COMPACT_KEEP_RECENT_TOOLS]:
+            c = str(self.messages[i].get("content") or "")
+            if len(c) > len(stub) + 200:
+                reclaimed += len(c) - len(stub)
+                self.messages[i] = {**self.messages[i], "content": stub}
+        if reclaimed:
+            self.ui.info(f"[auto-compact] reclaimed ~{reclaimed // 1000}k chars of "
+                         f"old tool output to stay under the context limit")
+        return reclaimed
+
     def _invoke_llm(self, stream_fn, on_delta, call_timeout: float):
         """Run a single LLM network call under a watchdog thread (R-F1299).
 
@@ -248,6 +296,9 @@ class Agent:
         repaired = self._repair_dangling_tool_calls()
         if repaired:
             self.ui.info(f"[self-heal] repaired {repaired} dangling tool-call(s) in history")
+        # R-F2164: auto-compact bulky old tool output before the call so long
+        # sessions never hit the hard context-length error.
+        self._compact()
         stream_fn = getattr(self.llm, "chat_stream", None)
         call_timeout = self._call_timeout or LLM_CALL_TIMEOUT
         for attempt in range(LLM_MAX_ATTEMPTS):
@@ -281,6 +332,9 @@ class Agent:
         # R-F1618: drain Claude bridge before starting, so any guidance that
         # arrived between turns is picked up immediately.
         self._drain_claude_bridge()
+        # R-F2162: ground THIS task in task-relevant coding knowledge.
+        if self.task_rag:
+            self._inject_task_rag(user_text)
         result = self.run_turn(user_text)
         resumes = 0
         while result.aborted and result.resumable and resumes < AUTO_RESUME_MAX:
@@ -297,6 +351,27 @@ class Agent:
             if not result.final_text.rstrip().endswith("?"):
                 result.final_text += handoff
         return result
+
+    def _inject_task_rag(self, task_text: str) -> None:
+        """R-F2162 — query the coding RAG with the operator's task and inject the
+        hits (constitutional rules + past fixes) as a system note for THIS task.
+        Best-effort and bounded (the HTTP/in-process query self-limits); never
+        breaks the loop. Skips trivial inputs and control words."""
+        t = (task_text or "").strip()
+        if len(t) < 8 or t.lower() in {"continue", "go", "ok", "yes", "y"}:
+            return
+        try:
+            from .prompt import _query_coding_rag
+            block = _query_coding_rag(t[:500])
+        except Exception:  # noqa: BLE001 — RAG must never break the loop
+            return
+        if block:
+            self.messages.append({
+                "role": "system",
+                "content": "Coding knowledge retrieved for THIS task (follow the "
+                           "constitutional rules; reuse the past fixes):" + block,
+            })
+            self.ui.info("[code-RAG] grounded this task in constitutional rules + past fixes")
 
     def _dispatch(self, name: str, args: dict) -> ToolResult:
         # Try base toolbox first
@@ -430,6 +505,7 @@ class Agent:
         self._call_timeout = timeout
         steps = 0
         sig_counts: dict[str, int] = {}  # R-F1042 loop guard (per turn)
+        self._steps_since_new_sig = 0  # R-F2166 no-progress guard (per turn)
         try:
             result = self._run_turn_inner(steps, sig_counts)
         except Exception as exc:  # noqa: BLE001 — never wedge the next turn
@@ -511,8 +587,27 @@ class Agent:
                 except Exception:  # noqa: BLE001 — non-JSON args: fall back to raw
                     _canon = raw_args
                 sig = f"{name}|{_canon}"
+                _is_new_sig = sig not in sig_counts
                 sig_counts[sig] = sig_counts.get(sig, 0) + 1
                 rep = sig_counts[sig]
+                # R-F2166 no-progress guard: a NEW signature = forward progress;
+                # only-repeats = a long oscillation the identical-call guard is too
+                # slow to catch. Abort when too many calls pass with nothing new.
+                if _is_new_sig:
+                    self._steps_since_new_sig = 0
+                else:
+                    self._steps_since_new_sig = getattr(self, "_steps_since_new_sig", 0) + 1
+                if self._steps_since_new_sig >= NO_PROGRESS_ABORT:
+                    msg = (f"Stopped: {self._steps_since_new_sig} consecutive tool calls "
+                           f"with no NEW action — the loop is repeating earlier calls "
+                           f"without progress. Redirect: try a different approach or "
+                           f"answer with what you already have.")
+                    self.ui.info(f"[loop-guard:no-progress] {msg}")
+                    abort_result = ToolResult(msg, is_error=True)
+                    for _rem in resp.tool_calls[tc_idx:]:
+                        self._record_tool(_rem, abort_result)
+                    return TurnResult(final_text=msg, steps=steps, aborted=True,
+                                      resumable=False)
                 if rep >= LOOP_ABORT_AT:
                     msg = (f"Stopped: tool '{name}' was called {rep}x with identical "
                            f"arguments — a loop. The result will not change; redirect "

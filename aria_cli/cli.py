@@ -1857,6 +1857,13 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
         sys.exit(2)
 
     llm = LLMClient(cfg)
+    # R-F2166: the `aria` provider can't do tool-calling — a coder on it silently
+    # becomes a tool-less chat box. Make that LOUD so it's never a mystery.
+    if not llm.supports_tools:
+        print(color.red(
+            "  [warning] LLM provider 'aria' does NOT support tool-calling — the "
+            "coder will have NO tools (no read/edit/run). Set DEEPSEEK_API_KEY (or "
+            "ARIA_CODER_LLM_PROVIDER to a tool-capable provider) to enable coding."))
     system_prompt = build_system_prompt(
         root=cwd, self_mode=self_mode, repo_root=repo_root)
     theme = getattr(args, "theme", "dark")
@@ -1865,7 +1872,7 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     # R-F1354: feed the spinner a live token count (output tokens so far).
     ui._token_getter = lambda: llm.total_output_tokens
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,
-                  auto_approve=args.auto)
+                  auto_approve=args.auto, task_rag=self_mode)
 
     # Back door: surface any messages Claude left for ARIA
     if repo_root is not None:
@@ -2577,9 +2584,15 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim(f"  chain: {active} (active)  ·  {getattr(cfg, 'base_url', '') or 'n/a'}"))
                 continue
             if line == "/compact":
-                before = len(agent.messages)
-                agent.messages = agent.messages[:1] + agent.messages[-5:]
-                print(color.dim(f"  compacted {before} → {len(agent.messages)} turns"))
+                # R-F2164: non-destructive compaction — stub the oldest bulky tool
+                # outputs instead of deleting the whole session (the old
+                # messages[:1]+[-5:] threw away all working context and could
+                # orphan tool calls).
+                before = sum(len(str(m.get("content") or "")) for m in agent.messages)
+                reclaimed = agent._compact(force=True)
+                after = sum(len(str(m.get("content") or "")) for m in agent.messages)
+                print(color.dim(f"  compacted {before // 1000}k → {after // 1000}k chars "
+                                f"(reclaimed ~{reclaimed // 1000}k, history preserved)"))
                 continue
             if line == "/memory":
                 memory_path = cwd / ".aria" / "memory.md"

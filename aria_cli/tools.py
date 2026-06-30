@@ -37,6 +37,28 @@ _MAX_GLOB_RESULTS = 400
 # Sentinel for non-Windows runs (no temp script to clean up).
 _NO_TEMP_SCRIPT = ""
 
+# R-F2163 — resolved PowerShell executable (cached). Prefer pwsh 7+ over the
+# legacy powershell.exe 5.1.
+_POWERSHELL_EXE: str | None = None
+
+
+def _resolve_powershell() -> str:
+    """Return the PowerShell executable to run `run` commands through. Prefers
+    PowerShell 7+ (`pwsh`, the operator's primary shell) and falls back to
+    Windows PowerShell 5.1 (`powershell`). Cached after first resolution.
+    Override with ARIA_CODER_POWERSHELL."""
+    global _POWERSHELL_EXE
+    if _POWERSHELL_EXE is not None:
+        return _POWERSHELL_EXE
+    override = os.getenv("ARIA_CODER_POWERSHELL", "").strip()
+    if override:
+        _POWERSHELL_EXE = override
+    elif shutil.which("pwsh"):
+        _POWERSHELL_EXE = "pwsh"
+    else:
+        _POWERSHELL_EXE = "powershell"
+    return _POWERSHELL_EXE
+
 
 def _cleanup_temp_script(path: str) -> None:
     """Remove a temp .ps1 script created by run() on Windows."""
@@ -381,11 +403,22 @@ class Toolbox:
             tmp = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".ps1", delete=False, encoding="utf-8",
             )
+            # R-F2163: force UTF-8 console output inside the script so child output
+            # (emoji, box glyphs, accented text) survives the pipe instead of
+            # raising UnicodeDecodeError in the reader thread (the pipe is decoded
+            # as UTF-8 below). Idempotent and harmless for ASCII output.
+            tmp.write("$OutputEncoding = [Console]::OutputEncoding = "
+                      "[System.Text.Encoding]::UTF8\n")
             tmp.write(command)
             tmp.write("\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n")
             tmp.close()
+            # R-F2163: prefer PowerShell 7+ (pwsh) — the operator's primary shell —
+            # over Windows PowerShell 5.1 (powershell.exe), which lacks && / ||
+            # chaining, ternary, and null-coalescing. Fall back to 5.1 if pwsh
+            # isn't installed. Resolved once and cached.
+            exe = _resolve_powershell()
             argv = [
-                "powershell", "-NoProfile", "-NonInteractive",
+                exe, "-NoProfile", "-NonInteractive",
                 "-ExecutionPolicy", "Bypass", "-File", tmp.name,
             ]
             popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -395,8 +428,12 @@ class Toolbox:
             popen_kwargs = {"shell": True, "start_new_session": True}
             temp_script = _NO_TEMP_SCRIPT
         proc = subprocess.Popen(
+            # R-F2163: decode the pipe as UTF-8 (errors=replace) rather than the
+            # Windows locale default (cp1252), which silently corrupted/dropped
+            # non-ASCII child output.
             argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, cwd=str(workdir), **popen_kwargs,
+            text=True, bufsize=1, encoding="utf-8", errors="replace",
+            cwd=str(workdir), **popen_kwargs,
         )
         return proc, temp_script
 

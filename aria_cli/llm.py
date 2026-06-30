@@ -9,6 +9,22 @@ We do NOT reuse ``aria_service.llm.OpenAICompatProvider`` here because that
 abstraction is plain text-in/text-out (no ``tools`` array, no ``tool_calls``
 parsing) — an agent loop needs function calling. The env-var names and base-url
 defaults are kept identical to ``aria_service.llm.factory`` for consistency.
+
+Stronger coding model (R-F2165): the client is provider-pluggable. To route the
+coder to Claude (Sonnet/Opus class) for higher coding quality while keeping
+native tool-calling, set THREE env vars and flip — no code change:
+    ARIA_CODER_LLM_PROVIDER=openrouter
+    OPENROUTER_API_KEY=<key>
+    ARIA_CODER_LLM_MODEL=<the exact OpenRouter Claude slug, e.g. anthropic/claude-sonnet-4.5>
+OpenRouter exposes Claude over an OpenAI-shaped API, so it works through this
+same client (sidesteps the missing native Anthropic adapter + the declined
+direct-Anthropic billing per CLAUDE.md §18). Until flipped, the default stays
+``deepseek-chat`` (operator decision 2026-06-30: keep DeepSeek for now).
+
+NOTE — the in-house ``aria`` provider does NOT support tool-calling (it forwards
+the last user message to the brain's /chat and returns text). A coder on the
+``aria`` provider has NO tools and degrades to a chat box; ``supports_tools`` is
+False for it so callers can warn loudly instead of failing silently.
 """
 from __future__ import annotations
 
@@ -212,6 +228,13 @@ class LLMClient:
         self._client = httpx.Client(timeout=self.config.timeout)
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+
+    @property
+    def supports_tools(self) -> bool:
+        """R-F2166: False on the in-house ``aria`` provider, which forwards text
+        to the brain /chat and cannot do function-calling — so a coder on it has
+        NO tools. Callers warn loudly instead of silently degrading to a chat box."""
+        return self.config.provider != "aria"
 
     def close(self) -> None:
         try:

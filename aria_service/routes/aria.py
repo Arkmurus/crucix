@@ -13845,6 +13845,72 @@ async def self_recent_errors_ep(hours: int = 24):
     }
 
 
+# R-F2161 — coding-RAG query surface for the local `aria` CLI coder.
+# The operator's CLI runs on Windows where chromadb is NOT installed and the
+# /data/aria_rag volume is server-only, so the CLI's in-process RAG query always
+# hit an empty local store (the "RAG↔coding link is poor" root cause). This lets
+# the CLI reach the POPULATED brain RAG (constitutional rules + codebase
+# structure + past fixes) over HTTP, keyed to the operator's current task. Auth
+# is inherited from the router-level dependency (Depends(_router_auth_dep)).
+@router.post("/coder/rag/query")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def coder_rag_query_ep(payload: dict):
+    """Query the coding RAG for task-relevant knowledge. Blocking chromadb
+    queries are offloaded with asyncio.to_thread so the event loop never pins."""
+    import asyncio as _aio
+    from ..intel import coding_rag_indexer as _crag
+    q = str((payload or {}).get("query") or "coding conventions project structure")[:2000]
+    top_k = max(1, min(int((payload or {}).get("top_k", 3) or 3), 8))
+    rules = await _aio.to_thread(_crag.query_constitutional_constraints, q, top_k) or []
+    structure = await _aio.to_thread(_crag.query_codebase_context, q, top_k) or []
+    fixes = await _aio.to_thread(_crag.query_relevant_fixes, q, top_k) or []
+    return {"query": q, "constitutional": rules, "structure": structure, "fixes": fixes}
+
+
+# R-F2162 — write-back: let the CLI coder record a fix/failure into the SAME RAG
+# the AUTONOMOUS coder reads, so lessons from interactive sessions compound into
+# autonomy (the goal). Best-effort; blocking upsert offloaded to a thread.
+@router.post("/coder/rag/record")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def coder_rag_record_ep(payload: dict):
+    import asyncio as _aio
+    import datetime as _dt
+    from ..intel import coding_rag_indexer as _crag
+    kind = str((payload or {}).get("kind", "")).strip().lower()
+    rec = (payload or {}).get("record") or {}
+    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    try:
+        if kind == "fix":
+            fr = _crag.FixRecord(
+                r_number=str(rec.get("r_number", ""))[:40],
+                title=str(rec.get("title", ""))[:300],
+                gap_type=str(rec.get("gap_type", "cli_fix"))[:60],
+                module=str(rec.get("module", ""))[:200],
+                problem_description=str(rec.get("problem_description", ""))[:2000],
+                approach=str(rec.get("approach", ""))[:2000],
+                files_changed=[str(x)[:200] for x in (rec.get("files_changed") or [])][:50],
+                tests_passed=int(rec.get("tests_passed", 0) or 0),
+                timestamp=str(rec.get("timestamp") or now_iso),
+            )
+            doc_id = await _aio.to_thread(_crag.index_fix, fr)
+        elif kind == "failure":
+            fl = _crag.FailureRecord(
+                r_number=str(rec.get("r_number", ""))[:40],
+                attempt_number=int(rec.get("attempt_number", 1) or 1),
+                error_type=str(rec.get("error_type", "cli_failure"))[:60],
+                error_message=str(rec.get("error_message", ""))[:2000],
+                why_failed=str(rec.get("why_failed", ""))[:2000],
+                next_approach=str(rec.get("next_approach", ""))[:2000],
+                timestamp=str(rec.get("timestamp") or now_iso),
+            )
+            doc_id = await _aio.to_thread(_crag.index_failure, fl)
+        else:
+            return {"ok": False, "error": f"unknown kind '{kind}' (expected fix|failure)"}
+        return {"ok": bool(doc_id), "doc_id": doc_id}
+    except Exception as e:  # noqa: BLE001 — best-effort write-back
+        return {"ok": False, "error": str(e)[:300]}
+
+
 # ── ARIA-Coder LLM Proxy (R-F803) ───────────────────────────────────────────
 #
 # Endpoint the autonomous self-coder (aria_service/autonomous/sovereign_llm.py)

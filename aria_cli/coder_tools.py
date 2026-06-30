@@ -10,6 +10,7 @@ imports here — all shell execution goes through the Toolbox.run() method.
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -57,9 +58,17 @@ class CoderToolbox:
                 if r.is_error:
                     return ToolResult(r.output, is_error=True)
         else:
-            r = self._tb.run("git add -A", timeout=30)
+            # R-F2166: do NOT blanket `git add -A` — it sweeps untracked runtime
+            # artifacts (data DBs, logs, generated files) into the commit, the
+            # exact hazard R-F1478/R-F1479 fought. Stage tracked modifications
+            # (-u, reliable) plus the NEW files THIS session actually wrote
+            # (changed_files); per-file adds are best-effort so a path quirk can't
+            # fail an otherwise-valid commit. Pass `files=[...]` for full control.
+            r = self._tb.run("git add -u", timeout=30)
             if r.is_error:
                 return ToolResult(r.output, is_error=True)
+            for f in list(getattr(self._tb, "changed_files", []) or [])[:100]:
+                self._tb.run(f"git add {_shq(f)}", timeout=30)
         cmd = f"git commit -m {_shq(message)}"  # R-F2095 — quoted (was naive "{message}")
         for t in (trailers or []):
             cmd += f" -m {_shq(t)}"
@@ -511,7 +520,39 @@ class CoderToolbox:
         if not sha:
             r = self._tb.run("git rev-parse HEAD", timeout=15)
             sha = r.output.splitlines()[0] if not r.is_error and r.output else "unknown"
-        return self._tb.run(f'{_shq(sys.executable)} {_shq(str(script))} ship {_shq(r_number)} {_shq(sha)}', timeout=30)  # R-F2128 — quoted
+        result = self._tb.run(f'{_shq(sys.executable)} {_shq(str(script))} ship {_shq(r_number)} {_shq(sha)}', timeout=30)  # R-F2128 — quoted
+        # R-F2162: a shipped R-number is a clean "this fix worked" signal — write
+        # it back to the brain's coding RAG so the autonomous coder can reuse it.
+        if not result.is_error:
+            self._record_shipped_fix(r_number, sha)
+        return result
+
+    def _record_shipped_fix(self, r_number: str, sha: str) -> None:
+        """Best-effort write-back of a shipped fix to the coding RAG (R-F2162).
+        No-op (no extra commands) when the brain isn't configured — there is no
+        sink to write to, so don't even gather context."""
+        if not (os.getenv("ARIA_SERVICE_URL") and
+                (os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_CODER_LLM_API_KEY"))):
+            return
+        try:
+            from .prompt import record_coding_outcome_http
+            subj = ""
+            r = self._tb.run("git log -1 --pretty=%s", timeout=15)
+            if not r.is_error and r.output:
+                subj = r.output.splitlines()[0][:300]
+            files = list(getattr(self._tb, "changed_files", []) or [])[:50]
+            record_coding_outcome_http("fix", {
+                "r_number": r_number,
+                "title": subj or f"{r_number} shipped",
+                "gap_type": "cli_fix",
+                "module": files[0] if files else "",
+                "problem_description": subj,
+                "approach": "Shipped via the aria CLI coder.",
+                "files_changed": files,
+                "tests_passed": 0,
+            })
+        except Exception:  # noqa: BLE001 — write-back must never fail a ship
+            pass
 
     # ── self-review (adversarial self-critique — no Claude needed) ─────────
 
@@ -794,7 +835,7 @@ CODER_TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "ci_deploy",
-            "description": "PREFERRED autonomous deploy: commit pending changes with a [deploy]-tagged message, push to origin/main (CI builds remotely + canary-deploys aria-intel), then poll /health/live until build_rev matches HEAD. Fully hands-free, no local flyctl, returns success ONLY when the live build is verified aligned. Use the local `deploy` tool only as a fallback when CI is broken.",
+            "description": "PREFERRED autonomous deploy: commit pending changes with a [deploy]-tagged message, push to origin/main (GitHub backup), then deploy aria-intel via the trusted local scripts/deploy.ps1|deploy.sh (canary + health-verify + build_rev check + auto-rollback) and confirm /health/live build_rev matches HEAD. Returns success ONLY when the live build is verified aligned. This is the path that actually reaches Fly; use the plain `deploy` tool only for a single explicit app.",
             "parameters": {
                 "type": "object",
                 "properties": {

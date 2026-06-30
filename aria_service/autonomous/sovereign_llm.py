@@ -70,8 +70,26 @@ LARGE_FILE_LINES = int(os.getenv("ARIA_CODER_LARGE_FILE_LINES", "500"))
 # below the bar it's meant to hold. This loads CLAUDE.md (the binding floor) +
 # AGENTS.md (the coder playbook) once and prepends them to the plan/code/edit
 # prompts, so every autonomous fix is grounded in the same rules Claude follows.
-# Each file is capped (mirrors the CLI's 16KB-per-file cap) to bound prompt size.
-_PLAYBOOK_FILE_CAP = int(os.getenv("ARIA_CODER_PLAYBOOK_FILE_CAP", "9000"))
+# R-F2160: per-file cap. The old 9000 cap showed the AUTONOMOUS coder only ~24%
+# of CLAUDE.md/AGENTS.md — dropping the operational back-half (CLAUDE.md §20-§25,
+# AGENTS.md laws 11-20 incl. law 19 "PowerShell is not bash" and the shipping
+# sequence), so it ran below the bar it's meant to hold. Default now fits both
+# files whole (~38KB each); when a file exceeds the cap, keep HEAD+TAIL so the
+# binding floor AND the operational rules both survive (not a head-only cut).
+_PLAYBOOK_FILE_CAP = int(os.getenv("ARIA_CODER_PLAYBOOK_FILE_CAP", "40000"))
+
+
+def _clip_playbook(text: str, cap: int) -> str:
+    """Bound a playbook file to ``cap`` chars: under cap → unchanged; over cap →
+    head (60%) + elision marker + tail (40%) so neither the top floor nor the
+    bottom operational rules are lost."""
+    if len(text) <= cap:
+        return text
+    head = int(cap * 0.6)
+    tail = cap - head
+    return (text[:head]
+            + "\n\n…(MIDDLE ELIDED to fit — full file on disk)…\n\n"
+            + text[-tail:])
 
 
 @functools.lru_cache(maxsize=1)
@@ -86,7 +104,7 @@ def _load_playbook() -> str:
     parts: list[str] = []
     for name in ("CLAUDE.md", "AGENTS.md"):
         try:
-            txt = (root / name).read_text(encoding="utf-8")[:_PLAYBOOK_FILE_CAP]
+            txt = _clip_playbook((root / name).read_text(encoding="utf-8"), _PLAYBOOK_FILE_CAP)
             if txt.strip():
                 parts.append(f"----- {name} (BINDING — follow exactly) -----\n{txt}")
         except Exception:

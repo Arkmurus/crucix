@@ -28,6 +28,10 @@ from dataclasses import dataclass
 # R-F904 thresholds (kept identical to self_improve.py so behaviour matches).
 _TRUNCATION_MIN_LINES = 40
 _TRUNCATION_SHRINK_RATIO = 0.5
+# R-F2166 — additive char-collapse thresholds (CLI-side strengthening; only an
+# egregious collapse trips, so legitimate refactors/deletions still pass).
+_TRUNCATION_MIN_CHARS = 800
+_TRUNCATION_CHAR_RATIO = 0.3
 
 
 @dataclass
@@ -51,6 +55,21 @@ def check_truncation(old_content: str, new_content: str) -> tuple[bool, str]:
             f"than half of the current {current_lines} lines — refusing to "
             f"overwrite. Use edit_file for targeted changes, or pass the full "
             f"file content if this shrink is intentional.",
+        )
+    # R-F2166 — ADDITIVE char-collapse check (the R-F904 line check above is left
+    # untouched to preserve parity with self_improve.py). Catches what the line
+    # check misses: a small file (<40 lines) gutted to a stub, or a rewrite that
+    # keeps the line count but guts the content. Conservative — only an egregious
+    # 70%+ char collapse of a non-trivial file, so legitimate large deletions pass.
+    old_chars = len(old_content.strip())
+    new_chars = len(new_content.strip())
+    if old_chars >= _TRUNCATION_MIN_CHARS and new_chars < _TRUNCATION_CHAR_RATIO * old_chars:
+        return (
+            False,
+            f"truncation guard (R-F2166): proposed content is {new_chars} chars vs "
+            f"the current {old_chars} — a >{int((1 - _TRUNCATION_CHAR_RATIO) * 100)}% "
+            f"collapse, almost always a truncated stub. Use edit_file for targeted "
+            f"changes, or pass the full file content if this shrink is intentional.",
         )
     return True, ""
 

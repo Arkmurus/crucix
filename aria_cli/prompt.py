@@ -12,12 +12,35 @@ starts grounded in accumulated coding knowledge — same as the autonomous coder
 """
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 
-# Cap on how much of CLAUDE.md to inject so a huge rules file can't crowd out
-# the working context. The binding floor lives near the top of the file.
-_GUIDANCE_MAX_CHARS = 16000
+# Per-file cap on injected guidance. R-F2160: the default now fits CLAUDE.md and
+# AGENTS.md WHOLE (~38KB each today). The prior 16000 cap silently dropped ~58%
+# of each file — and the dropped half is exactly where the load-bearing coding
+# rules live (CLAUDE.md §20-§25 incl. §21e which mandates this very injection;
+# AGENTS.md laws 11-20 incl. law 19 "PowerShell is not bash" and the shipping
+# sequence). When a file genuinely exceeds the cap we keep the HEAD and the TAIL
+# (so the top floor AND the bottom operational rules both survive, eliding only
+# the middle) and mark the elision — never a silent head-only truncation.
+_GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "40000"))
+
+
+def _clip_guidance(text: str, cap: int) -> str:
+    """Bound a guidance file to ``cap`` chars. Under cap → unchanged. Over cap →
+    head (60%) + elision marker + tail (40%), so neither the binding floor at the
+    top nor the operational rules at the bottom are lost."""
+    if len(text) <= cap:
+        return text
+    head = int(cap * 0.6)
+    tail = cap - head
+    return (
+        text[:head]
+        + "\n\n…(MIDDLE ELIDED to fit — read the full file with read_file for the "
+          "complete rules)…\n\n"
+        + text[-tail:]
+    )
 
 _IDENTITY = """You are ARIA — the Arkmurus Research Intelligence Agent — operating as an \
 autonomous coding agent on the operator's machine, alongside Claude Code. You have \
@@ -110,6 +133,28 @@ ENGINEERING STANDARD (state-of-the-art — hold it on every change)
   next; commit messages explain intent.
 """
 
+_POWERSHELL = """
+SHELL DIALECT — YOU ARE ON WINDOWS POWERSHELL (run uses pwsh/powershell, never bash)
+Your `run` tool executes every command through PowerShell on this machine. Emit
+PowerShell, not bash — bash-isms are fed verbatim to PowerShell and fail or do the
+wrong thing. Concrete rules (AGENTS.md anti-hallucination law 19):
+- `&&` / `||` chaining is NOT reliable (Windows PowerShell 5.1 lacks it). Sequence
+  with `;`, or check `$LASTEXITCODE` / `if (-not $?) { … }` between steps.
+- `curl` is a PowerShell ALIAS for Invoke-WebRequest, not real curl — use
+  `curl.exe` when you want curl, or `Invoke-RestMethod`.
+- Redirection: `2>$null` not `2>/dev/null`; `$null` not `/dev/null`.
+- File ops: `Remove-Item` (not rm -rf — though rm is aliased), `Get-Content`/`gc`
+  (cat is aliased), `Get-ChildItem`/`ls`, `Select-String` (not grep — but your
+  `grep` TOOL is better, use it). Prefer your read_file/grep/glob TOOLS over
+  shelling out to Get-Content/Select-String.
+- Env vars: `$env:NAME = 'x'` (not `export NAME=x`); read with `$env:NAME`.
+- Avoid unescaped `()` inside double-quoted strings — PowerShell evaluates them;
+  single-quote literal strings.
+- Pipe `python`/`pytest`/`git` through directly; they work the same. Use
+  `git --no-pager …` so paged output never blocks.
+- Paths: forward OR backslashes both work in PowerShell; quote paths with spaces.
+"""
+
 _SELF_MODE = """
 THIS IS ARIA'S OWN ECOSYSTEM (the crucix repo)
 You are editing your own codebase. The crucix guardrails apply and are enforced \
@@ -160,70 +205,138 @@ def load_repo_guidance(repo_root: Path | None) -> str:
                 text = f.read_text(encoding="utf-8", errors="replace")
             except Exception:  # noqa: BLE001
                 continue
-            if len(text) > _GUIDANCE_MAX_CHARS:
-                text = text[:_GUIDANCE_MAX_CHARS] + "\n…(truncated — read the full file with read_file)"
+            text = _clip_guidance(text, _GUIDANCE_MAX_CHARS)
             chunks.append(f"----- {name} -----\n{text}")
     return "\n\n".join(chunks)
 
 
-def _query_coding_rag(task_hint: str = "") -> str:
-    """R-F2145 — query the live coding RAG for constitutional rules, codebase
-    structure, and past fixes relevant to the current task. Best-effort: returns
-    empty string on any error (RAG unavailable, not in crucix repo, etc.).
+def _format_rag(rules: list, struct: list, fixes: list) -> str:
+    """Render RAG hits (constitutional rules + structure + past fixes) into the
+    prompt block. Shared by the HTTP and in-process paths so both render the
+    same way."""
+    parts: list[str] = []
+    for r in (rules or [])[:3]:
+        c = str((r or {}).get("rule", "") or (r or {}).get("content", "")).strip()
+        if c:
+            parts.append("• CONSTITUTIONAL RULE (must follow): " + c[:500])
+    for r in (struct or [])[:3]:
+        c = str((r or {}).get("content", "")).strip()
+        if c:
+            parts.append("• codebase structure: " + c[:400])
+    for r in (fixes or [])[:3]:
+        c = str((r or {}).get("content", "")).strip()
+        if c:
+            parts.append("• past fix: " + c[:400])
+    if not parts:
+        return ""
+    return (
+        "\n\n## ARIA code-RAG knowledge (constitutional rules + structure + past fixes)\n"
+        + "\n".join(parts)
+    )
 
-    Runs synchronously via a temporary event loop since this is called at
-    prompt-build time (before the async agent loop starts). The underlying
-    chromadb queries are blocking and run via asyncio.to_thread internally.
+
+def _query_coding_rag_http(task_hint: str) -> str | None:
+    """R-F2161 — query the LIVE brain's coding RAG over HTTP. The operator's CLI
+    runs on Windows where chromadb is not installed and the chromadb volume
+    (/data/aria_rag) is server-only, so the in-process query always hit an empty
+    local store. The populated RAG (constitutional rules + past fixes) lives on
+    the brain; reach it over HTTP using the same ARIA_SERVICE_URL + token the
+    `aria` provider already uses. Returns the rendered block, "" if the RAG had
+    no hits, or None if HTTP is unavailable (so the caller falls back in-process).
     """
+    base = (os.getenv("ARIA_SERVICE_URL") or "").rstrip("/")
+    token = os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_CODER_LLM_API_KEY") or ""
+    if not base or not token:
+        return None  # not configured for HTTP → let the caller try in-process
+    try:
+        import httpx
+        q = task_hint or "coding conventions project structure"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        resp = httpx.post(
+            f"{base}/api/aria/coder/rag/query",
+            json={"query": q, "top_k": 3},
+            headers=headers, timeout=12.0,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json() or {}
+        return _format_rag(
+            data.get("constitutional") or [],
+            data.get("structure") or [],
+            data.get("fixes") or [],
+        )
+    except Exception:  # noqa: BLE001 — best-effort; fall back in-process
+        return None
+
+
+def record_coding_outcome_http(kind: str, record: dict) -> bool:
+    """R-F2162 — write a fix/failure back to the brain's coding RAG over HTTP, so
+    lessons from interactive CLI sessions compound into the SAME store the
+    autonomous coder reads. Best-effort: returns False (never raises) when the
+    brain isn't configured/reachable. ``kind`` is 'fix' or 'failure'."""
+    base = (os.getenv("ARIA_SERVICE_URL") or "").rstrip("/")
+    token = os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_CODER_LLM_API_KEY") or ""
+    if not base or not token:
+        return False
+    try:
+        import httpx
+        resp = httpx.post(
+            f"{base}/api/aria/coder/rag/record",
+            json={"kind": kind, "record": record},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=12.0,
+        )
+        return resp.status_code == 200 and bool((resp.json() or {}).get("ok"))
+    except Exception:  # noqa: BLE001 — best-effort
+        return False
+
+
+def _query_coding_rag(task_hint: str = "") -> str:
+    """R-F2145/R-F2161/R-F2162 — query the live coding RAG for constitutional
+    rules, codebase structure, and past fixes relevant to the CURRENT task.
+
+    Tries the brain over HTTP first (the only path that reaches the populated
+    store from the operator's local machine), then an in-process chromadb query
+    (works when run on the server). Best-effort: returns "" on any failure so the
+    coder still gets the full CLAUDE.md + AGENTS.md text via load_repo_guidance.
+    """
+    # 1) HTTP to the live brain (populated RAG). None → not configured/unreachable.
+    http_block = _query_coding_rag_http(task_hint)
+    if http_block is not None:
+        return http_block
+    # 2) In-process chromadb (server-side / chromadb installed locally).
     try:
         import asyncio
         from aria_service.intel import coding_rag_indexer as _crag
 
         async def _query():
             q = task_hint or "coding conventions project structure"
-            parts: list[str] = []
-            # Query constitutional rules (R-F2147 — task-specific retrieval)
             rules = await asyncio.to_thread(_crag.query_constitutional_constraints, q, 3) or []
-            for r in (rules or [])[:3]:
-                c = str((r or {}).get("rule", "")).strip()
-                if c:
-                    parts.append("• CONSTITUTIONAL RULE (must follow): " + c[:500])
-            # Query codebase structure
             struct = await asyncio.to_thread(_crag.query_codebase_context, q, 3) or []
-            for r in (struct or [])[:3]:
-                c = str((r or {}).get("content", "")).strip()
-                if c:
-                    parts.append("• codebase structure: " + c[:400])
-            # Query past fixes
             fixes = await asyncio.to_thread(_crag.query_relevant_fixes, q, 3) or []
-            for r in (fixes or [])[:3]:
-                c = str((r or {}).get("content", "")).strip()
-                if c:
-                    parts.append("• past fix: " + c[:400])
-            if parts:
-                return (
-                    "\n\n## ARIA code-RAG knowledge (constitutional rules + structure + past fixes)\n"
-                    + "\n".join(parts)
-                )
-            return ""
+            return _format_rag(rules, struct, fixes)
 
         return asyncio.run(_query())
     except Exception:
-        # Best-effort: RAG unavailable (not in crucix repo, chromadb not
-        # installed, etc.) — silently skip. The coder still gets CLAUDE.md
-        # + AGENTS.md text via load_repo_guidance.
         return ""
 
 
 def build_system_prompt(*, root: Path, self_mode: bool,
-                        repo_root: Path | None = None) -> str:
+                        repo_root: Path | None = None,
+                        task_hint: str = "") -> str:
     parts = [_IDENTITY, _OPERATING_CONTRACT, _ENGINEERING]
+    # R-F2163: steer the model to PowerShell on Windows (its `run` tool executes
+    # via pwsh/powershell — bash-isms fail). The detailed rule (AGENTS.md law 19)
+    # is otherwise only reachable if the truncated constitution happens to include
+    # it, so name it explicitly here regardless of mode.
+    if platform.system() == "Windows":
+        parts.append(_POWERSHELL)
     if self_mode:
         parts.append(_SELF_MODE)
-        # R-F2145: query the live coding RAG for task-specific knowledge.
-        # This runs BEFORE the flat-file guidance so RAG knowledge takes
-        # priority (semantically retrieved > full-file dump).
-        rag_knowledge = _query_coding_rag()
+        # R-F2145/R-F2162: query the live coding RAG with the OPERATOR'S TASK as
+        # the retrieval hint (was a generic static query), BEFORE the flat-file
+        # guidance so semantically-retrieved knowledge takes priority.
+        rag_knowledge = _query_coding_rag(task_hint)
         if rag_knowledge:
             parts.append(rag_knowledge)
         guidance = load_repo_guidance(repo_root)
