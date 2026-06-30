@@ -1458,19 +1458,17 @@ app.get('/api/health/cross', async (req, res) => {
     // bare minimum ("is this service up? which LLM provider?").
     // The richer /api/aria/health is auth-protected and should stay
     // that way — if you want its body, call it directly with a token.
-    const r = await fetch(`${flyUrl}/health`, {
+    const r = await fetch(`${flyUrl}/health/live`, {
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(4000),
     });
     out.fly.latency_ms = Date.now() - t0;
     out.fly.http_status = r.status;
     if (r.ok) {
       try {
         const body = await r.json();
-        out.fly.ok = body.status === 'operational' || body.status === 'ok' || body.status === 'healthy';
-        out.fly.service = body.service;
-        out.fly.llm_provider = body.llm_provider;
-        out.fly.llm_configured = body.llm_configured;
+        out.fly.ok = body.status === 'alive' || body.status === 'ok' || body.status === 'healthy';
+        out.fly.build_rev = body.build_rev;
       } catch {
         out.fly.ok = true;
         out.fly.body_text = (await r.text()).slice(0, 400);
