@@ -29,7 +29,9 @@ primary_region = "lhr"
     interval = "15s"
     method = "GET"
     timeout = "5s"
-    path = "/signin"
+    # /healthz proxies to aria-web and returns 200 (rollback full-proxy mode). When the
+    # app serves its own pages again, "/signin" is also valid.
+    path = "/healthz"
 
 [[vm]]
   size = "shared-cpu-1x"
