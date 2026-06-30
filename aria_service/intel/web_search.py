@@ -1278,6 +1278,16 @@ async def search(
     # Sort by relevance (credibility-weighted)
     results.sort(key=lambda r: r.relevance_score, reverse=True)
 
+    # R-F2205 — optional local cross-encoder re-rank (ENV-gated, default OFF; lazy + offloaded).
+    # Surfaces relevant-but-lexically-different sources that credibility/keyword scoring buries.
+    # Safe no-op when disabled or unavailable.
+    try:
+        from . import reranker as _rr
+        if _rr.is_enabled() and len(results) > 1:
+            results = await _rr.rerank_results(query, results)
+    except Exception:
+        pass
+
     logger.info("Search %r: %d results from %d backends (deduped from %d)",
                 query[:60], min(len(results), max_results),
                 sum(1 for b in raw_results if not isinstance(b, Exception) and b),
