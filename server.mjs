@@ -3657,6 +3657,11 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
   // the account, matching the slug the sidebar lists with.
   const _stableUid = stableUserId(req);
   const sid = session_id || `${_stableUid || req.user?.userId || 'anon'}_${Date.now()}`;
+  // R-F2202: pin the user's email (JWT-resolved, not trusted from the client) so a
+  // DD run via CHAT shares to same-company colleagues like the /dd/orchestrate button
+  // (R-F608). The JWT carries no email, so look it up from the user store by id.
+  let _userEmail = '';
+  try { _userEmail = String(findUserById(req.user?.userId || '')?.email || '').trim(); } catch {}
   // R-F48b: resolve persona from authenticated user record (sector
   // field captured at registration). Empty → Python falls back to
   // broker overlay = current default behaviour.
@@ -3718,6 +3723,7 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         message,
         session_id: sid,
         user_id: _stableUid,   // R-F1687: was `req.user?.id` (undefined → '')
+        ...(_userEmail ? { user_email: _userEmail } : {}),   // R-F2202: chat-DD company sharing
         persona: _persona,
         auto_tools: auto_tools !== false,
         group_context: group_context || '',

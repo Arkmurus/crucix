@@ -428,6 +428,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = ""
     user_id: str = ""         # authenticated user ID (injected by Node proxy)
+    user_email: str = ""      # R-F2202: JWT-pinned email (Node proxy) → chat-DD company sharing
     auto_tools: bool = True   # auto-detect intent and call investigate/crawl/read tools
     # R-F48a: persona overlay key. Tunes which constitution clauses are
     # weighted most heavily in the system prompt. Recognised values:
@@ -6591,6 +6592,7 @@ async def _execute_tool(
     dd_budget_s: float | None = None,
     user_id: str | None = None,
     user_email: str | None = None,
+    share_to_company: bool = True,   # R-F2202: chat DDs share to company by default, like the button
 ) -> str:
     """Run the detected tool and return a compact context string for the LLM.
 
@@ -6755,6 +6757,8 @@ async def _execute_tool(
                     # caller's DD Reports panel.
                     user_id=user_id,
                     user_email=user_email,
+                    # R-F2202: share to same-company colleagues like the button (R-F608).
+                    share_to_company=share_to_company,
                 )
                 # R-F409 auto-escalation
                 # R-F1572: only escalate if enough budget remains for a deep run
@@ -8928,6 +8932,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                         # partial report with a misleading "background job
                         # started" note that was never true).
                         user_id=getattr(req, "user_id", "") or "",
+                        user_email=getattr(req, "user_email", "") or "",   # R-F2202: company sharing parity
                     )
                     # R-F1951: extract DD run_id from tool_context so the
                     # response carries it for the web UI to link to the
@@ -10403,6 +10408,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                             # R-F1830: own the report + enable the background
                             # full-depth completion → user's DD Reports panel.
                             user_id=getattr(req, "user_id", "") or "",
+                            user_email=getattr(req, "user_email", "") or "",   # R-F2202
                         )
                     )
                     await _aio.sleep(0)   # yield once so the "Running…" event flushes
