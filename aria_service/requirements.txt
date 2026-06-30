@@ -55,6 +55,9 @@ aiosqlite>=0.19.0
 # missing, but lxml is ~10x faster on large pages.
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
+# R-F2204 — clean main-content extraction (readability-grade) for modern div-based sites;
+# wraps the regex extractor in researcher._extract_structured_html (best-effort, import-guarded).
+trafilatura>=1.8.0
 
 # ── RAG store (chromadb persistent vector database, fully local) ──────────
 # Persistent retrieval-augmented generation backbone. Stores chunked

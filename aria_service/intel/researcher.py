@@ -1019,6 +1019,22 @@ def _extract_structured_html(html: str) -> dict:
         social.append(m.group(1))
     social = sorted(set(social))[:15]
 
+    # ── R-F2204: trafilatura clean main-content (readability-grade) ──
+    # The regex <p> path above misses body text on modern div/React/Tailwind sites
+    # (content lives in <div>, not <p>) — yielding thin/empty extraction exactly where
+    # the operator's curated sources live. trafilatura does proper main-content detection
+    # (+ tables). Best-effort + import-guarded: if it's unavailable or yields LESS than the
+    # regex paragraphs, we keep the regex result. When richer, it REPLACES `paragraphs`
+    # so all downstream consumers (text body + the `paragraphs` field) get the clean text.
+    try:
+        import trafilatura as _traf
+        _main = (_traf.extract(html, include_tables=True, include_comments=False,
+                               favor_recall=True, no_fallback=False) or "").strip()
+        if _main and len(_main) > len(" ".join(paragraphs)) + 200:
+            paragraphs = [_main]
+    except Exception:
+        pass
+
     # ── Build the readable text body for the LLM ──
     # Concatenate the structured pieces in priority order so the LLM sees
     # the most important content first within its context budget
@@ -1034,7 +1050,7 @@ def _extract_structured_html(html: str) -> dict:
     if addresses:   text_parts.append("ADDRESSES:\n" + "\n".join(addresses))
     if social:      text_parts.append("SOCIAL:\n" + "\n".join(social))
 
-    text = "\n\n".join(text_parts)[:8000]
+    text = "\n\n".join(text_parts)[:30000]   # R-F2204 — raised 8000 -> 30000 (don't truncate rich sources)
 
     return {
         "text": text,
@@ -3353,7 +3369,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     return {
         "url": url,
         "extraction_ok": True,
-        "text": text[:8000],
+        "text": text[:30000],   # R-F2204 — raised 8000 -> 30000 so trafilatura's rich main text isn't re-truncated
         "title": extracted.get("title", ""),
         "description": extracted.get("description", ""),
         "headings": extracted.get("headings") or [],
