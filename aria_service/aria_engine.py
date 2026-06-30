@@ -1990,6 +1990,54 @@ async def fast_lane_chat(message: str, session_id: str, llm,
     return text
 
 
+async def doc_lane_chat(message: str, session_id: str, llm, *, persona: str = "",
+                        max_tokens: int = 1800, timeout: float = 120.0):
+    """R-F2196 — DOCUMENT FAST-LANE: a lean single-LLM review for an attached
+    document. An attached-document review is SELF-CONTAINED — the answer comes
+    from the document + the lean analyst prompt, NOT from web research, external
+    tools, or the 7-layer corpus retrieval. Routing it through the full chat
+    pipeline (tool-intent detection → which can fire a web_search/crawl that
+    runs for minutes; the GIL-bound 7-layer RAG/neural context build; the
+    reasoning walk; the multi-step verification pass) is what made doc reviews
+    take minutes and never deliver (live 2026-06-30 Ronext legal-roadmap: 295s,
+    no completion, on a calm fully-warmed machine).
+
+    This path: lean prompt (R-F2188 compact base — already carries the honesty
+    constitution + clause-5 "quote it verbatim" document-review discipline +
+    compliance) + the document (in `message`) + ONE LLM round-trip. §22a: an
+    attached document must NEVER route to an external tool. Returns the answer
+    text, or None to fall through to the full pipeline (fail-safe toward MORE
+    grounding, never less)."""
+    # _build_calibrated_system_prompt returns the LEAN compact base for a
+    # document-grounded message (R-F2188), so this is a small, fast prompt.
+    system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
+    session = await _get_session(session_id)
+    recent = (session.get("messages") or [])[-4:]
+    lines = []
+    for m in recent:
+        _role = "ARIA" if (m.get("role") == "aria") else "User"
+        lines.append(f"{_role}: {(m.get('content') or '')[:800]}")
+    lines.append(f"User: {message}")
+    user_prompt = "\n".join(lines)
+
+    result = await llm.complete(system_prompt, user_prompt,
+                                max_tokens=max_tokens, timeout=timeout)
+    text = (getattr(result, "text", "") or "").strip()
+    if not text:
+        return None  # empty → let the full grounded pipeline handle it
+
+    msgs = session.get("messages") or []
+    msgs.append({"role": "user", "content": _strip_tool_context_for_history(message)})
+    msgs.append({"role": "aria", "content": text})
+    session["messages"] = msgs[-MAX_TURNS * 2:]
+    session["updatedAt"] = time.time()
+    try:
+        await _save_session(session_id, session)
+    except Exception:
+        pass  # continuity is best-effort; never fail the reply on a session write
+    return text
+
+
 # ── Identity ─────────────────────────────────────────────────────────────────
 
 IDENTITY_KEY = "crucix:brain:aria:identity"
@@ -3546,6 +3594,31 @@ async def _aria_chat_impl(
             "intent": degraded.get("intent"),
         }
 
+    # ── R-F2196 — DOCUMENT FAST-LANE ─────────────────────────────────────────
+    # An attached-document review is self-contained: the answer is in the
+    # document, not in tools / web research / the 7-layer corpus. Route it
+    # straight to a single lean LLM call (lean prompt + the document) and SKIP
+    # the tool-intent detection (which fires a web_search/crawl that can run for
+    # minutes — the live cause of the doc review "never delivering"), the
+    # GIL-bound 7-layer context build, the reasoning walk, and the multi-step
+    # verification. §22a: an attached document must never route to an external
+    # tool. Fail-safe: on an empty/failed doc-lane answer, FALL THROUGH to the
+    # full grounded pipeline (more grounding, never less).
+    if message and ("[ATTACHED DOCUMENT" in message or "[Document:" in message):
+        try:
+            _doc_answer = await doc_lane_chat(message, session_id, llm, persona=persona)
+            if _doc_answer:
+                return {
+                    "response": _doc_answer,
+                    "session_id": session_id,
+                    "doc_lane": True,
+                }
+        except Exception as _dl_e:
+            logger.warning(
+                "[R-F2196] doc-lane failed (%s) — falling through to full pipeline",
+                _dl_e,
+            )
+
     # Detect self-improvement requests ("improve your X", "fix your Y", etc.)
     #
     # Past incident 2026-04-09 19:18 — DUMA Engineering: detect_self_improvement_request
@@ -4615,6 +4688,24 @@ async def _aria_chat_stream_impl(
                 await conversation_store.touch_conversation(session_id, _euid)
     except Exception as _e_earlyreg:
         logger.debug("R-F1875 early conversation register failed (non-fatal): %s", _e_earlyreg)
+
+    # ── R-F2196 — DOCUMENT FAST-LANE (stream mirror of aria_chat, §13) ────────
+    # A self-contained document review skips the heavy 9-layer / tool-intent /
+    # reasoning-walk / verification pipeline — one lean LLM call on the document.
+    # The session + conversation are already registered above, so a short-circuit
+    # here still leaves the turn visible. Fail-safe: on empty/error, fall through
+    # to the full grounded stream (more grounding, never less).
+    if message and ("[ATTACHED DOCUMENT" in message or "[Document:" in message):
+        try:
+            _doc_answer = await doc_lane_chat(message, session_id, llm, persona=persona)
+            if _doc_answer:
+                yield _emit("chunk", text=_doc_answer)
+                yield _emit("done", session_id=session_id, doc_lane=True)
+                return
+        except Exception as _dl_e:
+            logger.warning(
+                "[R-F2196] stream doc-lane failed (%s) — falling through to full "
+                "pipeline", _dl_e)
 
     # Parallel pre-fetch (same pattern as aria_chat — 2026-04-12)
     import asyncio as _aio
