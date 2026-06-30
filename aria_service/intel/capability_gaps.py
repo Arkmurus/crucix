@@ -443,8 +443,10 @@ async def _rewrite_list(entries: list[dict]) -> None:
         await _rs.lpush(KEY, json.dumps(entry, default=str))
 
 # R-F2119 §21a — wire failure handler for capability_gaps
-try:
-    wire_failure(module="capability_gaps", detail="module shutdown",
-                gap_type="engine_failure", source="capability_gaps:shutdown")
-except Exception:
-    pass
+# R-F2150: REMOVED — this module-level code called wire_failure which is
+# NOT imported in this file (NameError caught by except:pass), AND even if
+# it were, it would spawn a background thread trying to lpush to an
+# uninitialized state store during import — contributing to boot-time
+# crashes. The fail_wire decorator on record_gap already handles failures
+# at runtime. Module-shutdown signals are a nice-to-have, not worth the
+# boot-time risk.

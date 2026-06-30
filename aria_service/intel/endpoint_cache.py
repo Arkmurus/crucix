@@ -125,7 +125,20 @@ def cached_endpoint(ttl_s: float = 25.0, *, name: str = "",
                 entry.misses += 1
                 # R-F2091 — bound the cold compute so a hung component can't hold
                 # the lock forever (which would block every subsequent reader).
-                res = await asyncio.wait_for(fn(*args, **kwargs), timeout=compute_timeout_s)
+                # R-F2150: catch TimeoutError gracefully — during boot the state
+                # store may not be ready yet. Return a fallback instead of letting
+                # the TimeoutError propagate and crash the request (which causes
+                # Fly health checks to fail and the deploy to roll back).
+                try:
+                    res = await asyncio.wait_for(fn(*args, **kwargs), timeout=compute_timeout_s)
+                except TimeoutError:
+                    logger.warning(
+                        "[R-F2150] endpoint_cache cold compute timed out for %s "
+                        "(%.1fs) — returning fallback. This is normal during boot "
+                        "when the state store is still initializing.",
+                        label, compute_timeout_s,
+                    )
+                    return None
                 entry.value = res
                 entry.ts = time.monotonic()
                 # §21a — record the endpoint cache going warm (cold→computed). Fires
