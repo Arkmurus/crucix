@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Signup Vault — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=7">
+  <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -28,48 +28,55 @@
     </div>
   </div>
 
-  <!-- R-F2048 — Add Site modal (admin/dev only) -->
-  <div id="add-site-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:48px 16px">
-    <div class="sc-card" style="max-width:520px;width:100%;background:#ffffff">
-      <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
-        <div class="sc-card-title"><i class="bi bi-plus-circle"></i> Add Data-Point Site</div>
-        <button id="add-site-close" style="background:transparent;border:none;color:var(--sc-muted);font-size:20px;cursor:pointer">&times;</button>
-      </div>
-      <div class="sc-card-body" style="display:flex;flex-direction:column;gap:12px">
-        <div id="add-site-error" style="display:none;background:rgba(220,38,38,0.10);border:1px solid rgba(220,38,38,0.25);border-radius:6px;padding:8px 12px;color:#b91c1c;font-size:12px"></div>
-        <label style="font-size:12px;color:var(--sc-muted)">Site name *
-          <input id="as-name" type="text" placeholder="e.g. SIPRI Arms Transfers DB" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <label style="font-size:12px;color:var(--sc-muted)">Site URL *
-          <input id="as-url" type="url" placeholder="https://…" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <div style="display:flex;gap:12px">
-          <label style="font-size:12px;color:var(--sc-muted);flex:1">Site type
-            <select id="as-type" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-              <option value="website" selected>Public website (auto-ingested → data output + intel + DD)</option>
-              <option value="rss">RSS / Atom feed (auto-ingested)</option>
-              <option value="portal">Portal (login/registration)</option>
-              <option value="api">API</option>
-            </select>
-          </label>
-          <label style="font-size:12px;color:var(--sc-muted);flex:1">Initial status
-            <select id="as-status" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-              <option value="pending">Pending</option>
-              <option value="registered">Registered</option>
-              <option value="verified">Verified</option>
-            </select>
-          </label>
+  <!-- R-F2199 — Add Site (rich interactive modal) -->
+  <div id="add-site-modal" class="sc-mod-overlay">
+    <div class="sc-mod">
+      <div class="sc-mod-head">
+        <div class="sc-mod-ico"><i class="bi bi-database-add"></i></div>
+        <div>
+          <h3>Add a data source</h3>
+          <p>ARIA auto-ingests it into the live data output, its intelligence (RAG), and due diligence.</p>
         </div>
-        <label style="font-size:12px;color:var(--sc-muted)">API key / access credential <span style="opacity:.6">(optional — for sites needing authenticated access)</span>
-          <input id="as-cred" type="text" autocomplete="off" placeholder="API key, token, or login reference" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <label style="font-size:12px;color:var(--sc-muted)">Topics / region <span style="opacity:.6">(optional — helps relevance tagging)</span>
-          <input id="as-topics" type="text" placeholder="e.g. sanctions, africa, naval" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <label style="font-size:12px;color:var(--sc-muted)">Notes (why relevant)
-          <textarea id="as-notes" rows="2" placeholder="e.g. arms-transfer data for Lusophone Africa coverage" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading);resize:vertical"></textarea>
-        </label>
-        <button id="as-submit" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">Add to Vault</button>
+        <button id="add-site-close" class="sc-mod-x" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="sc-mod-body">
+        <div id="add-site-error" class="sc-mod-err"></div>
+        <div class="sc-mod-field">
+          <label>Source name <span class="opt">— required</span></label>
+          <input id="as-name" type="text" placeholder="e.g. SIPRI Arms Transfers DB">
+        </div>
+        <div class="sc-mod-field">
+          <label>Source URL <span class="opt">— required</span></label>
+          <input id="as-url" type="url" placeholder="https://…">
+        </div>
+        <div class="sc-mod-field">
+          <label>Type</label>
+          <div class="sc-seg" id="as-type-seg">
+            <button type="button" data-val="website" class="active"><i class="bi bi-globe"></i> Website</button>
+            <button type="button" data-val="rss"><i class="bi bi-rss"></i> RSS / Atom</button>
+            <button type="button" data-val="portal"><i class="bi bi-box-arrow-in-right"></i> Portal</button>
+            <button type="button" data-val="api"><i class="bi bi-plug"></i> API</button>
+          </div>
+          <input id="as-type" type="hidden" value="website">
+          <input id="as-status" type="hidden" value="verified">
+        </div>
+        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span><b>Website</b> &amp; <b>RSS</b> are auto-ingested into data output, intel &amp; DD. <b>Portal</b>/<b>API</b> are catalogued (may need credentials).</span></div>
+        <div class="sc-mod-field">
+          <label>API key / credential <span class="opt">— optional, for authenticated sites</span></label>
+          <input id="as-cred" type="text" autocomplete="off" placeholder="API key, token, or login reference">
+        </div>
+        <div class="sc-mod-field">
+          <label>Topics / region <span class="opt">— optional, improves relevance</span></label>
+          <input id="as-topics" type="text" placeholder="e.g. sanctions, africa, naval">
+        </div>
+        <div class="sc-mod-field">
+          <label>Notes <span class="opt">— optional</span></label>
+          <textarea id="as-notes" rows="2" placeholder="Why this source is relevant…"></textarea>
+        </div>
+      </div>
+      <div class="sc-mod-foot">
+        <button type="button" class="sc-btn sc-btn-outline" id="add-site-cancel">Cancel</button>
+        <button type="button" class="sc-btn sc-btn-primary" id="as-submit"><i class="bi bi-plus-lg"></i> Add to vault</button>
       </div>
     </div>
   </div>
@@ -264,11 +271,19 @@ setInterval(loadVault, 60000);
 (function () {
   const modal = document.getElementById('add-site-modal');
   const errEl = document.getElementById('add-site-error');
-  const open = () => { errEl.style.display = 'none'; modal.style.display = 'flex'; document.getElementById('as-name').focus(); };
-  const close = () => { modal.style.display = 'none'; };
+  const open = () => { errEl.style.display = 'none'; modal.classList.add('open'); document.getElementById('as-name').focus(); };
+  const close = () => { modal.classList.remove('open'); };
   document.getElementById('btn-add-site').addEventListener('click', open);
   document.getElementById('add-site-close').addEventListener('click', close);
+  document.getElementById('add-site-cancel').addEventListener('click', close);
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // R-F2199 — interactive segmented type chooser writes to the hidden #as-type input
+  document.getElementById('as-type-seg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-val]'); if (!b) return;
+    document.querySelectorAll('#as-type-seg button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('as-type').value = b.getAttribute('data-val');
+  });
 
   // Derive a stable, slug-like site_id from the URL host + name (the vault keys on site_id).
   function slugId(name, url) {
@@ -290,7 +305,7 @@ setInterval(loadVault, 60000);
     if (!name || !url) { errEl.textContent = 'Site name and URL are required.'; errEl.style.display = 'block'; return; }
     if (!/^https?:\/\//i.test(url)) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; return; }
     const btn = document.getElementById('as-submit');
-    btn.disabled = true; btn.textContent = 'Adding…';
+    btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
     const body = {
       site_id: slugId(name, url),
       site_name: name,
@@ -303,7 +318,7 @@ setInterval(loadVault, 60000);
     if (cred) body.credential_ref = cred;
     if (topics) body.metadata = { topics: topics.split(',').map(t => t.trim()).filter(Boolean) };
     const res = await API.post('/api/aria/vault', body);
-    btn.disabled = false; btn.textContent = 'Add to Vault';
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-plus-lg"></i> Add to vault';
     if (res.ok && res.data && res.data.success) {
       // R-F2052 — clear the form so the next open is fresh
       ['as-name', 'as-url', 'as-cred', 'as-topics', 'as-notes'].forEach(id => { document.getElementById(id).value = ''; });

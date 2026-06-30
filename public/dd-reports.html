@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/crucix.css?v=7">
+  <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -150,6 +150,67 @@
       <button class="dd-act-btn" id="dd-vault-btn" style="padding:10px 14px;font-size:13px;background:var(--sc-prime-soft);border:1px solid rgba(124,58,237,0.25);border-radius:9px;color:var(--sc-prime-dark);cursor:pointer" title="DD Vault">
         <i class="bi bi-archive"></i> Vault
       </button>
+    </div>
+
+    <!-- R-F2199 — Run DD (rich modal, replaces the old prompt() flow) -->
+    <div id="dd-run-modal" class="sc-mod-overlay">
+      <div class="sc-mod">
+        <div class="sc-mod-head">
+          <div class="sc-mod-ico"><i class="bi bi-search"></i></div>
+          <div>
+            <h3 id="dd-run-title">Run due diligence</h3>
+            <p id="dd-run-sub">Screen a company or person across sanctions, registries, adverse media &amp; risk signals.</p>
+          </div>
+          <button id="dd-run-close" class="sc-mod-x" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="sc-mod-body">
+          <div id="dd-run-error" class="sc-mod-err"></div>
+          <div class="sc-mod-field">
+            <label>Entity name <span class="opt">— required</span></label>
+            <input id="dd-r-name" type="text" placeholder="e.g. Acme Defence GmbH">
+          </div>
+          <div class="sc-mod-field">
+            <label>Entity type</label>
+            <div class="sc-seg" id="dd-r-type-seg">
+              <button type="button" data-val="company" class="active"><i class="bi bi-building"></i> Company</button>
+              <button type="button" data-val="person"><i class="bi bi-person"></i> Person</button>
+            </div>
+            <input id="dd-r-type" type="hidden" value="company">
+          </div>
+          <div class="sc-mod-row">
+            <div class="sc-mod-field">
+              <label>Jurisdiction <span class="opt">— optional</span></label>
+              <input id="dd-r-jur" type="text" placeholder="e.g. Germany">
+            </div>
+            <div class="sc-mod-field">
+              <label>Registration no. <span class="opt">— optional</span></label>
+              <input id="dd-r-reg" type="text" placeholder="e.g. HRB 12345">
+            </div>
+          </div>
+          <div class="sc-mod-field">
+            <label>Product / transaction context <span class="opt">— optional, sharpens risk scoring</span></label>
+            <input id="dd-r-prod" type="text" placeholder="e.g. Bayraktar TB2 UAVs + munitions">
+          </div>
+          <div class="sc-mod-field">
+            <label>Depth</label>
+            <div class="sc-optgrid">
+              <button type="button" class="sc-optcard active" data-mode="standard">
+                <div class="t"><i class="bi bi-lightning-charge"></i> Standard</div>
+                <div class="d">Core 7-layer screen — sanctions, registry, identity &amp; risk. Fast.</div>
+              </button>
+              <button type="button" class="sc-optcard" data-mode="deep">
+                <div class="t"><i class="bi bi-grid-3x3-gap-fill"></i> Deep / Full</div>
+                <div class="d">Standard + all forensic primitives (FATF, TBML, RCA, Benford…).</div>
+              </button>
+            </div>
+            <input id="dd-r-mode" type="hidden" value="standard">
+          </div>
+        </div>
+        <div class="sc-mod-foot">
+          <button type="button" class="sc-btn sc-btn-outline" id="dd-run-cancel">Cancel</button>
+          <button type="button" class="sc-btn sc-btn-primary" id="dd-run-submit"><i class="bi bi-play-fill"></i> Run DD</button>
+        </div>
+      </div>
     </div>
 
     <div id="dd-content">
@@ -602,69 +663,79 @@ function applySearch() {
 
 document.getElementById('dd-search').addEventListener('input', applySearch);
 
-document.getElementById('dd-new-btn').addEventListener('click', () => {
-  const entity = prompt('Entity name to screen (company or person):');
-  if (!entity || !entity.trim()) return;
-  const jurisdiction = prompt('Jurisdiction (optional, e.g. "Germany"):') || '';
-  const btn = document.getElementById('dd-new-btn');
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
-  authed('/api/aria/dd/orchestrate', {
-    method: 'POST',
-    body: JSON.stringify({ name: entity.trim(), jurisdiction: jurisdiction.trim() || undefined, mode: 'standard' }),
-  }).then(async r => {
-    btn.disabled = false; btn.innerHTML = orig;
-    if (!r.ok) { alert('DD failed (HTTP ' + r.status + ')'); return; }
-    await loadReports();
-  }).catch(err => {
-    btn.disabled = false; btn.innerHTML = orig;
-    alert('DD error: ' + err.message);
+// R-F2199 — New DD / Full DD open the rich Run-DD modal (replaces the old prompt() flow).
+// Full DD runs the orchestrator in 'deep' mode, which runs ALL deterministic primitives
+// (sanctions divergence, FATF, economic substance, RCA/relatives, Benford, TBML, crypto,
+// counter-intel) automatically (R-F1487 + R-F1993).
+(function () {
+  const m = document.getElementById('dd-run-modal');
+  const err = document.getElementById('dd-run-error');
+  const titleEl = document.getElementById('dd-run-title');
+  function setMode(mode) {
+    document.getElementById('dd-r-mode').value = mode;
+    document.querySelectorAll('#dd-run-modal .sc-optcard').forEach(c =>
+      c.classList.toggle('active', c.getAttribute('data-mode') === mode));
+  }
+  function openRun(mode) {
+    err.style.display = 'none';
+    setMode(mode);
+    titleEl.textContent = mode === 'deep' ? 'Run full due diligence' : 'Run due diligence';
+    m.classList.add('open');
+    document.getElementById('dd-r-name').focus();
+  }
+  function closeRun() { m.classList.remove('open'); }
+
+  document.getElementById('dd-new-btn').addEventListener('click', () => openRun('standard'));
+  document.getElementById('dd-full-btn').addEventListener('click', () => openRun('deep'));
+  document.getElementById('dd-run-close').addEventListener('click', closeRun);
+  document.getElementById('dd-run-cancel').addEventListener('click', closeRun);
+  m.addEventListener('click', e => { if (e.target === m) closeRun(); });
+
+  // interactive entity-type segmented control
+  document.getElementById('dd-r-type-seg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-val]'); if (!b) return;
+    document.querySelectorAll('#dd-r-type-seg button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('dd-r-type').value = b.getAttribute('data-val');
   });
-});
+  // depth option cards
+  document.querySelectorAll('#dd-run-modal .sc-optcard').forEach(c =>
+    c.addEventListener('click', () => setMode(c.getAttribute('data-mode'))));
 
-// R-F1487 + R-F1993: Full DD button — runs the orchestrator, which now runs ALL
-// deterministic primitives (sanctions divergence, FATF typologies, economic
-// substance, RCA/relatives, Benford, TBML, crypto, counter-intel) automatically
-// as part of the DD. The old manual pipeline-tool buttons were removed.
-document.getElementById('dd-full-btn').addEventListener('click', () => {
-  const entity = prompt('Entity name for full due diligence:');
-  if (!entity || !entity.trim()) return;
-  const jurisdiction = prompt('Jurisdiction (optional, e.g. "Germany"):') || '';
-  const btn = document.getElementById('dd-full-btn');
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running full DD...';
-
-  // Step 1: Run the orchestrator
-  authed('/api/aria/dd/orchestrate', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: entity.trim(),
-      jurisdiction: jurisdiction.trim() || undefined,
-      mode: 'deep',
-    }),
-  }).then(async r => {
-    if (!r.ok) {
-      btn.disabled = false; btn.innerHTML = orig;
-      alert('Full DD failed (HTTP ' + r.status + ')');
-      return;
+  document.getElementById('dd-run-submit').addEventListener('click', async () => {
+    const name = document.getElementById('dd-r-name').value.trim();
+    err.style.display = 'none';
+    if (!name) { err.textContent = 'Entity name is required.'; err.style.display = 'block'; return; }
+    const body = {
+      name,
+      type: document.getElementById('dd-r-type').value,
+      mode: document.getElementById('dd-r-mode').value,
+    };
+    const jur = document.getElementById('dd-r-jur').value.trim();
+    const reg = document.getElementById('dd-r-reg').value.trim();
+    const prod = document.getElementById('dd-r-prod').value.trim();
+    if (jur) body.jurisdiction = jur;
+    if (reg) body.registration_number = reg;
+    if (prod) body.product_description = prod;
+    const sb = document.getElementById('dd-run-submit');
+    const orig = sb.innerHTML;
+    sb.disabled = true; sb.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
+    try {
+      const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
+      if (!r.ok) {
+        err.textContent = 'DD failed (HTTP ' + r.status + ').'; err.style.display = 'block';
+        sb.disabled = false; sb.innerHTML = orig; return;
+      }
+      closeRun();
+      if (window.Toast) Toast.show('Due diligence started for ' + name + '.', 'success');
+      await loadReports();
+    } catch (e2) {
+      err.textContent = 'DD error: ' + (e2.message || 'network error'); err.style.display = 'block';
+    } finally {
+      sb.disabled = false; sb.innerHTML = orig;
     }
-
-    // Step 2: Reload reports to show the new orchestrator result. The
-    // deterministic primitives already ran inside the orchestrator (R-F1993),
-    // so there are no separate tool buttons to trigger.
-    await loadReports();
-
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-check-circle"></i> Done';
-    setTimeout(() => { btn.innerHTML = orig; }, 3000);
-
-  }).catch(err => {
-    btn.disabled = false; btn.innerHTML = orig;
-    alert('Full DD error: ' + err.message);
   });
-});
+})();
 
 // R-F1186: VLS Public Key export button
 document.getElementById('dd-vls-key-btn').addEventListener('click', async () => {

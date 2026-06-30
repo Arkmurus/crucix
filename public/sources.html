@@ -5,7 +5,7 @@
   <title>Source Health — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
-  <link rel="stylesheet" href="css/crucix.css?v=7">
+  <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 </head>
 <body>
@@ -25,28 +25,39 @@
 
   <!-- R-F2194 — Add intel source modal. Feeds the SAME robust vault pipeline (R-F2190/2191):
        a website/feed added here is auto-scraped → dashboard data output + brain RAG (intel). -->
-  <div id="add-src-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:48px 16px">
-    <div class="sc-card" style="max-width:500px;width:100%;background:#fff">
-      <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
-        <div class="sc-card-title"><i class="bi bi-plus-circle"></i> Add intel source</div>
-        <button id="add-src-close" style="background:transparent;border:none;color:var(--sc-muted);font-size:20px;cursor:pointer">&times;</button>
+  <div id="add-src-modal" class="sc-mod-overlay">
+    <div class="sc-mod">
+      <div class="sc-mod-head">
+        <div class="sc-mod-ico"><i class="bi bi-rss"></i></div>
+        <div>
+          <h3>Add an intel source</h3>
+          <p>ARIA auto-ingests it into the live data output and its intelligence knowledge (RAG).</p>
+        </div>
+        <button id="add-src-close" class="sc-mod-x" type="button" aria-label="Close">&times;</button>
       </div>
-      <div class="sc-card-body" style="display:flex;flex-direction:column;gap:12px">
-        <div id="add-src-error" style="display:none;background:rgba(220,38,38,0.10);border:1px solid rgba(220,38,38,0.25);border-radius:6px;padding:8px 12px;color:#b91c1c;font-size:12px"></div>
-        <p style="font-size:12px;color:var(--sc-muted);margin:0">ARIA will auto-ingest this source into the live data output and its intelligence knowledge.</p>
-        <label style="font-size:12px;color:var(--sc-muted)">Source name *
-          <input id="add-src-name" type="text" placeholder="e.g. Defense News — Air" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <label style="font-size:12px;color:var(--sc-muted)">Source URL *
-          <input id="add-src-url" type="url" placeholder="https://…" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-        </label>
-        <label style="font-size:12px;color:var(--sc-muted)">Type
-          <select id="add-src-type" style="width:100%;margin-top:4px;background:#fff;border:1px solid var(--sc-border-strong);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--sc-heading)">
-            <option value="website" selected>Public website (scraped)</option>
-            <option value="rss">RSS / Atom feed</option>
-          </select>
-        </label>
-        <button id="add-src-submit" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add &amp; start ingesting</button>
+      <div class="sc-mod-body">
+        <div id="add-src-error" class="sc-mod-err"></div>
+        <div class="sc-mod-field">
+          <label>Source name <span class="opt">— required</span></label>
+          <input id="add-src-name" type="text" placeholder="e.g. Defense News — Air">
+        </div>
+        <div class="sc-mod-field">
+          <label>Source URL <span class="opt">— required</span></label>
+          <input id="add-src-url" type="url" placeholder="https://…">
+        </div>
+        <div class="sc-mod-field">
+          <label>Type</label>
+          <div class="sc-seg" id="add-src-type-seg">
+            <button type="button" data-val="website" class="active"><i class="bi bi-globe"></i> Website (scraped)</button>
+            <button type="button" data-val="rss"><i class="bi bi-rss"></i> RSS / Atom feed</button>
+          </div>
+          <input id="add-src-type" type="hidden" value="website">
+        </div>
+        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span>Grade-A intel comes from real sources — this one starts feeding ARIA on the next sweep.</span></div>
+      </div>
+      <div class="sc-mod-foot">
+        <button type="button" class="sc-btn sc-btn-outline" id="add-src-cancel">Cancel</button>
+        <button type="button" class="sc-btn sc-btn-primary" id="add-src-submit"><i class="bi bi-plus-lg"></i> Add &amp; start ingesting</button>
       </div>
     </div>
   </div>
@@ -559,13 +570,23 @@ setInterval(loadAdversarial, 5 * 60 * 1000);
   }
   var modal = document.getElementById('add-src-modal');
   var errEl = document.getElementById('add-src-error');
-  function openM() { if (modal) { modal.style.display = 'flex'; if (errEl) errEl.style.display = 'none'; } }
-  function closeM() { if (modal) modal.style.display = 'none'; }
+  function openM() { if (modal) { modal.classList.add('open'); if (errEl) errEl.style.display = 'none'; var n = document.getElementById('add-src-name'); if (n) n.focus(); } }
+  function closeM() { if (modal) modal.classList.remove('open'); }
   var addBtn = document.getElementById('btn-add-intel-source');
   if (addBtn) addBtn.addEventListener('click', openM);
   var closeBtn = document.getElementById('add-src-close');
   if (closeBtn) closeBtn.addEventListener('click', closeM);
+  var cancelBtn = document.getElementById('add-src-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeM);
   if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) closeM(); });
+  // R-F2199 — interactive segmented type chooser
+  var seg = document.getElementById('add-src-type-seg');
+  if (seg) seg.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-val]'); if (!b) return;
+    seg.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    document.getElementById('add-src-type').value = b.getAttribute('data-val');
+  });
   var submit = document.getElementById('add-src-submit');
   if (submit) submit.addEventListener('click', async function () {
     var name = document.getElementById('add-src-name').value.trim();
@@ -574,10 +595,10 @@ setInterval(loadAdversarial, 5 * 60 * 1000);
     if (errEl) errEl.style.display = 'none';
     if (!name || !url) { if (errEl) { errEl.textContent = 'Name and URL are required.'; errEl.style.display = 'block'; } return; }
     if (!/^https?:\/\//i.test(url)) { if (errEl) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; } return; }
-    submit.disabled = true; submit.textContent = 'Adding…';
+    submit.disabled = true; submit.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
     var body = { site_id: slugId(name, url), site_name: name, site_url: url, agent_id: 'admin_manual', site_type: type, status: 'verified' };
     var res = await API.post('/api/aria/vault', body);
-    submit.disabled = false; submit.textContent = 'Add & start ingesting';
+    submit.disabled = false; submit.innerHTML = '<i class="bi bi-plus-lg"></i> Add &amp; start ingesting';
     if (res.ok && res.data && res.data.success) {
       document.getElementById('add-src-name').value = '';
       document.getElementById('add-src-url').value = '';
