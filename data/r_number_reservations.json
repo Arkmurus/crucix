@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2150,
+  "next_available": 2151,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15797,9 +15797,20 @@
       "title": "Fix lifespan yield",
       "claimed_at": "2026-06-29T23:36:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a61db0b5",
+      "notes": null,
+      "shipped_at": "2026-06-30T00:18:25Z"
+    },
+    {
+      "r_number": "R-F2150",
+      "title": "Fix brain endpoint proxy chain",
+      "claimed_at": "2026-06-30T08:16:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c0cd9cc",
+      "notes": null,
+      "shipped_at": "2026-06-30T08:22:27Z"
     }
   ]
 }
