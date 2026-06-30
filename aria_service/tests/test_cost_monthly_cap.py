@@ -33,6 +33,10 @@ def _reset_state(monkeypatch):
     rs._mem_store.clear()
     cost_tracker._month_cache.update({"month": "", "total": 0.0, "loaded_at": 0.0})
     cost_tracker._warned_thresholds.clear()
+    # R-F2172: reset the write-coalescing accumulator so records from a prior
+    # test don't leak into this one when a read force-flushes pending.
+    cost_tracker._pending_cost_records = []
+    cost_tracker._cost_last_flush = 0.0
     # Default the cap low so tests hit the boundary quickly.
     monkeypatch.setenv("ARIA_MONTHLY_CAP_USD", "1.00")
     monkeypatch.delenv("ARIA_MONTHLY_CAP_WARN_ONLY", raising=False)

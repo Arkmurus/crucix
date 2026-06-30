@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2169,
+  "next_available": 2173,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15931,50 +15931,93 @@
       "title": "CLI coder: PowerShell-dialect steering + pwsh preference + utf-8 pipe",
       "claimed_at": "2026-06-30T18:07:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49769f0e",
+      "notes": null,
+      "shipped_at": "2026-06-30T18:45:17Z"
     },
     {
       "r_number": "R-F2164",
       "title": "CLI coder: automatic context compaction for long sessions",
       "claimed_at": "2026-06-30T18:07:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49769f0e",
+      "notes": null,
+      "shipped_at": "2026-06-30T18:45:18Z"
     },
     {
       "r_number": "R-F2165",
       "title": "CLI coder: OpenRouter-Claude stronger-model routing",
       "claimed_at": "2026-06-30T18:07:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49769f0e",
+      "notes": null,
+      "shipped_at": "2026-06-30T18:45:18Z"
     },
     {
       "r_number": "R-F2166",
       "title": "CLI coder: hardening cluster (aria-no-tools, ci_deploy desc, git add -A, loop-guard, trunc-guard)",
       "claimed_at": "2026-06-30T18:07:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49769f0e",
+      "notes": null,
+      "shipped_at": "2026-06-30T18:45:18Z"
     },
     {
       "r_number": "R-F2167",
       "title": "DD orchestrator sanctions: direct primary-source adapters signal stale/unavailable so orchestrator surfaces UNVERIFIED data_gap + non-GREEN verdict (the unprotected twin of R-F1696)",
       "claimed_at": "2026-06-30T18:09:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7315cdfb",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:01:55Z"
     },
     {
       "r_number": "R-F2168",
       "title": "fix pre-commit compile gate: UTF-8 encoding (stop false-positive on box-drawing chars) + emit VERIFICATION FAILED sentinel so it actually blocks",
       "claimed_at": "2026-06-30T18:23:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2169",
+      "title": "aria-app Next.js+shadcn frontend scaffold (customer/support/admin panels)",
+      "claimed_at": "2026-06-30T18:37:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "079aa346",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:08:32Z"
+    },
+    {
+      "r_number": "R-F2170",
+      "title": "auth role enum customer/support/admin + requireRole (replace binary requireAdmin)",
+      "claimed_at": "2026-06-30T18:37:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2171",
+      "title": "aria-app deploy wiring: same-origin /api proxy + middleware api-exclude + backend build-arg; stand up fly app",
+      "claimed_at": "2026-06-30T18:59:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "079aa346",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:08:32Z"
+    },
+    {
+      "r_number": "R-F2172",
+      "title": "cost_tracker write-coalescing: collapse per-LLM-call hot-key RMW (cost:index/aggregate/month) into periodic flush — kill residual self-DOS (R-F2157 pattern), cap-safe (reserve stays atomic)",
+      "claimed_at": "2026-06-30T19:09:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -47,6 +47,7 @@ provider rates change; runtime prices change ~quarterly.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
 import os
@@ -125,6 +126,22 @@ COST_TTL = 90 * 86400  # 90 days of per-call detail
 COST_MONTH_TTL = 400 * 86400  # keep ~13 months of monthly rollups
 
 _INDEX_CAP = 1000  # last N call summaries kept in the index
+
+# ── R-F2172: write-coalescing for the hot per-call aggregates ───────────────
+# record_call used to do THREE read-modify-write round-trips on shared hot keys
+# (COST_INDEX_KEY, COST_AGG_KEY, COST_MONTH_PREFIX+month) on EVERY LLM call.
+# Under autonomous load that saturated state_store's single connection — the
+# residual of the R-F2157 self-DOS (live 2026-06-30: cost:* keys timing out at
+# 5s). Same fix: accumulate raw records in-process (zero I/O — atomic between
+# awaits in single-threaded asyncio) and replay the merges in ONE read+write per
+# hot key at most once per _COST_FLUSH_INTERVAL_S. N calls → 3 writes/interval,
+# not 3N. The $300 cap is UNAFFECTED: assert_monthly_cap reserves atomically via
+# INCRBYFLOAT on a separate reserve key (kept inline), so coalescing the
+# REPORTING aggregates can never let spend slip past the ceiling.
+_COST_FLUSH_INTERVAL_S = float(os.getenv("ARIA_COST_FLUSH_INTERVAL_S", "15"))
+_cost_flush_lock = asyncio.Lock()
+_cost_last_flush: float = 0.0
+_pending_cost_records: list[dict] = []   # raw records since the last flush
 
 # ── Monthly cap config ─────────────────────────────────────────────────────
 # Hard ceiling on monthly LLM spend across ALL providers. Set at import
@@ -515,19 +532,6 @@ async def record_call(
     }
     try:
         await rs.set_json(f"{COST_RECORD_PREFIX}{call_id}", record, ex=COST_TTL)
-        # Lightweight index for /cost/recent listings
-        index = await rs.get_json(COST_INDEX_KEY) or []
-        index.insert(0, {
-            "id": call_id,
-            "ts": record["ts"],
-            "model": record["model"],
-            "feature": feat,
-            "total_tokens": record["total_tokens"],
-            "cost_usd": cost_usd,
-            "success": success,
-        })
-        index = index[:_INDEX_CAP]
-        await rs.set_json(COST_INDEX_KEY, index, ex=COST_TTL)
         # Self-attach to the active trace if there is one. Lazy import
         # to avoid an unconditional dependency at module load.
         try:
@@ -535,24 +539,13 @@ async def record_call(
             await trace_stream.attach_call_to_current_trace(record)
         except Exception as e:
             logger.debug("trace attach failed: %s", e)
-        # Per-feature aggregate (cumulative). Cheap to maintain since it's
-        # a single key with a few floats.
-        agg = await rs.get_json(COST_AGG_KEY) or {}
-        feat_agg = agg.get(feat) or {
-            "calls": 0, "input_tokens": 0, "output_tokens": 0,
-            "total_tokens": 0, "cost_usd": 0.0, "errors": 0,
-        }
-        feat_agg["calls"] += 1
-        feat_agg["input_tokens"] += record["input_tokens"]
-        feat_agg["output_tokens"] += record["output_tokens"]
-        feat_agg["total_tokens"] += record["total_tokens"]
-        feat_agg["cost_usd"] = round(feat_agg["cost_usd"] + cost_usd, 6)
-        if not success:
-            feat_agg["errors"] += 1
-        agg[feat] = feat_agg
-        await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
-        # Calendar-month rollup (independent of 90-day detail TTL).
-        await _update_month_rollup(record)
+        # R-F2172: accumulate this record and let the coalesced flush update the
+        # hot index / per-feature aggregate / month-rollup keys in ONE batched
+        # read+write per interval. This replaces the 3 read-modify-write
+        # round-trips per LLM call that saturated state_store's single
+        # connection (the residual cost:* self-DOS after R-F2157).
+        _pending_cost_records.append(record)
+        await _flush_cost_pending()
         # R-F2111: reconcile the atomic reserve made in assert_monthly_cap.
         # Deduct the estimated reserve and let the actual cost stand in the
         # rollup. If no reserve exists (e.g. Redis was down during assert),
@@ -592,57 +585,68 @@ async def record_call(
 
 # ── Monthly rollup + cap enforcement ───────────────────────────────────────
 
+def _new_rollup(month: str, ts: float) -> dict:
+    return {
+        "month": month,
+        "total_cost_usd": 0.0,
+        "total_calls": 0,
+        "total_tokens": 0,
+        "first_ts": ts,
+        "last_ts": ts,
+        "by_provider": {},
+        "by_feature": {},
+        "by_model": {},
+        "top_calls": [],
+    }
+
+
+def _merge_record_into_rollup(roll: dict, record: dict) -> None:
+    """Pure, in-place merge of one call record into a month rollup dict.
+    Extracted (R-F2172) so BOTH the single-update path (external calls) and the
+    batched coalescing flush apply identical math."""
+    cost = float(record.get("cost_usd") or 0.0)
+    roll["total_cost_usd"] = round(roll.get("total_cost_usd", 0.0) + cost, 6)
+    roll["total_calls"] = roll.get("total_calls", 0) + 1
+    roll["total_tokens"] = roll.get("total_tokens", 0) + int(record.get("total_tokens") or 0)
+    roll["last_ts"] = record["ts"]
+    for bucket_key, val in (
+        ("by_provider", record.get("provider") or "unknown"),
+        ("by_feature", record.get("feature") or "uncategorized"),
+        ("by_model", record.get("model") or "unknown"),
+    ):
+        bucket = roll.setdefault(bucket_key, {})
+        cell = bucket.get(val) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
+        cell["calls"] += 1
+        cell["tokens"] += int(record.get("total_tokens") or 0)
+        cell["cost_usd"] = round(cell["cost_usd"] + cost, 6)
+        bucket[val] = cell
+    top = roll.setdefault("top_calls", [])
+    top.append({
+        "id": record["id"],
+        "ts": record["ts"],
+        "model": record.get("model", ""),
+        "provider": record.get("provider", ""),
+        "feature": record.get("feature", ""),
+        "total_tokens": record.get("total_tokens", 0),
+        "cost_usd": cost,
+    })
+    top.sort(key=lambda r: r.get("cost_usd", 0.0), reverse=True)
+    roll["top_calls"] = top[:20]
+
+
 async def _update_month_rollup(record: dict) -> None:
     """Add one call to the current month's aggregate + refresh the in-process
     cache. Safe to call inside the record_call try/except — its failure must
-    never prevent the rest of the record from persisting."""
+    never prevent the rest of the record from persisting.
+
+    Used by record_external_call (low volume). The high-volume record_call path
+    coalesces via _flush_cost_pending (R-F2172) instead of calling this per-call.
+    """
     month = _current_month_key()
     key = f"{COST_MONTH_PREFIX}{month}"
     try:
-        roll = await rs.get_json(key) or {
-            "month": month,
-            "total_cost_usd": 0.0,
-            "total_calls": 0,
-            "total_tokens": 0,
-            "first_ts": record["ts"],
-            "last_ts": record["ts"],
-            "by_provider": {},
-            "by_feature": {},
-            "by_model": {},
-            "top_calls": [],
-        }
-        cost = float(record.get("cost_usd") or 0.0)
-        roll["total_cost_usd"] = round(roll["total_cost_usd"] + cost, 6)
-        roll["total_calls"] += 1
-        roll["total_tokens"] += int(record.get("total_tokens") or 0)
-        roll["last_ts"] = record["ts"]
-
-        for bucket_key, val in (
-            ("by_provider", record.get("provider") or "unknown"),
-            ("by_feature", record.get("feature") or "uncategorized"),
-            ("by_model", record.get("model") or "unknown"),
-        ):
-            bucket = roll[bucket_key]
-            cell = bucket.get(val) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
-            cell["calls"] += 1
-            cell["tokens"] += int(record.get("total_tokens") or 0)
-            cell["cost_usd"] = round(cell["cost_usd"] + cost, 6)
-            bucket[val] = cell
-
-        # Keep the 20 most expensive individual calls for debugging bloat.
-        top = roll["top_calls"]
-        top.append({
-            "id": record["id"],
-            "ts": record["ts"],
-            "model": record.get("model", ""),
-            "provider": record.get("provider", ""),
-            "feature": record.get("feature", ""),
-            "total_tokens": record.get("total_tokens", 0),
-            "cost_usd": cost,
-        })
-        top.sort(key=lambda r: r.get("cost_usd", 0.0), reverse=True)
-        roll["top_calls"] = top[:20]
-
+        roll = await rs.get_json(key) or _new_rollup(month, record["ts"])
+        _merge_record_into_rollup(roll, record)
         await rs.set_json(key, roll, ex=COST_MONTH_TTL)
 
         # Refresh in-process cache + evaluate warning thresholds.
@@ -652,6 +656,96 @@ async def _update_month_rollup(record: dict) -> None:
         _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), month)
     except Exception as e:
         logger.warning("cost_tracker._update_month_rollup failed: %s", e)
+
+
+def _index_summary(record: dict) -> dict:
+    """The compact per-call entry kept in COST_INDEX_KEY."""
+    return {
+        "id": record["id"],
+        "ts": record["ts"],
+        "model": record.get("model", ""),
+        "feature": record.get("feature", "uncategorized"),
+        "total_tokens": record.get("total_tokens", 0),
+        "cost_usd": record.get("cost_usd", 0.0),
+        "success": record.get("success", True),
+    }
+
+
+async def _flush_cost_pending(force: bool = False) -> bool:
+    """R-F2172 — coalesce all pending per-call records into ONE read+write per
+    hot key (index, aggregate, month rollup). Time-gated to once per
+    _COST_FLUSH_INTERVAL_S unless `force`; single in-flight flush (lock). On DB
+    failure the batch is folded back so no cost data is lost. Returns True if a
+    flush actually wrote."""
+    global _cost_last_flush, _pending_cost_records
+    now = time.time()
+    if not force and (now - _cost_last_flush) < _COST_FLUSH_INTERVAL_S:
+        return False
+    if not _pending_cost_records:
+        _cost_last_flush = now
+        return False
+    if _cost_flush_lock.locked():
+        return False
+    async with _cost_flush_lock:
+        now = time.time()
+        if not force and (now - _cost_last_flush) < _COST_FLUSH_INTERVAL_S:
+            return False
+        batch = _pending_cost_records
+        _pending_cost_records = []
+        try:
+            # 1. Index — prepend newest-first, cap at _INDEX_CAP. batch is in
+            # chronological order; insert(0) each in order so the LAST (newest)
+            # ends up at position 0 (matches the original per-call insert(0)).
+            index = await rs.get_json(COST_INDEX_KEY) or []
+            for rec in batch:
+                index.insert(0, _index_summary(rec))
+            await rs.set_json(COST_INDEX_KEY, index[:_INDEX_CAP], ex=COST_TTL)
+
+            # 2. Per-feature cumulative aggregate.
+            agg = await rs.get_json(COST_AGG_KEY) or {}
+            for rec in batch:
+                feat = rec.get("feature") or "uncategorized"
+                fa = agg.get(feat) or {
+                    "calls": 0, "input_tokens": 0, "output_tokens": 0,
+                    "total_tokens": 0, "cost_usd": 0.0, "errors": 0,
+                }
+                fa["calls"] += 1
+                fa["input_tokens"] += int(rec.get("input_tokens") or 0)
+                fa["output_tokens"] += int(rec.get("output_tokens") or 0)
+                fa["total_tokens"] += int(rec.get("total_tokens") or 0)
+                fa["cost_usd"] = round(fa["cost_usd"] + float(rec.get("cost_usd") or 0.0), 6)
+                if not rec.get("success", True):
+                    fa["errors"] += 1
+                agg[feat] = fa
+            await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
+
+            # 3. Month rollup(s) — group by the record's calendar month.
+            from collections import defaultdict
+            by_month: dict[str, list[dict]] = defaultdict(list)
+            for rec in batch:
+                m = datetime.fromtimestamp(
+                    float(rec.get("ts") or now), tz=timezone.utc).strftime("%Y-%m")
+                by_month[m].append(rec)
+            for m, recs in by_month.items():
+                key = f"{COST_MONTH_PREFIX}{m}"
+                roll = await rs.get_json(key) or _new_rollup(m, recs[0]["ts"])
+                for rec in recs:
+                    _merge_record_into_rollup(roll, rec)
+                await rs.set_json(key, roll, ex=COST_MONTH_TTL)
+                # Refresh in-process cache + thresholds for the CURRENT month.
+                if m == _current_month_key():
+                    _month_cache["month"] = m
+                    _month_cache["total"] = roll["total_cost_usd"]
+                    _month_cache["loaded_at"] = time.time()
+                    _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), m)
+
+            _cost_last_flush = now
+            return True
+        except Exception as e:
+            # Fold the batch back so the next flush retries it — no cost lost.
+            _pending_cost_records = batch + _pending_cost_records
+            logger.debug("cost_tracker flush failed (folded back): %s", e)
+            return False
 
 
 def _emit_threshold_warnings(spent: float, cap: float, month: str) -> None:
@@ -704,6 +798,7 @@ async def _refresh_month_cache(force: bool = False) -> float:
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_month_spend() -> dict:
     """Month-to-date LLM spend + cap utilisation."""
+    await _flush_cost_pending(force=True)  # R-F2172: include un-flushed records
     spent = await _refresh_month_cache()
     cap = _monthly_cap_usd()
     return {
@@ -874,6 +969,7 @@ async def get_month_breakdown(month: str | None = None) -> dict:
     monthly rollup key is empty (fresh deploy, eviction, pre-rollup
     historical data). The fallback covers everything the index retains
     (~1000 most recent calls / up to 90 days)."""
+    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
     target = month or _current_month_key()
     try:
         roll = await rs.get_json(f"{COST_MONTH_PREFIX}{target}") or {}
@@ -922,6 +1018,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
     """Aggregate stats over a rolling window from the index. The cumulative
     aggregate (COST_AGG_KEY) covers all-time; this windowed view answers
     'what did the last 24h cost'."""
+    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
     try:
         index = await rs.get_json(COST_INDEX_KEY) or []
         cutoff = time.time() - (max(1, window_hours) * 3600)
@@ -974,6 +1071,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
 async def get_cumulative_aggregate() -> dict:
     """All-time per-feature totals. Survives index rotation since it's a
     separate key updated on every record_call."""
+    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
     try:
         return await rs.get_json(COST_AGG_KEY) or {}
     except Exception:
@@ -986,6 +1084,7 @@ async def list_recent_calls(
     feature_filter: str | None = None,
     model_filter: str | None = None,
 ) -> list[dict]:
+    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
     try:
         index = await rs.get_json(COST_INDEX_KEY) or []
         if feature_filter:
