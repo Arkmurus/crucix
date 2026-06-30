@@ -121,7 +121,14 @@ def _singleton_task(factory, name: str) -> "asyncio.Task | None":
 
 
 def _engine_election_enabled() -> bool:
-    return (_os.getenv("ARIA_ENGINE_ELECTION") or "0").strip().lower() in ("1", "true", "yes")
+    # R-F2186 — safety bind: WEB_CONCURRENCY>1 IMPLIES election must be on. With
+    # multiple uvicorn workers but election OFF, every worker keeps role 'all' and
+    # runs EVERY singleton loop (N× LLM cost, N× deploys, gap-queue races) — a
+    # silent footgun the DD flagged. Auto-engage election whenever workers scale so
+    # exactly one worker owns the singletons, regardless of the env flag.
+    if (_os.getenv("ARIA_ENGINE_ELECTION") or "0").strip().lower() in ("1", "true", "yes"):
+        return True
+    return _web_concurrency() > 1
 
 
 def _engine_lease_ttl_s() -> int:
