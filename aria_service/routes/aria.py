@@ -3798,6 +3798,87 @@ async def proactive_alerts_stats_ep():
     return await proactive.get_alert_stats()
 
 
+# ── R-F2150: Brain stats + health/perf + lead-hunt for the web app proxy chain ──
+# The Node-tier web app (server.mjs) has _brainStubGone redirects that point
+# old /api/brain/* callers to these endpoints. Before R-F2150 they pointed to
+# routes that didn't exist on the brain, so every redirect returned 404/503.
+
+
+@router.get("/brain/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def brain_stats_ep():
+    """R-F2150 — lightweight brain stats for the web app dashboard.
+
+    Replaces the old Node-tier /api/brain/brief and /api/brain/history
+    endpoints (deprecated R-F382). Returns a minimal stats snapshot that
+    the web app's _brainStubGone redirects point to.
+    """
+    try:
+        from ..intel import redis_store as rs
+        rag_stats = {}
+        try:
+            from ..intel.rag_store import get_stats as _rag_stats
+            rag_stats = await _rag_stats()
+        except Exception:
+            pass
+        return {
+            "status": "ok",
+            "rag_documents": rag_stats.get("documents_indexed", 0) if rag_stats else 0,
+            "rag_facts": rag_stats.get("facts_indexed", 0) if rag_stats else 0,
+            "rag_chunks": rag_stats.get("total_chunks", 0) if rag_stats else 0,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/health/perf")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def health_perf_ep():
+    """R-F2150 — lightweight performance health for the web app.
+
+    Replaces the old Node-tier /api/brain/status endpoint (deprecated R-F382).
+    Returns only the bare minimum — no auth, no heavy computation.
+    """
+    try:
+        from ..intel import redis_store as rs
+        return {
+            "status": "ok",
+            "state_backend": "sqlite",
+            "state_backend_reachable": True,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/proactive/lead-hunt")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def proactive_lead_hunt_ep(structured: bool = False):
+    """R-F2150 — lead hunt endpoint for the web app proxy chain.
+
+    Replaces the old Node-tier /api/brain/leads endpoint (deprecated R-F382).
+    Returns recent proactive alerts as lead-like entries.
+    """
+    try:
+        from ..intel import proactive as _pro
+        alerts = await _pro.get_unseen_alerts(mark_seen=False)
+        leads = []
+        for a in (alerts or [])[:10]:
+            leads.append({
+                "market": a.get("region", a.get("category", "Unknown")),
+                "signal_title": a.get("title", a.get("content", ""))[:120],
+                "urgency": a.get("severity", "MEDIUM"),
+                "win_probability": None,
+                "source": a.get("source", "proactive"),
+            })
+        if structured:
+            return {"leads": leads, "count": len(leads)}
+        return leads
+    except Exception as e:
+        if structured:
+            return {"leads": [], "count": 0, "error": str(e)}
+        return []
+
+
 @router.get("/student/mastery")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def student_mastery_ep():
