@@ -2656,18 +2656,38 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # so the full document survives in the window.
     _doc_grounded = bool(message and "[ATTACHED DOCUMENT" in message)
 
+    # R-F2188 — for DOCUMENT-grounded chats, build on the COMPACT base prompt
+    # (~2K chars) instead of the full ARIA_SYSTEM_PROMPT (~100K+). The compact
+    # prompt already carries the honesty constitution, never-fabricate,
+    # compliance-first, AND clause-5 document-review discipline ("DOCUMENT REVIEW
+    # … quote it verbatim for every claim") — everything an honest document
+    # review needs. The full prompt's market-positioning / OEM-slot / GTM /
+    # search doctrine is irrelevant to reviewing an attached document and was
+    # bloating the system prompt to ~138K chars (~37K tokens), so a doc-analysis
+    # chat took 7.6 min / never delivered (live 2026-06-30 Ronext legal-roadmap
+    # review timed out the WhatsApp poll). The document itself still reaches the
+    # LLM via the user_prompt (R-F945), so review quality is preserved while the
+    # system prompt drops ~138K → ~5K (≈37K → ≈1.3K input tokens).
+    _base_prompt = ARIA_SYSTEM_PROMPT_COMPACT if _doc_grounded else ARIA_SYSTEM_PROMPT
+
     # R-F48a: persona overlay — sector-specific tuning of the constitution.
     # Prepended FIRST so the LLM reads the persona framing immediately
     # after the constitution, before any of the conditional addenda
     # (calibration, PMESII, principles, etc). Falls back silently to
     # the broker overlay (current default behaviour) when persona is
     # empty or unrecognised.
-    try:
-        from .personas import resolve_persona, get_overlay
-        _resolved_persona = resolve_persona(persona)
-        addendum_parts.append(get_overlay(_resolved_persona))
-    except Exception as e:
-        logger.debug("persona overlay injection failed (non-fatal): %s", e)
+    # R-F2188 — skip the (large) persona overlay in document mode. The compact
+    # base already frames ARIA as a defence/geopolitical analyst with honesty +
+    # compliance + document-review discipline; the persona overlay's bulky
+    # deal-forward framing is non-essential to an honest document review and was
+    # the remaining ~18K of bloat after the base was leaned out.
+    if not _doc_grounded:
+        try:
+            from .personas import resolve_persona, get_overlay
+            _resolved_persona = resolve_persona(persona)
+            addendum_parts.append(get_overlay(_resolved_persona))
+        except Exception as e:
+            logger.debug("persona overlay injection failed (non-fatal): %s", e)
 
     cal = await _get_cached_calibration()
     cal_addendum = _calibration_to_prompt_addendum(cal)
@@ -3186,16 +3206,19 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
         )
 
     if not addendum_parts:
-        return ARIA_SYSTEM_PROMPT
-    final = ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
+        return _base_prompt
+    final = _base_prompt + "\n\n" + "\n\n".join(addendum_parts)
     # R-F947 — hard safety cap so the system prompt can never grow to eat the
     # context window and truncate an attached document. In document mode the
     # budget is tighter (leave ~30K+ tokens for the document + its context).
     # The base constitution is always FIRST, so a tail-trim preserves it.
     # R-F951 — tightened the non-doc cap 260K→200K. 260K (~65K tok) could fill
     # DeepSeek's ~64K window on its own as the store-backed addenda grew; 200K
-    # (~50K tok) leaves room for the conversation + output. Doc mode stays 150K.
-    _cap = 150_000 if _doc_grounded else 200_000
+    # (~50K tok) leaves room for the conversation + output.
+    # R-F2188 — doc mode now builds on the ~2K compact base, so the doc cap
+    # drops 150K→20K: a ~5K prompt (compact + persona + premise-verifier) with
+    # headroom, leaving the whole context window for the document itself.
+    _cap = 20_000 if _doc_grounded else 200_000
     if len(final) > _cap:
         final = final[:_cap] + "\n\n[System addenda truncated to preserve context-window room.]"
         logger.info("[R-F947/F951] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)

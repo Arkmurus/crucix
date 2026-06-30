@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2186,
+  "next_available": 2190,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16112,18 +16112,20 @@
       "title": "aria-searxng fly healthcheck + scheduled brain liveness probe",
       "claimed_at": "2026-06-30T20:13:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "65138399",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:01:10Z"
     },
     {
       "r_number": "R-F2182",
       "title": "aria-web top-level crash + research-path wired to brain",
       "claimed_at": "2026-06-30T20:13:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "65138399",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:01:10Z"
     },
     {
       "r_number": "R-F2183",
@@ -16139,9 +16141,10 @@
       "title": "autonomous engine master-switch auto-recovery (heal lost flag, respect deliberate disable)",
       "claimed_at": "2026-06-30T20:13:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "65138399",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:01:11Z"
     },
     {
       "r_number": "R-F2185",
@@ -16151,6 +16154,46 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2186",
+      "title": "bind WEB_CONCURRENCY>1 to engine election so singletons cannot silently run N-times",
+      "claimed_at": "2026-06-30T21:03:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "93aec20c",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:11:25Z"
+    },
+    {
+      "r_number": "R-F2187",
+      "title": "rollback intel.arkmurus.com to old platform via aria-app transparent full-proxy (hide thin P1 pages until parity rebuild)",
+      "claimed_at": "2026-06-30T21:07:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c7cf929a",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:18:51Z"
+    },
+    {
+      "r_number": "R-F2188",
+      "title": "chat context bloat fix: _build_7_layer_context builds 138K-char/37K-token prompt + loop-stalling encode → chat doc-analysis takes 7.6min/never delivers; trim context + offload encode",
+      "claimed_at": "2026-06-30T21:22:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "172489dc",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:37:02Z"
+    },
+    {
+      "r_number": "R-F2189",
+      "title": "aria-app boilerplate-grade component foundation (full shadcn set + recharts)",
+      "claimed_at": "2026-06-30T21:27:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "172489dc",
+      "notes": null,
+      "shipped_at": "2026-06-30T21:37:02Z"
     }
   ]
 }

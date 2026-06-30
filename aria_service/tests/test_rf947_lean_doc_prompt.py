@@ -40,8 +40,9 @@ def test_rf947_doc_mode_drops_store_backed_addenda(patched_addenda):
     sp = asyncio.run(ae._build_calibrated_system_prompt(_DOC_MSG))
     assert CAL_MARKER not in sp, "calibration must be skipped in document mode"
     assert CON_MARKER not in sp, "contradictions must be skipped in document mode"
-    # the constitution itself is always present
-    assert ae.ARIA_SYSTEM_PROMPT[:200] in sp
+    # R-F2188: doc-mode now builds on the COMPACT base prompt (not the 100K+
+    # full prompt) — the honesty + document-review constitution is present, lean.
+    assert ae.ARIA_SYSTEM_PROMPT_COMPACT[:120] in sp
 
 
 def test_rf947_plain_mode_keeps_addenda(patched_addenda):
@@ -62,6 +63,8 @@ def test_rf947_doc_prompt_hard_capped(monkeypatch):
     monkeypatch.setattr(_cr, "addendum", lambda: "Y" * 400_000)
 
     sp = asyncio.run(ae._build_calibrated_system_prompt(_DOC_MSG))
-    assert len(sp) <= 150_000 + 200, "doc-mode system prompt must be hard-capped"
-    # base constitution survives the tail-trim (it is first)
-    assert ae.ARIA_SYSTEM_PROMPT[:200] in sp
+    # R-F2188: the doc-mode cap dropped 150K→20K (compact base + bounded doc
+    # addenda), so even a giant forced addendum is trimmed to ~20K.
+    assert len(sp) <= 20_000 + 200, "doc-mode system prompt must be hard-capped"
+    # base (compact) constitution survives the tail-trim (it is first)
+    assert ae.ARIA_SYSTEM_PROMPT_COMPACT[:120] in sp
