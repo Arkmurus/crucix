@@ -45,10 +45,13 @@ export function SignInForm() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: data.token }),
       });
-      // 3) Route to the right panel.
+      // 3) Route to the right panel. Only honour a SAME-ORIGIN relative `next`
+      // (must start with a single '/', not '//' or a scheme) to prevent an
+      // open-redirect phishing vector via ?next=https://evil.com.
       const user = decodeToken(data.token);
-      const next = params.get('next');
-      router.push(next || (user ? homeForRole(user.role) : '/dashboard'));
+      const rawNext = params.get('next');
+      const safeNext = rawNext && /^\/(?!\/)/.test(rawNext) ? rawNext : null;
+      router.push(safeNext || (user ? homeForRole(user.role) : '/dashboard'));
       router.refresh();
     } catch {
       setError('Could not reach the server. Try again.');

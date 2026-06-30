@@ -23,10 +23,13 @@ export function fmtDate(value: unknown): string {
 /** DD risk / severity classification -> badge variant. */
 export function riskVariant(risk: unknown): Variant {
   const r = String(risk || '').toUpperCase();
+  // REVIEW/REQUIRED first: 'REQUIRED' contains the substring 'RED', so it must be
+  // classified before the destructive RED check or it would falsely read as red.
+  if (r.includes('REVIEW') || r.includes('REQUIRED')) return 'warning';
   if (r.includes('RED') || r.includes('HARD_STOP') || r.includes('HIGH') || r.includes('CRITICAL')) return 'destructive';
   if (r.includes('AMBER') || r.includes('MEDIUM') || r.includes('WARN')) return 'warning';
   if (r.includes('GREEN') || r.includes('LOW') || r.includes('CLEAR')) return 'success';
-  return 'muted';
+  return 'muted'; // e.g. NOT_SCREENED -> neutral
 }
 
 /** Vault entry status -> badge variant. */

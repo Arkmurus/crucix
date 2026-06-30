@@ -11,11 +11,18 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   async rewrites() {
-    // Proxy API calls to the existing backend so the browser stays SAME-ORIGIN and
-    // never learns the backend host. These are afterFiles rewrites: the local
-    // /api/session route handler is matched first; everything else under /api/*
-    // (auth, aria, billing, data, ...) is forwarded to server.mjs.
-    return [{ source: '/api/:path*', destination: `${BACKEND_URL}/api/:path*` }];
+    // FRONT-DOOR / strangler proxy (R-F2175): aria-app is the public entry for
+    // intel.arkmurus.com. These are afterFiles rewrites — aria-app's own filesystem
+    // routes (the migrated NEW-design pages: /signin /dashboard /reports /opportunities
+    // /watchlist /vault /account /chat /admin /support, plus /api/session and the
+    // /api/aria/chat/stream bridge, and /_next/*) ALWAYS win. EVERYTHING ELSE falls
+    // through to the existing backend (server.mjs): unmigrated pages, marketing/legal/
+    // signup/recovery, all other /api/*, static assets, /healthz — so nothing breaks
+    // during the page-by-page migration. As pages are rebuilt they move from
+    // proxied-to-aria-web to served-by-aria-app automatically (filesystem precedence).
+    // NOTE: Stripe/Telegram webhooks should target aria-web.fly.dev directly (not the
+    // proxied domain) to keep raw-body signature verification untouched.
+    return [{ source: '/:path*', destination: `${BACKEND_URL}/:path*` }];
   },
 };
 

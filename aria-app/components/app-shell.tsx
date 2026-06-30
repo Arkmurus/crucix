@@ -1,5 +1,6 @@
 import { LogOut } from 'lucide-react';
 import { SidebarNav } from '@/components/sidebar-nav';
+import { MobileNav } from '@/components/mobile-nav';
 import { PANEL_LABEL } from '@/components/nav-config';
 import type { Role } from '@/lib/auth';
 
@@ -32,7 +33,10 @@ export function AppShell({
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b bg-background/80 px-6 backdrop-blur">
-          <span className="text-sm capitalize text-muted-foreground">{role} panel</span>
+          <div className="flex items-center gap-3">
+            <MobileNav role={role} />
+            <span className="text-sm capitalize text-muted-foreground">{role} panel</span>
+          </div>
           {email ? (
             <span className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-medium uppercase text-foreground">

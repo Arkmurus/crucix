@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 interface Opportunity {
   market?: string; score?: number; tier?: string; complianceStatus?: string;
-  type?: string; notes?: string; summary?: string; signal_count?: number;
+  type?: string; notes?: string; summary?: string; explorerSignals?: number;
   conflict?: { events?: number; fatalities?: number };
   procurementNeeds?: unknown[]; sources?: { url?: string; title?: string; type?: string }[];
 }
@@ -43,7 +43,7 @@ export default async function OpportunitiesPage() {
                   {desc ? <p className="text-muted-foreground">{String(desc)}</p> : null}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     {o.tier ? <span>Tier: {titleCase(o.tier)}</span> : null}
-                    {typeof o.signal_count === 'number' ? <span>{o.signal_count} signals</span> : null}
+                    {typeof o.explorerSignals === 'number' ? <span>{o.explorerSignals} signals</span> : null}
                     {o.conflict?.events ? <span>{o.conflict.events} conflict events</span> : null}
                     {Array.isArray(o.procurementNeeds) && o.procurementNeeds.length ? <span>{o.procurementNeeds.length} procurement needs</span> : null}
                   </div>

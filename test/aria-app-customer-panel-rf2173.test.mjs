@@ -28,6 +28,9 @@ check('AMBER -> warning', riskVariant('AMBER') === 'warning');
 check('AMBER-LIGHT -> warning', riskVariant('AMBER-LIGHT') === 'warning');
 check('GREEN -> success', riskVariant('GREEN') === 'success');
 check('unknown risk -> muted', riskVariant('weird') === 'muted');
+// R-F2175: compliance statuses from the opportunities engine.
+check('REVIEW_REQUIRED -> warning', riskVariant('REVIEW_REQUIRED') === 'warning');
+check('NOT_SCREENED -> muted (not success)', riskVariant('NOT_SCREENED') === 'muted');
 
 // statusVariant — vault entry status (verified/needs_operator/declined/open_api).
 check('verified -> success', statusVariant('verified') === 'success');

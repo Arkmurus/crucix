@@ -20,7 +20,9 @@ export async function POST(req: NextRequest) {
   if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
     const form = await req.formData();
     if (form.get('action') === 'logout') {
-      const res = NextResponse.redirect(new URL('/signin', req.url));
+      // 303 converts the form POST to a GET so the browser lands on the /signin
+      // PAGE (a 307 would replay the POST -> 405 Method Not Allowed).
+      const res = NextResponse.redirect(new URL('/signin', req.url), { status: 303 });
       res.cookies.set(TOKEN_COOKIE, '', { ...COOKIE_OPTS, maxAge: 0 });
       return res;
     }
