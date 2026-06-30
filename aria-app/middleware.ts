@@ -45,6 +45,9 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next internals + static files.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets).*)'],
+  // Run on page routes only. EXCLUDE /api — those are same-origin proxies to the
+  // backend (server.mjs), which enforces its own auth (requireAuth/requireRole);
+  // gating them here would block unauthenticated login + the API proxy. Also skip
+  // Next internals + static files.
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|assets).*)'],
 };

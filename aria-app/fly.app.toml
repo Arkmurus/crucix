@@ -1,15 +1,21 @@
 # Fly config for aria-app (Next.js frontend). Deploy: flyctl deploy --config aria-app/fly.app.toml
-# Stateless — no volume (state lives in server.mjs + the brain). BACKEND_URL set via secret:
-#   flyctl secrets set BACKEND_URL=http://aria-web.internal:3117 NEXT_PUBLIC_BACKEND_URL=https://intel.arkmurus.com -a aria-app
+# Stateless — no volume (state lives in server.mjs + the brain). No secrets required:
+# /api/* is proxied to the backend over the 6PN address baked at build (BACKEND_URL).
 app = "aria-app"
 primary_region = "lhr"
 
 [build]
   dockerfile = "Dockerfile.app"
 
+  [build.args]
+    # Baked into the API-proxy rewrites at build time. Non-secret 6PN internal address.
+    BACKEND_URL = "http://aria-web.internal:3117"
+
 [env]
   PORT = "3200"
   NODE_ENV = "production"
+  # Runtime base for server-side fetches (lib/api.ts apiServer).
+  BACKEND_URL = "http://aria-web.internal:3117"
 
 [http_service]
   internal_port = 3200
