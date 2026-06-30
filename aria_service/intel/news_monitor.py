@@ -481,7 +481,7 @@ async def _feed_to_brain(article: dict) -> None:
             await _bh.absorb(
                 module="news_monitor",
                 summary=str(article.get("title", ""))[:200],
-                detail=str(article.get("summary", ""))[:1000],
+                detail=str(article.get("full_text") or article.get("summary", ""))[:2000],
                 entity_name=_name[:120],
                 source_id=f"vault_source:{_article_hash(article.get('url', ''))}",
                 confidence="PROBABLE",
@@ -572,6 +572,54 @@ def _get_vault_feed_sources() -> list[tuple]:
     return out
 
 
+async def _scrape_vault_website(name: str, url: str, category: str, lang: str, tier: str, topics) -> dict:
+    """R-F2191 — ingest a vault WEBSITE that is NOT an RSS/Atom feed.
+
+    A manually-added website (vault.html "Add Site", site_type=website) that isn't a
+    feed used to be silently dropped (`unknown_format`). Operators trust manual sites
+    as a reliable data source, so this scrapes the page via the robust SSRF-guarded
+    `researcher.extract_url_text` (Wayback fallback, no LLM) and runs the result through
+    the SAME store→ledger→brain-absorb path as feed articles — so the site reliably
+    reaches BOTH the dashboard/news (Pipeline 1) AND the brain RAG/knowledge (Pipeline 2).
+
+    Content-hash dedup: an unchanged page is not re-ingested every poll; a changed page
+    re-ingests. Returns {"fetched", "new"}.
+    """
+    try:
+        from . import researcher as _r
+        res = await _r.extract_url_text(url, timeout=20.0)
+    except Exception as e:
+        logger.debug("[news_monitor] vault website scrape failed for %s: %s", url, e)
+        return {"fetched": 0, "new": 0}
+
+    text = str((res or {}).get("text", "") or "").strip()
+    if not res or not res.get("extraction_ok") or not text:
+        return {"fetched": 0, "new": 0}
+
+    chash = _article_hash(url + "|" + hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16])
+    seen_key = f"scrape:{chash}"
+    if await _is_seen(seen_key):
+        return {"fetched": 1, "new": 0}      # unchanged since last poll
+    await _mark_seen(seen_key)
+
+    title = str((res.get("title") or name or url))[:200]
+    article = {
+        "url": url,
+        "title": title,
+        "summary": text[:500],
+        "full_text": text[:5000],
+        "source": name,                       # already shaped "vault:<site name>"
+        "category": category,
+        "language": lang,
+        "tier": tier,
+        "topics": topics,
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _store_article(article)
+    await _feed_to_brain(article)             # → intel_ledger (data output) + brain absorb (intel)
+    return {"fetched": 1, "new": 1}
+
+
 async def poll_feeds(
     categories: Optional[list[str]] = None,
     max_articles_per_feed: int = 10,
@@ -612,6 +660,15 @@ async def poll_feeds(
             elif feed_type == "atom":
                 articles = _parse_atom(xml_text, name)
             else:
+                # R-F2191 — a vault-curated WEBSITE that isn't a feed is SCRAPED rather
+                # than dropped, so manually-added websites reliably bring value.
+                if category == "vault_curated":
+                    sc = await _scrape_vault_website(name, url, category, lang, tier, topics)
+                    total_fetched += sc["fetched"]
+                    total_new += sc["new"]
+                    feed_results.append({"name": name, "status": "scraped", "articles": sc["fetched"], "new": sc["new"]})
+                    await asyncio.sleep(0.5)
+                    continue
                 logger.debug("[news_monitor] Unknown feed type for %s", name)
                 total_failed += 1
                 feed_results.append({"name": name, "status": "unknown_format", "articles": 0})
