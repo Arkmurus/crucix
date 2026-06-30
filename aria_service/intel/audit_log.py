@@ -301,14 +301,20 @@ async def record(
 
     # Persist: main chain + indexes + direct-lookup. Each is a separate Redis
     # call; if any fails we still have the main chain. Logging on best-effort.
+    # R-F2154: cap the main chain at 50,000 entries so the state DB cannot
+    # grow unbounded (was 92,803 entries / 116 MB before the cap).
+    _MAX_LOG = 50000
     try:
         await rs.lpush(_KEY_LOG, entry_json)
+        await rs.ltrim(_KEY_LOG, 0, _MAX_LOG - 1)
         await rs.set(_KEY_HEAD_HASH, entry_hash)
         await rs.set(_KEY_BY_HASH.format(hash=entry_hash), entry_json)
         if deal_id:
             await rs.lpush(_KEY_BY_DEAL.format(deal_id=deal_id), entry_hash)
+            await rs.ltrim(_KEY_BY_DEAL.format(deal_id=deal_id), 0, _MAX_LOG - 1)
         if entity_name:
             await rs.lpush(_KEY_BY_ENTITY.format(ehash=_entity_hash(entity_name)), entry_hash)
+            await rs.ltrim(_KEY_BY_ENTITY.format(ehash=_entity_hash(entity_name)), 0, _MAX_LOG - 1)
     except Exception as e:
         # Refuse to silently swallow audit failures — but don't crash the
         # caller either. Log loud and return the entry so the caller knows

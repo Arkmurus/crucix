@@ -429,9 +429,17 @@ async def _flush_write_queue() -> int:
             break
     if batch and _conn is not None:
         try:
+            # R-F2154: bounded flush — wrap each execute in a 10s timeout
+            # so a contested WAL or slow DB never hangs the write path.
             for sql, params in batch:
-                await _conn.execute(sql, params)
-            await _conn.commit()
+                await asyncio.wait_for(_conn.execute(sql, params), timeout=10.0)
+            await asyncio.wait_for(_conn.commit(), timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.error(
+                "state_store: flush timed out (%d writes) — DB may be "
+                "bloated or under WAL recovery. Writes may be lost.",
+                len(batch),
+            )
         except Exception as e:
             logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
             _schedule_reconnect_if_dead(e)
@@ -999,8 +1007,11 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     try:
         queue = _QUEUED_WRITES
         if queue is not None and not queue.empty() and queue.qsize() <= 10:
-            await _flush_write_queue()
-    except Exception:
+            # R-F2154: bounded flush — a bloated DB or contested WAL can
+            # make _conn.execute() block past busy_timeout; cap at 5s so
+            # a slow flush never hangs a read (and thus boot) indefinitely.
+            await asyncio.wait_for(_flush_write_queue(), timeout=5.0)
+    except (asyncio.TimeoutError, Exception):
         pass
     conn = _get_read_conn()
     if conn is None:
@@ -1031,9 +1042,9 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
                     value, kind, expires_at = row
                     if _expired(expires_at):
                         try:
-                            await conn.execute("DELETE FROM state WHERE key = ?", (key,))
-                            await conn.commit()
-                        except Exception:
+                            await asyncio.wait_for(conn.execute("DELETE FROM state WHERE key = ?", (key,)), timeout=5.0)
+                            await asyncio.wait_for(conn.commit(), timeout=5.0)
+                        except (asyncio.TimeoutError, Exception):
                             pass
                         return None
                     if expected_kind and kind != expected_kind:
@@ -1051,10 +1062,11 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
         # Lazy expiry — drop the row on read. No python-level lock needed:
         # aiosqlite serialises through a single worker thread, and DELETE
         # is idempotent so a parallel sweep_expired() can't double-fault.
+        # R-F2154: bounded — 5s timeout so a contested WAL never hangs.
         try:
-            await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
-            await _conn.commit()
-        except Exception:
+            await asyncio.wait_for(_conn.execute("DELETE FROM state WHERE key = ?", (key,)), timeout=5.0)
+            await asyncio.wait_for(_conn.commit(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception):
             pass
         return None
     if expected_kind and kind != expected_kind:
@@ -1118,23 +1130,40 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 # ─────────────────────────────────────────────────────────────────────────
 
 async def get(key: str) -> str | None:
-    row = await _row(key, expected_kind="string")
-    return row[0] if row else None
+    """R-F2154: bounded read — wraps _row in a 30s timeout so a slow DB
+    (bloated WAL / large table) never hangs boot or a request forever.
+    Returns None on timeout (same as key-not-found) — the caller degrades
+    gracefully rather than blocking the event loop."""
+    try:
+        row = await asyncio.wait_for(
+            _row(key, expected_kind="string"), timeout=30.0)
+        return row[0] if row else None
+    except asyncio.TimeoutError:
+        logger.warning(
+            "state_store.get(%s) timed out after 30s — DB may be "
+            "bloated or under WAL recovery. Returning None.",
+            key[:80],
+        )
+        return None
 
 
 async def get_strict(key: str) -> str | None:
     """R-F1392: like get(), but a store-layer failure RAISES StateReadError
     instead of silently returning None. A None return therefore means the key
     is GENUINELY absent/expired — which is what the async job-poll endpoints
-    need to honestly answer not_found vs 503-retry (see StateReadError)."""
+    need to honestly answer not_found vs 503-retry (see StateReadError).
+    
+    R-F2154: bounded — 30s timeout so a slow DB never hangs a request."""
     if _conn is None:
         raise StateReadError(
             f"state_store: no connection (reconnect in progress) reading {key}")
     try:
-        cur = await _conn.execute(
-            "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,))
-        row = await cur.fetchone()
+        cur = await asyncio.wait_for(_conn.execute(
+            "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,)), timeout=30.0)
+        row = await asyncio.wait_for(cur.fetchone(), timeout=30.0)
         await cur.close()
+    except asyncio.TimeoutError:
+        raise StateReadError(f"state_store: SELECT {key} timed out after 30s")
     except Exception as e:
         _schedule_reconnect_if_dead(e)  # same self-heal as the graceful path
         raise StateReadError(f"state_store: SELECT {key} failed: {e}") from e

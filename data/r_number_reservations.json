@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2153,
+  "next_available": 2156,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15825,6 +15825,34 @@
       "r_number": "R-F2152",
       "title": "Bound /health public status endpoint so it never hangs",
       "claimed_at": "2026-06-30T11:26:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2153",
+      "title": "Fix module-shutdown wire_failure ERROR during interpreter shutdown",
+      "claimed_at": "2026-06-30T12:01:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3c20c4da",
+      "notes": null,
+      "shipped_at": "2026-06-30T12:04:36Z"
+    },
+    {
+      "r_number": "R-F2154",
+      "title": "Fix state DB bloat causing boot hang",
+      "claimed_at": "2026-06-30T12:46:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2155",
+      "title": "Fix state DB bloat causing boot hang",
+      "claimed_at": "2026-06-30T12:49:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

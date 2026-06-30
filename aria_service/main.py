@@ -231,6 +231,26 @@ async def _run_boot_inits(inits) -> list:
     return failed
 
 
+async def _expiry_sweeper_loop() -> None:
+    """R-F2154: background loop that sweeps expired state_store entries.
+
+    The state_store.sweep_expired() function was defined but NEVER wired into
+    the lifespan, so expired entries (cost records with 90-day TTL, etc.)
+    accumulated forever — 154K cost records + 102K verified facts contributed
+    to a 1 GB DB that made boot-time reads hang for 40+ minutes.
+    Runs every 300s (5 min) to keep the DB lean.
+    """
+    while True:
+        try:
+            from .intel import state_store as _ss
+            _deleted = await _ss.sweep_expired()
+            if _deleted:
+                logger.info("[R-F2154] state_store sweep: removed %d expired entries", _deleted)
+        except Exception as _sw_e:
+            logger.debug("[R-F2154] state_store sweep skipped: %s", _sw_e)
+        await asyncio.sleep(300)
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -641,6 +661,8 @@ async def lifespan(app: FastAPI):
         )
 
     _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
+    # ---- R-F2154 - background expired-entry sweeper --------------------------
+    _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"))
     # ---- R-F2149 - yield IMMEDIATELY so the server starts serving --------
     # Everything below this point is moved into a background task. The
     # previous code had ~2500 lines of boot init between here and the yield
@@ -1332,7 +1354,7 @@ async def lifespan(app: FastAPI):
                 continue
             # Check for CLI flags leaked into the value
             if _val.startswith("-") or " -" in _val:
-                _suspect.append(f"{_key}={_val!r} (value contains CLI flags — may have been set via `flyctl secrets set {_key}={_val} -a app`)")
+                _suspect.append(f"{_key}={_val!r} (value contains CLI flags — may have been set via `fly secrets set {_key}={_val} -a app`)")
             # Check for known malformed patterns
             if _key == "ARIA_RAG_BACKFILL_DISABLED" and _val not in ("true", "false", "1", "0", ""):
                 _suspect.append(f"{_key}={_val!r} (expected true/false/1/0 — current value is inert but misleading)")
@@ -2663,7 +2685,7 @@ async def lifespan(app: FastAPI):
                         "POST /api/aria/autonomous/enable to turn on the "
                         "autonomous engine right now (survives redeploy via "
                         "Redis). For a permanent fix, also run: "
-                        "flyctl secrets set ARIA_AUTONOMOUS_ENABLED=1 "
+                        "fly secrets set ARIA_AUTONOMOUS_ENABLED=1 "
                         "-a aria-intel"
                     ),
                 )
