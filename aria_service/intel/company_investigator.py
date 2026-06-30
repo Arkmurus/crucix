@@ -388,11 +388,18 @@ async def _phase_sanctions(
     """Screen against sanctions lists."""
     try:
         from .sanctions_canonical import check_sanctions as _sc
+        # R-F2159: check_sanctions is a SYNC function. The prior
+        # `await asyncio.wait_for(_sc(...))` passed a plain dict to wait_for →
+        # TypeError on EVERY call → caught below as a silent debug → the entire
+        # sanctions phase produced NOTHING. Offload the sync (SQLite) call to a
+        # thread and bound it, so it actually runs.
         result = await asyncio.wait_for(
-            _sc(company_name, jurisdiction=jurisdiction),
+            asyncio.to_thread(_sc, company_name, jurisdiction=jurisdiction),
             timeout=_PHASE_TIMEOUTS["sanctions"],
         )
-        verdict = result.get("verdict", "CLEAR")
+        # R-F2159: default to INSUFFICIENT_DATA, never CLEAR — an absent verdict
+        # must not read as clean.
+        verdict = result.get("verdict", "INSUFFICIENT_DATA")
         matches = result.get("matches", [])
         if matches:
             for m in matches[:3]:
@@ -410,7 +417,9 @@ async def _phase_sanctions(
                         f"Sanctions HARD STOP: {m.get('formatted_name', '?')} "
                         f"on {m.get('source', '?')}"
                     )
-        else:
+        elif verdict == "CLEAR":
+            # R-F2159: "clean" ONLY when the screen provably ran against loaded
+            # data and found no match (canonical store gates this verdict).
             report.findings.append(InvestigationFinding(
                 category="sanctions",
                 title="No sanctions matches",
@@ -419,9 +428,52 @@ async def _phase_sanctions(
                 confidence=0.9,
                 tags=["sanctions", "clean"],
             ))
+        else:
+            # R-F2159: verdict is INSUFFICIENT_DATA / COULD_NOT_VERIFY (or the
+            # store was empty/unavailable). The screen did NOT produce a
+            # clearance — surface it as UNVERIFIED + a risk indicator so it can
+            # never be read as "not sanctioned".
+            report.findings.append(InvestigationFinding(
+                category="sanctions",
+                title="Sanctions screen UNVERIFIED — could not confirm clean",
+                summary=f"Sanctions screen for {company_name} did not complete "
+                        f"(verdict={verdict}). This is NOT a clearance — re-screen required.",
+                source="sanctions_canonical",
+                confidence=0.9,
+                tags=["sanctions", "unverified", "could_not_verify"],
+            ))
+            report.risk_indicators.append(
+                f"Sanctions screen UNVERIFIED for {company_name} ({verdict}) "
+                f"— not confirmed clean"
+            )
     except asyncio.TimeoutError:
+        # R-F2159: a timed-out screen must SURFACE as unverified, never vanish.
+        report.findings.append(InvestigationFinding(
+            category="sanctions",
+            title="Sanctions screen UNVERIFIED — timed out",
+            summary=f"Sanctions screen for {company_name} timed out. NOT a clearance.",
+            source="sanctions_canonical",
+            confidence=0.9,
+            tags=["sanctions", "unverified", "timeout"],
+        ))
+        report.risk_indicators.append(
+            f"Sanctions screen TIMED OUT for {company_name} — unverified"
+        )
         logger.debug("[company_investigator] sanctions check timed out")
     except Exception as e:
+        # R-F2159: an errored screen must SURFACE as unverified, never vanish.
+        report.findings.append(InvestigationFinding(
+            category="sanctions",
+            title="Sanctions screen UNVERIFIED — error",
+            summary=f"Sanctions screen for {company_name} failed: {str(e)[:120]}. "
+                    f"NOT a clearance.",
+            source="sanctions_canonical",
+            confidence=0.9,
+            tags=["sanctions", "unverified", "error"],
+        ))
+        report.risk_indicators.append(
+            f"Sanctions screen FAILED for {company_name} — unverified"
+        )
         logger.debug("[company_investigator] sanctions check failed: %s", e)
 
 

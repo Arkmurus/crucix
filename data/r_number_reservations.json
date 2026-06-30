@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2159,
+  "next_available": 2160,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15874,14 +15874,25 @@
       "title": "state_store hot-key cache + write-coalescing to kill brain_hook:stats thundering herd self-DOS",
       "claimed_at": "2026-06-30T17:15:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "87088236",
+      "notes": null,
+      "shipped_at": "2026-06-30T17:48:36Z"
     },
     {
       "r_number": "R-F2158",
       "title": "fix lifespan shutdown NameError (llm_health_checker) aborting teardown before WAL-flush cleanup -> unclean-shutdown WAL bloat",
       "claimed_at": "2026-06-30T17:28:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "87088236",
+      "notes": null,
+      "shipped_at": "2026-06-30T17:48:36Z"
+    },
+    {
+      "r_number": "R-F2159",
+      "title": "sanctions never-false-clean: canonical store empty-store->INSUFFICIENT_DATA + company_investigator verdict-gate clean + fix sync/async silent no-op",
+      "claimed_at": "2026-06-30T17:58:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

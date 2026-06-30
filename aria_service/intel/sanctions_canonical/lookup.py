@@ -336,8 +336,30 @@ def check_sanctions(
                 blocked.append(entry_dict)
 
     # Verdict logic — name on the gate-passing matches
+    # R-F2159: an empty match set is CLEAR *only* when the canonical store
+    # actually HOLDS loaded sanctions data for the in-scope sources. Before,
+    # `q_entity_tokens` (non-empty for essentially every real name) alone made
+    # the verdict CLEAR — so an EMPTY/un-refreshed store returned an
+    # authoritative "clean" for any company. That is a sanctions false-negative
+    # (the single worst output a compliance tool can emit). Gate CLEAR on store
+    # readiness; an unloaded store → INSUFFICIENT_DATA + source_unavailable so
+    # callers render UNVERIFIED, never "clean".
+    store_unavailable = False
     if not matches:
-        verdict = "CLEAR" if exact_rows or q_entity_tokens else "INSUFFICIENT_DATA"
+        try:
+            if sources:
+                _loaded = sum(store.count_entries(s) for s in sources)
+            else:
+                _loaded = store.count_entries()
+        except Exception:
+            _loaded = 0  # cannot prove the store has data → treat as unavailable
+        if _loaded <= 0:
+            verdict = "INSUFFICIENT_DATA"
+            store_unavailable = True
+        elif exact_rows or q_entity_tokens:
+            verdict = "CLEAR"
+        else:
+            verdict = "INSUFFICIENT_DATA"
     else:
         # Take max score among gate-passing matches
         top = max(m["match_score"] for m in matches)
@@ -356,7 +378,13 @@ def check_sanctions(
         "matches": matches,
         "gate_blocked": blocked,
         "cache_status": _cache_status_summary(),
+        # R-F2159: explicit signal that the screen could NOT run against loaded
+        # data (empty/unavailable store). Mirrors the sanctions_claim_guard
+        # vocabulary so every caller can render COULD_NOT_VERIFY, not "clean".
+        "source_unavailable": store_unavailable,
     }
+    if store_unavailable:
+        result["reason"] = "sanctions_store_empty_or_unavailable"
     # R-F1304 — wire to brain (§21a)
     try:
         from ..engine_wiring import wire_success
