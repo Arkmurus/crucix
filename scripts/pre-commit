@@ -137,8 +137,12 @@ def _check_compile_gate(files: list[Path]) -> list[str]:
             continue
         if "tests" in fp.parts:
             continue
-        # Use compile() via subprocess to avoid importing the module
-        code = f"compile(open({str(fp)!r}).read(), {str(fp)!r}, 'exec')"
+        # Use compile() via subprocess to avoid importing the module.
+        # R-F2168: read as UTF-8 (Python source default per PEP 3120). Without
+        # the explicit encoding, open() used the OS locale (cp1252 on Windows)
+        # and raised UnicodeDecodeError on any valid file containing box-drawing
+        # / em-dash chars — a false COMPILE-GATE failure on perfectly good code.
+        code = f"compile(open({str(fp)!r}, encoding='utf-8').read(), {str(fp)!r}, 'exec')"
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True, text=True, encoding="utf-8",
@@ -232,7 +236,12 @@ def main():
     # stricter than ast.parse.
     compile_issues = _check_compile_gate(files)
     if compile_issues:
-        print("[pre-commit] COMPILE GATE FAILED:")
+        # R-F2168: emit the "VERIFICATION FAILED" sentinel that the active hook
+        # wrapper (scripts/git-hooks/pre-commit) greps for to BLOCK the commit.
+        # Previously this printed only "COMPILE GATE FAILED", which the wrapper
+        # ignored — so a genuinely broken .py was never blocked here (the
+        # gate was toothless). The syntax gate below already used the sentinel.
+        print("[pre-commit] VERIFICATION FAILED — COMPILE GATE:")
         for issue in compile_issues:
             print(issue)
         print("\nFix the compile error(s) above before committing — a broken .py breaks import + any deploy (CLAUDE.md §11c).")
