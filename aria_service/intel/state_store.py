@@ -429,11 +429,12 @@ async def _flush_write_queue() -> int:
             break
     if batch and _conn is not None:
         try:
-            # R-F2154: bounded flush — wrap each execute in a 10s timeout
-            # so a contested WAL or slow DB never hangs the write path.
+            # R-F2154: bounded flush — wrap each execute in a 60s timeout
+            # so a large DB (verified facts, neural edges) has time to
+            # complete writes. 10s was too tight for a 790 MB DB.
             for sql, params in batch:
-                await asyncio.wait_for(_conn.execute(sql, params), timeout=10.0)
-            await asyncio.wait_for(_conn.commit(), timeout=10.0)
+                await asyncio.wait_for(_conn.execute(sql, params), timeout=60.0)
+            await asyncio.wait_for(_conn.commit(), timeout=60.0)
         except asyncio.TimeoutError:
             logger.error(
                 "state_store: flush timed out (%d writes) — DB may be "
@@ -1130,17 +1131,17 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 # ─────────────────────────────────────────────────────────────────────────
 
 async def get(key: str) -> str | None:
-    """R-F2154: bounded read — wraps _row in a 30s timeout so a slow DB
-    (bloated WAL / large table) never hangs boot or a request forever.
-    Returns None on timeout (same as key-not-found) — the caller degrades
-    gracefully rather than blocking the event loop."""
+    """R-F2154: bounded read — wraps _row in a 5s timeout so a slow DB
+    never hangs boot or a request forever. Returns None on timeout (same
+    as key-not-found) — the caller degrades gracefully rather than
+    blocking the event loop."""
     try:
         row = await asyncio.wait_for(
-            _row(key, expected_kind="string"), timeout=30.0)
+            _row(key, expected_kind="string"), timeout=5.0)
         return row[0] if row else None
     except asyncio.TimeoutError:
         logger.warning(
-            "state_store.get(%s) timed out after 30s — DB may be "
+            "state_store.get(%s) timed out after 5s — DB may be "
             "bloated or under WAL recovery. Returning None.",
             key[:80],
         )
@@ -1153,17 +1154,17 @@ async def get_strict(key: str) -> str | None:
     is GENUINELY absent/expired — which is what the async job-poll endpoints
     need to honestly answer not_found vs 503-retry (see StateReadError).
     
-    R-F2154: bounded — 30s timeout so a slow DB never hangs a request."""
+    R-F2154: bounded — 5s timeout so a slow DB never hangs a request."""
     if _conn is None:
         raise StateReadError(
             f"state_store: no connection (reconnect in progress) reading {key}")
     try:
         cur = await asyncio.wait_for(_conn.execute(
-            "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,)), timeout=30.0)
-        row = await asyncio.wait_for(cur.fetchone(), timeout=30.0)
+            "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,)), timeout=5.0)
+        row = await asyncio.wait_for(cur.fetchone(), timeout=5.0)
         await cur.close()
     except asyncio.TimeoutError:
-        raise StateReadError(f"state_store: SELECT {key} timed out after 30s")
+        raise StateReadError(f"state_store: SELECT {key} timed out after 5s")
     except Exception as e:
         _schedule_reconnect_if_dead(e)  # same self-heal as the graceful path
         raise StateReadError(f"state_store: SELECT {key} failed: {e}") from e
