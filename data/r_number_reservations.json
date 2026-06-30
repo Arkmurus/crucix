@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2160,
+  "next_available": 2168,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15893,6 +15893,79 @@
       "r_number": "R-F2159",
       "title": "sanctions never-false-clean: canonical store empty-store->INSUFFICIENT_DATA + company_investigator verdict-gate clean + fix sync/async silent no-op",
       "claimed_at": "2026-06-30T17:58:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b28e1bc7",
+      "notes": null,
+      "shipped_at": "2026-06-30T18:16:31Z"
+    },
+    {
+      "r_number": "R-F2160",
+      "title": "CLI coder: un-truncate constitution injection (raise cap + smart-include operational sections)",
+      "claimed_at": "2026-06-30T18:07:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2161",
+      "title": "CLI coder: wire CLI to populated brain coding-RAG via HTTP endpoint",
+      "claimed_at": "2026-06-30T18:07:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2162",
+      "title": "CLI coder: task-aware RAG query + write-back learning loop",
+      "claimed_at": "2026-06-30T18:07:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2163",
+      "title": "CLI coder: PowerShell-dialect steering + pwsh preference + utf-8 pipe",
+      "claimed_at": "2026-06-30T18:07:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2164",
+      "title": "CLI coder: automatic context compaction for long sessions",
+      "claimed_at": "2026-06-30T18:07:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2165",
+      "title": "CLI coder: OpenRouter-Claude stronger-model routing",
+      "claimed_at": "2026-06-30T18:07:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2166",
+      "title": "CLI coder: hardening cluster (aria-no-tools, ci_deploy desc, git add -A, loop-guard, trunc-guard)",
+      "claimed_at": "2026-06-30T18:07:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2167",
+      "title": "DD orchestrator sanctions: direct primary-source adapters signal stale/unavailable so orchestrator surfaces UNVERIFIED data_gap + non-GREEN verdict (the unprotected twin of R-F1696)",
+      "claimed_at": "2026-06-30T18:09:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

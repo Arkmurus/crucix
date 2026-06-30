@@ -2154,6 +2154,34 @@ async def _identity_primary_source_screen(
                     )
                 continue
 
+            # R-F2167: a source that served a STALE / un-refreshed snapshot did
+            # NOT screen against current data. Surface it as an UNVERIFIED gap +
+            # an amber finding so an empty hit-list is never read as a clearance
+            # — the silent false-negative this direct-adapter loop shares with
+            # the OpenSanctions-aggregate path already guarded by R-F1696. The
+            # synthesis freshness-gate keys off the SANCTIONS_SOURCE_UNVERIFIED
+            # marker to force the headline non-GREEN.
+            if _r.get("stale") or _r.get("source_unavailable"):
+                report.identity.data_gaps.append(
+                    f"{_lbl}: SANCTIONS_SOURCE_UNVERIFIED — served stale/unavailable "
+                    f"data, NOT freshly screened (re-screen required, not a clearance)"
+                )
+                report.identity.findings.append(Finding(
+                    severity="amber",
+                    title=f"Primary sanctions source {_lbl} NOT freshly screened — UNVERIFIED",
+                    detail=(
+                        f"The {_lbl} feed was unavailable; the screen ran against a "
+                        f"stale cached snapshot, so a newly-designated entity may be "
+                        f"absent. This is NOT a clearance — re-screen when reachable."
+                    ),
+                    source=f"sources.{_lbl}",
+                    confidence="UNCERTAIN",
+                ))
+                # An empty result on stale data must NOT read as clean. If the
+                # stale snapshot DID match, fall through to surface the hit too.
+                if not (_r.get("hits") or []):
+                    continue
+
             _hits = _r.get("hits") or []
             if not _hits:
                 continue
@@ -5757,6 +5785,34 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     }
     report.synthesis.risk_classification = canonical_map.get(worst, RiskClassification.GREEN.value)
     report.risk_classification = report.synthesis.risk_classification
+
+    # ── 6b1. Sanctions-freshness gate (R-F2167) — a primary sanctions source
+    # that served STALE/unavailable data means we could NOT confirm "not
+    # sanctioned". That is a MANDATORY non-GREEN trigger — independent of the
+    # _is_person flag and the _total_gaps>=3 threshold below — because a single
+    # un-refreshed sanctions feed makes a GREEN headline a false clearance (the
+    # worst output a compliance tool can emit). Keys off the marker the
+    # identity primary-source loop writes when an adapter flags stale.
+    if report.risk_classification == RiskClassification.GREEN.value:
+        _sanctions_unverified = [
+            g for g in (getattr(report.identity, "data_gaps", []) or [])
+            if "SANCTIONS_SOURCE_UNVERIFIED" in str(g)
+        ]
+        if _sanctions_unverified:
+            report.risk_classification = RiskClassification.AMBER_LIGHT.value
+            report.synthesis.risk_classification = RiskClassification.AMBER_LIGHT.value
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title="Sanctions screen UNVERIFIED — GREEN overridden to AMBER",
+                detail=(
+                    "A primary sanctions source served stale/unavailable data, so "
+                    "the entity could NOT be confirmed clear of sanctions. Re-screen "
+                    "required before any clearance. "
+                    + "; ".join(str(g)[:160] for g in _sanctions_unverified[:3])
+                ),
+                source="dd_orchestrator.sanctions_freshness_gate",
+                confidence="ASSESSED",
+            ))
 
     # ── 6b2. Confidence gate — never GREEN when verification is insufficient ──
     # If risk landed on GREEN but key identity signals are missing, bump

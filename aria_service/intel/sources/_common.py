@@ -69,6 +69,29 @@ def finalise(result: dict, started_at: float) -> dict:
     return result
 
 
+def mark_stale_if_expired(result: dict, cache: dict, ttl_s: float) -> dict:
+    """R-F2167 — flag a result as served from a STALE cache.
+
+    Each sanctions adapter's `_load_records()` serves its old in-process cache
+    when the upstream refresh FAILS (feed down / rate-limited / no key), and
+    only updates `cache["fetched_at"]` on a SUCCESSFUL refresh. So if the cache
+    is now past its TTL, the records we just screened against are STALE — the
+    screen did NOT run against current data. An empty hit-list on stale data is
+    NOT a clearance: a newly-designated entity may simply be absent from the old
+    snapshot (a silent false-negative — the worst output a compliance tool can
+    emit). Flag `stale`/`source_unavailable` so the DD orchestrator raises an
+    UNVERIFIED data_gap + a non-GREEN verdict, mirroring the R-F1696 guard on
+    the OpenSanctions-aggregate path. Best-effort — never raises into a screen.
+    """
+    try:
+        if (time.time() - float(cache.get("fetched_at", 0.0))) >= ttl_s:
+            result["stale"] = True
+            result["source_unavailable"] = True
+    except Exception:
+        pass
+    return result
+
+
 # ── Name normalisation ─────────────────────────────────────────────────────
 # Sanctions-list names are messy ("BAYKAR DEFENSE INDUSTRIES AND AEROSPACE
 # TECHNOLOGIES JOINT-STOCK COMPANY LTD."), query names are short ("Baykar").

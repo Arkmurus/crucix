@@ -209,7 +209,9 @@ async def lookup(
             threshold=threshold, max_hits=max_hits,
         )
         result["hits"] = hits
-        return _common.finalise(result, started)
+        # R-F2167: flag UNVERIFIED if served a stale snapshot (refresh failed).
+        return _common.mark_stale_if_expired(
+            _common.finalise(result, started), _CACHE, _CACHE_TTL_S)
     except Exception as e:
         logger.warning("[fcdo_sanctions] lookup failed for %r: %s", name, e)
         return _common.error_result(

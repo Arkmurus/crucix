@@ -251,7 +251,10 @@ async def lookup(
             threshold=threshold, max_hits=max_hits,
         )
         result["hits"] = hits
-        return _common.finalise(result, started)
+        # R-F2167: if _load_records served a stale snapshot (refresh failed),
+        # flag UNVERIFIED so empty hits aren't read as a clearance.
+        return _common.mark_stale_if_expired(
+            _common.finalise(result, started), _CACHE, _CACHE_TTL_S)
     except Exception as e:
         logger.warning("[ofac_sdn] lookup failed for %r: %s", name, e)
         return _common.error_result(
