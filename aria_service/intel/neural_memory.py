@@ -156,23 +156,62 @@ _concept_to_id: dict[str, str] = {}   # concept(lower) -> neuron id   (exact loo
 _word_to_ids: dict[str, set] = {}     # concept word   -> {neuron ids} (overlap candidates)
 
 
-def _index_neuron(n: dict) -> None:
-    """Add one neuron to the inverted indices (idempotent)."""
+def _index_neuron_into(n: dict, concept_to_id: dict, word_to_ids: dict) -> None:
+    """R-F2200 — index one neuron into the PASSED indices (not the module
+    globals), so a fresh index can be built off to the side and swapped in."""
     nid = n.get("id")
     if not nid:
         return
     concept = n.get("concept") or ""
-    _concept_to_id[concept] = nid
+    concept_to_id[concept] = nid
     for w in concept.split():
-        _word_to_ids.setdefault(w, set()).add(nid)
+        word_to_ids.setdefault(w, set()).add(nid)
+
+
+def _index_neuron(n: dict) -> None:
+    """Add one neuron to the inverted indices (idempotent)."""
+    _index_neuron_into(n, _concept_to_id, _word_to_ids)
 
 
 def _rebuild_neuron_index() -> None:
-    """Rebuild both indices from _neurons — call after any BULK load/replace."""
+    """Rebuild both indices from _neurons — call after any BULK load/replace.
+    SYNCHRONOUS + GIL-bound. For the BOOT/warmup path use the incremental async
+    variant below (this stays for small, non-loop-critical rebuilds)."""
     _concept_to_id.clear()
     _word_to_ids.clear()
     for n in _neurons.values():
         _index_neuron(n)
+
+
+async def _rebuild_neuron_index_incremental(chunk: int = 5000) -> None:
+    """R-F2200 — WARMUP OFF-LOAD: rebuild the neuron indices INCREMENTALLY,
+    yielding to the event loop every `chunk` neurons, then SWAP the globals
+    atomically.
+
+    Why not to_thread: building the index is pure-Python (dict inserts over
+    ~1.2M neurons) and therefore GIL-bound, so a worker thread would hold the
+    GIL the whole time and starve the loop just the same (verified pattern,
+    R-F2144). Chunked `await asyncio.sleep(0)` yields are the only thing that
+    keeps the loop responsive during the boot warmup — the live event-loop
+    stalls (8.8s) traced here.
+
+    Why a fresh-build + swap (not clear-then-fill the live dicts): the sync
+    version `.clear()`s the live indices first, briefly exposing an EMPTY index
+    to concurrent readers (a recall mid-rebuild would miss everything). Building
+    into fresh dicts and swapping the globals in ONE assignment each means
+    readers see the OLD complete index until the instant swap — no empty window,
+    no concurrent-read race."""
+    global _concept_to_id, _word_to_ids
+    new_concept: dict = {}
+    new_word: dict = {}
+    count = 0
+    for neuron in list(_neurons.values()):
+        _index_neuron_into(neuron, new_concept, new_word)
+        count += 1
+        if count % max(1, chunk) == 0:
+            await asyncio.sleep(0)  # let the event loop breathe
+    _concept_to_id = new_concept
+    _word_to_ids = new_word
 
 # R-F442 (2026-05-13) — write-skipping dirty flag for the edges blob.
 # Pre-R-F442 _persist() unconditionally rewrote EDGES_KEY (~4.14 MB) on
@@ -612,7 +651,9 @@ async def init() -> None:
 
         if neurons_raw and isinstance(neurons_raw, dict):
             _neurons = neurons_raw
-            _rebuild_neuron_index()  # R-F1932: index the bulk-loaded neurons
+            # R-F2200: index the bulk-loaded neurons INCREMENTALLY (yields to the
+            # loop every 5k) so the boot warmup never stalls the event loop.
+            await _rebuild_neuron_index_incremental()  # R-F1932/R-F2200
         if edges_raw and isinstance(edges_raw, dict):
             _edges = defaultdict(dict, {k: v for k, v in edges_raw.items()})
         if meta_raw and isinstance(meta_raw, dict):
@@ -685,7 +726,7 @@ async def _persist() -> None:
                 if isinstance(disk_neurons, dict):
                     _neurons.clear()
                     _neurons.update(disk_neurons)
-                    _rebuild_neuron_index()  # R-F1932: re-index after the disk reload
+                    await _rebuild_neuron_index_incremental()  # R-F1932/R-F2200: loop-safe re-index
                     try:
                         # R-F2082: prefer sharded edges on the disk-reload too;
                         # the legacy EDGES_KEY goes stale after migration.
