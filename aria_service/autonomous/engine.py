@@ -252,6 +252,71 @@ async def set_runtime_override(enabled: bool | None) -> dict[str, Any]:
     }
 
 
+# R-F2184 — master-switch auto-recovery (heal a LOST flag; respect a deliberate
+# disable). The R-F2004 outage class: env ARIA_AUTONOMOUS_ENABLED is lost (machine
+# recreate / secret unset) and there is no Redis override, so is_enabled() defaults
+# False and the whole real-time metabolism goes dark — previously only ALERTED.
+_DESIRED_KEY = "crucix:autonomous:desired_enabled"
+_AUTORECOVER_VAR = "ARIA_AUTONOMOUS_AUTORECOVER"   # default ON
+_desired_marked = False
+
+
+async def _mark_desired_enabled() -> None:
+    """Durably record (once per process) that the operator WANTS autonomy enabled,
+    the moment the engine is observed running enabled. Survives env-secret loss so
+    the watchdog can heal a lost flag WITHOUT re-enabling a deliberate disable."""
+    global _desired_marked
+    if _desired_marked:
+        return
+    try:
+        from ..intel import redis_store as rs
+        await rs.set(_DESIRED_KEY, "1")
+        _desired_marked = True
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def maybe_autorecover_master_switch() -> dict:
+    """Re-enable autonomy IFF it is dark because of a LOST flag, not a deliberate
+    disable. Conditions (all required):
+      - is_enabled() is currently False (master-disabled), AND
+      - the Redis override is None — a deliberate disable sets it to "0" via
+        /autonomous/disable, which is RESPECTED (never auto-overridden), AND
+      - the durable desired-enabled marker is set (operator ran it enabled before).
+    Returns {recovered, reason}. Never raises. Gate off with
+    ARIA_AUTONOMOUS_AUTORECOVER=0."""
+    try:
+        if (os.getenv(_AUTORECOVER_VAR, "1") or "1").strip().lower() in ("0", "false", "no"):
+            return {"recovered": False, "reason": "autorecover disabled by env"}
+        if is_enabled():
+            return {"recovered": False, "reason": "already enabled"}
+        override = _RUNTIME_ENABLE_CACHE.get("val")
+        if override == "0":
+            return {"recovered": False, "reason": "deliberately disabled (override=0) — respected"}
+        from ..intel import redis_store as rs
+        desired = (await rs.get(_DESIRED_KEY) or "").strip()
+        if desired != "1":
+            return {"recovered": False, "reason": "no desired-enabled marker — not auto-restoring"}
+        # Lost-flag recovery: override is None + desired=1 → restore to enabled.
+        await set_runtime_override(True)
+        logger.warning("[R-F2184] autonomous master switch was LOST (env default off, "
+                       "no override) but operator intent = enabled — AUTO-RECOVERED "
+                       "via Redis override. The real-time metabolism is back online.")
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(module="autonomous_engine",
+                detail=("master switch lost (env off, no override) — auto-recovered "
+                        "to enabled (R-F2184). Investigate why the env flag dropped."),
+                gap_type="agent_cycle_failure",
+                source="autonomous_engine:autorecover_rf2184")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"recovered": True, "reason": "lost flag restored to enabled"}
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[R-F2184] autorecover failed: %s", e)
+        return {"recovered": False, "reason": f"error: {e}"}
+
+
 @fail_wire(module="engine", gap_type="agent_cycle_failure")
 def is_dry_run() -> bool:
     """Default ON. Set ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery."""
@@ -555,17 +620,40 @@ async def _engine_loop(llm) -> None:
             # effect within one tick without restarting the service.
             await refresh_runtime_override()
             if not is_enabled():
-                # Master switch flipped off while running. Sleep the
-                # tick so we don't spin; the admin endpoint can flip us
-                # back on and the next tick will resume.
-                await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                continue
+                # R-F2184 — heal a LOST master flag (env default off + no override)
+                # when the operator's durable intent is enabled; respects a
+                # deliberate override=0. If recovered, fall through and run this tick.
+                _rec = await maybe_autorecover_master_switch()
+                if not _rec.get("recovered"):
+                    # Master switch deliberately off (or no desired marker). Sleep
+                    # the tick so we don't spin; the admin endpoint can flip us back
+                    # on and the next tick will resume.
+                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                    continue
+            # R-F2184 — engine is enabled: durably record the operator's intent so a
+            # future lost flag can be auto-healed (once per process).
+            await _mark_desired_enabled()
 
             # Engine globally paused via Redis flag?
             if await safety.is_engine_paused():
                 logger.debug("[autonomous engine] paused — skipping tick")
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 continue
+
+            # R-F2185 — adaptive load governor: SELF-REGULATE. If user-facing
+            # serving is under pressure (state_store write-queue backing up or
+            # the event loop stalling), shed this tick so autonomy can never
+            # starve chat/DD on the single-process brain. Auto-clears when the
+            # brain is calm again — no operator intervention. This is the
+            # self-heal that turns "autonomy degrades serving" into "autonomy
+            # yields to serving". Fail-safe: a probe error reports no pressure.
+            try:
+                from ..intel import load_governor as _lg
+                if _lg.should_shed():
+                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                    continue
+            except Exception:
+                pass  # governor must never break the engine
 
             # Check operating mode — some modes restrict which tasks can run
             from ..intel import operating_modes as _om

@@ -1172,6 +1172,14 @@ async def lifespan(app: FastAPI):
                     "live-stack capture from the wedge watchdog.",
                     elapsed, _STALL_WARN_THRESHOLD_S, _wedge_log_path,
                 )
+                # R-F2185 — feed the adaptive load governor so autonomy SHEDS its
+                # next tick when the loop is being blocked by CPU work (self-heal:
+                # background work yields to serving). Pure in-memory, never raises.
+                try:
+                    from .intel import load_governor as _lg_stall
+                    _lg_stall.record_loop_stall(elapsed)
+                except Exception:
+                    pass
                 # R-F2177 (§21a/§21e): make the acute stall a coder-visible GAP so
                 # the autonomous coder can fix the blocking call — before this it
                 # was logger-warning-only (DARK), so ARIA could not see or fix her
@@ -2465,6 +2473,7 @@ async def lifespan(app: FastAPI):
             # check error never affects the engine check above.
             try:
                 from .intel import liveness as _lv2178
+                await _lv2178.probe_searxng_and_beat()   # R-F2181 — searxng can't self-beat; brain probes it
                 _stale_limbs = await _lv2178.check_stale_and_gap()
                 if _stale_limbs:
                     logger.warning("[R-F2178 liveness] STALE limbs: %s", ", ".join(_stale_limbs))
@@ -2802,6 +2811,17 @@ async def lifespan(app: FastAPI):
         # after a redeploy when the env var is missing — the Redis flag
         # survives restarts and gets picked up here on the next boot.
         await autonomous_engine.refresh_runtime_override()
+        # R-F2184 — heal a LOST master flag at boot (env dropped + no override) so
+        # the engine actually STARTS rather than silently staying dark (the R-F2004
+        # outage class — a dropped ARIA_AUTONOMOUS_ENABLED killed the metabolism for
+        # 187h). Respects a deliberate override=0. Singleton role only.
+        if _runs_singletons():
+            try:
+                _are_res = await autonomous_engine.maybe_autorecover_master_switch()
+                if _are_res.get("recovered"):
+                    logger.warning("[R-F2184] boot: %s", _are_res.get("reason"))
+            except Exception as _are:
+                logger.debug("[R-F2184] boot autorecover failed: %s", _are)
         if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
             started = autonomous_engine.start_engine(getattr(app.state, "llm_provider", None))
             if started:

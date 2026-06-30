@@ -86,6 +86,23 @@ async def get_liveness(now: float | None = None) -> dict:
     return {"limbs": limbs, "checked_at": n}
 
 
+async def probe_searxng_and_beat() -> dict:
+    """R-F2181 — aria-searxng is a vanilla SearXNG instance: it cannot emit its own
+    heartbeat, so the brain PROBES it (reusing web_search.get_search_health, which
+    already gap-wires an unhealthy/0-results searxng) and records its liveness into
+    the registry so it appears on the per-limb health surface like the other limbs.
+    Best-effort; records status='down' on any probe failure. Never raises."""
+    status = "down"
+    try:
+        from . import web_search as _ws
+        health = await _ws.get_search_health()
+        status = "alive" if health.get("searxng") else "down"
+    except Exception:  # noqa: BLE001 — a failed probe = down
+        status = "down"
+    return await record_beat("aria-searxng", status=status, interval_s=900,
+                             meta={"probe": "get_search_health"})
+
+
 async def check_stale_and_gap(now: float | None = None) -> list[str]:
     """Record a coder-visible capability gap for each limb whose heartbeat has gone
     stale, so a dark limb is acted on (not discovered on a failed request). Returns

@@ -12,7 +12,9 @@ import fnmatch
 import time
 
 import aria_service.intel.liveness as livemod
-from aria_service.intel.liveness import record_beat, get_liveness, check_stale_and_gap
+from aria_service.intel.liveness import (
+    record_beat, get_liveness, check_stale_and_gap, probe_searxng_and_beat,
+)
 
 
 class _FakeRS:
@@ -79,6 +81,34 @@ def test_rf2178_stale_limb_records_gap(monkeypatch):
     stale = asyncio.run(check_stale_and_gap())
     assert "aria-wa" in stale
     assert any("aria-wa" in (r.get("title", "") + r.get("detail", "")) for r in recorded)
+
+
+def test_rf2181_searxng_probe_records_alive_beat(monkeypatch):
+    _install_fake()
+
+    async def _healthy():
+        return {"searxng": True}
+
+    import aria_service.intel.web_search as ws
+    monkeypatch.setattr(ws, "get_search_health", _healthy)
+    entry = asyncio.run(probe_searxng_and_beat())
+    assert entry["limb"] == "aria-searxng" and entry["status"] == "alive"
+    live = asyncio.run(get_liveness())
+    assert live["limbs"]["aria-searxng"]["alive"] is True
+
+
+def test_rf2181_searxng_probe_records_down_when_unhealthy(monkeypatch):
+    _install_fake()
+
+    async def _down():
+        return {"searxng": False}
+
+    import aria_service.intel.web_search as ws
+    monkeypatch.setattr(ws, "get_search_health", _down)
+    entry = asyncio.run(probe_searxng_and_beat())
+    assert entry["status"] == "down"
+    live = asyncio.run(get_liveness())
+    assert live["limbs"]["aria-searxng"]["alive"] is False  # fresh but down
 
 
 def test_rf2178_no_gap_when_all_fresh(monkeypatch):

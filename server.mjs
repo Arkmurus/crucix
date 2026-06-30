@@ -3390,7 +3390,13 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
       recordQuery(topic, (findings.insights?.[0]?.summary || '').slice(0, 200), market || '');
     } catch {}
     res.json({ ok: true, insights: findings.insights?.length || 0, salesIdeas: findings.salesIdeas?.length || 0, findings });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    // R-F2182 — wire the LOCAL research-path failure to the brain (was DARK: a
+    // 500 with no brain signal). This path runs runExploration locally and serves
+    // the user directly, so the brain otherwise never learns it failed.
+    try { errorTracker.record('aria_research', 'research_failed', e); } catch { /* best-effort */ }
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Proxy: POST /api/aria/read — Let ARIA read a URL and extract intelligence
@@ -6344,9 +6350,14 @@ app.use(errorTracker.expressMiddleware());
 
 process.on('unhandledRejection', (err) => {
   console.error('[Crucix] Unhandled rejection:', err?.stack || err?.message || err);
+  // R-F2182 — forward to the brain (was console-only = DARK §21a). A web-tier
+  // crash is the worst failure and must reach the brain's signal sink so ARIA
+  // knows the web limb is failing. errorTracker.record → /api/aria/brain/signal.
+  try { errorTracker.record('web_process', 'unhandled_rejection', err); } catch { /* never loop on crash */ }
 });
 process.on('uncaughtException', (err) => {
   console.error('[Crucix] Uncaught exception:', err?.stack || err?.message || err);
+  try { errorTracker.record('web_process', 'uncaught_exception', err); } catch { /* never loop on crash */ }
 });
 
 start().catch(err => {
