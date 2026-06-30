@@ -125,7 +125,16 @@ _facts_collection = None
 # recallable. Per the infinite-memory rule, this is the right answer
 # instead of pruning.
 _documents_cold_collection = None
-_chromadb_failed = False
+_chromadb_failed = False          # PERMANENT — set ONLY when chromadb is not importable
+# R-F2151 (2026-06-30) — a RUNTIME init failure (slow/contended disk during the
+# boot warmup storm, a transient sqlite lock) used to set _chromadb_failed=True
+# PERMANENTLY, disabling RAG/grounding for the entire process life with NO retry.
+# Witnessed: RAG sat unavailable for hours because _rag_init_bg's boot+15s probe
+# threw while the volume was busy, yet a fresh subprocess init succeeded in 1.2s.
+# A transient failure now arms a short cooldown instead, so the next request
+# after the boot storm passes re-attempts init and self-heals.
+_chromadb_retry_after = 0.0       # monotonic deadline; 0.0 = no cooldown armed
+_CHROMADB_RETRY_COOLDOWN_S = float(os.getenv("ARIA_RAG_RETRY_COOLDOWN_S", "60"))
 _init_lock = asyncio.Lock()
 
 
@@ -226,10 +235,15 @@ def _get_client():
     see `_client is not None` but hit `_documents_collection.upsert`
     against None, which is the production crash the audit fixed.
     """
-    global _client, _documents_collection, _facts_collection, _documents_cold_collection, _chromadb_failed
+    global _client, _documents_collection, _facts_collection, _documents_cold_collection, _chromadb_failed, _chromadb_retry_after
     if _client is not None and _documents_collection is not None and _facts_collection is not None:
         return _client
-    if _chromadb_failed:
+    if _chromadb_failed:           # chromadb not importable — never retry
+        return None
+    # R-F2151 — a prior TRANSIENT failure armed a cooldown; don't hammer init on
+    # every request while the disk is still busy. Once the cooldown elapses, fall
+    # through and re-attempt — this is what lets RAG self-heal after the boot storm.
+    if _chromadb_retry_after and time.monotonic() < _chromadb_retry_after:
         return None
 
     # Local vars — commit to globals only if every step succeeds.
@@ -281,12 +295,18 @@ def _get_client():
             RAG_PATH, local_docs.count(), local_facts.count(), local_cold.count(),
         )
     except ImportError:
-        _chromadb_failed = True
+        _chromadb_failed = True     # PERMANENT — package missing, retrying is pointless
         logger.warning("chromadb not installed — RAG store unavailable. Run: pip install chromadb")
         return None
     except Exception as e:
-        _chromadb_failed = True
-        logger.warning("RAG store init failed: %s", e, exc_info=True)
+        # R-F2151 — TRANSIENT failure (disk contention / sqlite lock during the
+        # boot warmup storm). Arm a cooldown instead of disabling RAG forever;
+        # the next request after the cooldown re-attempts and self-heals.
+        _chromadb_retry_after = time.monotonic() + _CHROMADB_RETRY_COOLDOWN_S
+        logger.warning(
+            "RAG store init failed (transient) — will retry after %.0fs: %s",
+            _CHROMADB_RETRY_COOLDOWN_S, e, exc_info=True,
+        )
         return None
 
     # Commit atomically.
@@ -294,6 +314,7 @@ def _get_client():
     _documents_collection = local_docs
     _facts_collection = local_facts
     _documents_cold_collection = local_cold
+    _chromadb_retry_after = 0.0     # R-F2151 — init recovered; clear any armed cooldown
     return _client
 
 
@@ -324,7 +345,11 @@ async def _ensure_async() -> bool:
     global _client, _documents_collection, _facts_collection
     if _client is not None and _documents_collection is not None and _facts_collection is not None:
         return True
-    if _chromadb_failed:
+    if _chromadb_failed:           # chromadb not importable — never retry
+        return False
+    # R-F2151 — respect the transient-failure cooldown so a poll burst doesn't
+    # re-attempt init every request while the disk is still busy.
+    if _chromadb_retry_after and time.monotonic() < _chromadb_retry_after:
         return False
     import asyncio as _aio
     try:

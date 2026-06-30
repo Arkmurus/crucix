@@ -3656,8 +3656,20 @@ async def health():
     # autonomous task) so /health stays fast.
     diagnostic_ind: dict = {"overall": "UNKNOWN"}
     try:
+        import os as _h_os
         from .intel import redis_store as rs
-        latest = await rs.get_json("crucix:self_diagnostic:latest")
+        # R-F2152 — /health is a PUBLIC status endpoint and MUST stay fast. This
+        # is the only awaitable in the handler (everything else is in-memory), and
+        # it can stall when the worker thread pool is saturated — get_json offloads
+        # json.loads of large blobs to threads. Witnessed 2026-06-30: /health hung
+        # >90s, which made web's cross-health probe report the brain as DOWN even
+        # though it was serving. Bound the read so the page degrades to UNKNOWN
+        # instead of hanging. (asyncio.TimeoutError is an Exception subclass, so the
+        # existing `except Exception` below already absorbs it.)
+        latest = await asyncio.wait_for(
+            rs.get_json("crucix:self_diagnostic:latest"),
+            timeout=float(_h_os.getenv("ARIA_HEALTH_READ_TIMEOUT_S", "3")),
+        )
         if latest:
             diagnostic_ind = {
                 "overall": latest.get("overall"),
