@@ -449,6 +449,16 @@ def _interactive_active() -> bool:
     return (time.monotonic() - _last_interactive_at) < _INTERACTIVE_YIELD_WINDOW_S
 
 
+def seconds_since_interactive() -> float:
+    """R-F2198 — seconds since the last user-facing request (chat / document
+    read) arrived. Returns a large number if none has been seen this process.
+    Used by the load governor so autonomy can YIELD to active users (back off
+    its heavy research while someone is chatting), not just to the encoder."""
+    if _last_interactive_at <= 0.0:
+        return 1e9
+    return time.monotonic() - _last_interactive_at
+
+
 def _absorb_pause_ms() -> int:
     """R-F460 (2026-05-14) — operator-tunable pause between absorb calls.
 

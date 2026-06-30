@@ -59,6 +59,16 @@ def _shed_threshold() -> float:
         return 0.6
 
 
+def _interactive_shed_window_s() -> float:
+    """R-F2198 — how long after a user request autonomy keeps yielding. Long
+    enough to cover a multi-minute chat/doc-review turn so autonomous research
+    can't restart mid-turn and starve it. Autonomy resumes once users go idle."""
+    try:
+        return float(os.getenv("ARIA_LOAD_SHED_INTERACTIVE_WINDOW_S", "90"))
+    except (TypeError, ValueError):
+        return 90.0
+
+
 _STALL_WINDOW_S = 120.0          # how long a stall counts toward pressure
 _STALL_TRIP_COUNT = 3.0          # this many recent stalls = full stall-pressure
 _QUEUE_PRESSURE_GAIN = 1.5       # write-queue ratio is scaled by this (0.67 full→1.0)
@@ -105,13 +115,29 @@ def pressure() -> dict:
     except Exception:
         pass
     stalls = _recent_stalls()
+    # R-F2198 — interactive pressure: a recent user request (chat / doc review)
+    # means autonomy must YIELD so its heavy research can't starve the user on
+    # the single process (live 2026-06-30: a doc review took 295s/never while
+    # autonomous web_search + multi-LLM ran concurrently; paused → 71s). Full
+    # pressure inside the window, decaying after.
+    secs_since_user = 1e9
+    try:
+        from . import brain_hook as _bh
+        if hasattr(_bh, "seconds_since_interactive"):
+            secs_since_user = _bh.seconds_since_interactive()
+    except Exception:
+        pass
+    _win = _interactive_shed_window_s()
+    interactive_pressure = 1.0 if (secs_since_user < _win) else 0.0
     queue_pressure = min(q_ratio * _QUEUE_PRESSURE_GAIN, 1.0)
     stall_pressure = min(stalls / _STALL_TRIP_COUNT, 1.0) if _STALL_TRIP_COUNT > 0 else 0.0
-    score = max(queue_pressure, stall_pressure)
+    score = max(queue_pressure, stall_pressure, interactive_pressure)
     return {
         "score": round(score, 3),
         "write_queue_ratio": round(q_ratio, 3),
         "recent_stalls": stalls,
+        "secs_since_user": round(secs_since_user, 1) if secs_since_user < 1e8 else None,
+        "interactive": interactive_pressure >= 1.0,
         "op_timeouts_cumulative": op_timeouts,
         "shedding": score >= _shed_threshold(),
         "enabled": _enabled(),

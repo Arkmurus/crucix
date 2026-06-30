@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2197,
+  "next_available": 2199,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16200,27 +16200,30 @@
       "title": "vault Pipeline 2: vault-curated source content absorbed into brain RAG/knowledge (chat+intel grounding)",
       "claimed_at": "2026-06-30T21:49:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5627d224",
+      "notes": null,
+      "shipped_at": "2026-06-30T22:22:14Z"
     },
     {
       "r_number": "R-F2191",
       "title": "vault Pipeline 1 robustness: scrape non-feed vault websites (extract_url_text) into store+ledger+brain + fix form default off portal",
       "claimed_at": "2026-06-30T21:56:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5627d224",
+      "notes": null,
+      "shipped_at": "2026-06-30T22:22:14Z"
     },
     {
       "r_number": "R-F2192",
       "title": "vault clear-all: delete_all() + admin DELETE /api/aria/vault + server proxy + vault.html Clear-all button",
       "claimed_at": "2026-06-30T21:58:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5627d224",
+      "notes": null,
+      "shipped_at": "2026-06-30T22:22:14Z"
     },
     {
       "r_number": "R-F2193",
@@ -16236,23 +16239,43 @@
       "title": "sources.html Add intel source button → vault robust ingestion pipeline (grade-A data)",
       "claimed_at": "2026-06-30T22:02:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5627d224",
+      "notes": null,
+      "shipped_at": "2026-06-30T22:22:14Z"
     },
     {
       "r_number": "R-F2195",
       "title": "vault Pipeline 3: DD consults curated vault sources for the entity (bounded best-effort, cites as findings)",
       "claimed_at": "2026-06-30T22:08:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5627d224",
+      "notes": null,
+      "shipped_at": "2026-06-30T22:22:14Z"
     },
     {
       "r_number": "R-F2196",
       "title": "document fast-lane: route attached-document reviews to a lean single-LLM call (lean prompt + doc, skip tool-intent/web-research/7-layer-context/reasoning-walk/verification) — fix doc-review never-delivers (295s→~30s); §22a no-tool-routing for docs",
       "claimed_at": "2026-06-30T22:11:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2197",
+      "title": "crucix.css robustness pass — stronger borders/shadows, larger+heavier type, bigger icons (fix fragile feel platform-wide)",
+      "claimed_at": "2026-06-30T22:29:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2198",
+      "title": "load governor yields to active users: autonomy sheds its tick when a user request arrived recently (interactive window) so autonomous research never starves chat/doc-review on the single process; resumes when idle",
+      "claimed_at": "2026-06-30T22:31:01Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
