@@ -1255,6 +1255,61 @@ async def set_key(key: str, value: str, ex: int | None = None,
     await _upsert(key, value, kind="string", expires_at=expires_at, keepttl=keepttl)
 
 
+async def set_if_absent(key: str, value: str, ex: int) -> bool:
+    """R-F2174 — atomic claim primitive for leader election. Sets key=value
+    with TTL `ex` seconds ONLY if the key is absent OR its lease has EXPIRED;
+    it NEVER steals a live lease. Returns True iff THIS call now owns the key.
+
+    Executes immediately (not via the bounded write queue) because the caller
+    needs the win/lose result synchronously. Cross-process safe: SQLite
+    serialises the conditional upsert at the file level, so among N worker
+    processes exactly one wins the claim. RAISES on any store error so the
+    caller can distinguish "lost the race" (False) from "could not run"
+    (exception → fail-safe) — critical for election correctness."""
+    if _conn is None:
+        raise StateWriteError(f"set_if_absent({key}): no connection")
+    if _is_infinite_key(key):
+        raise ValueError(f"R-F2174: refusing lease TTL on knowledge key {key!r}")
+    now = _now()
+    expires_at = now + max(1, int(ex))
+    # Preserve program order vs queued writes (mirrors delete()).
+    await _flush_write_queue()
+    # Claim if absent, OR take over an EXPIRED lease; the WHERE clause makes the
+    # ON CONFLICT a no-op when a live lease is held by someone else.
+    await asyncio.wait_for(_conn.execute(
+        "INSERT INTO state(key, value, kind, expires_at) VALUES(?,?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+        "kind=excluded.kind, expires_at=excluded.expires_at "
+        "WHERE state.expires_at IS NOT NULL AND state.expires_at <= ?",
+        (key, value, "string", expires_at, now)), timeout=5.0)
+    await _conn.commit()
+    cur = await asyncio.wait_for(
+        _conn.execute("SELECT value FROM state WHERE key=?", (key,)), timeout=5.0)
+    row = await cur.fetchone()
+    await cur.close()
+    return bool(row and row[0] == value)
+
+
+async def renew_lease(key: str, value: str, ex: int) -> bool:
+    """R-F2174 — extend a lease's TTL by `ex` seconds ONLY if `value` still owns
+    it. Returns True if renewed, False if we no longer own it (expired + taken
+    over). Used by the engine heartbeat to keep its lease alive."""
+    if _conn is None:
+        return False
+    now = _now()
+    expires_at = now + max(1, int(ex))
+    await _flush_write_queue()
+    try:
+        cur = await asyncio.wait_for(_conn.execute(
+            "UPDATE state SET expires_at=? WHERE key=? AND value=?",
+            (expires_at, key, value)), timeout=5.0)
+        await _conn.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        logger.warning("state_store: renew_lease(%s) failed: %s", key, e)
+        return False
+
+
 async def delete(key: str) -> bool:
     if _conn is None:
         return False

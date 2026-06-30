@@ -81,8 +81,25 @@ def _bg_task(task: asyncio.Task, name: str = "", factory=None) -> asyncio.Task:
 # Per-process warmers (embedder/ocr prewarm, rag init, stall detector, bg
 # supervisor, health precompute) are NOT singletons — they run on every role,
 # because each process needs its own warm caches and its own heartbeat.
+# R-F2174 — engine-role election (opt-in, default OFF). When multiple uvicorn
+# workers run they all inherit the SAME env, so ARIA_ROLE alone can't mark just
+# one as the engine. With ARIA_ENGINE_ELECTION=1 the workers atomically claim an
+# engine lease in state_store at startup — exactly one wins ('engine'), the rest
+# become 'web'. Default OFF + an explicit ARIA_ROLE override + fail-safe-to-'all'
+# mean the current single-worker ecosystem is bit-for-bit unchanged until the
+# election is deliberately enabled on a coordinated multi-worker deploy.
+_resolved_role: "str | None" = None          # set by _elect_engine_role()
+_ENGINE_LEASE_KEY = "crucix:aria:engine_lease"
+_engine_lease_id: "str | None" = None
+
+
 def _aria_role() -> str:
-    return (_os.getenv("ARIA_ROLE") or "all").strip().lower()
+    # An explicit env override always wins (manual pinning / today's behaviour).
+    _env = (_os.getenv("ARIA_ROLE") or "").strip().lower()
+    if _env in ("engine", "web", "all"):
+        return _env
+    # Otherwise honour the elected role if the election ran; else 'all'.
+    return _resolved_role or "all"
 
 
 def _runs_singletons() -> bool:
@@ -101,6 +118,78 @@ def _singleton_task(factory, name: str) -> "asyncio.Task | None":
         logger.info("[R-F2073] singleton loop '%s' SKIPPED (ARIA_ROLE=%s)", name, _aria_role())
         return None
     return _bg_task(asyncio.create_task(factory(), name=name), factory=factory)
+
+
+def _engine_election_enabled() -> bool:
+    return (_os.getenv("ARIA_ENGINE_ELECTION") or "0").strip().lower() in ("1", "true", "yes")
+
+
+def _engine_lease_ttl_s() -> int:
+    return max(10, int(_os.getenv("ARIA_ENGINE_LEASE_TTL_S", "45")))
+
+
+def _web_concurrency() -> int:
+    """R-F2174 — uvicorn worker count. Default 1 = today's single-process
+    behaviour (unchanged). Set WEB_CONCURRENCY>1 (on a coordinated deploy, with
+    ARIA_ENGINE_ELECTION=1 + ARIA_TOTAL_LLM_WORKERS=N) to run N workers."""
+    try:
+        return max(1, int(_os.getenv("WEB_CONCURRENCY", "1")))
+    except (TypeError, ValueError):
+        return 1
+
+
+async def _elect_engine_role() -> None:
+    """R-F2174 — resolve THIS worker's role via an atomic engine-lease claim.
+
+    No-op (leaves role 'all') unless ARIA_ENGINE_ELECTION=1 and ARIA_ROLE is not
+    explicitly pinned. FAIL-SAFE: any error → 'all' (run the singletons) so a
+    claim bug can never leave the engine unowned — better N engines than zero.
+    Failover is automatic: the elected engine heartbeats to keep its lease; if
+    it dies, uvicorn respawns the worker which re-runs this election and
+    re-claims the now-expired lease."""
+    global _resolved_role, _engine_lease_id
+    if (_os.getenv("ARIA_ROLE") or "").strip().lower() in ("engine", "web", "all"):
+        return  # explicit pin wins; nothing to elect
+    if not _engine_election_enabled():
+        return  # default → _aria_role() returns 'all' (unchanged)
+    try:
+        import uuid as _uuid
+        from .intel import state_store as _ss
+        _engine_lease_id = _uuid.uuid4().hex
+        won = await _ss.set_if_absent(
+            _ENGINE_LEASE_KEY, _engine_lease_id, ex=_engine_lease_ttl_s())
+        _resolved_role = "engine" if won else "web"
+        logger.info("[R-F2174] engine election: this worker is '%s' (lease=%s)",
+                    _resolved_role, _engine_lease_id[:8])
+    except Exception as e:
+        # FAIL-SAFE: run singletons rather than risk an unowned engine.
+        _resolved_role = "all"
+        logger.warning(
+            "[R-F2174] engine election failed (%s) — falling back to ALL "
+            "(this worker WILL run singletons; safe but may N× if multi-worker)", e)
+
+
+async def _engine_heartbeat_loop() -> None:
+    """R-F2174 — renew the engine lease while this engine worker is alive, so a
+    respawning sibling never steals it. Started only on the elected engine."""
+    from .intel import state_store as _ss
+    interval = max(3, _engine_lease_ttl_s() // 3)
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            if _engine_lease_id is None:
+                continue
+            renewed = await _ss.renew_lease(
+                _ENGINE_LEASE_KEY, _engine_lease_id, ex=_engine_lease_ttl_s())
+            if not renewed:
+                # Lost the lease (expired + taken over). Stay engine for THIS
+                # process (we already started singletons); log so it's visible.
+                logger.warning("[R-F2174] engine lease lost on renew — another "
+                               "worker may have claimed engine; investigate if persistent")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug("[R-F2174] engine heartbeat tick failed: %s", e)
 
 
 async def _bg_supervisor_loop() -> None:
@@ -1052,6 +1141,10 @@ async def lifespan(app: FastAPI):
             _wedge_log_path,
         )
         last = _time.monotonic()
+        # R-F2177: debounce stall→gap recording (acute stalls can recur; one gap
+        # per 10 min is enough for the coder to act without a gap storm).
+        _last_stall_gap_at = 0.0
+        _STALL_GAP_MIN_INTERVAL_S = 600.0
         while True:
             try:
                 await _aio.sleep(1.0)
@@ -1079,6 +1172,33 @@ async def lifespan(app: FastAPI):
                     "live-stack capture from the wedge watchdog.",
                     elapsed, _STALL_WARN_THRESHOLD_S, _wedge_log_path,
                 )
+                # R-F2177 (§21a/§21e): make the acute stall a coder-visible GAP so
+                # the autonomous coder can fix the blocking call — before this it
+                # was logger-warning-only (DARK), so ARIA could not see or fix her
+                # own loop stalls. Debounced + fire-and-forget + fully guarded;
+                # complements the continuous_profiler hotspot gap (sustained CPU)
+                # by catching acute multi-second freezes that don't dominate a
+                # sample window. The wedge log holds the culprit MAIN-thread frame.
+                if (now - _last_stall_gap_at) >= _STALL_GAP_MIN_INTERVAL_S:
+                    _last_stall_gap_at = now
+                    try:
+                        from .intel import capability_gaps as _cg_stall
+                        asyncio.create_task(_cg_stall.record_gap(
+                            gap_type="performance",
+                            severity="HIGH",
+                            title=f"event-loop stall {elapsed:.0f}s",
+                            detail=(
+                                f"event loop stalled {elapsed:.1f}s — synchronous CPU "
+                                f"work on the loop thread froze all async work. Live "
+                                f"thread stacks captured at {_wedge_log_path}; the "
+                                f"MAIN-thread frame under uvicorn/asyncio.run is the "
+                                f"culprit. Fix: offload that CPU-bound call (gzip/json/"
+                                f"encode) with asyncio.to_thread or a process pool."
+                            ),
+                            source="event_loop_stall_detector",
+                        ))
+                    except Exception as _sg_e:
+                        logger.debug("[R-F2177] stall gap-record failed: %s", _sg_e)
     _bg_task(asyncio.create_task(_event_loop_stall_detector(), name="stall_detector"))
 
     async def _rag_init_bg():
@@ -1393,6 +1513,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[OCR Pre-warm] failed: %s", e)
     ocr_prewarm_task = _bg_task(asyncio.create_task(_prewarm_ocr_bg(), name="ocr_prewarm"))
+
+    # ── R-F2174: engine-role election ────────────────────────────────────
+    # Resolve THIS worker's role BEFORE any singleton loop is decided below.
+    # No-op (role stays 'all') unless ARIA_ENGINE_ELECTION=1. state_store is
+    # connected by now (rs.connect above), and the election is fail-safe — any
+    # error leaves the worker as 'all' so singletons always run somewhere.
+    await _elect_engine_role()
+    if _aria_role() == "engine":
+        _bg_task(asyncio.create_task(_engine_heartbeat_loop(), name="engine_heartbeat"))
+        logger.info("[R-F2174] engine heartbeat started (lease TTL=%ds)", _engine_lease_ttl_s())
 
     # ── One-shot reasoning_library cleanup ───────────────────────────────
     # Removes cached cases whose normalised question has < MIN_SALIENT_TOKENS
@@ -4171,6 +4301,7 @@ if __name__ == "__main__":
             "aria_service.main:app",
             fd=sock.fileno(),
             reload=False,
+            workers=_web_concurrency(),  # R-F2174: default 1 = unchanged
         )
     else:
         uvicorn.run(
@@ -4178,4 +4309,5 @@ if __name__ == "__main__":
             host=_host,
             port=_port,
             reload=False,
+            workers=_web_concurrency(),  # R-F2174: default 1 = unchanged
         )

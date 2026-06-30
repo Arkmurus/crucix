@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2173,
+  "next_available": 2178,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15904,27 +15904,30 @@
       "title": "CLI coder: un-truncate constitution injection (raise cap + smart-include operational sections)",
       "claimed_at": "2026-06-30T18:07:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "079aa346",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:32:56Z"
     },
     {
       "r_number": "R-F2161",
       "title": "CLI coder: wire CLI to populated brain coding-RAG via HTTP endpoint",
       "claimed_at": "2026-06-30T18:07:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "079aa346",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:32:56Z"
     },
     {
       "r_number": "R-F2162",
       "title": "CLI coder: task-aware RAG query + write-back learning loop",
       "claimed_at": "2026-06-30T18:07:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "079aa346",
+      "notes": null,
+      "shipped_at": "2026-06-30T19:32:56Z"
     },
     {
       "r_number": "R-F2163",
@@ -16018,6 +16021,51 @@
       "r_number": "R-F2172",
       "title": "cost_tracker write-coalescing: collapse per-LLM-call hot-key RMW (cost:index/aggregate/month) into periodic flush — kill residual self-DOS (R-F2157 pattern), cap-safe (reserve stays atomic)",
       "claimed_at": "2026-06-30T19:09:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2173",
+      "title": "aria-app P1 customer panel: dashboard/reports/opportunities/watchlist/vault/account/chat wired + icons + smoke",
+      "claimed_at": "2026-06-30T19:24:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2174",
+      "title": "Tier-3 engine-role election: state_store atomic set_if_absent claim + opt-in fail-safe startup election so 1 engine is auto-elected among N uvicorn workers (default OFF = unchanged); failover via worker-respawn+lease-TTL",
+      "claimed_at": "2026-06-30T19:32:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2175",
+      "title": "aria-app front-door catch-all proxy (intel.arkmurus.com cutover) + 4-step review fixes (open-redirect, logout 303, opportunities field, mobile nav)",
+      "claimed_at": "2026-06-30T19:37:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2176",
+      "title": "neural_memory persist gzip-decode blocks event loop — offload off main thread",
+      "claimed_at": "2026-06-30T19:46:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2177",
+      "title": "wire event-loop stall detection to capability_gaps so the autonomous coder can fix loop stalls",
+      "claimed_at": "2026-06-30T19:50:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
