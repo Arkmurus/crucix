@@ -297,10 +297,22 @@ async def record_gap(
         await rs.set(dedupe_key, "1", ex=_DEDUPE_WINDOW_SECONDS)
         logger.info("Capability gap recorded: [%s] %s", gap_type, _safe)
     except StateWriteError as _e:
-        logger.error(
-            "[R-F1351] Capability gap NOT persisted (dropped under contention) "
-            "— [%s] %s — %s", gap_type, _safe, _e,
-        )
+        # R-F2153: "no connection" during interpreter shutdown is expected
+        # (~130 module-level wire_failure handlers fire when state_store._conn
+        # is already None). Log at DEBUG instead of ERROR so shutdown noise
+        # doesn't pollute the error ledger. Real contention (queue full, lock
+        # timeout) still logs at ERROR.
+        _msg = str(_e)
+        if "no connection" in _msg.lower():
+            logger.debug(
+                "[R-F2153] Capability gap skipped (shutdown): [%s] %s — %s",
+                gap_type, _safe, _e,
+            )
+        else:
+            logger.error(
+                "[R-F1351] Capability gap NOT persisted (dropped under contention) "
+                "— [%s] %s — %s", gap_type, _safe, _e,
+            )
     return entry
 
 
