@@ -7,10 +7,12 @@ import { decodeToken, roleAllows, TOKEN_COOKIE, type Role } from '@/lib/auth';
 // next.config catch-all rewrite, and aria-web enforces its own auth there. Gating those
 // here would wrongly bounce them to /signin (R-F2175).
 //
-// As new pages are migrated, add their prefix here.
-const ADMIN_PREFIXES = ['/admin'];
-const SUPPORT_PREFIXES = ['/support'];
-const CUSTOMER_PREFIXES = ['/dashboard', '/reports', '/opportunities', '/watchlist', '/vault', '/account', '/chat'];
+// ROLLBACK MODE (R-F2187): all paths proxy to aria-web (old platform), which enforces
+// its own auth — so aria-app gates NOTHING. As pages are rebuilt to parity, re-add their
+// prefix here so the new page is auth-gated again.
+const ADMIN_PREFIXES: string[] = [];
+const SUPPORT_PREFIXES: string[] = [];
+const CUSTOMER_PREFIXES: string[] = [];
 
 function matchPrefix(pathname: string, list: string[]): boolean {
   return list.some((p) => pathname === p || pathname.startsWith(p + '/'));
