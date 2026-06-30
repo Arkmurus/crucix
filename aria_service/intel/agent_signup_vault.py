@@ -496,6 +496,25 @@ class AgentSignupVault:
 
         return deleted
 
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
+    def delete_all(self, *, keep_portals: bool = False) -> int:
+        """R-F2192 — bulk-clear the vault. Returns the number of rows deleted.
+
+        keep_portals=True preserves auto-discovered `portal` entries (which need
+        credentials and aren't manual data points); default clears everything.
+        """
+        conn = self._get_conn()
+        if keep_portals:
+            cursor = conn.execute("DELETE FROM signups WHERE site_type != 'portal'")
+        else:
+            cursor = conn.execute("DELETE FROM signups")
+        conn.commit()
+        n = int(cursor.rowcount or 0)
+        if n:
+            _wire_success("agent_signup_vault.cleared", {"deleted": n, "keep_portals": keep_portals})
+            _notify_agents("signup_cleared", f"count={n}")
+        return n
+
     # ── Statistics ─────────────────────────────────────────────────────
 
     @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")

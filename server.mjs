@@ -2528,6 +2528,9 @@ app.put('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
   ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'PUT' }));
 app.delete('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
   ariaProxy(req, res, '/api/aria/vault/' + encodeURIComponent(req.params.siteId), { method: 'DELETE' }));
+// R-F2192 — clear ALL vault entries (admin). keep_portals=true preserves auto-discovered portals.
+app.delete('/api/aria/vault', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vault' + (req.query.keep_portals ? ('?keep_portals=' + encodeURIComponent(req.query.keep_portals)) : ''), { method: 'DELETE' }));
 
 // R-F2045 — per-USER data sources (any signed-in user, scoped to themselves).
 // user_id is pinned from the JWT and never trusted from the client; the brain

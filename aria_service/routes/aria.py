@@ -25193,6 +25193,20 @@ async def vault_update_ep(site_id: str, request: Request) -> dict:
         return {"success": False, "error": str(e)}
 
 
+@router.delete("/vault")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def vault_clear_all_ep(keep_portals: bool = False) -> dict:
+    """R-F2192 — clear ALL vault entries (admin-gated at the web tier).
+
+    keep_portals=true preserves auto-discovered portal entries. Returns the count
+    deleted so the UI can confirm.
+    """
+    from ..intel.agent_signup_vault import get_vault
+
+    n = get_vault().delete_all(keep_portals=keep_portals)
+    return {"success": True, "deleted": n, "keep_portals": keep_portals}
+
+
 @router.delete("/vault/{site_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def vault_delete_ep(site_id: str) -> dict:

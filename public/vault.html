@@ -16,10 +16,16 @@
       <h1 class="sc-page-title"><i class="bi bi-key"></i> Agent Signup Vault</h1>
       <p class="sc-page-sub">Every site/portal that DD agents have signed up to — unified registry.</p>
     </div>
-    <!-- R-F2048 — admin/dev add a data-point site to the controlled vault -->
-    <button id="btn-add-site" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
-      <i class="bi bi-plus-lg"></i> Add Site
-    </button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <!-- R-F2192 — admin: clear ALL vault entries -->
+      <button id="btn-clear-vault" class="sc-btn" style="background:#fff;color:#b91c1c;border:1px solid rgba(185,28,28,0.35);padding:9px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <i class="bi bi-trash"></i> Clear all
+      </button>
+      <!-- R-F2048 — admin/dev add a data-point site to the controlled vault -->
+      <button id="btn-add-site" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <i class="bi bi-plus-lg"></i> Add Site
+      </button>
+    </div>
   </div>
 
   <!-- R-F2048 — Add Site modal (admin/dev only) -->
@@ -307,6 +313,27 @@ setInterval(loadVault, 60000);
     } else {
       errEl.textContent = (res.data && res.data.error) || ('Failed to add (HTTP ' + res.status + ').');
       errEl.style.display = 'block';
+    }
+  });
+
+  // R-F2192 — admin: clear ALL vault entries (manual + auto-discovered)
+  const clearBtn = document.getElementById('btn-clear-vault');
+  if (clearBtn) clearBtn.addEventListener('click', async () => {
+    if (!confirm('Remove ALL sites / data points from the vault? This cannot be undone.')) return;
+    clearBtn.disabled = true; clearBtn.textContent = 'Clearing…';
+    try {
+      const r = await authed('/api/aria/vault', { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.success) {
+        if (window.Toast) Toast.show('Vault cleared — ' + (d.deleted || 0) + ' removed.', 'success');
+        loadVault();
+      } else {
+        if (window.Toast) Toast.show((d && d.error) || ('Clear failed (HTTP ' + r.status + ').'), 'error');
+      }
+    } catch (e) {
+      if (window.Toast) Toast.show('Clear failed — ' + (e.message || 'network error'), 'error');
+    } finally {
+      clearBtn.disabled = false; clearBtn.innerHTML = '<i class="bi bi-trash"></i> Clear all';
     }
   });
 })();
