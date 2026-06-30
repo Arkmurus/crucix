@@ -479,6 +479,17 @@ def _freeze_long_lived_state() -> int:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
+    # R-F2158: bind teardown-referenced startup locals at the TOP of the
+    # function (before any conditional/early-exit startup path), so the
+    # shutdown section's `if _llm_health_checker is not None` can never raise
+    # UnboundLocalError. The resilience init (which assigns the real value) is
+    # gated behind `if _llm:` — when an LLM provider isn't configured that block
+    # is skipped, leaving the name unbound. The misspelled shutdown reference
+    # (`llm_health_checker`, no underscore) used to NameError on EVERY shutdown,
+    # aborting teardown before the knowledge-flush (F94) + search-WAL flush
+    # (R-F504) → unclean shutdown → bloated WAL (root of the R-F2116/2137/2154
+    # state_store boot/timeout chain).
+    _llm_health_checker = None
     logger.info("ARIA Service starting...")
     logger.info("ARIA Build: %s", ARIA_BUILD_REV)
     # R-F920 — operator-facing signal that the deploy skipped --build-arg and we
@@ -3113,9 +3124,15 @@ async def lifespan(app: FastAPI):
             logger.warning("[R-F1207] Web Integrity Agent stop failed: %s", _wia_e)
 
     # R-F1368 -- stop LLM health checker
-    if llm_health_checker is not None:
+    # R-F2158: was `llm_health_checker` (no underscore) — a name that is NEVER
+    # bound (startup assigns `_llm_health_checker`), so this raised an
+    # UNHANDLED NameError on EVERY shutdown, aborting the rest of lifespan
+    # teardown BEFORE the knowledge-flush (F94) + search-DB WAL flush (R-F504).
+    # That made shutdowns unclean → left a bloated WAL → the very state_store
+    # boot/timeout symptoms the R-F2116/2137/2154 chain kept band-aiding.
+    if _llm_health_checker is not None:
         try:
-            await llm_health_checker.stop()
+            await _llm_health_checker.stop()
             logger.info("[R-F1368] LLM health checker stopped")
         except Exception as _hc_e:
             logger.warning("[R-F1368] LLM health checker stop failed: %s", _hc_e)

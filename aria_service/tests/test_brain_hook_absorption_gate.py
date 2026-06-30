@@ -157,6 +157,18 @@ def test_gate_skip_counter_surfaces_in_get_stats(monkeypatch):
     import time as _t
     from aria_service.intel import brain_hook
 
+    # R-F2157: brain_hook now keeps an in-process write-coalescing
+    # accumulator that get_stats() drains before reading. Reset it so
+    # leftover pending deltas from earlier tests in this module don't merge
+    # into this case's fake blob and double-count (mirrors the
+    # _reset_breaker() isolation pattern in test_brain_hook_circuit.py).
+    brain_hook._pending_modules = {}
+    brain_hook._pending_global_total = 0
+    brain_hook._pending_sectors = {}
+    brain_hook._pending_gate_skips = {}
+    brain_hook._stats_cache = {}
+    brain_hook._stats_cache_at = 0
+
     fake_redis_blob = {
         "_global": {"total": 5, "started_at": _t.time() - 3600},
         "_gate_skips": {

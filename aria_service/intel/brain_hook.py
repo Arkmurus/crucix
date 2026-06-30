@@ -996,6 +996,149 @@ async def observe_self_event(
 _STATS_KEY = "crucix:aria:brain_hook:stats"
 _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 
+# ── R-F2157: write-coalescing accumulator for brain_hook stats ──────────────
+# ROOT CAUSE (live 2026-06-30): _record_signal()/_record_gate_skip() fired a
+# FULL read-modify-write of the single hot key _STATS_KEY on EVERY absorb.
+# Under ARIA's own concurrency (autonomous loops + chat + brain_hook_bg) that
+# produced two compounding failures against state_store's single aiosqlite
+# connection / global lock:
+#   1. THUNDERING HERD on the read — N concurrent absorbs each await
+#      rs.get_json(_STATS_KEY); the live logs showed 14 simultaneous
+#      "state_store.get(crucix:aria:brain_hook:stats) timed out after 5s".
+#   2. WRITE AMPLIFICATION — each absorb rewrote the whole (growing) stats
+#      dict, saturating the 2000-deep write queue ("write queue full —
+#      accept data loss") and tripping the brain_hook circuit (p95=31s).
+# This starved the USER-FACING read path → web proxy timeouts + WA chat 503s.
+#
+# FIX: accumulate signal/gate-skip deltas in-process (pure dict increments,
+# ZERO I/O — atomic between awaits in single-threaded asyncio) and flush the
+# coalesced result to _STATS_KEY at most once per _STATS_FLUSH_INTERVAL_S.
+# Thousands of per-absorb RMW ops collapse into one periodic RMW. No new
+# background task (boot-path risk) — the flush is time-gated and triggered
+# opportunistically from the recorders, with a single in-flight guard so only
+# one coroutine touches the DB per interval. get_stats() force-flushes first
+# (itself 30s-cached) so the dashboard never reads stale-by-more-than-a-flush.
+_STATS_FLUSH_INTERVAL_S = float(os.getenv("ARIA_BRAIN_STATS_FLUSH_INTERVAL_S", "15"))
+_stats_flush_lock = asyncio.Lock()
+_stats_last_flush: float = 0.0
+# Pending deltas (same shapes as the persisted dict, but holding only the
+# un-flushed increments). Mutated WITHOUT await → atomic in asyncio.
+_pending_modules: dict[str, dict] = {}      # module -> {total,success,fail,skip,last_signal_at,first_signal_at}
+_pending_global_total: int = 0
+_pending_sectors: dict[str, dict] = {}      # sector -> {total,success,fail,last_signal_at,first_signal_at,by_module}
+_pending_gate_skips: dict[str, dict] = {}   # reason -> {total,by_module,last_at}
+
+
+def _merge_pending_modules_into(dst: dict, src: dict) -> None:
+    """Additively fold per-module signal deltas `src` into `dst` (the
+    persisted stats dict OR a pending dict during fold-back). Counters add;
+    timestamps take the max; first_signal_at takes the min (earliest)."""
+    for module, d in src.items():
+        m = dst.get(module)
+        if not isinstance(m, dict):
+            m = {"total": 0, "success": 0, "fail": 0, "skip": 0,
+                 "last_signal_at": 0, "first_signal_at": d.get("first_signal_at", 0)}
+            dst[module] = m
+        m["total"] = m.get("total", 0) + d.get("total", 0)
+        m["success"] = m.get("success", 0) + d.get("success", 0)
+        m["fail"] = m.get("fail", 0) + d.get("fail", 0)
+        m["skip"] = m.get("skip", 0) + d.get("skip", 0)
+        m["last_signal_at"] = max(m.get("last_signal_at", 0), d.get("last_signal_at", 0))
+        _fa = d.get("first_signal_at", 0)
+        if _fa and (not m.get("first_signal_at") or _fa < m["first_signal_at"]):
+            m["first_signal_at"] = _fa
+
+
+def _merge_pending_sectors_into(dst: dict, src: dict) -> None:
+    for sector, d in src.items():
+        sb = dst.get(sector)
+        if not isinstance(sb, dict):
+            sb = {"total": 0, "success": 0, "fail": 0,
+                  "first_signal_at": d.get("first_signal_at", 0),
+                  "last_signal_at": 0, "by_module": {}}
+            dst[sector] = sb
+        sb["total"] = sb.get("total", 0) + d.get("total", 0)
+        sb["success"] = sb.get("success", 0) + d.get("success", 0)
+        sb["fail"] = sb.get("fail", 0) + d.get("fail", 0)
+        sb["last_signal_at"] = max(sb.get("last_signal_at", 0), d.get("last_signal_at", 0))
+        _fa = d.get("first_signal_at", 0)
+        if _fa and (not sb.get("first_signal_at") or _fa < sb["first_signal_at"]):
+            sb["first_signal_at"] = _fa
+        bm = sb.setdefault("by_module", {})
+        for mod, c in (d.get("by_module") or {}).items():
+            bm[mod] = bm.get(mod, 0) + c
+
+
+def _merge_pending_gate_skips_into(dst: dict, src: dict) -> None:
+    for reason, d in src.items():
+        b = dst.get(reason)
+        if not isinstance(b, dict):
+            b = {"total": 0, "by_module": {}, "last_at": 0}
+            dst[reason] = b
+        b["total"] = b.get("total", 0) + d.get("total", 0)
+        b["last_at"] = max(b.get("last_at", 0), d.get("last_at", 0))
+        bm = b.setdefault("by_module", {})
+        for mod, c in (d.get("by_module") or {}).items():
+            bm[mod] = bm.get(mod, 0) + c
+
+
+async def _flush_stats_pending(force: bool = False) -> bool:
+    """Coalesce all in-process pending deltas into a single read-modify-write
+    of _STATS_KEY. Time-gated to once per _STATS_FLUSH_INTERVAL_S unless
+    `force`. One in-flight flush at a time (lock); other callers just keep
+    accumulating and ride the next flush. Best-effort — on DB failure the
+    snapshot is folded BACK into pending so no counts are lost. Returns True
+    if a flush actually wrote to the DB."""
+    global _stats_last_flush, _pending_modules, _pending_global_total
+    global _pending_sectors, _pending_gate_skips
+    now = time.time()
+    if not force and (now - _stats_last_flush) < _STATS_FLUSH_INTERVAL_S:
+        return False
+    # Nothing pending → just advance the clock cheaply (no DB hit).
+    if not (_pending_modules or _pending_global_total or _pending_sectors
+            or _pending_gate_skips):
+        _stats_last_flush = now
+        return False
+    if _stats_flush_lock.locked():
+        return False  # another flush is draining; our deltas go with it / next
+    async with _stats_flush_lock:
+        # Re-check the gate after acquiring (another flush may have just run).
+        now = time.time()
+        if not force and (now - _stats_last_flush) < _STATS_FLUSH_INTERVAL_S:
+            return False
+        # Atomically snapshot + reset pending (no await between these lines).
+        snap_modules = _pending_modules
+        snap_global = _pending_global_total
+        snap_sectors = _pending_sectors
+        snap_gate = _pending_gate_skips
+        _pending_modules = {}
+        _pending_global_total = 0
+        _pending_sectors = {}
+        _pending_gate_skips = {}
+        try:
+            from . import redis_store as rs
+            stats = await rs.get_json(_STATS_KEY) or {}
+            _merge_pending_modules_into(stats, snap_modules)
+            if snap_global:
+                g = stats.setdefault("_global", {"total": 0, "started_at": now})
+                g["total"] = g.get("total", 0) + snap_global
+            if snap_sectors:
+                _merge_pending_sectors_into(stats.setdefault("_by_sector", {}), snap_sectors)
+            if snap_gate:
+                _merge_pending_gate_skips_into(stats.setdefault("_gate_skips", {}), snap_gate)
+            await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
+            _stats_last_flush = now
+            return True
+        except Exception as e:
+            # Fold the snapshot back so the next flush retries it — telemetry
+            # accuracy preserved without ever blocking/raising into absorb.
+            _merge_pending_modules_into(_pending_modules, snap_modules)
+            _pending_global_total += snap_global
+            _merge_pending_sectors_into(_pending_sectors, snap_sectors)
+            _merge_pending_gate_skips_into(_pending_gate_skips, snap_gate)
+            logger.debug("brain_hook stats flush failed (folded back): %s", e)
+            return False
+
 # ── Circuit breaker (2026-04-18 night) ──────────────────────────────────────
 # The brain hook is a single point through which 60+ modules signal. If
 # Redis goes slow, ChromaDB stalls, or any of the 4 learning tiers
@@ -1436,15 +1579,15 @@ async def _record_gate_skip(reason: str, module: str) -> None:
     Surfaced via /api/aria/brain/stats so dashboards can show
     poisoning-defense activity without scraping WARNING logs.
     """
+    # R-F2157: accumulate in-process (no per-call DB RMW — see the
+    # write-coalescing accumulator above) and ride the periodic flush.
     try:
-        from . import redis_store as rs
-        stats = await rs.get_json(_STATS_KEY) or {}
-        gate = stats.setdefault("_gate_skips", {})
-        bucket = gate.setdefault(reason, {"total": 0, "by_module": {}, "last_at": 0})
+        bucket = _pending_gate_skips.setdefault(
+            reason, {"total": 0, "by_module": {}, "last_at": 0})
         bucket["total"] += 1
         bucket["by_module"][module] = bucket["by_module"].get(module, 0) + 1
         bucket["last_at"] = time.time()
-        await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
+        await _flush_stats_pending()
     except Exception:
         pass  # gate-skip stats must never block absorb
 
@@ -1462,17 +1605,17 @@ async def _record_signal(module: str, success: bool, sector: str = "", skipped: 
     100% successful — the "failures" were just brain signal delivery being
     rate-limited by the concurrency cap.
     """
+    # R-F2157: accumulate in-process (pure dict increments, no await) and
+    # ride the coalesced periodic flush instead of a full DB RMW per absorb.
+    global _pending_global_total
     try:
-        from . import redis_store as rs
-        stats = await rs.get_json(_STATS_KEY) or {}
         now = time.time()
 
-        if module not in stats:
-            stats[module] = {
-                "total": 0, "success": 0, "fail": 0, "skip": 0,
-                "last_signal_at": 0, "first_signal_at": now,
-            }
-        m = stats[module]
+        m = _pending_modules.get(module)
+        if m is None:
+            m = {"total": 0, "success": 0, "fail": 0, "skip": 0,
+                 "last_signal_at": 0, "first_signal_at": now}
+            _pending_modules[module] = m
         m["total"] += 1
         if skipped:
             m["skip"] = m.get("skip", 0) + 1
@@ -1482,20 +1625,18 @@ async def _record_signal(module: str, success: bool, sector: str = "", skipped: 
             m["fail"] += 1
         m["last_signal_at"] = now
 
-        # Global counters
-        stats.setdefault("_global", {"total": 0, "started_at": now})
-        stats["_global"]["total"] += 1
+        # Global counter
+        _pending_global_total += 1
 
-        # R-F56 — per-sector buckets keyed by `_by_sector`. Sector is
-        # validated against the known persona keys to prevent unbounded
-        # bucket growth from typos / malformed inputs.
+        # R-F56 — per-sector buckets. Sector is validated against the known
+        # persona keys to prevent unbounded bucket growth from typos.
         if sector and sector in _ALLOWED_SECTORS:
-            sec_buckets = stats.setdefault("_by_sector", {})
-            sb = sec_buckets.setdefault(sector, {
-                "total": 0, "success": 0, "fail": 0,
-                "first_signal_at": now, "last_signal_at": 0,
-                "by_module": {},
-            })
+            sb = _pending_sectors.get(sector)
+            if sb is None:
+                sb = {"total": 0, "success": 0, "fail": 0,
+                      "first_signal_at": now, "last_signal_at": 0,
+                      "by_module": {}}
+                _pending_sectors[sector] = sb
             sb["total"] += 1
             if success:
                 sb["success"] += 1
@@ -1504,7 +1645,8 @@ async def _record_signal(module: str, success: bool, sector: str = "", skipped: 
             sb["last_signal_at"] = now
             sb["by_module"][module] = sb["by_module"].get(module, 0) + 1
 
-        await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
+        # Time-gated coalesced flush (one DB RMW per interval, not per absorb).
+        await _flush_stats_pending()
     except Exception:
         pass  # stats recording must never break absorb
 
@@ -1578,6 +1720,14 @@ async def get_stats() -> dict:
     now = time.time()
     if _stats_cache and (now - _stats_cache_at) < _stats_cache_ttl:
         return _stats_cache
+
+    # R-F2157: drain any in-process pending deltas so the surface reflects
+    # the latest signals. Cache-gated above → this runs ~once per 30s, not
+    # per request, so it can't re-introduce the per-call write storm.
+    try:
+        await _flush_stats_pending(force=True)
+    except Exception:
+        pass
 
     try:
         from . import redis_store as rs
