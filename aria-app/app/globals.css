@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Warm-cream "Claude-like" tokens — mirror of public/css/crucix.css (R-F2049) so the
+   new app and the legacy static pages are visually identical during migration. */
+@layer base {
+  :root {
+    --background: 48 33% 97%;        /* #faf9f5 warm cream */
+    --foreground: 30 8% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 8% 18%;
+    --primary: 256 64% 58%;          /* violet accent */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 20% 94%;
+    --secondary-foreground: 30 8% 22%;
+    --muted: 40 20% 94%;
+    --muted-foreground: 30 6% 45%;
+    --accent: 256 64% 95%;
+    --accent-foreground: 256 64% 32%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 38 22% 86%;
+    --input: 38 22% 86%;
+    --ring: 256 64% 58%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 30 8% 10%;
+    --foreground: 48 20% 92%;
+    --card: 30 8% 13%;
+    --card-foreground: 48 20% 92%;
+    --primary: 256 70% 68%;
+    --primary-foreground: 30 8% 10%;
+    --secondary: 30 6% 18%;
+    --secondary-foreground: 48 20% 92%;
+    --muted: 30 6% 18%;
+    --muted-foreground: 40 8% 60%;
+    --accent: 256 30% 24%;
+    --accent-foreground: 48 20% 92%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 6% 22%;
+    --input: 30 6% 22%;
+    --ring: 256 70% 68%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}

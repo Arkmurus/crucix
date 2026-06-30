@@ -1,0 +1,30 @@
+# Fly config for aria-app (Next.js frontend). Deploy: flyctl deploy --config aria-app/fly.app.toml
+# Stateless — no volume (state lives in server.mjs + the brain). BACKEND_URL set via secret:
+#   flyctl secrets set BACKEND_URL=http://aria-web.internal:3117 NEXT_PUBLIC_BACKEND_URL=https://intel.arkmurus.com -a aria-app
+app = "aria-app"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.app"
+
+[env]
+  PORT = "3200"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3200
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/signin"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

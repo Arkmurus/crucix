@@ -39,6 +39,7 @@ import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
 import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
+import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
@@ -4201,11 +4202,24 @@ function requireAuth(req, res, next) {
   }
 }
 
-function requireAdmin(req, res, next) {
-  requireAuth(req, res, () => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+// R-F2170: generalized role gate. Canonical roles + the satisfies-decision live in
+// lib/auth/roles.mjs (shared with tests, since server.mjs boots on import). requireRole
+// is the source of truth; the aria-app middleware mirrors it for UX only.
+// NB: declared as a function declaration (hoisted) so routes registered earlier in the
+// file — and requireAdmin below — can reference it at module-eval time.
+function requireRole(...allowed) {
+  return (req, res, next) => requireAuth(req, res, () => {
+    if (!roleSatisfies(req.user?.role, allowed)) {
+      return res.status(403).json({ error: `Access requires role: ${allowed.join(' or ')}` });
+    }
     next();
   });
+}
+
+function requireAdmin(req, res, next) {
+  // R-F2170: delegates to the generalized gate (admin-only). Behaviour unchanged —
+  // many routes above reference this hoisted name at registration time.
+  return requireRole('admin')(req, res, next);
 }
 
 // ── Auth Routes ───────────────────────────────────────────────────────────────
@@ -5030,6 +5044,11 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     // back-door upgrade path (defense-in-depth + clear intent).
     if (req.body && req.body.tier !== undefined) {
       return res.status(400).json({ error: 'Tier cannot be changed here — paid tiers are managed via billing/Stripe only (R-F2036).' });
+    }
+    // R-F2170: validate role against the canonical set so a typo can't store an
+    // unreachable role (which would lock the user out of every panel).
+    if (role !== undefined && !ROLES.includes(role)) {
+      return res.status(400).json({ error: `Invalid role '${role}'. Allowed: ${ROLES.join(', ')}` });
     }
     const existingUser = findUserById(req.params.id);
     if (!existingUser) return res.status(404).json({ error: 'User not found' });
