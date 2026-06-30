@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2156,
+  "next_available": 2157,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -15845,14 +15845,24 @@
       "title": "Fix state DB bloat causing boot hang",
       "claimed_at": "2026-06-30T12:46:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "effd7ab0",
+      "notes": null,
+      "shipped_at": "2026-06-30T13:34:50Z"
     },
     {
       "r_number": "R-F2155",
       "title": "Fix state DB bloat causing boot hang",
       "claimed_at": "2026-06-30T12:49:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2156",
+      "title": "Fix state_store error_log timeout flood",
+      "claimed_at": "2026-06-30T15:28:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

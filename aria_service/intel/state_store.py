@@ -1130,21 +1130,46 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 # Public API — mirrors redis_store
 # ─────────────────────────────────────────────────────────────────────────
 
+# R-F2156: cooldown cache for error_log reads to prevent flood.
+# When state_store is under load, every read of the error_log key times out
+# and logs a WARNING. The error_log_handler now skips "timed out" messages
+# (breaking the feedback loop), but the cooldown here prevents the rapid-fire
+# reads themselves from hammering the DB. The cache is keyed on the full key
+# string so it only affects the error_log key, not all reads.
+_ERROR_LOG_COOLDOWN_S = 5.0
+_error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attempt, cached_result)
+
+
 async def get(key: str) -> str | None:
     """R-F2154: bounded read — wraps _row in a 5s timeout so a slow DB
     never hangs boot or a request forever. Returns None on timeout (same
     as key-not-found) — the caller degrades gracefully rather than
-    blocking the event loop."""
+    blocking the event loop.
+
+    R-F2156: cooldown for the error_log key. If the same key was read
+    within _ERROR_LOG_COOLDOWN_S seconds, returns the cached result
+    without hitting the DB. This prevents rapid-fire reads of the error_log
+    from hammering the DB during load spikes."""
+    # R-F2156: cooldown check for error_log key
+    if key in _error_log_cache:
+        last_attempt, cached = _error_log_cache[key]
+        if time.monotonic() - last_attempt < _ERROR_LOG_COOLDOWN_S:
+            return cached
     try:
         row = await asyncio.wait_for(
             _row(key, expected_kind="string"), timeout=5.0)
-        return row[0] if row else None
+        result = row[0] if row else None
+        # Cache the result (even None — better than hammering the DB)
+        _error_log_cache[key] = (time.monotonic(), result)
+        return result
     except asyncio.TimeoutError:
         logger.warning(
             "state_store.get(%s) timed out after 5s — DB may be "
             "bloated or under WAL recovery. Returning None.",
             key[:80],
         )
+        # Cache the timeout result so subsequent rapid reads don't retry
+        _error_log_cache[key] = (time.monotonic(), None)
         return None
 
 

@@ -302,3 +302,77 @@ def test_self_recursion_guard():
 
     asyncio.run(run())
     assert recorded == [], "handler must skip records from its own logger"
+
+
+def test_timed_out_cascade_killer_R_F2156():
+    """R-F2156: a WARNING containing 'timed out' must NOT trigger record_error.
+    
+    This is the cascade-killer for the state_store.get() timeout feedback loop:
+    when state_store.get("crucix:aria:error_log") times out, it logs a WARNING
+    containing "timed out". Without this filter, the error_log_handler would
+    call record_error(), which reads the error_log key again → another timeout
+    → another WARNING → infinite feedback loop.
+    """
+    from aria_service.intel import error_log_handler
+
+    recorded: list = []
+
+    async def fake_record_error(**kwargs):
+        recorded.append(kwargs)
+
+    async def run():
+        error_log_handler.uninstall()
+        with patch("aria_service.intel.self_improve.record_error",
+                   side_effect=fake_record_error):
+            error_log_handler.install()
+            try:
+                lg = logging.getLogger("aria.state_store")
+                # Exact message from state_store.get() when it times out
+                lg.warning(
+                    "state_store.get(crucix:aria:error_log) timed out after 5s "
+                    "— DB may be bloated or under WAL recovery. Returning None."
+                )
+                # Also test a generic "timed out" message from any module
+                lg.warning("Some other operation timed out after 10s")
+                # A non-timeout WARNING should still be recorded
+                lg.warning("Real code defect that needs fixing")
+                await asyncio.sleep(0.01)
+            finally:
+                error_log_handler.uninstall()
+
+    asyncio.run(run())
+    # Only the non-timeout message should be recorded
+    assert len(recorded) == 1, (
+        f"expected only the real defect recorded, got {len(recorded)}: "
+        f"{[r['message'] for r in recorded]}"
+    )
+    assert "Real code defect" in recorded[0]["message"]
+
+
+def test_state_store_error_log_cooldown_R_F2156():
+    """R-F2156: rapid repeated reads of the error_log key must be cached.
+    
+    When state_store is under load, every read of the error_log key times out.
+    The cooldown cache prevents rapid-fire reads from hammering the DB.
+    """
+    from aria_service.intel import state_store
+
+    # Reset the cache
+    state_store._error_log_cache.clear()
+
+    async def run():
+        # First read — should hit the DB (or timeout)
+        result1 = await state_store.get("crucix:aria:error_log")
+        # Second read immediately — should return cached result without hitting DB
+        result2 = await state_store.get("crucix:aria:error_log")
+        # Both should return the same thing (None if not found, or the cached value)
+        assert result1 == result2, (
+            f"cached result mismatch: {result1!r} vs {result2!r}"
+        )
+        # The cache should have an entry for this key
+        assert "crucix:aria:error_log" in state_store._error_log_cache, (
+            "error_log key should be cached after first read"
+        )
+
+    asyncio.run(run())
+    state_store._error_log_cache.clear()

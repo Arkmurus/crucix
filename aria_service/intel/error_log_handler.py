@@ -138,6 +138,15 @@ _SKIP_SUBSTRINGS = (
     # Feeding this back into record_error would just fill the error log with
     # "queue was full" entries that the coder can't act on.
     "write queue full",
+    # R-F2156: cascade-killer for the state_store.get() timeout feedback loop.
+    # When state_store.get("crucix:aria:error_log") times out (5s), it logs a
+    # WARNING containing "timed out". The error_log_handler picks this up and
+    # calls record_error(), which reads the error_log key again → another
+    # timeout → another WARNING → infinite feedback loop. This substring
+    # catches ALL "timed out" messages from state_store (and any other module)
+    # so the timeout itself never spawns a record_error call. The timeout is
+    # operational telemetry (the DB is slow), not a coder-actionable defect.
+    "timed out",
 )
 
 
