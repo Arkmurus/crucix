@@ -467,6 +467,29 @@ async def _feed_to_brain(article: dict) -> None:
     except Exception:
         logger.debug("[news_monitor] intel_ledger feed failed", exc_info=True)
 
+    # R-F2190: VAULT sources feed CONTENT into the brain (RAG/knowledge), not just the
+    # correlator ledger — so a manually-added website (vault.html "Add Site") becomes
+    # searchable by chat + intelligence grounding. Scoped to vault-curated articles
+    # (source "vault:…" / category "vault_curated") so the entire global news firehose
+    # is NOT absorbed (cost + signal-to-noise). This closes Pipeline 2 of the vault
+    # business review: add site → aria intel.
+    try:
+        _src = str(article.get("source", "") or "")
+        if article.get("category") == "vault_curated" or _src.startswith("vault:"):
+            from . import brain_hook as _bh
+            _name = _src[6:] if _src.startswith("vault:") else _src
+            await _bh.absorb(
+                module="news_monitor",
+                summary=str(article.get("title", ""))[:200],
+                detail=str(article.get("summary", ""))[:1000],
+                entity_name=_name[:120],
+                source_id=f"vault_source:{_article_hash(article.get('url', ''))}",
+                confidence="PROBABLE",
+                extra_topics=["vault_source"],
+            )
+    except Exception:
+        logger.debug("[news_monitor] vault-source brain absorb failed", exc_info=True)
+
 
 # ── Feed fetching ─────────────────────────────────────────────────────────────
 
