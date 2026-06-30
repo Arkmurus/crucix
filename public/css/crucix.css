@@ -22,17 +22,18 @@
   --sc-orange:  #ea580c;
   --sc-red:     #dc2626;
 
-  /* Text — warm neutrals */
-  --sc-heading: #1f1e1c;   /* warm near-black headings/values */
-  --sc-text:    #3d3a34;   /* warm dark grey body */
-  --sc-muted:   #6b6862;   /* warm grey secondary */
+  /* Text — warm neutrals (R-F2197: darker body/muted for more substance/contrast) */
+  --sc-heading: #1b1a18;   /* warm near-black headings/values */
+  --sc-text:    #33302a;   /* warm dark grey body */
+  --sc-muted:   #5f5c55;   /* warm grey secondary */
 
-  /* Lines + states — warm hairlines */
-  --sc-border:        #e9e6df;   /* warm border */
-  --sc-border-strong: #dcd8cf;   /* warm stronger divider */
-  --sc-hover:         #f2f0e9;   /* warm neutral hover */
-  --sc-shadow:        0 1px 2px rgba(40,36,30,0.04), 0 1px 3px rgba(40,36,30,0.05);
-  --sc-shadow-lg:     0 8px 28px rgba(40,36,30,0.10);
+  /* Lines + states — R-F2197: stronger, defined borders (the hairlines read as
+     "fragile" at ~3% contrast on cream). Darkened for solidity + clearer outlines. */
+  --sc-border:        #d8d2c4;   /* warm border — defined */
+  --sc-border-strong: #c4bdac;   /* warm stronger divider / outlines */
+  --sc-hover:         #efece3;   /* warm neutral hover */
+  --sc-shadow:        0 1px 2px rgba(40,36,30,0.07), 0 2px 8px rgba(40,36,30,0.08);
+  --sc-shadow-lg:     0 14px 38px rgba(40,36,30,0.16);
 
   --sc-radius:  14px;
   --sidebar-w:  260px;
@@ -45,6 +46,10 @@ body {
   font-family: 'gorditaregular', 'Segoe UI', Roboto, sans-serif;
   background: var(--sc-bg);
   color: var(--sc-text);
+  /* R-F2197 — larger, more substantial base type (was unset → small component
+     overrides made the whole UI feel thin/fragile). */
+  font-size: 15px;
+  line-height: 1.55;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -138,18 +143,18 @@ body.sidebar-collapsed #app-sidebar { left: calc(0px - var(--sidebar-w)); }
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 11px 16px;
+  gap: 11px;
+  padding: 12px 16px;
   margin: 2px 8px;
   border-radius: 8px;
   color: var(--sc-text);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;            /* R-F2197 */
+  font-weight: 600;
   transition: all 0.18s;
   position: relative;
 }
 
-.sidebar-link i { font-size: 18px; flex-shrink: 0; color: var(--sc-muted); }
+.sidebar-link i { font-size: 20px; flex-shrink: 0; color: var(--sc-muted); }
 
 .sidebar-link:hover {
   background: var(--sc-hover);
@@ -311,7 +316,7 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 /* ── Cards ───────────────────────────────────────────────────────── */
 .sc-card {
   background: var(--sc-card);
-  border: 1px solid var(--sc-border);
+  border: 1px solid var(--sc-border-strong);   /* R-F2197 — defined outline */
   border-radius: var(--sc-radius);
   overflow: hidden;
   box-shadow: var(--sc-shadow);
@@ -325,10 +330,10 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
   display: flex; align-items: center; gap: 10px;
 }
 .sc-card-title {
-  font-size: 14px; font-weight: 700; color: var(--sc-heading);
-  display: flex; align-items: center; gap: 8px; flex: 1;
+  font-size: 15.5px; font-weight: 700; color: var(--sc-heading);
+  display: flex; align-items: center; gap: 9px; flex: 1;
 }
-.sc-card-title i { color: var(--sc-prime); font-size: 18px; }
+.sc-card-title i { color: var(--sc-prime); font-size: 20px; }
 .sc-card-body { padding: 20px; }
 .sc-card-footer {
   padding: 12px 20px;
@@ -339,9 +344,9 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 /* ── Stat Tiles ──────────────────────────────────────────────────── */
 .sc-stat {
   background: var(--sc-card);
-  border: 1px solid var(--sc-border);
+  border: 1px solid var(--sc-border-strong);   /* R-F2197 */
   border-radius: var(--sc-radius);
-  padding: 20px;
+  padding: 22px;
   display: flex; align-items: center; gap: 16px;
   position: relative; overflow: hidden;
   box-shadow: var(--sc-shadow);
@@ -355,26 +360,26 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 }
 
 .sc-stat-icon {
-  width: 50px; height: 50px;
-  border-radius: 12px;
-  background: rgba(124,58,237,0.10);
+  width: 56px; height: 56px;
+  border-radius: 13px;
+  background: rgba(124,58,237,0.12);
   color: var(--sc-prime);
   display: flex; align-items: center; justify-content: center;
-  font-size: 22px; flex-shrink: 0;
+  font-size: 26px; flex-shrink: 0;    /* R-F2197 — bigger, bolder icon */
 }
 .sc-stat-icon.blue   { background: rgba(37,99,235,0.10);  color: var(--sc-blue); }
 .sc-stat-icon.green  { background: rgba(22,163,74,0.10);  color: var(--sc-green); }
 .sc-stat-icon.orange { background: rgba(234,88,12,0.10);  color: var(--sc-orange); }
 .sc-stat-icon.red    { background: rgba(220,38,38,0.10);  color: var(--sc-red); }
 
-.sc-stat-value { font-size: 28px; font-weight: 700; color: var(--sc-heading); line-height: 1.1; }
-.sc-stat-label { font-size: 12px; color: var(--sc-muted); margin-top: 3px; }
+.sc-stat-value { font-size: 32px; font-weight: 800; color: var(--sc-heading); line-height: 1.1; }
+.sc-stat-label { font-size: 12.5px; font-weight: 500; color: var(--sc-muted); margin-top: 3px; }
 
 /* ── Buttons ─────────────────────────────────────────────────────── */
 .sc-btn {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 11px 28px; border-radius: 8px; border: none;
-  font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 12px 28px; border-radius: 9px; border: none;
+  font-size: 14.5px; font-weight: 700; cursor: pointer;   /* R-F2197 — bolder */
   transition: all 0.2s; text-decoration: none;
 }
 .sc-btn-primary { background: var(--sc-prime); color: #fff; box-shadow: 0 1px 2px rgba(124,58,237,0.25); }
@@ -387,8 +392,8 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 /* ── Badges ──────────────────────────────────────────────────────── */
 .sc-badge {
   display: inline-flex; align-items: center;
-  padding: 2px 10px; border-radius: 20px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 3px 11px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
 }
 .sc-badge-prime  { background: rgba(124,58,237,0.12); color: var(--sc-prime-dark); }
 .sc-badge-blue   { background: rgba(37,99,235,0.12);  color: #1d4ed8; }
@@ -400,23 +405,24 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 /* ── Page header ──────────────────────────────────────────────────── */
 .sc-page-header { margin-bottom: 28px; }
 .sc-page-title {
-  font-size: 22px; font-weight: 700; color: var(--sc-heading);
-  display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
+  font-size: 25px; font-weight: 800; color: var(--sc-heading);   /* R-F2197 */
+  display: flex; align-items: center; gap: 11px; margin-bottom: 5px;
+  letter-spacing: -0.2px;
 }
-.sc-page-title i { color: var(--sc-prime); font-size: 24px; }
-.sc-page-sub { font-size: 13px; color: var(--sc-muted); }
+.sc-page-title i { color: var(--sc-prime); font-size: 27px; }
+.sc-page-sub { font-size: 14px; color: var(--sc-muted); }
 
 /* ── Form fields ──────────────────────────────────────────────────── */
 .sc-field { margin-bottom: 18px; }
-.sc-field label { display: block; font-size: 13px; color: var(--sc-text); margin-bottom: 6px; font-weight: 500; }
+.sc-field label { display: block; font-size: 13.5px; color: var(--sc-text); margin-bottom: 7px; font-weight: 600; }
 .sc-field input, .sc-field select, .sc-field textarea {
   width: 100%;
   background: #fff;
-  border: 1px solid var(--sc-border-strong);
-  border-radius: 8px;
+  border: 1.5px solid var(--sc-border-strong);   /* R-F2197 — defined field outline */
+  border-radius: 9px;
   color: var(--sc-heading);
-  padding: 12px 16px;
-  font-size: 14px;
+  padding: 13px 16px;
+  font-size: 15px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   font-family: inherit;
@@ -431,18 +437,18 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 .sc-field-error { font-size: 12px; color: var(--sc-red); margin-top: 4px; }
 
 /* ── Table ────────────────────────────────────────────────────────── */
-.sc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sc-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .sc-table th {
   text-align: left;
-  padding: 11px 14px;
-  font-size: 10px; font-weight: 700;
+  padding: 12px 14px;
+  font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.8px;
   color: var(--sc-muted);
-  border-bottom: 1px solid var(--sc-border-strong);
-  background: #f5f4ef;
+  border-bottom: 1.5px solid var(--sc-border-strong);   /* R-F2197 */
+  background: #f3f1ea;
 }
 .sc-table td {
-  padding: 12px 14px;
+  padding: 13px 14px;
   border-bottom: 1px solid var(--sc-border);
   color: var(--sc-text);
   vertical-align: middle;
@@ -622,13 +628,13 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 .sc-overlay.open { display: flex; }
 .sc-modal {
   background: var(--sc-card);
-  border: 1px solid var(--sc-border);
-  border-radius: 16px;
-  padding: 28px;
+  border: 1.5px solid var(--sc-border-strong);   /* R-F2197 */
+  border-radius: 18px;
+  padding: 30px;
   width: 90%; max-width: 480px;
-  box-shadow: 0 24px 60px rgba(15,23,42,0.25);
+  box-shadow: 0 30px 70px rgba(15,23,42,0.32);
 }
-.sc-modal-title { font-size: 18px; font-weight: 700; color: var(--sc-heading); margin-bottom: 20px; }
+.sc-modal-title { font-size: 20px; font-weight: 800; color: var(--sc-heading); margin-bottom: 22px; }
 
 /* ── Responsive sidebar ───────────────────────────────────────────── */
 @media(max-width:1024px){
