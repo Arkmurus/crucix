@@ -11,5 +11,4 @@ import { RouterModule } from '@angular/router';
   styleUrl: './e505.component.scss'
 })
 export class E505Component {
-  currentYear = new Date().getFullYear();
 }

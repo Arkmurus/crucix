@@ -13,7 +13,6 @@ import { AuthService } from '../../services/auth.service';
   styleUrl: './landing.component.scss'
 })
 export class LandingComponent implements OnInit {
-  year = new Date().getFullYear();
   constructor(private auth: AuthService, private router: Router) {}
 
   ngOnInit(): void {
