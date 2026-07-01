@@ -247,7 +247,12 @@
       max-width: var(--lp-max-w);
       margin: 0 auto;
       padding: 0 32px;
+      display: flex;
+      align-items: center;
+      gap: 56px;
     }
+
+    .lp-hero-content { flex: 1 1 auto; min-width: 0; }
 
     .lp-hero-badge {
       display: inline-flex;
@@ -310,6 +315,35 @@
       gap: 14px;
       flex-wrap: wrap;
       margin-bottom: 64px;
+    }
+
+    /* ── HERO TETRIS (decorative, monochrome) ─────────────────────── */
+    .lp-hero-tetris {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lp-tetris-well {
+      position: relative;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.55);
+      border: 1px solid rgba(17,17,17,0.10);
+      box-shadow: 0 24px 60px -30px rgba(17,17,17,0.35);
+      -webkit-backdrop-filter: blur(2px);
+      backdrop-filter: blur(2px);
+    }
+
+    .lp-tetris-well canvas {
+      display: block;
+      border-radius: 8px;
+    }
+
+    @media (max-width: 980px) {
+      .lp-hero-inner { display: block; }
+      .lp-hero-tetris { display: none; }
     }
 
 
@@ -1067,6 +1101,7 @@
     <div class="lp-hero-glow-2"></div>
   </div>
   <div class="lp-hero-inner">
+    <div class="lp-hero-content">
     <div class="lp-hero-badge">
       <span class="lp-hero-badge-dot"></span>
       <span>Sovereign · No external dependencies · EU-data compliant</span>
@@ -1082,6 +1117,13 @@
     <div class="lp-hero-actions">
       <a href="#contact" class="lp-btn lp-btn-prime lp-btn-lg">Request access</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
+    </div>
+    </div>
+
+    <div class="lp-hero-tetris" aria-hidden="true">
+      <div class="lp-tetris-well">
+        <canvas id="lp-tetris" width="256" height="448"></canvas>
+      </div>
     </div>
 
   </div>
@@ -1543,6 +1585,136 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   this.style.background = '#16a34a';
   for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
 });
+</script>
+
+<!-- Hero Tetris — decorative, monochrome, gap-free auto-stacking (R-F2262) -->
+<script>
+(function () {
+  var canvas = document.getElementById('lp-tetris');
+  if (!canvas || !canvas.getContext) return;
+  var ctx = canvas.getContext('2d');
+
+  var COLS = 8, ROWS = 14, CELL = 32;
+  var Wpx = COLS * CELL, Hpx = ROWS * CELL;
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.style.width = Wpx + 'px';
+  canvas.style.height = Hpx + 'px';
+  canvas.width = Math.round(Wpx * dpr);
+  canvas.height = Math.round(Hpx * dpr);
+  ctx.scale(dpr, dpr);
+
+  // Black & white only (near-black → mid-greys → white), 1px gap, dark stroke.
+  var FILLS = ['#141414', '#404040', '#7a7a7a', '#ffffff'];
+  var STROKE = '#141414';
+
+  // Build a perfect, gap-free plan filling the whole well.
+  // Layers of 2 rows, filled bottom-up; each layer = two 4-wide blocks.
+  // Each block = O+O or an L/J interlock. Support piece is emitted first,
+  // so every piece rests on the stack below it (no floating pieces).
+  function makePlan() {
+    var plan = [], ci = 0;
+    for (var rTop = ROWS - 2; rTop >= 0; rTop -= 2) {
+      for (var bc = 0; bc < COLS; bc += 4) {
+        var r0 = rTop, r1 = rTop + 1, c = bc;
+        var kind = (ci) % 3;
+        var a, b;
+        if (kind === 0) {                      // two O squares
+          a = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]];
+          b = [[c + 2, r0], [c + 3, r0], [c + 2, r1], [c + 3, r1]];
+        } else if (kind === 1) {               // J (support) + L
+          a = [[c, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
+          b = [[c + 1, r0], [c + 2, r0], [c + 3, r0], [c + 3, r1]];
+        } else {                               // mirror: L' (support) + J'
+          a = [[c + 3, r0], [c + 1, r1], [c + 2, r1], [c + 3, r1]];
+          b = [[c, r0], [c + 1, r0], [c + 2, r0], [c, r1]];
+        }
+        plan.push({ cells: a, fill: FILLS[ci % 4] });
+        plan.push({ cells: b, fill: FILLS[(ci + 2) % 4] });
+        ci++;
+      }
+    }
+    return plan;
+  }
+
+  var plan = makePlan();
+
+  function drawCell(col, row, fill) {
+    var x = col * CELL, y = row * CELL, g = 1;
+    ctx.fillStyle = fill;
+    ctx.fillRect(x + g, y + g, CELL - g * 2, CELL - g * 2);
+    ctx.strokeStyle = STROKE;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + g + 0.5, y + g + 0.5, CELL - g * 2 - 1, CELL - g * 2 - 1);
+  }
+
+  function drawWellGrid() {
+    ctx.strokeStyle = 'rgba(17,17,17,0.05)';
+    ctx.lineWidth = 1;
+    for (var r = 0; r <= ROWS; r++) {
+      ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(Wpx, r * CELL + 0.5); ctx.stroke();
+    }
+    for (var cc = 0; cc <= COLS; cc++) {
+      ctx.beginPath(); ctx.moveTo(cc * CELL + 0.5, 0); ctx.lineTo(cc * CELL + 0.5, Hpx); ctx.stroke();
+    }
+  }
+
+  function drawPiece(p, rowShift, alpha) {
+    if (alpha != null) ctx.globalAlpha = alpha;
+    for (var i = 0; i < p.cells.length; i++) {
+      drawCell(p.cells[i][0], p.cells[i][1] + (rowShift || 0), p.fill);
+    }
+    if (alpha != null) ctx.globalAlpha = 1;
+  }
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (reduce) {
+    // Static filled well, no animation.
+    ctx.clearRect(0, 0, Wpx, Hpx);
+    drawWellGrid();
+    for (var k = 0; k < plan.length; k++) drawPiece(plan[k]);
+    return;
+  }
+
+  var HOLD = 1200, CLEAR = 600;
+  var phase = 'drop', idx = 0, tStart = 0, dropDur = 0, fallRows = 0;
+
+  function beginDrop(now) {
+    var p = plan[idx];
+    fallRows = Math.min.apply(null, p.cells.map(function (c) { return c[1]; })); // dist from top
+    dropDur = 110 + fallRows * 26;
+    tStart = now;
+  }
+
+  function frame(now) {
+    ctx.clearRect(0, 0, Wpx, Hpx);
+    drawWellGrid();
+
+    if (phase === 'drop') {
+      for (var i = 0; i < idx; i++) drawPiece(plan[i]);        // locked
+      var p = plan[idx];
+      var t = Math.min(1, (now - tStart) / dropDur);
+      var e = 1 - (1 - t) * (1 - t);                            // ease-out
+      var shift = -fallRows * (1 - e);
+      drawPiece(p, shift);
+      if (t >= 1) {
+        idx++;
+        if (idx >= plan.length) { phase = 'hold'; tStart = now; }
+        else { beginDrop(now); }
+      }
+    } else if (phase === 'hold') {
+      for (var j = 0; j < plan.length; j++) drawPiece(plan[j]);
+      if (now - tStart >= HOLD) { phase = 'clear'; tStart = now; }
+    } else if (phase === 'clear') {
+      var ct = Math.min(1, (now - tStart) / CLEAR);
+      for (var m = 0; m < plan.length; m++) drawPiece(plan[m], 0, 1 - ct);
+      if (ct >= 1) { idx = 0; phase = 'drop'; beginDrop(now); }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(function (now) { beginDrop(now); frame(now); });
+})();
 </script>
 </body>
 </html>
