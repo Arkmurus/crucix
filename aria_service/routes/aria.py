@@ -25464,6 +25464,25 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
     for e in existing:
         if (e.get("site_url") or "").strip() == url:
             return {"success": False, "error": "you have already added this source"}
+    # R-F2245 — domain-diversity guard (operator directive: the vault must NOT
+    # accumulate the same web-data domains → source collusion / repetitive data).
+    # Cap sources per registrable domain so one site can't dominate a user's vault.
+    import os as _os_v
+    import urllib.parse as _up_v
+    def _srcdom(u: str) -> str:
+        try:
+            return (_up_v.urlparse(u).hostname or "").replace("www.", "").lower()
+        except Exception:
+            return ""
+    _new_dom = _srcdom(url)
+    if _new_dom:
+        try:
+            _cap = int(_os_v.getenv("ARIA_VAULT_MAX_PER_DOMAIN", "2") or "2")
+        except Exception:
+            _cap = 2
+        _same = sum(1 for e in existing if _srcdom((e.get("site_url") or "").strip()) == _new_dom)
+        if _cap > 0 and _same >= _cap:
+            return {"success": False, "error": f"you already have {_same} source(s) from '{_new_dom}' — add a DIFFERENT domain to keep your intelligence diverse; multiple feeds from one site create repetitive, echo-chamber data."}
     sid = "u_" + hashlib.sha1(f"{user_id}|{url}".encode()).hexdigest()[:16]
     # R-F2213 — probe the URL so the stored status is TRUTHFUL (§22). Pre-fix this
     # hardcoded status="verified" with NO fetch, so a typo/dead URL entered the poll

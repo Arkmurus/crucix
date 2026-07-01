@@ -295,6 +295,34 @@ def _get_domain(url: str) -> str:
         return ""
 
 
+def _apply_domain_diversity_cap(results: list, max_results: int) -> list:
+    """R-F2245 — stop any single domain from monopolising the top-N results (the
+    source-collusion / echo-chamber risk: e.g. janes.com across 9 feeds, or one
+    site ranking on many paths). Walk the ALREADY-RANKED list and keep at most
+    ARIA_SEARCH_MAX_PER_DOMAIN (default 3) per registrable domain, then backfill
+    from the capped overflow so we NEVER return fewer than the plain slice. This is
+    a diversity re-ordering WITHIN the winners — it never lifts a low-relevance
+    result above the cut, it just spreads perspective across domains. Cap<=0 or a
+    short list → plain slice (no-op)."""
+    try:
+        cap = int(os.getenv("ARIA_SEARCH_MAX_PER_DOMAIN", "3") or "3")
+    except Exception:
+        cap = 3
+    if cap <= 0 or len(results) <= max_results:
+        return results[:max_results]
+    seen: dict[str, int] = {}
+    primary: list = []
+    overflow: list = []
+    for r in results:
+        d = _get_domain(getattr(r, "url", "") or "")
+        if d and seen.get(d, 0) >= cap:
+            overflow.append(r)
+        else:
+            seen[d] = seen.get(d, 0) + 1
+            primary.append(r)
+    return (primary + overflow)[:max_results]
+
+
 def _score_credibility(url: str) -> int:
     domain = _get_domain(url)
     if not domain:
@@ -1417,7 +1445,8 @@ async def search(
     except Exception:
         pass
 
-    final = results[:max_results]
+    # R-F2245 — per-domain diversity cap so one prolific domain can't own the top-N
+    final = _apply_domain_diversity_cap(results, max_results)
 
     # ── R-F184 (2026-05-11) — pay-once-remember-forever ingest ──
     # Every credibility-tier-1/2/3 result is embedded into the RAG store
