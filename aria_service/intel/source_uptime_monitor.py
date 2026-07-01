@@ -68,7 +68,14 @@ _MAX_CONCURRENT_PINGS = 40   # R-F2216 — was 10; see _PING_TIMEOUT_S note
 # Redis keys
 _K_LAST_RUN = "crucix:source_uptime:last_run"
 _K_SUSPENDED = "crucix:source_uptime:suspended"          # JSON list of source names
-_K_PING_HISTORY = "crucix:source_uptime:ping:{src}"      # list, newest first
+_K_PING_HISTORY = "crucix:source_uptime:ping:{src}"      # list, newest first (legacy)
+# R-F2225 — single running-state blob {name: {ema, n, fails, last_ok, last_check}}.
+# Replaces the per-source _K_PING_HISTORY lists in the hot loop: the sweep now does
+# ONE read + ONE write for ALL sources instead of ~400 sequential lpush/lrange ops
+# through the saturation-sensitive single-connection state_store (which made a
+# 200-source sweep take many minutes and never finish inside the request/cron budget).
+_K_SOURCE_STATE = "crucix:source_uptime:state"
+_EMA_ALPHA = 0.4
 
 
 async def _get_registered_sources() -> list[dict]:
@@ -152,107 +159,45 @@ async def _ping_one(source: dict) -> dict:
         }
 
 
-async def _record_ping(ping: dict) -> None:
-    """Append ping result to per-source history. Keep last 30."""
+# ── R-F2225 — O(1)-I/O running source state (pure + storage helpers) ──────────
+# (Replaced the per-source _K_PING_HISTORY lpush/lrange helpers — _record_ping,
+#  _consecutive_failures, _reliability_ema, _source_health — whose ~400 sequential
+#  state_store ops per sweep made a 200-source sweep take minutes and never finish.)
+def _update_source_state(prev: dict | None, ok: bool, checked_at: str) -> dict:
+    """Fold one ping into a source's running state (in memory). Pure/testable.
+    ema: running reliability EMA (recent pings weighted more); n: sample count;
+    fails: consecutive failures (reset on ok)."""
+    prev = prev or {}
+    prev_ema = float(prev.get("ema", 0.5))
+    n = int(prev.get("n", 0))
+    v = 1.0 if ok else 0.0
+    ema = v if n == 0 else round(_EMA_ALPHA * v + (1.0 - _EMA_ALPHA) * prev_ema, 3)
+    fails = 0 if ok else int(prev.get("fails", 0)) + 1
+    return {"ema": ema, "n": n + 1, "fails": fails, "last_ok": bool(ok), "last_check": checked_at}
+
+
+def _suspend_reliability(st: dict) -> float:
+    """The reliability the auto-suspend gate uses: the real EMA once there are ≥3
+    samples, else a NEUTRAL 0.5 so a barely-seen source is never suspended on thin
+    data (the gate's consecutive_fails>=3 also guarantees ≥3 samples)."""
+    return float(st.get("ema", 0.5)) if int(st.get("n", 0)) >= 3 else 0.5
+
+
+async def _get_source_state() -> dict:
     try:
         from . import redis_store as rs
-        import json
-        key = _K_PING_HISTORY.format(src=ping["name"][:100])
-        await rs.lpush(key, json.dumps(ping, default=str)[:2000])
-        await rs.ltrim(key, 0, 29)
+        data = await rs.get_json(_K_SOURCE_STATE) or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+async def _set_source_state(state: dict) -> None:
+    try:
+        from . import redis_store as rs
+        await rs.set_json(_K_SOURCE_STATE, state)
     except Exception as e:
-        logger.debug("[uptime_monitor] record_ping failed: %s", e)
-
-
-async def _consecutive_failures(source_name: str) -> int:
-    """Count consecutive recent ping failures for a source. Walks
-    ping_history newest-first, stops at first `ok=True`."""
-    try:
-        from . import redis_store as rs
-        import json
-        raw = await rs.lrange(_K_PING_HISTORY.format(src=source_name[:100]), 0, 10)
-    except Exception:
-        return 0
-    count = 0
-    for r in raw:
-        try:
-            p = json.loads(r)
-        except Exception:
-            continue
-        if p.get("ok"):
-            break
-        count += 1
-    return count
-
-
-async def _reliability_ema(source_name: str) -> float:
-    """R-F2216 — the real reliability signal, computed from the ping history this
-    module already records (last 30, newest-first). Pre-fix `reliability` was
-    HARDCODED to 0.5 in _get_registered_sources, and the auto-suspend gate needs
-    `reliability < 0.3` — so 0.5 was never below 0.3 and auto-suspend could NEVER
-    fire (dead sources rotted, only manual suspend worked). We now derive an EMA
-    over the ok/fail history (recent pings weighted more). Returns a NEUTRAL 0.5
-    when there is too little history (<3 pings) so a source is never suspended on
-    thin data — the gate's `consecutive_fails >= 3` already guarantees ≥3 pings.
-    """
-    try:
-        from . import redis_store as rs
-        import json
-        raw = await rs.lrange(_K_PING_HISTORY.format(src=source_name[:100]), 0, 30)
-    except Exception:
-        return 0.5
-    pings = []
-    for r in raw:
-        try:
-            pings.append(bool(json.loads(r).get("ok")))
-        except Exception:
-            continue
-    if len(pings) < 3:
-        return 0.5
-    # raw is newest-first; fold oldest→newest so recent pings dominate the EMA.
-    alpha = 0.4
-    ema: float | None = None
-    for ok in reversed(pings):
-        v = 1.0 if ok else 0.0
-        ema = v if ema is None else (alpha * v + (1.0 - alpha) * ema)
-    return round(ema if ema is not None else 0.5, 3)
-
-
-async def _source_health(source_name: str) -> tuple[int, float]:
-    """R-F2223 — read a source's ping history ONCE and derive BOTH the consecutive
-    failure count AND the reliability EMA. Pre-fix the sweep called
-    _consecutive_failures + _reliability_ema separately (2 lrange reads/source →
-    ~400 sequential state_store ops over 200 sources, on top of the 200 record
-    writes) — that serialized the sweep past the edge/cron window so it never
-    completed (last_run stayed null). One read halves the per-source read I/O.
-    """
-    import json
-    try:
-        from . import redis_store as rs
-        raw = await rs.lrange(_K_PING_HISTORY.format(src=source_name[:100]), 0, 30)
-    except Exception:
-        return 0, 0.5
-    oks: list[bool] = []
-    for r in raw:
-        try:
-            oks.append(bool(json.loads(r).get("ok")))
-        except Exception:
-            continue
-    # consecutive failures (history is newest-first; stop at first ok)
-    fails = 0
-    for ok in oks:
-        if ok:
-            break
-        fails += 1
-    # reliability EMA (neutral 0.5 on thin history — never suspend on thin data)
-    if len(oks) < 3:
-        return fails, 0.5
-    alpha = 0.4
-    ema: float | None = None
-    for ok in reversed(oks):
-        v = 1.0 if ok else 0.0
-        ema = v if ema is None else (alpha * v + (1.0 - alpha) * ema)
-    return fails, round(ema if ema is not None else 0.5, 3)
+        logger.debug("[uptime_monitor] set_source_state failed: %s", e)
 
 
 async def _get_suspended() -> set[str]:
@@ -337,20 +282,20 @@ async def run_daily_ping() -> dict:
         return_exceptions=False,
     )
 
-    # Record history
-    for p in ping_results:
-        await _record_ping(p)
-
-    # Compute auto-suspension candidates
+    # R-F2225 — fold every ping into ONE running-state blob (read once here, written
+    # once below) instead of ~400 sequential per-source lpush/lrange ops. reliability
+    # is a real running EMA (was hardcoded 0.5, which made the <0.3 auto-suspend gate
+    # dead); neutral 0.5 on thin history (<3 samples) so nothing suspends on thin data.
+    state = await _get_source_state()
     already_suspended = await _get_suspended()
     newly_suspended: list[str] = []
     recovered: list[str] = []
     for src, ping in zip(sources, ping_results):
         name = src.get("name") or ""
-        # R-F2216/R-F2223 — derive BOTH signals from ONE history read (including the
-        # ping just recorded above). reliability is a real EMA (was hardcoded 0.5,
-        # which made the <0.3 auto-suspend gate dead); neutral 0.5 on thin history.
-        fails, reliability = await _source_health(name)
+        st = _update_source_state(state.get(name), bool(ping.get("ok")), ping.get("checked_at", ""))
+        state[name] = st
+        reliability = _suspend_reliability(st)
+        fails = st["fails"]
 
         should_suspend = (
             reliability < _RELIABILITY_SUSPEND_THRESHOLD
@@ -370,6 +315,9 @@ async def run_daily_ping() -> dict:
             # Source recovered — both signals clear
             await unsuspend(name)
             recovered.append(name)
+
+    # R-F2225 — ONE write persists the updated running state for ALL sources.
+    await _set_source_state(state)
 
     # Persist run summary
     up_count = sum(1 for p in ping_results if p.get("ok"))

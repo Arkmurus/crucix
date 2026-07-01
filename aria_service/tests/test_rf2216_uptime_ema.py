@@ -1,14 +1,14 @@
-"""Capability tests for R-F2216 — source_uptime_monitor auto-suspend revival.
+"""Capability tests for the source-uptime auto-suspend revival (2026-07-01).
 
-Root causes fixed:
-  (1) reliability was HARDCODED to 0.5 in _get_registered_sources, and the
-      auto-suspend gate needs reliability < 0.3 → the gate could NEVER fire.
-      Now reliability is an EMA derived from the recorded ping history.
-  (2) the sweep was 10 concurrent × 10s → could exceed edge/cron budgets and
-      never complete. Now 40 × 6s. (constant assertions below)
+R-F2216 — reliability was HARDCODED 0.5, so the auto-suspend gate (reliability<0.3)
+          could NEVER fire; the sweep constants were also too slow.
+R-F2223 — the /run endpoint blocked ~120s on the 200-source sweep and timed out
+          (502/000); now backgrounded.
+R-F2225 — the sweep did ~400 sequential per-source state_store ops (lpush/lrange)
+          → took minutes, never finished in the request/cron budget. Now ONE running
+          -state blob (read once / write once); reliability is a running EMA.
 
-Tests invoke the REAL _reliability_ema and drive the REAL run_daily_ping suspend
-path with a stubbed redis/brain layer (no network, no live DB).
+Tests invoke the REAL pure helpers and drive the REAL run_daily_ping / endpoint.
 """
 import json
 
@@ -28,33 +28,39 @@ async def _anoop(*a, **k):
 
 # ── R-F2216 sweep-speed constants (the never-completes root cause) ────────────
 def test_rf2216_sweep_bounded_fast():
-    # 200 sources / 40 concurrent × 6s ≈ 30s worst case — well under the 122s edge
-    # proxy limit and the 300s cron budget (was 10 × 10s ≈ 200s).
     assert m._MAX_CONCURRENT_PINGS >= 30
     assert m._PING_TIMEOUT_S <= 8.0
 
 
-# ── R-F2216 reliability EMA (the inert-auto-suspend root cause) ───────────────
-async def test_rf2216_ema_dead_source_below_threshold(monkeypatch):
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False}) for _ in range(6)]))
-    ema = await m._reliability_ema("dead")
-    assert ema < m._RELIABILITY_SUSPEND_THRESHOLD, ema   # was permanently 0.5 → never < 0.3
+# ── R-F2225 running-state EMA (the inert-auto-suspend + slow-I/O root causes) ──
+def test_rf2225_state_ema_degrades_and_recovers():
+    st = m._update_source_state(None, False, "t")        # 1st sample: fail
+    assert st == {"ema": 0.0, "n": 1, "fails": 1, "last_ok": False, "last_check": "t"}
+    st = m._update_source_state(st, False, "t")
+    st = m._update_source_state(st, False, "t")           # 3 consecutive fails
+    assert st["n"] == 3 and st["fails"] == 3
+    assert m._suspend_reliability(st) < m._RELIABILITY_SUSPEND_THRESHOLD   # was permanently 0.5
+    st = m._update_source_state(st, True, "t")            # one success
+    assert st["fails"] == 0 and st["ema"] > 0.0           # streak cleared, EMA rises
 
 
-async def test_rf2216_ema_healthy_source_high(monkeypatch):
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": True}) for _ in range(6)]))
-    assert await m._reliability_ema("live") > 0.8
+def test_rf2225_thin_history_is_neutral():
+    # <3 samples → neutral 0.5 so a barely-seen source is never suspended on thin data
+    st = m._update_source_state(None, False, "t")
+    assert m._suspend_reliability(st) == 0.5
+    st = m._update_source_state(st, False, "t")
+    assert m._suspend_reliability(st) == 0.5
 
 
-async def test_rf2216_ema_thin_history_is_neutral(monkeypatch):
-    # <3 pings → neutral 0.5 so a barely-seen source is never suspended on thin data
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False})]))
-    assert await m._reliability_ema("new") == 0.5
+def test_rf2225_healthy_source_high_reliability():
+    st = None
+    for _ in range(5):
+        st = m._update_source_state(st, True, "t")
+    assert m._suspend_reliability(st) > 0.9
 
 
-# ── R-F2216 the gate now actually FIRES for a dead source ─────────────────────
-async def test_rf2216_autosuspend_fires_end_to_end(monkeypatch):
-    # 1 registered source that pings as dead, with an all-fail history.
+# ── R-F2216/2225 the gate now actually FIRES end-to-end ──────────────────────
+async def test_rf2225_autosuspend_fires_end_to_end(monkeypatch):
     src = {"name": "DeadSrc", "url": "https://dead.invalid/x", "reliability": 0.5, "tier": "tier_3"}
     monkeypatch.setattr(m, "_get_registered_sources", _areturn([src]))
 
@@ -63,36 +69,25 @@ async def test_rf2216_autosuspend_fires_end_to_end(monkeypatch):
                 "latency_ms": 0, "error": "timeout", "checked_at": "2026-07-01T00:00:00Z"}
     monkeypatch.setattr(m, "_ping_one", _fail_ping)
 
-    # history = 5 consecutive fails → _consecutive_failures>=3 AND EMA<0.3
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False}) for _ in range(5)]))
-    monkeypatch.setattr(rss, "lpush", _anoop)      # _record_ping
-    monkeypatch.setattr(rss, "get_json", _areturn([]))   # _get_suspended → none yet
-    monkeypatch.setattr(rss, "set_json", _anoop)   # _set_suspended + last_run
-    monkeypatch.setattr(rss, "set", _anoop)
+    # pre-seed the running-state blob so DeadSrc already has a degraded history
+    # (n=3, ema<0.3, fails=2) — one more fail this sweep → fails=3 → suspend.
+    seeded = {"DeadSrc": {"ema": 0.05, "n": 3, "fails": 2, "last_ok": False, "last_check": "t"}}
+    monkeypatch.setattr(m, "_get_source_state", _areturn(seeded))
+    monkeypatch.setattr(m, "_set_source_state", _anoop)
+    monkeypatch.setattr(m, "_get_suspended", _areturn(set()))
+    monkeypatch.setattr(rss, "set_json", _anoop)
+    monkeypatch.setattr(rss, "get_json", _areturn([]))
     import aria_service.intel.brain_hook as bh
     monkeypatch.setattr(bh, "absorb", _anoop)
+    # suspend() writes _K_SUSPENDED via _set_suspended → stub it
+    monkeypatch.setattr(m, "_set_suspended", _anoop)
 
     res = await m.run_daily_ping()
     assert res.get("sources_checked") == 1
-    # the dead source is now auto-suspended (was impossible pre-fix)
     assert "DeadSrc" in (res.get("suspended_now") or []) or "DeadSrc" in (res.get("currently_suspended") or [])
 
 
-# ── R-F2223 — single-read health + backgrounded endpoint (never-completes fix) ─
-async def test_rf2223_source_health_single_read(monkeypatch):
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False}) for _ in range(5)]))
-    fails, ema = await m._source_health("dead")
-    assert fails >= 3 and ema < m._RELIABILITY_SUSPEND_THRESHOLD
-
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": True}) for _ in range(5)]))
-    fails, ema = await m._source_health("live")
-    assert fails == 0 and ema > 0.8
-
-    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False})]))   # thin
-    fails, ema = await m._source_health("new")
-    assert ema == 0.5
-
-
+# ── R-F2223 the endpoint backgrounds the sweep (no more 120s block) ──────────
 async def test_rf2223_endpoint_backgrounds_sweep(monkeypatch):
     import asyncio
     from aria_service.routes import aria as A
@@ -104,8 +99,6 @@ async def test_rf2223_endpoint_backgrounds_sweep(monkeypatch):
     monkeypatch.setattr(m, "run_daily_ping", _fake_sweep)
 
     out = await A.sources_uptime_run_ep()
-    # endpoint returns IMMEDIATELY (does not await the full sweep) — the fix for the
-    # 502/000 timeout on the synchronous 200-source sweep.
-    assert out.get("ok") is True and out.get("started") is True
-    await asyncio.sleep(0.05)          # let the background task run
-    assert ran["done"] is True
+    assert out.get("ok") is True and out.get("started") is True   # returns immediately
+    await asyncio.sleep(0.05)
+    assert ran["done"] is True                                    # sweep ran in background
