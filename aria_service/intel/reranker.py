@@ -39,9 +39,21 @@ def _get_model():
         from sentence_transformers import CrossEncoder
         _MODEL = CrossEncoder(_MODEL_NAME, max_length=512)
         logger.info("[reranker] loaded cross-encoder %s", _MODEL_NAME)
+        try:  # R-F2259 §21a — the reranker's readiness is observable
+            from .engine_wiring import wire_success
+            wire_success(module="reranker", summary=f"cross-encoder loaded: {_MODEL_NAME}",
+                         source_id="reranker:_get_model")
+        except Exception:
+            pass
     except Exception as e:
         logger.warning("[reranker] model load failed (%s) — re-ranking stays off", e)
         _MODEL = None
+        try:  # R-F2259 §21a — a failed load means ranking silently stays OFF; surface it
+            from .engine_wiring import wire_failure
+            wire_failure(module="reranker", detail=f"cross-encoder load failed: {e}",
+                         gap_type="engine_failure", source="reranker:_get_model")
+        except Exception:
+            pass
     return _MODEL
 
 
@@ -62,7 +74,11 @@ async def rerank_results(query: str, candidates: list, *, top_k: int | None = No
     """
     if not candidates or not query or not is_enabled():
         return candidates[:top_k] if top_k else candidates
-    model = _get_model()
+    # R-F2259 — offload the model LOAD off the event loop. The cold CrossEncoder load is
+    # ~60s on the shared-cpu box; a synchronous _get_model() here would FREEZE the whole
+    # single-process brain on the first search (R-F703 stall). prewarm() below normally
+    # loads it at boot so this is a no-op cache hit, but offloading is the safety net.
+    model = await asyncio.to_thread(_get_model)
     if model is None:
         return candidates[:top_k] if top_k else candidates
     head = candidates[:_MAX_CANDIDATES]
@@ -76,3 +92,19 @@ async def rerank_results(query: str, candidates: list, *, top_k: int | None = No
     except Exception as e:
         logger.debug("[reranker] rerank failed: %s", e)
         return candidates[:top_k] if top_k else candidates
+
+
+async def prewarm() -> bool:
+    """R-F2259 — load the cross-encoder in the BACKGROUND at boot (off the event loop) so
+    the FIRST live search doesn't eat the ~60s cold model load. No-op when the reranker is
+    disabled or the model is already loaded. Never raises. Returns True if the model is ready."""
+    if not is_enabled() or _MODEL is not None:
+        return _MODEL is not None
+    try:
+        m = await asyncio.to_thread(_get_model)
+        if m is not None:
+            logger.info("[reranker] prewarm complete — cross-encoder ready before first search")
+        return m is not None
+    except Exception as e:  # noqa: BLE001 — prewarm must never break boot
+        logger.warning("[reranker] prewarm failed (%s) — will lazy-load on first search", e)
+        return False

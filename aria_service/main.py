@@ -663,6 +663,15 @@ async def lifespan(app: FastAPI):
                 logger.info("[R-F1846] pre-warmed sanctions cache off the request path: %s", _src_name)
             except Exception as _sw_e:
                 logger.warning("[R-F1846] pre-warm sanctions %s failed (non-fatal): %s", _src_name, _sw_e)
+        # R-F2259 — pre-warm the cross-encoder re-ranker (when ARIA_RERANK_ENABLED=1) so the
+        # FIRST live search doesn't eat the ~60s cold model load (the baked R-F2222 model is
+        # loaded off the event loop here). No-op when the reranker is disabled.
+        try:
+            from .intel import reranker as _rr
+            if _rr.is_enabled():
+                await _rr.prewarm()
+        except Exception as _rr_e:
+            logger.warning("[R-F2259] reranker prewarm failed (non-fatal): %s", _rr_e)
     asyncio.create_task(_prewarm_heavy_imports())
 
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
