@@ -1682,6 +1682,19 @@ async def lifespan(app: FastAPI):
                     logger.debug("[Research] engine paused — skipping cycle")
                     await asyncio.sleep(1800)
                     continue
+                # R-F2239: shed under state_store/loop pressure. Research is a heavy
+                # LLM+absorb loop that contends with serving on the single-process
+                # brain; when the load governor signals pressure, yield this cycle so
+                # autonomy can never starve chat/DD (mirrors the engine tick,
+                # engine.py:652). Fail-safe: a probe error reports no pressure.
+                try:
+                    from .intel import load_governor as _lg
+                    if _lg.should_shed():
+                        logger.debug("[Research] load-shed — deferring cycle to protect serving")
+                        await asyncio.sleep(1800)
+                        continue
+                except Exception:
+                    pass
                 # Tag as BACKGROUND priority so the rate limiter yields
                 # to interactive chat when Anthropic quota is tight.
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
@@ -2188,6 +2201,18 @@ async def lifespan(app: FastAPI):
                 # LOOP is alive even while it waits for the LLM — distinguishes
                 # "loop dead" (the bug this fixes) from "loop idle, provider down".
                 await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
+                # R-F2239: shed under state_store/loop pressure — self_improve reads
+                # the error ledger + runs LLM + absorbs (heavy). Yield the cycle when
+                # the load governor signals pressure (mirrors engine.py:652). Heartbeat
+                # already ticked above, so shedding never looks like a dead loop.
+                try:
+                    from .intel import load_governor as _lg
+                    if _lg.should_shed():
+                        logger.debug("[Self-Improve] load-shed — deferring cycle to protect serving")
+                        await asyncio.sleep(7200)
+                        continue
+                except Exception:
+                    pass
                 # R-F2208: re-check the provider per-cycle. It may not have been
                 # configured at boot (resilience init race). Self-heal when it
                 # comes up rather than staying dark for the whole process life.
