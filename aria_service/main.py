@@ -91,6 +91,12 @@ def _bg_task(task: asyncio.Task, name: str = "", factory=None) -> asyncio.Task:
 _resolved_role: "str | None" = None          # set by _elect_engine_role()
 _ENGINE_LEASE_KEY = "crucix:aria:engine_lease"
 _engine_lease_id: "str | None" = None
+# R-F2219 — set once the engine election has resolved. Singleton loops that are
+# STARTED BEFORE the election (expiry_sweeper, the crawler in _boot_continuation)
+# await this before deciding their role, so a not-yet-elected 'web' worker cannot
+# start a singleton during the startup race (_aria_role() defaults to 'all' until
+# _elect_engine_role runs).
+_election_complete: "asyncio.Event | None" = None
 
 
 def _aria_role() -> str:
@@ -336,6 +342,15 @@ async def _expiry_sweeper_loop() -> None:
     to a 1 GB DB that made boot-time reads hang for 40+ minutes.
     Runs every 300s (5 min) to keep the DB lean.
     """
+    # R-F2219: engine SINGLETON — the state_store DB is shared per-machine, so
+    # one sweeper suffices; N sweepers on N workers just N× the DELETE load on
+    # an already-saturation-sensitive store. Started before the election, so
+    # wait for it to resolve, then exit on non-engine roles.
+    if _election_complete is not None:
+        await _election_complete.wait()
+    if not _runs_singletons():
+        logger.info("[R-F2073] expiry_sweeper SKIPPED (ARIA_ROLE=%s)", _aria_role())
+        return
     while True:
         try:
             from .intel import state_store as _ss
@@ -586,6 +601,11 @@ async def lifespan(app: FastAPI):
     # (R-F504) → unclean shutdown → bloated WAL (root of the R-F2116/2137/2154
     # state_store boot/timeout chain).
     _llm_health_checker = None
+    # R-F2219: create the election-complete gate BEFORE any singleton loop is
+    # scheduled (expiry_sweeper at ~790, crawler in _boot_continuation), and set
+    # it right after _elect_engine_role() below.
+    global _election_complete
+    _election_complete = asyncio.Event()
     logger.info("ARIA Service starting...")
     logger.info("ARIA Build: %s", ARIA_BUILD_REV)
     # R-F920 — operator-facing signal that the deploy skipped --build-arg and we
@@ -822,7 +842,16 @@ async def lifespan(app: FastAPI):
             logger.warning("[R-F504] search index init failed (non-fatal): %s", _exc)
 
         # ---- R-F507 - light the crawler -----------------------------------
-        if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+        # R-F2219: the crawler is an engine SINGLETON — it does external N×
+        # effects (crawls sites + writes the shared search index). It starts
+        # before the election resolves, so wait for that, then only the
+        # engine/all role runs it. N crawlers on N workers would N× external
+        # load and risk hammering/banning target sites. (Missed in R-F2073.)
+        if _election_complete is not None:
+            await _election_complete.wait()
+        if not _runs_singletons():
+            logger.info("[R-F2073] crawler SKIPPED (ARIA_ROLE=%s)", _aria_role())
+        elif _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
             try:
                 from .crawler import runner as _crunner
                 _crawler_stop_event = asyncio.Event()
@@ -1553,6 +1582,9 @@ async def lifespan(app: FastAPI):
     # connected by now (rs.connect above), and the election is fail-safe — any
     # error leaves the worker as 'all' so singletons always run somewhere.
     await _elect_engine_role()
+    # R-F2219: release the pre-election singleton loops now that the role is known.
+    if _election_complete is not None:
+        _election_complete.set()
     if _aria_role() == "engine":
         _bg_task(asyncio.create_task(_engine_heartbeat_loop(), name="engine_heartbeat"))
         logger.info("[R-F2174] engine heartbeat started (lease TTL=%ds)", _engine_lease_ttl_s())
