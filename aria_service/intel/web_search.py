@@ -1234,12 +1234,22 @@ async def search(
     # Flatten and deduplicate by URL
     seen_urls: dict[str, SearchResult] = {}
     url_sources: dict[str, set] = {}  # track which backends found each URL
+    # R-F2221: Reciprocal Rank Fusion — accumulate 1/(k+rank) across backends so
+    # a result several engines rank HIGH beats one a single engine ranked low.
+    # This is the rank-aware successor to the binary +0.3 triangulation bonus.
+    # Env-tunable, default ON; disabling falls back to the legacy bonus.
+    _rrf_enabled = os.getenv("ARIA_RRF_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+    _rrf_k = max(1, int(os.getenv("ARIA_RRF_K", "60")))
+    _rrf_weight = float(os.getenv("ARIA_RRF_WEIGHT", "10.0"))
+    rrf_raw: dict[str, float] = {}
 
     for batch in raw_results:
         if isinstance(batch, Exception):
             continue
-        for r in batch:
+        for rank, r in enumerate(batch):
             url_key = _get_domain(r.url) + urllib.parse.urlparse(r.url).path.rstrip("/")
+            # RRF contribution from THIS backend's ranking of this URL.
+            rrf_raw[url_key] = rrf_raw.get(url_key, 0.0) + 1.0 / (_rrf_k + rank)
             if url_key not in seen_urls:
                 seen_urls[url_key] = r
                 url_sources[url_key] = {r.source.split(":")[0]}
@@ -1251,12 +1261,17 @@ async def search(
 
     results = list(seen_urls.values())
 
-    # Mark triangulated results (found by 2+ backends)
+    # Reward cross-backend agreement. R-F2221: rank-aware RRF when enabled,
+    # else the legacy binary triangulation bonus (found by 2+ backends).
     for r in results:
         url_key = _get_domain(r.url) + urllib.parse.urlparse(r.url).path.rstrip("/")
         sources = url_sources.get(url_key, set())
-        if len(sources) >= 2:
-            r.relevance_score += 0.3  # triangulation bonus
+        if _rrf_enabled:
+            # Scaled so a top-ranked, multi-backend result gets a boost on the
+            # order of the old +0.3 bonus, but rank-weighted (see R-F2221).
+            r.relevance_score += _rrf_weight * rrf_raw.get(url_key, 0.0)
+        elif len(sources) >= 2:
+            r.relevance_score += 0.3  # legacy triangulation bonus
 
     # Filter by credibility
     results = [r for r in results if r.credibility_tier <= min_credibility]

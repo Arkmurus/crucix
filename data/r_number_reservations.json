@@ -16508,9 +16508,10 @@
       "title": "Reciprocal Rank Fusion for multi-backend search result fusion (rank-aware, free/native)",
       "claimed_at": "2026-07-01T08:00:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-07-01T08:05:14Z"
     }
   ]
 }
