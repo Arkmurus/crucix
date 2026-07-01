@@ -258,15 +258,23 @@ def _query_coding_rag_http(task_hint: str) -> str | None:
             headers=headers, timeout=12.0,
         )
         if resp.status_code != 200:
-            return None
+            # R-F2243: the brain is REACHABLE but refused (e.g. auth-tier mismatch).
+            # Do NOT fall back to in-process — chromadb is server-only, so on the
+            # operator's machine the in-process path cold-loads the embedder for
+            # 100s+ = the "aria not responding" startup hang. Skip RAG gracefully;
+            # the coder still gets the full CLAUDE.md/AGENTS.md via load_repo_guidance.
+            return ""
         data = resp.json() or {}
         return _format_rag(
             data.get("constitutional") or [],
             data.get("structure") or [],
             data.get("fixes") or [],
         )
-    except Exception:  # noqa: BLE001 — best-effort; fall back in-process
-        return None
+    except Exception:  # noqa: BLE001 — best-effort
+        # R-F2243: HTTP configured but errored (network/parse) → skip RAG (see the
+        # non-200 branch), never trigger the slow in-process fallback on the
+        # operator's machine. None is returned only when NOT configured (above).
+        return ""
 
 
 def record_coding_outcome_http(kind: str, record: dict) -> bool:

@@ -256,7 +256,7 @@ def _aria_service_token() -> str:
 # tier when ARIA_TOKEN_SCOPING=1. Chat/read/telemetry are deliberately NOT here.
 _OPERATOR_ONLY_RE = re.compile(
     r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code)|self/improvements/"
-    r"|coder/|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
+    r"|coder/(?!rag/)|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact)"
 )
