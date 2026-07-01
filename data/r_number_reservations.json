@@ -16929,9 +16929,10 @@
       "title": "DD reports list header alignment — header mirrors card flex columns (fixed widths)",
       "claimed_at": "2026-07-01T21:33:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7976fef9",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:49:11Z"
     },
     {
       "r_number": "R-F2264",
@@ -16947,9 +16948,10 @@
       "title": "DD reports list — GRID alignment (header + card share grid-template-columns)",
       "claimed_at": "2026-07-01T21:44:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "87ca6098",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:49:11Z"
     }
   ]
 }

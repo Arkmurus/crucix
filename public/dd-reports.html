@@ -233,6 +233,63 @@
     }
     .dd-recommendation strong { color: var(--sc-prime-dark); }
 
+    /* R-F2264 — professional report: risk-verdict hero */
+    .dd-hero {
+      display: flex; align-items: stretch; margin-bottom: 16px;
+      border-radius: 12px; overflow: hidden; border: 1px solid var(--sc-border); background: #fff;
+    }
+    .dd-hero-badge {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 18px 22px; min-width: 152px; text-align: center; color: #fff;
+    }
+    .dd-hero-risk { font-size: 16px; font-weight: 800; letter-spacing: 0.4px; line-height: 1.15; }
+    .dd-hero-sub { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; margin-top: 5px; }
+    .dd-hero-main { flex: 1; padding: 15px 20px; min-width: 0; }
+    .dd-hero-main h2 { margin: 0; font-size: 19px; font-weight: 800; color: var(--sc-heading); }
+    .dd-hero-line { margin: 7px 0 0; font-size: 13px; color: var(--sc-text); line-height: 1.5; }
+    .dd-hero-stats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 11px; }
+    .dd-hs { font-size: 11.5px; color: var(--sc-muted); }
+    .dd-hs b { color: var(--sc-heading); font-weight: 700; }
+    .dd-hero.risk-red .dd-hero-badge { background: linear-gradient(160deg,#dc2626,#991b1b); }
+    .dd-hero.risk-red { border-left: 4px solid #dc2626; }
+    .dd-hero.risk-amber .dd-hero-badge { background: linear-gradient(160deg,#f59e0b,#d97706); }
+    .dd-hero.risk-amber { border-left: 4px solid #f59e0b; }
+    .dd-hero.risk-green .dd-hero-badge { background: linear-gradient(160deg,#16a34a,#15803d); }
+    .dd-hero.risk-green { border-left: 4px solid #16a34a; }
+    .dd-hero.risk-neutral .dd-hero-badge { background: linear-gradient(160deg,#64748b,#475569); }
+
+    /* clean source citations */
+    .dd-cites { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+    .dd-cite { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      border: 1px solid var(--sc-border); border-radius: 8px; background: #faf9f6; }
+    .dd-cite-fav { width: 16px; height: 16px; flex-shrink: 0; border-radius: 3px; }
+    .dd-cite-ico { width: 16px; text-align: center; color: var(--sc-muted); flex-shrink: 0; }
+    .dd-cite-main { flex: 1; min-width: 0; }
+    .dd-cite-title { display: block; font-size: 12.5px; font-weight: 600; color: var(--sc-heading);
+      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    a.dd-cite-title:hover { color: var(--sc-prime-dark); text-decoration: underline; }
+    .dd-cite-dom { font-size: 10.5px; color: var(--sc-muted); }
+    .dd-tier { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+      padding: 3px 7px; border-radius: 4px; flex-shrink: 0; white-space: nowrap; }
+    .dd-tier-ver { background: rgba(22,163,74,0.12); color: #15803d; }
+    .dd-tier-ent { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+    .dd-tier-gen { background: rgba(100,116,139,0.12); color: #475569; }
+    .dd-tier-unv { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .dd-tierline { font-size: 10.5px; color: var(--sc-muted); margin-top: 8px; font-weight: 600; }
+
+    /* findings + key-values + bullets */
+    .dd-finding { display: flex; align-items: flex-start; gap: 9px; padding: 7px 0; font-size: 13px; line-height: 1.5; }
+    .dd-fdot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: #64748b; }
+    .dd-finding.f-red .dd-fdot, .dd-finding.f-hard_stop .dd-fdot { background: #dc2626; }
+    .dd-finding.f-amber .dd-fdot, .dd-finding.f-high .dd-fdot { background: #f59e0b; }
+    .dd-finding.f-green .dd-fdot, .dd-finding.f-info .dd-fdot { background: #16a34a; }
+    .dd-kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; margin: 4px 0; font-size: 13px; }
+    .dd-kv dt { color: var(--sc-muted); font-weight: 600; }
+    .dd-kv dd { margin: 0; color: var(--sc-text); }
+    .dd-bullet { padding: 4px 0 4px 16px; position: relative; font-size: 13px; line-height: 1.5; }
+    .dd-bullet::before { content: '•'; position: absolute; left: 2px; color: var(--sc-prime); }
+    .dd-sec-empty { color: var(--sc-muted); font-style: italic; }
+
     /* Data key-value grid */
     .dd-kv-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; }
     .dd-kv-key { color: var(--sc-muted); font-weight: 600; white-space: nowrap; }
@@ -599,6 +656,65 @@ function renderTable(reports) {
   });
 }
 
+// R-F2264 — professional report formatting: risk-verdict hero + clean citations.
+function ddRiskClass(risk) {
+  const r = (risk || '').toUpperCase();
+  if (r.includes('HARD') || (r.includes('RED') && !r.includes('AMBER'))) return 'risk-red';
+  if (r.includes('AMBER') || r.includes('HIGH')) return 'risk-amber';
+  if (r.includes('GREEN') || r.includes('CLEAR') || r.includes('PROCEED')) return 'risk-green';
+  return 'risk-neutral';
+}
+function ddExtractVerdict(md) {
+  const risk = ((md.match(/Risk classification:\s*([A-Z][A-Z\- ]+)/i) || [])[1]
+            || (md.match(/\b(HARD[_-]?STOP|AMBER[- ]?LIGHT|GREEN[- ]?LIGHT|RED|AMBER|GREEN)\b/) || [])[1]
+            || 'ASSESSED').trim();
+  let bottom = (md.match(/—\s*([^\n]{20,200})/) || [])[1] || '';
+  bottom = bottom.replace(/[*_`]/g, '').trim();
+  const grounded = (md.match(/Grounded rate:\s*(\d+%)/i) || [])[1] || '';
+  const ghost = (md.match(/Ghost score[^:]*:\s*([\d\/]+)/i) || [])[1] || '';
+  return { risk, bottom, grounded, ghost };
+}
+function ddFmtBody(body) {
+  const lines = (body || '').split('\n');
+  let out = '', cites = [], kv = [];
+  const flushKv = () => { if (kv.length) { out += '<dl class="dd-kv">' + kv.join('') + '</dl>'; kv = []; } };
+  const flushCites = () => { if (cites.length) { out += '<div class="dd-cites">' + cites.join('') + '</div>'; cites = []; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^Source tiers:/i.test(line)) { flushKv(); flushCites(); out += '<div class="dd-tierline">' + escText(line) + '</div>'; continue; }
+    const c = line.match(/^[•\-]\s*(.+?)\s*\[([A-Z0-9_]+)\]\s*(\S+)?\s*$/);
+    if (c && c[3]) {
+      flushKv();
+      const title = c[1].replace(/&amp;/g, '&'), tier = c[2], url = c[3];
+      const mem = /^(memory:\/\/|mem0:|brain_hook:|research:)/.test(url);
+      const dom = mem ? 'internal memory' : (((url.match(/^https?:\/\/([^\/]+)/) || [])[1] || url).replace(/^www\./, ''));
+      const tc = /UNVERIF/.test(tier) ? 'unv' : (tier === 'ENTITY_SITE' ? 'ent' : (/^T[123]|CONFIRM|VERIF/.test(tier) ? 'ver' : 'gen'));
+      cites.push('<div class="dd-cite">'
+        + (mem ? '<span class="dd-cite-ico"><i class="bi bi-hdd-stack"></i></span>'
+               : '<img class="dd-cite-fav" loading="lazy" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dom) + '&sz=32" onerror="this.style.visibility=\'hidden\'">')
+        + '<div class="dd-cite-main">'
+          + (mem ? '<span class="dd-cite-title">' + escText(title) + '</span>'
+                 : '<a class="dd-cite-title" href="' + escAttr(url) + '" target="_blank" rel="noopener">' + escText(title) + '</a>')
+          + '<span class="dd-cite-dom">' + escText(dom) + '</span>'
+        + '</div>'
+        + '<span class="dd-tier dd-tier-' + tc + '">' + escText(tier.replace(/_/g, ' ')) + '</span>'
+      + '</div>');
+      continue;
+    }
+    flushCites();
+    const f = line.match(/^[•\-]\s*\[(\w+)\]\s*(.+)$/);
+    if (f) { flushKv(); out += '<div class="dd-finding f-' + escAttr(f[1].toLowerCase()) + '"><span class="dd-fdot"></span>' + escText(f[2]) + '</div>'; continue; }
+    const k = line.match(/^([A-Za-z][A-Za-z0-9 /()%·\-]{1,38}):\s+(.+)$/);
+    if (k && !/^https?:/.test(k[2])) { kv.push('<dt>' + escText(k[1]) + '</dt><dd>' + escText(k[2]) + '</dd>'); continue; }
+    flushKv();
+    if (/^[•\-]\s/.test(line)) { out += '<div class="dd-bullet">' + escText(line.replace(/^[•\-]\s*/, '')) + '</div>'; continue; }
+    out += '<p>' + escText(line) + '</p>';
+  }
+  flushKv(); flushCites();
+  return out || '<p class="dd-sec-empty">No findings in this layer.</p>';
+}
+
 async function toggleDetail(row, runId) {
   // Collapse previously open
   if (_expandedRow && _expandedRow !== row) {
@@ -636,7 +752,21 @@ async function toggleDetail(row, runId) {
     const sections = parseReportSections(md);
 
     // Build the detail HTML
-    let detailHtml = '<div class="dd-detail-actions">' +
+    const _v = ddExtractVerdict(md);
+    let detailHtml = '<div class="dd-hero ' + ddRiskClass(_v.risk) + '">' +
+        '<div class="dd-hero-badge"><span class="dd-hero-risk">' + escText(_v.risk) + '</span>' +
+          '<span class="dd-hero-sub">Risk classification</span></div>' +
+        '<div class="dd-hero-main">' +
+          '<h2>' + escText(entityName) + '</h2>' +
+          (_v.bottom ? '<p class="dd-hero-line">' + escText(_v.bottom) + '</p>' : '') +
+          '<div class="dd-hero-stats">' +
+            (_v.ghost ? '<span class="dd-hs"><b>Ghost</b> ' + escText(_v.ghost) + '</span>' : '') +
+            (_v.grounded ? '<span class="dd-hs"><b>Grounded</b> ' + escText(_v.grounded) + '</span>' : '') +
+            (canonicalId ? '<span class="dd-hs"><b>Case</b> ' + escText(canonicalId.slice(0, 18)) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dd-detail-actions">' +
       '<button class="dd-act-btn primary" data-action="rerun" data-entity="' + escAttr(entityName) + '">' +
         '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
       '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
@@ -682,7 +812,7 @@ async function toggleDetail(row, runId) {
             '<span class="status-icon">' + statusIcon + '</span>' +
             escText(sec.title) +
           '</div>' +
-          '<div class="dd-section-body">' + sec.body + '</div>' +
+          '<div class="dd-section-body">' + ddFmtBody(sec.body) + '</div>' +
         '</div>';
       } else if (sec.type === 'recommendation') {
         detailHtml += '<div class="dd-recommendation">' + sec.html + '</div>';
