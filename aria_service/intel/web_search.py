@@ -244,11 +244,13 @@ TIER_1_DOMAINS = {
     "gov.uk", "nato.int", "un.org", "sipri.org", "wassenaar.org",
     "eur-lex.europa.eu", "ofac.treasury.gov", "opensanctions.org",
     "ted.europa.eu", "sam.gov", "icrc.org", "icc-cpi.int",
+    "defense.gov",  # R-F2248: US DoD official (primary-source contracts feed, R-F2247)
 }
 TIER_2_DOMAINS = {
     "rand.org", "rusi.org", "iiss.org", "csis.org", "cfr.org",
     "chathamhouse.org", "issafrica.org", "carnegieendowment.org",
     "sipri.org", "worldbank.org",
+    "reliefweb.int",  # R-F2248: UN OCHA (conflict/humanitarian feed, R-F2247)
 }
 TIER_3_DOMAINS = {
     "janes.com", "armyrecognition.com", "defensenews.com",
@@ -323,19 +325,26 @@ def _apply_domain_diversity_cap(results: list, max_results: int) -> list:
     return (primary + overflow)[:max_results]
 
 
+def _domain_matches(domain: str, tier_set: set) -> bool:
+    """R-F2248 — SUFFIX (registrable-domain) match, not substring. Substring let a
+    hostile domain that merely CONTAINS a trusted one ('notun.org', 'un.org.evil.com')
+    inherit its credibility tier. Match the domain itself or a genuine subdomain."""
+    return any(domain == d or domain.endswith("." + d) for d in tier_set)
+
+
 def _score_credibility(url: str) -> int:
     domain = _get_domain(url)
     if not domain:
         return 5
-    if any(d in domain for d in DISINFORMATION_DOMAINS):
+    if _domain_matches(domain, DISINFORMATION_DOMAINS):
         return 6  # quarantine tier
-    if any(d in domain for d in TIER_1_DOMAINS):
+    if _domain_matches(domain, TIER_1_DOMAINS):
         return 1
-    if any(d in domain for d in TIER_2_DOMAINS):
+    if _domain_matches(domain, TIER_2_DOMAINS):
         return 2
-    if any(d in domain for d in TIER_3_DOMAINS):
+    if _domain_matches(domain, TIER_3_DOMAINS):
         return 3
-    if any(d in domain for d in TIER_4_DOMAINS):
+    if _domain_matches(domain, TIER_4_DOMAINS):
         return 4
     return 5
 
