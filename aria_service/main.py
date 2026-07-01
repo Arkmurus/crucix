@@ -1810,11 +1810,13 @@ async def lifespan(app: FastAPI):
         ))
 
     # Register self-improvement engine
-    if getattr(app.state, "llm_provider", None) and getattr(app.state.llm_provider, "is_configured", False):
-        asyncio.create_task(_register_agent(
-            "self_improve", "autonomous_self_improve",
-            "Error-ledger analysis → bug detection → auto-fix → auto-deploy (every 2h)",
-        ))
+    # R-F2208: register UNCONDITIONALLY. The loop (below) now re-checks the LLM
+    # per-cycle, so the agent must be known to the registry even if the provider
+    # wasn't configured at the instant lifespan ran (resilience-layer init race).
+    asyncio.create_task(_register_agent(
+        "self_improve", "autonomous_self_improve",
+        "Error-ledger analysis → bug detection → auto-fix → auto-deploy (every 2h)",
+    ))
 
     # Register student loops
     asyncio.create_task(_register_agent(
@@ -2135,7 +2137,12 @@ async def lifespan(app: FastAPI):
 
     # Start autonomous self-improvement loop (every 2 hours)
     self_improve_task = None
-    if getattr(app.state, "llm_provider", None) and getattr(app.state.llm_provider, "is_configured", False):
+    # R-F2208: always START the loop; the LLM guard moved INSIDE (per-cycle).
+    # Previously a boot-time is_configured==False (LLM resilience init race) left
+    # self_improve DARK for the entire process life — heartbeat 32h stale on a 2h
+    # cycle while chat worked fine. The loop now self-heals when the provider
+    # comes up. See R-F2207 (contract monitor) which surfaced this.
+    if True:
         async def _self_improve_loop():
             await asyncio.sleep(600)  # Wait 10 min after startup (staggered from research at 15min)
             while True:
@@ -2145,13 +2152,24 @@ async def lifespan(app: FastAPI):
                     logger.debug("[Self-Improve] engine paused — skipping cycle")
                     await asyncio.sleep(7200)
                     continue
+                # R-F2208: heartbeat EVERY iteration so the registry knows the
+                # LOOP is alive even while it waits for the LLM — distinguishes
+                # "loop dead" (the bug this fixes) from "loop idle, provider down".
+                await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
+                # R-F2208: re-check the provider per-cycle. It may not have been
+                # configured at boot (resilience init race). Self-heal when it
+                # comes up rather than staying dark for the whole process life.
+                _llm_now = getattr(app.state, "llm_provider", None)
+                if not (_llm_now and getattr(_llm_now, "is_configured", False)):
+                    logger.info("[Self-Improve] LLM not configured yet — re-check in 30 min")
+                    await asyncio.sleep(1800)
+                    continue
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
                 _p = set_priority(Priority.BACKGROUND)
                 _t = cost_tracker.set_feature("self_improve")
                 try:
-                    await _tick_heartbeat("self_improve", "Error-ledger analysis → bug detection → auto-fix")
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
-                    result = await self_improve.autonomous_improvement_cycle(getattr(app.state, "llm_provider", None))
+                    result = await self_improve.autonomous_improvement_cycle(_llm_now)
                     await _wire_agent_success(
                         "self_improve",
                         f"Improvement cycle: {result.get('bugs_detected', 0)} bugs, "

@@ -460,18 +460,36 @@ class ContractRegistry:
                     severity="ERROR",
                 ))
             elif status.get("status") == "stale":
-                age = status.get("heartbeat_age_s", 0)
-                # Import threshold from agent_registry (default 300s)
+                age = status.get("heartbeat_age_s", 0) or 0
+                # Import the registry floor (default 300s)
                 try:
                     from .agent_registry import _AGENT_STALE_THRESHOLD_S as _THRESH
                 except ImportError:
                     _THRESH = 300
-                violations.append(ContractViolation(
-                    agent_id=agent_id,
-                    violation_type="stale_heartbeat",
-                    description=f"Agent {agent_id} heartbeat is {age}s old (threshold: {_THRESH}s)",
-                    severity="WARNING" if age < _THRESH * 3 else "ERROR",
-                ))
+                # R-F2207: judge staleness against the agent's OWN declared
+                # cadence, not the flat 300s registry floor. A loop that
+                # legitimately cycles every 2h/6h/24h (self_improve=7200s,
+                # student_reading=21600s, watchlist_rescreen=86400s) is NOT
+                # "stale" at 5 min — flagging it floods the R-F1448 log every
+                # check and MASKS the one agent that is genuinely overdue.
+                # threshold = max(registry floor, cadence * grace). Grace 2.5
+                # tolerates one slow/skipped cycle before flagging.
+                try:
+                    grace = float(os.getenv("ARIA_CONTRACT_STALE_GRACE", "2.5"))
+                except (TypeError, ValueError):
+                    grace = 2.5
+                stale_threshold = max(_THRESH, int(contract.check_interval_s * grace))
+                if age > stale_threshold:
+                    violations.append(ContractViolation(
+                        agent_id=agent_id,
+                        violation_type="stale_heartbeat",
+                        description=(
+                            f"Agent {agent_id} heartbeat is {age}s old "
+                            f"(threshold: {stale_threshold}s, cadence: "
+                            f"{contract.check_interval_s}s)"
+                        ),
+                        severity="WARNING" if age < stale_threshold * 2 else "ERROR",
+                    ))
         except Exception as e:
             logger.debug("[R-F1212] validate_contract registry check failed: %s", e)
 
