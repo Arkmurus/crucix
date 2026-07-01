@@ -62,7 +62,9 @@ async def lookup_entity(
     """
     iso2 = (jurisdiction_iso2 or "").upper().strip()
     if iso2 not in _SUPPORTED_JURISDICTIONS:
-        return None
+        # R-F2261 — no jurisdiction-specific adapter, but GLEIF covers ANY jurisdiction
+        # with structured LEI identity (free API, datacenter-tolerant) — global fallback.
+        return await _gleif_global_fallback(name, iso2, registration_number)
 
     dispatch = {
         "GI": _lookup_gibraltar,
@@ -141,9 +143,32 @@ async def lookup_entity(
         except Exception as _sm:
             logger.debug("registry_adapter self_metrics failed: %s", _sm)
 
+        # R-F2261 — GLEIF global fallback when the jurisdiction adapter found NOTHING:
+        # GLEIF gives structured LEI identity for entities in ANY jurisdiction (free API,
+        # datacenter-tolerant) — fills the "foreign entity, registry returned nothing" gap.
+        if not result:
+            _gleif = await _gleif_global_fallback(name, iso2, registration_number)
+            if _gleif:
+                return _gleif
         return result
     except Exception as exc:
         logger.warning("Registry adapter [%s] failed: %s", iso2, exc)
+        return None
+
+
+async def _gleif_global_fallback(name: str, iso2: str, reg_number: str | None) -> dict | None:
+    """R-F2261 — query GLEIF (global LEI corporate identity) when a national registry
+    adapter has no result, or the jurisdiction has no adapter at all. Best-effort; the
+    returned shape matches lookup_entity's contract. Never raises."""
+    try:
+        from .sources import gleif as _gleif_src
+        res = await _gleif_src.lookup(name, iso2, reg_number)
+        if res:
+            logger.info("Registry adapter [gleif-fallback]: LEI identity for '%s' (%s)",
+                        name, (res.get("profile") or {}).get("jurisdiction", iso2))
+        return res
+    except Exception as _e:  # noqa: BLE001
+        logger.debug("gleif fallback failed: %s", _e)
         return None
 
 

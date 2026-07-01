@@ -670,6 +670,90 @@ class CoderToolbox:
         self._tb._track(fp)
         return self.test(path=test_path, verbose=True, timeout=120)
 
+    # ── read_image — OCR image to text ────────────────────────────────────
+
+    def read_image(self, path: str) -> ToolResult:
+        """Read an image file and extract text from it using OCR.
+
+        Supports PNG, JPG, JPEG, GIF, BMP, WEBP formats.
+        Uses Tesseract OCR (local) with OCR.space and cloud vision fallbacks.
+
+        Args:
+            path: Path to the image file (absolute or relative to working dir).
+
+        Returns:
+            ToolResult with extracted text content.
+        """
+        fp = Path(path)
+        if not fp.is_absolute():
+            fp = self._tb.root / fp
+        fp = fp.resolve()
+        if not fp.exists():
+            return ToolResult(f"File not found: {path}", is_error=True)
+        if not fp.is_file():
+            return ToolResult(f"Not a file: {path}", is_error=True)
+
+        try:
+            image_data = fp.read_bytes()
+            ext = fp.suffix.lower()
+            if ext not in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'):
+                return ToolResult(f"Unsupported image format: {ext}. Supported: PNG, JPG, JPEG, GIF, BMP, WEBP", is_error=True)
+
+            # Try the full OCR pipeline first
+            try:
+                import asyncio
+                from aria_service.intel.ocr import extract_text_from_image
+                result = asyncio.run(extract_text_from_image(
+                    image_data=image_data,
+                    filename=fp.name,
+                    context="ARIA Coder CLI image reading",
+                ))
+                if result and result.get("success") and result.get("text", "").strip():
+                    text = result["text"].strip()
+                    return ToolResult(
+                        f"Extracted text from {fp.name}:\n\n{text}\n\n"
+                        f"(OCR method: {result.get('method', 'unknown')}, "
+                        f"confidence: {result.get('confidence', 'N/A')})"
+                    )
+            except Exception as e:
+                print(f"Full OCR pipeline failed, trying fallback: {e}")
+
+            # Fallback: try pytesseract directly
+            try:
+                import pytesseract
+                from PIL import Image
+                import io
+                # Set tesseract path for Windows
+                import sys
+                if sys.platform == 'win32':
+                    tesseract_paths = [
+                        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                    ]
+                    for tp in tesseract_paths:
+                        if Path(tp).exists():
+                            pytesseract.pytesseract.tesseract_cmd = tp
+                            break
+                img = Image.open(io.BytesIO(image_data))
+                text = pytesseract.image_to_string(img)
+                if text.strip():
+                    return ToolResult(
+                        f"Extracted text from {fp.name} (pytesseract fallback):\n\n{text.strip()}"
+                    )
+            except Exception as e:
+                print(f"pytesseract fallback failed: {e}")
+
+            return ToolResult(
+                f"Could not extract text from {fp.name}. "
+                f"File size: {len(image_data)} bytes, format: {ext}. "
+                f"Tesseract OCR may not be installed. "
+                f"Install with: winget install TesseractOCR (Windows) or "
+                f"apt install tesseract-ocr (Linux)",
+                is_error=True
+            )
+        except Exception as e:
+            return ToolResult(f"Error reading image {path}: {e}", is_error=True)
+
     # ── fetch_url with standalone JS rendering ─────────────────────────────
 
     def fetch_url(self, url: str, max_chars: int = 10000) -> ToolResult:
@@ -751,6 +835,23 @@ class CoderToolbox:
 # CoderToolbox, which are dispatched by the agent loop.
 
 CODER_TOOL_SCHEMAS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_image",
+            "description": "Read an image file and extract text from it using OCR. Supports PNG, JPG, JPEG, GIF, BMP, WEBP. Uses Tesseract OCR with cloud vision fallbacks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the image file (absolute or relative to working dir)"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
