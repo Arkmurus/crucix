@@ -312,24 +312,63 @@
       margin-bottom: 64px;
     }
 
-    .lp-hero-metrics {
+
+
+    /* ── STATS BAR (centralised, standalone) ──────────────────────── */
+    .lp-stats {
+      padding: 0;
+      background: var(--sc-card);
+      border-bottom: 1px solid var(--sc-border);
+      position: relative;
+    }
+
+    .lp-stats::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 80px; height: 3px;
+      background: linear-gradient(90deg, var(--sc-prime), #0066FF);
+      border-radius: 0 0 3px 3px;
+    }
+
+    .lp-stats-grid {
       display: flex;
-      gap: 48px;
-      padding-top: 48px;
-      border-top: 1px solid var(--sc-border);
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      padding: 40px 0;
     }
 
-    .lp-metric-n {
-      font-size: 32px;
-      font-weight: 700;
+    .lp-stat {
+      flex: 1;
+      text-align: center;
+      padding: 0 24px;
+    }
+
+    .lp-stat-n {
+      font-size: 38px;
+      font-weight: 800;
       color: var(--sc-prime);
+      line-height: 1.1;
+      margin-bottom: 6px;
+      letter-spacing: -1px;
     }
 
-    .lp-metric-l {
-      font-size: 12px;
+    .lp-stat-l {
+      font-size: 13px;
       color: var(--sc-muted);
-      margin-top: 4px;
-      letter-spacing: 0.5px;
+      font-weight: 500;
+      line-height: 1.4;
+      max-width: 160px;
+      margin: 0 auto;
+    }
+
+    .lp-stat-divider {
+      width: 1px;
+      height: 48px;
+      background: var(--sc-border);
+      flex-shrink: 0;
     }
 
     /* ── TRUST BAR ──────────────────────────────────────────────── */
@@ -978,7 +1017,10 @@
       .lp-pricing-grid { grid-template-columns: 1fr; }
       .lp-cert-grid { grid-template-columns: 1fr 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr 1fr; }
-      .lp-hero-metrics { flex-wrap: wrap; gap: 24px; }
+      .lp-stats-grid { flex-wrap: wrap; gap: 24px 0; padding: 32px 0; }
+      .lp-stat { flex: 0 0 50%; }
+      .lp-stat-divider { display: none; }
+      .lp-stat-l { max-width: 180px; }
     }
 
     @media (max-width: 600px) {
@@ -988,6 +1030,9 @@
       .lp-cert-grid { grid-template-columns: 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr; }
       .lp-hero { padding-top: 80px; }
+      .lp-stats-grid { flex-direction: column; gap: 20px; padding: 28px 0; }
+      .lp-stat { flex: 1; }
+      .lp-stat-n { font-size: 32px; }
     }
   </style>
 </head>
@@ -1038,26 +1083,36 @@
       <a href="#contact" class="lp-btn lp-btn-prime lp-btn-lg">Request access</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
     </div>
-    <div class="lp-hero-metrics">
-      <div>
-        <div class="lp-metric-n">87K+</div>
-        <div class="lp-metric-l">Verified intelligence facts</div>
+
+  </div>
+</section>
+
+<!-- ══ STATS BAR ══ -->
+<div class="lp-stats">
+  <div class="lp-container">
+    <div class="lp-stats-grid">
+      <div class="lp-stat">
+        <div class="lp-stat-n">87K+</div>
+        <div class="lp-stat-l">Verified intelligence facts</div>
       </div>
-      <div>
-        <div class="lp-metric-n">80+</div>
-        <div class="lp-metric-l">Countries covered</div>
+      <div class="lp-stat-divider"></div>
+      <div class="lp-stat">
+        <div class="lp-stat-n">80+</div>
+        <div class="lp-stat-l">Countries covered</div>
       </div>
-      <div>
-        <div class="lp-metric-n">10</div>
-        <div class="lp-metric-l">DD pipeline layers</div>
+      <div class="lp-stat-divider"></div>
+      <div class="lp-stat">
+        <div class="lp-stat-n">10</div>
+        <div class="lp-stat-l">DD pipeline layers</div>
       </div>
-      <div>
-        <div class="lp-metric-n">24/7</div>
-        <div class="lp-metric-l">Autonomous watchlist monitoring</div>
+      <div class="lp-stat-divider"></div>
+      <div class="lp-stat">
+        <div class="lp-stat-n">24/7</div>
+        <div class="lp-stat-l">Autonomous watchlist monitoring</div>
       </div>
     </div>
   </div>
-</section>
+</div>
 
 <!-- ══ TRUST BAR ══ -->
 <div class="lp-trust">
