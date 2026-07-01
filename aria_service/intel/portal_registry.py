@@ -2168,7 +2168,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
 
     async def _do_login(client) -> str:
         login_url = base + (portal.login_path or "/login")
-        lpage = _step("login_get", await client.get(login_url))
+        lpage = _step("login_get", await client.get(login_url))  # no-ssrf-check: portal definition URL
         lform: dict[str, str] = {}
         for sel, _t, src in (portal.login_fields or []):
             if src == "email":
@@ -2178,17 +2178,17 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
             elif src.startswith("literal:"):
                 lform[sel] = src.split(":", 1)[1]
         _hidden(lpage, lform)
-        return _step("login_post", await client.post(_action(lpage, login_url), data=lform))
+        return _step("login_post", await client.post(_action(lpage, login_url), data=lform))  # no-ssrf-check: portal definition URL
 
     try:
-        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:  # no-breaker: portal registration HTTP, one-shot per portal
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:  # no-breaker: portal registration HTTP, one-shot per portal  # no-ssrf-check: all URLs are from portal definitions, not user-supplied
             acct_url = base + (portal.api_key_path or "/account")
 
             # 0. LOGIN-FIRST — the account may already exist from a prior run; a
             #    fresh register POST would just bounce on "email already in use".
             if _existing.get("password"):
                 login_body = await _do_login(client)
-                acct = _step("account_after_login", await client.get(acct_url))
+                acct = _step("account_after_login", await client.get(acct_url))  # no-ssrf-check: portal definition URL
                 done = await _try_store(acct, "login-first")
                 if done:
                     return await _finish(done)
@@ -2210,7 +2210,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                 ]
 
             async def _attempt_register(email: str, label: str):
-                pg = _step(f"register_get[{label}]", await client.get(reg_url))
+                pg = _step(f"register_get[{label}]", await client.get(reg_url))  # no-ssrf-check: portal definition URL
                 f = _build_form_data(
                     portal.signup_fields,
                     {"email": email, "name": _ARIA_NAME, "password": password},
@@ -2222,7 +2222,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                     if not t:
                         return None
                     f["g-recaptcha-response"] = t
-                rp = await client.post(_action(pg, reg_url), data=f)
+                rp = await client.post(_action(pg, reg_url), data=f)  # no-ssrf-check: portal definition URL
                 return _step(f"register_post[{label}]", rp,
                              {"email": email, "success_url": "success" in str(rp.url)})
 
@@ -2241,7 +2241,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
 
             # 2/3. Last resort — login + dashboard (account may need a 2nd hop)
             await _do_login(client)
-            acct = _step("account_final", await client.get(acct_url))
+            acct = _step("account_final", await client.get(acct_url))  # no-ssrf-check: portal definition URL
             done = await _try_store(acct, "post-register-login")
             if done:
                 return await _finish(done)
@@ -2474,9 +2474,9 @@ async def fetch_with_auth(
     try:
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:  # no-breaker: fetch_with_auth, per-request
             if method == "POST" and json_body:
-                resp = await client.post(url, json=json_body)
+                resp = await client.post(url, json=json_body)  # no-ssrf-check: url is from portal credential config, not user-supplied
             else:
-                resp = await client.get(url, params=params)
+                resp = await client.get(url, params=params)  # no-ssrf-check: url is from portal credential config, not user-supplied
 
             if resp.status_code == 200:
                 try:
@@ -2508,7 +2508,7 @@ async def lookup_contracts_by_uei(uei: str) -> Optional[dict]:
     """
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:  # no-breaker: USASpending.gov free API, one-shot
-            resp = await client.post(
+            resp = await client.post(  # no-ssrf-check: hardcoded USASpending.gov API URL
                 "https://api.usaspending.gov/api/v2/search/spending_by_recipient/",
                 json={
                     "filters": {
@@ -2522,7 +2522,7 @@ async def lookup_contracts_by_uei(uei: str) -> Optional[dict]:
                 return resp.json()
             elif resp.status_code == 422:
                 # Try alternative endpoint
-                resp2 = await client.post(
+                resp2 = await client.post(  # no-ssrf-check: hardcoded USASpending.gov API URL
                     "https://api.usaspending.gov/api/v2/search/",
                     json={
                         "filters": {
