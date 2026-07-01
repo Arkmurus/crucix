@@ -1928,7 +1928,7 @@ ${strat?.topPriority ? `
   and regulatory requirements.
 </div>
 </div>
-<div class="footer">Powered by Imaria Crucix Intelligence Platform &nbsp;·&nbsp; imaria.io</div>
+<div class="footer">Powered by Arkmurus Crucix Intelligence Platform &nbsp;·&nbsp; arkmurus.com</div>
 </body>
 </html>`;
 
