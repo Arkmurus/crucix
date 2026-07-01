@@ -76,3 +76,36 @@ async def test_rf2216_autosuspend_fires_end_to_end(monkeypatch):
     assert res.get("sources_checked") == 1
     # the dead source is now auto-suspended (was impossible pre-fix)
     assert "DeadSrc" in (res.get("suspended_now") or []) or "DeadSrc" in (res.get("currently_suspended") or [])
+
+
+# ── R-F2223 — single-read health + backgrounded endpoint (never-completes fix) ─
+async def test_rf2223_source_health_single_read(monkeypatch):
+    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False}) for _ in range(5)]))
+    fails, ema = await m._source_health("dead")
+    assert fails >= 3 and ema < m._RELIABILITY_SUSPEND_THRESHOLD
+
+    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": True}) for _ in range(5)]))
+    fails, ema = await m._source_health("live")
+    assert fails == 0 and ema > 0.8
+
+    monkeypatch.setattr(rss, "lrange", _areturn([json.dumps({"ok": False})]))   # thin
+    fails, ema = await m._source_health("new")
+    assert ema == 0.5
+
+
+async def test_rf2223_endpoint_backgrounds_sweep(monkeypatch):
+    import asyncio
+    from aria_service.routes import aria as A
+    ran = {"done": False}
+
+    async def _fake_sweep():
+        ran["done"] = True
+        return {"ok": True, "sources_checked": 1}
+    monkeypatch.setattr(m, "run_daily_ping", _fake_sweep)
+
+    out = await A.sources_uptime_run_ep()
+    # endpoint returns IMMEDIATELY (does not await the full sweep) — the fix for the
+    # 502/000 timeout on the synchronous 200-source sweep.
+    assert out.get("ok") is True and out.get("started") is True
+    await asyncio.sleep(0.05)          # let the background task run
+    assert ran["done"] is True

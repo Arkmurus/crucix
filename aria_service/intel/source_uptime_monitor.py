@@ -218,6 +218,43 @@ async def _reliability_ema(source_name: str) -> float:
     return round(ema if ema is not None else 0.5, 3)
 
 
+async def _source_health(source_name: str) -> tuple[int, float]:
+    """R-F2223 — read a source's ping history ONCE and derive BOTH the consecutive
+    failure count AND the reliability EMA. Pre-fix the sweep called
+    _consecutive_failures + _reliability_ema separately (2 lrange reads/source →
+    ~400 sequential state_store ops over 200 sources, on top of the 200 record
+    writes) — that serialized the sweep past the edge/cron window so it never
+    completed (last_run stayed null). One read halves the per-source read I/O.
+    """
+    import json
+    try:
+        from . import redis_store as rs
+        raw = await rs.lrange(_K_PING_HISTORY.format(src=source_name[:100]), 0, 30)
+    except Exception:
+        return 0, 0.5
+    oks: list[bool] = []
+    for r in raw:
+        try:
+            oks.append(bool(json.loads(r).get("ok")))
+        except Exception:
+            continue
+    # consecutive failures (history is newest-first; stop at first ok)
+    fails = 0
+    for ok in oks:
+        if ok:
+            break
+        fails += 1
+    # reliability EMA (neutral 0.5 on thin history — never suspend on thin data)
+    if len(oks) < 3:
+        return fails, 0.5
+    alpha = 0.4
+    ema: float | None = None
+    for ok in reversed(oks):
+        v = 1.0 if ok else 0.0
+        ema = v if ema is None else (alpha * v + (1.0 - alpha) * ema)
+    return fails, round(ema if ema is not None else 0.5, 3)
+
+
 async def _get_suspended() -> set[str]:
     try:
         from . import redis_store as rs
@@ -310,11 +347,10 @@ async def run_daily_ping() -> dict:
     recovered: list[str] = []
     for src, ping in zip(sources, ping_results):
         name = src.get("name") or ""
-        # R-F2216 — derive reliability from the real ping history (now including the
-        # ping just recorded above) instead of the hardcoded 0.5 that made the
-        # auto-suspend gate dead. Neutral 0.5 on thin history (never suspends).
-        reliability = await _reliability_ema(name)
-        fails = await _consecutive_failures(name)
+        # R-F2216/R-F2223 — derive BOTH signals from ONE history read (including the
+        # ping just recorded above). reliability is a real EMA (was hardcoded 0.5,
+        # which made the <0.3 auto-suspend gate dead); neutral 0.5 on thin history.
+        fails, reliability = await _source_health(name)
 
         should_suspend = (
             reliability < _RELIABILITY_SUSPEND_THRESHOLD

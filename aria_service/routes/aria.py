@@ -23338,15 +23338,27 @@ async def sources_uptime_ep():
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+_UPTIME_SWEEP_TASKS: set = set()
+
+
 @router.post("/sources/uptime/run")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def sources_uptime_run_ep():
-    """Manually trigger an uptime ping sweep (outside the daily cron)."""
-    try:
-        from ..intel import source_uptime_monitor as _sum
-        return await _sum.run_daily_ping()
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    """Manually trigger an uptime ping sweep (outside the daily cron).
+
+    R-F2223 — the sweep pings ~200 sources + records history; run synchronously it
+    exceeded the edge-proxy limit (502/000 at ~122s) and never returned a result.
+    Kick it off as a background task and return immediately; poll
+    GET /api/aria/sources/uptime for the result once it lands (last_run populated).
+    A module-level set holds the task ref so it is not GC'd mid-run.
+    """
+    import asyncio as _aio
+    from ..intel import source_uptime_monitor as _sum
+    _t = _aio.create_task(_sum.run_daily_ping())
+    _UPTIME_SWEEP_TASKS.add(_t)
+    _t.add_done_callback(_UPTIME_SWEEP_TASKS.discard)
+    return {"ok": True, "started": True,
+            "note": "uptime sweep running in background; poll GET /api/aria/sources/uptime for results"}
 
 
 @router.post("/sources/uptime/suspend")
