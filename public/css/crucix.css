@@ -606,7 +606,7 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
       content: "Page " counter(page) " of " counter(pages);
       font-size: 9pt; color: #555;
     }
-    @top-right { content: "ARKMURUS — Confidential"; font-size: 8.5pt; color: #555; }
+    @top-right { content: "ARIA — Confidential"; font-size: 8.5pt; color: #555; }
   }
 }
 

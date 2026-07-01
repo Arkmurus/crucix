@@ -234,7 +234,7 @@ const Sidebar = {
     <aside id="app-sidebar">
       <div class="sidebar-brand">
         <div class="sidebar-logo-mark"></div>
-        <span class="sidebar-brand-name">ARKMURUS</span>
+        <span class="sidebar-brand-name">ARIA</span>
         <button class="sidebar-collapse-btn" data-sidebar-toggle title="Collapse menu" aria-label="Collapse menu">
           <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
         </button>
@@ -274,7 +274,7 @@ const Sidebar = {
       <button class="header-toggle" id="sidebar-toggle" data-sidebar-toggle title="Open menu" aria-label="Open navigation menu">
         <i class="bi bi-list" aria-hidden="true"></i>
       </button>
-      <span class="header-brand d-none d-md-block">ARKMURUS INTELLIGENCE</span>
+      <span class="header-brand d-none d-md-block">ARIA INTELLIGENCE</span>
       <div class="header-spacer"></div>
       <div class="header-actions">
         <!-- R-F51 watchlist alerts bell -->
