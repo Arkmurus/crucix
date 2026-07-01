@@ -24,6 +24,12 @@ class TestR_F2231_Selection:
         ("aria_service/autonomous/gap_detector.py", "autonomy-engineer"),
         ("aria_service/intel/reranker.py", "ai-engineer"),
         ("aria_service/intel/web_search.py", "search-specialist"),
+        ("lib/auth/roles.mjs", "security-auditor"),           # R-F2236
+        ("server.mjs requireAdmin middleware", "security-auditor"),
+        ("aria_service/intel/state_store.py", "incident-responder"),
+        ("aria_service/intel/self_restart.py", "incident-responder"),
+        ("aria_service/intel/load_governor.py", "autonomy-engineer"),  # autonomy owns it (§21)
+        (".github/workflows/deploy-fly.yml", "github-actions-expert"),
         ("aria_service/routes/aria.py", "python-pro"),        # default fallback
         ("something_totally_unmatched", "python-pro"),
         ("", "python-pro"),
@@ -77,7 +83,9 @@ class TestR_F2232_Catalog:
         from aria_service.autonomous.coder_personas import persona_catalog
         cat = persona_catalog()
         for name in ("sanctions-auditor", "dd-reviewer", "wa-debugger",
-                     "autonomy-engineer", "ai-engineer", "search-specialist", "python-pro"):
+                     "autonomy-engineer", "ai-engineer", "search-specialist",
+                     "security-auditor", "incident-responder", "github-actions-expert",
+                     "python-pro"):
             assert name in cat, f"{name} missing from catalog"
         assert "SPECIALIST PERSONAS" in cat
         assert "INSUFFICIENT_DATA" in cat  # a real sanctions rule carried through

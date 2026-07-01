@@ -57,6 +57,32 @@ _PERSONAS: list[tuple[str, tuple[str, ...], str]] = [
      "search API). Offload rerank/encode off the event loop. A backend error must "
      "FAIL LOUD (return [] AND wire a capability_gap) — never let 'error' look like "
      "'no results'. Don't block on the slowest backend."),
+    ("security-auditor",
+     ("roles.mjs", "auth", "proxypin", "requireadmin", "requirerole", "middleware",
+      "security.py", "session", "signin"),
+     "Security-sensitive code — access control is ARIA's dominant risk. Reads/writes "
+     "fail CLOSED and PIN the caller's identity: never use a client-supplied "
+     "user_id/id verbatim (IDOR / cross-tenant leak). No secrets/tokens/keys "
+     "hardcoded (env only, never logged). SSRF-guard any fetched URL. CORS is an env "
+     "allowlist, never '*' with credentials. A false 'clean'/'authorized' is a "
+     "security failure."),
+    ("incident-responder",
+     ("state_store", "self_restart", "wedge", "liveness", "deadlock",
+      "continuous_profiler", "wal_", "boot_"),
+     "Incident-prone infra on the SINGLE-PROCESS brain. ROOT CAUSE not band-aid "
+     "(§1): never add a timeout/retry/restart to hide a stall — fix the class. Do "
+     "NOT add a per-request hot-key state_store read-modify-write (the R-F2157 "
+     "self-DOS). Boot is ~10min synchronous — code must not assume a slow boot is a "
+     "crash. Every failure branch wires to the brain (§21a) so the incident is "
+     "visible, not silent."),
+    ("github-actions-expert",
+     (".github", "/workflows/", "deploy-fly", "docker-publish", "test-aria"),
+     "CI/CD workflow (.github/workflows). Pin actions to a full commit SHA — never "
+     "@main/@latest (supply-chain). Secrets via secrets.* → env, NEVER logged; "
+     "FLY_API_TOKEN must not leak to fork PRs. Least-privilege permissions "
+     "(contents: read by default; id-token: write only for OIDC). Deploy workflows "
+     "need a concurrency group (lease contention). Preserve the push-guard/"
+     "build_rev-verify deploy pipeline — never a bare flyctl deploy."),
 ]
 
 _DEFAULT = (

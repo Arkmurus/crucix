@@ -11,7 +11,8 @@ from aria_cli.prompt import build_system_prompt
 from aria_service.autonomous.coder_personas import persona_catalog
 
 _ALL = ("sanctions-auditor", "dd-reviewer", "wa-debugger", "autonomy-engineer",
-        "ai-engineer", "search-specialist", "python-pro")
+        "ai-engineer", "search-specialist", "security-auditor",
+        "incident-responder", "github-actions-expert", "python-pro")
 
 
 def test_catalog_lists_all_personas():
