@@ -656,6 +656,8 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
 
 # ── Backend: GDELT Project global news (free API, no key, datacenter-TOLERANT) ──
 _GDELT_LAST_CALL: float = 0.0  # R-F2257: respect GDELT's ~1-request-per-5s rate limit
+_GDELT_CACHE: dict = {}  # R-F2272: query(lower) -> (monotonic_ts, results) — §15 pay-once
+_GDELT_CACHE_TTL: float = 1800.0  # 30 min — so the rate-limited leg reliably contributes
 
 
 async def _search_gdelt(query: str, max_results: int = 10) -> list[SearchResult]:
@@ -671,14 +673,22 @@ async def _search_gdelt(query: str, max_results: int = 10) -> list[SearchResult]
     q = (query or "").strip()
     if len(q) < 3:  # GDELT rejects ultra-short queries
         return []
+    _ck = q.lower()
+    # R-F2272 — §15 pay-once: GDELT returns real coverage (verified: 200 + 10 articles for a
+    # single query) but rate-limits to 1/5s. A DD fires many queries; without this cache its
+    # articles are lost to the throttle on every query after the first. Serve the cache so the
+    # promised leg reliably lands in the results instead of silently returning [].
+    _cached = _GDELT_CACHE.get(_ck)
+    if _cached and (time.monotonic() - _cached[0] < _GDELT_CACHE_TTL):
+        return _cached[1][:max_results]
     from .circuit_breaker import get_breaker as _get_cb_g
     _cb = _get_cb_g("search:gdelt", failure_threshold=5, cooldown_seconds=300)
     if _cb.is_open():
-        return []
-    # Respect the 1-req/5s limit — skip (don't hammer into a 429) if called too soon.
+        return _cached[1][:max_results] if _cached else []
+    # Respect the 1-req/5s limit — but return any (stale) cache rather than nothing.
     _now = time.monotonic()
     if _now - _GDELT_LAST_CALL < 5.0:
-        return []
+        return _cached[1][:max_results] if _cached else []
     _GDELT_LAST_CALL = _now
     encoded = urllib.parse.quote(f'"{q}"' if " " in q else q)  # phrase-match the entity
     url = (f"https://api.gdeltproject.org/api/v2/doc/doc?query={encoded}"
@@ -711,6 +721,8 @@ async def _search_gdelt(query: str, max_results: int = 10) -> list[SearchResult]
                     credibility_tier=_score_credibility(link),
                 ))
             _cb.record_success()
+            if results:  # R-F2272 — cache a real hit so the throttle can serve it later
+                _GDELT_CACHE[_ck] = (time.monotonic(), results)
             logger.debug("GDELT: %d results for %r", len(results), q[:60])
             return results
     except Exception as e:
