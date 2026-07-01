@@ -30,13 +30,6 @@
       bottom: 40px; left: 20px; pointer-events: none;
     }
     .auth-left-content { position: relative; z-index: 1; max-width: 420px; }
-    .auth-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
-    .auth-logo-mark {
-      width: 36px; height: 36px; border-radius: 9px;
-      background: linear-gradient(135deg, #913BFF, #0066FF);
-      box-shadow: 0 4px 16px rgba(145,59,255,.3); flex-shrink: 0;
-    }
-    .auth-logo span { font-size: 16px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: var(--sc-heading); }
     .auth-tagline { font-size: 32px; font-weight: 700; line-height: 1.3; color: var(--sc-heading); margin-bottom: 16px; }
     .auth-desc { font-size: 14px; color: var(--sc-text); line-height: 1.75; }
     .auth-note { margin-top: 18px; padding: 14px 16px; background: #fff7ed; border-left: 3px solid #f5b500; border-radius: 4px; font-size: 13px; color: var(--sc-text); line-height: 1.6; }
@@ -45,13 +38,8 @@
       padding: 48px 5%; min-height: 100vh;
     }
     .auth-form-wrap { width: 100%; max-width: 420px; }
-    .auth-mobile-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
-    @media(min-width:900px){ .auth-mobile-logo { display: none; } }
-    .auth-mobile-logo .auth-logo-mark-sm {
-      width: 28px; height: 28px; border-radius: 7px;
-      background: linear-gradient(135deg, #913BFF, #0066FF);
-    }
-    .auth-mobile-logo span { font-size: 15px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--sc-heading); }
+    .auth-back-link { display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--sc-muted);text-decoration:none;margin-bottom:28px;transition:color 0.2s; }
+    .auth-back-link:hover { color:var(--sc-prime); }
     .auth-title { font-size: 28px; font-weight: 700; color: var(--sc-heading); margin-bottom: 6px; }
     .auth-sub { font-size: 14px; color: var(--sc-muted); margin-bottom: 28px; }
     .auth-link { color: var(--sc-prime); font-size: 13px; font-weight: 500; }
@@ -72,10 +60,6 @@
     <div class="auth-glow-1"></div>
     <div class="auth-glow-2"></div>
     <div class="auth-left-content">
-      <div class="auth-logo">
-        <div class="auth-logo-mark"></div>
-        <span>ARIA</span>
-      </div>
       <h2 class="auth-tagline">Locked-Out Recovery</h2>
       <p class="auth-desc">
         Use this flow when you cannot log in and the email-based password reset
@@ -92,19 +76,18 @@
 
   <div class="auth-right">
     <div class="auth-form-wrap">
-
-      <div class="auth-mobile-logo">
-        <div class="auth-logo-mark-sm"></div>
-        <span>ARIA</span>
-      </div>
-
       <div id="error-msg" role="alert" aria-live="polite" class="sc-alert sc-alert-danger" style="display:none"></div>
       <div id="success-msg" role="status" aria-live="polite" class="sc-alert sc-alert-success" style="display:none"></div>
 
       <form id="recovery-form">
         <div id="step-form">
           <div class="step-icon" aria-hidden="true">🔓</div>
-          <h2 class="auth-title">Recovery Reset</h2>
+                <a href="/" class="auth-back-link" aria-label="Back to ARIA home">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to ARIA
+      </a>
+
+      <h2 class="auth-title">Recovery Reset</h2>
           <p class="auth-sub">Use your server-side recovery token to set a new password</p>
 
           <div class="sc-field">

@@ -33,13 +33,6 @@
       bottom: 40px; left: 20px; pointer-events: none;
     }
     .auth-left-content { position: relative; z-index: 1; max-width: 420px; }
-    .auth-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
-    .auth-logo-mark {
-      width: 36px; height: 36px; border-radius: 9px;
-      background: linear-gradient(135deg, #913BFF, #0066FF);
-      box-shadow: 0 4px 16px rgba(145,59,255,.3); flex-shrink: 0;
-    }
-    .auth-logo span { font-size: 16px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: var(--sc-heading); }
     .auth-tagline { font-size: 36px; font-weight: 700; line-height: 1.25; color: var(--sc-heading); margin-bottom: 18px; }
     .auth-tagline span {
       background: linear-gradient(90deg, #913BFF, #0066FF);
@@ -60,14 +53,8 @@
       padding: 48px 5%; min-height: 100vh;
     }
     .auth-form-wrap { width: 100%; max-width: 420px; }
-    .auth-mobile-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
-    @media(min-width:900px){ .auth-mobile-logo { display: none; } }
-    .auth-mobile-logo .auth-logo-mark-sm {
-      width: 28px; height: 28px; border-radius: 7px;
-      background: linear-gradient(135deg, #913BFF, #0066FF);
-      box-shadow: 0 2px 10px rgba(145,59,255,.3);
-    }
-    .auth-mobile-logo span { font-size: 15px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--sc-heading); }
+    .auth-back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--sc-muted); text-decoration: none; margin-bottom: 28px; transition: color 0.2s; }
+    .auth-back-link:hover { color: var(--sc-prime); }
     .auth-title { font-size: 30px; font-weight: 700; color: var(--sc-heading); margin-bottom: 6px; }
     .auth-sub { font-size: 14px; color: var(--sc-muted); margin-bottom: 30px; }
     .auth-link { color: var(--sc-prime); font-size: 13px; font-weight: 500; text-decoration: none; }
@@ -84,10 +71,6 @@
     <div class="auth-glow-1"></div>
     <div class="auth-glow-2"></div>
     <div class="auth-left-content">
-      <div class="auth-logo">
-        <div class="auth-logo-mark"></div>
-        <span>ARIA</span>
-      </div>
       <h2 class="auth-tagline">Defense Intelligence.<br><span>Precision. Edge.</span></h2>
       <p class="auth-desc">Real-time geopolitical intelligence, procurement opportunities and compliance screening — purpose-built for defense and security markets.</p>
       <div class="auth-features">
@@ -100,10 +83,10 @@
 
   <div class="auth-right">
     <div class="auth-form-wrap">
-      <div class="auth-mobile-logo">
-        <div class="auth-logo-mark-sm"></div>
-        <span>ARIA</span>
-      </div>
+<a href="/" class="auth-back-link" aria-label="Back to ARIA home">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to ARIA
+      </a>
 
       <h2 class="auth-title">Welcome back</h2>
       <p class="auth-sub">Sign in to your intelligence platform</p>
