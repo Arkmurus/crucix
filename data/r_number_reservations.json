@@ -16459,9 +16459,10 @@
       "title": "rag_store credibility-aware ranking: apply credibility_tier as bounded score multiplier (env-gated)",
       "claimed_at": "2026-07-01T07:06:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a19a7244",
+      "notes": null,
+      "shipped_at": "2026-07-01T09:17:11Z"
     },
     {
       "r_number": "R-F2217",
@@ -16528,9 +16529,10 @@
       "title": "uptime sweep completion: background /run endpoint + single-read ping history (halve state_store I/O)",
       "claimed_at": "2026-07-01T08:34:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bc8bae53",
+      "notes": null,
+      "shipped_at": "2026-07-01T09:17:11Z"
     },
     {
       "r_number": "R-F2224",
@@ -16547,9 +16549,10 @@
       "title": "uptime sweep O(1) state I/O: single running-state blob (ema/fails) read-once/write-once, drop per-source history reads/writes",
       "claimed_at": "2026-07-01T09:01:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "93ee42e7",
+      "notes": null,
+      "shipped_at": "2026-07-01T09:17:11Z"
     },
     {
       "r_number": "R-F2226",
