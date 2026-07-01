@@ -7,6 +7,38 @@
   
   <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    /* Python-side source table — card-style rows with status badges */
+    .pysrc-row td { padding: 10px 14px !important; vertical-align: middle; border-bottom: 1px solid var(--sc-border); }
+    .pysrc-row:last-child td { border-bottom: none; }
+    .pysrc-row:hover td { background: rgba(124,58,237,0.03); }
+    .pysrc-name { font-size: 13px; color: var(--sc-text); white-space: nowrap; }
+    .pysrc-time { font-size: 12px; color: var(--sc-muted); white-space: nowrap; }
+    .pysrc-err { font-size: 12px; color: var(--sc-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pysrc-err-icon { color: #dc2626; margin-right: 4px; font-size: 11px; }
+    .pysrc-susp { font-size: 12px; text-align: center; }
+
+    /* Status badges */
+    .pysrc-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.3px; }
+    .pysrc-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .pysrc-badge-ok { background: rgba(22,163,74,0.1); color: #16a34a; }
+    .pysrc-badge-ok::before { background: #16a34a; }
+    .pysrc-badge-err { background: rgba(220,38,38,0.1); color: #dc2626; }
+    .pysrc-badge-err::before { background: #dc2626; }
+    .pysrc-badge-warn { background: rgba(234,88,12,0.1); color: #ea580c; }
+    .pysrc-badge-warn::before { background: #ea580c; }
+    .pysrc-badge-susp { background: rgba(124,58,237,0.1); color: #7c3aed; }
+    .pysrc-badge-susp::before { background: #7c3aed; }
+
+    /* Summary stat chips */
+    .pysrc-stat { display: inline-flex; align-items: center; gap: 6px; }
+    .pysrc-stat-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .pysrc-stat-n { font-size: 16px; font-weight: 700; color: var(--sc-text); line-height: 1; }
+    .pysrc-stat-l { font-size: 11px; color: var(--sc-muted); }
+
+    /* Summary row background */
+    .pysrc-summary td { background: var(--sc-bg) !important; border-bottom: 2px solid var(--sc-border-strong); }
+  </style>
 </head>
 <body>
 <div id="sidebar-placeholder"></div>
@@ -171,6 +203,22 @@
 Auth.requireAuth();
 Sidebar.init('sources');
 
+// Helper: escape HTML entities
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Helper: format ISO date to readable
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+  } catch(e) { return iso; }
+}
+
 async function loadSources() {
   const data = await API.get('/api/source-health');
   if (!data) return;
@@ -186,27 +234,26 @@ async function loadSources() {
   document.getElementById('src-body').innerHTML = sources.map(s => {
     const isOk  = s.lastStatus === 'ok';
     const isErr = s.lastStatus === 'error';
-    const dotCls = isOk ? 'ok' : isErr ? 'error' : 'warn';
+    const isWarn = !isOk && !isErr;
+
+    // Status badge
+    let badgeClass = 'pysrc-badge-ok';
+    let badgeLabel = 'Healthy';
+    if (isErr) { badgeClass = 'pysrc-badge-err'; badgeLabel = 'Error'; }
+    else if (isWarn) { badgeClass = 'pysrc-badge-warn'; badgeLabel = 'Degraded'; }
+
     const reliColor = s.reliability === null ? '#9b968c'
                     : s.reliability >= 80   ? '#16a34a'
                     : s.reliability >= 50   ? '#ea580c' : '#dc2626';
-    return `<tr>
-      <td><strong>${escHtml(s.name || '')}</strong></td>
-      <td>
-        <span class="status-dot ${dotCls}" style="margin-right:6px;display:inline-block;
-          width:7px;height:7px;border-radius:50%;background:${isOk?'#16a34a':isErr?'#dc2626':'#ea580c'};vertical-align:middle"></span>
-        <span style="font-size:12px;text-transform:capitalize">${escHtml(s.lastStatus || '—')}</span>
-      </td>
-      <td style="font-size:12px;font-weight:700;color:${reliColor}">
-        ${s.reliability !== null ? s.reliability + '%' : '—'}
-      </td>
-      <td style="font-size:12px;color:var(--sc-muted)">
-        ${s.lastMs ? s.lastMs + 'ms' : '—'}
-      </td>
-      <td style="font-size:12px;color:var(--sc-muted)">
-        ${s.ok || 0}ok / ${s.fail || 0}fail
-      </td>
-    </tr>`;
+
+    return '<tr class="pysrc-row">' +
+      '<td class="pysrc-name"><strong>' + escHtml(s.name || '') + '</strong></td>' +
+      '<td><span class="pysrc-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
+      '<td><span style="font-size:13px;font-weight:600;color:' + reliColor + '">' +
+        (s.reliability !== null ? s.reliability + '%' : '—') + '</span></td>' +
+      '<td class="pysrc-time">' + (s.lastMs ? s.lastMs + 'ms' : '—') + '</td>' +
+      '<td class="pysrc-time">' + (s.ok || 0) + 'ok / ' + (s.fail || 0) + 'fail</td>' +
+    '</tr>';
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No source data yet — run a sweep first</td></tr>';
 }
 
@@ -358,6 +405,7 @@ async function loadOemPool() {
 }
 
 // R-F58: Python-side sources from /api/aria/sources/uptime
+// R-F2258: redesigned with card layout, status badges, visual hierarchy
 async function loadPythonSources() {
   const body = document.getElementById('pysrc-body');
   try {
@@ -368,22 +416,54 @@ async function loadPythonSources() {
       body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No Python sources reported yet.</td></tr>';
       return;
     }
-    body.innerHTML = sources.map(s => {
+
+    // Compute summary stats
+    const okCount   = sources.filter(s => { const st = s.status || s.state || (s.last_ok ? 'ok' : 'unknown'); return st === 'ok' || st === 'healthy'; }).length;
+    const errCount  = sources.filter(s => { const st = s.status || s.state || (s.last_ok ? 'ok' : 'unknown'); return st === 'error' || st === 'failed' || st === 'down'; }).length;
+    const suspCount = sources.filter(s => s.suspended || s.disabled).length;
+    const warnCount = sources.length - okCount - errCount;
+
+    // Summary row
+    let html = '<tr class="pysrc-summary"><td colspan="5" style="padding:12px 16px;background:var(--sc-bg)">' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
+        '<div class="pysrc-stat"><span class="pysrc-stat-dot" style="background:#16a34a"></span><span class="pysrc-stat-n">' + okCount + '</span><span class="pysrc-stat-l">Healthy</span></div>' +
+        '<div class="pysrc-stat"><span class="pysrc-stat-dot" style="background:#dc2626"></span><span class="pysrc-stat-n">' + errCount + '</span><span class="pysrc-stat-l">Failed</span></div>' +
+        '<div class="pysrc-stat"><span class="pysrc-stat-dot" style="background:#ea580c"></span><span class="pysrc-stat-n">' + warnCount + '</span><span class="pysrc-stat-l">Degraded</span></div>' +
+        '<div class="pysrc-stat"><span class="pysrc-stat-dot" style="background:#7c3aed"></span><span class="pysrc-stat-n">' + suspCount + '</span><span class="pysrc-stat-l">Suspended</span></div>' +
+        '<div class="pysrc-stat" style="border-left:1px solid var(--sc-border);padding-left:16px"><span class="pysrc-stat-n" style="font-size:13px;color:var(--sc-muted)">' + sources.length + '</span><span class="pysrc-stat-l">Total sources</span></div>' +
+      '</div></td></tr>';
+
+    // Source rows — card-style with status badges
+    sources.forEach(s => {
       const status = s.status || s.state || (s.last_ok ? 'ok' : 'unknown');
       const isOk  = status === 'ok' || status === 'healthy';
       const isErr = status === 'error' || status === 'failed' || status === 'down';
-      const dot = isOk ? '#16a34a' : isErr ? '#dc2626' : '#ea580c';
+      const isSusp = s.suspended || s.disabled;
+
+      // Status badge
+      let badgeClass = 'pysrc-badge-ok';
+      let badgeLabel = 'Healthy';
+      if (isErr) { badgeClass = 'pysrc-badge-err'; badgeLabel = 'Error'; }
+      else if (isSusp) { badgeClass = 'pysrc-badge-susp'; badgeLabel = 'Suspended'; }
+      else if (!isOk) { badgeClass = 'pysrc-badge-warn'; badgeLabel = 'Degraded'; }
+
       const lastOk  = s.last_success || s.last_ok || s.last_success_at || '';
       const lastErr = s.last_error || s.last_fail || '';
-      const susp = s.suspended || s.disabled ? '<span style="color:#c2410c">Yes</span>' : 'No';
-      return '<tr>' +
-        '<td><strong>' + escHtml(s.name || s.source || '—') + '</strong></td>' +
-        '<td><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + ';vertical-align:middle;margin-right:6px"></span><span style="font-size:12px;text-transform:capitalize">' + escHtml(status) + '</span></td>' +
-        '<td style="font-size:11.5px;color:var(--sc-muted)">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
-        '<td style="font-size:11.5px;color:var(--sc-muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(String(lastErr || '')) + '">' + escHtml(String(lastErr || '—').slice(0, 80)) + '</td>' +
-        '<td style="font-size:12px">' + susp + '</td>' +
+      const errShort = String(lastErr || '').slice(0, 60);
+
+      html += '<tr class="pysrc-row">' +
+        '<td class="pysrc-name"><strong>' + escHtml(s.name || s.source || '—') + '</strong></td>' +
+        '<td><span class="pysrc-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
+        '<td class="pysrc-time">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
+        '<td class="pysrc-err" title="' + escHtml(String(lastErr || '')) + '">' +
+          (isErr ? '<span class="pysrc-err-icon"><i class="bi bi-exclamation-circle"></i></span>' : '') +
+          escHtml(errShort || '—') +
+        '</td>' +
+        '<td class="pysrc-susp">' + (isSusp ? '<span class="pysrc-badge pysrc-badge-susp">Suspended</span>' : '<span style="color:var(--sc-muted);font-size:12px">Active</span>') + '</td>' +
       '</tr>';
-    }).join('');
+    });
+
+    body.innerHTML = html;
   } catch (e) {
     body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">Load error: ' + escHtml(e.message) + '</td></tr>';
   }
