@@ -112,6 +112,12 @@ RUN curl -fsSL -o /usr/local/bin/lightpanda \
 # so the first _get_embedder() call is a fast file read instead of an HTTP
 # download. Adds ~80MB to the image but makes cold starts predictable.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+# R-F2222 — pre-bake the cross-encoder re-ranker model (R-F2205) the SAME way, so
+# enabling ARIA_RERANK_ENABLED=1 uses a genuinely LOCAL/OFFLINE model (the
+# reranker's "§6-clean: local OSS model" claim) instead of a runtime HuggingFace
+# download that would either stall the first search or silently no-op if HF is
+# unreachable. ~80MB (ms-marco-MiniLM-L-6-v2), same class as all-MiniLM above.
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)"
 
 # ── Playwright Chromium install (R-F1709: moved BEFORE the app/.git COPYs) ────
 # This ~400 MB step (chromium + apt --with-deps) does NOT depend on app code.
