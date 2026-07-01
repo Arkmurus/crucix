@@ -95,3 +95,21 @@ def persona_prompt_block(hint: str | None) -> str:
         f"Write this fix as ARIA's {name}. These domain rules are BINDING, in "
         f"addition to the constitution below:\n{rules}\n"
     )
+
+
+def persona_catalog() -> str:
+    """R-F2232 — render ALL personas as a reference block for an INTERACTIVE coder
+    (the aria CLI) that doesn't know upfront which file it will edit. The model
+    applies the matching specialist when it touches that domain's files. Same
+    source of truth as persona_prompt_block, so the CLI and the brain's autonomous
+    coder never drift.
+    """
+    lines = [
+        "\nSPECIALIST PERSONAS (R-F2232) — when you edit a file in one of these",
+        "domains, write the change under that specialist's BINDING rules:",
+    ]
+    for name, tokens, rules in _PERSONAS:
+        lines.append(f"\n- {name} (files matching: {', '.join(tokens[:4])}…)\n  {rules}")
+    dname, drules = _DEFAULT
+    lines.append(f"\n- {dname} (default — any other Python)\n  {drules}")
+    return "\n".join(lines) + "\n"

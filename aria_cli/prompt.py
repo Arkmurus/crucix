@@ -349,6 +349,15 @@ def build_system_prompt(*, root: Path, self_mode: bool,
                 "list. The OPERATOR'S current request defines WHAT to work on; "
                 "do not pick up gaps, the punch-list, or session rituals from "
                 "these rules unless the operator explicitly asks:\n" + guidance)
+        # R-F2232: inject the specialist-persona catalog so the CLI applies the
+        # SAME domain discipline as the brain's autonomous coder (R-F2231) — one
+        # source of truth. Best-effort (aria_service may be absent in a truly
+        # standalone install), mirroring the coding_rag_indexer import below.
+        try:
+            from aria_service.autonomous.coder_personas import persona_catalog
+            parts.append(persona_catalog())
+        except Exception:
+            pass
     env = (
         f"\nENVIRONMENT\n"
         f"- Working directory: {root}\n"

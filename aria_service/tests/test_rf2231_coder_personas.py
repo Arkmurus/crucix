@@ -67,3 +67,17 @@ class TestR_F2231_InjectedIntoRealPrompt:
         p = self._llm()._build_code_prompt({}, "x", "aria_service/intel/some_random_module.py")
         assert "python-pro" in p
         assert "single-process" in p.lower()   # the default's core rule
+
+
+class TestR_F2232_Catalog:
+    """R-F2232 — persona_catalog() renders ALL personas for an interactive coder
+    (the aria CLI) that doesn't know its target file upfront."""
+
+    def test_catalog_lists_all_personas_with_rules(self):
+        from aria_service.autonomous.coder_personas import persona_catalog
+        cat = persona_catalog()
+        for name in ("sanctions-auditor", "dd-reviewer", "wa-debugger",
+                     "autonomy-engineer", "ai-engineer", "search-specialist", "python-pro"):
+            assert name in cat, f"{name} missing from catalog"
+        assert "SPECIALIST PERSONAS" in cat
+        assert "INSUFFICIENT_DATA" in cat  # a real sanctions rule carried through
