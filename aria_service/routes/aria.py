@@ -4248,6 +4248,21 @@ _DOC_REVIEW_VERB_RE = re.compile(
     re.IGNORECASE,
 )
 
+# R-F2229 — hoisted to module level (was local inside _detect_tool_intent) so the
+# §22a doc-review guard can reference it BEFORE the ungated tool branches
+# (registry_lookup / dd_orchestrate / portal_register / pre_meeting_briefing).
+# Matches an explicit multi-company doc-investigate ask (R-F1416) — the one doc
+# case that KEEPS external-tool precedence over the doc-review skip.
+_DOC_INVESTIGATE_RE = re.compile(
+    r"\b(?:investigate|research|look\s+into|find\s+out\s+about|"
+    r"profile|screen|check\s+out|analyse|analyze|"
+    r"tell\s+me\s+about|what\s+(?:do\s+you\s+know|can\s+you\s+tell\s+me))\b"
+    r".*?\b(?:companies|company|entities|entity|firms?|"
+    r"suppliers?|vendors?|partners?|contractors?|"
+    r"each|all|these|every|both)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
 # R-F793 (2026-05-22) — removed bare `sanction|` from the alternation.
 # Pre-R-F793 the bare noun matched in any context: "the EU sanction packet
 # where this rule is implemented" matched at "sanction", entity-extracted
@@ -5348,6 +5363,21 @@ def _detect_tool_intent(message: str) -> dict | None:
                     }
 
 
+    # R-F2229 — §22a defense-in-depth. registry_lookup (below), plus dd_orchestrate,
+    # portal_register and pre_meeting_briefing further down, all sit BEFORE the
+    # R-F793 doc-review skip and were NOT doc-gated — so a doc-review phrasing that
+    # happened to match one (e.g. "review this Estonian agreement" → registry_lookup)
+    # could route the document to an external tool. Hoist the doc-review skip to HERE
+    # so it precedes every such branch — EXCEPT an explicit multi-company
+    # doc-investigate (R-F1416, _DOC_INVESTIGATE_RE), which keeps external-tool
+    # precedence.
+    if (
+        "[ATTACHED DOCUMENT" in message
+        and (_DOC_REFERENCE_RE.search(msg) or _DOC_REVIEW_VERB_RE.search(msg))
+        and not _DOC_INVESTIGATE_RE.search(msg)
+    ):
+        return None
+
     # R-F1545 -- auto-fire registry lookup when a company name + jurisdiction
     # is mentioned. Detects patterns like "Turkish company X", "Estonian firm
     # Y", "MERSIS lookup for Z". Uses the existing registry_adapters module
@@ -5459,15 +5489,7 @@ def _detect_tool_intent(message: str) -> dict | None:
     # This MUST run BEFORE the doc-aware skip below, because the same
     # _DOC_REFERENCE_RE patterns ("this document", "the attached file")
     # would otherwise return None and route to the LLM-pure path.
-    _DOC_INVESTIGATE_RE = re.compile(
-        r"\b(?:investigate|research|look\s+into|find\s+out\s+about|"
-        r"profile|screen|check\s+out|analyse|analyze|"
-        r"tell\s+me\s+about|what\s+(?:do\s+you\s+know|can\s+you\s+tell\s+me))\b"
-        r".*?\b(?:companies|company|entities|entity|firms?|"
-        r"suppliers?|vendors?|partners?|contractors?|"
-        r"each|all|these|every|both)\b",
-        re.IGNORECASE | re.DOTALL,
-    )
+    # R-F2229: _DOC_INVESTIGATE_RE is now module-level (the §22a guard above uses it).
     if "[ATTACHED DOCUMENT" in message and _DOC_INVESTIGATE_RE.search(msg):
         doc_text = _extract_attached_document(message)
         if doc_text and len(doc_text) >= 200:
