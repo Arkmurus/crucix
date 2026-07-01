@@ -1,4 +1,17 @@
-<!DOCTYPE html>
+"""Build the ARIA landing page using the existing crucix.css light corporate theme.
+
+R-F2220 — Takes the content from the downloaded dark-theme landing page and
+re-renders it in the existing light corporate design language (warm cream bg,
+violet brand, Gordita font, Bootstrap Icons).
+"""
+
+import pathlib
+
+def build_landing_page() -> str:
+    """Generate the full landing page HTML."""
+    
+    # ── HEAD ──────────────────────────────────────────────────────
+    head = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -991,7 +1004,13 @@
   </style>
 </head>
 <body>
+"""
+    return head
 
+
+def build_body() -> str:
+    """Build the landing page body content."""
+    return r"""
 <!-- ══ NAV ══ -->
 <nav class="lp-nav">
   <div class="lp-nav-inner">
@@ -1490,3 +1509,17 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
 </script>
 </body>
 </html>
+"""
+
+
+def main() -> None:
+    """Write the landing page to public/index.html."""
+    import pathlib
+    output = pathlib.Path("public/index.html")
+    html = build_landing_page() + build_body()
+    output.write_text(html, encoding="utf-8")
+    print(f"Written {len(html)} bytes to {output}")
+
+
+if __name__ == "__main__":
+    main()
