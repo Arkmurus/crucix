@@ -1697,7 +1697,7 @@ async function _mergeBrainLeads(bd) {
   return out;
 }
 
-app.get('/api/bd-intelligence', requireAuth, async (req, res) => {
+app.get('/api/bd-intelligence', requireAdmin, async (req, res) => {
   let bd = (currentData?.bdIntelligence) || getBDIntelligence()
     || { tenders: [], ideas: [], strategy: null, pipeline: [], counts: { activeTenders: 0, contractAwards: 0, strategicIdeas: 0, pipelineDeals: 0 } };
   try { bd = await _mergeBrainLeads(bd); }
@@ -1705,11 +1705,11 @@ app.get('/api/bd-intelligence', requireAuth, async (req, res) => {
   res.json(bd);
 });
 
-app.get('/api/bd-intelligence/pipeline', requireAuth, (req, res) => {
+app.get('/api/bd-intelligence/pipeline', requireAdmin, (req, res) => {
   res.json(getDealPipeline());
 });
 
-app.post('/api/bd-intelligence/pipeline/:id/stage', requireAuth, (req, res) => {
+app.post('/api/bd-intelligence/pipeline/:id/stage', requireAdmin, (req, res) => {
   const { id } = req.params;
   const { stage, notes } = req.body || {};
   if (!stage) return res.status(400).json({ error: 'stage required' });
@@ -1717,7 +1717,7 @@ app.post('/api/bd-intelligence/pipeline/:id/stage', requireAuth, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/bd-intelligence/pipeline/:id/outcome', requireAuth, (req, res) => {
+app.post('/api/bd-intelligence/pipeline/:id/outcome', requireAdmin, (req, res) => {
   const { id } = req.params;
   const { market, type, outcome, reason } = req.body || {};
   if (!outcome || !['WON', 'LOST', 'NO_BID'].includes(outcome)) {
@@ -1731,7 +1731,7 @@ app.post('/api/bd-intelligence/pipeline/:id/outcome', requireAuth, (req, res) =>
   }
 });
 
-app.post('/api/bd-intelligence/feedback', requireAuth, (req, res) => {
+app.post('/api/bd-intelligence/feedback', requireAdmin, (req, res) => {
   // Thumbs up/down on brain leads or tenders
   const { signalText, market, feedback, reason } = req.body || {};
   if (!feedback || !['positive', 'negative'].includes(feedback)) {
@@ -1799,7 +1799,7 @@ function _shareGet(token) {
   return entry;
 }
 
-app.post('/api/share/brief', requireAuth, async (req, res) => {
+app.post('/api/share/brief', requireAdmin, async (req, res) => {
   const bd = getBDIntelligence();
   if (!bd) return res.status(503).json({ error: 'No BD data available — run a sweep first' });
 
@@ -2071,7 +2071,7 @@ app.post('/api/brain/counterparty-risk', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/brain/pipeline/summary', requireAuth, (req, res) => {
+app.get('/api/brain/pipeline/summary', requireAdmin, (req, res) => {
   const pipeline = getDealPipeline();
   const open = pipeline.filter(d => !['WON','LOST','NO_BID'].includes(d.stage));
   const won  = pipeline.filter(d => d.stage === 'WON');
@@ -2090,7 +2090,7 @@ app.get('/api/brain/pipeline/summary', requireAuth, (req, res) => {
   });
 });
 
-app.get('/api/brain/pipeline/deal/:id', requireAuth, (req, res) => {
+app.get('/api/brain/pipeline/deal/:id', requireAdmin, (req, res) => {
   const pipeline = getDealPipeline();
   const deal = pipeline.find(d => d.id === req.params.id);
   if (!deal) return res.status(404).json({ error: 'Deal not found' });
@@ -2098,7 +2098,7 @@ app.get('/api/brain/pipeline/deal/:id', requireAuth, (req, res) => {
   res.json({ ...deal, days_in_stage: daysInStage, stale: daysInStage > 14, opportunity: deal.title || deal.sourceTitle, pipeline_value: deal.value || 0, win_probability: (deal.score || 50) / 100 });
 });
 
-app.post('/api/brain/pipeline/create', requireAuth, (req, res) => {
+app.post('/api/brain/pipeline/create', requireAdmin, (req, res) => {
   const { market, opportunity, note } = req.body || {};
   if (!market || !opportunity) return res.status(400).json({ error: 'market and opportunity required' });
   const result = createDeal(market, opportunity);
@@ -2106,7 +2106,7 @@ app.post('/api/brain/pipeline/create', requireAuth, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/brain/pipeline/advance', requireAuth, (req, res) => {
+app.post('/api/brain/pipeline/advance', requireAdmin, (req, res) => {
   const { deal_id, stage } = req.body || {};
   if (!deal_id || !stage) return res.status(400).json({ error: 'deal_id and stage required' });
   res.json(updateDealStage(deal_id, stage));
@@ -2948,6 +2948,7 @@ app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
   const params = new URLSearchParams(existingQs);
   params.delete('user_id');                 // never trust a client-supplied owner
   params.set('user_id', userId);
+  params.delete('user_email_domain'); // R-F2238: fail-CLOSED — strip any client-supplied domain unconditionally (even if the lookup below throws)
   try {
     const u = findUserById(userId);
     const email = String(u?.email || '').trim().toLowerCase();
@@ -2969,6 +2970,7 @@ function _ddPinUserParams(req) {
   const params = new URLSearchParams(existingQs);
   params.delete('user_id');                 // never trust a client-supplied owner
   params.set('user_id', userId);
+  params.delete('user_email_domain'); // R-F2238: fail-CLOSED — strip any client-supplied domain unconditionally (even if the lookup below throws)
   try {
     const u = findUserById(userId);
     const email = String(u?.email || '').trim().toLowerCase();
