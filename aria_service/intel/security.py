@@ -111,7 +111,35 @@ def validate_url(url: str) -> tuple[bool, str]:
             if ip in net:
                 return False, f"Private/reserved IP: {hostname}"
     except ValueError:
-        pass  # Not an IP — hostname is fine
+        # Not an IP literal — it's a hostname. R-F2212 (2026-07-01): the pre-fix
+        # code passed EVERY non-IP hostname unconditionally, so a user/vault
+        # source pointing at a fly 6PN host (aria-intel.internal, aria-web.internal,
+        # aria-wa.internal, aria-searxng.internal) or a bare single-label service
+        # name sailed through — confirmed live: http://aria-intel.internal:8000
+        # was accepted and would be fetched by news_monitor (SSRF into the private
+        # network, internal responses exfiltrated into the corpus). Close it two ways:
+        _h = hostname.rstrip(".")
+        # (1) block fly-internal suffixes + bare single-label names (never public).
+        if _h.endswith(".internal") or "." not in _h:
+            return False, f"Blocked internal host: {hostname}"
+        # (2) resolve DNS and re-check EVERY resolved address against the private
+        #     ranges — defeats a public hostname whose A/AAAA record points at a
+        #     private/link-local/loopback IP (DNS-rebinding SSRF). Best-effort: an
+        #     unresolvable host is left to the fetcher (which will simply fail),
+        #     so a transient DNS blip can't permanently reject a good public source.
+        try:
+            import socket as _socket
+            for _info in _socket.getaddrinfo(hostname, None):
+                _addr = str(_info[4][0]).split("%")[0]
+                try:
+                    _rip = ipaddress.ip_address(_addr)
+                except ValueError:
+                    continue
+                for _net in _PRIVATE_RANGES:
+                    if _rip in _net:
+                        return False, f"Host resolves to private IP: {hostname} -> {_addr}"
+        except Exception:
+            pass  # DNS failure/unresolvable — allow; the fetch attempt will fail naturally
 
     # Check for dangerous file extensions
     # R-F1102: ARIA_ALLOW_SCRIPT_EXTENSIONS=1 allows GET on .js/.py/.jar etc.

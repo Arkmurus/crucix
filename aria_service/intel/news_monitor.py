@@ -572,6 +572,22 @@ def _get_vault_feed_sources() -> list[tuple]:
     return out
 
 
+def _wire_scrape_failure(name: str, url: str, why: str) -> None:
+    """R-F2214 §21a — a vault WEBSITE source that yields nothing (probe error or
+    no extractable content) used to return silently, so a dead manually-added site
+    rotted invisibly. Wire it to the brain so the self-heal/coder loop can see it.
+    Best-effort — telemetry must never break the poll path."""
+    try:
+        wire_failure(
+            module="news_monitor",
+            summary=f"Vault website scrape empty: {name}",
+            detail=f"{why} | url={url[:150]}",
+            source_id=f"news_monitor:scrape:{name}",
+        )
+    except Exception:
+        pass
+
+
 async def _scrape_vault_website(name: str, url: str, category: str, lang: str, tier: str, topics) -> dict:
     """R-F2191 — ingest a vault WEBSITE that is NOT an RSS/Atom feed.
 
@@ -592,10 +608,12 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
         probe = await _r.extract_url_text(url, timeout=20.0)
     except Exception as e:
         logger.debug("[news_monitor] vault website probe failed for %s: %s", url, e)
+        _wire_scrape_failure(name, url, f"probe error: {str(e)[:120]}")   # R-F2214 §21a
         return {"fetched": 0, "new": 0}
 
     ptext = str((probe or {}).get("text", "") or "").strip()
     if not probe or not probe.get("extraction_ok") or not ptext:
+        _wire_scrape_failure(name, url, "no extractable content")          # R-F2214 §21a
         return {"fetched": 0, "new": 0}
 
     chash = _article_hash(url + "|" + hashlib.sha256(ptext.encode("utf-8", "ignore")).hexdigest()[:16])
@@ -668,6 +686,24 @@ async def poll_feeds(
             if not xml_text:
                 total_failed += 1
                 feed_results.append({"name": name, "status": "failed", "articles": 0})
+                # R-F2214 §21a — a feed that returns nothing (404 / timeout / empty
+                # body after retries) was silently counted and NEVER reached the
+                # brain, so a dead user/vault source rotted invisibly (poll retried
+                # it hourly forever with no self-heal signal). Wire it so the gap
+                # loop can see it. SCOPED to vault_curated (user/admin-added) sources
+                # — the curated NEWS_SOURCES firehose is separately maintained and
+                # its transient blips would just add noise; record_gap also dedupes
+                # per (gap_type, detail) within a window, so a dead source won't flood.
+                if category == "vault_curated":
+                    try:
+                        wire_failure(
+                            module="news_monitor",
+                            summary=f"Vault source empty/unreachable: {name}",
+                            detail=f"url={url[:150]}",
+                            source_id=f"news_monitor:feed:{name}",
+                        )
+                    except Exception:
+                        pass
                 continue
 
             feed_type = _detect_feed_type(xml_text)

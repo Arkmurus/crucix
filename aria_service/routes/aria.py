@@ -25275,14 +25275,38 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
         if (e.get("site_url") or "").strip() == url:
             return {"success": False, "error": "you have already added this source"}
     sid = "u_" + hashlib.sha1(f"{user_id}|{url}".encode()).hexdigest()[:16]
-    entry = vault.record(
-        site_id=sid, site_name=name, site_url=url, agent_id=owner,
-        site_type=site_type, agent_type="user_source", status="verified", notes=notes,
-    )
+    # R-F2213 — probe the URL so the stored status is TRUTHFUL (§22). Pre-fix this
+    # hardcoded status="verified" with NO fetch, so a typo/dead URL entered the poll
+    # set already labelled "verified". The probe is SSRF-safe because validate_url
+    # (R-F2212) already resolved + blocked internal/private hosts; follow_redirects
+    # =False keeps it safe against a public→internal redirect. Reachable 2xx+body →
+    # "verified"; anything else (3xx/4xx/5xx/timeout) → "pending" (still ingested —
+    # news_monitor retries it) with a note. A probe failure NEVER blocks the add.
+    status = "verified"
+    note_extra = ""
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10.0, follow_redirects=False) as _pc:
+            _pr = await _pc.get(url, headers={"User-Agent": "Crucix/1.0 (+source-verify)"})
+        if 200 <= _pr.status_code < 300 and (_pr.text or "").strip():
+            status = "verified"
+        else:
+            status, note_extra = "pending", f" [probe: HTTP {_pr.status_code}]"
+    except Exception as _pe:
+        status, note_extra = "pending", f" [probe: unreachable — {str(_pe)[:60]}]"
+    try:
+        entry = vault.record(
+            site_id=sid, site_name=name, site_url=url, agent_id=owner,
+            site_type=site_type, agent_type="user_source", status=status,
+            notes=(notes + note_extra).strip(),
+        )
+    except Exception as _re:
+        _log.warning("[user_sources] record failed for %s: %s", url[:80], _re)
+        return {"success": False, "error": "source could not be saved (storage error)"}
     # Verify the write actually landed before reporting success (no false-success).
     if not entry or vault.get(sid) is None:
         return {"success": False, "error": "source could not be saved"}
-    return {"success": True, "entry": entry}
+    return {"success": True, "entry": entry, "verified": status == "verified"}
 
 
 @router.delete("/user/sources/{site_id}")
