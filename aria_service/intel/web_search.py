@@ -654,6 +654,76 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         return []
 
 
+# ── Backend: GDELT Project global news (free API, no key, datacenter-TOLERANT) ──
+_GDELT_LAST_CALL: float = 0.0  # R-F2257: respect GDELT's ~1-request-per-5s rate limit
+
+
+async def _search_gdelt(query: str, max_results: int = 10) -> list[SearchResult]:
+    """GDELT DOC 2.0 — free, no-key, GLOBAL news/events on any entity in any country.
+
+    R-F2257 — the robustness pivot: GDELT is an API SOURCE, not a scraper, so it SERVES
+    a datacenter IP (HTTP 200) instead of CAPTCHA-ing it like Google/Bing/SearXNG do.
+    That is the whole point — API-first coverage that doesn't collapse from a datacenter
+    egress. It rate-limits to ~1 req/5s (429, NOT a block), so we throttle + circuit-break
+    rather than hammer it. Gives real coverage on foreign entities where registries return nothing.
+    """
+    global _GDELT_LAST_CALL
+    q = (query or "").strip()
+    if len(q) < 3:  # GDELT rejects ultra-short queries
+        return []
+    from .circuit_breaker import get_breaker as _get_cb_g
+    _cb = _get_cb_g("search:gdelt", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
+    # Respect the 1-req/5s limit — skip (don't hammer into a 429) if called too soon.
+    _now = time.monotonic()
+    if _now - _GDELT_LAST_CALL < 5.0:
+        return []
+    _GDELT_LAST_CALL = _now
+    encoded = urllib.parse.quote(f'"{q}"' if " " in q else q)  # phrase-match the entity
+    url = (f"https://api.gdeltproject.org/api/v2/doc/doc?query={encoded}"
+           f"&mode=artlist&maxrecords={min(max_results, 25)}&format=json&sort=datedesc")
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.get(url, headers={"User-Agent": random_ua()})
+            if resp.status_code == 429:
+                # rate-limited (not a source failure) — no breaker trip, just skip this cycle
+                logger.debug("GDELT rate-limited (429) for %r", q[:60])
+                return []
+            if resp.status_code != 200:
+                _cb.record_failure(reason=classify_status(resp.status_code))
+                return []
+            try:
+                data = resp.json()
+            except Exception:
+                return []  # GDELT returns a plain-text rate-limit notice on overuse
+            arts = (data or {}).get("articles", []) or []
+            results = []
+            for a in arts[:max_results]:
+                title = (a.get("title") or "").strip()
+                link = (a.get("url") or "").strip()
+                if not (title and link):
+                    continue
+                results.append(SearchResult(
+                    title=title, url=link,
+                    snippet=f"[GDELT global-news · {a.get('domain','')} · {a.get('seendate','')}]",
+                    source="gdelt", timestamp=a.get("seendate", ""),
+                    credibility_tier=_score_credibility(link),
+                ))
+            _cb.record_success()
+            logger.debug("GDELT: %d results for %r", len(results), q[:60])
+            return results
+    except Exception as e:
+        _cb.record_failure(reason="timeout")
+        logger.warning("GDELT search failed: %s", e)
+        wire_failure(
+            module="web_search._search_gdelt",
+            detail=f"gdelt backend failed (returned [] as if no results): {e}",
+            gap_type="search_backend_failure", source="web_search",
+        )
+        return []
+
+
 # ── Backend: DuckDuckGo HTML scrape (free, no auth, no API) ────────────────
 
 async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchResult]:
@@ -1196,6 +1266,7 @@ async def search(
         _search_bing_news(query, MAX_RESULTS_PER_BACKEND),
         _search_academic(query, MAX_RESULTS_PER_BACKEND, language),
         _search_defence_event(query, MAX_RESULTS_PER_BACKEND),  # R-F126
+        _search_gdelt(query, MAX_RESULTS_PER_BACKEND),  # R-F2257: free API, datacenter-tolerant global news
     ]
     for _xl in extra_langs[:3]:  # cap fan-out at 3 extra langs
         backend_tasks.append(_search_google_news(query, MAX_RESULTS_PER_BACKEND, _xl))
