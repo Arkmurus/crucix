@@ -763,6 +763,58 @@ async def deploy_improvement(improvement_id: str) -> dict:
         summary=f"R-F1287 constitutional gate passed for {file_path} (risk={_cv_risk:.2f})",
         source_id="self_improve:deploy_improvement")
 
+    # R-F2256 — DiffValidator deploy gate. The whole-file validate() above catches
+    # ADDED weakening patterns, but a fix that SILENTLY DELETES a critical safety line
+    # (e.g. a source_verifier.verify call, a fail-closed guard, a signature check) would
+    # PASS it. Wire the diff-based guard (constitutional_validator.DiffValidator — was
+    # orphaned/uncalled) so a removed critical line blocks the deploy too. FAIL-CLOSED
+    # like the gate above; §21a-wired both branches. Only diffs against an EXISTING file
+    # (a brand-new file can't have removed a line).
+    try:
+        from ..autonomous.constitutional_validator import DiffValidator
+        import difflib as _difflib
+        _new_src = target.get("new_content") or ""
+        try:
+            _old_src = full_path.read_text(encoding="utf-8")
+        except Exception:
+            _old_src = ""
+        if _old_src:
+            _udiff = "\n".join(_difflib.unified_diff(
+                _old_src.splitlines(), _new_src.splitlines(),
+                fromfile=file_path, tofile=file_path, lineterm="",
+            ))
+            _dv = DiffValidator().validate_diff(_udiff)
+            _dv_ok, _dv_violations = _dv.passed, _dv.violations
+        else:
+            _dv_ok, _dv_violations = True, []
+    except Exception as _dv_err:  # noqa: BLE001 — unavailable diff-validator = fail closed
+        logger.error("[self_improve] R-F2256 DiffValidator unavailable — FAIL-CLOSED block of %s: %s",
+                     file_path, _dv_err)
+        _dv_ok, _dv_violations = False, [f"diff-validator unavailable (fail-closed): {_dv_err}"]
+    if not _dv_ok:
+        target["status"] = "blocked_constitutional"
+        _SI_FAILURES += 1
+        wire_failure(
+            module="self_improve",
+            detail=f"R-F2256 diff BLOCK of {file_path} (safety line removed): "
+                   + "; ".join(_dv_violations)[:200],
+            gap_type="constitutional_block", source="self_improve:deploy_improvement")
+        logger.warning("[self_improve] R-F2256 BLOCKED deploy of %s — silent safety-line removal: %s",
+                       file_path, _dv_violations[:3])
+        return {
+            "ok": False,
+            "error": "BLOCKED by DiffValidator (critical safety line removed): "
+                     + "; ".join(_dv_violations)[:300],
+            "blocked": True,
+            "constitutional_block": True,
+            "id": improvement_id,
+            "file": file_path,
+        }
+    wire_success(
+        module="self_improve",
+        summary=f"R-F2256 diff gate passed for {file_path}",
+        source_id="self_improve:deploy_improvement")
+
     # Backup current file — structured backup with metadata for the
     # metacognitive coding_lessons module to track rollback history.
     backup_path = None

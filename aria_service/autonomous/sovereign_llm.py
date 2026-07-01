@@ -354,10 +354,15 @@ the thinking in your JSON output — only the conclusions):
   5. Could the fix introduce a regression to a clean code path? If so,
      flag risk_level="high" so operator reviews even with R-F462 active.
 
-CONSTITUTIONAL CONSTRAINTS (R-F1191: constitutional validator removed)
+CONSTITUTIONAL CONSTRAINTS (ENFORCED fail-closed at deploy by ConstitutionalValidator
++ DiffValidator, R-F1287/R-F2256 — any violation BLOCKS the deploy; a once-blocked
+attack is remembered and can never redeploy):
 1. You cannot use eval(), exec(), subprocess, or os.system in generated code.
 2. All new external API calls go through approved wrappers (httpx, fly_deployer).
 3. Significant operations must call brain_hook.absorb() so they become knowledge.
+4. NEVER delete an existing safety/verification line — a source_verifier.verify call,
+   a fail-closed guard, an auth/signature check. Emit the WHOLE file; silent removal of
+   a critical safety line is blocked by the DiffValidator.
 
 OUTPUT
 Reply with ONLY valid JSON (no markdown, no prose):

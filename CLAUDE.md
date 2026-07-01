@@ -217,7 +217,7 @@ Never report "done" for a code change without saying whether it actually reached
 ## 20. Session ritual
 
 - **Open**: read `memory/platform_buildout_north_star.md` + name open gates + tag tasks (gate-closing / operational / digression).
-- **Open (coding RAG priming — R-F2133, binding)**: before writing ANY code, query the coding RAG for relevant constitutional constraints. The `coding_constitutional` collection is synced at boot with 24 rules; querying it surfaces constraints I might not recall from memory. Run:
+- **Open (coding RAG priming — R-F2133, binding)**: before writing ANY code, query the coding RAG for relevant constitutional constraints. The `coding_constitutional` collection is synced at boot with the full `CONSTITUTIONAL_RULES` set (31 as of R-F2256 — use `len(CONSTITUTIONAL_RULES)` for the live count, not a hardcoded number); querying it surfaces constraints I might not recall from memory. Run:
   ```python
   python -c "import asyncio; from aria_service.intel.coding_rag_indexer import query_constitutional_constraints; print(asyncio.run(query_constitutional_constraints('modifying <module> <task>', top_k=5)))"
   ```

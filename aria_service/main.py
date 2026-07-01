@@ -219,6 +219,12 @@ async def _bg_supervisor_loop() -> None:
             await _bg_supervisor_tick()
         except Exception as _sup_err:
             logger.error("[R-F1610] bg_supervisor error (non-fatal): %s", _sup_err)
+            try:  # R-F2256 §21a — the supervisor respawns dead loops; its own failure must not be dark
+                from .intel.engine_wiring import wire_failure
+                wire_failure(module="bg_supervisor", detail=f"bg_supervisor error: {str(_sup_err)[:160]}",
+                             gap_type="engine_failure", source="main:_bg_supervisor_loop")
+            except Exception:
+                pass
         await asyncio.sleep(180)
 
 
@@ -359,6 +365,12 @@ async def _expiry_sweeper_loop() -> None:
                 logger.info("[R-F2154] state_store sweep: removed %d expired entries", _deleted)
         except Exception as _sw_e:
             logger.debug("[R-F2154] state_store sweep skipped: %s", _sw_e)
+            try:  # R-F2256 §21a — surface sweep failures to the brain (was dark)
+                from .intel.engine_wiring import wire_failure
+                wire_failure(module="expiry_sweeper", detail=f"state_store sweep error: {str(_sw_e)[:160]}",
+                             gap_type="engine_failure", source="main:_expiry_sweeper_loop")
+            except Exception:
+                pass
         await asyncio.sleep(300)
 
 
@@ -2451,6 +2463,12 @@ async def lifespan(app: FastAPI):
                     logger.info("[R-F1342] memory_wal drain: %s", res)
             except Exception as e:
                 logger.warning("[R-F1342] memory_wal drain error: %s", e)
+                try:  # R-F2256 §21a — a failing WAL drain risks data loss; wire it (was dark)
+                    from .intel.engine_wiring import wire_failure
+                    wire_failure(module="memory_wal_drain", detail=f"memory_wal drain error: {str(e)[:160]}",
+                                 gap_type="engine_failure", source="main:_memory_wal_drain_loop")
+                except Exception:
+                    pass
             await asyncio.sleep(300)
 
     memory_wal_task = _singleton_task(_memory_wal_drain_loop, "memory_wal_drain")  # R-F2073 singleton (shared WAL — one drainer avoids double-store races)
@@ -2504,13 +2522,36 @@ async def lifespan(app: FastAPI):
         # R-F1981 — shared delivery hop (also used by send-as-you + panic).
         _send_fn = _wa_send_fn()
 
+        _guard_cycle = 0
         while True:
+            _guard_cycle += 1
             try:
                 n = await _gci.reconcile(_send_fn)
                 if n:
                     logger.warning("[R-F1979 guardian] fired %d dead-man's-switch alert(s)", n)
+                # R-F2256 — §21a: make the dead-man's-switch OBSERVABLE (was DARK). Signal
+                # on any alert fired, or a heartbeat every ~10 cycles (~10 min) so a
+                # SILENTLY dead guardian is detectable — throttled to avoid spamming the
+                # saturation-sensitive state_store every 60s.
+                if n or (_guard_cycle % 10 == 1):
+                    try:
+                        from .intel.engine_wiring import wire_success
+                        wire_success(module="guardian_reconcile",
+                                     summary=f"guardian reconcile ok ({n or 0} alert(s) fired)",
+                                     source_id="main:_guardian_reconcile_loop")
+                    except Exception:  # noqa: BLE001 — observability must never break the switch
+                        pass
             except Exception as e:
                 logger.warning("[R-F1979 guardian] reconcile error: %s", e)
+                # R-F2256 — §21a: a FAILING dead-man's-switch is the highest-consequence
+                # dark path — wire it so the brain/self-heal sees the guardian is broken.
+                try:
+                    from .intel.engine_wiring import wire_failure
+                    wire_failure(module="guardian_reconcile",
+                                 detail=f"guardian reconcile error: {str(e)[:180]}",
+                                 gap_type="engine_failure", source="main:_guardian_reconcile_loop")
+                except Exception:  # noqa: BLE001
+                    pass
             await asyncio.sleep(60)
 
     guardian_task = _singleton_task(_guardian_reconcile_loop, "guardian_reconcile")  # R-F2073 singleton
