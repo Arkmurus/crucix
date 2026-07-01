@@ -24,6 +24,7 @@ from typing import Any, Optional
 import httpx
 
 from .gap_detector import Gap
+from .coder_personas import persona_prompt_block  # R-F2231 — domain persona injection
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.sovereign_llm")
@@ -325,8 +326,9 @@ relevant to this gap. Use these as templates and avoid repeating past
 mistakes.
 {rag_context}
 """
+        persona = persona_prompt_block(gap.module)  # R-F2231
         return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. Plan a fix for the gap below.
-
+{persona}
 GAP REPORT
 - Type: {gap.gap_type}
 - Severity: {gap.severity.name}
@@ -374,8 +376,9 @@ Reply with ONLY valid JSON (no markdown, no prose):
     def _build_code_prompt(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> str:
+        persona = persona_prompt_block(target_file)  # R-F2231
         return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. Write the complete updated file content.
-
+{persona}
 TARGET FILE: {target_file}
 
 PLAN
@@ -405,7 +408,8 @@ Reply with ONLY valid JSON:
     def _build_edit_prompt(
         self, plan: dict, existing_code: str, target_file: str,
     ) -> str:
-        return f"""{_playbook_preamble()}You are ARIA's autonomous self-coding engine. This file is LARGE — do
+        persona = persona_prompt_block(target_file)  # R-F2231
+        return f"""{persona}{_playbook_preamble()}You are ARIA's autonomous self-coding engine. This file is LARGE — do
 NOT rewrite the whole file. Make SURGICAL edits: emit only the exact snippets that
 change, as search/replace pairs. This avoids truncation and preserves everything
 you don't touch.
