@@ -57,6 +57,33 @@ const API = {
     }
   },
 
+  // R-F2233 (2026-07-01): status-aware probe for background dashboards.
+  // Unlike get(), probe() (a) does NOT auto-logout on 401 — a polling
+  // dashboard must not evict the operator on a single auth flap, because
+  // logout wipes the token and cascades every SUBSEQUENT fetch to 401,
+  // painting the whole page "unreachable" (the phantom 4-vs-6 count); and
+  // (b) returns the HTTP status so the caller can tell an auth-gated
+  // 401/403 ("sign in") apart from a genuine reachability failure
+  // (timeout / network / 5xx / error-envelope). A bounded AbortController
+  // timeout makes a stuck endpoint resolve as a deterministic 'timeout'
+  // instead of hanging the refresh forever. Root-cause latency is tracked
+  // separately (R-F2234); this method only makes the reporting honest.
+  async probe(path, { timeoutMs = 20000 } = {}) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(this.BASE + path, { headers: this.headers(), signal: ctrl.signal });
+      let data = null;
+      try { data = await r.json(); } catch { data = null; }
+      return { status: r.status, ok: r.ok, data, isErrorEnvelope: this._isErrorEnvelope(data) };
+    } catch (e) {
+      const timedOut = !!(e && e.name === 'AbortError');
+      return { status: 0, ok: false, data: null, timedOut, error: e && e.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
   async post(path, body) {
     try {
       const r = await fetch(this.BASE + path, {

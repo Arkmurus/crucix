@@ -436,60 +436,102 @@ window.addEventListener('DOMContentLoaded', function () {
 // New contract: fetchJson returns null whenever the response is null,
 // empty, or contains an `error` field. Panel guards then bail correctly
 // and the banner below surfaces the failure to the operator.
-const _fetchFailures = new Map();  // path → reason
+// R-F2233 (2026-07-01): honest reachability accounting. Pre-R-F2233,
+// fetchJson() funnelled EVERY non-success — timeout, 5xx, error-envelope,
+// AND an auth-gated 401 — into one _fetchFailures map, then screamed
+// "N endpoints failed to fetch / DATA UNAVAILABLE". But ~19 of the ~24
+// panels here are operator-only and legitimately return 401 to an
+// anonymous viewer (this page is public) or to a flapped/expired token.
+// Counting those as "unreachable" is what produced the phantom "one
+// computer shows 4, another shows 6" — the number was really "how many
+// auth-gated endpoints did THIS browser's session fail to authenticate",
+// not "how many are down". We now split the two: _fetchFailures holds
+// only GENUINE reachability failures (timeout / network / 5xx /
+// error-envelope) → red banner; _authGated holds 401/403 → a calm
+// sign-in note, never "down".
+const _fetchFailures = new Map();  // path → reason (genuine unreachable)
+const _authGated = new Set();      // path (401/403 — auth, not down)
 
 function _trackFetchFailure(path, reason) {
   _fetchFailures.set(path, reason || 'no response');
+  _authGated.delete(path);
   _renderFetchFailureBanner();
 }
 function _trackFetchSuccess(path) {
-  if (_fetchFailures.delete(path)) _renderFetchFailureBanner();
+  const changed = _fetchFailures.delete(path) | _authGated.delete(path);
+  if (changed) _renderFetchFailureBanner();
+}
+function _trackAuthGated(path) {
+  _authGated.add(path);
+  _fetchFailures.delete(path);
+  _renderFetchFailureBanner();
 }
 function _renderFetchFailureBanner() {
   const banner = document.getElementById('fetch-failure-banner');
   if (!banner) return;
-  if (_fetchFailures.size === 0) {
+  if (_fetchFailures.size === 0 && _authGated.size === 0) {
     banner.style.display = 'none';
     banner.innerHTML = '';
     return;
   }
-  const entries = [..._fetchFailures.entries()];
-  const head = entries.slice(0, 5)
-    .map(([p, r]) => `<code style="color:#c2410c">${p}</code> <span style="color:#6b6862">(${r})</span>`)
-    .join(', ');
-  const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
-  const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
-  banner.innerHTML =
-    `<strong>⚠️ DATA UNAVAILABLE — ${entries.length} ${noun} failed to fetch.</strong> `
-    + `The panels below may show fallback values (zeros, "DOWN", "--") that are `
-    + `<em>not real measurements</em>. Likely causes: fly.io proxy timeout, auth `
-    + `flap, or backend overload. Affected: ${head}${more}.`;
+  let html = '';
+  // Genuine reachability failures — the loud, honest banner.
+  if (_fetchFailures.size > 0) {
+    const entries = [..._fetchFailures.entries()];
+    const head = entries.slice(0, 5)
+      .map(([p, r]) => `<code style="color:#c2410c">${p}</code> <span style="color:#6b6862">(${r})</span>`)
+      .join(', ');
+    const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
+    const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
+    html +=
+      `<strong>⚠️ DATA UNAVAILABLE — ${entries.length} ${noun} failed to fetch.</strong> `
+      + `The panels below may show fallback values (zeros, "DOWN", "--") that are `
+      + `<em>not real measurements</em>. Likely causes: fly.io proxy timeout or `
+      + `backend overload. Affected: ${head}${more}.`;
+  }
+  // Auth-gated panels — NOT a reachability failure. Calm sign-in note.
+  if (_authGated.size > 0) {
+    const n = _authGated.size;
+    const noun = n === 1 ? 'panel requires' : 'panels require';
+    const hasToken = !!(window.API && API.token && API.token());
+    const msg = hasToken
+      ? `🔒 <strong>${n} operator ${noun} re-authentication</strong> — your session may have expired. Sign in again to load them. (These are not "down".)`
+      : `🔒 <strong>${n} operator ${noun} sign-in</strong> to display. This is expected for a signed-out viewer — the endpoints are reachable, just protected.`;
+    html += (html ? '<div style="height:8px"></div>' : '') + msg;
+  }
+  banner.innerHTML = html;
   banner.style.display = 'block';
 }
 
 async function fetchJson(path) {
-  try {
-    const data = await API.get('/api/aria' + path);
-    // API.get returns null on network error / 401-then-logout. Treat as failure.
-    if (data == null) {
-      _trackFetchFailure(path, 'no response');
-      return null;
-    }
-    // seenode's _brainFallback wraps fly.io proxy failures as 503
-    // {error:'ARIA service offline'}. fly.io endpoints themselves can
-    // also return {error:...} on internal failure. Either way the
-    // payload is unusable — surface as a fetch failure, not as data.
-    if (typeof data === 'object' && data.error) {
-      _trackFetchFailure(path, String(data.error).slice(0, 80));
-      return null;
-    }
-    _trackFetchSuccess(path);
-    return data;
-  } catch (e) {
-    console.warn('[aria-brain] fetch failed:', path, e.message);
-    _trackFetchFailure(path, e.message || 'exception');
+  const res = await API.probe('/api/aria' + path);
+  // Auth-gated (401/403): reachable but protected. NOT "unreachable".
+  if (res.status === 401 || res.status === 403) {
+    _trackAuthGated(path);
     return null;
   }
+  // Timeout / network error (no HTTP status reached).
+  if (res.status === 0) {
+    _trackFetchFailure(path, res.timedOut ? 'timeout (>20s)' : (res.error || 'no response'));
+    return null;
+  }
+  // Server-side error status.
+  if (!res.ok) {
+    _trackFetchFailure(path, 'HTTP ' + res.status);
+    return null;
+  }
+  // 200 but unparseable / empty body.
+  if (res.data == null) {
+    _trackFetchFailure(path, 'empty response');
+    return null;
+  }
+  // 200 but seenode/fly error-envelope ({error:'ARIA service offline'}).
+  if (res.isErrorEnvelope) {
+    _trackFetchFailure(path, String(res.data.error).slice(0, 80));
+    return null;
+  }
+  _trackFetchSuccess(path);
+  return res.data;
 }
 
 function pct(v, digits=0) { return v != null ? `${(v * 100).toFixed(digits)}%` : '--'; }
