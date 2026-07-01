@@ -187,6 +187,10 @@
             </div>
           </div>
           <div class="sc-mod-field">
+            <label>Company website <span class="opt">— optional, helps find the right company</span></label>
+            <input id="dd-r-url" type="url" placeholder="e.g. https://company.com">
+          </div>
+          <div class="sc-mod-field">
             <label>Product / transaction context <span class="opt">— optional, sharpens risk scoring</span></label>
             <input id="dd-r-prod" type="text" placeholder="e.g. Bayraktar TB2 UAVs + munitions">
           </div>
@@ -711,9 +715,11 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     };
     const jur = document.getElementById('dd-r-jur').value.trim();
     const reg = document.getElementById('dd-r-reg').value.trim();
+    const url = document.getElementById('dd-r-url').value.trim();
     const prod = document.getElementById('dd-r-prod').value.trim();
     if (jur) body.jurisdiction = jur;
     if (reg) body.registration_number = reg;
+    if (url) body.website_url = url;
     if (prod) body.product_description = prod;
     const sb = document.getElementById('dd-run-submit');
     const orig = sb.innerHTML;

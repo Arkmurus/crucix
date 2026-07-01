@@ -686,6 +686,7 @@ async def dd_orchestrate_ep(req: Request):
         "jurisdiction_iso2":     "GB" | "AO" | ...,
         "jurisdiction":          "United Kingdom" | "Angola" | ...,
         "registration_number":   "12345678",
+        "website_url":           "https://company.com",
         "product_description":   "Bayraktar TB2 UAVs + munitions",
         "transaction_value_usd": 50000000,
         "mode":                  "quick" | "standard" | "deep",
@@ -772,6 +773,10 @@ async def dd_orchestrate_ep(req: Request):
         _share_to_company = True
     else:
         _share_to_company = bool(_share_to_company)
+
+    # Map website_url → website for the orchestrator
+    if body.get("website_url") and not body.get("website"):
+        body["website"] = body["website_url"]
 
     try:
         from ..intel import dd_orchestrator
