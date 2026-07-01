@@ -7968,30 +7968,10 @@ async def _orchestrate_dd_impl(
                     report.layers_skipped.append(layer)
             report.network.meta.status = LayerStatus.SKIPPED.value
             report.digital.meta.status = LayerStatus.SKIPPED.value
-        else:
-            # ── LAYER 2: NETWORK (unless quick mode) ──
-            if mode != "quick":
-                layer_name = "network"
-                # R-F1923: precondition check
-                _skip_n, _reason_n = _check_layer_prerequisites("network")
-                if _skip_n:
-                    report.network.meta.status = LayerStatus.PREREQ_FAIL.value
-                    report.network.meta.error = _reason_n
-                    if "network" not in report.layers_skipped:
-                        report.layers_skipped.append("network")
-                else:
-                    report.layers_run.append(layer_name)
-                    try:
-                        await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
-                    except asyncio.TimeoutError:
-                        report.network.meta.status = LayerStatus.ERROR.value
-                        report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
-            else:
-                if "network" not in report.layers_skipped:
-                    report.layers_skipped.append("network")
-                report.network.meta.status = LayerStatus.SKIPPED.value
-
-        # ── LAYER 4: COMPLIANCE ── (always — it's cheap and load-bearing)
+        # ── LAYER 4: COMPLIANCE ── (always — cheap + load-bearing). Runs SERIAL and
+        # BEFORE the concurrent readers below because it MUTATES report.identity
+        # (registered_address / data_gaps / findings) — R-F2254. Moving it up means
+        # network+digital read the compliance-finalized identity.
         layer_name = "compliance"
         # R-F1923: precondition check — degraded ok if self-reported data exists
         _skip_c, _reason_c = _check_layer_prerequisites("compliance")
@@ -8011,23 +7991,52 @@ async def _orchestrate_dd_impl(
                 report.compliance.meta.status = LayerStatus.ERROR.value
                 report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
 
-        # ── LAYER 5: DIGITAL (unless quick mode OR short-circuited) ──
-        if mode != "quick" and not hard_stop:
-            layer_name = "digital"
-            # R-F1923: precondition check
-            _skip_d, _reason_d = _check_layer_prerequisites("digital")
-            if _skip_d:
-                report.digital.meta.status = LayerStatus.PREREQ_FAIL.value
-                report.digital.meta.error = _reason_d
-                if "digital" not in report.layers_skipped:
-                    report.layers_skipped.append("digital")
-            else:
-                report.layers_run.append(layer_name)
-                # R-F2252 — fail-fast for SPARSE targets. The 2× digital budget exists
-                # for entity-website link-tree mining (_run_digital, R-F1874); an entity
-                # with NO resolvable website can't use it, so cap at 1×. Saves ~90s of
-                # I/O-bound search churn on sparse foreign entities (no-CNPJ/no-website —
-                # the DD that timed the operator out was exactly this shape).
+        # ── LAYERS 2 + 5: NETWORK + DIGITAL run CONCURRENTLY (R-F2254) ──
+        # The dd-reviewer's #1 speed fix. Both layers only READ the (now
+        # compliance-finalized) report.identity and write DISJOINT sections
+        # (report.network / report.digital) — verified neither WRITES report.identity
+        # (compliance does, hence it's serial above). No shared mutable state, list
+        # appends are atomic under asyncio, _clamp is pure. So concurrency is
+        # race-free and wall-clock = max(network, digital), not the serial sum
+        # (~90s saved). Skipped entirely on a hard_stop sanctions short-circuit.
+        if not hard_stop:
+            async def _run_network_layer():
+                if mode == "quick":
+                    if "network" not in report.layers_skipped:
+                        report.layers_skipped.append("network")
+                    report.network.meta.status = LayerStatus.SKIPPED.value
+                    return
+                _skip_n, _reason_n = _check_layer_prerequisites("network")
+                if _skip_n:
+                    report.network.meta.status = LayerStatus.PREREQ_FAIL.value
+                    report.network.meta.error = _reason_n
+                    if "network" not in report.layers_skipped:
+                        report.layers_skipped.append("network")
+                    return
+                report.layers_run.append("network")
+                try:
+                    await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                except asyncio.TimeoutError:
+                    report.network.meta.status = LayerStatus.ERROR.value
+                    report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+
+            async def _run_digital_layer():
+                if mode == "quick":
+                    if "digital" not in report.layers_skipped:
+                        report.layers_skipped.append("digital")
+                    report.digital.meta.status = LayerStatus.SKIPPED.value
+                    return
+                _skip_d, _reason_d = _check_layer_prerequisites("digital")
+                if _skip_d:
+                    report.digital.meta.status = LayerStatus.PREREQ_FAIL.value
+                    report.digital.meta.error = _reason_d
+                    if "digital" not in report.layers_skipped:
+                        report.layers_skipped.append("digital")
+                    return
+                report.layers_run.append("digital")
+                # R-F2252 — fail-fast for SPARSE targets: the 2× digital budget is for
+                # entity-website link-tree mining (R-F1874); a no-website entity can't
+                # use it → cap at 1× (saves ~90s of I/O-bound search churn).
                 _has_site = bool(
                     target.get("website") or target.get("website_url")
                     or target.get("url") or target.get("domain")
@@ -8041,10 +8050,8 @@ async def _orchestrate_dd_impl(
                 except asyncio.TimeoutError:
                     report.digital.meta.status = LayerStatus.ERROR.value
                     report.digital.meta.error = f"timeout after {_digital_budget}s"
-        elif mode == "quick":
-            if "digital" not in report.layers_skipped:
-                report.layers_skipped.append("digital")
-            report.digital.meta.status = LayerStatus.SKIPPED.value
+
+            await asyncio.gather(_run_network_layer(), _run_digital_layer(), return_exceptions=True)
 
         # ──         # ?? LAYER 5b: SWEEP INTELLIGENCE (R-F1110) ??
         # Queries the brain for recent signals from the 49-source Node sweep.
