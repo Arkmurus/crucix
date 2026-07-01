@@ -3688,6 +3688,31 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
         logger.warning("Compliance: country risk failed: %s", e)
         report.compliance.data_gaps.append(f"country risk lookup failed: {str(e)[:120]}")
 
+    # ── 4a-ter. US federal procurement footprint (R-F2273 — USASpending, free API) ──
+    # Decision-grade signal for a defence entity: does it actually hold US federal
+    # contracts, how much, and from which agencies? A positive contract history is
+    # corroborating substance; absence for a non-US entity is expected (lookup returns
+    # None → no finding, no gap). Datacenter-friendly API (verified 200 + real awards).
+    try:
+        _proc_name = (target.get("name") or target.get("entity")
+                      or getattr(report.identity, "entity_name", "") or "").strip()
+        if len(_proc_name) >= 3:
+            from .sources import usaspending as _usa
+            _proc = await _usa.lookup(_proc_name)
+            if _proc and _proc.get("award_count"):
+                report.compliance.meta.subcalls += 1
+                _val = float(_proc.get("total_value_usd") or 0)
+                _ags = ", ".join(_proc.get("top_agencies") or []) or "n/a"
+                report.compliance.findings.append(Finding(
+                    severity="info",
+                    title=f"US federal contracts: {_proc['award_count']} award(s), ${_val:,.0f}",
+                    detail=f"Top awarding agencies: {_ags}. Source: USASpending.gov (federal award records).",
+                    source="usaspending",
+                    confidence="CONFIRMED",
+                ))
+    except Exception as _pe:
+        logger.debug("Compliance: usaspending lookup failed: %s", _pe)
+
     # ── 4a-bis. Country macro overlay (quantitative — World Bank Indicators v2) ──
     # R-F160 (2026-05-10) — wires the WB Indicators v2 + Data360 adapter
     # (R-F158) into the jurisdiction_country_risk discipline (R-F152). Free
@@ -6253,14 +6278,33 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     all_findings.sort(key=lambda f: severity_order.get(getattr(f, "severity", "info"), 4))
     report.synthesis.key_findings = all_findings[:10]
 
-    # ── 6f. Residual unknowns = all data_gaps combined ──
+    # ── 6f. Residual unknowns = all data_gaps combined (R-F2275: sanitised) ──
+    def _sanitize_gap(g: str):
+        # A genuine data-gap ("Directors unavailable for BR…") is decision-useful and kept.
+        # A raw internal-error fragment ("'coroutine' object has no attribute as_dict",
+        # "unexpected payload shape", stack text) must NEVER reach the user — map the known
+        # overlay cases to a neutral line, drop the rest as noise.
+        if not g:
+            return None
+        low = g.lower()
+        if any(m in low for m in (
+            "coroutine", "as_dict", "has no attribute", "traceback", "nonetype",
+            "unexpected payload", "keyerror", "typeerror", "attributeerror", "object is not",
+        )):
+            if "country" in low or "risk" in low:
+                return "Country-risk overlay was temporarily unavailable for this run."
+            if "payload" in low or "indicator" in low or "world bank" in low or "wb " in low:
+                return "Some macro-indicator overlays were temporarily unavailable."
+            return None
+        return g
     for section in (
         report.identity, report.network, report.verification,
         report.compliance, report.digital, report.commercial_coherence,
     ):
         for g in getattr(section, "data_gaps", []) or []:
-            if g not in report.synthesis.residual_unknowns:
-                report.synthesis.residual_unknowns.append(g)
+            _sg = _sanitize_gap(g)
+            if _sg and _sg not in report.synthesis.residual_unknowns:
+                report.synthesis.residual_unknowns.append(_sg)
 
     report.synthesis.meta.duration_ms = int((time.time() - t0) * 1000)
     report.synthesis.meta.status = LayerStatus.OK.value

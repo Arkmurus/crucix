@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2275,
+  "next_available": 2276,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17037,6 +17037,15 @@
       "r_number": "R-F2274",
       "title": "@wired handles sync functions — fixes get_country_risk + financial_findings silently broken in every DD (coroutine bug)",
       "claimed_at": "2026-07-01T22:56:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2275",
+      "title": "sanitize residual_unknowns — never leak raw internal error fragments into the DD report",
+      "claimed_at": "2026-07-01T23:00:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
