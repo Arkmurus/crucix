@@ -57,8 +57,13 @@ _UA = "ARIA-Source-Monitor/1.0 research@arkmurus.com"
 # Thresholds
 _RELIABILITY_SUSPEND_THRESHOLD = 0.3   # EMA must be below this
 _CONSECUTIVE_PING_FAILS_THRESHOLD = 3  # AND this many consecutive failures
-_PING_TIMEOUT_S = 10.0
-_MAX_CONCURRENT_PINGS = 10
+# R-F2216 — the daily sweep pings ~200 curated sources. Pre-fix: 10 concurrent ×
+# 10s timeout → worst case ~200s, which BLEW the 122s edge-proxy limit (the manual
+# /run endpoint 502'd live) and could exceed the 300s cron budget → the sweep never
+# completed, so last_run stayed null ("no sweep has run yet"). Tighter timeout +
+# higher concurrency bounds a full sweep to ~30-45s worst case (200/40 × 6s).
+_PING_TIMEOUT_S = 6.0
+_MAX_CONCURRENT_PINGS = 40   # R-F2216 — was 10; see _PING_TIMEOUT_S note
 
 # Redis keys
 _K_LAST_RUN = "crucix:source_uptime:last_run"
@@ -180,6 +185,39 @@ async def _consecutive_failures(source_name: str) -> int:
     return count
 
 
+async def _reliability_ema(source_name: str) -> float:
+    """R-F2216 — the real reliability signal, computed from the ping history this
+    module already records (last 30, newest-first). Pre-fix `reliability` was
+    HARDCODED to 0.5 in _get_registered_sources, and the auto-suspend gate needs
+    `reliability < 0.3` — so 0.5 was never below 0.3 and auto-suspend could NEVER
+    fire (dead sources rotted, only manual suspend worked). We now derive an EMA
+    over the ok/fail history (recent pings weighted more). Returns a NEUTRAL 0.5
+    when there is too little history (<3 pings) so a source is never suspended on
+    thin data — the gate's `consecutive_fails >= 3` already guarantees ≥3 pings.
+    """
+    try:
+        from . import redis_store as rs
+        import json
+        raw = await rs.lrange(_K_PING_HISTORY.format(src=source_name[:100]), 0, 30)
+    except Exception:
+        return 0.5
+    pings = []
+    for r in raw:
+        try:
+            pings.append(bool(json.loads(r).get("ok")))
+        except Exception:
+            continue
+    if len(pings) < 3:
+        return 0.5
+    # raw is newest-first; fold oldest→newest so recent pings dominate the EMA.
+    alpha = 0.4
+    ema: float | None = None
+    for ok in reversed(pings):
+        v = 1.0 if ok else 0.0
+        ema = v if ema is None else (alpha * v + (1.0 - alpha) * ema)
+    return round(ema if ema is not None else 0.5, 3)
+
+
 async def _get_suspended() -> set[str]:
     try:
         from . import redis_store as rs
@@ -272,7 +310,10 @@ async def run_daily_ping() -> dict:
     recovered: list[str] = []
     for src, ping in zip(sources, ping_results):
         name = src.get("name") or ""
-        reliability = float(src.get("reliability", 0.5))
+        # R-F2216 — derive reliability from the real ping history (now including the
+        # ping just recorded above) instead of the hardcoded 0.5 that made the
+        # auto-suspend gate dead. Neutral 0.5 on thin history (never suspends).
+        reliability = await _reliability_ema(name)
         fails = await _consecutive_failures(name)
 
         should_suspend = (
