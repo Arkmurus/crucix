@@ -1339,7 +1339,10 @@ app.use(express.static(PUBLIC_DIR, {
     }
   },
 }));
-app.get('/', (req, res) => res.redirect('/signin.html'));
+app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(join(PUBLIC_DIR, 'index.html'));
+});
 // ARIA Brain dashboard — served from public/ like all other pages.
 // Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
 // Explicit route for /aria-brain (without .html) — express.static only
