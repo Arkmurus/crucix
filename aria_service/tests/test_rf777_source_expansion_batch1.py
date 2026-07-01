@@ -33,7 +33,7 @@ _R_F777_BATCH_1 = [
     ("mitre_attack",          "tier_1b", "cyber",           "attack.mitre.org"),
     ("rand_corp",             "tier_1b", "defence",         "rand.org"),
     ("conflict_arm_research", "tier_1b", "weapons",         "conflictarm.com"),
-    ("atrocity_forecasting",  "tier_1b", "foresight",       "atrocityforecastingproject.com"),
+    ("atrocity_forecasting",  "tier_1b", "foresight",       "earlywarningproject.ushmm.org"),  # R-F2269 — old atrocityforecastingproject.com domain died
     ("cisa_advisories",       "tier_2",  "advisory",        "cisa.gov/news-events"),
     ("bellingcat",            "tier_2",  "osint",           "bellingcat.com"),
     ("ransomware_live",       "tier_2",  "ransomware",      "ransomware.live"),

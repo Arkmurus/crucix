@@ -47,13 +47,15 @@
     .dd-table td { padding: 0; border: none; vertical-align: top; }
 
     /* Card-style rows */
+    .dd-list-body { display: block; }
     .dd-row {
-      display: block; cursor: pointer; transition: all .2s;
+      display: block; cursor: pointer; transition: border-color .2s, box-shadow .2s;
       background: #fff; border: 1px solid var(--sc-border);
-      border-radius: 12px; margin-bottom: 0;
+      border-radius: 12px; margin-bottom: 10px;
     }
-    .dd-row:hover { border-color: var(--sc-prime); box-shadow: 0 4px 20px rgba(124,58,237,0.1); transform: translateY(-2px); }
-    .dd-row.expanded { border-color: var(--sc-prime); box-shadow: 0 4px 24px rgba(124,58,237,0.15); }
+    .dd-row:hover { border-color: var(--sc-prime); box-shadow: 0 4px 20px rgba(124,58,237,0.1); }
+    .dd-row.expanded { border-color: var(--sc-prime); box-shadow: 0 4px 24px rgba(124,58,237,0.15);
+      margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 
     .dd-row-inner {
       display: grid;
@@ -160,10 +162,11 @@
     }
     .dd-shared-badge i { font-size: 11px; }
 
-    .dd-detail-row td { padding: 0; background: transparent; }
+    .dd-detail-row { display: block; margin-bottom: 10px; }
     .dd-detail {
       padding: 18px 22px 22px;
-      border: 1px solid var(--sc-border);
+      overflow: hidden; max-width: 100%; box-sizing: border-box;
+      border: 1px solid var(--sc-prime);
       border-top: none;
       border-radius: 0 0 12px 12px;
       background: #faf9f6;
@@ -182,7 +185,8 @@
     /* Report detail — styled cards for each section */
     .dd-md {
       font-size: 13px; line-height: 1.65; color: var(--sc-text);
-      max-height: 65vh; overflow-y: auto; padding-right: 4px;
+      max-height: 65vh; overflow-y: auto; overflow-x: hidden; padding-right: 4px;
+      overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
     }
     .dd-md::-webkit-scrollbar { width: 5px; }
     .dd-md::-webkit-scrollbar-thumb { background: #dcd8cf; border-radius: 3px; }
@@ -533,7 +537,7 @@ function renderTable(reports) {
       + '<div class="dd-lh-cell dd-lh-r">Version · Last Run</div>'
       + '<div></div>'
     + '</div>'
-    + '<table class="dd-table"><tbody>';
+    + '<div class="dd-list-body">';
   for (const r of reports) {
     const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
     const created = r.created_at || r.generated_at || r.timestamp || '';
@@ -562,8 +566,7 @@ function renderTable(reports) {
         '<i class="bi bi-people-fill"></i> shared</span>';
     }
 
-    html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
-      '<td colspan="4" style="padding:0">' +
+    html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
         '<div class="dd-row-inner">' +
           '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
           '<div class="dd-entity-info">' +
@@ -584,10 +587,9 @@ function renderTable(reports) {
             '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report"><i class="bi bi-trash"></i></button>' +
           '</div>' +
         '</div>' +
-      '</td>' +
-    '</tr>';
+    '</div>';
   }
-  html += '</tbody></table>';
+  html += '</div>';
   content.innerHTML = html;
 
   // Row click → expand detail
@@ -732,9 +734,9 @@ async function toggleDetail(row, runId) {
   }
   row.classList.add('expanded');
   _expandedRow = row;
-  const detailRow = document.createElement('tr');
+  const detailRow = document.createElement('div');
   detailRow.className = 'dd-detail-row';
-  detailRow.innerHTML = '<td colspan="4"><div class="dd-detail"><div class="dd-loading">Loading report…</div></div></td>';
+  detailRow.innerHTML = '<div class="dd-detail"><div class="dd-loading">Loading report…</div></div>';
   row.parentNode.insertBefore(detailRow, row.nextSibling);
 
   try {

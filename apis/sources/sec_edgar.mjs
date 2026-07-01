@@ -116,33 +116,36 @@ function extractTag(xml, tag) {
 
 // ── Fetch recent filings for specific watched companies ───────────────────────
 async function fetchWatchedCompanies() {
-  const updates = [];
   const { start } = dateRange();
   const ciks = Object.keys(WATCH_COMPANIES).slice(0, 6); // limit to avoid rate limits
 
-  for (const cik of ciks) {
+  // R-F2268 — fetch the 6 CIKs CONCURRENTLY, not sequentially. The old for-loop
+  // awaited each 8s fetch in series (up to 48s worst case), which alone blew the
+  // 30s SOURCE_TIMEOUT_MS parent cap in briefing.mjs → SecEdgar was killed at 30s
+  // every sweep (esp. when data.sec.gov throttles the cloud IP). Parallel keeps
+  // the whole call ≈ one 8s timeout.
+  const perCik = async (cik) => {
+    const out = [];
     try {
       const res = await fetch(`${DATA_BASE}/CIK${cik}.json`, {
         headers: { 'User-Agent': 'CrucixIntelligence/1.0 research@crucix.live' },
         signal: AbortSignal.timeout(8000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) return out;
       const data = await res.json();
 
       const filings = data.filings?.recent;
-      if (!filings) continue;
+      if (!filings) return out;
 
       const forms  = filings.form        || [];
       const dates  = filings.filingDate  || [];
-      const accNums = filings.accessionNumber || [];
-      const descs  = filings.primaryDocument || [];
       const name   = WATCH_COMPANIES[cik];
 
       for (let i = 0; i < forms.length; i++) {
         if (forms[i] !== '8-K') continue;
         if (dates[i] < start) break; // filings are sorted newest-first
 
-        updates.push({
+        out.push({
           title:    `8-K: ${name} — Material Event (${dates[i]})`,
           company:  name,
           form:     '8-K',
@@ -154,9 +157,11 @@ async function fetchWatchedCompanies() {
         });
       }
     } catch {}
-  }
+    return out;
+  };
 
-  return updates;
+  const settled = await Promise.allSettled(ciks.map(perCik));
+  return settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []));
 }
 
 // ── Main briefing ─────────────────────────────────────────────────────────────

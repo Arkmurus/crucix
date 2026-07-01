@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2266,
+  "next_available": 2271,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16939,9 +16939,10 @@
       "title": "professional DD report detail redesign — risk-verdict hero + clean citations + polished section formatting",
       "claimed_at": "2026-07-01T21:40:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89b067e0",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:55:58Z"
     },
     {
       "r_number": "R-F2265",
@@ -16952,6 +16953,51 @@
       "commit_sha": "87ca6098",
       "notes": null,
       "shipped_at": "2026-07-01T21:49:11Z"
+    },
+    {
+      "r_number": "R-F2266",
+      "title": "source uptime checker honesty — reachable/blocked != down (browser UA, 403/429 not down)",
+      "claimed_at": "2026-07-01T22:00:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2267",
+      "title": "self_healing get_status->health() fix for source_uptime_monitor tile",
+      "claimed_at": "2026-07-01T22:00:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2268",
+      "title": "Node source-health: ProcurementPortals/SecEdgar timeout overrides + SecEdgar parallel CIK",
+      "claimed_at": "2026-07-01T22:00:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2269",
+      "title": "defence_source_seed: replace confirmed-dead/moved seeded source URLs",
+      "claimed_at": "2026-07-01T22:00:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2270",
+      "title": "DD reports list — drop the table, make it all divs on one grid (fixes alignment + detail overflow off-screen)",
+      "claimed_at": "2026-07-01T22:15:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

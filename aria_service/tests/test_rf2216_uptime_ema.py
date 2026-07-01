@@ -29,7 +29,11 @@ async def _anoop(*a, **k):
 # ── R-F2216 sweep-speed constants (the never-completes root cause) ────────────
 def test_rf2216_sweep_bounded_fast():
     assert m._MAX_CONCURRENT_PINGS >= 30
-    assert m._PING_TIMEOUT_S <= 8.0
+    # R-F2266 — _PING_TIMEOUT_S (float) became _PING_TIMEOUT (httpx.Timeout) with a
+    # 12s ceiling; still bounded so 200/40 concurrent stays inside the cron budget.
+    import httpx
+    assert isinstance(m._PING_TIMEOUT, httpx.Timeout)
+    assert (m._PING_TIMEOUT.read or 0) <= 15.0 and (m._PING_TIMEOUT.connect or 0) <= 12.0
 
 
 # ── R-F2225 running-state EMA (the inert-auto-suspend + slow-I/O root causes) ──

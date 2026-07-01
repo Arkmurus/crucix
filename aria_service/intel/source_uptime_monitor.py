@@ -52,7 +52,45 @@ import httpx
 
 logger = logging.getLogger("aria.source_uptime_monitor")
 
-_UA = "ARIA-Source-Monitor/1.0 research@arkmurus.com"
+# R-F2266 — a browser-like UA. The old "ARIA-Source-Monitor/1.0 …" UA was
+# rejected outright by common WAFs (Cloudflare/Akamai) in front of gov/OEM
+# sites, so live Tier-1a sources (fatf-gafi.org, adb.org, …) reported 403/406
+# and were falsely marked "down". A realistic UA lets the liveness probe reach
+# the origin the same way a real client would.
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 ARIA-Source-Monitor/1.1"
+)
+
+# R-F2266 — HTTP statuses where the server ANSWERED but gated this specific
+# client (auth wall / bot challenge / method-not-allowed / rate-limit). The
+# source is REACHABLE and live — it is NOT down. Conflating "blocked" with
+# "dead" was the root cause of ~38/69 false failures on the uptime panel
+# (same honesty lesson as R-F2233's 401-vs-unreachable split). These never
+# count toward the auto-suspend gate.
+_REACHABLE_BUT_BLOCKED = {401, 403, 405, 406, 429, 451}
+
+
+def _classify_ping(status: int | None, exc_name: str | None) -> tuple[bool, str]:
+    """Honest reachability verdict for one ping.
+
+    Returns (reachable, classification). ``reachable`` is what the panel's
+    up/down count and the auto-suspend gate use — a source is only "down"
+    when it is genuinely unreachable (transport failure), the seeded URL is
+    gone (404/410), or the origin is erroring (5xx). A WAF/auth block means
+    the server is alive, so it is reachable=True with classification 'blocked'.
+    """
+    if status is None:
+        return False, (exc_name or "unreachable")
+    if 200 <= status < 400:
+        return True, "up"
+    if status in _REACHABLE_BUT_BLOCKED:
+        return True, "blocked"
+    if status in (404, 410):
+        return False, "not_found"
+    if status >= 500:
+        return False, "server_error"
+    return False, f"http_{status}"
 
 # Thresholds
 _RELIABILITY_SUSPEND_THRESHOLD = 0.3   # EMA must be below this
@@ -62,8 +100,15 @@ _CONSECUTIVE_PING_FAILS_THRESHOLD = 3  # AND this many consecutive failures
 # /run endpoint 502'd live) and could exceed the 300s cron budget → the sweep never
 # completed, so last_run stayed null ("no sweep has run yet"). Tighter timeout +
 # higher concurrency bounds a full sweep to ~30-45s worst case (200/40 × 6s).
-_PING_TIMEOUT_S = 6.0
-_MAX_CONCURRENT_PINGS = 40   # R-F2216 — was 10; see _PING_TIMEOUT_S note
+# R-F2266 — 6s was too aggressive a CONNECT budget for distant gov/OEM origins
+# reached over datacenter egress (TLS handshake to .go.kr/.gov.in/.admin.ch from
+# lhr routinely needs >6s), producing false ConnectTimeout "down" verdicts. The
+# sweep is now off the request path (R-F2223 backgrounds it) with O(1) state I/O
+# (R-F2225), so a 12s ceiling is affordable: 200 sources / 40 concurrent × 12s ≈
+# 60s worst case, well inside the cron budget. Split connect vs read so a slow
+# TLS handshake gets room without letting a hung read run long.
+_PING_TIMEOUT = httpx.Timeout(12.0, connect=10.0)
+_MAX_CONCURRENT_PINGS = 40   # R-F2216 — was 10; see timeout note
 
 # Redis keys
 _K_LAST_RUN = "crucix:source_uptime:last_run"
@@ -128,31 +173,44 @@ async def _ping_one(source: dict) -> dict:
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    # R-F2266 — realistic browser headers so WAFs don't 403 a bare bot ping.
+    _headers = {
+        "User-Agent": _UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     t0 = time.time()
     try:
         async with httpx.AsyncClient(  # no-breaker: an uptime monitor MUST ping even down sources to detect downtime — a breaker would defeat its purpose
-            timeout=_PING_TIMEOUT_S, follow_redirects=True,
+            timeout=_PING_TIMEOUT, follow_redirects=True,
         ) as client:
-            # HEAD first — cheap. Some sites reject HEAD → fall back to GET.
+            # HEAD first — cheap. Many WAFs reject HEAD (405) or challenge it
+            # (403/406/429) while allowing GET → fall back to GET before judging.
             try:
-                r = await client.head(url, headers={"User-Agent": _UA})  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
-                if r.status_code == 405 or r.status_code >= 500:
-                    r = await client.get(url, headers={"User-Agent": _UA})  # no-ssrf-check: curated catalogue URL, not user input
+                r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
+                if r.status_code == 405 or r.status_code in _REACHABLE_BUT_BLOCKED or r.status_code >= 500:
+                    r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
             except Exception:
-                r = await client.get(url, headers={"User-Agent": _UA})  # no-ssrf-check: curated catalogue URL, not user input
+                r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
             latency_ms = int((time.time() - t0) * 1000)
+            reachable, classification = _classify_ping(r.status_code, None)
             return {
                 "name": name, "url": url,
-                "ok": r.status_code < 400,
+                "ok": reachable,                 # R-F2266 — reachable (incl. WAF-blocked) is UP, not down
                 "status": r.status_code,
+                "classification": classification,  # up | blocked | not_found | server_error | http_4xx
                 "latency_ms": latency_ms,
-                "error": None if r.status_code < 400 else f"HTTP {r.status_code}",
+                "error": None if reachable else (
+                    "blocked" if classification == "blocked" else f"HTTP {r.status_code}"
+                ),
                 "checked_at": datetime.now(timezone.utc).isoformat(),
             }
     except Exception as e:
+        reachable, classification = _classify_ping(None, type(e).__name__)
         return {
-            "name": name, "url": url, "ok": False,
+            "name": name, "url": url, "ok": reachable,
             "status": None,
+            "classification": classification,
             "latency_ms": int((time.time() - t0) * 1000),
             "error": f"{type(e).__name__}: {str(e)[:160]}",
             "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -329,10 +387,12 @@ async def run_daily_ping() -> dict:
     per_source = []
     for p in ping_results:
         nm = p.get("name") or ""
+        cls = p.get("classification") or ("up" if p.get("ok") else "error")
         per_source.append({
             "name": nm,
             "url": p.get("url"),
             "status": "ok" if p.get("ok") else "error",
+            "classification": cls,   # R-F2266 — up | blocked | not_found | server_error | http_4xx | <exc>
             "http_status": p.get("status"),
             "latency_ms": p.get("latency_ms"),
             "last_success": p.get("checked_at") if p.get("ok") else None,
@@ -341,11 +401,15 @@ async def run_daily_ping() -> dict:
             "suspended": nm in suspended_set,
         })
     per_source.sort(key=lambda s: (s["status"] == "ok", s["name"]))  # down first
+    # R-F2266 — 'blocked' means reachable-but-WAF-gated (counted UP); surface it
+    # separately so the panel/brain can tell "live but gated" from "truly up".
+    blocked_count = sum(1 for s in per_source if s["classification"] == "blocked")
     summary = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "sources_checked": len(ping_results),
         "up": up_count,
         "down": down_count,
+        "blocked": blocked_count,
         "suspended_now": sorted(newly_suspended),
         "recovered_now": sorted(recovered),
         "currently_suspended": sorted(suspended_set),

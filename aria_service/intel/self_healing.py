@@ -179,7 +179,7 @@ class HealthMonitor:
         start = time.time()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                r = await client.get(url)
+                r = await client.get(url)  # no-ssrf-check: internal subsystem health URL from a fixed registry (check_all), not user input
                 elapsed = (time.time() - start) * 1000
                 if r.status_code < 500:
                     check = HealthCheck(
@@ -554,7 +554,7 @@ class AutoRecoveryEngine:
             try:
                 probe_url = f"http://{action.target}/health"
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    r = await client.get(probe_url)
+                    r = await client.get(probe_url)  # no-ssrf-check: action.target is an internal subsystem name from a recovery action, not user input
                     if r.status_code < 500:
                         return {"success": True, "message": f"Connection verified for {action.target}"}
                     return {
@@ -837,13 +837,19 @@ class SelfDiagnostic:
 
         # 8. Source health
         try:
+            # R-F2267 — the monitor exposes health(), NOT get_status() (which
+            # never existed → this tile always errored dark since it was added).
+            # health() returns {last_run:{sources_checked,up,down,blocked}, ...}.
             from . import source_uptime_monitor
-            uptime = await source_uptime_monitor.get_status()
+            uptime = await source_uptime_monitor.health()
+            lr = uptime.get("last_run") or {}
             results["sources"] = {
                 "status": "ok",
-                "total": uptime.get("total", 0),
-                "healthy": uptime.get("healthy", 0),
-                "failed": uptime.get("failed", 0),
+                "total": lr.get("sources_checked", 0),
+                "healthy": lr.get("up", 0),
+                "failed": lr.get("down", 0),
+                "blocked": lr.get("blocked", 0),
+                "suspended": uptime.get("suspended_count", 0),
             }
         except Exception as e:
             results["sources"] = {"status": "error", "error": str(e)}

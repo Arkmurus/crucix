@@ -130,6 +130,17 @@ const SOURCE_TIMEOUT_OVERRIDES = {
   // seconds processing fit; worst-case NVD retry still gets cut off
   // (acceptable — we keep ransomwatch's data + briefing throughput).
   CyberThreats: 50_000,
+  // R-F2268 — ProcurementPortals raised its OWN internal cap to 60s (R-F578, to
+  // collect partial results across all 28 markets) on the mistaken belief the
+  // parent budget was 90s. The real parent is SOURCE_TIMEOUT_MS=30s, so the
+  // Promise.race killed it at 30s EVERY sweep before its partial-return logic
+  // ran → it contributed zero data and showed as a hard 30s timeout on the
+  // /api/source-health panel. Match the parent to its internal 60s design.
+  ProcurementPortals: 65_000,
+  // R-F2268 — SecEdgar's 6-CIK watch loop is now parallel (was sequential 6×8s
+  // ≈48s), so it normally fits <30s. Small headroom for SEC's unpredictable
+  // datacenter-IP throttling (data.sec.gov stalls on cloud IPs).
+  SecEdgar: 40_000,
 };
 
 export async function runSource(name, fn, ...args) {
