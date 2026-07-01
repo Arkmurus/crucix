@@ -24676,6 +24676,21 @@ async def bd_strategy_generate_ep() -> dict:
     return await bd_strategy.generate_market_intelligence()
 
 
+@router.get("/bd/competitive-frame")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def bd_competitive_frame_ep(market: str | None = None) -> dict:
+    """R-F2230 — grounded competitive SWOT frame. Threats/opportunities come from
+    the curated competitors.COMPETITORS list (evidence = each competitor's
+    strategy); strengths/weaknesses are INSUFFICIENT_DATA unless a correlated
+    signal backs them — never LLM-invented (the R-F2002 fabrication lesson)."""
+    from ..intel import competitive_frame, signal_correlator
+    try:
+        signals = await signal_correlator.correlate_signals()
+    except Exception:
+        signals = []
+    return competitive_frame.grounded_swot(market, signals=signals)
+
+
 @router.get("/opportunities")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def opportunities_ep() -> dict:
