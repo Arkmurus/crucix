@@ -6,7 +6,7 @@ in registry_adapters.lookup_entity when the jurisdiction-specific adapter return
 (or the jurisdiction isn't covered at all) — directly fills the "foreign entity, registry
 returned nothing" gap (e.g. a BR entity). §6-clean: free, no key. GLEIF gives legal name,
 jurisdiction, registered address, legal form, status, and the LEI (used as company_number);
-it has NO director data, so officers/psc stay empty.
+it has NO director data, so officers/psc stay blank.
 """
 from __future__ import annotations
 
@@ -83,15 +83,19 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
             addr.get("city"), addr.get("region"), addr.get("postalCode"), addr.get("country"),
         ] if x)
         reg = a.get("registration", {}) or {}
+        # R-F2261 — keys MUST match what dd_orchestrator._run_identity reads off a registry
+        # profile (company_status / date_of_creation / registered_office_address), else the
+        # GLEIF data silently doesn't populate the DD identity fields.
         profile = {
             "company_name": nm,
             "company_number": lei,              # LEI as the registry id
             "lei": lei,
-            "status": (str(e.get("status") or "").lower() or "unknown"),
+            "company_status": (str(e.get("status") or "").lower() or "unknown"),
             "jurisdiction": e.get("jurisdiction", "") or "",
-            "registered_address": addr_str,
+            "registered_office_address": addr_str,
             "legal_form": (e.get("legalForm") or {}).get("id", "") or "",
-            "incorporation_date": (reg.get("initialRegistrationDate") or "")[:10],
+            "date_of_creation": (reg.get("initialRegistrationDate") or "")[:10],
+            "sic_codes": [],
         }
         cb.record_success()
         try:

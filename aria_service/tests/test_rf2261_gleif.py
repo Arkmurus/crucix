@@ -42,7 +42,9 @@ def test_gleif_returns_registry_contract_shape(monkeypatch):
     assert r["profile"]["company_name"] == "QINETIQ GROUP PLC"
     assert r["profile"]["company_number"] == "213800S8OBDOZMCMUW34"   # LEI as registry id
     assert r["profile"]["jurisdiction"] == "GB"
-    assert r["profile"]["status"] == "active"
+    # keys MUST match what dd_orchestrator reads off a registry profile
+    assert r["profile"]["company_status"] == "active"
+    assert "registered_office_address" in r["profile"] and "date_of_creation" in r["profile"]
     assert r["officers"] == [] and "gleif.org" in r["source_url"]
 
 
