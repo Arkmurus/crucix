@@ -20,7 +20,7 @@ async def test_email_verification_matches_real_reader_keys_and_visits_link():
     portal = types.SimpleNamespace(id="acme", verify_email_domain="acme.io")
     good = {
         "from_addr": "noreply@acme.io",
-        "to_addr": "aria@arkmurus.com",
+        "to_addr": "aria@imaria.io",
         "subject": "Confirm your account",
         "body_text": "Please confirm: https://acme.io/verify?token=abc123",
     }
@@ -40,7 +40,7 @@ async def test_email_verification_matches_real_reader_keys_and_visits_link():
          patch.object(portal_registry, "httpx",
                       types.SimpleNamespace(AsyncClient=lambda *a, **k: _Client())):
         ok = await portal_registry._handle_email_verification(
-            portal, {"email": "aria@arkmurus.com"},
+            portal, {"email": "aria@imaria.io"},
         )
     assert ok is True
     assert "acme.io/verify" in visited.get("url", "")
@@ -53,7 +53,7 @@ async def test_email_verification_old_keys_would_not_match():
     portal = types.SimpleNamespace(id="acme", verify_email_domain="acme.io")
     old = {
         "from": "noreply@acme.io",
-        "to": "aria@arkmurus.com",
+        "to": "aria@imaria.io",
         "body": "confirm https://acme.io/verify?t=1",
         "subject": "x",
     }
@@ -61,7 +61,7 @@ async def test_email_verification_old_keys_would_not_match():
          patch.object(email_reader, "read_emails", AsyncMock(return_value=[old])), \
          patch.object(portal_registry, "httpx", types.SimpleNamespace(AsyncClient=AsyncMock())):
         ok = await portal_registry._handle_email_verification(
-            portal, {"email": "aria@arkmurus.com"},
+            portal, {"email": "aria@imaria.io"},
         )
     assert ok is False
 

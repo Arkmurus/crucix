@@ -10,8 +10,8 @@ from __future__ import annotations
 
 
 def test_rf597_compose_draft_renders_minimal_fields(monkeypatch):
-    monkeypatch.setenv("ARIA_SMTP_HOST", "mail.livemail.co.uk")
-    monkeypatch.setenv("ARIA_SMTP_USER", "aria@arkmurus.com")
+    monkeypatch.setenv("ARIA_SMTP_HOST", "outlook.office365.com")
+    monkeypatch.setenv("ARIA_SMTP_USER", "aria@imaria.io")
     monkeypatch.setenv("ARIA_SMTP_PASS", "stub-password")
 
     from aria_service.integrations import email_outbound as eo
@@ -23,14 +23,14 @@ def test_rf597_compose_draft_renders_minimal_fields(monkeypatch):
     assert d["draft"] is True
     assert d["to"] == "client@example.com"
     assert d["subject"] == "Hello"
-    assert d["from"] == "aria@arkmurus.com"
+    assert d["from"] == "aria@imaria.io"
     assert d["smtp_ready"] is True
 
 
 def test_rf597_send_to_external_recipient_is_draft_only(monkeypatch):
     """Autonomy hard line: client recipient must NEVER auto-send."""
-    monkeypatch.setenv("ARIA_SMTP_HOST", "mail.livemail.co.uk")
-    monkeypatch.setenv("ARIA_SMTP_USER", "aria@arkmurus.com")
+    monkeypatch.setenv("ARIA_SMTP_HOST", "outlook.office365.com")
+    monkeypatch.setenv("ARIA_SMTP_USER", "aria@imaria.io")
     monkeypatch.setenv("ARIA_SMTP_PASS", "stub-password")
     monkeypatch.setenv("ARIA_EMAIL_OUTBOUND_ENABLED", "1")  # even with switch ON
 
@@ -47,10 +47,10 @@ def test_rf597_send_to_external_recipient_is_draft_only(monkeypatch):
 
 def test_rf597_send_internal_not_on_allowlist_is_draft(monkeypatch):
     """internal=True but recipient not on allow-list → still draft."""
-    monkeypatch.setenv("ARIA_SMTP_HOST", "mail.livemail.co.uk")
-    monkeypatch.setenv("ARIA_SMTP_USER", "aria@arkmurus.com")
+    monkeypatch.setenv("ARIA_SMTP_HOST", "outlook.office365.com")
+    monkeypatch.setenv("ARIA_SMTP_USER", "aria@imaria.io")
     monkeypatch.setenv("ARIA_SMTP_PASS", "stub-password")
-    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@arkmurus.com")
+    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@imaria.io")
     monkeypatch.setenv("ARIA_EMAIL_OUTBOUND_ENABLED", "1")
 
     from aria_service.integrations import email_outbound as eo
@@ -66,15 +66,15 @@ def test_rf597_send_internal_not_on_allowlist_is_draft(monkeypatch):
 
 def test_rf597_send_internal_with_kill_switch_off_is_draft(monkeypatch):
     """internal=True + on allow-list but global kill switch OFF → draft."""
-    monkeypatch.setenv("ARIA_SMTP_HOST", "mail.livemail.co.uk")
-    monkeypatch.setenv("ARIA_SMTP_USER", "aria@arkmurus.com")
+    monkeypatch.setenv("ARIA_SMTP_HOST", "outlook.office365.com")
+    monkeypatch.setenv("ARIA_SMTP_USER", "aria@imaria.io")
     monkeypatch.setenv("ARIA_SMTP_PASS", "stub-password")
-    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@arkmurus.com")
+    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@imaria.io")
     monkeypatch.delenv("ARIA_EMAIL_OUTBOUND_ENABLED", raising=False)
 
     from aria_service.integrations import email_outbound as eo
     d = eo.send_email(
-        to="antonio@arkmurus.com",
+        to="antonio@imaria.io",
         subject="Briefing",
         body="x",
         internal=True,
@@ -85,7 +85,7 @@ def test_rf597_send_internal_with_kill_switch_off_is_draft(monkeypatch):
 
 def test_rf597_send_when_creds_missing_is_draft(monkeypatch):
     """All gates pass but SMTP creds missing → draft with refusal."""
-    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@arkmurus.com")
+    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@imaria.io")
     monkeypatch.setenv("ARIA_EMAIL_OUTBOUND_ENABLED", "1")
     for k in ("ARIA_SMTP_HOST", "ARIA_EMAIL_HOST",
               "ARIA_SMTP_USER", "ARIA_EMAIL_USER", "EMAIL_USER",
@@ -94,7 +94,7 @@ def test_rf597_send_when_creds_missing_is_draft(monkeypatch):
 
     from aria_service.integrations import email_outbound as eo
     d = eo.send_email(
-        to="antonio@arkmurus.com",
+        to="antonio@imaria.io",
         subject="x",
         body="x",
         internal=True,
@@ -106,11 +106,11 @@ def test_rf597_send_when_creds_missing_is_draft(monkeypatch):
 def test_rf597_send_all_gates_pass_invokes_smtp(monkeypatch):
     """Happy path: all gates pass → smtplib called. We patch SMTP_SSL
     so no real network call happens."""
-    monkeypatch.setenv("ARIA_SMTP_HOST", "mail.livemail.co.uk")
-    monkeypatch.setenv("ARIA_SMTP_USER", "aria@arkmurus.com")
+    monkeypatch.setenv("ARIA_SMTP_HOST", "outlook.office365.com")
+    monkeypatch.setenv("ARIA_SMTP_USER", "aria@imaria.io")
     monkeypatch.setenv("ARIA_SMTP_PASS", "stub-password")
     monkeypatch.setenv("ARIA_SMTP_PORT", "465")
-    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@arkmurus.com")
+    monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST", "antonio@imaria.io")
     monkeypatch.setenv("ARIA_EMAIL_OUTBOUND_ENABLED", "1")
 
     sent_records = []
@@ -137,7 +137,7 @@ def test_rf597_send_all_gates_pass_invokes_smtp(monkeypatch):
 
     from aria_service.integrations import email_outbound as eo
     d = eo.send_email(
-        to="antonio@arkmurus.com",
+        to="antonio@imaria.io",
         subject="Daily briefing",
         body="Hello operator.",
         internal=True,
@@ -148,9 +148,9 @@ def test_rf597_send_all_gates_pass_invokes_smtp(monkeypatch):
 
 def test_rf597_is_internal_recipient_uses_allowlist(monkeypatch):
     monkeypatch.setenv("ARIA_EMAIL_OPERATOR_ALLOWLIST",
-                       "antonio@arkmurus.com, ops@arkmurus.com")
+                       "antonio@imaria.io, ops@imaria.io")
     from aria_service.integrations import email_outbound as eo
-    assert eo.is_internal_recipient("antonio@arkmurus.com") is True
-    assert eo.is_internal_recipient("OPS@arkmurus.com") is True  # case-insensitive
+    assert eo.is_internal_recipient("antonio@imaria.io") is True
+    assert eo.is_internal_recipient("OPS@imaria.io") is True  # case-insensitive
     assert eo.is_internal_recipient("client@external.com") is False
     assert eo.is_internal_recipient("") is False

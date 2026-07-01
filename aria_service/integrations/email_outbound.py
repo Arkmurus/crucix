@@ -22,7 +22,7 @@ Implementation honours both rules:
     falls back to `ARIA_OPERATOR_EMAIL` / `ARIA_SMTP_USER`.
 
 SMTP config reuses the existing env vars from memory_replication.py:
-  ARIA_SMTP_HOST | ARIA_EMAIL_HOST                   (default mail.livemail.co.uk)
+  ARIA_SMTP_HOST | ARIA_EMAIL_HOST                   (default outlook.office365.com)
   ARIA_SMTP_PORT | ARIA_EMAIL_PORT                   (default 465 SSL)
   ARIA_SMTP_USER | ARIA_EMAIL_USER | EMAIL_USER      (login + From)
   ARIA_SMTP_PASS | ARIA_EMAIL_PASS | EMAIL_PASS      (password)
@@ -43,7 +43,7 @@ from typing import Any
 logger = logging.getLogger("aria.integrations.email_outbound")
 
 # Module-level constants — small, immutable, no config drift.
-_DEFAULT_HOST = "mail.livemail.co.uk"
+_DEFAULT_HOST = "outlook.office365.com"
 _DEFAULT_PORT = 465
 _LOG_PATH = pathlib.Path("./runs/aria_email_outbound.log.jsonl")
 _DRAFT_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB rolling cap

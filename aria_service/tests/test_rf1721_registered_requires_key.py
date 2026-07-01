@@ -20,7 +20,7 @@ from aria_service.intel import portal_registry as pr
 
 
 def _seed(no_key=True):
-    cred = {"Email": "aria@arkmurus.com", "Password_Value": "pw-12345678"}
+    cred = {"Email": "aria@imaria.io", "Password_Value": "pw-12345678"}
     if not no_key:
         cred["api_key"] = "existing32hexkeyaaaaaaaaaaaaaaaa"
     store = {"newsapi": cred}

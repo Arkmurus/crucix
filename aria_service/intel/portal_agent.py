@@ -52,10 +52,10 @@ _CAPTCHA_MAX_POLLS = 120  # ~120 seconds max for slow solves
 _VERIFICATION_TIMEOUT = 60  # seconds to wait for post-submit verification
 
 # ARIA's identity for registrations
-_ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
-_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Arkmurus Group)")
-_ARIA_ORG = "Arkmurus Group Ltd"
-_ARIA_WEBSITE = "https://arkmurus.com"
+_ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@imaria.io")
+_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Imaria Intelligence)")
+_ARIA_ORG = "Imaria Intelligence"
+_ARIA_WEBSITE = "https://imaria.io"
 
 # ── Field detection patterns ──────────────────────────────────────────────
 _FIELD_PATTERNS: dict[str, list[str]] = {
@@ -944,7 +944,7 @@ class AdaptivePortalAgent:
         test_url = portal.api_key_test_url.replace("{key}", key)
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10) as client:  # no-breaker: simple API key test, no circuit needed
                 r = await client.get(test_url)
                 return r.status_code == 200
         except Exception:

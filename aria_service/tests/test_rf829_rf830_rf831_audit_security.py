@@ -11,7 +11,7 @@ verified here via pattern checks (no Node runtime in the Python venv).
 R-F829: socket.io was configured with `cors: { origin: '*' }`, which
         is incompatible with credentials and lets any browser origin
         connect to the chat socket. Replace with an explicit allowlist
-        (APP_URL + intel.arkmurus.com + aria-web.fly.dev + localhost).
+        (APP_URL + intel.imaria.io + aria-web.fly.dev + localhost).
 
 R-F830: lib/persist/store.mjs silently called `starting fresh` on
         corrupt JSON — for users.json / sessions.json that's total
@@ -51,7 +51,7 @@ def test_rf829_socketio_uses_origin_allowlist():
     text = _SERVER.read_text(encoding="utf-8")
     assert "_io_allowed_origins" in text, "Missing R-F829 allowlist variable"
     # The allowlist must include at least the canonical public host.
-    assert "intel.arkmurus.com" in text, (
+    assert "intel.imaria.io" in text, (
         "Allowlist must include the canonical production host"
     )
 

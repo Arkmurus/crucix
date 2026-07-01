@@ -54,7 +54,7 @@ async def test_full_chain_register_retrieve_store_activate():
     resolve_key returns it (live, no operator)."""
     portal = _portal()
     store, _store, _get = _cred_store_patches(
-        {"testportal": {"email": "aria@arkmurus.com", "password": "generatedpw12345"}}
+        {"testportal": {"email": "aria@imaria.io", "password": "generatedpw12345"}}
     )
     with patch.object(portal_registry, "_register_via_email_form",
                       AsyncMock(return_value={"success": True})), \
@@ -76,7 +76,7 @@ async def test_no_key_retrieved_is_honest_failure_not_fake_success():
     """If the dashboard yields no key, do NOT claim success (R-F1702 honesty)."""
     portal = _portal()
     _, _store, _get = _cred_store_patches(
-        {"testportal": {"email": "aria@arkmurus.com", "password": "generatedpw12345"}}
+        {"testportal": {"email": "aria@imaria.io", "password": "generatedpw12345"}}
     )
     with patch.object(portal_registry, "_register_via_email_form",
                       AsyncMock(return_value={"success": True})), \
@@ -113,7 +113,7 @@ async def test_retrieve_builds_login_data_from_login_fields():
     and passes them to the browser routine."""
     portal = _portal()
     _, _store, _get = _cred_store_patches(
-        {"testportal": {"email": "aria@arkmurus.com", "password": "pw-secret-999"}}
+        {"testportal": {"email": "aria@imaria.io", "password": "pw-secret-999"}}
     )
     captured = {}
 
@@ -128,7 +128,7 @@ async def test_retrieve_builds_login_data_from_login_fields():
         key = await portal_registry._retrieve_api_key(portal)
     # R-F1715: _retrieve_api_key now returns a candidate LIST (verified downstream).
     assert key == ["k"]
-    assert captured["login_data"]["email"] == "aria@arkmurus.com"
+    assert captured["login_data"]["email"] == "aria@imaria.io"
     assert captured["login_data"]["password"] == "pw-secret-999"
     assert captured["login_url"] == "https://testportal.example/login"
     assert captured["api_key_url"] == "https://testportal.example/account/api"

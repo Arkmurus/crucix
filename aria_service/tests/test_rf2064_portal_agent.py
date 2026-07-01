@@ -62,7 +62,7 @@ async def test_agent_determines_field_values():
     agent = AdaptivePortalAgent()
 
     # Email fields
-    assert "aria@arkmurus.com" in str(agent._get_value_for_field("email"))
+    assert "aria@imaria.io" in str(agent._get_value_for_field("email"))
 
     # Password fields
     pwd = agent._get_value_for_field("password")
@@ -78,10 +78,10 @@ async def test_agent_determines_field_values():
     assert "ARIA Research" in str(agent._get_value_for_field("full_name"))
 
     # Organization
-    assert "Arkmurus" in str(agent._get_value_for_field("company"))
+    assert "Imaria" in str(agent._get_value_for_field("company"))
 
     # Website
-    assert "arkmurus.com" in str(agent._get_value_for_field("website"))
+    assert "imaria.io" in str(agent._get_value_for_field("website"))
 
     # Phone — should be skipped
     assert agent._get_value_for_field("phone") is None

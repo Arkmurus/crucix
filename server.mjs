@@ -1928,7 +1928,7 @@ ${strat?.topPriority ? `
   and regulatory requirements.
 </div>
 </div>
-<div class="footer">Powered by Arkmurus Crucix Intelligence Platform &nbsp;·&nbsp; arkmurus.com</div>
+<div class="footer">Powered by Imaria Crucix Intelligence Platform &nbsp;·&nbsp; imaria.io</div>
 </body>
 </html>`;
 
@@ -5011,7 +5011,7 @@ app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
       user:      process.env.EMAIL_USER     || '(not set)',
       passSet:   !!(process.env.EMAIL_PASS),
       secure:    process.env.EMAIL_SECURE   || 'false (default)',
-      adminDest: process.env.ADMIN_EMAIL    || 'acorrea@arkmurus.com (default)',
+      adminDest: process.env.ADMIN_EMAIL    || 'aria@imaria.io (default)',
     },
   });
 });
@@ -5975,7 +5975,7 @@ async function start() {
     const set = new Set();
     const add = (u) => { if (u) set.add(u.replace(/\/$/, '')); };
     add(process.env.APP_URL);
-    add('https://intel.arkmurus.com');   // legacy domain — kept live during the imaria.io migration
+    add('https://intel.imaria.io');   // canonical production host
     add('https://imaria.io');            // R-F2244: new primary domain (apex) — chat/socket must trust it
     add('https://www.imaria.io');
     add('https://aria-web.fly.dev');

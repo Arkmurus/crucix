@@ -191,7 +191,7 @@ class TestVaultMigration:
             site_id="real_portal", site_name="Real Portal",
             site_url="http://real.com", agent_id="system",
             status="registered",
-            notes="Autonomously registered. Identity: aria@arkmurus.com.",
+            notes="Autonomously registered. Identity: aria@imaria.io.",
         )
 
         # Close and reopen to trigger migration

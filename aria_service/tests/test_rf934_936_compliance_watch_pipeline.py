@@ -142,14 +142,14 @@ def test_rf935_run_end_to_end_emails_principal(fake_rs, monkeypatch):
     from aria_service.intel import brain_hook as bh
     monkeypatch.setattr(eo, "send_email", _send)
     monkeypatch.setattr(bh, "observe_self_event", _obs)
-    monkeypatch.setenv("ARIA_COMPLIANCE_DIGEST_TO", "acorrea@arkmurus.com")
+    monkeypatch.setenv("ARIA_COMPLIANCE_DIGEST_TO", "aria@imaria.io")
 
     asyncio.run(cw.capture_message(group="DEAL", sender="CP",
                                    text="we can divert via a front company"))
     report = asyncio.run(cw.run_compliance_watch(window_hours=99999))
     assert report["findings"] >= 1
-    assert report["to"] == "acorrea@arkmurus.com"
-    assert sent["to"] == "acorrea@arkmurus.com"
+    assert report["to"] == "aria@imaria.io"
+    assert sent["to"] == "aria@imaria.io"
     assert sent["internal"] is True            # principal-only internal send
     assert "Compliance Watch" in sent["subject"]
     assert report["sent"] is True

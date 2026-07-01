@@ -681,6 +681,13 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
   }
   function openRun(mode) {
     err.style.display = 'none';
+    // R-F2255: reset to the FORM view — a prior async run leaves the confirmation
+    // panel showing + the form hidden; restore both so the box is reusable.
+    const _b = m.querySelector('.sc-mod-body'); if (_b) _b.style.display = '';
+    const _f = m.querySelector('.sc-mod-foot'); if (_f) _f.style.display = '';
+    const _c = document.getElementById('dd-run-confirm'); if (_c) _c.remove();
+    const _sb = document.getElementById('dd-run-submit');
+    if (_sb) { _sb.disabled = false; _sb.innerHTML = '<i class="bi bi-play-fill"></i> Run DD'; }
     setMode(mode);
     titleEl.textContent = mode === 'deep' ? 'Run full due diligence' : 'Run due diligence';
     m.classList.add('open');
@@ -733,10 +740,36 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       }
       const started = await r.json().catch(() => ({}));
       const runId = started.run_id;
-      closeRun();
-      if (window.Toast) Toast.show('Due diligence started for ' + name + ' — running in the background…', 'success');
+      // R-F2255: keep the modal OPEN with a clear in-box "running" confirmation
+      // instead of vanishing on submit. The async DD runs in the background, so show
+      // that — the box used to disappear with no feedback (looked broken).
+      const bodyEl = m.querySelector('.sc-mod-body');
+      const footEl = m.querySelector('.sc-mod-foot');
+      if (bodyEl) bodyEl.style.display = 'none';
+      if (footEl) footEl.style.display = 'none';
+      let confEl = document.getElementById('dd-run-confirm');
+      if (!confEl) {
+        confEl = document.createElement('div');
+        confEl.id = 'dd-run-confirm';
+        if (footEl && footEl.parentNode) footEl.parentNode.insertBefore(confEl, footEl);
+        else if (bodyEl && bodyEl.parentNode) bodyEl.parentNode.appendChild(confEl);
+      }
+      const _nm = String(name).replace(/</g, '&lt;');
+      confEl.innerHTML =
+        '<div style="text-align:center;padding:24px 16px">' +
+          '<div style="font-size:34px;color:#7c3aed;margin-bottom:6px"><i class="bi bi-hourglass-split"></i></div>' +
+          '<h3 style="margin:0 0 4px">Due diligence started</h3>' +
+          '<p style="margin:0 0 2px;font-weight:600">' + _nm + '</p>' +
+          '<p style="color:#64748b;margin:8px 0 14px;font-size:14px">Running in the background — this takes a few ' +
+            'minutes. It appears in your reports below automatically when ready; you can close this window.</p>' +
+          '<p id="dd-run-live" style="color:#7c3aed;font-weight:600;margin:0 0 16px">⏳ Running…</p>' +
+          '<button type="button" class="sc-btn sc-btn-primary" id="dd-run-doneclose">Close</button>' +
+        '</div>';
+      const _dc = document.getElementById('dd-run-doneclose');
+      if (_dc) _dc.addEventListener('click', closeRun);
       await loadReports();
-      // R-F2250: poll the report until the background DD completes (no 30s proxy wall).
+      // R-F2250/R-F2255: poll the report until the background DD completes (no 30s
+      // proxy wall) and reflect progress in the confirmation panel.
       if (runId) {
         let tries = 0;
         const poll = async () => {
@@ -746,10 +779,17 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
             if (pr.ok) {
               const rep = await pr.json().catch(() => ({}));
               const st = (rep && rep.status) || 'done';
-              if (st === 'running' && tries < 150) { setTimeout(poll, 5000); return; } // ~12.5 min ceiling
+              const liveEl = document.getElementById('dd-run-live');
+              if (st === 'running' && tries < 150) { // ~12.5 min ceiling
+                if (liveEl) liveEl.textContent = '⏳ Running… (' + (tries * 5) + 's elapsed)';
+                setTimeout(poll, 5000); return;
+              }
               await loadReports();
+              if (liveEl) liveEl.innerHTML = (st === 'failed')
+                ? '<span style="color:#dc2626">✗ DD failed: ' + String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>'
+                : '<span style="color:#16a34a">✓ Complete — see your reports below.</span>';
               if (window.Toast) Toast.show(
-                st === 'failed' ? ('DD failed for ' + name + ': ' + (rep.error || 'see report'))
+                st === 'failed' ? ('DD failed for ' + name)
                                : ('Due diligence complete for ' + name + '.'),
                 st === 'failed' ? 'error' : 'success');
               return;

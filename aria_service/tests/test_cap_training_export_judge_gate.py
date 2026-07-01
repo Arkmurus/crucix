@@ -89,7 +89,7 @@ async def test_pii_scrubbed_even_when_gate_off():
     examples = [
         {
             "user": "Contact me at test@example.com or call +44 7700 900123",
-            "assistant": "My email is aria@arkmurus.com and my phone is +44 7700 900123",
+            "assistant": "My email is aria@imaria.io and my phone is +44 7700 900123",
         },
     ]
     # Run through the full export pipeline's PII scrub path

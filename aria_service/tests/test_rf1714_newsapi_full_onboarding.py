@@ -35,7 +35,7 @@ def _newsapi():
 async def test_newsapi_full_chain_uses_real_creds_and_activates():
     portal = _newsapi()
     # registration stores form data keyed by the SIGNUP selectors:
-    store = {"newsapi": {"Email": "aria@arkmurus.com",
+    store = {"newsapi": {"Email": "aria@imaria.io",
                          "FirstName": "ARIA Research",
                          "Password_Value": "Gx7-generated-pw-91237"}}
 
@@ -68,7 +68,7 @@ async def test_newsapi_full_chain_uses_real_creds_and_activates():
     assert got == _KEY
     # Logged in with the RIGHT creds — password came from Password_Value, NOT
     # the FirstName (the bug R-F1714 fixed), email from Email.
-    assert captured["login_data"]["Email"] == "aria@arkmurus.com"
+    assert captured["login_data"]["Email"] == "aria@imaria.io"
     assert captured["login_data"]["Password"] == "Gx7-generated-pw-91237"
     # Hit the real login + key pages, with the 32-hex regex.
     assert captured["login_url"] == "https://newsapi.org/login"

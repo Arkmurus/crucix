@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-os.environ.setdefault("ARIA_OPERATOR_EMAIL", "op@arkmurus.com")
+os.environ.setdefault("ARIA_OPERATOR_EMAIL", "op@imaria.io")
 from aria_service.intel import portal_registry as pr  # noqa: E402
 
 

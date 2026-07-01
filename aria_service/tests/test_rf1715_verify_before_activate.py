@@ -50,7 +50,7 @@ def _httpx_stub():
 @pytest.mark.asyncio
 async def test_verify_rejects_wrong_candidate_and_stores_working_key():
     portal = _newsapi()
-    store = {"newsapi": {"Email": "aria@arkmurus.com", "Password_Value": "pw-12345678"}}
+    store = {"newsapi": {"Email": "aria@imaria.io", "Password_Value": "pw-12345678"}}
 
     async def _store(pid, cred):
         store[pid] = {**store.get(pid, {}), **cred}
@@ -78,7 +78,7 @@ async def test_verify_rejects_wrong_candidate_and_stores_working_key():
 @pytest.mark.asyncio
 async def test_no_candidate_verifies_is_honest_failure():
     portal = _newsapi()
-    store = {"newsapi": {"Email": "aria@arkmurus.com", "Password_Value": "pw-12345678"}}
+    store = {"newsapi": {"Email": "aria@imaria.io", "Password_Value": "pw-12345678"}}
 
     async def _store(pid, cred):
         store[pid] = {**store.get(pid, {}), **cred}

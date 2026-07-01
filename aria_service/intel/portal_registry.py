@@ -5,7 +5,7 @@ access data behind registration walls. Uses a dedicated ARIA email address,
 respects terms of service, and stores credentials securely.
 
 Gate: ARIA_PORTAL_REGISTRY_ENABLED=1 to enable (default ON).
-Email: ARIA_PORTAL_EMAIL env var (default: aria@arkmurus.com).
+Email: ARIA_PORTAL_EMAIL env var (default: aria@imaria.io).
 """
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ logger = logging.getLogger("aria.portal_registry")
 _ENABLED = os.getenv("ARIA_PORTAL_REGISTRY_ENABLED", "1") == "1"
 # R-F1495: portal registration identity. Must contain 'arkmurus' to pass
 # assert_real_identity. The env var ARIA_PORTAL_NAME overrides this default.
-_ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@arkmurus.com")
-_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Arkmurus Group)")
+_ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@imaria.io")
+_ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Imaria Intelligence)")
 _CRED_KEY = "crucix:portal_registry:credentials"
 _REGISTRY_KEY = "crucix:portal_registry:registered"
 
@@ -834,15 +834,15 @@ async def store_credential(portal_id: str, credential: dict) -> None:
 # Every registration uses the real Arkmurus identity. This assertion
 # REJECTS any non-arkmurus / fabricated identity automatically.
 
-_ARIA_IDENTITY_NAME = "Arkmurus Group Ltd"
-_ARIA_IDENTITY_EMAIL = "aria@arkmurus.com"
-_ARIA_IDENTITY_DOMAIN = "arkmurus.com"
+_ARIA_IDENTITY_NAME = "Imaria Intelligence"
+_ARIA_IDENTITY_EMAIL = "aria@imaria.io"
+_ARIA_IDENTITY_DOMAIN = "imaria.io"
 
 @fail_wire(module="portal_registry", gap_type="registry_lookup")
 def assert_real_identity(email: str, name: str) -> tuple[bool, str]:
-    """Verify that the given identity is a real Arkmurus identity.
+    """Verify that the given identity is a real Imaria identity.
 
-    Returns (is_valid, reason). Rejects non-arkmurus emails and
+    Returns (is_valid, reason). Rejects non-imaria emails and
     fabricated/synthetic names automatically. No manual step.
     """
     if not email or not isinstance(email, str):
@@ -853,21 +853,21 @@ def assert_real_identity(email: str, name: str) -> tuple[bool, str]:
     email_lower = email.strip().lower()
     name_lower = name.strip().lower()
 
-    # Must be @arkmurus.com
+    # Must be @imaria.io
     if not email_lower.endswith(f"@{_ARIA_IDENTITY_DOMAIN}"):
         return False, (
             f"Email domain '{email_lower.split('@')[-1] if '@' in email_lower else 'none'}' "
-            f"is not {_ARIA_IDENTITY_DOMAIN} — only real Arkmurus identities allowed"
+            f"is not {_ARIA_IDENTITY_DOMAIN} — only real Imaria identities allowed"
         )
 
     # Must contain Arkmurus in the name
-    if "arkmurus" not in name_lower:
+    if "imaria" not in name_lower:
         return False, (
-            f"Name '{name}' does not identify as Arkmurus — "
-            f"only real Arkmurus identities allowed"
+            f"Name '{name}' does not identify as Imaria — "
+            f"only real Imaria identities allowed"
         )
 
-    return True, "Valid Arkmurus identity"
+    return True, "Valid Imaria identity"
 
 
 # ── R-F1106: Non-blocking audit log ───────────────────────────────────────
@@ -1220,7 +1220,7 @@ async def _register_via_email_form(portal: PortalDef, purpose: str = "") -> dict
     For portals WITH CAPTCHA: defers to operator (report-and-defer).
     For portals WITHOUT CAPTCHA: attempts automated registration using
     Playwright (for JS forms) or httpx (for simple forms), then:
-      1. Asserts real Arkmurus identity
+      1. Asserts real Imaria identity
       2. Reads ToS if available
       3. Submits the registration form using per-portal field schemas
       4. If email verification required: polls email_reader for the
@@ -1620,11 +1620,11 @@ def _build_form_data(
         elif value_source == "name":
             value = registration_data.get("name", "")
         elif value_source == "org":
-            value = "Arkmurus Group Ltd"
+            value = "Imaria Intelligence"
         elif value_source == "password":
             value = registration_data.get("password", "")
         elif value_source == "website":
-            value = "https://arkmurus.com"
+            value = "https://imaria.io"
         else:
             value = ""
 
@@ -1914,10 +1914,10 @@ async def _handle_email_verification(
                     link = _extract_confirmation_link(body + subject)
                     if link:
                         # Visit the confirmation link
-                        async with httpx.AsyncClient(
+                        async with httpx.AsyncClient(  # no-breaker: confirmation link visit, one-shot
                             timeout=15.0, follow_redirects=True,
                         ) as client:
-                            await client.get(link)
+                            await client.get(link)  # no-ssrf-check: link is from portal's own confirmation email
                             return True
 
             except Exception:
@@ -2042,7 +2042,7 @@ async def _verify_api_key(portal: PortalDef, key: str) -> bool:
     try:
         url = portal.api_key_test_url.replace("{key}", key)
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:  # no-breaker: portal registry is best-effort; breaker would block portal discovery
-            resp = await client.get(url)
+            resp = await client.get(url)  # no-ssrf-check: url is from portal.api_key_test_url template, not user-supplied
         if 200 <= resp.status_code < 300:
             low = (resp.text or "")[:2000].lower()
             # reject bodies that signal an invalid/missing key even on a 200
@@ -2181,7 +2181,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
         return _step("login_post", await client.post(_action(lpage, login_url), data=lform))
 
     try:
-        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, headers=ua) as client:  # no-breaker: portal registration HTTP, one-shot per portal
             acct_url = base + (portal.api_key_path or "/account")
 
             # 0. LOGIN-FIRST — the account may already exist from a prior run; a
@@ -2195,7 +2195,7 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
 
             # 1. REGISTER — alias-retry. R-F1728: live proof — a FRESH email
             #    POST lands on /register/success with the 32-hex key ON the page
-            #    (no email-verify, no login). The configured aria@arkmurus.com is
+            #    (no email-verify, no login). The configured aria@imaria.io is
             #    already registered from prior attempts, so its POST silently
             #    re-renders /register. Retry with `+portal` sub-addresses of the
             #    SAME real mailbox (honest identity, same inbox) until one creates
@@ -2457,7 +2457,7 @@ async def fetch_with_auth(
         return None
 
     headers = {
-        "User-Agent": "ARIA-Research/1.0 (arkmurus.com; +https://arkmurus.com)",
+        "User-Agent": "ARIA-Research/1.0 (imaria.io; +https://imaria.io)",
     }
 
     # Add auth headers based on credential type
@@ -2472,7 +2472,7 @@ async def fetch_with_auth(
         headers["Authorization"] = f"Basic {base64.b64encode(auth_str.encode()).decode()}"
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:  # no-breaker: fetch_with_auth, per-request
             if method == "POST" and json_body:
                 resp = await client.post(url, json=json_body)
             else:
@@ -2507,7 +2507,7 @@ async def lookup_contracts_by_uei(uei: str) -> Optional[dict]:
     This is a free, open API — no registration required.
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:  # no-breaker: USASpending.gov free API, one-shot
             resp = await client.post(
                 "https://api.usaspending.gov/api/v2/search/spending_by_recipient/",
                 json={
@@ -3069,8 +3069,8 @@ _valid, _reason = assert_real_identity(_ARIA_EMAIL, _ARIA_NAME)
 if not _valid:
     logger.critical(
         "[R-F1504] PORTAL REGISTRY IDENTITY ASSERTION FAILED at import time: %s. "
-        "Set ARIA_PORTAL_NAME to include 'Arkmurus' (e.g. 'ARIA Research (Arkmurus Group)') "
-        "and ARIA_PORTAL_EMAIL to 'aria@arkmurus.com'. ALL auto-registrations will fail until fixed.",
+        "Set ARIA_PORTAL_NAME to include 'Imaria' (e.g. 'ARIA Research (Imaria Intelligence)') "
+        "and ARIA_PORTAL_EMAIL to 'aria@imaria.io'. ALL auto-registrations will fail until fixed.",
         _reason,
     )
 else:

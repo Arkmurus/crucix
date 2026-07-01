@@ -52,19 +52,19 @@ class TestAssertRealIdentity:
     """R-F1106: Real-identity assertion must reject non-arkmurus identities."""
 
     def test_valid_identity(self):
-        valid, reason = assert_real_identity("aria@arkmurus.com", "Arkmurus Group Ltd")
+        valid, reason = assert_real_identity("aria@imaria.io", "Imaria Intelligence")
         assert valid is True
         assert "Valid" in reason
 
     def test_rejects_wrong_domain(self):
         valid, reason = assert_real_identity("aria@gmail.com", "Arkmurus Group Ltd")
         assert valid is False
-        assert "arkmurus.com" in reason
+        assert "imaria.io" in reason
 
     def test_rejects_non_arkmurus_name(self):
-        valid, reason = assert_real_identity("aria@arkmurus.com", "Fake Corp Ltd")
+        valid, reason = assert_real_identity("aria@imaria.io", "Fake Corp Ltd")
         assert valid is False
-        assert "Arkmurus" in reason
+        assert "Imaria" in reason
 
     def test_rejects_empty_email(self):
         valid, reason = assert_real_identity("", "Arkmurus Group Ltd")
@@ -72,7 +72,7 @@ class TestAssertRealIdentity:
         assert "No email" in reason
 
     def test_rejects_empty_name(self):
-        valid, reason = assert_real_identity("aria@arkmurus.com", "")
+        valid, reason = assert_real_identity("aria@imaria.io", "")
         assert valid is False
         assert "No name" in reason
 
@@ -92,16 +92,16 @@ class TestBuildFormData:
             ("accept_terms", "checkbox", "literal:1"),
         ]
         reg_data = {
-            "email": "aria@arkmurus.com",
+            "email": "aria@imaria.io",
             "name": "ARIA Research",
             "password": "s3cret!",
         }
         result = _build_form_data(fields, reg_data)
-        assert result["user[email]"] == "aria@arkmurus.com"
+        assert result["user[email]"] == "aria@imaria.io"
         assert result["user[name]"] == "ARIA Research"
-        assert result["user[org]"] == "Arkmurus Group Ltd"
+        assert result["user[org]"] == "Imaria Intelligence"
         assert result["user[password]"] == "s3cret!"
-        assert result["user[website]"] == "https://arkmurus.com"
+        assert result["user[website]"] == "https://imaria.io"
         assert result["accept_terms"] == "1"
 
     def test_handles_empty_fields(self):
