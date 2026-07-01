@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2237,
+  "next_available": 2238,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16657,6 +16657,15 @@
       "r_number": "R-F2236",
       "title": "3 bulletproof-platform agents: security-auditor, incident-responder, github-actions-expert (Claude .claude/agents + ARIA coder_personas)",
       "claimed_at": "2026-07-01T11:52:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2237",
+      "title": "CI hardening: pin setup-flyctl@master to SHA + add concurrency/permissions to deploy-fly.yml (github-actions-expert P0)",
+      "claimed_at": "2026-07-01T12:10:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

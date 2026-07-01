@@ -24,6 +24,19 @@ on:
         description: "Manual-deploy justification (auditable)"
         required: true
 
+# R-F2237 (security-auditor/github-actions-expert P0): least-privilege token — this
+# job deploys via flyctl (FLY_API_TOKEN), it never needs write to the repo. It only
+# reads git (rev-parse/log) + checks out. contents:read is sufficient.
+permissions:
+  contents: read
+
+# R-F2237: serialise deploys so a manual workflow_dispatch can't SIGTERM ARIA's
+# autonomous ci_deploy (or another dispatch) mid-boot — the R-F1478 lease-contention
+# class. Queue, don't cancel: cancelling an in-flight deploy resets the ~10-min boot.
+concurrency:
+  group: deploy-aria-intel
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -34,7 +47,10 @@ jobs:
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # R-F2237: SHA-pinned (was @master — a moving branch tip running in the
+      # FLY_API_TOKEN job = total-Fly-compromise on any upstream push). Pinned to
+      # v1.6 by full commit SHA; bump the SHA + comment together to upgrade.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
       # --wait-timeout 900 (15 min) — default 300s kept marking successful
       # deploys as "failure" because flyctl exited non-zero while fly waited
       # for machines to pass healthchecks on the new image. The release was
