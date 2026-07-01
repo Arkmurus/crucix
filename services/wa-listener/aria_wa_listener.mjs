@@ -305,6 +305,15 @@ const KEYWORD_AUTO_RESPONSE = (process.env.WA_KEYWORD_AUTO_RESPONSE || 'false').
 // routed to ARIA (incl. R-F912 doc re-attach) regardless of the transcript.
 // Set ARIA_VOICE_ALWAYS_REPLY=false to revert to wake-word-required for voice.
 const VOICE_ALWAYS_REPLY = (process.env.ARIA_VOICE_ALWAYS_REPLY || 'true').toLowerCase() === 'true';
+// R-F2210 (2026-07-01) — 1:1 DM support. Historically EVERY non-group chat was
+// dropped before any handling, so a user who DM'd ARIA's number got nothing:
+// no reply, no capture, no §25 delivery-outcome — the most natural support
+// channel was completely dark. When on (default), a direct message
+// (…@s.whatsapp.net) is handled and treated as an implicit mention (a 1:1 DM is
+// inherently addressed to ARIA — same rationale as VOICE_ALWAYS_REPLY). This adds
+// no new abuse surface: the explicit-mention path is already open to any sender.
+// Set WA_DM_ENABLED=false to revert to group-only. Groups stay name-gated.
+const WA_DM_ENABLED = (process.env.WA_DM_ENABLED || 'true').toLowerCase() === 'true';
 const MAX_DOC_CHARS = parseInt(process.env.ARIA_MAX_DOC_CHARS || '200000', 10);
 
 // Parse group IDs — can be set after first run once you know your group IDs
@@ -2348,11 +2357,17 @@ async function onMessagesUpsert(sock, account, ev) {
 
       const chatId = msg.key.remoteJid || '';
 
-      // Only process group messages (group IDs end in @g.us)
-      if (!chatId.endsWith('@g.us')) continue;
+      // R-F2210 — process group messages AND 1:1 DMs (when WA_DM_ENABLED).
+      // Previously ALL non-group chats were dropped here (dark support channel).
+      // A DM jid ends in @s.whatsapp.net; non-group/non-DM jids (status@broadcast,
+      // @newsletter, etc.) are still dropped. DMs are treated as an implicit
+      // mention below so plain text reaches the chat path without the name.
+      const _isGroup = chatId.endsWith('@g.us');
+      const _isDM    = chatId.endsWith('@s.whatsapp.net');
+      if (!_isGroup && !(WA_DM_ENABLED && _isDM)) continue;
 
-      // Filter to target groups if specified
-      if (TARGET_GROUPS.length && !TARGET_GROUPS.includes(chatId)) continue;
+      // Filter to target groups if specified (groups only — never gates DMs)
+      if (_isGroup && TARGET_GROUPS.length && !TARGET_GROUPS.includes(chatId)) continue;
 
       // Extract message text (R-F957 — `let`, so a transcribed voice note can
       // populate it and flow through the normal capture + wake-word path).
@@ -2396,15 +2411,20 @@ async function onMessagesUpsert(sock, account, ev) {
       // T0★ — unique request_id from the WA message key (R-F1411)
       const requestId = msg.key.id || `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
 
-      // Get group name
+      // Get group name (R-F2210 — DMs have no group metadata; skip the call that
+      // would always throw for a 1:1 chat and label with the sender instead).
       let groupName = groupNames.get(chatId);
       if (!groupName) {
-        try {
-          const meta = await sock.groupMetadata(chatId);
-          groupName  = meta.subject;
-          groupNames.set(chatId, groupName);
-        } catch(e) {
-          groupName = chatId;
+        if (_isGroup) {
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            groupName  = meta.subject;
+            groupNames.set(chatId, groupName);
+          } catch(e) {
+            groupName = chatId;
+          }
+        } else {
+          groupName = senderName || chatId;
         }
       }
 
@@ -2417,7 +2437,9 @@ async function onMessagesUpsert(sock, account, ev) {
       // includes the image/video/document caption (extracted above), so this is the
       // caption-level mention state. She still OBSERVES silently (group text is
       // captured for learning); she just doesn't RESPOND unless called.
-      const _ariaCalled = MENTIONS_RE.some((p) => p.test(text || ''));
+      // R-F2210 — a 1:1 DM counts as "called" so media (image/doc) is handled
+      // and the send-doc-then-ask flow works without the user typing her name.
+      const _ariaCalled = MENTIONS_RE.some((p) => p.test(text || '')) || (WA_DM_ENABLED && _isDM);
 
       // ── Media processing — IMAGES + DOCUMENTS ────────────────────────────
       // Two separate paths because images need OCR (vision) and documents
@@ -2863,7 +2885,7 @@ async function onMessagesUpsert(sock, account, ev) {
       // ── Mention handling — respond when ARIA is mentioned, OR (R-F963) when
       //    this is a voice note and ARIA_VOICE_ALWAYS_REPLY is on (the wake-word
       //    is unreliable in STT, so a voice note IS the address). ──────────────
-      if (MENTIONS_RE.some(p => p.test(text)) || (_isVoiceNote && VOICE_ALWAYS_REPLY)) {
+      if (MENTIONS_RE.some(p => p.test(text)) || (_isVoiceNote && VOICE_ALWAYS_REPLY) || (WA_DM_ENABLED && _isDM)) {
         let q = text.replace(/^@?ar[iy]{1,3}a[,:?\s]*/i, '').trim() || text;  // R-F959 — strip STT-variant name prefix
         // R-F1979 — GUARDIAN intents (check-in / all-clear / panic / circle).
         // Handled BEFORE the LLM so a safety command is instant and deterministic.

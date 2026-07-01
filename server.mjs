@@ -37,6 +37,7 @@ import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage,
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
+import { pinNonAdminUserId, isPrivileged } from './lib/auth/proxyPin.mjs';   // R-F2211 — central IDOR guard
 import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
@@ -5230,7 +5231,16 @@ app.use('/api/aria', requireAuth, async (req, res, next) => {
   // req.originalUrl preserves the full /api/aria prefix + path + query;
   // req.url is relative to the mount point (/api/aria) so we need the
   // original to forward verbatim.
-  const fullPath = req.originalUrl;
+  //
+  // R-F2211 — central IDOR guard. Pin user_id to the JWT identity for every
+  // non-admin request (query AND body), overriding any client value, so a
+  // normal user can't read another tenant by forging ?user_id / body.user_id.
+  // This kills the leak CLASS for the catch-all instead of patching each new
+  // owner-scoped endpoint. Admin/internal keep see-all (see proxyPin.mjs).
+  const fullPath = pinNonAdminUserId(req.originalUrl, req.user);
+  if (!isPrivileged(req.user) && req.body && typeof req.body === 'object') {
+    try { req.body.user_id = (req.user && req.user.userId) || ''; } catch { /* immutable body — ignore */ }
+  }
   ariaProxy(req, res, fullPath, {
     method: req.method,
     fallback: async ({ lastStatus, lastErr } = {}) => {
