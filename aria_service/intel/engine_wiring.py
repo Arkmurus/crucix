@@ -252,9 +252,7 @@ def wired(
         _module = module or func.__module__
         _name = func.__name__
 
-        @functools.wraps(func)
-        async def _wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Build summary/detail from kwargs placeholders
+        def _prep(kwargs: dict) -> tuple:
             _summary = summary
             _detail = detail
             if kwargs:
@@ -266,53 +264,58 @@ def wired(
                     _detail = detail.format(**kwargs)
                 except (KeyError, ValueError):
                     _detail = detail
-
             _entity = kwargs.get(entity_arg, "") if entity_arg else ""
+            return _summary, _detail, _entity
 
-            try:
-                result = await func(*args, **kwargs)
-            except Exception as exc:
-                _fail_detail = _detail or f"{_name}: {exc}"
-                wire_failure(
-                    module=_module,
-                    detail=_fail_detail[:600],
-                    gap_type=gap_type,
-                    source=_module,
-                )
-                raise
+        def _emit_failure(_detail: str, exc: Exception) -> None:
+            _fail_detail = _detail or f"{_name}: {exc}"
+            wire_failure(module=_module, detail=_fail_detail[:600], gap_type=gap_type, source=_module)
 
-            # Falsy-success check (R-F1122): if the return is a dict with
-            # success=False, treat it as a failure — kills the false-success
-            # class of bugs where a function returns without raising.
+        def _emit_result(result: Any, _summary: str, _detail: str, _entity: str) -> None:
+            # Falsy-success check (R-F1122): a dict with success=False is a failure even
+            # though the function returned without raising.
             if check_falsy_success and isinstance(result, dict) and result.get("success") is False:
                 _fail_detail = _detail or f"{_name} returned falsy success: {str(result.get('error', ''))[:200]}"
-                wire_failure(
-                    module=_module,
-                    detail=_fail_detail[:600],
-                    gap_type=gap_type,
-                    source=_module,
-                )
-                return result
-
-            # Success path
+                wire_failure(module=_module, detail=_fail_detail[:600], gap_type=gap_type, source=_module)
+                return
             _success_detail = _detail
             if capture_result and result is not None:
                 _result_str = str(result)[:300]
-                if _success_detail:
-                    _success_detail = f"{_success_detail} | result: {_result_str}"
-                else:
-                    _success_detail = _result_str
-
+                _success_detail = f"{_success_detail} | result: {_result_str}" if _success_detail else _result_str
             wire_success(
-                module=_module,
-                summary=_summary or f"{_name} completed",
-                detail=_success_detail,
-                entity_name=_entity,
-                confidence=confidence,
-                source_id=_module,
+                module=_module, summary=_summary or f"{_name} completed",
+                detail=_success_detail, entity_name=_entity, confidence=confidence, source_id=_module,
             )
+
+        # R-F2274 — @wired MUST handle SYNC functions too. The old async-only wrapper turned a
+        # decorated `def` into an un-awaitable coroutine, so callers got "'coroutine' object has
+        # no attribute ..." — silently breaking get_country_risk + financial_findings in EVERY
+        # DD (all country-risk/CPI/FATF/Basel substance was lost + the raw error shown to users).
+        # Detect the function kind and wrap accordingly; async behaviour is unchanged.
+        if asyncio.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+                _summary, _detail, _entity = _prep(kwargs)
+                try:
+                    result = await func(*args, **kwargs)
+                except Exception as exc:
+                    _emit_failure(_detail, exc)
+                    raise
+                _emit_result(result, _summary, _detail, _entity)
+                return result
+            return _wrapper
+
+        @functools.wraps(func)
+        def _sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            _summary, _detail, _entity = _prep(kwargs)
+            try:
+                result = func(*args, **kwargs)
+            except Exception as exc:
+                _emit_failure(_detail, exc)
+                raise
+            _emit_result(result, _summary, _detail, _entity)
             return result
 
-        return _wrapper
+        return _sync_wrapper
 
     return _decorator

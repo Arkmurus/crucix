@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2273,
+  "next_available": 2275,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17009,14 +17009,34 @@
       "title": "DD re-run buttons — add async_mode so re-run doesn't run sync and 500 at the proxy",
       "claimed_at": "2026-07-01T22:31:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d27537b2",
+      "notes": null,
+      "shipped_at": "2026-07-01T22:52:03Z"
     },
     {
       "r_number": "R-F2272",
       "title": "GDELT per-query cache — make the rate-limited leg reliably contribute (return cached articles instead of [] under the 5s throttle)",
       "claimed_at": "2026-07-01T22:41:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "482418fe",
+      "notes": null,
+      "shipped_at": "2026-07-01T22:52:03Z"
+    },
+    {
+      "r_number": "R-F2273",
+      "title": "USASpending procurement leg — free US federal contract/award data for the DD commercial layer",
+      "claimed_at": "2026-07-01T22:51:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2274",
+      "title": "@wired handles sync functions — fixes get_country_risk + financial_findings silently broken in every DD (coroutine bug)",
+      "claimed_at": "2026-07-01T22:56:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
