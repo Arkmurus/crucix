@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2262,
+  "next_available": 2264,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16899,14 +16899,34 @@
       "title": "Add read_image tool to ARIA Coder CLI for image-to-text capability",
       "claimed_at": "2026-07-01T21:06:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0d7d681c",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:23:10Z"
     },
     {
       "r_number": "R-F2261",
       "title": "robust data: GLEIF LEI global corporate-identity adapter (free API, structured, datacenter-tolerant) as registry fallback",
       "claimed_at": "2026-07-01T21:07:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3221fef2",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:32:41Z"
+    },
+    {
+      "r_number": "R-F2262",
+      "title": "hero tetris decorative animation (monochrome) on imaria.io landing",
+      "claimed_at": "2026-07-01T21:32:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2263",
+      "title": "DD reports list header alignment — header mirrors card flex columns (fixed widths)",
+      "claimed_at": "2026-07-01T21:33:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

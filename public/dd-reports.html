@@ -116,12 +116,25 @@
     .dd-pill.red::before { background: #b91c1c; }
 
     /* Version + date — inline in right group */
-    .dd-meta-col { text-align: right; flex-shrink: 0; }
+    .dd-meta-col { text-align: right; flex-shrink: 0; width: 100px; }
+    /* R-F2263 — fixed column widths so the list header labels sit over the card columns */
+    .dd-sev-col { width: 130px; flex-shrink: 0; display: flex; }
+    .dd-list-head { display: flex; align-items: center; gap: 20px; padding: 2px 22px 8px; }
+    .dd-list-head > div, .dd-lh-right > div {
+      font-size: 10.5px; font-weight: 700; color: var(--sc-muted);
+      text-transform: uppercase; letter-spacing: 1.2px;
+    }
+    .dd-lh-spacer { width: 44px; flex-shrink: 0; }
+    .dd-lh-entity { flex: 1; min-width: 0; }
+    .dd-lh-right { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+    .dd-lh-sev { width: 130px; }
+    .dd-lh-meta { width: 100px; text-align: right; }
+    .dd-lh-actions { width: 104px; }
     .dd-version { font-size: 12px; font-weight: 600; color: var(--sc-text); white-space: nowrap; }
     .dd-date { font-size: 11px; color: var(--sc-muted); white-space: nowrap; }
 
     /* Row actions (visible on hover) */
-    .dd-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .2s; flex-shrink: 0; }
+    .dd-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .2s; flex-shrink: 0; width: 104px; justify-content: flex-end; }
     .dd-row:hover .dd-row-actions { opacity: 1; }
     .dd-row-action-btn {
       display: inline-flex; align-items: center; justify-content: center;
@@ -451,7 +464,18 @@ function renderTable(reports) {
     content.innerHTML = '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
-  let html = '<table class="dd-table"><thead><tr><th style="padding-left:86px">Entity</th><th style="text-align:right;padding-right:200px">Severity · Version · Last Run</th></tr></thead><tbody>';
+  // R-F2262 — header mirrors the card's flex layout (avatar spacer · entity · right-group)
+  // with the SAME fixed column widths, so the labels sit exactly over the card columns.
+  let html = '<div class="dd-list-head">'
+      + '<div class="dd-lh-spacer"></div>'
+      + '<div class="dd-lh-entity">Entity</div>'
+      + '<div class="dd-lh-right">'
+        + '<div class="dd-lh-sev">Severity</div>'
+        + '<div class="dd-lh-meta">Version · Last Run</div>'
+        + '<div class="dd-lh-actions"></div>'
+      + '</div>'
+    + '</div>'
+    + '<table class="dd-table"><tbody>';
   for (const r of reports) {
     const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
     const created = r.created_at || r.generated_at || r.timestamp || '';
@@ -492,7 +516,7 @@ function renderTable(reports) {
             '</div>' +
           '</div>' +
           '<div class="dd-right-group">' +
-            severityPill(sev) +
+            '<div class="dd-sev-col">' + severityPill(sev) + '</div>' +
             '<div class="dd-meta-col">' +
               '<div class="dd-version">v' + (r.version_number || 1) + '</div>' +
               '<div class="dd-date">' + fmtDate(created) + '</div>' +
