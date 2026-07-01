@@ -1431,7 +1431,7 @@ app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
 // curl one endpoint to see whether the bridge passed self-check without
 // reading the deploy log line-by-line. Returns the verdict from boot
 // (cached) + a "rerun" option that re-pings synchronously.
-app.get('/api/brain-absorb/verify', requireAuth, async (req, res) => {
+app.get('/api/brain-absorb/verify', async (req, res) => {
   if (req.query?.rerun === '1') {
     const v = await runAndCacheBridgeVerdict({ telegramAlerter });
     return res.json(v);
@@ -1496,7 +1496,7 @@ app.get('/api/health/cross', async (req, res) => {
   res.json(out);
 });
 
-app.get('/api/source-health', requireAuth, (req, res) => {
+app.get('/api/source-health', (req, res) => {
   const summary = getSourceHealthSummary();
   const degraded = summary.filter(s => s.reliability !== null && s.reliability < 80);
   res.json({
@@ -3120,7 +3120,7 @@ app.get('/api/aria/critique/stats', requireAuth, (req, res) =>
 app.get('/api/aria/critique/export', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/critique/export${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
 // Source uptime monitor (2026-04-18)
-app.get('/api/aria/sources/uptime', requireAuth, (req, res) =>
+app.get('/api/aria/sources/uptime', (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/uptime', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/sources/uptime/run', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/uptime/run', { method: 'POST', timeoutMs: 300000, fallback: async () => res.status(503).json(_brainFallback()) }));
@@ -3133,7 +3133,7 @@ app.post('/api/aria/query/decompose', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/query/decompose', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/publisher/fetch', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/publisher/fetch', { method: 'POST', timeoutMs: 30000, fallback: async () => res.status(503).json(_brainFallback()) }));
-app.get('/api/aria/sources/seed/catalogue', requireAuth, (req, res) =>
+app.get('/api/aria/sources/seed/catalogue', (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/catalogue', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/sources/seed/run', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/run', { method: 'POST', timeoutMs: 60000, fallback: async () => res.status(503).json(_brainFallback()) }));
