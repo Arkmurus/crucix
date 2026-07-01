@@ -1343,6 +1343,14 @@ app.get('/', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(join(PUBLIC_DIR, 'index.html'));
 });
+
+// Auth pages — serve .html without extension
+const authPages = ['signin', 'signup', 'forgot-password', 'recovery', 'dashboard'];
+authPages.forEach(function(page) {
+  app.get('/' + page, function(req, res) {
+    res.sendFile(join(PUBLIC_DIR, page + '.html'));
+  });
+});
 // ARIA Brain dashboard — served from public/ like all other pages.
 // Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
 // Explicit route for /aria-brain (without .html) — express.static only
