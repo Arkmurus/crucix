@@ -21635,6 +21635,7 @@ async def adversarial_regression_replay_ep(attack_id: str):
 
 @router.get("/adversarial/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
+@cached_endpoint(ttl_s=30.0, name="adversarial_stats")  # R-F2234 — read-only stats; coalesce dashboard polls (param-less, contract unchanged)
 async def adversarial_stats_ep():
     """Last run + 4-week trend + pending amendment count."""
     from ..intel import adversarial_challenge as _ac
@@ -23801,6 +23802,7 @@ async def chat_audit_recent_ep(limit: int = 50):
 
 @router.get("/chat-audit/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
+@cached_endpoint(ttl_s=30.0, name="chat_audit_stats")  # R-F2234 — read-only stats; coalesce dashboard polls (param-less, contract unchanged)
 async def chat_audit_stats_ep():
     """Chat audit trail aggregate stats."""
     from ..intel import chat_audit_log as cal
@@ -24137,11 +24139,37 @@ async def verification_stats_ep():
 # every new 2026-04-17/18 module so everything that was "backend-only"
 # becomes visible without 7 separate panel load calls.
 
+# R-F2234 — learning/stats is the HEAVIEST dashboard handler (~13 subsystem
+# reads that were SEQUENTIAL awaits, serialised through the single aiosqlite
+# read connection). Two structural fixes: (a) run the subsystem reads
+# concurrently under asyncio.gather so they overlap instead of blocking the
+# single event loop one-at-a-time; (b) cache the whole blob for a short TTL so
+# repeat dashboard polls don't recompute. Cache stores only a fully-built blob.
+_LEARNING_STATS_CACHE: dict[str, tuple[float, dict]] = {}
+_LEARNING_STATS_TTL_S = float(_os.getenv("ARIA_LEARNING_STATS_CACHE_TTL", "30"))
+
+
 @router.get("/learning/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def learning_stats_ep():
-    """One-shot aggregator for the Learning & Verification dashboard panel."""
-    out = {
+    """One-shot aggregator for the Learning & Verification dashboard panel.
+
+    R-F2234: subsystem reads now run in parallel (asyncio.gather) with a
+    per-subsystem try/except so any one failure degrades to its default
+    without sinking the payload — the output dict shape is IDENTICAL to the
+    pre-R-F2234 sequential version. Result cached for
+    ARIA_LEARNING_STATS_CACHE_TTL seconds (default 30s).
+    """
+    hit = _LEARNING_STATS_CACHE.get("blob")
+    if hit is not None:
+        ts, blob = hit
+        if (time.monotonic() - ts) < _LEARNING_STATS_TTL_S:
+            return dict(blob)
+
+    # Default shape — IDENTICAL to the pre-R-F2234 sequential version, and the
+    # per-subsystem fallback when a builder raises. Kept as literal keys here so
+    # the output contract is obvious (and greppable).
+    defaults = {
         "training_export":   {},
         "knowledge_spider":  {},
         "metacog_journal":   {},
@@ -24151,119 +24179,227 @@ async def learning_stats_ep():
         "quarantine":        {"count": 0, "items": []},
         "bright_lines":      {"total_24h": 0, "by_code": {}},
         "sanctions_propagation": {"oems_tracked": 0},
+        "style_learner":     {},
+        "pdf_deep_ingest":   {},
+        "memory_backup":     {},
     }
-    # Training corpus — manifest.json plus summary
-    try:
+
+    # ── Per-subsystem builders. Each returns the value for ONE output key;
+    #    a raised exception is caught by _safe and swapped for the default,
+    #    preserving the exact prior per-block semantics.
+    async def _training_export():
         from ..learning import training_export
-        out["training_export"] = {
+        return {
             **training_export.summary(),
             "manifest": training_export.get_manifest(),
         }
-    except Exception as e:
-        _log.debug("learning/stats training_export failed: %s", e)
 
-    # Spider stats
-    try:
+    async def _spider():
         from ..learning import knowledge_spider
-        out["knowledge_spider"] = await knowledge_spider.get_stats()
-    except Exception as e:
-        _log.debug("learning/stats spider failed: %s", e)
+        return await knowledge_spider.get_stats()
 
-    # Metacog journal weekly summary
-    try:
+    async def _metacog():
         from ..learning import metacognitive_journal
-        out["metacog_journal"] = await metacognitive_journal.get_weekly_summary()
-    except Exception as e:
-        _log.debug("learning/stats journal failed: %s", e)
+        return await metacognitive_journal.get_weekly_summary()
 
-    # Research engine
-    try:
+    async def _research():
         from ..learning import research_engine
-        out["research_engine"] = await research_engine.get_stats()
-    except Exception as e:
-        _log.debug("learning/stats research failed: %s", e)
+        return await research_engine.get_stats()
 
-    # Verification gate
-    try:
+    async def _verification():
         from ..learning import verification_gate
-        out["verification_gate"] = await verification_gate.get_stats()
-    except Exception as e:
-        _log.debug("learning/stats verification failed: %s", e)
+        return await verification_gate.get_stats()
 
-    # Output harvester — scoring distribution + (when enabled) write counts.
-    # Dry-run-by-default since 2026-04-20; first 2 weeks are calibration.
-    try:
+    async def _harvester():
         from ..learning import output_harvester
-        out["output_harvester"] = await output_harvester.stats()
-    except Exception as e:
-        _log.debug("learning/stats harvester failed: %s", e)
+        return await output_harvester.stats()
 
-    # Quarantine list (seed + operator-added)
-    # R-F216 (2026-05-11) — compute open/closed counts on the FULL list,
-    # not just the truncated slice. Pre-R-F216 the frontend (aria-brain.
-    # html R-F180) filtered the 10-entry slice and could mis-report the
-    # open-vs-closed split when >10 quarantines existed. The frontend
-    # now reads `open_count` + `closed_count` directly.
-    try:
+    async def _quarantine():
+        # R-F216: open/closed counts over the FULL list, not the slice.
         from ..intel import run_quarantine
         items = await run_quarantine.list_quarantined()
         open_count = sum(
             1 for it in items
             if isinstance(it, dict) and it.get("investigation_status") != "closed"
         )
-        closed_count = len(items) - open_count
-        out["quarantine"] = {
+        return {
             "count": len(items),
             "open_count": open_count,
-            "closed_count": closed_count,
+            "closed_count": len(items) - open_count,
             "items": items[:10],
         }
-    except Exception as e:
-        _log.debug("learning/stats quarantine failed: %s", e)
 
-    # Bright-lines last 24h
-    try:
+    async def _bright_lines():
         from ..intel import regional_bright_lines
         hits = await regional_bright_lines.get_hits_24h()
-        out["bright_lines"] = {
+        return {
             "total_24h": hits.get("total", 0),
             "by_code": hits.get("by_code", {}),
             "recent": (hits.get("items") or [])[-5:],
         }
-    except Exception as e:
-        _log.debug("learning/stats bright_lines failed: %s", e)
 
-    # Sanctions propagation — OEM tracking count (approximate static signal)
-    try:
+    async def _sanctions():
         from ..intel import sanctions_propagation
-        out["sanctions_propagation"] = sanctions_propagation.summary()
-    except Exception as e:
-        _log.debug("learning/stats sanctions_prop failed: %s", e)
+        return sanctions_propagation.summary()
 
-    # Style learner (2026-04-18)
-    try:
+    async def _style():
         from ..learning import style_learner
-        out["style_learner"] = await style_learner.get_stats()
-    except Exception as e:
-        _log.debug("learning/stats style_learner failed: %s", e)
-        out["style_learner"] = {}
+        return await style_learner.get_stats()
 
-    # PDF deep ingest (static summary)
-    try:
+    async def _pdf():
         from ..intel import pdf_deep_ingest
-        out["pdf_deep_ingest"] = pdf_deep_ingest.summary()
-    except Exception:
-        out["pdf_deep_ingest"] = {}
+        return pdf_deep_ingest.summary()
 
-    # Memory replication — durability floor
-    try:
+    async def _memory_backup():
         from ..learning import memory_replication
-        out["memory_backup"] = await memory_replication.get_stats()
-    except Exception as e:
-        _log.debug("learning/stats memory_backup failed: %s", e)
-        out["memory_backup"] = {}
+        return await memory_replication.get_stats()
 
-    return out
+    # (key, builder) — the default for each key is defaults[key].
+    builders = [
+        ("training_export",       _training_export),
+        ("knowledge_spider",      _spider),
+        ("metacog_journal",       _metacog),
+        ("research_engine",       _research),
+        ("verification_gate",     _verification),
+        ("output_harvester",      _harvester),
+        ("quarantine",            _quarantine),
+        ("bright_lines",          _bright_lines),
+        ("sanctions_propagation", _sanctions),
+        ("style_learner",         _style),
+        ("pdf_deep_ingest",       _pdf),
+        ("memory_backup",         _memory_backup),
+    ]
+
+    async def _safe(key: str, fn):
+        try:
+            return key, await fn()
+        except Exception as e:
+            _log.debug("learning/stats %s failed: %s", key, e)
+            return key, defaults[key]
+
+    results = await asyncio.gather(*[_safe(k, fn) for k, fn in builders])
+    out = dict(defaults)
+    out.update(dict(results))
+
+    _LEARNING_STATS_CACHE["blob"] = (time.monotonic(), out)
+    return dict(out)
+
+
+# ── R-F2234: one-shot dashboard aggregate ─────────────────────────────────
+# ROOT-CAUSE fix for aria-brain dashboard latency. public/aria-brain.html
+# fired ~24 endpoints in a single Promise.all every refresh. aria-intel is
+# ONE uvicorn worker on ONE core with a SINGLE aiosqlite read connection, so
+# the 24-way burst serialised ~100-200 SELECTs through one thread → 25s
+# timeouts. This endpoint computes every panel ONCE in-process (bounded
+# per-panel gather) and caches the blob, so the dashboard makes ONE call.
+_DASHBOARD_AGG_CACHE: dict[str, tuple[float, dict]] = {}
+_DASHBOARD_AGG_TTL_S = float(_os.getenv("ARIA_DASHBOARD_CACHE_TTL", "45"))
+_DASHBOARD_PANEL_TIMEOUT_S = float(_os.getenv("ARIA_DASHBOARD_PANEL_TIMEOUT", "8"))
+
+
+def _dashboard_panel_registry() -> dict:
+    """Map the EXACT frontend fetchJson() path → handler coroutine factory.
+
+    Every value is a zero-arg callable returning the handler coroutine. Paths
+    whose handler needs a Request (or a non-default arg we can't safely
+    synthesize) are intentionally OMITTED — the frontend falls back to a
+    direct per-path probe for any omitted path, so omission is safe, never
+    fatal.
+
+    OMITTED: "/dd/layer-5c/stats" — two route handlers share the symbol
+    `dd_layer_5c_stats_ep` (aria.py has both an :1079 and an :1217 def). The
+    module name resolves to the SECOND while the live ROUTE resolves to the
+    FIRST, so calling the symbol here would return a DIFFERENT payload than the
+    direct probe. Left out; the frontend probes it directly.
+    """
+    return {
+        "/health": health_check_ep,
+        "/operating-mode": operating_mode_get_ep,
+        "/autonomous/status": autonomous_status_ep,
+        "/adversarial/stats": adversarial_stats_ep,
+        "/circuit-breakers": circuit_breakers_ep,
+        "/adversarial/amendments": adversarial_amendments_ep,
+        "/predictor/block_rate": predictor_block_rate_ep,
+        "/chat-audit/stats": chat_audit_stats_ep,
+        "/chat-audit/recent?limit=10": lambda: chat_audit_recent_ep(limit=10),
+        "/student/mastery/heatmap": mastery_heatmap_ep,
+        "/autonomous/dlq": dlq_get_ep,
+        "/student/mastery": student_mastery_ep,
+        "/autonomy/composite": autonomy_composite_ep,
+        "/calibration/review": calibration_review_ep,
+        "/autonomy/surface": autonomy_surface_ep,
+        "/learning/stats": learning_stats_ep,
+        "/cost/monthly": cost_monthly_ep,
+        "/cost/external": cost_external_ep,
+        "/diagnostic/details": diagnostic_details_ep,
+        "/learning/coverage": learning_coverage_ep,
+        "/learning/coverage/gaps?max_targets=15": lambda: learning_coverage_gaps_ep(max_targets=15),
+        "/learning/freshness": learning_freshness_all_ep,
+        "/hallucination/stats": hallucination_stats_ep,
+    }
+
+
+@router.get("/brain/dashboard")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def brain_dashboard_ep():
+    """R-F2234 — ONE cached aggregate for the entire brain dashboard.
+
+    Computes every panel in-process under a bounded asyncio.gather (per-panel
+    8s timeout + per-panel try/except, so one slow/failing panel can't sink the
+    blob), caches the whole thing for ARIA_DASHBOARD_CACHE_TTL seconds (default
+    45s), and returns:
+
+        {"ok": true, "generated_at": <iso>, "cache_age_s": <float>,
+         "panels": {"<path>": <payload> | {"__error": "..."}, ...}}
+
+    A panel that timed out/raised yields {"__error": "..."} (NOT omitted) so
+    the frontend can distinguish "computed-but-failed" from "not in registry".
+    """
+    now = time.monotonic()
+    hit = _DASHBOARD_AGG_CACHE.get("blob")
+    if hit is not None:
+        ts, blob = hit
+        age = now - ts
+        if age < _DASHBOARD_AGG_TTL_S:
+            cached = dict(blob)
+            cached["cache_age_s"] = round(age, 3)
+            return cached
+
+    registry = _dashboard_panel_registry()
+
+    async def _one(path: str, factory):
+        try:
+            res = await asyncio.wait_for(factory(), timeout=_DASHBOARD_PANEL_TIMEOUT_S)
+            return path, res
+        except asyncio.TimeoutError:
+            return path, {"__error": f"timeout >{_DASHBOARD_PANEL_TIMEOUT_S:.0f}s"}
+        except Exception as e:  # noqa: BLE001 — one panel must never sink the blob
+            return path, {"__error": str(e)[:200]}
+
+    results = await asyncio.gather(*[_one(p, f) for p, f in registry.items()])
+    panels = {p: r for p, r in results}
+
+    blob = {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cache_age_s": 0.0,
+        "panels": panels,
+    }
+    # Cache only a fully-built blob (we always build one here).
+    _DASHBOARD_AGG_CACHE["blob"] = (time.monotonic(), blob)
+
+    # §21a — wire success to the brain so this endpoint is not dark.
+    try:
+        from ..intel.engine_wiring import wire_success
+        wire_success(
+            module="brain_dashboard",
+            summary=f"Dashboard aggregate: {len(panels)} panels",
+            source_id="brain_dashboard:R-F2234",
+        )
+    except Exception:
+        pass
+
+    return dict(blob)
 
 
 # ── Memory replication endpoints (2026-04-18) ─────────────────────────────

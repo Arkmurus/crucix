@@ -452,6 +452,34 @@ window.addEventListener('DOMContentLoaded', function () {
 const _fetchFailures = new Map();  // path → reason (genuine unreachable)
 const _authGated = new Set();      // path (401/403 — auth, not down)
 
+// R-F2234: ONE-CALL dashboard aggregate. /api/aria/brain/dashboard computes
+// every panel server-side ONCE (cached) so we no longer fan out ~24 requests
+// per refresh at aria-intel (single worker / single event loop / single
+// aiosqlite read connection) → the 24-way burst that produced 25s timeouts.
+// _dashboardCache is a map of path→payload (or {__error} marker) primed once
+// per refresh; fetchJson() reads it first and only falls back to a direct
+// per-path probe when the path is absent (registry omission) or the aggregate
+// itself was unavailable (anonymous viewer / auth flap / error).
+let _dashboardCache = null;   // { "<path>": payload | {__error}, ... } | null
+let _dashboardCacheAt = 0;    // Date.now() of the last successful prime
+
+async function _primeDashboard() {
+  try {
+    const res = await API.probe('/api/aria/brain/dashboard');
+    // 401/403 → anonymous or flapped token: leave cache null so fetchJson
+    // falls back to per-path probes (current behaviour, incl. auth-gated note).
+    if (res.status === 401 || res.status === 403) { _dashboardCache = null; return; }
+    if (res.ok && res.data && res.data.panels && typeof res.data.panels === 'object') {
+      _dashboardCache = res.data.panels;
+      _dashboardCacheAt = Date.now();
+      return;
+    }
+    _dashboardCache = null;  // any other non-success → per-path fallback
+  } catch (_e) {
+    _dashboardCache = null;
+  }
+}
+
 function _trackFetchFailure(path, reason) {
   _fetchFailures.set(path, reason || 'no response');
   _authGated.delete(path);
@@ -504,6 +532,19 @@ function _renderFetchFailureBanner() {
 }
 
 async function fetchJson(path) {
+  // R-F2234: serve from the one-call aggregate when this path was computed
+  // server-side. A cached {__error} marker is a genuine "computed-but-failed"
+  // (treat as failure); a real payload is a success; a path NOT in the cache
+  // (registry omission or cache null) falls through to the direct probe below.
+  if (_dashboardCache && Object.prototype.hasOwnProperty.call(_dashboardCache, path)) {
+    const panel = _dashboardCache[path];
+    if (panel && typeof panel === 'object' && '__error' in panel) {
+      _trackFetchFailure(path, String(panel.__error).slice(0, 80));
+      return null;
+    }
+    _trackFetchSuccess(path);
+    return panel;
+  }
   const res = await API.probe('/api/aria' + path);
   // Auth-gated (401/403): reachable but protected. NOT "unreachable".
   if (res.status === 401 || res.status === 403) {
@@ -2094,6 +2135,10 @@ async function loadHallucination() {
 
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+  // R-F2234: prime the one-call aggregate FIRST. fetchJson() then reads panels
+  // from it instead of firing ~24 separate requests. On 401/anon/error the
+  // cache stays null and the loaders below fall back to per-path probes.
+  await _primeDashboard();
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadAmendments(), loadBreakers(), loadLayer5c(), loadPredictor(),

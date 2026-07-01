@@ -798,7 +798,14 @@ async def _refresh_month_cache(force: bool = False) -> float:
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_month_spend() -> dict:
     """Month-to-date LLM spend + cap utilisation."""
-    await _flush_cost_pending(force=True)  # R-F2172: include un-flushed records
+    # R-F2234: READ path — force=False. force=True defeated the R-F2172 15s
+    # time-gate, so every dashboard cost read did a read-modify-write on the 3
+    # hot keys (index/aggregate/month) through the shared write lock, a prime
+    # contributor to state_store saturation. force=False piggybacks the gated
+    # flush (≤1 write/15s). The $300 cap is enforced by the SEPARATE atomic
+    # reserve path (assert_monthly_cap / INCRBYFLOAT), NOT by this read, so a
+    # gauge staleness of ≤15s has ZERO cap-safety impact.
+    await _flush_cost_pending(force=False)
     spent = await _refresh_month_cache()
     cap = _monthly_cap_usd()
     return {
@@ -969,7 +976,7 @@ async def get_month_breakdown(month: str | None = None) -> dict:
     monthly rollup key is empty (fresh deploy, eviction, pre-rollup
     historical data). The fallback covers everything the index retains
     (~1000 most recent calls / up to 90 days)."""
-    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
+    await _flush_cost_pending(force=False)  # R-F2234: READ path — gated flush, no per-read RMW (see get_month_spend)
     target = month or _current_month_key()
     try:
         roll = await rs.get_json(f"{COST_MONTH_PREFIX}{target}") or {}
@@ -1018,7 +1025,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
     """Aggregate stats over a rolling window from the index. The cumulative
     aggregate (COST_AGG_KEY) covers all-time; this windowed view answers
     'what did the last 24h cost'."""
-    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
+    await _flush_cost_pending(force=False)  # R-F2234: READ path — gated flush, no per-read RMW (see get_month_spend)
     try:
         index = await rs.get_json(COST_INDEX_KEY) or []
         cutoff = time.time() - (max(1, window_hours) * 3600)
@@ -1071,7 +1078,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
 async def get_cumulative_aggregate() -> dict:
     """All-time per-feature totals. Survives index rotation since it's a
     separate key updated on every record_call."""
-    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
+    await _flush_cost_pending(force=False)  # R-F2234: READ path — gated flush, no per-read RMW (see get_month_spend)
     try:
         return await rs.get_json(COST_AGG_KEY) or {}
     except Exception:
@@ -1084,7 +1091,7 @@ async def list_recent_calls(
     feature_filter: str | None = None,
     model_filter: str | None = None,
 ) -> list[dict]:
-    await _flush_cost_pending(force=True)  # R-F2172: surface un-flushed records
+    await _flush_cost_pending(force=False)  # R-F2234: READ path — gated flush, no per-read RMW (see get_month_spend)
     try:
         index = await rs.get_json(COST_INDEX_KEY) or []
         if feature_filter:

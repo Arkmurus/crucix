@@ -171,6 +171,13 @@ def test_breakdown_segments_by_provider_feature_model():
         model="deepseek-chat", input_tokens=5000, output_tokens=2000,
         provider_name="deepseek", feature_name="research_task",
     ))
+    # R-F2234: cost READ endpoints no longer force-flush (they piggyback the
+    # 15s-gated flush to avoid a per-read RMW on the hot keys under the shared
+    # write lock). Two back-to-back records land inside that gate, so this test
+    # — which asserts IMMEDIATE read-after-write consistency — must flush
+    # explicitly. The dashboard tolerates ≤15s gauge staleness; this unit test
+    # wants the record surfaced now.
+    _run(cost_tracker._flush_cost_pending(force=True))
     bd = _run(cost_tracker.get_month_breakdown())
     assert set(bd["by_provider"].keys()) == {"anthropic", "deepseek"}
     assert set(bd["by_feature"].keys()) == {"chat", "research_task"}
