@@ -86,6 +86,18 @@ logger = logging.getLogger("aria.state_store")
 _DB_PATH: Path | None = None
 _conn = None  # aiosqlite.Connection — lazy init (compound ops: hset, lpush, etc.)
 _read_conn = None  # R-F1449: separate read connection, never touched by _reconnect()
+# R-F2242: read-connection POOL. A SINGLE aiosqlite read connection serializes
+# ALL key-value reads (get/get_json/scan) on one background thread, so a burst of
+# concurrent reads — the dashboard 24-panel refresh, the self-diagnostic probes
+# (capability_card/pending_actions/coverage_heatmap ReadTimeouts), WA→brain
+# fetches (R-F1515 "brain fetch FAILED after 3 attempts") — queues behind one
+# another. A small pool (each connection its own thread) lets those reads run
+# truly concurrently on the shared-cpu-4x box. WAL supports N readers + 1 writer
+# safely; the writer stays the separate _conn queue (R-F1449/R-F1541), untouched.
+# _read_conn is kept as pool member [0] so existing close()/reconnect refs hold.
+_read_pool: list = []
+_read_pool_rr = 0  # round-robin cursor
+_READ_POOL_SIZE = max(1, int(os.getenv("ARIA_STATE_READ_POOL_SIZE", "3")))
 
 # R-F1541: bounded write queue replaces the timeout-and-drop _upsert model.
 # Instead of every write going through _conn.execute() with a 30s timeout
@@ -724,7 +736,7 @@ async def connect(db_path: str | None = None) -> bool:
     R-F1541: also starts the background write worker. The worker drains
     a bounded async queue and writes to SQLite in batches, replacing the
     timeout-and-drop model that caused cascading failures."""
-    global _conn, _DB_PATH, _read_conn
+    global _conn, _DB_PATH, _read_conn, _read_pool
     _reset_lock()
     try:
         import aiosqlite
@@ -755,22 +767,19 @@ async def connect(db_path: str | None = None) -> bool:
         # doesn't hang boot forever. 30s is generous for any SQLite open.
         _conn = await asyncio.wait_for(
             aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
-        # R-F1449: also open the dedicated read connection
-        _read_conn = await asyncio.wait_for(
-            aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
-        # R-F2132: set busy_timeout BEFORE journal_mode=WAL. The journal_mode
-        # PRAGMA can trigger a WAL recovery that needs a database lock; if
-        # busy_timeout is still at Python sqlite3's ~5s default, recovery of a
-        # multi-GB WAL (contested-deploy bloat) raises 'database is locked'
-        # before boot ever reaches the R-F2116 checkpoint (the 2026-06-29
-        # outage). Setting the 120s timeout first lets recovery wait it out.
-        # (R-F1519: 120s also lets the single aiosqlite worker drain its boot
-        # write backlog of hundreds of concurrent _upserts.)
-        await _read_conn.execute("PRAGMA busy_timeout=120000")
-        await _read_conn.execute("PRAGMA journal_mode=WAL")
-        await _read_conn.execute("PRAGMA synchronous=NORMAL")
-        await _read_conn.execute("PRAGMA foreign_keys=OFF")
-        await _read_conn.commit()
+        # R-F1449/R-F2242: open the READ-connection POOL (_READ_POOL_SIZE
+        # connections, each its own aiosqlite thread) so concurrent reads run in
+        # parallel instead of serializing on one thread. PRAGMAs go through the
+        # shared _configure_read_conn helper (R-F2132: busy_timeout BEFORE
+        # journal_mode — the boot-deadlock guard). _read_conn stays as pool[0] so
+        # the existing close()/reconnect references keep working.
+        _read_pool = []
+        for _ in range(_READ_POOL_SIZE):
+            _rc = await asyncio.wait_for(
+                aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
+            await _configure_read_conn(_rc)
+            _read_pool.append(_rc)
+        _read_conn = _read_pool[0]
         # WAL mode → concurrent readers don't block writers. Crucial for
         # the chat path while autonomous tasks are also writing.
         # R-F2132: busy_timeout BEFORE journal_mode=WAL (see _read_conn above).
@@ -875,7 +884,7 @@ async def close() -> None:
     """Close the database connection.
     
     R-F1541: flushes pending writes before closing."""
-    global _conn, _read_conn
+    global _conn, _read_conn, _read_pool
     # Flush any pending writes first
     try:
         await _flush_write_queue()
@@ -886,12 +895,14 @@ async def close() -> None:
         await _stop_write_worker()
     except Exception:
         pass
-    if _read_conn:
+    # R-F2242: close every pool member (was the single _read_conn).
+    for _rc in (_read_pool or ([_read_conn] if _read_conn else [])):
         try:
-            await _read_conn.close()
+            await _rc.close()
         except Exception:
             pass
-        _read_conn = None
+    _read_pool = []
+    _read_conn = None
     # R-F1541: _write_conn removed — all writes go through the bounded queue
     if _conn:
         try:
@@ -947,16 +958,39 @@ async def sweep_expired() -> int:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _get_read_conn() -> Any:
-    """R-F1449: return the dedicated read connection.
+async def _configure_read_conn(conn) -> None:
+    """R-F2242/R-F2132 — the ONE place read-connection PRAGMAs are set, so every
+    pool member (and the reconnect path) gets busy_timeout BEFORE journal_mode.
 
-    The read connection is NEVER touched by _reconnect(), so a write-side
-    reset cannot kill concurrent reads. Under WAL mode, reads on this
-    connection see a consistent snapshot without blocking writers.
-
-    Falls back to _conn if _read_conn is not initialized (graceful
-    degradation during early boot before connect() completes).
+    Setting busy_timeout FIRST is the boot-deadlock guard (R-F2132): journal_mode
+    can trigger a WAL recovery that needs a database lock, and Python sqlite3's
+    ~5s default would raise 'database is locked' on a bloated WAL before boot
+    completes (the 2026-06-29 outage). NEVER hand-write these PRAGMAs at a call
+    site — always go through this helper so a new connection can't reintroduce
+    the deadlock class.
     """
+    await conn.execute("PRAGMA busy_timeout=120000")
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA foreign_keys=OFF")
+    await conn.execute("PRAGMA wal_autocheckpoint=1000")
+    await conn.commit()
+
+
+def _get_read_conn() -> Any:
+    """R-F1449/R-F2242: return a read connection from the pool (round-robin).
+
+    Read connections are NEVER touched by _reconnect(), so a write-side reset
+    cannot kill concurrent reads. Under WAL mode, reads see a consistent snapshot
+    without blocking the writer. R-F2242: round-robins over _read_pool so a burst
+    of concurrent reads spreads across N connection-threads instead of serializing
+    on one. Falls back to _read_conn / _conn during early boot before the pool is
+    built (graceful degradation).
+    """
+    global _read_pool_rr
+    if _read_pool:
+        _read_pool_rr = (_read_pool_rr + 1) % len(_read_pool)
+        return _read_pool[_read_pool_rr]
     return _read_conn if _read_conn is not None else _conn
 
 
@@ -968,21 +1002,23 @@ async def _ensure_read_conn() -> None:
     by a write-side reset. Opens a new read connection without touching
     _conn or _reconnect().
     """
-    global _read_conn
+    global _read_conn, _read_pool
     if _DB_PATH is None:
         return
     try:
         import aiosqlite
-        new_conn = await aiosqlite.connect(str(_DB_PATH))
-        # R-F2132: busy_timeout BEFORE journal_mode=WAL (see connect()).
-        await new_conn.execute("PRAGMA busy_timeout=120000")
-        await new_conn.execute("PRAGMA journal_mode=WAL")
-        await new_conn.execute("PRAGMA synchronous=NORMAL")
-        await new_conn.execute("PRAGMA foreign_keys=OFF")
-        await new_conn.commit()
-        _read_conn = new_conn
+        # R-F2242: rebuild the whole read pool (a write-side reset / 'closed
+        # database' typically kills all read connections together). PRAGMAs via
+        # the shared helper (R-F2132 boot-deadlock guard).
+        new_pool = []
+        for _ in range(_READ_POOL_SIZE):
+            _rc = await aiosqlite.connect(str(_DB_PATH))
+            await _configure_read_conn(_rc)
+            new_pool.append(_rc)
+        _read_pool = new_pool
+        _read_conn = new_pool[0]
     except Exception as e:
-        logger.warning("[R-F1449] _ensure_read_conn failed: %s", e)
+        logger.warning("[R-F1449/R-F2242] _ensure_read_conn failed: %s", e)
 async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, float | None] | None:
     """Fetch (value, kind, expires_at) for a key. Returns None if missing
     or expired. If expected_kind is given and the kind mismatches, returns

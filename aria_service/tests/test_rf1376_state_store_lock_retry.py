@@ -398,27 +398,39 @@ class TestCapabilityReadConnRetry:
 
     @pytest.mark.asyncio
     async def test_read_retry_on_closed_connection(self):
-        """When _read_conn is closed, _row() reopens it and retries.
+        """R-F2242: when the pooled read connections are closed (simulating a
+        write-side reset), _row() detects the closed DB, rebuilds the pool via
+        _ensure_read_conn(), and the retried read still returns the value.
 
-        This proves the retry-once path works: close _read_conn, then
-        do a _row read — it should reopen and return the correct value.
+        (Under R-F2242 a single closed pool member is transparently skipped by
+        round-robin — better resilience — so to exercise the reopen path we close
+        EVERY member.)
         """
         from aria_service.intel import state_store as _ss
 
-        # Close _read_conn to simulate a write-side _reconnect()
-        old_read_conn = _ss._read_conn
-        await old_read_conn.close()
+        # Close every pooled read connection to force the reopen/rebuild path.
+        old_pool = list(_ss._read_pool) if _ss._read_pool else (
+            [_ss._read_conn] if _ss._read_conn else [])
+        assert old_pool, "read pool should be initialized"
+        for c in old_pool:
+            await c.close()
 
-        # _read_conn is now closed — _row should detect this, call
-        # _ensure_read_conn(), reopen, and retry the query
+        # R-F2156 get() caches every key — clear it so this read actually hits
+        # _row/the DB (otherwise the cached value is returned and the reopen
+        # path is never exercised; this is why the pre-R-F2242 test never
+        # validated recovery).
+        _ss._error_log_cache.clear()
+
+        # The pool is now closed — _row should detect this, call
+        # _ensure_read_conn(), rebuild the pool, and retry the query.
         val = await _ss.get("_test_rf1449_retry_key")
         assert val == "retry_value", (
-            f"Read should recover after closed _read_conn, "
-            f"got {val!r}"
+            f"Read should recover after the read pool was closed, got {val!r}"
         )
 
-        # Verify a new _read_conn was opened
+        # Verify the pool was rebuilt with fresh connections.
         assert _ss._read_conn is not None, "_read_conn should be reopened"
-        assert _ss._read_conn != old_read_conn, (
-            "_read_conn should be a new connection after retry"
+        new_pool = _ss._read_pool if _ss._read_pool else [_ss._read_conn]
+        assert all(nc not in old_pool for nc in new_pool), (
+            "read pool should be rebuilt with new connections after retry"
         )

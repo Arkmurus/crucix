@@ -435,6 +435,25 @@ class ARIACoder:
 
             if result.success and result.r_number is not None:
                 await self.gap_detector.mark_fixed(gap.gap_id, result.r_number)
+                # R-F2241 — close the write-back loop. mark_fixed only writes a
+                # `crucix:aria:gap:fixed:<detector_sha>` sentinel in a DISJOINT
+                # keyspace, so the operator's /capability-gaps/summary (which
+                # reads the ledger's per-entry `resolved` flag) showed 0 resolved
+                # by construction — the coder's work was invisible there. When
+                # this gap originated from the capability_gaps ledger, the
+                # extractor stashed that entry's uuid at evidence[capability_gap_id]
+                # (gap_detector.py:952); use it to mark THAT ledger entry resolved
+                # so drain is tracked honestly.
+                cap_gap_id = (gap.evidence or {}).get("capability_gap_id")
+                if cap_gap_id:
+                    try:
+                        from ..intel import capability_gaps as _capgaps
+                        await _capgaps.resolve_gap(cap_gap_id, f"R-F{result.r_number}")
+                    except Exception as e:
+                        logger.warning(
+                            "[aria_coder] capability_gaps.resolve_gap(%s) failed: %s",
+                            cap_gap_id, e,
+                        )
                 # R-F825: WhatsApp success notification moved INTO fix_gap
                 # (uses rich msg_shipped template). _one_cycle just records
                 # the fixed gap + captures training pair.

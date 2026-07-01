@@ -636,6 +636,34 @@ def _clean_entity_name(raw: str) -> tuple[str, str]:
     return (s, website)
 
 
+def _iso_ts(raw) -> str:
+    """R-F2240 — coerce a timestamp to a single COMPARABLE str form. A float/int
+    epoch becomes ISO-8601 (which sorts lexicographically = chronologically); an
+    existing string is returned as-is; anything else / falsy becomes "".
+
+    Report-index timestamps are stored MIXED-TYPE across write paths: ISO strings
+    from report writes, but float epochs from the vault-rebuild branch that copies
+    `last_run_at` (dd_orchestrator.py ~9509). Sorting a mix of str and float
+    raises `TypeError: '<' not supported between 'str' and 'float'` — the bug that
+    500'd the DD library (/api/aria/dd/reports) for any user with >=2 mixed-format
+    reports. Used both at write time (normalize before persist = root cause) and
+    at read time (defensive over any legacy bad data already in the index)."""
+    if raw is None or isinstance(raw, bool):  # bool is an int subclass — not a ts
+        return ""
+    if isinstance(raw, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(raw), tz=timezone.utc).isoformat()
+        except (ValueError, OSError, OverflowError):
+            return ""
+    return str(raw)
+
+
+def _ts_sort_key(entry: dict) -> str:
+    """R-F2240 — a single COMPARABLE (str) sort key for a report-index entry,
+    tolerant of the mixed-type `generated_at`/`created_at` storage (see _iso_ts)."""
+    return _iso_ts(entry.get("generated_at") or entry.get("created_at") or "")
+
+
 def _collapse_index(index: list, limit: int) -> list:
     """R-F1980 + R-F1991 — collapse the report index to ONE entry per entity
     (the latest version). Groups by the NORMALISED, cleaned entity name so the
@@ -683,12 +711,12 @@ def _collapse_index(index: list, limit: int) -> list:
         if cur is None:
             collapsed[key] = dict(e)
         else:
-            cur_ts = cur.get("generated_at") or cur.get("created_at") or ""
-            e_ts = e.get("generated_at") or e.get("created_at") or ""
-            if e_ts > cur_ts:
+            # R-F2240 — normalize both sides to a str key so a mixed str/float
+            # compare can't raise TypeError (the bug that 500'd the DD library).
+            if _ts_sort_key(e) > _ts_sort_key(cur):
                 collapsed[key] = dict(e)
     result = list(collapsed.values())
-    result.sort(key=lambda e: e.get("generated_at") or e.get("created_at") or "", reverse=True)
+    result.sort(key=_ts_sort_key, reverse=True)
     return result[:limit]
 
 
@@ -9414,7 +9442,7 @@ async def get_case_file(
             seen_run_ids.add(rid)
             merged.append({**v, "_source_tier": "sqlite_archive"})
     # 4. Sort newest-first across the merged set
-    merged.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
+    merged.sort(key=_ts_sort_key, reverse=True)  # R-F2240 — mixed-type-safe sort
 
     out: dict = {
         "canonical_entity_id": canonical_entity_id,
@@ -9506,7 +9534,10 @@ async def list_reports(
                         "jurisdiction": case.get("jurisdiction", ""),
                         "user_id": case.get("user_id"),
                         "user_email_domain": case.get("user_email_domain"),
-                        "created_at": case.get("last_run_at"),
+                        # R-F2240 — normalize at write time (root cause): dd_vault
+                        # last_run_at is a float epoch; store it as ISO so the
+                        # persisted index stays single-type (str) for future reads.
+                        "created_at": _iso_ts(case.get("last_run_at")),
                         "severity": case.get("risk_level", "unknown"),
                     })
                 # Persist the rebuilt index so subsequent reads are fast
