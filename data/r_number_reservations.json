@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2244,
+  "next_available": 2245,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16699,32 +16699,45 @@
       "title": "dd/reports 500 — normalize mixed-type timestamp sort key",
       "claimed_at": "2026-07-01T13:08:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "946b3060",
+      "notes": null,
+      "shipped_at": "2026-07-01T13:47:11Z"
     },
     {
       "r_number": "R-F2241",
       "title": "self-heal resolve_gap write-back + honest drain tracking",
       "claimed_at": "2026-07-01T13:08:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "946b3060",
+      "notes": null,
+      "shipped_at": "2026-07-01T13:47:12Z"
     },
     {
       "r_number": "R-F2242",
       "title": "state_store read-connection pool (relieve read contention)",
       "claimed_at": "2026-07-01T13:08:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "946b3060",
+      "notes": null,
+      "shipped_at": "2026-07-01T13:47:12Z"
     },
     {
       "r_number": "R-F2243",
       "title": "CLI-launch fix: coder/rag/query|record 403 (operator-tier over-gate) → CLI slow in-process fallback hang; exempt read RAG + CLI fail-fast",
       "claimed_at": "2026-07-01T13:18:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fea08e98",
+      "notes": null,
+      "shipped_at": "2026-07-01T13:32:40Z"
+    },
+    {
+      "r_number": "R-F2244",
+      "title": "connect imaria.io — add apex+www to socket-origin allowlist so chat works on the new domain (keep arkmurus during migration)",
+      "claimed_at": "2026-07-01T14:19:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

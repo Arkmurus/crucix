@@ -5975,7 +5975,9 @@ async function start() {
     const set = new Set();
     const add = (u) => { if (u) set.add(u.replace(/\/$/, '')); };
     add(process.env.APP_URL);
-    add('https://intel.arkmurus.com');
+    add('https://intel.arkmurus.com');   // legacy domain — kept live during the imaria.io migration
+    add('https://imaria.io');            // R-F2244: new primary domain (apex) — chat/socket must trust it
+    add('https://www.imaria.io');
     add('https://aria-web.fly.dev');
     add('http://localhost:3117');
     add(`http://localhost:${port}`);
