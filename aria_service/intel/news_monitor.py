@@ -86,6 +86,21 @@ def _get_client() -> httpx.AsyncClient:
 NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
 
     # ══════════════════════════════════════════════════════════════════════
+    # R-F2247 — PRIMARY-SOURCE + DIVERSITY feeds (source-diversity review):
+    # broaden beyond the Janes-heavy (×9) secondary firehose with an OFFICIAL
+    # primary source (US DoD daily contract awards) + new-region press the
+    # catalogue under-covered (Eastern Europe/Balkans; UN OCHA conflict, strong
+    # Africa/MENA). All free/native RSS (§6), each verified live returning items
+    # with the news_monitor UA. New domains — no collusion with existing feeds.
+    # ══════════════════════════════════════════════════════════════════════
+    ("US DoD Daily Contracts", "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20", "defence_global", "en", "tier_1b",
+     ["defence", "procurement", "contracts", "official"]),
+    ("ReliefWeb (UN OCHA)", "https://reliefweb.int/updates/rss.xml", "defence_regional", "en", "tier_1b",
+     ["conflict", "humanitarian", "africa", "middle_east"]),
+    ("Balkan Insight", "https://balkaninsight.com/feed/", "defence_regional", "en", "tier_2",
+     ["geopolitics", "eastern_europe", "balkans", "corruption"]),
+
+    # ══════════════════════════════════════════════════════════════════════
     # GLOBAL DEFENCE NEWS
     # ══════════════════════════════════════════════════════════════════════
     ("Janes Defence", "https://www.janes.com/rss", "defence_global", "en", "tier_1b",
