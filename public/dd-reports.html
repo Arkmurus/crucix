@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DD Reports — ARKMURUS</title>
+  <title>DD Reports — ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -137,7 +137,6 @@
     <div class="dd-toolbar">
       <input class="dd-search" id="dd-search" placeholder="Search by entity name…" type="search">
       <button class="dd-new-btn" id="dd-new-btn"><i class="bi bi-plus-lg"></i> New DD</button>
-      <button class="dd-new-btn" id="dd-full-btn" style="background:linear-gradient(135deg,#2563eb,#7c3aed);box-shadow:0 2px 12px rgba(37,99,235,0.35)"><i class="bi bi-grid-3x3-gap-fill"></i> Full DD</button>
       <button class="dd-act-btn" id="dd-vls-key-btn" title="Export VLS public key for third-party verification (R-F1182)" style="padding:10px 14px;font-size:13px">
         <i class="bi bi-key"></i> VLS Key
       </button>
@@ -686,7 +685,6 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
   function closeRun() { m.classList.remove('open'); }
 
   document.getElementById('dd-new-btn').addEventListener('click', () => openRun('standard'));
-  document.getElementById('dd-full-btn').addEventListener('click', () => openRun('deep'));
   document.getElementById('dd-run-close').addEventListener('click', closeRun);
   document.getElementById('dd-run-cancel').addEventListener('click', closeRun);
   m.addEventListener('click', e => { if (e.target === m) closeRun(); });
