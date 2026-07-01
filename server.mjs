@@ -165,7 +165,7 @@ function trivialReply(q) {
     return "Hi — ARIA here. Ask me anything about compliance, defence procurement, or market intel. /help shows the full command list.";
   }
   if (/^(who\s+are\s+you|what\s+are\s+you|what(?:'s| is)\s+your\s+name)$/.test(s)) {
-    return "I'm ARIA — Imaria Research Intelligence Agent. I do compliance screening (sanctions, export controls, country risk), defence procurement intel, and market/competitor research. Run /help for the full menu.";
+    return "I'm ARIA — Arkmurus Research Intelligence Agent. I do compliance screening (sanctions, export controls, country risk), defence procurement intel, and market/competitor research. Run /help for the full menu.";
   }
   if (/^(test|ping|status)$/.test(s)) {
     return "✅ Pong. Service is up. /help for commands.";
@@ -1833,7 +1833,7 @@ app.get('/s/:token', async (req, res) => {
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Imaria BD Intelligence Brief</title>
+<title>Arkmurus BD Intelligence Brief</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #1a2332; line-height: 1.6; }
@@ -1862,7 +1862,7 @@ app.get('/s/:token', async (req, res) => {
 </head>
 <body>
 <div class="header">
-  <h1>Imaria BD Intelligence Brief</h1>
+  <h1>Arkmurus BD Intelligence Brief</h1>
   <div class="sub">Generated ${new Date(payload.createdAt).toUTCString()} &nbsp;·&nbsp; Valid 7 days</div>
 </div>
 <div class="container">
@@ -2486,7 +2486,7 @@ app.get('/api/aria/identity', requireAuth, async (req, res) => {
   // can't reach fly.io, return a static identity card.
   ariaProxy(req, res, '/api/aria/identity', { fallback: async () => {
     res.json({
-      name: 'ARIA', full_name: 'Imaria Research Intelligence Agent',
+      name: 'ARIA', full_name: 'Arkmurus Research Intelligence Agent',
       status: llmProvider?.isConfigured ? 'online' : 'no_llm', mode: 'local',
       llm_provider: llmProvider?.name || null, age_days: 0, total_sweeps: 0, total_leads: 0,
       domain: 'Defence procurement, Lusophone Africa, Export controls',
@@ -4027,7 +4027,7 @@ app.post('/api/aria/send-whatsapp', requireAdmin, async (req, res) => {
 });
 
 // R-F2094 (2026-06-28 DD): requireAdmin, NOT requireAuth. Sends from the company
-// SMTP signed "ARIA — Imaria"; with self-serve signup live, requireAuth made
+// SMTP signed "ARIA — Arkmurus"; with self-serve signup live, requireAuth made
 // this an OPEN EMAIL RELAY (any viewer → arbitrary recipients from our domain).
 app.post('/api/aria/send-email', requireAdmin, async (req, res) => {
   const { to, subject, text, html, instruction, original_subject, original_body, cc, bcc } = req.body || {};
@@ -4044,12 +4044,12 @@ app.post('/api/aria/send-email', requireAdmin, async (req, res) => {
 
   if (instruction) {
     const sid = `email_${req.user?.id || 'admin'}_${Date.now()}`;
-    const prompt = `Compose a professional email as ARIA on behalf of Imaria.
+    const prompt = `Compose a professional email as ARIA on behalf of Arkmurus.
 TO: ${to}
 ${original_subject ? `ORIGINAL SUBJECT: ${original_subject}` : ''}
 ${original_body ? `ORIGINAL EMAIL:\n${original_body.slice(0, 2000)}` : ''}
 INSTRUCTION: ${instruction}
-Write the email body only. Be concise and professional. Sign off as "ARIA — Imaria Intelligence".`;
+Write the email body only. Be concise and professional. Sign off as "ARIA — Arkmurus Intelligence".`;
 
     let composedBody;
     if (ARIA_SERVICE_URL) {
@@ -4069,7 +4069,7 @@ Write the email body only. Be concise and professional. Sign off as "ARIA — Im
     }
     if (!composedBody) return res.status(502).json({ error: 'ARIA failed to compose email' });
 
-    const emailSubject = subject || (original_subject ? `Re: ${original_subject}` : 'Imaria Intelligence Update');
+    const emailSubject = subject || (original_subject ? `Re: ${original_subject}` : 'Arkmurus Intelligence Update');
     const result = await emailSend({ to, subject: emailSubject, text: composedBody, cc, bcc });
     return res.json({ ok: result.sent, messageId: result.messageId, subject: emailSubject, body: composedBody, to });
   }
@@ -4304,7 +4304,7 @@ app.post('/api/auth/register', async (req, res) => {
         try {
           const { sendEmail } = await import('./lib/auth/email.mjs');
           await sendEmail(email, 'Someone tried to register with your email',
-            `Someone just tried to create a new Imaria account using your email address. ` +
+            `Someone just tried to create a new Arkmurus account using your email address. ` +
             `You already have an account — if this was you, use the login or password-reset ` +
             `flow instead. If it wasn't you, no action is needed; no new account was created.`
           ).catch(() => {});
@@ -4424,7 +4424,7 @@ app.post('/api/auth/2fa/setup', requireAuth, async (req, res) => {
     const uri = generateURI('TOTP', {
       label: user.email,
       secret,
-      issuer: 'Imaria Intelligence',
+      issuer: 'Arkmurus Intelligence',
     });
     const QRCode = (await import('qrcode')).default;
     const qrDataUrl = await QRCode.toDataURL(uri);
@@ -4866,7 +4866,7 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
         username: tmpUsername,
         email: normEmail,
         password: newPassword,
-        fullName: 'Imaria Administrator',
+        fullName: 'Arkmurus Administrator',
         role: 'admin',
       });
       const fresh = findUserByEmail(normEmail);
@@ -4997,7 +4997,7 @@ app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
   const { to } = req.body || {};
   if (!to) return res.status(400).json({ error: 'to address required' });
   const result = await sendAdminNotification(
-    'Imaria SMTP Test',
+    'Arkmurus SMTP Test',
     `<p>This is a test email sent at ${new Date().toISOString()}.</p><p>If you received this, SMTP is configured correctly.</p>`
   ).catch(err => ({ sent: false, reason: err.message }));
   // Also try sending to the provided address
@@ -5032,7 +5032,7 @@ app.post('/api/admin/test-telegram', requireAdmin, async (req, res) => {
     });
   }
   const msg =
-    `🧪 *Imaria Telegram alerter test*\n\n` +
+    `🧪 *Arkmurus Telegram alerter test*\n\n` +
     `Fired by admin at ${new Date().toISOString()}. ` +
     `If you see this message, the pipeline is live — the same route ` +
     `fires for new-user-registration alerts, intel digests, and ` +
@@ -5647,7 +5647,7 @@ app.delete('/api/push/unsubscribe', requireAuth, (req, res) => {
 
 app.post('/api/push/test', requireAdmin, async (req, res) => {
   try {
-    await pushFlash('Test Alert', 'This is a test push notification from Imaria');
+    await pushFlash('Test Alert', 'This is a test push notification from Arkmurus');
     res.json({ message: 'Test push sent' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to send test push' });
@@ -6209,7 +6209,7 @@ async function start() {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
-      pushDigest('Morning Intelligence Brief', 'Your daily Imaria intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
+      pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
     }, { timezone: 'Europe/London' });
 
     // Weekly query evolution — Sunday 04:00 UTC
