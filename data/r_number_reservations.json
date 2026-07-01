@@ -16387,27 +16387,30 @@
       "title": "Node search tier → sovereign aria-searxng.internal (drop dead public instances)",
       "claimed_at": "2026-07-01T06:14:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7a553063",
+      "notes": null,
+      "shipped_at": "2026-07-01T06:29:21Z"
     },
     {
       "r_number": "R-F2210",
       "title": "WA 1:1 DM handling (drop group-only hard filter, gated)",
       "claimed_at": "2026-07-01T06:14:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7a553063",
+      "notes": null,
+      "shipped_at": "2026-07-01T06:29:22Z"
     },
     {
       "r_number": "R-F2211",
       "title": "Central user_id pinning in aria-web catch-all (kill IDOR class)",
       "claimed_at": "2026-07-01T06:15:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7a553063",
+      "notes": null,
+      "shipped_at": "2026-07-01T06:29:22Z"
     }
   ]
 }
