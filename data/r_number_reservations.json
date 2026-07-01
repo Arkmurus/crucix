@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2264,
+  "next_available": 2266,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16919,14 +16919,33 @@
       "title": "hero tetris decorative animation (monochrome) on imaria.io landing",
       "claimed_at": "2026-07-01T21:32:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "905791c3",
+      "notes": null,
+      "shipped_at": "2026-07-01T21:40:16Z"
     },
     {
       "r_number": "R-F2263",
       "title": "DD reports list header alignment — header mirrors card flex columns (fixed widths)",
       "claimed_at": "2026-07-01T21:33:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2264",
+      "title": "professional DD report detail redesign — risk-verdict hero + clean citations + polished section formatting",
+      "claimed_at": "2026-07-01T21:40:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2265",
+      "title": "DD reports list — GRID alignment (header + card share grid-template-columns)",
+      "claimed_at": "2026-07-01T21:44:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
