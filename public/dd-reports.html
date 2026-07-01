@@ -37,80 +37,184 @@
     .dd-empty i { font-size: 28px; display: block; margin-bottom: 10px; color: var(--sc-prime); }
 
     .dd-table {
-      width: 100%; border-collapse: collapse; background: #fff;
-      border: 1px solid var(--sc-border); border-radius: 12px; overflow: hidden;
+      width: 100%; border-collapse: separate; border-spacing: 0 8px;
     }
     .dd-table thead th {
-      text-align: left; padding: 11px 14px; font-size: 11px; font-weight: 700;
-      color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1px;
-      background: #f5f4ef; border-bottom: 1px solid var(--sc-border-strong);
+      text-align: left; padding: 8px 16px; font-size: 10px; font-weight: 700;
+      color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1.2px;
+      border-bottom: none;
     }
-    .dd-table td { padding: 12px 14px; border-bottom: 1px solid var(--sc-border); font-size: 13.5px; vertical-align: top; }
-    .dd-row { cursor: pointer; transition: background .12s; }
-    .dd-row:hover { background: var(--sc-prime-soft); }
-    .dd-row.expanded { background: var(--sc-prime-soft); }
-    .dd-row td.col-entity { font-weight: 600; color: var(--sc-heading); }
-    .dd-row td.col-meta { color: var(--sc-muted); font-size: 12.5px; }
+    .dd-table td { padding: 0; border: none; vertical-align: top; }
 
+    /* Card-style rows */
+    .dd-row {
+      display: block; cursor: pointer; transition: all .15s;
+      background: #fff; border: 1px solid var(--sc-border);
+      border-radius: 10px; margin-bottom: 0;
+    }
+    .dd-row:hover { border-color: var(--sc-prime); box-shadow: 0 2px 12px rgba(124,58,237,0.08); transform: translateY(-1px); }
+    .dd-row.expanded { border-color: var(--sc-prime); box-shadow: 0 2px 16px rgba(124,58,237,0.12); }
+
+    .dd-row-inner {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 18px;
+    }
+
+    /* Entity avatar */
+    .dd-avatar {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+
+    /* Entity info */
+    .dd-entity-info { flex: 1; min-width: 0; }
+    .dd-entity-name { font-size: 14px; font-weight: 700; color: var(--sc-heading); line-height: 1.3; }
+    .dd-entity-meta { font-size: 11.5px; color: var(--sc-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    /* Type badge */
+    .dd-type-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 7px; border-radius: 4px;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+      background: rgba(124,58,237,0.08); color: var(--sc-prime-dark);
+    }
+    .dd-type-badge i { font-size: 10px; }
+
+    /* Severity pill — larger, with icon */
     .dd-pill {
-      display: inline-block; padding: 2px 8px; border-radius: 5px;
-      font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 12px; border-radius: 20px;
+      font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+      white-space: nowrap;
     }
-    .dd-pill.hard_stop { background: rgba(220,38,38,0.12); color: #b91c1c; }
-    .dd-pill.high { background: rgba(234,88,12,0.12); color: #c2410c; }
-    .dd-pill.medium { background: rgba(37,99,235,0.12); color: #1d4ed8; }
-    .dd-pill.low { background: rgba(22,163,74,0.12); color: #15803d; }
-    .dd-pill.clean { background: rgba(22,163,74,0.12); color: #15803d; }
+    .dd-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dd-pill.hard_stop { background: rgba(220,38,38,0.1); color: #b91c1c; }
+    .dd-pill.hard_stop::before { background: #b91c1c; }
+    .dd-pill.high { background: rgba(234,88,12,0.1); color: #c2410c; }
+    .dd-pill.high::before { background: #c2410c; }
+    .dd-pill.medium { background: rgba(37,99,235,0.1); color: #1d4ed8; }
+    .dd-pill.medium::before { background: #1d4ed8; }
+    .dd-pill.low { background: rgba(22,163,74,0.1); color: #15803d; }
+    .dd-pill.low::before { background: #15803d; }
+    .dd-pill.clean { background: rgba(22,163,74,0.1); color: #15803d; }
+    .dd-pill.clean::before { background: #15803d; }
     .dd-pill.unknown { background: #f2f0e9; color: var(--sc-muted); }
+    .dd-pill.unknown::before { background: #9b968c; }
+    .dd-pill.amber_light { background: rgba(234,88,12,0.1); color: #c2410c; }
+    .dd-pill.amber_light::before { background: #c2410c; }
+    .dd-pill.green { background: rgba(22,163,74,0.1); color: #15803d; }
+    .dd-pill.green::before { background: #15803d; }
+    .dd-pill.red { background: rgba(220,38,38,0.1); color: #b91c1c; }
+    .dd-pill.red::before { background: #b91c1c; }
 
-    /* R-F608 (2026-05-16) — "shared by colleague at same company" badge.
-       Appears next to entity name when a teammate's DD shows up in your
-       company-shared view. UX hint only; Python /dd/reports filter is
-       the security boundary. */
+    /* Version + date */
+    .dd-meta-col { text-align: right; flex-shrink: 0; }
+    .dd-version { font-size: 12px; font-weight: 600; color: var(--sc-text); }
+    .dd-date { font-size: 11px; color: var(--sc-muted); margin-top: 2px; }
+
+    /* Row actions (visible on hover) */
+    .dd-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+    .dd-row:hover .dd-row-actions { opacity: 1; }
+    .dd-row-action-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--sc-border);
+      background: #fff; color: var(--sc-muted); cursor: pointer; transition: all .12s;
+      font-size: 12px;
+    }
+    .dd-row-action-btn:hover { color: var(--sc-prime-dark); border-color: var(--sc-prime); background: var(--sc-prime-soft); }
+    .dd-row-action-btn.danger:hover { color: #dc2626; border-color: #dc2626; background: rgba(220,38,38,0.06); }
+
+    /* Shared badge */
     .dd-shared-badge {
       display: inline-flex; align-items: center; gap: 4px;
       padding: 1px 7px; margin-left: 4px;
-      border-radius: 4px; font-size: 10.5px; font-weight: 600;
+      border-radius: 4px; font-size: 10px; font-weight: 600;
       letter-spacing: 0.3px; text-transform: uppercase;
       background: rgba(124,58,237,0.12); color: var(--sc-prime-dark);
       border: 1px solid rgba(124,58,237,0.25);
       vertical-align: middle;
     }
-    .dd-shared-badge i { font-size: 11px; }
+    .dd-shared-badge i { font-size: 10px; }
 
-    .dd-detail-row td { padding: 0; background: #f5f4ef; }
+    .dd-detail-row td { padding: 0; background: transparent; }
     .dd-detail {
-      padding: 22px 28px; border-top: 1px solid var(--sc-border-strong);
-      border-bottom: 1px solid var(--sc-border-strong);
+      padding: 18px 20px 22px;
+      border: 1px solid var(--sc-border);
+      border-top: none;
+      border-radius: 0 0 10px 10px;
+      background: #faf9f6;
     }
-    .dd-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    .dd-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
     .dd-act-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 13px; border-radius: 7px; border: 1px solid var(--sc-border-strong);
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 12px; border-radius: 7px; border: 1px solid var(--sc-border-strong);
       background: #fff; color: var(--sc-text);
-      font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+      font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all .15s;
     }
     .dd-act-btn:hover { color: var(--sc-prime-dark); border-color: var(--sc-prime); background: var(--sc-prime-soft); }
     .dd-act-btn.primary { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; border-color: transparent; }
+    .dd-act-btn.primary:hover { opacity: 0.9; transform: translateY(-1px); }
 
-    /* R-F1997: dead .dd-pipeline/.dd-tool CSS removed — the manual pipeline
-       panel was deleted in R-F1993 (primitives now auto-run inside the DD
-       orchestrator + are reachable via natural language in chat). */
+    /* Report detail — styled cards for each section */
     .dd-md {
-      font-size: 13.5px; line-height: 1.7; color: var(--sc-text);
-      max-height: 60vh; overflow-y: auto; padding-right: 8px;
+      font-size: 13px; line-height: 1.65; color: var(--sc-text);
+      max-height: 65vh; overflow-y: auto; padding-right: 4px;
     }
-    .dd-md::-webkit-scrollbar { width: 6px; }
+    .dd-md::-webkit-scrollbar { width: 5px; }
     .dd-md::-webkit-scrollbar-thumb { background: #dcd8cf; border-radius: 3px; }
-    .dd-md h1 { font-size: 19px; color: var(--sc-heading); margin: 16px 0 8px; }
-    .dd-md h2 { font-size: 16px; color: var(--sc-heading); margin: 14px 0 6px; }
-    .dd-md h3 { font-size: 13px; color: var(--sc-prime-dark); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .dd-md ul, .dd-md ol { padding-left: 22px; margin: 6px 0; }
-    .dd-md li { margin: 3px 0; }
-    .dd-md strong { color: var(--sc-heading); }
-    .dd-md code { background: rgba(124,58,237,0.10); border: 1px solid rgba(124,58,237,0.20); padding: 1px 5px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: var(--sc-prime-dark); }
-    .dd-md p { margin: 0 0 8px; }
-    .dd-md blockquote { border-left: 3px solid var(--sc-border-strong); padding: 4px 14px; color: var(--sc-muted); font-style: italic; margin: 8px 0; }
+
+    /* Report header card */
+    .dd-report-header {
+      background: #fff; border: 1px solid var(--sc-border); border-radius: 10px;
+      padding: 16px 20px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .dd-report-header .dd-avatar { width: 44px; height: 44px; border-radius: 12px; font-size: 18px; }
+    .dd-report-header-info { flex: 1; }
+    .dd-report-header-info h2 { margin: 0; font-size: 17px; font-weight: 700; color: var(--sc-heading); }
+    .dd-report-header-info .meta { font-size: 12px; color: var(--sc-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* Section cards */
+    .dd-section {
+      background: #fff; border: 1px solid var(--sc-border); border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .dd-section-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid var(--sc-border);
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .dd-section-head .status-icon { font-size: 14px; }
+    .dd-section-body { padding: 12px 16px; font-size: 12.5px; line-height: 1.6; }
+    .dd-section-body p { margin: 0 0 6px; }
+    .dd-section-body ul, .dd-section-body ol { padding-left: 18px; margin: 4px 0; }
+    .dd-section-body li { margin: 2px 0; }
+    .dd-section-body strong { color: var(--sc-heading); }
+    .dd-section-body code {
+      background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.15);
+      padding: 1px 4px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 11.5px; color: var(--sc-prime-dark);
+    }
+
+    /* Status colors for section headers */
+    .dd-section-ok .dd-section-head { color: #16a34a; border-left: 3px solid #16a34a; }
+    .dd-section-err .dd-section-head { color: #dc2626; border-left: 3px solid #dc2626; }
+    .dd-section-warn .dd-section-head { color: #ea580c; border-left: 3px solid #ea580c; }
+    .dd-section-info .dd-section-head { color: #2563eb; border-left: 3px solid #2563eb; }
+
+    /* Recommendation box */
+    .dd-recommendation {
+      background: rgba(124,58,237,0.06); border: 1px solid rgba(124,58,237,0.2);
+      border-radius: 8px; padding: 12px 16px; margin-top: 10px;
+      font-size: 12.5px; line-height: 1.6;
+    }
+    .dd-recommendation strong { color: var(--sc-prime-dark); }
+
+    /* Data key-value grid */
+    .dd-kv-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12.5px; }
+    .dd-kv-key { color: var(--sc-muted); font-weight: 600; white-space: nowrap; }
+    .dd-kv-val { color: var(--sc-text); }
 
     .dd-loading { padding: 36px; text-align: center; color: var(--sc-muted); font-size: 13px; }
 
@@ -341,29 +445,24 @@ function renderTable(reports) {
     content.innerHTML = '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
-  let html = '<table class="dd-table"><thead><tr><th>Entity</th><th>Severity</th><th>Version</th><th>Last Run</th><th style="width:40px"></th></tr></thead><tbody>';
+  let html = '<table class="dd-table"><thead><tr><th style="padding-left:74px">Entity</th><th>Severity</th><th style="text-align:right">Version</th><th style="text-align:right;padding-right:100px">Last Run</th></tr></thead><tbody>';
   for (const r of reports) {
-    // R-F130 (2026-05-10): the /dd/reports index stores `risk` not
-    // `severity` — the column was always rendering "—" because the
-    // first three keys were never populated. Read `risk` last so old
-    // entries surface their classification (GREEN / AMBER / RED /
-    // HARD_STOP) until they expire.
-    // R-F226 (2026-05-11): DROP `r.status` from the fallback chain.
-    // r.status is a workflow state ("completed") not a risk grade,
-    // and was rendering meaningless pills. Only risk-grade fields
-    // belong here.
     const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
-    // R-F144 (2026-05-10): generated_at fallback. Existing index
-    // entries from before R-F130 only have `generated_at`, not
-    // `created_at` — the table was leaving the Created column empty
-    // for the two real DDs (TARA Aerospace + Assan Group). Reader
-    // fallback to generated_at surfaces those dates immediately.
     const created = r.created_at || r.generated_at || r.timestamp || '';
-    // R-F608 (2026-05-16): "shared by colleague" badge — visible only
-    // when the row's user_id is set, differs from mine, and the row's
-    // user_email_domain matches mine. The Python filter on /dd/reports
-    // is the authority for visibility; this badge is a UX hint so the
-    // user knows the run wasn't theirs.
+    const entityType = r.entity_type || 'company';
+    const entityName = r.entity_name || '(unknown)';
+    const jur = r.jurisdiction || '';
+
+    // Entity avatar color based on name
+    const colors = ['#7c3aed','#2563eb','#16a34a','#ea580c','#dc2626','#0891b2','#9333ea','#ca8a04'];
+    const colorIdx = entityName.split('').reduce((a,c) => a + c.charCodeAt(0), 0) % colors.length;
+    const avatarColor = colors[colorIdx];
+    const avatarLetter = entityName.charAt(0).toUpperCase();
+
+    // Type icon
+    const typeIcon = entityType === 'person' ? 'bi-person' : 'bi-building';
+
+    // Shared badge
     let sharedBadge = '';
     if (
       r.user_id && _MY_USER_ID && r.user_id !== _MY_USER_ID
@@ -374,30 +473,84 @@ function renderTable(reports) {
       sharedBadge = ' <span class="dd-shared-badge" title="Shared by ' + escAttr(initials) + ' (same company)">' +
         '<i class="bi bi-people-fill"></i> shared</span>';
     }
+
     html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
-      '<td class="col-entity">' + escText(r.entity_name || '(unknown)') +
-        (r.jurisdiction ? ' <span style="color:#9b968c;font-weight:400">· ' + escText(r.jurisdiction) + '</span>' : '') +
-        sharedBadge +
-      '</td>' +
-      '<td>' + severityPill(sev) + '</td>' +
-      '<td class="col-meta">v' + (r.version_number || 1) + '</td>' +
-      '<td class="col-meta">' + fmtDate(created) + '</td>' +
-      '<td style="text-align:right">' +
-        '<button class="dd-act-btn dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" ' +
-          'title="Delete this report" style="color:#fca5a5;padding:4px 8px;font-size:11px">' +
-          '<i class="bi bi-trash"></i></button>' +
+      '<td colspan="4" style="padding:0">' +
+        '<div class="dd-row-inner">' +
+          '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
+          '<div class="dd-entity-info">' +
+            '<div class="dd-entity-name">' + escText(entityName) + sharedBadge + '</div>' +
+            '<div class="dd-entity-meta">' +
+              '<span class="dd-type-badge"><i class="bi ' + typeIcon + '"></i> ' + escText(entityType) + '</span>' +
+              (jur ? '<span>' + escText(jur) + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div>' + severityPill(sev) + '</div>' +
+          '<div class="dd-meta-col">' +
+            '<div class="dd-version">v' + (r.version_number || 1) + '</div>' +
+            '<div class="dd-date">' + fmtDate(created) + '</div>' +
+          '</div>' +
+          '<div class="dd-row-actions">' +
+            '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" title="Re-run DD"><i class="bi bi-arrow-clockwise"></i></button>' +
+            '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown"><i class="bi bi-clipboard"></i></button>' +
+            '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report"><i class="bi bi-trash"></i></button>' +
+          '</div>' +
+        '</div>' +
       '</td>' +
     '</tr>';
   }
   html += '</tbody></table>';
   content.innerHTML = html;
+
+  // Row click → expand detail
   content.querySelectorAll('.dd-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.dd-delete-btn')) return;
+      if (e.target.closest('.dd-row-action-btn')) return;
       toggleDetail(row, row.dataset.runId);
     });
   });
-  // R-F1980: delete buttons on each row
+
+  // Re-run buttons
+  content.querySelectorAll('.dd-rerun-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const entity = btn.dataset.entity;
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+      try {
+        const r = await authed('/api/aria/dd/orchestrate', {
+          method: 'POST',
+          body: JSON.stringify({ name: entity, mode: 'standard' }),
+        });
+        if (!r.ok) { alert('Re-run failed (HTTP ' + r.status + ')'); }
+        else { await loadReports(); }
+      } catch (err) { alert('Re-run error: ' + err.message); }
+      btn.disabled = false; btn.innerHTML = orig;
+    });
+  });
+
+  // Copy buttons
+  content.querySelectorAll('.dd-copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const runId = btn.dataset.runId;
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+      try {
+        const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId) + '?format=markdown');
+        if (!r.ok) { alert('Copy failed (HTTP ' + r.status + ')'); btn.innerHTML = orig; return; }
+        const data = await r.json();
+        const md = data.markdown || (data.report && data.report.markdown) || '';
+        await navigator.clipboard.writeText(md);
+        btn.innerHTML = '<i class="bi bi-check2"></i>';
+        setTimeout(() => { btn.innerHTML = orig; }, 1500);
+      } catch (err) { alert('Copy error: ' + err.message); }
+      btn.disabled = false; btn.innerHTML = orig;
+    });
+  });
+
+  // Delete buttons
   content.querySelectorAll('.dd-delete-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -445,40 +598,70 @@ async function toggleDetail(row, runId) {
     }
     const data = await resp.json();
     const md = data.markdown || (data.report && data.report.markdown) || JSON.stringify(data, null, 2).slice(0, 4000);
-    const entityName = (row.querySelector('.col-entity').textContent || '').trim().split(' · ')[0];
-    // R-F1186: canonical_entity_id from the report data (may be null for pre-R-F573 reports)
+    const entityName = (row.querySelector('.dd-entity-name') || {}).textContent || '';
     const canonicalId = data.canonical_entity_id || '';
-    detailRow.querySelector('.dd-detail').innerHTML =
-      '<div class="dd-detail-actions">' +
-        '<button class="dd-act-btn primary" data-action="rerun" data-entity="' + escAttr(entityName) + '">' +
-          '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
-        '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
-          '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
-        '<button class="dd-act-btn" data-action="copy">' +
-          '<i class="bi bi-clipboard"></i> Copy markdown</button>' +
-        // R-F1186: VLS verify button — checks cryptographic integrity of this report
-        '<button class="dd-act-btn" data-action="vls-verify" data-run-id="' + escAttr(runId) + '" ' +
-          'title="Verify VLS cryptographic proof (R-F1182)">' +
-          '<i class="bi bi-shield-check"></i> Verify VLS</button>' +
-        // R-F1186: VLS proof button — shows the raw cryptographic proof
-        '<button class="dd-act-btn" data-action="vls-proof" data-run-id="' + escAttr(runId) + '" ' +
-          'title="View VLS cryptographic proof (R-F1182)">' +
-          '<i class="bi bi-file-lock"></i> VLS Proof</button>' +
-        // R-F1186: Case file button — opens version chain for this entity
-        (canonicalId
-          ? '<button class="dd-act-btn" data-action="case-file" data-canonical-id="' + escAttr(canonicalId) + '" ' +
-            'title="View version chain / case file (R-F573)">' +
-            '<i class="bi bi-diagram-2"></i> Case File</button>' +
-            '<a class="dd-act-btn" href="/vls-chain.html?id=' + encodeURIComponent(canonicalId) + '" ' +
-            'title="View VLS chain verification (R-F1182)">' +
-            '<i class="bi bi-shield-check"></i> VLS Chain</a>'
-          : '') +
-        '<button class="dd-act-btn" data-action="delete" data-run-id="' + escAttr(runId) + '" ' +
-          'style="margin-left:auto;color:#fca5a5" title="Delete this report (R-F162)">' +
-          '<i class="bi bi-trash"></i> Delete report</button>' +
-      '</div>' +
-      '<div class="dd-md">' + mdRender(md) + '</div>';
 
+    // Parse markdown into structured sections
+    const sections = parseReportSections(md);
+
+    // Build the detail HTML
+    let detailHtml = '<div class="dd-detail-actions">' +
+      '<button class="dd-act-btn primary" data-action="rerun" data-entity="' + escAttr(entityName) + '">' +
+        '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
+      '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
+        '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
+      '<button class="dd-act-btn" data-action="copy">' +
+        '<i class="bi bi-clipboard"></i> Copy markdown</button>' +
+      '<button class="dd-act-btn" data-action="vls-verify" data-run-id="' + escAttr(runId) + '" ' +
+        'title="Verify VLS cryptographic proof">' +
+        '<i class="bi bi-shield-check"></i> Verify VLS</button>' +
+      '<button class="dd-act-btn" data-action="vls-proof" data-run-id="' + escAttr(runId) + '" ' +
+        'title="View VLS cryptographic proof">' +
+        '<i class="bi bi-file-lock"></i> VLS Proof</button>' +
+      (canonicalId
+        ? '<button class="dd-act-btn" data-action="case-file" data-canonical-id="' + escAttr(canonicalId) + '" ' +
+          'title="View version chain / case file">' +
+          '<i class="bi bi-diagram-2"></i> Case File</button>' +
+          '<a class="dd-act-btn" href="/vls-chain.html?id=' + encodeURIComponent(canonicalId) + '" ' +
+          'title="View VLS chain verification">' +
+          '<i class="bi bi-shield-check"></i> VLS Chain</a>'
+        : '') +
+      '<button class="dd-act-btn" data-action="delete" data-run-id="' + escAttr(runId) + '" ' +
+        'style="margin-left:auto;color:#fca5a5" title="Delete this report">' +
+        '<i class="bi bi-trash"></i> Delete report</button>' +
+    '</div>';
+
+    // Render sections
+    detailHtml += '<div class="dd-md">';
+    for (const sec of sections) {
+      if (sec.type === 'header') {
+        // Entity header card
+        detailHtml += sec.html;
+      } else if (sec.type === 'section') {
+        const statusClass = sec.status === 'ok' ? 'dd-section-ok'
+                         : sec.status === 'error' ? 'dd-section-err'
+                         : sec.status === 'warn' ? 'dd-section-warn'
+                         : 'dd-section-info';
+        const statusIcon = sec.status === 'ok' ? '<i class="bi bi-check-circle-fill" style="color:#16a34a"></i>'
+                         : sec.status === 'error' ? '<i class="bi bi-x-circle-fill" style="color:#dc2626"></i>'
+                         : sec.status === 'warn' ? '<i class="bi bi-exclamation-circle-fill" style="color:#ea580c"></i>'
+                         : '<i class="bi bi-info-circle-fill" style="color:#2563eb"></i>';
+        detailHtml += '<div class="dd-section ' + statusClass + '">' +
+          '<div class="dd-section-head">' +
+            '<span class="status-icon">' + statusIcon + '</span>' +
+            escText(sec.title) +
+          '</div>' +
+          '<div class="dd-section-body">' + sec.body + '</div>' +
+        '</div>';
+      } else if (sec.type === 'recommendation') {
+        detailHtml += '<div class="dd-recommendation">' + sec.html + '</div>';
+      }
+    }
+    detailHtml += '</div>';
+
+    detailRow.querySelector('.dd-detail').innerHTML = detailHtml;
+
+    // Wire up action buttons
     detailRow.querySelector('[data-action="copy"]').addEventListener('click', () => {
       navigator.clipboard.writeText(md).then(() => {
         const btn = detailRow.querySelector('[data-action="copy"]');
@@ -496,16 +679,9 @@ async function toggleDetail(row, runId) {
       b.innerHTML = '<i class="bi bi-hourglass-split"></i> Deleting…';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(rid), { method: 'DELETE' });
-        if (!r.ok) {
-          alert('Delete failed (HTTP ' + r.status + ').');
-          b.disabled = false; b.innerHTML = orig;
-          return;
-        }
+        if (!r.ok) { alert('Delete failed (HTTP ' + r.status + ').'); b.disabled = false; b.innerHTML = orig; return; }
         await loadReports();
-      } catch (err) {
-        alert('Delete error: ' + err.message);
-        b.disabled = false; b.innerHTML = orig;
-      }
+      } catch (err) { alert('Delete error: ' + err.message); b.disabled = false; b.innerHTML = orig; }
     });
     detailRow.querySelector('[data-action="rerun"]').addEventListener('click', async (e) => {
       const b = e.currentTarget;
@@ -517,17 +693,12 @@ async function toggleDetail(row, runId) {
           method: 'POST',
           body: JSON.stringify({ name: entityName, mode: 'standard' }),
         });
-        if (!r.ok) {
-          alert('Re-run failed (HTTP ' + r.status + '). Check logs.');
-        } else {
-          await loadReports();
-        }
-      } catch (err) {
-        alert('Re-run error: ' + err.message);
-      }
+        if (!r.ok) { alert('Re-run failed (HTTP ' + r.status + ').'); }
+        else { await loadReports(); }
+      } catch (err) { alert('Re-run error: ' + err.message); }
       b.disabled = false; b.innerHTML = orig;
     });
-    // R-F1186: VLS verify button — checks cryptographic integrity
+    // VLS verify
     const vlsVerifyBtn = detailRow.querySelector('[data-action="vls-verify"]');
     if (vlsVerifyBtn) {
       vlsVerifyBtn.addEventListener('click', async (e) => {
@@ -538,24 +709,16 @@ async function toggleDetail(row, runId) {
         b.innerHTML = '<i class="bi bi-hourglass-split"></i> Verifying…';
         try {
           const r = await authed('/api/aria/dd/vls/verify/' + encodeURIComponent(rid));
-          if (!r.ok) {
-            alert('VLS verify failed (HTTP ' + r.status + ')');
-            b.disabled = false; b.innerHTML = orig;
-            return;
-          }
+          if (!r.ok) { alert('VLS verify failed (HTTP ' + r.status + ')'); b.disabled = false; b.innerHTML = orig; return; }
           const data = await r.json();
           const verified = data.verified ? '✅ PASS — integrity verified' : '❌ FAIL — ' + (data.reason || 'integrity check failed');
-          const detail = data.hash_valid !== undefined
-            ? '\nHash valid: ' + data.hash_valid + '\nSignature valid: ' + data.signature_valid
-            : '';
+          const detail = data.hash_valid !== undefined ? '\nHash valid: ' + data.hash_valid + '\nSignature valid: ' + data.signature_valid : '';
           alert('VLS Verification for ' + rid + ':\n' + verified + detail);
-        } catch (err) {
-          alert('VLS verify error: ' + err.message);
-        }
+        } catch (err) { alert('VLS verify error: ' + err.message); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
-    // R-F1186: VLS proof button — shows the raw cryptographic proof
+    // VLS proof
     const vlsProofBtn = detailRow.querySelector('[data-action="vls-proof"]');
     if (vlsProofBtn) {
       vlsProofBtn.addEventListener('click', async (e) => {
@@ -567,19 +730,13 @@ async function toggleDetail(row, runId) {
         try {
           const r = await authed('/api/aria/dd/vls/proof/' + encodeURIComponent(rid));
           if (!r.ok) {
-            if (r.status === 404) {
-              alert('No VLS proof found for this report. Pre-R-F1182 reports do not have cryptographic proofs.');
-            } else {
-              alert('VLS proof failed (HTTP ' + r.status + ')');
-            }
-            b.disabled = false; b.innerHTML = orig;
-            return;
+            if (r.status === 404) { alert('No VLS proof found for this report. Pre-R-F1182 reports do not have cryptographic proofs.'); }
+            else { alert('VLS proof failed (HTTP ' + r.status + ')'); }
+            b.disabled = false; b.innerHTML = orig; return;
           }
           const data = await r.json();
           const proof = data.proof || {};
-          const lines = [
-            'VLS Cryptographic Proof',
-            '━━━━━━━━━━━━━━━━━━━━',
+          const lines = ['VLS Cryptographic Proof','━━━━━━━━━━━━━━━━━━━━',
             'Version: ' + (proof.version || '?'),
             'Timestamp: ' + (proof.timestamp || '?'),
             'Hash: ' + (proof.hash || '').slice(0, 24) + '…',
@@ -587,13 +744,11 @@ async function toggleDetail(row, runId) {
             'Signature: ' + (proof.signature || '').slice(0, 32) + '…',
           ];
           alert(lines.join('\n'));
-        } catch (err) {
-          alert('VLS proof error: ' + err.message);
-        }
+        } catch (err) { alert('VLS proof error: ' + err.message); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
-    // R-F1186: Case file button — opens version chain for this entity
+    // Case file
     const caseFileBtn = detailRow.querySelector('[data-action="case-file"]');
     if (caseFileBtn) {
       caseFileBtn.addEventListener('click', async (e) => {
@@ -605,38 +760,151 @@ async function toggleDetail(row, runId) {
         try {
           const r = await authed('/api/aria/dd/case/' + encodeURIComponent(cid));
           if (!r.ok) {
-            if (r.status === 404) {
-              alert('No case file found for this entity.');
-            } else {
-              alert('Case file failed (HTTP ' + r.status + ')');
-            }
-            b.disabled = false; b.innerHTML = orig;
-            return;
+            if (r.status === 404) { alert('No case file found for this entity.'); }
+            else { alert('Case file failed (HTTP ' + r.status + ')'); }
+            b.disabled = false; b.innerHTML = orig; return;
           }
           const data = await r.json();
           const versions = data.versions || [];
-          const lines = [
-            'Case File: ' + (data.canonical_entity_id || cid),
-            'Total versions: ' + (data.total_versions || 0),
-            '━━━━━━━━━━━━━━━━━━━━',
-          ];
+          const lines = ['Case File: ' + (data.canonical_entity_id || cid), 'Total versions: ' + (data.total_versions || 0), '━━━━━━━━━━━━━━━━━━━━'];
           for (const v of versions) {
-            lines.push(
-              'v' + (v.version_number || '?') + ' — ' + (v.risk_classification || '?') +
-              ' — ' + (v.generated_at || '').slice(0, 10) +
-              ' — ' + (v.run_id || '').slice(0, 14)
-            );
+            lines.push('v' + (v.version_number || '?') + ' — ' + (v.risk_classification || '?') + ' — ' + (v.generated_at || '').slice(0, 10) + ' — ' + (v.run_id || '').slice(0, 14));
           }
           alert(lines.join('\n'));
-        } catch (err) {
-          alert('Case file error: ' + err.message);
-        }
+        } catch (err) { alert('Case file error: ' + err.message); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
   } catch (err) {
     detailRow.querySelector('.dd-detail').innerHTML = '<div class="dd-loading">Network error: ' + escText(err.message) + '</div>';
   }
+}
+
+// Parse DD report markdown into structured sections
+function parseReportSections(md) {
+  if (!md) return [];
+  const sections = [];
+  const lines = md.split('\n');
+  let currentSection = null;
+  let currentBody = [];
+  let inHeader = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect entity header (first line with entity name)
+    if (i === 0 && line.startsWith('*?? ARK-DD REPORT')) {
+      inHeader = true;
+      continue;
+    }
+
+    // Detect recommendation block
+    if (line.startsWith('*Recommendation:*') || line.startsWith('**Recommendation:**')) {
+      if (currentSection) {
+        sections.push({ type: 'section', title: currentSection.title, status: currentSection.status, body: currentBody.join('\n') });
+        currentSection = null; currentBody = [];
+      }
+      const recHtml = '<strong>Recommendation:</strong> ' + escText(line.replace(/^\*{0,2}Recommendation:\*{0,2}\s*/, ''));
+      sections.push({ type: 'recommendation', html: recHtml });
+      continue;
+    }
+
+    // Detect section headers like "━━━ ?? Identity [ERROR] ━━━"
+    const sectionMatch = line.match(/━━+\s*(.+?)\s*\[(\w+)\]\s*━━+/);
+    if (sectionMatch) {
+      if (currentSection) {
+        sections.push({ type: 'section', title: currentSection.title, status: currentSection.status, body: currentBody.join('\n') });
+      }
+      currentSection = {
+        title: sectionMatch[1].trim(),
+        status: sectionMatch[2].toLowerCase(),
+      };
+      currentBody = [];
+      continue;
+    }
+
+    // Detect simple section headers like "━━━ ?? Identity ━━━" (no status)
+    const simpleSection = line.match(/━━+\s*(.+?)\s*━━+/);
+    if (simpleSection && !line.includes('ARK-DD') && !line.includes('AMBER-LIGHT') && !line.includes('GREEN') && !line.includes('RED') && !line.includes('HARD_STOP')) {
+      if (currentSection) {
+        sections.push({ type: 'section', title: currentSection.title, status: currentSection.status || 'info', body: currentBody.join('\n') });
+      }
+      currentSection = { title: simpleSection[1].trim(), status: 'info' };
+      currentBody = [];
+      continue;
+    }
+
+    // Detect severity line (e.g. "*AMBER-LIGHT* — ?? LIMITED REGISTRY DATA")
+    if (line.startsWith('*') && line.includes('* —')) {
+      if (inHeader) {
+        // This is the severity + description line in the header
+        const sevMatch = line.match(/^\*([^*]+)\*\s*[—–-]\s*(.+)/);
+        if (sevMatch) {
+          sections.push({
+            type: 'header',
+            html: '<div class="dd-report-header">' +
+              '<div class="dd-avatar" style="background:#7c3aed">' + (sections.length > 0 ? '?' : '?') + '</div>' +
+              '<div class="dd-report-header-info">' +
+                '<h2>' + escText(sevMatch[1].trim()) + '</h2>' +
+                '<div class="meta">' + escText(sevMatch[2].trim()) + '</div>' +
+              '</div>' +
+            '</div>'
+          });
+        }
+        inHeader = false;
+      }
+      continue;
+    }
+
+    // Collect body lines
+    if (currentSection) {
+      currentBody.push(line);
+    }
+  }
+
+  // Push last section
+  if (currentSection) {
+    sections.push({ type: 'section', title: currentSection.title, status: currentSection.status || 'info', body: currentBody.join('\n') });
+  }
+
+  // Render body markdown to HTML for each section
+  for (const sec of sections) {
+    if (sec.type === 'section' && sec.body) {
+      sec.body = renderSectionBody(sec.body);
+    }
+  }
+
+  return sections;
+}
+
+// Render section body markdown to HTML
+function renderSectionBody(text) {
+  if (!text) return '';
+  let s = String(text);
+  // Escape HTML
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Bold
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Inline code
+  s = s.replace(/`(.+?)`/g, '<code>$1</code>');
+  // Bullet lists
+  s = s.replace(/((?:^[-•*] .+\n?)+)/gm, function(block) {
+    const items = block.trim().split('\n').map(l => '<li>' + l.replace(/^[-•*] /, '').trim() + '</li>').join('');
+    return '<ul>' + items + '</ul>';
+  });
+  // Numbered lists
+  s = s.replace(/((?:^\d+\. .+\n?)+)/gm, function(block) {
+    const items = block.trim().split('\n').map(l => '<li>' + l.replace(/^\d+\. /, '').trim() + '</li>').join('');
+    return '<ol>' + items + '</ol>';
+  });
+  // Paragraphs
+  s = s.replace(/\n{2,}/g, '</p><p>');
+  s = s.replace(/\n/g, '<br>');
+  s = '<p>' + s + '</p>';
+  s = s.replace(/<p><(ul|ol)/g, '<$1');
+  s = s.replace(/<\/(ul|ol)><\/p>/g, '</$1>');
+  s = s.replace(/<p><\/p>/g, '');
+  return s;
 }
 
 async function loadReports() {
