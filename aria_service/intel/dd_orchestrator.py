@@ -7540,8 +7540,13 @@ async def orchestrate_dd(
     user_email: str | None = None,
     share_to_company: bool = True,
     total_budget_s: float | None = None,
+    run_id: str | None = None,
 ) -> "ARKDDReport":
     """R-F1628 — HARD overall deadline (robust end to 'DD hangs forever').
+
+    R-F2250 — ``run_id`` lets the caller pre-assign the report id so an ASYNC DD
+    (fire-and-poll) can return that id immediately and the caller can poll
+    /dd/report/{run_id}. None → the report auto-generates one (unchanged sync path).
 
     The 7-layer impl clamps PER-LAYER timeouts to the budget, but unclamped work
     (predictor forecast, final synthesis, brain absorbs) can still overrun: a
@@ -7576,6 +7581,7 @@ async def orchestrate_dd(
                 user_email=user_email,
                 share_to_company=share_to_company,
                 total_budget_s=total_budget_s,
+                run_id=run_id,
                 _report_holder=holder,
             ),
             timeout=hard,
@@ -7596,6 +7602,8 @@ async def orchestrate_dd(
         rep = holder.get("report")
         if rep is None:
             rep = ARKDDReport(target=target, orchestrator_mode=mode, trace_id=trace_id)
+            if run_id:
+                rep.run_id = run_id  # R-F2250: keep the async poll key stable on timeout
             rep.identity.entity_name = _name
             rep.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
         # R-F1830: flag the hard-deadline path as time-boxed too (the _clamp
@@ -7638,6 +7646,7 @@ async def _orchestrate_dd_impl(
     user_email: str | None = None,
     share_to_company: bool = True,
     total_budget_s: float | None = None,
+    run_id: str | None = None,
     _report_holder: "dict | None" = None,
 ) -> ARKDDReport:
     """Run the 7-layer DD orchestrator on a target entity.
@@ -7820,6 +7829,8 @@ async def _orchestrate_dd_impl(
         orchestrator_mode=mode,
         trace_id=trace_id,
     )
+    if run_id:
+        report.run_id = run_id  # R-F2250: caller-assigned id for the async fire-and-poll path
     report.identity.entity_name = target.get("name") or target.get("entity") or target.get("query", "")
     report.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
 
@@ -9400,6 +9411,51 @@ async def get_watchlist() -> list[dict]:
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs
     return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+
+
+async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
+                          canonical_entity_id: str | None = None) -> None:
+    """R-F2250 — write a 'running' placeholder under the report key so an ASYNC DD's
+    FIRST poll (/dd/report/{run_id}) returns status=running instead of a 404. The
+    background DD overwrites it with the real report when it finishes."""
+    from . import redis_store as rs
+    from datetime import datetime, timezone
+    try:
+        await rs.set_json(
+            REPORT_REDIS_KEY.format(run_id=run_id),
+            {
+                "run_id": run_id,
+                "status": "running",
+                "async_mode": True,
+                "entity_name": entity_name,
+                "orchestrator_mode": mode,
+                "canonical_entity_id": canonical_entity_id,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "bottom_line": f"Due diligence in progress for {entity_name}…",
+            },
+            ex=REPORT_TTL_SECONDS,
+        )
+    except Exception:
+        logger.exception("[R-F2250] mark_dd_running failed for %s", run_id)
+
+
+async def mark_dd_failed(run_id: str, error: str) -> None:
+    """R-F2250 — mark an async DD failed under its report key so the poller sees a
+    terminal 'failed' status instead of polling 'running' forever on an exception."""
+    from . import redis_store as rs
+    from datetime import datetime, timezone
+    try:
+        cur = (await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))) or {}
+        cur.update({
+            "run_id": run_id,
+            "status": "failed",
+            "error": str(error)[:300],
+            "failed_at": datetime.now(timezone.utc).isoformat(),
+            "bottom_line": f"Due diligence could not complete: {str(error)[:160]}",
+        })
+        await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), cur, ex=REPORT_TTL_SECONDS)
+    except Exception:
+        logger.exception("[R-F2250] mark_dd_failed failed for %s", run_id)
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")

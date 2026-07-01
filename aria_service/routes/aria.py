@@ -778,6 +778,39 @@ async def dd_orchestrate_ep(req: Request):
     if body.get("website_url") and not body.get("website"):
         body["website"] = body["website_url"]
 
+    # R-F2250 — ASYNC DD (fire-and-poll). A full DD runs minutes; a SYNCHRONOUS
+    # request dies at the aria-web ariaProxy (~30s) / Fly edge (~60s) timeout →
+    # "DD failed (HTTP 500)" even though the DD completes server-side. When
+    # async_mode is set, launch the DD in the background under a pre-assigned run_id
+    # and return it IMMEDIATELY; the caller polls GET /dd/report/{run_id}.
+    if body.get("async_mode") or body.get("async"):
+        import uuid as _uuid
+        from ..intel import dd_orchestrator as _ddo
+        _run_id = f"dd_{_uuid.uuid4().hex[:12]}"
+        _ent = body.get("name") or body.get("entity") or ""
+        await _ddo.mark_dd_running(_run_id, _ent, mode, locals().get("_canonical"))
+
+        async def _bg_dd():
+            try:
+                await _ddo.orchestrate_dd(
+                    target=body, llm=llm, mode=mode, trace_id=trace_id,
+                    user_id=_req_user_id, user_email=_req_user_email,
+                    share_to_company=_share_to_company, run_id=_run_id,
+                )
+            except Exception as _e:  # noqa: BLE001 — recorded as a terminal 'failed' status
+                _log.exception("async dd_orchestrate failed for %s: %s", _run_id, _e)
+                await _ddo.mark_dd_failed(_run_id, str(_e))
+
+        asyncio.create_task(_bg_dd())
+        return {
+            "run_id": _run_id,
+            "status": "running",
+            "async_mode": True,
+            "entity_name": _ent,
+            "poll_url": f"/api/aria/dd/report/{_run_id}",
+            "message": f"Due diligence started for {_ent}. Poll the report URL for the result.",
+        }
+
     try:
         from ..intel import dd_orchestrator
         report = await dd_orchestrator.orchestrate_dd(

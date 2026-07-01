@@ -721,18 +721,44 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     if (reg) body.registration_number = reg;
     if (url) body.website_url = url;
     if (prod) body.product_description = prod;
+    body.async_mode = true; // R-F2250: fire-and-poll — a synchronous DD runs minutes and dies at the proxy (~30-60s) → HTTP 500
     const sb = document.getElementById('dd-run-submit');
     const orig = sb.innerHTML;
     sb.disabled = true; sb.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
     try {
       const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
       if (!r.ok) {
-        err.textContent = 'DD failed (HTTP ' + r.status + ').'; err.style.display = 'block';
+        err.textContent = 'DD failed to start (HTTP ' + r.status + ').'; err.style.display = 'block';
         sb.disabled = false; sb.innerHTML = orig; return;
       }
+      const started = await r.json().catch(() => ({}));
+      const runId = started.run_id;
       closeRun();
-      if (window.Toast) Toast.show('Due diligence started for ' + name + '.', 'success');
+      if (window.Toast) Toast.show('Due diligence started for ' + name + ' — running in the background…', 'success');
       await loadReports();
+      // R-F2250: poll the report until the background DD completes (no 30s proxy wall).
+      if (runId) {
+        let tries = 0;
+        const poll = async () => {
+          tries++;
+          try {
+            const pr = await authed('/api/aria/dd/report/' + encodeURIComponent(runId));
+            if (pr.ok) {
+              const rep = await pr.json().catch(() => ({}));
+              const st = (rep && rep.status) || 'done';
+              if (st === 'running' && tries < 150) { setTimeout(poll, 5000); return; } // ~12.5 min ceiling
+              await loadReports();
+              if (window.Toast) Toast.show(
+                st === 'failed' ? ('DD failed for ' + name + ': ' + (rep.error || 'see report'))
+                               : ('Due diligence complete for ' + name + '.'),
+                st === 'failed' ? 'error' : 'success');
+              return;
+            }
+          } catch (e) { /* transient — keep polling */ }
+          if (tries < 150) setTimeout(poll, 5000);
+        };
+        setTimeout(poll, 6000);
+      }
     } catch (e2) {
       err.textContent = 'DD error: ' + (e2.message || 'network error'); err.style.display = 'block';
     } finally {
