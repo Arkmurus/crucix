@@ -16372,7 +16372,7 @@
       "status": "shipped",
       "commit_sha": "9e150481",
       "notes": null,
-      "shipped_at": "2026-07-01T06:50:12Z"
+      "shipped_at": "2026-07-01T07:02:17Z"
     },
     {
       "r_number": "R-F2208",
@@ -16382,7 +16382,7 @@
       "status": "shipped",
       "commit_sha": "9e150481",
       "notes": null,
-      "shipped_at": "2026-07-01T06:50:12Z"
+      "shipped_at": "2026-07-01T07:02:17Z"
     },
     {
       "r_number": "R-F2209",
@@ -16419,27 +16419,30 @@
       "title": "SSRF hardening: block .internal + single-label hosts + DNS-resolve private-IP check in validate_url",
       "claimed_at": "2026-07-01T06:42:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bbb9ed9f",
+      "notes": null,
+      "shipped_at": "2026-07-01T07:02:02Z"
     },
     {
       "r_number": "R-F2213",
       "title": "Add-source honesty: SSRF-safe probe-on-add, status pending/verified truthful, graceful error",
       "claimed_at": "2026-07-01T06:42:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bbb9ed9f",
+      "notes": null,
+      "shipped_at": "2026-07-01T07:02:02Z"
     },
     {
       "r_number": "R-F2214",
       "title": "news_monitor §21a: wire silent None-fetch + scrape-empty source failures to brain",
       "claimed_at": "2026-07-01T06:42:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bbb9ed9f",
+      "notes": null,
+      "shipped_at": "2026-07-01T07:02:03Z"
     },
     {
       "r_number": "R-F2215",
