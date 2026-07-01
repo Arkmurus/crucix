@@ -32,6 +32,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -495,14 +496,39 @@ async def _feed_to_brain(article: dict) -> None:
 
 
 async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
-    """Fetch a feed URL with retries."""
+    """Fetch a feed URL with retries.
+
+    R-F2218 — redirects are followed MANUALLY and EVERY hop is re-validated with
+    security.validate_url(). Pre-fix the shared client had follow_redirects=True and
+    only the ORIGINAL url was checked, so a public feed URL that 302's to an internal
+    /.internal/private host (or a DNS-rebind) was fetched unchecked — SSRF into the
+    fly 6PN network with the response absorbed into the corpus. Per-request
+    follow_redirects=False overrides the client default without affecting other calls.
+    """
+    from . import security as _sec
     client = _get_client()
     last_error = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            resp = await client.get(url)  # no-ssrf-check: feed URLs are curated NEWS_SOURCES or vault URLs pre-validated via security.validate_url() in _get_vault_feed_sources (R-F2046)
-            resp.raise_for_status()
-            return resp.text
+            cur = url
+            for _hop in range(6):   # bounded redirect chain
+                resp = await client.get(cur, follow_redirects=False)
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    loc = resp.headers.get("location") or ""
+                    if not loc:
+                        break
+                    nxt = str(httpx.URL(cur).join(loc))
+                    _ok, _why = _sec.validate_url(nxt)
+                    if not _ok:
+                        logger.warning("[news_monitor] blocked unsafe redirect for %s: %s -> %s (%s)",
+                                       source_name, cur[:80], nxt[:80], _why)
+                        return None
+                    cur = nxt
+                    continue
+                resp.raise_for_status()
+                return resp.text
+            logger.debug("[news_monitor] too many redirects for %s (%s)", source_name, url)
+            return None
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 logger.debug("[news_monitor] Feed not found: %s (%s)", source_name, url)
@@ -544,6 +570,7 @@ def _get_vault_feed_sources() -> list[tuple]:
         logger.debug("[news_monitor] vault feed-source read failed: %s", e)
         return []
     out: list[tuple] = []
+    url_to_id: dict[str, str] = {}
     for e in entries:
         try:
             st = (e.get("site_type") or "").lower()
@@ -567,9 +594,90 @@ def _get_vault_feed_sources() -> list[tuple]:
             name = e.get("site_name") or e.get("site_id") or url
             # 6-field NEWS_SOURCES shape: (name, url, category, lang, tier, topics)
             out.append((f"vault:{name}", url, "vault_curated", "en", "tier_2", ["custom"]))
+            # R-F2217 — remember which vault entry each URL came from so the poll
+            # loop can bump/reset its fail-streak (the tuple shape can't carry the id).
+            _sid = e.get("site_id")
+            if _sid:
+                url_to_id[url] = _sid
         except Exception:
             continue
+    global _VAULT_URL_TO_ID
+    _VAULT_URL_TO_ID = url_to_id
     return out
+
+
+# ── R-F2217 — dead-source auto-suspension ────────────────────────────────────
+# A vault/user source that keeps failing used to be re-fetched hourly FOREVER
+# (marked "failed" per poll but never persisted, so it rotted invisibly). Track
+# consecutive failures in the entry's metadata; after N, flip its status to
+# "failed" — which _get_vault_feed_sources already excludes — so the poll set
+# self-heals. A single successful fetch clears the streak (and promotes a
+# "pending" source, R-F2213, to "verified" now that it's confirmed live).
+_VAULT_URL_TO_ID: dict[str, str] = {}
+_VAULT_FAIL_SUSPEND_THRESHOLD = max(2, int(os.getenv("ARIA_VAULT_FAIL_SUSPEND", "6") or "6"))
+
+
+def _vault_meta(entry: dict) -> dict:
+    try:
+        return json.loads(entry.get("metadata_json") or "{}") or {}
+    except Exception:
+        return {}
+
+
+def _bump_vault_failstreak(url: str) -> None:
+    sid = _VAULT_URL_TO_ID.get(url)
+    if not sid:
+        return
+    try:
+        from .agent_signup_vault import get_vault
+        v = get_vault()
+        entry = v.get(sid)
+        if not entry:
+            return
+        cur = (entry.get("status") or "").lower()
+        if cur in ("failed", "cancelled", "expired"):
+            return
+        streak = int(_vault_meta(entry).get("fail_streak", 0) or 0) + 1
+        if streak >= _VAULT_FAIL_SUSPEND_THRESHOLD:
+            v.update_status(
+                sid, "failed",
+                notes=f"auto-suspended after {streak} consecutive poll failures (R-F2217)",
+                metadata={"fail_streak": streak, "auto_suspended": True},
+            )
+            try:
+                wire_failure(
+                    module="news_monitor",
+                    summary=f"Vault source auto-suspended: {sid}",
+                    detail=f"{streak} consecutive failures | url={url[:120]}",
+                    source_id=f"news_monitor:suspend:{sid}",
+                )
+            except Exception:
+                pass
+        else:
+            v.update_status(sid, entry.get("status") or "pending", metadata={"fail_streak": streak})
+    except Exception:
+        logger.debug("[news_monitor] failstreak bump failed for %s", url[:80], exc_info=True)
+
+
+def _reset_vault_failstreak(url: str) -> None:
+    sid = _VAULT_URL_TO_ID.get(url)
+    if not sid:
+        return
+    try:
+        from .agent_signup_vault import get_vault
+        v = get_vault()
+        entry = v.get(sid)
+        if not entry:
+            return
+        cur = (entry.get("status") or "").lower()
+        had_streak = int(_vault_meta(entry).get("fail_streak", 0) or 0) > 0
+        # Only write when something actually changes: clear a streak, or promote a
+        # confirmed-live "pending" source to "verified". Healthy sources = no write.
+        if had_streak or cur == "pending":
+            new_status = "verified" if cur == "pending" else (entry.get("status") or "verified")
+            v.update_status(sid, new_status, metadata={"fail_streak": 0, "auto_suspended": False})
+    except Exception:
+        logger.debug("[news_monitor] failstreak reset failed for %s", url[:80], exc_info=True)
 
 
 def _wire_scrape_failure(name: str, url: str, why: str) -> None:
@@ -704,6 +812,7 @@ async def poll_feeds(
                         )
                     except Exception:
                         pass
+                    _bump_vault_failstreak(url)   # R-F2217 — dead-source lifecycle
                 continue
 
             feed_type = _detect_feed_type(xml_text)
@@ -719,6 +828,12 @@ async def poll_feeds(
                     total_fetched += sc["fetched"]
                     total_new += sc["new"]
                     feed_results.append({"name": name, "status": "scraped", "articles": sc["fetched"], "new": sc["new"]})
+                    # R-F2217 — a fetched page = live source (clear streak / promote);
+                    # a 0-fetch scrape = failure (bump toward auto-suspend).
+                    if sc["fetched"] > 0:
+                        _reset_vault_failstreak(url)
+                    else:
+                        _bump_vault_failstreak(url)
                     await asyncio.sleep(0.5)
                     continue
                 logger.debug("[news_monitor] Unknown feed type for %s", name)
@@ -743,6 +858,10 @@ async def poll_feeds(
 
             total_new += new_count
             feed_results.append({"name": name, "status": "ok", "articles": len(articles), "new": new_count})
+            # R-F2217 — a feed that parsed (even 0 new = all seen) is LIVE: clear
+            # its fail streak / promote pending→verified.
+            if category == "vault_curated":
+                _reset_vault_failstreak(url)
 
             # Rate-limit: don't hammer all feeds at once
             await asyncio.sleep(0.5)
@@ -761,6 +880,8 @@ async def poll_feeds(
                 )
             except Exception:
                 pass
+            if category == "vault_curated":
+                _bump_vault_failstreak(url)   # R-F2217 — dead-source lifecycle
 
     summary = {
         "feeds_polled": len(sources),

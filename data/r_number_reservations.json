@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2216,
+  "next_available": 2220,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -16448,6 +16448,42 @@
       "r_number": "R-F2215",
       "title": "rag_store retrieval: apply dead credibility_tier as ranking multiplier (env-gated)",
       "claimed_at": "2026-07-01T06:42:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2216",
+      "title": "rag_store credibility-aware ranking: apply credibility_tier as bounded score multiplier (env-gated)",
+      "claimed_at": "2026-07-01T07:06:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2217",
+      "title": "news_monitor dead-source auto-suspension: consecutive-fail counter → status=failed, stops hourly rot",
+      "claimed_at": "2026-07-01T07:06:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2218",
+      "title": "news_monitor redirect-SSRF: validate every redirect hop (defeats public->internal 302)",
+      "claimed_at": "2026-07-01T07:06:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2219",
+      "title": "gate crawler + expiry_sweeper as engine singletons (election-aware) for multi-worker safety",
+      "claimed_at": "2026-07-01T07:12:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

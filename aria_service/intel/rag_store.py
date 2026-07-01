@@ -1034,6 +1034,29 @@ def _recency_boost(ts_epoch: float | None) -> float:
     return 0.90
 
 
+# R-F2215 (2026-07-01) — credibility-aware ranking. web_search tags each search
+# result with a credibility_tier (1=official/.gov … 6=quarantine) which is stored
+# as a FLAT int in chunk metadata (web_search.py:1375 → add_search_results_batch
+# rag_store.py:1004-1006) — but search() never read it, so a Tier-1 .gov chunk
+# ranked identically to a Tier-5 blog. Apply a bounded multiplier. NEUTRAL (1.0)
+# when the tier is absent, so corpus + user/vault chunks (no tier) are UNCHANGED —
+# only the relative ranking of web-search chunks shifts. Env-reversible.
+_CREDIBILITY_RANK_ENABLED = os.getenv("ARIA_RAG_CREDIBILITY_RANK", "1") == "1"
+_CREDIBILITY_MULT = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.85, 6: 0.70}
+
+
+def _credibility_multiplier(tier) -> float:
+    """Bounded retrieval multiplier for a source credibility tier. Returns a
+    neutral 1.0 when disabled or the tier is missing/unrecognised — so this can
+    never demote content that simply lacks a tier."""
+    if not _CREDIBILITY_RANK_ENABLED or tier is None:
+        return 1.0
+    try:
+        return _CREDIBILITY_MULT.get(int(tier), 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
 @fail_wire(module="rag_store", gap_type="embedder_failure")
 async def search(
     query: str,
@@ -1100,9 +1123,11 @@ async def search(
                 # The 0.43 La Scala→Lebanon case ARIA flagged sits here.
                 if similarity < min_similarity:
                     continue
-                # Apply recency boost
+                # Apply recency boost + R-F2215 credibility multiplier (neutral
+                # when the chunk has no tier, so corpus/vault content is unchanged).
                 ts = meta.get("ts_epoch") if isinstance(meta, dict) else None
-                score = similarity * _recency_boost(ts)
+                _cred_tier = meta.get("credibility_tier") if isinstance(meta, dict) else None
+                score = similarity * _recency_boost(ts) * _credibility_multiplier(_cred_tier)
                 results.append({
                     "id": ids_list[i] if i < len(ids_list) else "",
                     "text": doc,
@@ -1114,6 +1139,7 @@ async def search(
                     "url": meta.get("url", "") if isinstance(meta, dict) else "",
                     "market": meta.get("market", "") if isinstance(meta, dict) else "",
                     "ingested_at": meta.get("ingested_at", "") if isinstance(meta, dict) else "",
+                    "credibility_tier": _cred_tier,
                     "collection": name,
                 })
         except Exception as e:
