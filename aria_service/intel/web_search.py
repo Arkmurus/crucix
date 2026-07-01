@@ -146,6 +146,78 @@ SEARXNG_INSTANCES: list[str] = [
 ]
 REQUEST_TIMEOUT = 12.0
 MAX_RESULTS_PER_BACKEND = 15
+# R-F2226 — search gather budget (quorum+grace early-return). The gather used to
+# block on the SLOWEST backend for the full per-backend REQUEST_TIMEOUT (12s), so
+# one slow supplementary backend (news-RSS redirect chains, the 3-registry
+# academic fan-out) pinned EVERY search at 12s even though the fast primary
+# backend (SearXNG self-host, ~2s) had already returned. Now: once QUORUM
+# backends return a useful (non-empty) result, only GRACE more seconds are given
+# before stragglers are cancelled. BUDGET is the hard backstop and equals the old
+# 12s worst case — when quorum is NEVER reached (degraded: only a slow backend
+# has anything) the full budget is still waited, so recall is preserved.
+SEARCH_GATHER_BUDGET = float(os.getenv("ARIA_SEARCH_GATHER_BUDGET", "12.0"))
+SEARCH_GATHER_QUORUM = int(os.getenv("ARIA_SEARCH_GATHER_QUORUM", "2"))
+SEARCH_GATHER_GRACE = float(os.getenv("ARIA_SEARCH_GATHER_GRACE", "2.5"))
+
+
+async def _gather_search_backends(tasks: list, *, budget: float, quorum: int, grace: float) -> list:
+    """R-F2226 — collect backend results in TASK ORDER without blocking on the
+    slowest backend.
+
+    Waits incrementally. Once `quorum` tasks have returned a non-empty,
+    non-exception result, the remaining tasks get only `grace` more seconds
+    before they are cancelled and whatever finished is salvaged. If quorum is
+    never reached, the full `budget` is waited (recall-safe degraded path).
+    Order-preserving so the caller's per-backend snapshot (index→name) stays
+    correct; mirrors the R-F1657 salvage semantics. Never raises.
+    """
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    pending = set(tasks)
+    useful = 0
+    quorum_at: float | None = None
+    while pending:
+        now = loop.time()
+        remaining = budget - (now - start)          # hard backstop
+        if remaining <= 0:
+            break
+        if quorum_at is not None:                    # quorum met → only grace left
+            remaining = min(remaining, grace - (now - quorum_at))
+            if remaining <= 0:
+                break
+        try:
+            done, pending = await asyncio.wait(
+                pending, timeout=max(0.01, remaining),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        except Exception:
+            break
+        if not done:                                 # deadline hit, nothing new
+            break
+        for _d in done:
+            try:
+                _r = _d.result()
+                if _r and not isinstance(_r, Exception):
+                    useful += 1
+            except Exception:
+                pass
+        if quorum_at is None and useful >= quorum:
+            quorum_at = loop.time()
+    # Cancel stragglers so they don't linger (matches the prior R-F1657 behaviour).
+    for _t in tasks:
+        if not _t.done():
+            _t.cancel()
+    # Collect in ORDER; unfinished/cancelled → TimeoutError sentinel.
+    out: list = []
+    for _t in tasks:
+        if _t.done() and not _t.cancelled():
+            try:
+                out.append(_t.result())
+            except Exception:
+                out.append(TimeoutError("gather timeout"))
+        else:
+            out.append(TimeoutError("gather timeout"))
+    return out
 
 
 # Brave's `search_lang` rejects bare codes for languages with regional
@@ -1158,29 +1230,18 @@ async def search(
     ]
     for _bt in backend_tasks:
         _all_tasks.append(asyncio.create_task(_bt))
-    try:
-        raw_results_list = await asyncio.wait_for(
-            asyncio.gather(*_all_tasks, return_exceptions=True),
-            timeout=REQUEST_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "search gather timed out after %.1fs — returning partial results",
-            REQUEST_TIMEOUT,
-        )
-        # R-F1657: preserve results from backends that DID complete before
-        # the timeout, instead of discarding everything. Each task that
-        # finished gets its result; unfinished ones get TimeoutError.
-        raw_results_list = []
-        for _t in _all_tasks:
-            if _t.done() and not _t.cancelled():
-                try:
-                    raw_results_list.append(_t.result())
-                except Exception:
-                    raw_results_list.append(TimeoutError("gather timeout"))
-            else:
-                raw_results_list.append(TimeoutError("gather timeout"))
-                _t.cancel()  # cancel the hung task so it doesn't linger
+    # R-F2226: quorum+grace early-return instead of blocking on the SLOWEST
+    # backend for the full REQUEST_TIMEOUT. Returns as soon as a quorum of
+    # backends has useful results (+ a short grace for stragglers), but waits the
+    # full budget when quorum isn't reached (recall-safe). Order-preserving, so
+    # the per-backend snapshot below is unchanged. Subsumes the R-F1649 wall-clock
+    # cap and the R-F1657 partial-result salvage.
+    raw_results_list = await _gather_search_backends(
+        _all_tasks,
+        budget=SEARCH_GATHER_BUDGET,
+        quorum=SEARCH_GATHER_QUORUM,
+        grace=SEARCH_GATHER_GRACE,
+    )
     raw_results = list(raw_results_list)
     _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
 
