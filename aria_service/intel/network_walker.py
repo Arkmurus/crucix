@@ -196,7 +196,8 @@ async def walk_network(
                 hint = "run a manual search of the target country's national corporate registry"
             data_gaps.append(
                 f"Directors unavailable for {jurisdiction_iso2 or 'this jurisdiction'} "
-                f"— no registry adapter returned data. Manual action: {hint}"
+                f"— the registry adapter returned no data (a registration/company number is "
+                f"often required to query it, e.g. a CNPJ for BR). Manual action: {hint}"
             )
     if not officers and jurisdiction_iso2 == "GB":
         data_gaps.append(f"Companies House returned no officers for {registration_number}")

@@ -8023,14 +8023,24 @@ async def _orchestrate_dd_impl(
                     report.layers_skipped.append("digital")
             else:
                 report.layers_run.append(layer_name)
+                # R-F2252 — fail-fast for SPARSE targets. The 2× digital budget exists
+                # for entity-website link-tree mining (_run_digital, R-F1874); an entity
+                # with NO resolvable website can't use it, so cap at 1×. Saves ~90s of
+                # I/O-bound search churn on sparse foreign entities (no-CNPJ/no-website —
+                # the DD that timed the operator out was exactly this shape).
+                _has_site = bool(
+                    target.get("website") or target.get("website_url")
+                    or target.get("url") or target.get("domain")
+                )
+                _digital_budget = DEFAULT_LAYER_TIMEOUT_S * (2 if _has_site else 1)
                 try:
                     await asyncio.wait_for(
                         _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
-                        timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S * 2),
+                        timeout=_clamp(_digital_budget),
                     )
                 except asyncio.TimeoutError:
                     report.digital.meta.status = LayerStatus.ERROR.value
-                    report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"
+                    report.digital.meta.error = f"timeout after {_digital_budget}s"
         elif mode == "quick":
             if "digital" not in report.layers_skipped:
                 report.layers_skipped.append("digital")
