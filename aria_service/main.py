@@ -827,6 +827,24 @@ async def lifespan(app: FastAPI):
         )
 
     _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
+
+    # ---- R-F2300 - reconcile orphaned async-DD 'running' placeholders ---------
+    # An async DD (R-F2250) runs in an in-process bg task; a restart (deploy /
+    # R-F2277 os._exit / crash) kills it but leaves status='running' forever, so
+    # the chat/report poll spins with a frozen "running · ETA …" (2026-07-02: a
+    # deep DD sat 'running' 12.5h after a deploy). Sweep once shortly after boot
+    # (catches restart-orphans) and every 10 min (catches a hang without restart).
+    async def _dd_reconcile_loop():
+        await asyncio.sleep(45)  # let the state store settle after boot
+        while True:
+            try:
+                from .intel import dd_orchestrator as _ddo
+                await _ddo.reconcile_stale_running_dds()
+            except Exception as _e:  # noqa: BLE001 — best-effort, never crash boot
+                logger.debug("[R-F2300] dd reconcile loop error: %s", _e)
+            await asyncio.sleep(600)
+    _bg_task(asyncio.create_task(_dd_reconcile_loop(), name="dd_reconcile"))
+
     # ---- R-F2154 - background expired-entry sweeper --------------------------
     _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"))
     # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---

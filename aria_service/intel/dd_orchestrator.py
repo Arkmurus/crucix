@@ -9729,6 +9729,59 @@ async def mark_dd_failed(run_id: str, error: str) -> None:
         logger.exception("[R-F2250] mark_dd_failed failed for %s", run_id)
 
 
+async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
+    """R-F2300 — give orphaned async-DD 'running' placeholders a terminal state.
+
+    An async DD (R-F2250) runs its layers in an IN-PROCESS background task; a
+    service restart (deploy / R-F2277 os._exit watchdog / crash) kills that task
+    but leaves the ``status="running"`` placeholder behind FOREVER — so the chat /
+    report poll returns 'running' indefinitely and the UI spins with a frozen
+    "running · ETA …" (2026-07-02: a Modirum Gespi deep DD sat 'running' 12.5h
+    after a deploy). This sweep marks any 'running' placeholder older than
+    ``max_age_s`` (default 30 min — well past a deep DD's ~15 min runtime, and no
+    parseable ``started_at`` counts as stale) FAILED, so the poller/UI gets a clean
+    "interrupted — please re-run" instead of hanging. Best-effort, never raises.
+    Returns {scanned, reconciled}. (Same failure class as R-F2280's orphaned tmp:
+    in-flight state killed by a process exit and never reconciled.)
+    """
+    from . import redis_store as rs
+    import time as _t
+    from datetime import datetime
+    now = _t.time()
+    scanned = reconciled = 0
+    try:
+        rows = await rs.scan_json("crucix:dd:report:*", count=500)
+    except Exception as e:
+        logger.debug("[R-F2300] reconcile scan failed: %s", e)
+        return {"scanned": 0, "reconciled": 0}
+    for key, val in rows:
+        if not isinstance(val, dict) or val.get("status") != "running":
+            continue
+        scanned += 1
+        age = None
+        started = val.get("started_at")
+        if started:
+            try:
+                age = now - datetime.fromisoformat(started).timestamp()
+            except Exception:
+                age = None
+        if age is None or age > max_age_s:  # unparseable ts OR too old = orphaned
+            try:
+                await mark_dd_failed(
+                    val.get("run_id") or key.rsplit(":", 1)[-1],
+                    "Interrupted by a service restart before completion — please re-run.",
+                )
+                reconciled += 1
+            except Exception:
+                pass
+    if reconciled:
+        logger.warning(
+            "[R-F2300] reconciled %d/%d stale 'running' DD placeholder(s) → failed",
+            reconciled, scanned,
+        )
+    return {"scanned": scanned, "reconciled": reconciled}
+
+
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_case_file(
     canonical_entity_id: str,
