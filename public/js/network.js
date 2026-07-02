@@ -161,25 +161,29 @@
 
   // ---------- rendering: thread ----------
   function openConversation(id) {
-    if (id === 'aria') { window.location.href = '/aria.html'; return; }
     activeId = id;
     document.getElementById('net-wrap').classList.add('showing-thread');
     $('net-empty').hidden = true; $('net-convo').hidden = false;
-    const u = userInfo.get(id) || { id, fullName: 'Member' };
-    const isOnline = online.has(id);
-    paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username }, { size: 'sm', isOnline });
+    const isAria = id === ARIA.id;
+    const u = isAria ? ARIA : (userInfo.get(id) || { id, fullName: 'Member' });
+    const isOnline = isAria ? true : online.has(id);   // ARIA is always on
+    paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username, isAria }, { size: 'sm', isOnline });
     $('convo-who').textContent = u.fullName || u.username || 'Member';
-    setConvoPresence(isOnline, u.lastSeenAt);
+    setConvoPresence(isOnline, u.lastSeenAt, isAria);
     $('net-messages').innerHTML = '<div class="net-hollow">Loading…</div>';
     $('net-typing').textContent = '';
+    $('net-input').placeholder = isAria
+      ? 'Ask ARIA to screen a company, check sanctions, summarise intel…'
+      : 'Write a message…';
     highlightActive();
     loadHistory(id);
     updateSendEnabled();
   }
-  function setConvoPresence(isOnline, lastSeenAt) {
+  function setConvoPresence(isOnline, lastSeenAt, isAria) {
     const p = $('convo-pres');
-    p.textContent = isOnline ? 'online now' : relSeen(lastSeenAt);
-    p.className = 'pres ' + (isOnline ? 'on' : 'off');
+    p.textContent = isAria ? 'online · your always-on analyst'
+      : (isOnline ? 'online now' : relSeen(lastSeenAt));
+    p.className = 'pres ' + ((isOnline || isAria) ? 'on' : 'off');
   }
   async function loadHistory(id) {
     try {
@@ -203,7 +207,10 @@
   function renderMessages(msgs) {
     const host = $('net-messages');
     if (!msgs.length) {
-      host.innerHTML = `<div class="net-hollow">No messages yet — say hello. 👋</div>`; return;
+      host.innerHTML = activeId === ARIA.id
+        ? `<div class="net-hollow">👋 I'm <b>ARIA</b>. Ask me to screen a counterparty, check sanctions, or summarise intel — I'll run it and reply right here.</div>`
+        : `<div class="net-hollow">No messages yet — say hello. 👋</div>`;
+      return;
     }
     let html = '', lastDay = '';
     msgs.forEach(m => {
@@ -373,6 +380,7 @@
   // ---------- boot ----------
   function boot() {
     if (!myId) { console.error('[network] no authenticated user'); return; }
+    userInfo.set(ARIA.id, ARIA);   // ARIA renders by name in header / typing / previews
     renderSelf();
     wireDom();
     connect();

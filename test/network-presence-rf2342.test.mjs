@@ -83,3 +83,29 @@ test('R-F2342: frontend wires presence, opt-in, and DM to the real backend', () 
   assert.match(js, /on\(['"]new_message['"]/, 'handles incoming messages');
   assert.match(js, /on\(['"]typing['"]/, 'handles typing indicators');
 });
+
+test('R-F2344: network routes guard against the localhost-bypass (no req.user)', () => {
+  const srv = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8');
+  // both /api/network/* handlers must 401 when req.user is unset (bypass path)
+  const guards = srv.match(/if \(!req\.user\?\.userId\) return res\.status\(401\)/g) || [];
+  assert.ok(guards.length >= 2, `expected the guard on both network routes, found ${guards.length}`);
+});
+
+test('R-F2345: backend routes DMs addressed to ARIA into the brain', () => {
+  const srv = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8');
+  assert.match(srv, /const ARIA_ID = 'aria'/, 'defines the ARIA pseudo-member id');
+  assert.match(srv, /toId === ARIA_ID[\s\S]{0,60}_ariaChannelReply/, 'routes ARIA DMs to the brain');
+  assert.match(srv, /_ariaChatAsyncPoll\([^)]*network_/, 'uses the async brain chat path with a network session');
+  assert.match(srv, /ariaBusy\.has\(uid\)/, 'anti-stack: one in-flight ARIA request per user');
+  assert.match(srv, /_ariaChunks/, 'chunks long analyses into deliverable messages');
+  // ARIA replies are server-attributed — a user cannot forge a message "from ARIA"
+  assert.match(srv, /fromFullName: 'ARIA'/, 'ARIA reply attribution is server-set');
+});
+
+test('R-F2345: ARIA is an in-thread conversation (no redirect), always online', () => {
+  const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(js, /location\.href *= *['"]\/aria\.html/, 'ARIA no longer redirects out of the tab');
+  assert.match(js, /id === ARIA\.id/, 'treats ARIA as a first-class conversation');
+  assert.match(js, /userInfo\.set\(ARIA\.id, ARIA\)/, 'ARIA renders by name in the thread');
+  assert.match(js, /screen a company/, 'ARIA composer invites screening/enrichment');
+});

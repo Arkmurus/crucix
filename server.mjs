@@ -6251,6 +6251,62 @@ async function start() {
   const lastSeen = new Map();                    // userId -> ISO timestamp
   const _SEND_WINDOW_MS = 10000, _SEND_MAX = 25; // ≤25 msgs / 10s / socket
 
+  // ── R-F2345 · ARIA-in-channel ──────────────────────────────────────────────
+  // ARIA is a first-class member of the Network. DMs addressed to her route to
+  // the brain (same async-poll path the web chat uses) and her reply is stored
+  // + pushed back into the thread. She screens/enriches right where intel is
+  // shared. anti-stack: one in-flight request per user; long analyses chunked.
+  const ARIA_ID = 'aria';
+  const ariaBusy = new Set();
+
+  function _deliverToUser(id, event, data) {
+    const s = onlineUsers.get(id);
+    if (s) for (const sid of s) io.to(sid).emit(event, data);
+  }
+  function _ariaChunks(text, max = 1900) {
+    const t = String(text || '');
+    if (t.length <= max) return [t];
+    const out = []; let buf = '';
+    for (const para of t.split(/\n\n+/)) {
+      if (para.length > max) {                        // giant paragraph → hard split
+        if (buf) { out.push(buf); buf = ''; }
+        for (let i = 0; i < para.length; i += max) out.push(para.slice(i, i + max));
+      } else if ((buf ? buf.length + 2 : 0) + para.length > max) {
+        if (buf) out.push(buf);
+        buf = para;
+      } else buf = buf ? buf + '\n\n' + para : para;
+    }
+    if (buf) out.push(buf);
+    return out.length ? out : [t.slice(0, max)];
+  }
+  function _pushAria(uid, text) {
+    const m = storeMessage(ARIA_ID, uid, text);
+    _deliverToUser(uid, 'new_message', { ...m, fromUsername: 'ARIA', fromFullName: 'ARIA' });
+  }
+  async function _ariaChannelReply(uid, userText) {
+    if (ariaBusy.has(uid)) {
+      _pushAria(uid, 'One moment — I\'m still working on your last question. I\'ll reply here as soon as it\'s ready.');
+      return;
+    }
+    ariaBusy.add(uid);
+    _deliverToUser(uid, 'typing', { fromId: ARIA_ID, typing: true });
+    let reply;
+    try {
+      const u = findUserById(uid);
+      const personaUserId = conversationKeyForUser(u) || slugifyIdentity(u?.email || u?.username || uid);
+      const result = await _ariaChatAsyncPoll(userText, `network_${personaUserId}`, personaUserId, '');
+      reply = (result && String(result.response || result.answer || '').trim())
+        || 'I could not produce a reply just now — try rephrasing?';
+    } catch (e) {
+      console.warn('[network] ARIA reply failed:', e?.message || e);
+      reply = '⚠️ I could not reach my analysis engine just now. Give me a moment and try again.';
+    } finally {
+      ariaBusy.delete(uid);
+      _deliverToUser(uid, 'typing', { fromId: ARIA_ID, typing: false });
+    }
+    for (const chunk of _ariaChunks(reply)) _pushAria(uid, chunk);
+  }
+
   io.on('connection', (socket) => {
     const uid = socket.userId;
     socket._sendTimes = [];
@@ -6304,6 +6360,14 @@ async function start() {
           io.to(sid).emit('new_message', payload);
         }
       }
+
+      // R-F2345 — if this DM is addressed to ARIA, route it to her brain and
+      // push her reply back into the thread (fire-and-forget; emits when ready).
+      // .catch so a rare store/emit throw can't become an unhandled rejection.
+      if (toId === ARIA_ID) {
+        _ariaChannelReply(uid, safeText).catch(e =>
+          console.warn('[network] ARIA channel reply failed:', e?.message || e));
+      }
     });
 
     // Typing indicator
@@ -6342,6 +6406,9 @@ async function start() {
 
   // GET /api/network/directory — the opt-in member roster + live online state.
   app.get('/api/network/directory', requireAuth, (req, res) => {
+    // R-F2344 — requireAuth's same-process localhost bypass calls next() without
+    // populating req.user; guard so such a call returns a clean 401, not a 500.
+    if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
     const meId = req.user.userId;
     const members = listUsers()
       .filter(u => u.status === 'active' && u.networkVisible && u.id !== meId)
@@ -6369,6 +6436,7 @@ async function start() {
 
   // POST /api/network/visibility { visible } — opt in/out of the network.
   app.post('/api/network/visibility', requireAuth, (req, res) => {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });  // R-F2344
     const visible = !!req.body?.visible;
     const meId = req.user.userId;
     // networkVisible is a durable preference — persisted (low frequency, unlike
