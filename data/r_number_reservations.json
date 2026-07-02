@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2320,
+  "next_available": 2321,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17478,9 +17478,10 @@
       "title": "Brave API as the search backend for DD tools ONLY (dd_orchestrator digital/adverse-media legs); general web_search unchanged; key via fly secret",
       "claimed_at": "2026-07-02T14:05:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7b2b932f",
+      "notes": null,
+      "shipped_at": "2026-07-02T14:44:49Z"
     },
     {
       "r_number": "R-F2319",
@@ -17491,6 +17492,16 @@
       "commit_sha": "276c8fa2",
       "notes": null,
       "shipped_at": "2026-07-02T14:20:52Z"
+    },
+    {
+      "r_number": "R-F2320",
+      "title": "legal rebrand: Arkmurus Limited/Group Ltd -> ARIA Intelligence Limited + @arkmurus.com -> @imaria.io in terms/privacy/footer",
+      "claimed_at": "2026-07-02T14:40:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5ead1443",
+      "notes": null,
+      "shipped_at": "2026-07-02T14:43:46Z"
     }
   ]
 }
