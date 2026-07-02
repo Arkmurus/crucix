@@ -802,6 +802,14 @@ async def dd_orchestrate_ep(req: Request):
     if body.get("website_url") and not body.get("website"):
         body["website"] = body["website_url"]
 
+    # R-F2352 — the RE-RUN paths (row + detail buttons) send `entity_type`, but the
+    # orchestrator's R-F659 gate requires `target['type']`. Without this mapping every
+    # re-run fast-failed in the background ("R-F659: entity_type missing") — the DD never
+    # completed and (with R-F2341) showed 'Failed'. The New-DD modal already sends `type`,
+    # so only re-run was broken. Normalise so BOTH field names work.
+    if body.get("entity_type") and not body.get("type"):
+        body["type"] = body["entity_type"]
+
     # R-F2250 — ASYNC DD (fire-and-poll). A full DD runs minutes; a SYNCHRONOUS
     # request dies at the aria-web ariaProxy (~30s) / Fly edge (~60s) timeout →
     # "DD failed (HTTP 500)" even though the DD completes server-side. When

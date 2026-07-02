@@ -163,6 +163,23 @@
     }
     .dd-row-action-btn:hover { color: var(--sc-prime-dark); border-color: var(--sc-prime); background: var(--sc-prime-soft); }
     .dd-row-action-btn.danger:hover { color: #dc2626; border-color: #dc2626; background: rgba(220,38,38,0.06); }
+    /* R-F2351 — press + loading + success feedback. The button is a fixed 30px chip; a
+       loading LABEL must never spill outside it, so `overflow:hidden` + icon-only spinner,
+       and a clear highlighted state tells the user their click registered. */
+    .dd-row-action-btn { overflow: hidden; }
+    .dd-row-action-btn:active { transform: scale(0.90); }
+    .dd-row-action-btn.is-loading {
+      color: var(--sc-prime); border-color: var(--sc-prime);
+      background: var(--sc-prime-soft); pointer-events: none;
+    }
+    .dd-row-action-btn.is-loading .bi { animation: dd-btn-spin .7s linear infinite; }
+    .dd-row-action-btn.is-done { color: #16a34a; border-color: #16a34a; background: rgba(22,163,74,0.10); }
+    .dd-row-action-btn.danger.is-loading { color: #dc2626; border-color: #dc2626; background: rgba(220,38,38,0.08); }
+    @keyframes dd-btn-spin { to { transform: rotate(360deg); } }
+    /* larger detail-view action buttons: subtle press + loading affordance too */
+    .dd-act-btn:active { transform: scale(0.97); }
+    .dd-act-btn.is-loading { opacity: .85; pointer-events: none; }
+    .dd-act-btn.is-loading .bi { animation: dd-btn-spin .7s linear infinite; }
 
     /* Shared badge — pinned to the right end of the row (see .dd-right-group) */
     .dd-shared-badge {
@@ -654,17 +671,19 @@ function renderTable(reports) {
       const runId = btn.dataset.runId;
       const orig = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+      btn.classList.add('is-loading');                         // R-F2351 highlighted spinner
+      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId) + '?format=markdown');
-        if (!r.ok) { Toast.show('Copy failed (HTTP ' + r.status + ')', 'error'); btn.disabled = false; btn.innerHTML = orig; return; }
+        if (!r.ok) { Toast.show('Copy failed (HTTP ' + r.status + ')', 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; return; }
         const data = await r.json();
         const md = data.markdown || (data.report && data.report.markdown) || '';
         await navigator.clipboard.writeText(md);
+        btn.classList.remove('is-loading'); btn.classList.add('is-done');   // green success flash
         btn.innerHTML = '<i class="bi bi-check2"></i>';
         Toast.show('Report markdown copied', 'success');
-        setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 1500);
-      } catch (err) { Toast.show('Copy error: ' + err.message, 'error'); btn.disabled = false; btn.innerHTML = orig; }
+        setTimeout(() => { btn.classList.remove('is-done'); btn.innerHTML = orig; btn.disabled = false; }, 1500);
+      } catch (err) { Toast.show('Copy error: ' + err.message, 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; }
     });
   });
 
@@ -682,13 +701,14 @@ function renderTable(reports) {
       if (!ok) return;
       const orig = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+      btn.classList.add('is-loading');                         // R-F2351 highlighted spinner
+      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId), { method: 'DELETE' });
-        if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); btn.disabled = false; btn.innerHTML = orig; return; }
+        if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; return; }
         Toast.show('Report deleted', 'success');
         await loadReports();
-      } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); btn.disabled = false; btn.innerHTML = orig; }
+      } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; }
     });
   });
 }
@@ -698,17 +718,26 @@ function renderTable(reports) {
 // feedback (the async job appears in the list once it completes).
 async function startRerun(btn, ctx) {
   const orig = btn.innerHTML;
+  // R-F2351 — the tiny 30px row chip can't hold a "Running…" label (it spilled outside the
+  // circle). Icon-only spinner + highlighted `is-loading` gives clear feedback in-place.
+  const tiny = btn.classList.contains('dd-row-action-btn');
   btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
+  btn.classList.add('is-loading');
+  btn.innerHTML = tiny ? '<i class="bi bi-arrow-repeat"></i>'
+                       : '<i class="bi bi-arrow-repeat"></i> Starting…';
   try {
+    // R-F2352 — send `type` (orchestrate_dd's R-F659 gate requires it); keep entity_type
+    // for back-compat. Row/detail callers pass entity_type in ctx.
     const body = Object.assign({ mode: 'standard', async_mode: true }, ctx); // R-F2271 fire-and-poll
+    if (ctx && ctx.entity_type && !body.type) body.type = ctx.entity_type;
     const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
     if (!r.ok) { Toast.show('Re-run failed (HTTP ' + r.status + ')', 'error'); }
     else {
-      Toast.show('Re-run started for ' + (ctx.name || 'entity') + ' — it will appear when ready', 'info', 6000);
+      Toast.show('Re-run started for ' + (ctx.name || 'entity') + ' — it appears below as Running', 'info', 6000);
       await loadReports();
     }
   } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
+  btn.classList.remove('is-loading');
   btn.disabled = false; btn.innerHTML = orig;
 }
 
