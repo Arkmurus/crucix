@@ -1350,7 +1350,18 @@ document.getElementById('dd-vls-key-btn').addEventListener('click', async () => 
   }
 });
 
-loadReports();
+// R-F2305 — deep-link: /dd-reports.html?run=<run_id> auto-opens that report
+// (used by the chat's live DD status card "View full report" link).
+function openRunFromUrl() {
+  try {
+    var run = new URLSearchParams(location.search).get('run');
+    if (!run) return;
+    var sel = (window.CSS && CSS.escape) ? CSS.escape(run) : run.replace(/"/g, '\\"');
+    var row = document.querySelector('.dd-row[data-run-id="' + sel + '"]');
+    if (row) { toggleDetail(row, run); row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  } catch (e) { /* best-effort deep-link */ }
+}
+loadReports().then(openRunFromUrl);
 
 
 // DD Vault UI

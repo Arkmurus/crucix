@@ -10773,9 +10773,15 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     )
                     yield f'data: {json.dumps({"type":"chunk","text":_cut_note})}\n\n'
 
-                # If tool was used, send a supplementary metadata event
+                # If tool was used, send a supplementary metadata event.
+                # R-F2305: surface the DD run_id (extracted R-F1951, previously a
+                # dead variable) so the web chat can render a live DD status card
+                # that polls the run and links to the persisted report.
                 if tool_used:
-                    yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+                    _meta_evt = {"type": "meta", "tool_used": tool_used}
+                    if locals().get("_dd_run_id"):
+                        _meta_evt["dd_run_id"] = _dd_run_id
+                    yield f'data: {json.dumps(_meta_evt)}\n\n'
 
                 # R-F448 (2026-05-13) — POST-RESPONSE HONESTY PASS.
                 # Run the same 7-guard chain that /chat non-stream has

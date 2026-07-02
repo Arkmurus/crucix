@@ -361,6 +361,26 @@
     /* R-F1690 — touch devices have no hover; reveal message actions
        permanently so Copy / Export / Regenerate are reachable by tap. */
     @media (hover: none) { .msg-actions { opacity: 1; } }
+    /* R-F2305 — live DD status card */
+    .dd-live-card { margin-top: 12px; border: 1px solid var(--warm-border); border-radius: 12px; background: var(--warm-bg-sidebar); overflow: hidden; }
+    .dd-live-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+    .dd-live-ico { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; background: rgba(124,58,237,0.10); color: var(--accent); }
+    .dd-live-ico.done { background: rgba(22,163,74,0.12); color: #15803d; }
+    .dd-live-ico.fail { background: rgba(220,38,38,0.12); color: #b91c1c; }
+    .dd-live-ico.warn { background: rgba(234,88,12,0.12); color: #c2410c; }
+    .dd-live-ico.spin i { display: inline-block; animation: dd-live-spin 1s linear infinite; }
+    @keyframes dd-live-spin { to { transform: rotate(360deg); } }
+    .dd-live-title { font-weight: 700; color: var(--warm-text); font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dd-live-status { font-size: 12px; color: var(--warm-text-faint); white-space: nowrap; }
+    .dd-live-verdict { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: .4px; }
+    .dd-live-verdict.risk-red { background: rgba(220,38,38,0.10); color: #b91c1c; }
+    .dd-live-verdict.risk-amber { background: rgba(234,88,12,0.10); color: #c2410c; }
+    .dd-live-verdict.risk-green { background: rgba(22,163,74,0.10); color: #15803d; }
+    .dd-live-verdict.risk-neutral { background: var(--warm-hover); color: var(--warm-text-muted); }
+    .dd-live-foot { padding: 0 14px 13px; font-size: 13px; }
+    .dd-live-bl { color: var(--warm-text-muted); margin-bottom: 9px; line-height: 1.55; }
+    .dd-live-link { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--accent-strong); text-decoration: none; }
+    .dd-live-link:hover { text-decoration: underline; }
     .msg-action-btn, .regen-btn {
       background: transparent; border: 1px solid var(--warm-border); border-radius: 6px;
       color: var(--warm-text-faint); font-size: 11.5px; padding: 4px 9px; cursor: pointer;
@@ -1262,6 +1282,72 @@ function addAria(html, badge) {
   bottom();
 }
 
+// R-F2305 — live DD status card: polls /api/aria/dd/report/{run_id} and renders
+// running → done (verdict + report link) / failed (error). For the inline-sync
+// chat DD the report is already persisted, so the first poll resolves to 'done';
+// the poll loop also handles a genuinely-running (async) run and its terminal states.
+function renderDDStatusCard(runId, container) {
+  if (!runId || !container) return;
+  var card = document.createElement('div');
+  card.className = 'dd-live-card';
+  container.appendChild(card);
+  var tries = 0, MAX = 180;
+  var token = localStorage.getItem('crucix_token') || '';
+  function riskClass(r) {
+    r = String(r || '').toUpperCase();
+    if (r.indexOf('HARD') >= 0 || (r.indexOf('RED') >= 0 && r.indexOf('AMBER') < 0)) return 'risk-red';
+    if (r.indexOf('AMBER') >= 0 || r.indexOf('HIGH') >= 0) return 'risk-amber';
+    if (r.indexOf('GREEN') >= 0 || r.indexOf('CLEAR') >= 0 || r.indexOf('PROCEED') >= 0) return 'risk-green';
+    return 'risk-neutral';
+  }
+  function paint(ico, icoCls, title, statusHtml, footHtml) {
+    card.innerHTML =
+      '<div class="dd-live-row">'
+      + '<span class="dd-live-ico ' + icoCls + '"><i class="bi ' + ico + '"></i></span>'
+      + '<span class="dd-live-title">' + escHtml(title) + '</span>'
+      + '<span class="dd-live-status">' + statusHtml + '</span>'
+      + '</div>' + (footHtml ? '<div class="dd-live-foot">' + footHtml + '</div>' : '');
+  }
+  function elapsed(startedAt) {
+    if (!startedAt) return '';
+    var s = Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000));
+    return ' · ' + (s >= 60 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : s + 's');
+  }
+  paint('bi-arrow-repeat', 'spin', 'Due diligence report', 'preparing…', '');
+  bottom();
+  async function poll() {
+    tries++;
+    try {
+      var r = await fetch('/api/aria/dd/report/' + encodeURIComponent(runId), { headers: { 'Authorization': 'Bearer ' + token } });
+      if (r.status === 404) { if (tries < MAX) setTimeout(poll, 5000); return; }
+      var d = await r.json();
+      if (d && d.status === 'running') {
+        paint('bi-arrow-repeat', 'spin', d.entity_name || 'Due diligence', 'running' + elapsed(d.started_at), '');
+        if (tries < MAX) setTimeout(poll, 5000);
+        else paint('bi-hourglass-split', 'warn', d.entity_name || 'Due diligence', 'still running',
+          'Taking longer than usual — it will appear in your <a href="/dd-reports.html">DD Reports</a> when ready.');
+        return;
+      }
+      if (d && d.status === 'failed') {
+        paint('bi-x-circle-fill', 'fail', d.entity_name || 'Due diligence', 'failed',
+          escHtml(d.error || d.bottom_line || 'The run did not complete.'));
+        return;
+      }
+      var ent = (d && d.identity && d.identity.entity_name) || (d && d.entity_name) || 'Entity';
+      var risk = (d && (d.risk_classification || (d.synthesis && d.synthesis.risk_classification))) || 'ASSESSED';
+      var bl = (d && (d.bottom_line || (d.synthesis && d.synthesis.bottom_line))) || '';
+      paint('bi-shield-check', 'done', ent,
+        '<span class="dd-live-verdict ' + riskClass(risk) + '">' + escHtml(risk) + '</span>',
+        (bl ? '<div class="dd-live-bl">' + escHtml(bl) + '</div>' : '')
+        + '<a class="dd-live-link" href="/dd-reports.html?run=' + encodeURIComponent(runId) + '"><i class="bi bi-file-earmark-text"></i> View full report</a>');
+      bottom();
+    } catch (e) {
+      if (tries < MAX) setTimeout(poll, 5000);
+    }
+  }
+  poll();
+}
+
 // ── Export message as audit-grade PDF ──
 async function exportMsgAsPdf(btn) {
   var msgEl = btn.closest('.msg');
@@ -1488,6 +1574,7 @@ async function send(text, opts) {
 
   var fullText = '';
   var toolUsed = '';
+  var ddRunId = '';   // R-F2305 — set from the meta SSE event for the live DD card
   var _streamConnError = false;   // R-F1748 — set when a mid-stream error event is connectivity-class
 
   // R-F753 — reset per-stream malformed-event counter so each new
@@ -1577,6 +1664,7 @@ async function send(text, opts) {
             SID = evt.session_id || SID;
           } else if (evt.type === 'meta') {
             toolUsed = evt.tool_used || '';
+            if (evt.dd_run_id) ddRunId = evt.dd_run_id;   // R-F2305
           } else if (evt.type === 'error') {
             // R-F467 (2026-05-14): always append a visible cut marker.
             // Pre-R-F467, mid-stream errors after the first chunk were
@@ -1653,6 +1741,9 @@ async function send(text, opts) {
       tb.textContent = toolUsed;
       ariaDiv.querySelector('.msg-aria-header').appendChild(tb);
     }
+    // R-F2305 — a DD produced a run_id: render a live status card that polls the
+    // run and shows the verdict + a link to the full persisted report.
+    if (ddRunId) { try { renderDDStatusCard(ddRunId, ariaDiv); } catch (_) {} }
 
   } catch (err) {
     // AbortError is expected when the user presses Stop — keep whatever

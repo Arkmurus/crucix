@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2304,
+  "next_available": 2307,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17332,6 +17332,34 @@
       "commit_sha": "8b9c5ef5",
       "notes": null,
       "shipped_at": "2026-07-02T12:00:48Z"
+    },
+    {
+      "r_number": "R-F2304",
+      "title": "robust private consult: /start onboarding in DM + value-forward HELP + pinned Consult-ARIA button (no channel spam)",
+      "claimed_at": "2026-07-02T12:00:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "585d14de",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:06:26Z"
+    },
+    {
+      "r_number": "R-F2305",
+      "title": "live DD status card in web chat — surface run_id from chat DD dispatch + poll /dd/report card (running→done/failed)",
+      "claimed_at": "2026-07-02T12:19:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2306",
+      "title": "remove Arkmurus brand from user-facing channel content + bot profile (ARIA-only)",
+      "claimed_at": "2026-07-02T12:26:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
