@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARIA — Sovereign Defence Intelligence</title>
-  <meta name="description" content="Sovereign defence due diligence and compliance intelligence. ARIA — no external dependencies, EU-data compliant.">
+  <title>ARIA — Arkmurus Research Intelligence Agent</title>
+  <meta name="description" content="Sovereign defence due diligence and compliance intelligence. Built by Arkmurus Group.">
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/crucix.css?v=8">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -202,7 +202,7 @@
       display: flex;
       align-items: center;
       position: relative;
-      padding-top: 96px;
+      padding-top: 64px;
       overflow: hidden;
       background: linear-gradient(160deg, #faf7f1 0%, #f1ecfb 100%);
     }
@@ -247,12 +247,7 @@
       max-width: var(--lp-max-w);
       margin: 0 auto;
       padding: 0 32px;
-      display: flex;
-      align-items: center;
-      gap: 56px;
     }
-
-    .lp-hero-content { flex: 1 1 auto; min-width: 0; }
 
     .lp-hero-badge {
       display: inline-flex;
@@ -317,91 +312,24 @@
       margin-bottom: 64px;
     }
 
-    /* ── HERO TETRIS (capability word blocks, brand purple) ──────── */
-    .lp-hero-tetris {
-      flex: 0 0 auto;
+    .lp-hero-metrics {
       display: flex;
-      align-items: center;
-      justify-content: center;
+      gap: 48px;
+      padding-top: 48px;
+      border-top: 1px solid var(--sc-border);
     }
 
-    .lp-tetris-well {
-      position: relative;
-      padding: 16px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.55);
-      border: 1px solid rgba(17,17,17,0.10);
-      box-shadow: 0 24px 60px -30px rgba(17,17,17,0.35);
-      -webkit-backdrop-filter: blur(2px);
-      backdrop-filter: blur(2px);
-    }
-
-    .lp-tetris-well canvas {
-      display: block;
-      border-radius: 8px;
-    }
-
-    @media (max-width: 1100px) {
-      .lp-hero-tetris { display: none; }
-    }
-
-
-
-    /* ── STATS BAR (centralised, standalone) ──────────────────────── */
-    .lp-stats {
-      padding: 0;
-      background: var(--sc-card);
-      border-bottom: 1px solid var(--sc-border);
-      position: relative;
-    }
-
-    .lp-stats::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 50%;
-      transform: translateX(-50%);
-      width: 80px; height: 3px;
-      background: linear-gradient(90deg, var(--sc-prime), #0066FF);
-      border-radius: 0 0 3px 3px;
-    }
-
-    .lp-stats-grid {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0;
-      padding: 40px 0;
-    }
-
-    .lp-stat {
-      flex: 1;
-      text-align: center;
-      padding: 0 24px;
-    }
-
-    .lp-stat-n {
-      font-size: 38px;
-      font-weight: 800;
+    .lp-metric-n {
+      font-size: 32px;
+      font-weight: 700;
       color: var(--sc-prime);
-      line-height: 1.1;
-      margin-bottom: 6px;
-      letter-spacing: -1px;
     }
 
-    .lp-stat-l {
-      font-size: 13px;
+    .lp-metric-l {
+      font-size: 12px;
       color: var(--sc-muted);
-      font-weight: 500;
-      line-height: 1.4;
-      max-width: 160px;
-      margin: 0 auto;
-    }
-
-    .lp-stat-divider {
-      width: 1px;
-      height: 48px;
-      background: var(--sc-border);
-      flex-shrink: 0;
+      margin-top: 4px;
+      letter-spacing: 0.5px;
     }
 
     /* ── TRUST BAR ──────────────────────────────────────────────── */
@@ -1050,10 +978,7 @@
       .lp-pricing-grid { grid-template-columns: 1fr; }
       .lp-cert-grid { grid-template-columns: 1fr 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr 1fr; }
-      .lp-stats-grid { flex-wrap: wrap; gap: 24px 0; padding: 32px 0; }
-      .lp-stat { flex: 0 0 50%; }
-      .lp-stat-divider { display: none; }
-      .lp-stat-l { max-width: 180px; }
+      .lp-hero-metrics { flex-wrap: wrap; gap: 24px; }
     }
 
     @media (max-width: 600px) {
@@ -1062,10 +987,6 @@
       .lp-nav-links { display: none; }
       .lp-cert-grid { grid-template-columns: 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr; }
-      .lp-hero { padding-top: 80px; }
-      .lp-stats-grid { flex-direction: column; gap: 20px; padding: 28px 0; }
-      .lp-stat { flex: 1; }
-      .lp-stat-n { font-size: 32px; }
     }
   </style>
 </head>
@@ -1087,7 +1008,7 @@
     </div>
     <div class="lp-nav-cta">
       <a href="/signin" class="lp-btn lp-btn-ghost">Sign in</a>
-      <a href="#contact" class="lp-btn lp-btn-prime">Request access</a>
+      <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime">Sign Up</a>
     </div>
   </div>
 </nav>
@@ -1100,7 +1021,6 @@
     <div class="lp-hero-glow-2"></div>
   </div>
   <div class="lp-hero-inner">
-    <div class="lp-hero-content">
     <div class="lp-hero-badge">
       <span class="lp-hero-badge-dot"></span>
       <span>Sovereign · No external dependencies · EU-data compliant</span>
@@ -1111,49 +1031,32 @@
       your domain.
     </h1>
     <p class="lp-hero-sub">
-      Autonomous due diligence and compliance intelligence for defence, security, and financial advisory professionals. Sovereign — no external dependencies, EU-data compliant.
+      Autonomous due diligence and compliance intelligence for defence, security, and financial advisory professionals. Built on ARIA — Arkmurus Research Intelligence Agent.
     </p>
     <div class="lp-hero-actions">
-      <a href="#contact" class="lp-btn lp-btn-prime lp-btn-lg">Request access</a>
+      <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime lp-btn-lg">Sign Up</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
     </div>
-    </div>
-
-    <div class="lp-hero-tetris" aria-hidden="true">
-      <div class="lp-tetris-well">
-        <canvas id="lp-tetris" width="400" height="320"></canvas>
+    <div class="lp-hero-metrics">
+      <div>
+        <div class="lp-metric-n">87K+</div>
+        <div class="lp-metric-l">Verified intelligence facts</div>
+      </div>
+      <div>
+        <div class="lp-metric-n">80+</div>
+        <div class="lp-metric-l">Countries covered</div>
+      </div>
+      <div>
+        <div class="lp-metric-n">10</div>
+        <div class="lp-metric-l">DD pipeline layers</div>
+      </div>
+      <div>
+        <div class="lp-metric-n">24/7</div>
+        <div class="lp-metric-l">Autonomous watchlist monitoring</div>
       </div>
     </div>
-
   </div>
 </section>
-
-<!-- ══ STATS BAR ══ -->
-<div class="lp-stats">
-  <div class="lp-container">
-    <div class="lp-stats-grid">
-      <div class="lp-stat">
-        <div class="lp-stat-n">87K+</div>
-        <div class="lp-stat-l">Verified intelligence facts</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat">
-        <div class="lp-stat-n">80+</div>
-        <div class="lp-stat-l">Countries covered</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat">
-        <div class="lp-stat-n">10</div>
-        <div class="lp-stat-l">DD pipeline layers</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat">
-        <div class="lp-stat-n">24/7</div>
-        <div class="lp-stat-l">Autonomous watchlist monitoring</div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- ══ TRUST BAR ══ -->
 <div class="lp-trust">
@@ -1236,7 +1139,7 @@
         <div class="lp-demo-dot" style="background:#ff5f57"></div>
         <div class="lp-demo-dot" style="background:#febc2e"></div>
         <div class="lp-demo-dot" style="background:#28c840"></div>
-        <div class="lp-demo-title">ARIA Intelligence Agent — intel.imaria.io</div>
+        <div class="lp-demo-title">ARIA Intelligence Agent — intel.arkmurus.com</div>
       </div>
       <div class="lp-demo-body">
         <div><span class="lp-d-dim">◆ ARIA  </span><span class="lp-d-gold">v1.0  </span><span class="lp-d-dim">Sovereign LLM  AUTO  </span></div>
@@ -1500,7 +1403,7 @@
         <button class="lp-btn lp-btn-prime lp-btn-lg" id="lp-request-btn" style="min-width:200px">Request access <i class="bi bi-arrow-right"></i></button>
       </div>
       <div class="lp-sovereign-note">
-        Or email <a href="mailto:aria@imaria.io">aria@imaria.io</a> · Typically responds within 48h
+        Or email <a href="mailto:aria@arkmurus.com">aria@arkmurus.com</a> · Typically responds within 48h
       </div>
     </div>
   </div>
@@ -1513,7 +1416,7 @@
       <div>
         <div class="lp-footer-brand">
           <span class="lp-footer-brand-name">ARIA</span>
-          <span class="lp-footer-brand-sub">Sovereign · No external dependencies</span>
+          <span class="lp-footer-brand-sub">by Arkmurus Group</span>
         </div>
         <p class="lp-footer-desc">Sovereign defence due diligence and compliance intelligence. Operating across 80+ countries.</p>
       </div>
@@ -1537,12 +1440,12 @@
       </div>
       <div class="lp-footer-col">
         <h4>Company</h4>
-        <a href="#">ARIA Platform</a>
+        <a href="#">Arkmurus Group</a>
         <a href="#">Compliance</a>
         <a href="#">Privacy Policy</a>
         <a href="#">Terms of Service</a>
         <a href="/signin">Sign in</a>
-        <a href="mailto:aria@imaria.io">Contact</a>
+        <a href="mailto:aria@arkmurus.com">Contact</a>
       </div>
     </div>
     <div class="lp-footer-bottom">
@@ -1584,231 +1487,6 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   this.style.background = '#16a34a';
   for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
 });
-</script>
-
-<!-- Hero Tetris — capability blocks: each piece shows a full ARIA capability word (R-F2296) -->
-<script>
-(function () {
-  var canvas = document.getElementById('lp-tetris');
-  if (!canvas || !canvas.getContext) return;
-  var ctx = canvas.getContext('2d');
-
-  // ── Grid: 10 cols × 8 rows, 40px cells — proportional to hero ──
-  var COLS = 10, ROWS = 8, CELL = 40;
-  var Wpx = COLS * CELL, Hpx = ROWS * CELL;
-  var dpr = Math.max(1, window.devicePixelRatio || 1);
-  canvas.style.width = Wpx + 'px';
-  canvas.style.height = Hpx + 'px';
-  canvas.width = Math.round(Wpx * dpr);
-  canvas.height = Math.round(Hpx * dpr);
-  ctx.scale(dpr, dpr);
-
-  // ── Brand purple shades for visual depth ───────────────────────
-  var SHADES = [
-    { bg: '#7c3aed', fg: '#ffffff' },
-    { bg: '#6d28d9', fg: '#ffffff' },
-    { bg: '#8b5cf6', fg: '#ffffff' },
-    { bg: '#5b21b6', fg: '#ffffff' },
-    { bg: '#7c3aed', fg: '#ffffff' },
-    { bg: '#6d28d9', fg: '#ffffff' },
-    { bg: '#8b5cf6', fg: '#ffffff' },
-    { bg: '#5b21b6', fg: '#ffffff' },
-    { bg: '#7c3aed', fg: '#ffffff' },
-    { bg: '#6d28d9', fg: '#ffffff' },
-  ];
-
-  // ── ARIA capability words (actual capabilities from the page) ──
-  var WORDS = [
-    'ENTITY', 'DUE', 'DILIGENCE',
-    'SANCTIONS', 'COMPLIANCE',
-    'DEEP', 'RESEARCH',
-    'CHANGE', 'DETECT',
-    'DEAL', 'COHERENCE',
-    'RCA', 'PEP', 'SCREEN',
-    'IDENTITY', 'NETWORK',
-    'UBO', 'CHAIN',
-    'ADVERSE', 'MEDIA',
-    'LIVE', 'MONITOR',
-    'INTEL', 'BRIEF',
-    'EVIDENCE', 'AUDIT',
-    'EXPORT', 'CONTROL',
-    'TRADE', 'WATCH',
-    'RISK', 'SCORE',
-    'FORENSIC', 'TBML',
-    'COUNTER', 'INTEL',
-    'ALERT', 'FLAG',
-  ];
-
-  // ── Build the plan ─────────────────────────────────────────────
-  // Each piece = 4 cells forming a tetromino.
-  // The piece displays a full capability word centered across its cells.
-  // 8 rows = 4 layers of 2 rows, 5 pieces per layer = 20 pieces.
-  function makePlan() {
-    var plan = [], ci = 0, wi = 0;
-    for (var rTop = ROWS - 2; rTop >= 0; rTop -= 2) {
-      for (var bc = 0; bc < COLS; bc += 2) {
-        var r0 = rTop, r1 = rTop + 1, c = bc;
-        var kind = ci % 3;
-        var cells;
-        if (kind === 0) {                      // O — 2×2 square
-          cells = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]];
-        } else if (kind === 1) {               // L — 3+1
-          cells = [[c, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
-        } else {                               // J — mirror L
-          cells = [[c + 2, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
-        }
-        var word = WORDS[wi % WORDS.length];
-        var shade = SHADES[ci % SHADES.length];
-        plan.push({ cells: cells, word: word, fill: shade.bg, fg: shade.fg });
-        ci++;
-        wi++;
-      }
-    }
-    return plan;
-  }
-
-  var plan = makePlan();
-
-  // ── Drawing ────────────────────────────────────────────────────
-  function drawCell(col, row, fill, alpha) {
-    var x = col * CELL, y = row * CELL, g = 1.5;
-    var s = CELL - g * 2;
-
-    ctx.globalAlpha = alpha != null ? alpha : 1;
-
-    // Rounded rect background with subtle gradient
-    var grad = ctx.createLinearGradient(x + g, y + g, x + g, y + g + s);
-    grad.addColorStop(0, fill);
-    grad.addColorStop(1, darken(fill, 0.18));
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(x + g, y + g, s, s, 4);
-    ctx.fill();
-
-    // Inner highlight (top-left shine)
-    var hl = ctx.createLinearGradient(x + g, y + g, x + g + s, y + g + s);
-    hl.addColorStop(0, 'rgba(255,255,255,0.10)');
-    hl.addColorStop(1, 'rgba(0,0,0,0.06)');
-    ctx.fillStyle = hl;
-    ctx.beginPath();
-    ctx.roundRect(x + g, y + g, s, s, 4);
-    ctx.fill();
-
-    // Thin border
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(x + g + 0.5, y + g + 0.5, s - 1, s - 1, 4);
-    ctx.stroke();
-
-    ctx.globalAlpha = 1;
-  }
-
-  function drawWordOnPiece(p, rowShift, alpha) {
-    // Compute piece bounding box
-    var minCol = COLS, maxCol = 0, minRow = ROWS, maxRow = 0;
-    for (var i = 0; i < p.cells.length; i++) {
-      var c = p.cells[i][0], r = p.cells[i][1] + (rowShift || 0);
-      if (c < minCol) minCol = c;
-      if (c > maxCol) maxCol = c;
-      if (r < minRow) minRow = r;
-      if (r > maxRow) maxRow = r;
-    }
-
-    // Draw each cell background
-    for (var j = 0; j < p.cells.length; j++) {
-      drawCell(p.cells[j][0], p.cells[j][1] + (rowShift || 0), p.fill, alpha);
-    }
-
-    // Draw word centered across the piece
-    if (p.word) {
-      var cx = (minCol + maxCol + 1) * CELL / 2;
-      var cy = (minRow + maxRow + 1) * CELL / 2;
-      var w = p.word.length;
-      var fontSize = w <= 4 ? 16 : w <= 6 ? 14 : w <= 8 ? 12 : 10;
-      ctx.globalAlpha = alpha != null ? alpha : 1;
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = 'bold ' + fontSize + 'px "Inter","Segoe UI",system-ui,sans-serif';
-      ctx.shadowColor = 'rgba(0,0,0,0.25)';
-      ctx.shadowBlur = 3;
-      ctx.fillText(p.word, cx, cy + 1);
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  function darken(hex, amt) {
-    var r = parseInt(hex.slice(1,3), 16);
-    var g = parseInt(hex.slice(3,5), 16);
-    var b = parseInt(hex.slice(5,7), 16);
-    r = Math.max(0, Math.round(r * (1 - amt)));
-    g = Math.max(0, Math.round(g * (1 - amt)));
-    b = Math.max(0, Math.round(b * (1 - amt)));
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
-  }
-
-  function drawWellGrid() {
-    ctx.strokeStyle = 'rgba(124,58,237,0.04)';
-    ctx.lineWidth = 1;
-    for (var r = 0; r <= ROWS; r++) {
-      ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(Wpx, r * CELL + 0.5); ctx.stroke();
-    }
-    for (var cc = 0; cc <= COLS; cc++) {
-      ctx.beginPath(); ctx.moveTo(cc * CELL + 0.5, 0); ctx.lineTo(cc * CELL + 0.5, Hpx); ctx.stroke();
-    }
-  }
-
-  // ── Animation ──────────────────────────────────────────────────
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  if (reduce) {
-    ctx.clearRect(0, 0, Wpx, Hpx);
-    drawWellGrid();
-    for (var k = 0; k < plan.length; k++) drawWordOnPiece(plan[k]);
-    return;
-  }
-
-  var HOLD = 3000, CLEAR = 800;
-  var phase = 'drop', idx = 0, tStart = 0, dropDur = 0, fallRows = 0;
-
-  function beginDrop(now) {
-    var p = plan[idx];
-    fallRows = Math.min.apply(null, p.cells.map(function (c) { return c[1]; }));
-    dropDur = 100 + fallRows * 30;
-    tStart = now;
-  }
-
-  function frame(now) {
-    ctx.clearRect(0, 0, Wpx, Hpx);
-    drawWellGrid();
-
-    if (phase === 'drop') {
-      for (var i = 0; i < idx; i++) drawWordOnPiece(plan[i]);
-      var p = plan[idx];
-      var t = Math.min(1, (now - tStart) / dropDur);
-      var e = 1 - (1 - t) * (1 - t);
-      var shift = -fallRows * (1 - e);
-      drawWordOnPiece(p, shift);
-      if (t >= 1) {
-        idx++;
-        if (idx >= plan.length) { phase = 'hold'; tStart = now; }
-        else { beginDrop(now); }
-      }
-    } else if (phase === 'hold') {
-      for (var j = 0; j < plan.length; j++) drawWordOnPiece(plan[j]);
-      if (now - tStart >= HOLD) { phase = 'clear'; tStart = now; }
-    } else if (phase === 'clear') {
-      var ct = Math.min(1, (now - tStart) / CLEAR);
-      for (var m = 0; m < plan.length; m++) drawWordOnPiece(plan[m], 0, 1 - ct);
-      if (ct >= 1) { idx = 0; phase = 'drop'; beginDrop(now); }
-    }
-    requestAnimationFrame(frame);
-  }
-
-  requestAnimationFrame(function (now) { beginDrop(now); frame(now); });
-})();
 </script>
 </body>
 </html>

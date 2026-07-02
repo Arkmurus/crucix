@@ -1027,7 +1027,7 @@ def build_body() -> str:
     </div>
     <div class="lp-nav-cta">
       <a href="/signin" class="lp-btn lp-btn-ghost">Sign in</a>
-      <a href="#contact" class="lp-btn lp-btn-prime">Request access</a>
+      <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime">Sign Up</a>
     </div>
   </div>
 </nav>
@@ -1053,7 +1053,7 @@ def build_body() -> str:
       Autonomous due diligence and compliance intelligence for defence, security, and financial advisory professionals. Built on ARIA — Arkmurus Research Intelligence Agent.
     </p>
     <div class="lp-hero-actions">
-      <a href="#contact" class="lp-btn lp-btn-prime lp-btn-lg">Request access</a>
+      <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime lp-btn-lg">Sign Up</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
     </div>
     <div class="lp-hero-metrics">
