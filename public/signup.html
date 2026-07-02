@@ -32,8 +32,14 @@
     .auth-feature-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#913BFF;box-shadow:0 0 8px rgba(145,59,255,.4); }
     .auth-feature-dot.blue { background:#0066FF;box-shadow:0 0 8px rgba(0,102,255,.4); }
     .auth-feature-dot.green { background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.4); }
-    .auth-right { flex:1;display:flex;align-items:center;justify-content:center;padding:40px 5%;min-height:100vh; }
-    .auth-form-wrap { width:100%;max-width:440px; }
+    /* R-F2335: the form must never be clipped off-screen. align-items:center on
+       a viewport-tall flex column pushed the top (back-link + title) above the
+       fold with no way to reach it on short monitors. `margin:auto` on the child
+       centres it when there is room but top-aligns (fully visible, scrollable)
+       when the form is taller than the viewport — and overflow-y:auto guarantees
+       the whole form is always reachable. */
+    .auth-right { flex:1;display:flex;align-items:center;justify-content:center;padding:40px 5%;min-height:100vh;overflow-y:auto; }
+    .auth-form-wrap { width:100%;max-width:440px;margin:auto; }
     .auth-title { font-size:26px;font-weight:700;color:var(--sc-heading);margin-bottom:5px; }
     .auth-sub { font-size:14px;color:var(--sc-muted);margin-bottom:26px; }
     .auth-back-link { display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--sc-muted);text-decoration:none;margin-bottom:28px;transition:color 0.2s; }
@@ -88,6 +94,34 @@
       padding:10px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;
     }
     .btn-back:hover { color:var(--sc-prime-dark);border-color:var(--sc-prime); }
+
+    /* R-F2335: progressively compress the vertical rhythm on short viewports so
+       the full form fits in one screen without scrolling across monitor sizes
+       (laptops ~660-800px tall). Below these, overflow-y:auto (above) still keeps
+       every field reachable. */
+    @media (max-height: 860px) {
+      .auth-right { padding-top:24px; padding-bottom:24px; }
+      .auth-back-link { margin-bottom:16px; }
+      .auth-sub { margin-bottom:16px; }
+      .progress-dots { margin-bottom:16px; }
+      .auth-form-wrap .sc-field { margin-bottom:12px; }
+      .step-actions { margin-top:16px; }
+      .auth-footer { margin-top:12px; }
+    }
+    @media (max-height: 720px) {
+      .auth-right { padding-top:14px; padding-bottom:14px; }
+      .auth-title { font-size:22px; }
+      .auth-sub { margin-bottom:10px; font-size:13px; }
+      .auth-back-link { margin-bottom:10px; }
+      .progress-dots { margin-bottom:10px; }
+      .auth-form-wrap .sc-field { margin-bottom:8px; }
+      .auth-form-wrap .sc-field input,
+      .auth-form-wrap .sc-field select { padding-top:8px; padding-bottom:8px; }
+      .step-title { margin-bottom:2px; }
+      .step-sub { margin-bottom:12px; }
+      .step-actions { margin-top:12px; }
+      .auth-footer { margin-top:8px; }
+    }
   </style>
 </head>
 <body>
