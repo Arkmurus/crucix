@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2296,
+  "next_available": 2298,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17208,9 +17208,10 @@
       "title": "shared DD report view+delete: honor same-company sharing on by-id GET/DELETE (was 404 for same-domain colleagues)",
       "claimed_at": "2026-07-02T10:03:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7835e3a",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:04:28Z"
     },
     {
       "r_number": "R-F2292",
@@ -17227,9 +17228,10 @@
       "title": "DD reports UI overhaul: pro delete/result modals (replace confirm/alert), Toast, a11y, skeleton, re-run feedback+context",
       "claimed_at": "2026-07-02T10:41:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7835e3a",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:04:28Z"
     },
     {
       "r_number": "R-F2294",
@@ -17244,6 +17246,25 @@
       "r_number": "R-F2295",
       "title": "Telegram strategy: align channelScheduler to strategy doc + BRIEF/Guinea/Balkans keywords + wireBreakingAlertsToChannel real-time push",
       "claimed_at": "2026-07-02T10:52:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2296",
+      "title": "Landing page Tetris blocks show ARIA capabilities",
+      "claimed_at": "2026-07-02T10:56:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fe43ef76",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:00:41Z"
+    },
+    {
+      "r_number": "R-F2297",
+      "title": "broaden Telegram channel audience beyond Africa — global defence/procurement country keywords + region blocs",
+      "claimed_at": "2026-07-02T11:04:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
