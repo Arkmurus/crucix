@@ -42,9 +42,20 @@ test('broadened keywords: a global (NATO/Poland) signal gets the relevance boost
 });
 
 test('publishBreakingSignals: classifies breaking, excludes non-breaking (no token → no network)', async () => {
+  // R-F2315 — breaking is OFF by default (flood guard); enable it for this test.
+  process.env.CHANNEL_BREAKING_ENABLED = '1';
   const breaking = { severity: 'critical', title: 'rf2299-pub-brk', summary: 'sanctions procurement defence Poland', timestamp: fresh() };
   const normal = { severity: 'low', title: 'rf2299-pub-normal', summary: 'a generic note' };
   const r = await publishBreakingSignals([breaking, normal], { /* no botToken → publishSignal returns ok:false, no fetch */ });
+  delete process.env.CHANNEL_BREAKING_ENABLED;
   assert.equal(r.handled.has(breaking), true, 'breaking signal must be handled');
   assert.equal(r.handled.has(normal), false, 'non-breaking signal must NOT be handled');
+});
+
+test('publishBreakingSignals: OFF by default → nothing handled (R-F2315 flood guard)', async () => {
+  delete process.env.CHANNEL_BREAKING_ENABLED;
+  const breaking = { severity: 'critical', title: 'rf2315-off', summary: 'sanctions defence Poland', timestamp: fresh() };
+  const r = await publishBreakingSignals([breaking], {});
+  assert.equal(r.disabled, true);
+  assert.equal(r.handled.size, 0);
 });

@@ -166,6 +166,11 @@ export async function fetchOpenSanctions() {
       const fallback = await fetchSanctionsFallback();
       if (fallback.length > 0) {
         results.updates = fallback;
+        // R-F2315 — also populate .recent (was only .updates). Paid OpenSanctions
+        // is declined (§6), so this Treasury/OFAC RSS fallback is the ONLY sanctions
+        // source in prod; the channel reads .recent, so without this the daily
+        // sanctions leg is permanently empty. Fallback items carry name + datasets.
+        results.recent = fallback;
         results.error = null;
       }
     } catch {}

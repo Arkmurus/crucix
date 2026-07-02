@@ -5973,6 +5973,11 @@ async function runSweepCycle() {
 
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
+    // R-F2315 — synthesize() returns a fresh V2 object that DROPS opensanctions,
+    // so currentData.opensanctions was always undefined → the channel's sanctions
+    // spotlight (R-F2312) + daily sanctions signals (R-F2310) never fired in prod
+    // (green unit tests masked it — they passed the field in directly). Re-attach it.
+    synthesized.opensanctions = rawData.opensanctions;
 
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
