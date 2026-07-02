@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2307,
+  "next_available": 2309,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17348,18 +17348,40 @@
       "title": "live DD status card in web chat — surface run_id from chat DD dispatch + poll /dd/report card (running→done/failed)",
       "claimed_at": "2026-07-02T12:19:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aaedfdb2",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:44:29Z"
     },
     {
       "r_number": "R-F2306",
       "title": "remove Arkmurus brand from user-facing channel content + bot profile (ARIA-only)",
       "claimed_at": "2026-07-02T12:26:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c7e10c7d",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:44:04Z"
+    },
+    {
+      "r_number": "R-F2307",
+      "title": "Rename Request Access buttons to Sign Up linking to imaria.io/signup.html",
+      "claimed_at": "2026-07-02T12:38:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7a8855d9",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:41:19Z"
+    },
+    {
+      "r_number": "R-F2308",
+      "title": "rename css/crucix.css -> css/aria.css site-wide (last semi-visible crucix in served pages); preserve crucix_token auth key + .crucix-toast class",
+      "claimed_at": "2026-07-02T12:41:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50366b61",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:44:04Z"
     }
   ]
 }
