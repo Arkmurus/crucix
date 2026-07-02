@@ -211,7 +211,7 @@ Sidebar.init('account');
     document.getElementById('acct-tier-card').style.display = '';
     document.getElementById('acct-tier-name').textContent = meResp.tierLabel || 'Free';
     document.getElementById('acct-tier-price').textContent = meResp.priceUsd > 0
-      ? '$' + meResp.priceUsd + '/month'
+      ? '£' + meResp.priceUsd + '/month'
       : 'No subscription';
 
     var statusEl = document.getElementById('acct-tier-status');
@@ -285,8 +285,8 @@ Sidebar.init('account');
     card.className = classes.join(' ');
 
     var priceLabel = t.priceUsd > 0
-      ? '<span class="pricing-price">$' + t.priceUsd + '</span><span class="pricing-price-suffix"> /mo</span>'
-      : '<span class="pricing-price">$0</span>';
+      ? '<span class="pricing-price">£' + t.priceUsd + '</span><span class="pricing-price-suffix"> /mo</span>'
+      : '<span class="pricing-price">£0</span>';
 
     var features = [
       { txt: t.messagesPerDay + ' messages / day', on: true },

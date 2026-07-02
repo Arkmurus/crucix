@@ -1300,13 +1300,13 @@
       <p>Start free, scale as you grow — from a free intelligence account to enterprise-wide deployment. Paid tiers unlock the full 10-layer due-diligence pipeline.</p>
     </div>
     <div class="lp-pricing-grid">
-      <!-- R-F2311 — tiers aligned to the billing source of truth (lib/billing/tiers.mjs
-           → /api/billing/config → account.html). Free/Pro/Professional Intelligence
-           match what customers actually pay; Enterprise is the sales-led custom tier. -->
+      <!-- R-F2314 — restored original tiers (Essentials £79 / Pro Intel £199 /
+           Enterprise) + a Free acquisition tier. account.html + lib/billing/tiers.mjs
+           updated to match (Free £0 / Essentials £79 / Pro Intel £199). -->
       <div class="lp-plan">
         <span class="lp-plan-badge">Free</span>
         <div class="lp-plan-name">Free</div>
-        <div class="lp-plan-price">$0<sub>/mo</sub></div>
+        <div class="lp-plan-price">£0<sub>/mo</sub></div>
         <div class="lp-plan-cadence">Explore ARIA — sign up, no card</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
@@ -1322,36 +1322,39 @@
       </div>
       <div class="lp-plan">
         <span class="lp-plan-badge">Starter</span>
-        <div class="lp-plan-name">Pro</div>
-        <div class="lp-plan-price">$20<sub>/mo</sub></div>
+        <div class="lp-plan-name">Essentials</div>
+        <div class="lp-plan-price">£79<sub>/mo</sub></div>
         <div class="lp-plan-cadence">Individual analysts &amp; small teams</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
-          <li><i class="bi bi-check-lg"></i> 200 messages / day</li>
-          <li><i class="bi bi-check-lg"></i> 20 DD runs / month</li>
+          <li><i class="bi bi-check-lg"></i> 10 DD runs / month</li>
           <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
+          <li><i class="bi bi-check-lg"></i> Dashboard access</li>
+          <li><i class="bi bi-check-lg"></i> PDF export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
-          <li><i class="bi bi-check-lg"></i> 5 MB uploads &middot; PDF export</li>
-          <li class="dim"><i class="bi bi-dash"></i> No deep research</li>
-          <li class="dim"><i class="bi bi-dash"></i> No API access</li>
+          <li class="dim"><i class="bi bi-dash"></i> RCA screening</li>
+          <li class="dim"><i class="bi bi-dash"></i> Deal DD assessment</li>
+          <li class="dim"><i class="bi bi-dash"></i> API access</li>
         </ul>
         <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-outline" style="width:100%;justify-content:center">Get started</a>
       </div>
       <div class="lp-plan featured">
         <span class="lp-plan-badge">Most popular</span>
-        <div class="lp-plan-name">Professional Intelligence</div>
-        <div class="lp-plan-price">$199<sub>/mo</sub></div>
+        <div class="lp-plan-name">Pro Intel</div>
+        <div class="lp-plan-price">£199<sub>/mo</sub></div>
         <div class="lp-plan-cadence">Compliance &amp; advisory teams</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
-          <li><i class="bi bi-check-lg"></i> 2,000 messages / day</li>
-          <li><i class="bi bi-check-lg"></i> 100 DD runs / month</li>
+          <li><i class="bi bi-check-lg"></i> Unlimited DD runs</li>
           <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
-          <li><i class="bi bi-check-lg"></i> RCA &amp; PEP screening</li>
-          <li><i class="bi bi-check-lg"></i> Deep research + autonomous watchlist</li>
           <li><i class="bi bi-check-lg"></i> WhatsApp interface</li>
-          <li><i class="bi bi-check-lg"></i> 50 MB uploads &middot; PDF + JSON</li>
+          <li><i class="bi bi-check-lg"></i> PDF + JSON export</li>
+          <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
+          <li><i class="bi bi-check-lg"></i> RCA &amp; PEP screening</li>
+          <li><i class="bi bi-check-lg"></i> Deal DD assessment</li>
           <li><i class="bi bi-check-lg"></i> Full API access</li>
+          <li><i class="bi bi-check-lg"></i> Watchlist monitoring</li>
+          <li><i class="bi bi-check-lg"></i> Temporal change alerts</li>
         </ul>
         <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime" style="width:100%;justify-content:center">Get started</a>
       </div>
