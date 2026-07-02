@@ -127,7 +127,7 @@ describe('ChannelPublisher — formatDailyBrief', () => {
         { title: 'Opportunities', text: 'Tender in Mozambique' },
       ],
     });
-    assert.ok(brief.includes('ARKMURUS DAILY BRIEF'));
+    assert.ok(brief.includes('ARIA DAILY BRIEF'));
     assert.ok(brief.includes('Sanctions'));
     assert.ok(brief.includes('Opportunities'));
     assert.ok(brief.includes('deepdive'));
@@ -135,7 +135,7 @@ describe('ChannelPublisher — formatDailyBrief', () => {
 
   it('handles empty brief data', () => {
     const brief = formatDailyBrief({});
-    assert.ok(brief.includes('ARKMURUS DAILY BRIEF'));
+    assert.ok(brief.includes('ARIA DAILY BRIEF'));
   });
 });
 
@@ -160,8 +160,12 @@ describe('ChannelPublisher — rate limiting', () => {
 
   it('respects cooldown', () => {
     _resetSchedulerState();
+    // R-F2306 — the daily cap is now 1/day; raise it here so this test isolates
+    // the COOLDOWN behaviour rather than tripping the daily limit first.
+    process.env.CHANNEL_MAX_DAILY_POSTS = '100';
     recordPost(); // sets lastPostAt to now
     const { canPost, reason } = canPostNow();
+    delete process.env.CHANNEL_MAX_DAILY_POSTS;
     assert.equal(canPost, false);
     assert.ok(reason.includes('cooldown'));
   });

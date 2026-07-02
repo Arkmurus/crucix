@@ -6414,7 +6414,7 @@ async function start() {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
-      pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
+      pushDigest('Morning Intelligence Brief', 'Your daily ARIA intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
     }, { timezone: 'Europe/London' });
 
     // ── Channel Scheduler — delegated to channelServerHooks ────────────────
@@ -6423,25 +6423,13 @@ async function start() {
       await channelHooks.handleMorningSignalCron(currentData, bot);
     }, { timezone: 'Europe/London' });
 
-    cron.schedule('0 9 * * 1,3,5', async () => {
-      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-      await channelHooks.handleCaseFileCron(bot);
-    }, { timezone: 'Europe/London' });
-
-    cron.schedule('0 12 * * 2,4', async () => {
-      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-      await channelHooks.handleKnowYourRightsCron(bot);
-    }, { timezone: 'Europe/London' });
-
-    cron.schedule('0 15 * * 1,4', async () => {
-      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-      await channelHooks.handleCountryReadCron(bot);
-    }, { timezone: 'Europe/London' });
-
-    cron.schedule('0 18 * * 2,5', async () => {
-      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-      await channelHooks.handleOpportunityCron(bot);
-    }, { timezone: 'Europe/London' });
+    // R-F2306 — DISABLED (operator: ONE relevant post/day, keep noise down).
+    // The Case File / Know-Your-Rights / Country Read / Opportunity crons posted
+    // HARD-CODED template content (e.g. the same "Mozambique LNG Contractor" case)
+    // multiple times a day — repetitive, not live, not relevant. The single daily
+    // channel post is now the LIVE, curated Morning Signal (07:00) which skips when
+    // there is nothing material; genuine breaking items still escalate in real time.
+    // Re-enable individually if a live (non-canned) generator is wired for them.
 
     // Weekly query evolution — Sunday 04:00 UTC
     // Genetic algorithm: queries that produced leads survive, useless ones die
