@@ -2771,6 +2771,53 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
 
 
 def main(argv: list[str] | None = None) -> int:
+    """R-F2298 — robust entry point. Wraps the CLI so a failure in agent build,
+    a one-shot task, an early Ctrl+C, or a broken output pipe exits CLEANLY with a
+    friendly message instead of dumping a raw traceback on the operator. The
+    interactive REPL has its own per-turn Ctrl+C handling; this guards everything
+    OUTSIDE it (agent build, one-shot run, argparse). Full traceback goes to
+    ~/.aria/sessions/crash.log so a crash is still debuggable."""
+    try:
+        return _run_cli(argv)
+    except KeyboardInterrupt:
+        try:
+            sys.stderr.write("\nInterrupted.\n")
+        except Exception:  # noqa: BLE001
+            pass
+        return 130
+    except BrokenPipeError:
+        # Downstream reader (e.g. `aria … | head`) closed the pipe — exit quietly
+        # (0), not with a traceback. Reassign the Python-level stdout stream so any
+        # final shutdown flush can't re-raise; deliberately NOT os.dup2 on the real
+        # fd (that corrupts a captured/redirected stdout).
+        try:
+            sys.stdout = open(os.devnull, "w")
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
+    except SystemExit:
+        raise  # argparse --help/--version/bad-args: exit as intended
+    except Exception as exc:  # noqa: BLE001 — top-level guard: never crash raw
+        import traceback
+        tb = traceback.format_exc()
+        crash_path = None
+        try:
+            log_dir = Path.home() / ".aria" / "sessions"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            crash_path = log_dir / "crash.log"
+            with crash_path.open("a", encoding="utf-8") as _f:
+                _f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] aria {__version__} crashed:\n{tb}\n")
+        except Exception:  # noqa: BLE001
+            crash_path = None
+        try:
+            sys.stderr.write(f"\naria: {type(exc).__name__}: {exc}\n")
+            sys.stderr.write(f"Full details logged to {crash_path}\n" if crash_path else tb)
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
+
+
+def _run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="aria",
         description="ARIA Coder — a local Claude-Code-style coding agent powered "
