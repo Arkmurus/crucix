@@ -252,13 +252,19 @@ memory.initFromRedis().catch(() => {});
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+// R-F2292 — P0 hotfix: R-F2288 added this object with BARE shorthand names
+// (curateSignals, …) that were never imported → `ReferenceError: curateSignals
+// is not defined` at module load → aria-web crash-looped to max-restart → the
+// imaria.io front door went down. The functions are already available on the
+// imported channelHooks namespace (server.mjs:65 → channelServerHooks re-exports
+// them); reference them there. Member access can't ReferenceError.
 const channelPublisher = {
-    curateSignals,
-    formatChannelPost,
-    formatDailyBrief,
-    canPostNow,
-    recordPost,
-    getSchedulerState,
+    curateSignals: channelHooks.curateSignals,
+    formatChannelPost: channelHooks.formatChannelPost,
+    formatDailyBrief: channelHooks.formatDailyBrief,
+    canPostNow: channelHooks.canPostNow,
+    recordPost: channelHooks.recordPost,
+    getSchedulerState: channelHooks.getSchedulerState,
 };
 
 // === Persistence Initialization — restores Redis backups if local files are missing ===
