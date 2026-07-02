@@ -3,7 +3,7 @@
 // Serves the Jarvis dashboard, runs sweep cycle, pushes live updates via SSE
 
 import express from 'express';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec, execSync } from 'child_process';
@@ -210,7 +210,10 @@ function logTime(date = new Date()) { return londonTs(date); }
 function logTimeShort(date = new Date()) { return londonTs(date, false); }
 
 // Ensure directories exist (including logs for PM2)
-for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'logs')]) {
+// R-F2349 — profile photos live on the DURABLE volume (same as users.json),
+// so they survive deploys. Keyed by user id, one file per user.
+const AVATAR_DIR = join(process.env.PERSIST_DIR || RUNS_DIR, 'avatars');
+for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'logs'), AVATAR_DIR]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
@@ -5900,6 +5903,57 @@ app.get('/api/chat/unread', requireAuth, (req, res) => {
   res.json({ count: unreadCount(req.user.userId) });
 });
 
+// ── R-F2349 · Profile photo API ───────────────────────────────────────────
+// ONE photo per user, uploaded on the main profile, shared by the Network
+// roster + sidebar avatar. Stored as a file on the durable volume keyed by id.
+const _AVATAR_MAX_BYTES = 600 * 1024;   // decoded cap; client resizes to ~256px
+
+// POST /api/profile/photo { dataUrl } — set my photo (self only).
+app.post('/api/profile/photo', requireAuth, express.json({ limit: '3mb' }), (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
+  const uid = String(req.user.userId).replace(/[^A-Za-z0-9]/g, '');
+  const dataUrl = String(req.body?.dataUrl || '');
+  const m = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!m || !uid) return res.status(400).json({ error: 'Expected a JPEG, PNG or WebP image.' });
+  let buf;
+  try { buf = Buffer.from(m[2], 'base64'); } catch { return res.status(400).json({ error: 'Bad image data.' }); }
+  if (!buf.length || buf.length > _AVATAR_MAX_BYTES) {
+    return res.status(413).json({ error: 'Image too large — please keep it under 600 KB.' });
+  }
+  try {
+    writeFileSync(join(AVATAR_DIR, uid), buf);
+    const updated = updateUser(uid, { avatarUpdatedAt: new Date().toISOString(), avatarMime: m[1] });
+    return res.json({ ok: true, avatarUrl: updated?.avatarUrl || null });
+  } catch (e) {
+    return res.status(500).json({ error: 'Could not save your photo.' });
+  }
+});
+
+// GET /api/profile/photo/:id — public (an <img> cannot send a Bearer token).
+// Versioned via ?v= so the immutable cache is busted whenever the photo changes.
+app.get('/api/profile/photo/:id', (req, res) => {
+  const id = String(req.params.id || '').replace(/[^A-Za-z0-9]/g, '');
+  const u = id && findUserById(id);
+  if (!u || !u.avatarUpdatedAt) return res.status(404).end();
+  const file = join(AVATAR_DIR, id);
+  if (!existsSync(file)) return res.status(404).end();
+  try {
+    res.setHeader('Content-Type', u.avatarMime || 'image/jpeg');
+    res.setHeader('X-Content-Type-Options', 'nosniff');   // defense-in-depth (R-F2349 review)
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.end(readFileSync(file));
+  } catch { return res.status(404).end(); }
+});
+
+// DELETE /api/profile/photo — remove my photo (self only).
+app.delete('/api/profile/photo', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
+  const uid = String(req.user.userId).replace(/[^A-Za-z0-9]/g, '');
+  try { if (existsSync(join(AVATAR_DIR, uid))) unlinkSync(join(AVATAR_DIR, uid)); } catch {}
+  try { updateUser(uid, { avatarUpdatedAt: null, avatarMime: null }); } catch {}
+  return res.json({ ok: true });
+});
+
 app.get('/events', (req, res) => {
   // SECURITY 2026-04-09: this stream broadcasts the entire sweep payload
   // (intel signals, news, opportunities, BD pipeline state) — previously
@@ -6422,6 +6476,8 @@ async function start() {
         companyName: u.companyName || '',
         online: onlineUsers.has(u.id),
         lastSeenAt: lastSeen.get(u.id) || u.lastSeenAt || null,
+        avatarUrl: u.avatarUpdatedAt   // R-F2349 — same shared photo the profile uses
+          ? `/api/profile/photo/${u.id}?v=${Date.parse(u.avatarUpdatedAt) || 0}` : null,
       }))
       .sort((a, b) => (Number(b.online) - Number(a.online)) ||
                       a.fullName.localeCompare(b.fullName));

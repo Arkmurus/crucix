@@ -15,6 +15,7 @@
   const userInfo = new Map();    // id -> { fullName, username, role, sector, ... }
   let activeId = null;           // current DM partner id
   let iAmVisible = false;
+  let myAvatarUrl = me.avatarUrl || null;   // R-F2349 — my shared profile photo
   let view = 'members';
   let connected = false;
   let typingTimer = null, typingSent = false, peerTypingTimer = null;
@@ -41,19 +42,28 @@
     const h = hueFor(id);
     return `background:linear-gradient(135deg,hsl(${h},68%,54%),hsl(${(h + 42) % 360},72%,44%));`;
   }
+  // R-F2349 — a real profile photo (shared with the main profile) when present,
+  // else the deterministic initials tile. ARIA always keeps her brand gradient.
+  function avatarInner(user) {
+    if (user.avatarUrl && !user.isAria) {
+      return `<img class="av-img" src="${esc(user.avatarUrl)}" alt="" loading="lazy">`;
+    }
+    return esc(initials(user.fullName || user.username));
+  }
   function avatar(user, { size = '', isOnline = false } = {}) {
     const aria = !!user.isAria;
     const cls = ['av', size, aria ? 'aria' : '', aria ? 'pulse' : '',
       isOnline ? 'on' : 'offl'].filter(Boolean).join(' ');
-    return `<span class="${cls}" style="${avatarStyle(user.id, aria)}">${esc(initials(user.fullName || user.username))}</span>`;
+    const style = (user.avatarUrl && !aria) ? '' : avatarStyle(user.id, aria);
+    return `<span class="${cls}" style="${style}">${avatarInner(user)}</span>`;
   }
   // Mutate an existing avatar node in place (keeps its id stable across renders).
   function paintAvatar(el, user, { size = '', isOnline = false } = {}) {
     if (!el) return;
     const aria = !!user.isAria;
     el.className = ['av', size, aria ? 'aria pulse' : '', isOnline ? 'on' : 'offl'].filter(Boolean).join(' ');
-    el.style.cssText = avatarStyle(user.id, aria);
-    el.textContent = initials(user.fullName || user.username);
+    el.style.cssText = (user.avatarUrl && !aria) ? '' : avatarStyle(user.id, aria);
+    el.innerHTML = avatarInner(user);
   }
   function fmtTime(ts) {
     const d = new Date(ts); if (isNaN(d)) return '';
@@ -101,7 +111,7 @@
 
   // ---------- rendering: left column ----------
   function renderSelf() {
-    paintAvatar($('self-av'), { id: myId, fullName: myName }, { size: 'lg', isOnline: iAmVisible });
+    paintAvatar($('self-av'), { id: myId, fullName: myName, avatarUrl: myAvatarUrl }, { size: 'lg', isOnline: iAmVisible });
     $('self-name').textContent = myName;
     const st = $('self-status');
     st.textContent = iAmVisible ? 'Appearing online' : 'Presence off — you are hidden';
@@ -146,7 +156,7 @@
       const mine = last.from === myId;
       const prev = (mine ? 'You: ' : '') + (last.text || '');
       return `<div class="row ${activeId === s.userId ? 'active' : ''}" data-open="${esc(s.userId)}" role="button" tabindex="0">
-        ${avatar({ id: s.userId, fullName: u.fullName || u.username }, { isOnline })}
+        ${avatar({ id: s.userId, fullName: u.fullName || u.username, avatarUrl: u.avatarUrl }, { isOnline })}
         <div class="bd"><div class="nm">${esc(u.fullName || u.username)}</div>
         <div class="sub">${esc(prev.slice(0, 42))}</div></div>
         ${s.unread ? `<span class="unread">${s.unread}</span>` : `<span class="time">${fmtTime(last.ts)}</span>`}
@@ -167,7 +177,7 @@
     const isAria = id === ARIA.id;
     const u = isAria ? ARIA : (userInfo.get(id) || { id, fullName: 'Member' });
     const isOnline = isAria ? true : online.has(id);   // ARIA is always on
-    paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username, isAria }, { size: 'sm', isOnline });
+    paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username, isAria, avatarUrl: u.avatarUrl }, { size: 'sm', isOnline });
     $('convo-who').textContent = u.fullName || u.username || 'Member';
     setConvoPresence(isOnline, u.lastSeenAt, isAria);
     $('net-messages').innerHTML = '<div class="net-hollow">Loading…</div>';
@@ -344,6 +354,63 @@
     return res.json();
   }
 
+  // ---------- profile photo (R-F2349) ----------
+  // The round self-avatar is the uploader. Resize to a 256² JPEG client-side
+  // (keeps the payload tiny), POST it, then update every surface via the shared
+  // avatarUrl + the localStorage cache the sidebar reads.
+  function flashStatus(msg, isErr) {
+    const st = $('self-status'); if (!st) return;
+    st.textContent = msg;
+    st.style.color = isErr ? 'var(--n-off)' : '';
+    clearTimeout(flashStatus._t);
+    flashStatus._t = setTimeout(() => { st.style.color = ''; renderSelf(); }, 2600);
+  }
+  function resizeSquare(file, size) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(img.width, img.height);
+        const sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+        const c = document.createElement('canvas'); c.width = size; c.height = size;
+        c.getContext('2d').drawImage(img, sx, sy, s, s, 0, 0, size, size);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('decode'));
+      const fr = new FileReader();
+      fr.onload = () => { img.src = fr.result; };
+      fr.onerror = () => reject(new Error('read'));
+      fr.readAsDataURL(file);
+    });
+  }
+  async function onPhotoChange() {
+    const input = $('net-photo-input');
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) { flashStatus('Use a PNG, JPG or WebP', true); return; }
+    flashStatus('Uploading…');
+    try {
+      const dataUrl = await resizeSquare(file, 256);
+      const res = await fetch('/api/profile/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token() },
+        body: JSON.stringify({ dataUrl }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { flashStatus(d.error || 'Upload failed', true); return; }
+      myAvatarUrl = d.avatarUrl || null;
+      // share it: update the cache the sidebar + other pages read
+      try {
+        const cu = JSON.parse(localStorage.getItem('crucix_user') || '{}');
+        cu.avatarUrl = myAvatarUrl; cu.avatarUpdatedAt = new Date().toISOString();
+        localStorage.setItem('crucix_user', JSON.stringify(cu));
+        if (window.Auth) Auth.user = cu;
+      } catch {}
+      renderSelf();
+      flashStatus('Photo updated ✓');
+    } catch (e) { flashStatus('Could not process that image', true); }
+  }
+
   // ---------- events ----------
   function wireDom() {
     // segmented control
@@ -374,6 +441,16 @@
     $('net-send').addEventListener('click', sendMessage);
     // toggle + CTA + back
     $('self-toggle').addEventListener('click', toggleVisibility);
+    // R-F2349 — click the round self-avatar to upload/change the profile photo.
+    const photoInput = $('net-photo-input');
+    const avEdit = $('self-av-edit');
+    if (avEdit && photoInput) {
+      avEdit.addEventListener('click', () => photoInput.click());
+      avEdit.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); photoInput.click(); }
+      });
+      photoInput.addEventListener('change', onPhotoChange);
+    }
     $('empty-cta').addEventListener('click', async () => {
       if (!iAmVisible) await toggleVisibility();
       // nudge to members view
@@ -391,6 +468,10 @@
     if (!myId) { console.error('[network] no authenticated user'); return; }
     userInfo.set(ARIA.id, ARIA);   // ARIA renders by name in header / typing / previews
     renderSelf();
+    // R-F2349 — refresh my photo from the authoritative /me (localStorage may be stale).
+    if (window.Auth && Auth.me) {
+      Auth.me().then(u => { if (u) { myAvatarUrl = u.avatarUrl || null; renderSelf(); } }).catch(() => {});
+    }
     wireDom();
     connect();
     loadDirectory();

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2351,
+  "next_available": 2352,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17791,6 +17791,15 @@
       "r_number": "R-F2350",
       "title": "dd-reports self-refresh: no-flicker (only re-render when run_id/status changed) — fixes list glitch while a DD runs",
       "claimed_at": "2026-07-02T22:18:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2351",
+      "title": "dd-reports row-action buttons: icon-only loading (no text overflow) + highlighted pressed/loading/success states + press feedback",
+      "claimed_at": "2026-07-02T22:25:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

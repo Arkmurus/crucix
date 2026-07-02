@@ -80,6 +80,14 @@
     font-size:14px;letter-spacing:.01em;user-select:none;}
   .av.sm{width:32px;height:32px;font-size:12px;}
   .av.lg{width:44px;height:44px;font-size:16px;}
+  .av-img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;} /* R-F2349 */
+  /* R-F2349 — the self-avatar doubles as the photo uploader */
+  .net-av-edit{position:relative;flex:0 0 auto;cursor:pointer;border-radius:50%;}
+  .net-av-edit:focus-visible{outline:2px solid var(--n-prime);outline-offset:3px;}
+  .net-av-cam{position:absolute;right:-3px;bottom:-3px;width:20px;height:20px;border-radius:50%;
+    background:var(--n-ink);color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:10px;border:2px solid var(--n-panel);opacity:.92;transition:opacity .15s,transform .15s;}
+  .net-av-edit:hover .net-av-cam{opacity:1;transform:scale(1.08);}
   .av::after{content:"";position:absolute;inset:-3px;border-radius:50%;
     border:2.5px solid var(--n-away);}
   .av.on::after{border-color:var(--n-on);}
@@ -148,7 +156,7 @@
 <div id="header-placeholder"></div>
 
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=8"></script>
+<script src="js/sidebar.js?v=9"></script>
 <script>
   Auth.requireAuth();
   Sidebar.init('network');
@@ -159,7 +167,12 @@
     <!-- LEFT: presence + lists -->
     <aside class="net-list">
       <div class="net-self" id="net-self">
-        <span class="av lg" id="self-av">··</span>
+        <!-- R-F2349 — the round avatar IS the photo control: click to upload. -->
+        <div class="net-av-edit" id="self-av-edit" role="button" tabindex="0"
+             title="Change your photo" aria-label="Upload or change your profile photo">
+          <span class="av lg" id="self-av">··</span>
+          <span class="net-av-cam"><i class="bi bi-camera-fill"></i></span>
+        </div>
         <div class="bd">
           <div class="nm" id="self-name">You</div>
           <div class="st off" id="self-status">Presence off</div>
@@ -167,6 +180,7 @@
         <button class="toggle" id="self-toggle" role="switch" aria-checked="false"
                 aria-label="Appear online in the network"></button>
       </div>
+      <input type="file" id="net-photo-input" accept="image/png,image/jpeg,image/webp" hidden>
       <div class="net-seg" id="net-seg">
         <button data-view="members" class="on">Members <span class="cnt" id="cnt-members">0</span></button>
         <button data-view="chats">Chats <span class="cnt" id="cnt-chats">0</span></button>
@@ -209,6 +223,6 @@
 </main>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="js/network.js?v=3"></script>
+<script src="js/network.js?v=4"></script>
 </body>
 </html>

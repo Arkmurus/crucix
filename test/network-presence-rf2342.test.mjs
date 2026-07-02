@@ -109,3 +109,30 @@ test('R-F2345: ARIA is an in-thread conversation (no redirect), always online', 
   assert.match(js, /userInfo\.set\(ARIA\.id, ARIA\)/, 'ARIA renders by name in the thread');
   assert.match(js, /screen a company/, 'ARIA composer invites screening/enrichment');
 });
+
+test('R-F2349: cleanUser derives ONE shared, versioned avatarUrl (null when no photo)', () => {
+  const u = mk('photo1');
+  assert.equal(u.avatarUrl, null, 'no photo → null (fall back to initials)');
+  assert.equal(u.avatarUpdatedAt, null);
+  const upd = updateUser(u.id, { avatarUpdatedAt: '2026-07-02T12:00:00.000Z', avatarMime: 'image/jpeg' });
+  assert.match(upd.avatarUrl, new RegExp(`^/api/profile/photo/${u.id}\\?v=\\d+$`),
+    'derived, versioned URL shared by profile + network + sidebar');
+});
+
+test('R-F2349: photo upload/serve wired end to end (routes + shared source + UI)', () => {
+  const srv = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8');
+  assert.match(srv, /app\.post\('\/api\/profile\/photo'/, 'upload route (self only)');
+  assert.match(srv, /app\.get\('\/api\/profile\/photo\/:id'/, 'public serve route (for <img>)');
+  assert.match(srv, /app\.delete\('\/api\/profile\/photo'/, 'delete route');
+  assert.match(srv, /const AVATAR_DIR =/, 'photos on the durable volume');
+  assert.match(srv, /avatarUrl:[\s\S]{0,80}avatarUpdatedAt/, 'directory exposes the shared avatarUrl');
+  const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
+  assert.match(js, /net-photo-input/, 'the round avatar opens the file picker');
+  assert.match(js, /\/api\/profile\/photo/, 'posts the photo');
+  assert.match(js, /resizeSquare/, 'resizes client-side to keep the payload small');
+  const html = readFileSync(new URL('../public/network.html', import.meta.url), 'utf8');
+  assert.match(html, /self-av-edit/, 'the existing round self-avatar is the uploader');
+  assert.match(html, /net-av-cam/, 'camera affordance on the circle');
+  const sb = readFileSync(new URL('../public/js/sidebar.js', import.meta.url), 'utf8');
+  assert.match(sb, /user\.avatarUrl/, 'sidebar shows the same shared photo');
+});

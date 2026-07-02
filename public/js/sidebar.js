@@ -13,7 +13,19 @@ const Sidebar = {
       const av   = document.getElementById('nav-avatar');
       const role = document.getElementById('nav-role');
       if (name) name.textContent = user.fullName || user.username;
-      if (av)   av.textContent = Auth.initials(user);
+      if (av) {
+        // R-F2349 — shared profile photo (falls back to initials).
+        if (user.avatarUrl) {
+          av.textContent = '';
+          av.style.backgroundImage = `url("${user.avatarUrl}")`;
+          av.style.backgroundSize = 'cover';
+          av.style.backgroundPosition = 'center';
+          av.style.color = 'transparent';
+        } else {
+          av.style.backgroundImage = '';
+          av.textContent = Auth.initials(user);
+        }
+      }
       if (role) role.textContent = user.role || 'analyst';
       // Show admin links
       if (user.role === 'admin') {
