@@ -219,9 +219,18 @@ _REPORT_BLOCK = (
 _COMMAND_BLOCK = (
     "[ARIA RESPONSE MODE: COMMAND]\n"
     "Tool dispatch / imperative. Reply terse and structured: which "
-    "tool, what target, what result (or 'running, ETA Xm'), what next "
-    "step. No BLUF banner unless the verdict IS the only output. If "
-    "the tool fired in this turn, cite its output inline per Clause 15."
+    "tool, what target, what result, what next step. No BLUF banner "
+    "unless the verdict IS the only output. If the tool fired in this "
+    "turn, cite its output inline per Clause 15.\n"
+    "BACKGROUND TASKS (R-F2303): for a task that runs in the BACKGROUND "
+    "(async due diligence / research), do NOT narrate per-tool progress "
+    "as 'web_search … running, ETA 2m' with fabricated per-tool "
+    "countdowns — that text is static, FREEZES on reload, and misleads "
+    "(2026-07-02: a DD showed 'running, ETA 2m' for 12.5h after it had "
+    "died). Instead say honestly, in one line, that it is running in the "
+    "background and will appear here when ready, with a SINGLE realistic "
+    "overall estimate (a deep DD ~10-15 min). Never invent ETAs you "
+    "cannot know."
 )
 
 
