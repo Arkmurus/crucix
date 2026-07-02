@@ -122,3 +122,23 @@ async def test_assess_search_footprint_cross_jurisdiction(monkeypatch, tmp_path)
     assert v.get_financial_profile("company:AO:ADL") is not None  # registered to the vault (accumulation)
     fs = fh.financial_health_findings(r)
     assert any(f["source"] == "financial_search" for f in fs)
+
+
+@pytest.mark.asyncio
+async def test_flow_metric_duration_guard_ignores_stub_period(monkeypatch):
+    """R-F2322 review: a sub-annual (e.g. 90-day transition/stub) flow row ending on the
+    fiscal-year-end must NOT be picked as the annual figure over the true 365-day row."""
+    async def fake_resolve(name): return ("0000000123", "Stub Co")
+    async def fake_facts(cik):
+        return {"cik": 123, "entityName": "Stub Co", "facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [
+                {"start": "2023-01-01", "end": "2023-12-31", "val": 1000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"},
+                {"start": "2023-10-01", "end": "2023-12-31", "val": 250, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"},
+            ]}},
+            "Assets": {"units": {"USD": [{"end": "2023-12-31", "val": 2000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+            "Liabilities": {"units": {"USD": [{"end": "2023-12-31", "val": 500, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+        }}}
+    monkeypatch.setattr(fh, "_resolve_cik", fake_resolve)
+    monkeypatch.setattr(fh, "_fetch_company_facts", fake_facts)
+    r = await fh._assess_sec_edgar("Stub Co")
+    assert r["financials"]["2023"]["revenue"] == 1000   # the 365-day row, NOT the 250 stub
