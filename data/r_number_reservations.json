@@ -17547,9 +17547,10 @@
       "title": "aria-wa branding: remove customer-visible ARKMURUS from WhatsApp report headers + prompt framing",
       "claimed_at": "2026-07-02T16:27:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f4c263a",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:34:46Z"
     },
     {
       "r_number": "R-F2326",

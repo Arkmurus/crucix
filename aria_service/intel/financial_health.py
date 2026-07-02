@@ -20,6 +20,7 @@ peer benchmarking.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 from typing import Any
 
@@ -50,6 +51,12 @@ _TAGS: dict[str, list[str]] = {
     "ebit": ["OperatingIncomeLoss",
              "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"],
 }
+
+# Income-statement (FLOW) metrics span a period, so a valid annual figure must cover
+# ~one fiscal year. Balance-sheet (INSTANT) metrics are point-in-time (no `start`), so
+# they are NOT duration-checked. This split is what lets us reject transition-period
+# (10-KT) and bankruptcy/acquisition stub rows that carry fp=FY but cover a partial year.
+_FLOW_TAGS: set[str] = {"revenue", "net_income", "ebit"}
 
 
 async def _resolve_cik(name: str) -> tuple[str, str] | None:
@@ -85,17 +92,36 @@ async def _fetch_company_facts(cik10: str) -> dict | None:
     )
 
 
-def _extract_annual(facts: dict, candidates: list[str]) -> dict[int, float]:
+def _is_annual_duration(start: str, end: str) -> bool:
+    """True iff [start, end] spans ~one fiscal year (350–380 days — covers 52/53-week
+    fiscal calendars and leap years). Rejects BOTH short stubs (quarterly/YTD or a
+    transition-10-KT part-year) AND long extended-year transition periods (>1yr) — either
+    can carry fp=FY + form 10-K* and would otherwise be mistaken for the annual figure,
+    UNDER- or OVER-stating revenue / net income / EBIT. Missing/unparseable start fails
+    closed (rejected) so only a verified ~annual period is ever used for a FLOW metric."""
+    if not start or not end:
+        return False
+    try:
+        days = (_dt.date.fromisoformat(end[:10]) - _dt.date.fromisoformat(start[:10])).days
+    except Exception:
+        return False
+    return 350 <= days <= 380
+
+
+def _extract_annual(facts: dict, candidates: list[str], require_duration: bool = False) -> dict[int, float]:
     """{fiscal_year: value} MERGED across ALL candidate tags (FY 10-K only).
 
     Filers migrate concept tags across eras (e.g. Apple: legacy `Revenues` pre-ASC-606,
-    then `RevenueFromContractWithCustomerExcludingAssessedTax`), so we must UNION the
-    candidates by year — returning the first non-empty tag would give a stale, truncated
-    series (the bug that made recent revenue None). Per fiscal year we keep the entry with
-    the latest `end` (handles restatements / amended filings). For duration (income) tags
-    we require an ~annual period (≥300 days) to exclude quarterly/YTD rows that also carry
-    fp=FY; balance-sheet instants have no `start` and are always kept."""
-    from datetime import date as _date
+    then `RevenueFromContractWithCustomerExcludingAssessedTax`), so we UNION the candidates
+    by year — returning the first non-empty tag would give a stale, truncated series. Per
+    fiscal year we keep the entry with the latest `end` (handles restatements / amended
+    filings).
+
+    ``require_duration`` (set only for FLOW / income-statement tags via `_FLOW_TAGS`)
+    additionally requires each row to span ~one fiscal year (`_is_annual_duration`), so a
+    partial-year (10-KT / stub) OR extended-year row cannot win the latest-`end` tie-break
+    and be reported as the annual figure. Balance-sheet INSTANT tags leave it False — they
+    are point-in-time (no `start`) and must never be duration-filtered."""
     gaap = (facts.get("facts") or {}).get("us-gaap") or {}
     merged: dict[int, tuple[str, float]] = {}
     for tag in candidates:
@@ -109,13 +135,9 @@ def _extract_annual(facts: dict, candidates: list[str]) -> dict[int, float]:
             val = e.get("val")
             if fy is None or val is None:
                 continue
-            start, end = e.get("start"), (e.get("end") or "")
-            if start and end:
-                try:
-                    if (_date.fromisoformat(end) - _date.fromisoformat(start)).days < 300:
-                        continue  # partial/quarterly period — not the annual figure
-                except Exception:
-                    pass
+            end = e.get("end") or ""
+            if require_duration and not _is_annual_duration(e.get("start") or "", end):
+                continue  # not a verified ~annual period — exclude from the flow series
             prev = merged.get(int(fy))
             if prev is None or end >= prev[0]:
                 merged[int(fy)] = (end, float(val))
@@ -285,7 +307,8 @@ async def _assess_sec_edgar(name: str, cik: str | None = None) -> dict:
             return base
 
         # Build per-metric annual series → per-year financials.
-        per_metric = {m: _extract_annual(facts, tags) for m, tags in _TAGS.items()}
+        per_metric = {m: _extract_annual(facts, tags, require_duration=(m in _FLOW_TAGS))
+                      for m, tags in _TAGS.items()}
         years = sorted({y for s in per_metric.values() for y in s}, reverse=True)[:5]
         if not years:
             cb.record_failure(reason="no_annual")

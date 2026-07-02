@@ -142,3 +142,57 @@ async def test_flow_metric_duration_guard_ignores_stub_period(monkeypatch):
     monkeypatch.setattr(fh, "_fetch_company_facts", fake_facts)
     r = await fh._assess_sec_edgar("Stub Co")
     assert r["financials"]["2023"]["revenue"] == 1000   # the 365-day row, NOT the 250 stub
+
+
+@pytest.mark.asyncio
+async def test_flow_metric_duration_guard_rejects_extended_year(monkeypatch):
+    """R-F2326: an EXTENDED-year (>1yr, e.g. a 15–18mo transition 10-KT) flow row ending on
+    the fiscal-year-end must NOT be reported as the annual figure — it OVERSTATES revenue.
+    The one-sided (<300d) guard missed this; the two-sided 350–380d window catches it."""
+    async def fake_resolve(name): return ("0000000123", "Extended Co")
+    async def fake_facts(cik):
+        return {"cik": 123, "entityName": "Extended Co", "facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [
+                {"start": "2023-01-01", "end": "2023-12-31", "val": 1000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"},
+                {"start": "2022-06-01", "end": "2023-12-31", "val": 1800, "fy": 2023, "fp": "FY", "form": "10-KT", "filed": "2024-02-01"},
+            ]}},
+            "Assets": {"units": {"USD": [{"end": "2023-12-31", "val": 2000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+            "Liabilities": {"units": {"USD": [{"end": "2023-12-31", "val": 500, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+        }}}
+    monkeypatch.setattr(fh, "_resolve_cik", fake_resolve)
+    monkeypatch.setattr(fh, "_fetch_company_facts", fake_facts)
+    r = await fh._assess_sec_edgar("Extended Co")
+    assert r["financials"]["2023"]["revenue"] == 1000   # 364-day annual, NOT the 578-day extended 1800
+
+
+def test_is_annual_duration_window():
+    """R-F2326: the two-sided window accepts ~annual periods (52/53-week + leap) and rejects
+    quarterly/stub AND extended-year periods; a missing/unparseable start fails closed."""
+    assert fh._is_annual_duration("2023-01-01", "2023-12-31") is True    # 364d calendar year
+    assert fh._is_annual_duration("2022-12-31", "2023-12-31") is True    # 365d
+    assert fh._is_annual_duration("2023-01-02", "2024-01-06") is True    # 369d (53-week fiscal)
+    assert fh._is_annual_duration("2023-10-01", "2023-12-31") is False   # 91d stub
+    assert fh._is_annual_duration("2022-06-01", "2023-12-31") is False   # 578d extended year
+    assert fh._is_annual_duration("", "2023-12-31") is False             # missing start → closed
+    assert fh._is_annual_duration("not-a-date", "2023-12-31") is False   # unparseable → closed
+
+
+@pytest.mark.asyncio
+async def test_instant_balance_sheet_tag_not_duration_filtered(monkeypatch):
+    """R-F2326: the duration window is scoped to FLOW tags only — a balance-sheet INSTANT
+    row must NEVER be dropped by duration logic even if it carries a spurious short `start`."""
+    async def fake_resolve(name): return ("0000000123", "Instant Co")
+    async def fake_facts(cik):
+        return {"cik": 123, "entityName": "Instant Co", "facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [
+                {"start": "2023-01-01", "end": "2023-12-31", "val": 1000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+            # Assets carries a spurious 0-day `start` — must still be kept (instant, not flow).
+            "Assets": {"units": {"USD": [
+                {"start": "2023-12-31", "end": "2023-12-31", "val": 2000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+            "Liabilities": {"units": {"USD": [{"end": "2023-12-31", "val": 500, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+        }}}
+    monkeypatch.setattr(fh, "_resolve_cik", fake_resolve)
+    monkeypatch.setattr(fh, "_fetch_company_facts", fake_facts)
+    r = await fh._assess_sec_edgar("Instant Co")
+    assert r["financials"]["2023"]["assets"] == 2000    # instant kept despite 0-day start
+    assert r["financials"]["2023"]["revenue"] == 1000
