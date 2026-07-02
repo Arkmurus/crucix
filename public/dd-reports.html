@@ -528,16 +528,11 @@ function renderTable(reports) {
     content.innerHTML = '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
-  // R-F2262 — header mirrors the card's flex layout (avatar spacer · entity · right-group)
-  // with the SAME fixed column widths, so the labels sit exactly over the card columns.
-  let html = '<div class="dd-list-head">'
-      + '<div></div>'
-      + '<div class="dd-lh-cell">Entity</div>'
-      + '<div class="dd-lh-cell">Severity</div>'
-      + '<div class="dd-lh-cell dd-lh-r">Version · Last Run</div>'
-      + '<div></div>'
-    + '</div>'
-    + '<div class="dd-list-body">';
+  // R-F2281 — removed the standalone Entity/Severity/Version·Last Run column-header
+  // strip. Each card already carries its own labelled fields (entity name, severity
+  // badge, version·date in the right-group), so a detached header row above the
+  // cards was redundant and read as floating labels with no table under them.
+  let html = '<div class="dd-list-body">';
   for (const r of reports) {
     const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
     const created = r.created_at || r.generated_at || r.timestamp || '';
