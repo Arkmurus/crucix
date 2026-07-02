@@ -6933,6 +6933,9 @@ async def _persist_report(report: ARKDDReport) -> None:
                 # entries are shared to the company by default.
                 "share_to_company": getattr(report, "share_to_company", True),
             }
+            # R-F2341 — drop any prior entry for this run_id (e.g. the mark_dd_running
+            # 'running' placeholder) so the completed report REPLACES it, not duplicates.
+            index = [e for e in index if e.get("run_id") != report.run_id]
             index.insert(0, new_entry)
             index = index[:500]
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
@@ -9757,12 +9760,23 @@ async def get_report_owner(run_id: str) -> dict | None:
 
 
 async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
-                          canonical_entity_id: str | None = None) -> None:
+                          canonical_entity_id: str | None = None, *,
+                          user_id: str | None = None, user_email_lower: str | None = None,
+                          user_email_domain: str | None = None,
+                          share_to_company: bool = True) -> None:
     """R-F2250 — write a 'running' placeholder under the report key so an ASYNC DD's
     FIRST poll (/dd/report/{run_id}) returns status=running instead of a 404. The
-    background DD overwrites it with the real report when it finishes."""
+    background DD overwrites it with the real report when it finishes.
+
+    R-F2341 — ALSO add a 'running' entry to REPORT_INDEX_KEY (owned by the requesting
+    user) so the async DD shows in the reports list IMMEDIATELY. Before this, list_reports
+    read ONLY the index and mark_dd_running wrote ONLY the raw placeholder, so a running DD
+    was invisible in the list — and if the background task was orphaned (deploy / restart)
+    it never appeared at all, contradicting the 'appears automatically' message. The
+    completion persist (and mark_dd_failed / reconcile) dedup this entry by run_id."""
     from . import redis_store as rs
     from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
     try:
         await rs.set_json(
             REPORT_REDIS_KEY.format(run_id=run_id),
@@ -9773,13 +9787,36 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
                 "entity_name": entity_name,
                 "orchestrator_mode": mode,
                 "canonical_entity_id": canonical_entity_id,
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": now_iso,
                 "bottom_line": f"Due diligence in progress for {entity_name}…",
             },
             ex=REPORT_TTL_SECONDS,
         )
     except Exception:
-        logger.exception("[R-F2250] mark_dd_running failed for %s", run_id)
+        logger.exception("[R-F2250] mark_dd_running placeholder failed for %s", run_id)
+    # R-F2341 — reports-list index entry (owner-scoped) so the running DD is visible now.
+    try:
+        index = await rs.get_json(REPORT_INDEX_KEY) or []
+        index = [e for e in index if e.get("run_id") != run_id]   # dedup by run_id
+        index.insert(0, {
+            "run_id": run_id,
+            "status": "running",
+            "entity_name": entity_name,
+            "jurisdiction": None,
+            "risk_classification": "PENDING",
+            "risk": "PENDING",
+            "severity": "PENDING",
+            "generated_at": now_iso,
+            "created_at": now_iso,
+            "canonical_entity_id": canonical_entity_id,
+            "user_id": user_id,
+            "user_email_lower": user_email_lower,
+            "user_email_domain": user_email_domain,
+            "share_to_company": share_to_company,
+        })
+        await rs.set_json(REPORT_INDEX_KEY, index[:500], ex=REPORT_TTL_SECONDS)
+    except Exception:
+        logger.exception("[R-F2341] mark_dd_running index entry failed for %s", run_id)
 
 
 async def mark_dd_failed(run_id: str, error: str) -> None:
@@ -9799,6 +9836,20 @@ async def mark_dd_failed(run_id: str, error: str) -> None:
         await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), cur, ex=REPORT_TTL_SECONDS)
     except Exception:
         logger.exception("[R-F2250] mark_dd_failed failed for %s", run_id)
+    # R-F2341 — reflect the failure in the reports-list index entry so the row shows
+    # 'failed' instead of a stuck 'running' (or vanishing).
+    try:
+        index = await rs.get_json(REPORT_INDEX_KEY) or []
+        changed = False
+        for e in index:
+            if e.get("run_id") == run_id:
+                e["status"] = "failed"
+                e["risk_classification"] = e["risk"] = e["severity"] = "FAILED"
+                changed = True
+        if changed:
+            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+    except Exception:
+        logger.exception("[R-F2341] mark_dd_failed index update failed for %s", run_id)
 
 
 async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:

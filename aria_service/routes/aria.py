@@ -812,7 +812,16 @@ async def dd_orchestrate_ep(req: Request):
         from ..intel import dd_orchestrator as _ddo
         _run_id = f"dd_{_uuid.uuid4().hex[:12]}"
         _ent = body.get("name") or body.get("entity") or ""
-        await _ddo.mark_dd_running(_run_id, _ent, mode, locals().get("_canonical"))
+        # R-F2341 — carry the owner identity so the 'running' index row is scoped to (and
+        # visible to) the requesting user under the R-F607/608 list filter.
+        _email_lower = (_req_user_email or "").strip().lower() or None
+        _email_domain = (body.get("user_email_domain") or "").strip().lower() or (
+            _email_lower.split("@")[-1] if _email_lower and "@" in _email_lower else None)
+        await _ddo.mark_dd_running(
+            _run_id, _ent, mode, locals().get("_canonical"),
+            user_id=_req_user_id, user_email_lower=_email_lower,
+            user_email_domain=_email_domain, share_to_company=_share_to_company,
+        )
 
         async def _bg_dd():
             try:

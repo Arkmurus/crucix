@@ -533,6 +533,16 @@ function severityPill(sev) {
   return '<span class="dd-pill ' + cls + '">' + sev.replace(/_/g, ' ') + '</span>';
 }
 
+// R-F2341 — running/failed async DDs get a clear status badge instead of a bogus
+// "PENDING" risk pill, so the reports list reflects an in-flight DD honestly.
+function rowStatusPill(r, sev) {
+  if (r && r.status === 'running')
+    return '<span class="dd-pill" style="background:#7c3aed;color:#fff"><i class="bi bi-hourglass-split"></i> Running</span>';
+  if (r && r.status === 'failed')
+    return '<span class="dd-pill" style="background:#dc2626;color:#fff"><i class="bi bi-x-circle"></i> Failed</span>';
+  return severityPill(sev);
+}
+
 function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
 function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -591,7 +601,7 @@ function renderTable(reports) {
           '</div>' +
           // R-F2289 — right group: verdict · version·date · SHARED (end) · actions.
           '<div class="dd-right-group">' +
-            '<div class="dd-sev-col">' + severityPill(sev) + '</div>' +
+            '<div class="dd-sev-col">' + rowStatusPill(r, sev) + '</div>' +
             '<div class="dd-meta-col">' +
               '<div class="dd-version">v' + (r.version_number || 1) + '</div>' +
               '<div class="dd-date">' + fmtDate(created) + '</div>' +
@@ -1279,8 +1289,9 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
           '<div style="font-size:34px;color:#7c3aed;margin-bottom:6px"><i class="bi bi-hourglass-split"></i></div>' +
           '<h3 style="margin:0 0 4px">Due diligence started</h3>' +
           '<p style="margin:0 0 2px;font-weight:600">' + _nm + '</p>' +
-          '<p style="color:#64748b;margin:8px 0 14px;font-size:14px">Running in the background — this takes a few ' +
-            'minutes. It appears in your reports below automatically when ready; you can close this window.</p>' +
+          '<p style="color:#64748b;margin:8px 0 14px;font-size:14px">Running in the background (a few minutes). ' +
+            'It now appears in your reports below as <b>Running</b> and updates to the full report automatically ' +
+            'when complete — you can safely close this window.</p>' +
           '<p id="dd-run-live" style="color:#7c3aed;font-weight:600;margin:0 0 16px">⏳ Running…</p>' +
           '<button type="button" class="sc-btn sc-btn-primary" id="dd-run-doneclose">Close</button>' +
         '</div>';
