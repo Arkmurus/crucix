@@ -1469,7 +1469,6 @@ def build_body() -> str:
     </div>
     <div class="lp-footer-bottom">
       <p>&copy; 2026 Arkmurus Group Ltd. Registered in England and Wales. ARIA is an intelligence tool — not legal advice.</p>
-      <p>UK brokering registration · SIA regulated (Measure Group Europe)</p>
     </div>
   </div>
 </footer>
