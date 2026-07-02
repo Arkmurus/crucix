@@ -1234,9 +1234,13 @@ async def dd_layer_5c_stats_ep(limit: int = 200):
 
 @router.get("/dd/watchlist")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_get_ep():
+async def dd_watchlist_get_ep(user_id: str = "", user_email_domain: str = ""):
+    # R-F2355 — per-user watchlist. user_id/user_email_domain are pinned by the aria-web
+    # proxy from the JWT (client-supplied values are stripped there). Empty user_id =
+    # internal/admin caller → full list.
     from ..intel import dd_orchestrator
-    return {"watchlist": await dd_orchestrator.get_watchlist()}
+    return {"watchlist": await dd_orchestrator.get_watchlist(
+        user_id=user_id or None, user_email_domain=user_email_domain or None)}
 
 
 @router.post("/dd/watchlist")

@@ -2985,6 +2985,27 @@ app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
   } catch {}
   return ariaProxy(req, res, `/api/aria/dd/reports?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
+// R-F2355 (2026-07-02 DD) — GET /dd/watchlist had NO dedicated proxy route, so it hit the
+// catch-all which forwards the query verbatim with no user_id → the brain returned the
+// GLOBAL watchlist, leaking every tenant's watched companies (another user's DD company
+// showed on this user's watchlist). Same class as the R-F2075 reports leak. Pin the JWT
+// identity here; strip any client-supplied user_id/domain (fail-CLOSED, R-F2238).
+app.get('/api/aria/dd/watchlist', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  params.delete('user_id');
+  params.set('user_id', userId);
+  params.delete('user_email_domain');
+  try {
+    const u = findUserById(userId);
+    const email = String(u?.email || '').trim().toLowerCase();
+    const domain = email.includes('@') ? email.split('@').pop() : '';
+    if (domain) params.set('user_email_domain', domain);
+  } catch {}
+  return ariaProxy(req, res, `/api/aria/dd/watchlist?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
 // R-F2097 (2026-06-28 DD) — pin the JWT user_id + email-domain onto the entity-keyed
 // DD vault/case endpoints so the brain (R-F2097) scopes them to the caller's owned
 // entities. Pre-fix these had NO explicit route → hit the catch-all (~5135) which

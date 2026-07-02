@@ -7009,6 +7009,12 @@ async def _persist_report(report: ARKDDReport) -> None:
                         "last_dd_run_id": report.run_id,
                         "last_risk": report.risk_classification,
                         "added_at": report.generated_at,
+                        # R-F2355 — stamp the owner so the watchlist is per-user (mirrors
+                        # the report index). Without this the watchlist is GLOBAL and one
+                        # user's DD company leaks onto every other user's watchlist.
+                        "user_id": getattr(report, "user_id", None),
+                        "user_email_domain": getattr(report, "user_email_domain", None),
+                        "share_to_company": getattr(report, "share_to_company", True),
                     })
             except Exception as _enr_err:
                 logger.debug("dd_orchestrator: watchlist auto-enroll failed: %s", _enr_err)
@@ -9715,9 +9721,28 @@ async def remove_from_watchlist(name: str) -> dict:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def get_watchlist() -> list[dict]:
+async def get_watchlist(user_id: str | None = None,
+                        user_email_domain: str | None = None) -> list[dict]:
+    """R-F2355 — per-user scoping (mirrors list_reports R-F607/608). When ``user_id`` is
+    set, return ONLY entries owned by that user OR shared by a same-email-domain colleague;
+    entries with no owner (pre-R-F2355 / internal) are hidden from user-filtered views (fail
+    CLOSED — R-F2097). ``user_id=None`` = admin / internal (the daily re-screen loop) and
+    sees the FULL list so monitoring still covers every watched entity."""
     from . import redis_store as rs
-    return await rs.get_json(WATCHLIST_KEY) or []
+    items = await rs.get_json(WATCHLIST_KEY) or []
+    if not user_id:
+        return items
+    out: list[dict] = []
+    for w in items:
+        if not isinstance(w, dict):
+            continue
+        w_uid = w.get("user_id")
+        if w_uid and w_uid == user_id:
+            out.append(w)
+        elif (user_email_domain and w.get("user_email_domain") == user_email_domain
+              and w.get("share_to_company", True)):
+            out.append(w)
+    return out
 
 
 async def reset_dd_memory(confirm: bool = False) -> dict:

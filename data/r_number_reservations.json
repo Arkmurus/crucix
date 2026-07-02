@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2355,
+  "next_available": 2356,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17836,6 +17836,16 @@
       "r_number": "R-F2354",
       "title": "Network buttons dead — window.Auth const-global bug aborted boot before wireDom",
       "claimed_at": "2026-07-02T22:46:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9b205b24",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:56:21Z"
+    },
+    {
+      "r_number": "R-F2355",
+      "title": "watchlist per-user isolation (R-F2097): scope get_watchlist by user_id/email_domain like reports; Arthur's DD no longer leaks onto another user's watchlist",
+      "claimed_at": "2026-07-02T22:56:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
