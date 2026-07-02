@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2292,
+  "next_available": 2296,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17182,7 +17182,7 @@
       "status": "shipped",
       "commit_sha": "0b442407",
       "notes": null,
-      "shipped_at": "2026-07-02T09:59:40Z"
+      "shipped_at": "2026-07-02T10:27:55Z"
     },
     {
       "r_number": "R-F2289",
@@ -17207,6 +17207,43 @@
       "r_number": "R-F2291",
       "title": "shared DD report view+delete: honor same-company sharing on by-id GET/DELETE (was 404 for same-domain colleagues)",
       "claimed_at": "2026-07-02T10:03:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2292",
+      "title": "P0 hotfix — aria-web crash loop: server.mjs channelPublisher references undefined curateSignals (R-F2288 regression)",
+      "claimed_at": "2026-07-02T10:23:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80639ae7",
+      "notes": null,
+      "shipped_at": "2026-07-02T10:52:45Z"
+    },
+    {
+      "r_number": "R-F2293",
+      "title": "DD reports UI overhaul: pro delete/result modals (replace confirm/alert), Toast, a11y, skeleton, re-run feedback+context",
+      "claimed_at": "2026-07-02T10:41:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2294",
+      "title": "DD digital multi-angle query planner — parallel adverse-media/ownership/sanctions/regulatory retrieval (Brave-class breadth), wired+enabled",
+      "claimed_at": "2026-07-02T10:46:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2295",
+      "title": "Telegram strategy: align channelScheduler to strategy doc + BRIEF/Guinea/Balkans keywords + wireBreakingAlertsToChannel real-time push",
+      "claimed_at": "2026-07-02T10:52:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

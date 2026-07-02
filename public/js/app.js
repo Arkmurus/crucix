@@ -244,6 +244,106 @@ const Toast = {
   }
 };
 
+// ── Modal: professional confirm + result dialogs (reuses the sc-mod system) ────
+// R-F2293 — replaces window.confirm()/alert() with in-app modals matching the
+// design system. Modal.confirm() returns Promise<boolean>; Modal.info() shows a
+// read-only result panel (VLS proof/verify, case file). Self-contained: builds
+// its own overlay so any page loading app.js gets it with no per-page markup.
+// Escape-to-dismiss, focus trap, and focus-restore included.
+const Modal = {
+  _ov: null, _prevFocus: null, _onKey: null,
+  _mount() {
+    if (this._ov) return this._ov;
+    const ov = document.createElement('div');
+    ov.className = 'sc-mod-overlay';
+    document.body.appendChild(ov);
+    this._ov = ov;
+    return ov;
+  },
+  _focusable() {
+    return Array.from(this._ov.querySelectorAll(
+      'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(el => !el.disabled && el.offsetParent !== null);
+  },
+  _open(inner, labelledby) {
+    const ov = this._mount();
+    this._prevFocus = document.activeElement;
+    ov.innerHTML = inner;
+    const mod = ov.querySelector('.sc-mod');
+    if (mod) {
+      mod.setAttribute('role', 'dialog');
+      mod.setAttribute('aria-modal', 'true');
+      if (labelledby) mod.setAttribute('aria-labelledby', labelledby);
+    }
+    ov.classList.add('open');
+    const auto = ov.querySelector('[data-autofocus]') || this._focusable()[0];
+    if (auto) auto.focus();
+    return ov;
+  },
+  _dismiss() {
+    if (!this._ov) return;
+    this._ov.classList.remove('open');
+    this._ov.innerHTML = '';
+    if (this._onKey) document.removeEventListener('keydown', this._onKey);
+    this._onKey = null;
+    if (this._prevFocus && this._prevFocus.focus) { try { this._prevFocus.focus(); } catch (e) {} }
+  },
+  _trap(e) {
+    const f = this._focusable();
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  },
+  confirm({ title = 'Are you sure?', message = '', okLabel = 'Confirm', cancelLabel = 'Cancel',
+            danger = true, icon = 'bi-exclamation-triangle-fill' } = {}) {
+    return new Promise(resolve => {
+      const okColor = danger ? 'var(--sc-red)' : 'var(--sc-prime)';
+      const iconBg = danger ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.12)';
+      const iconColor = danger ? 'var(--sc-red)' : 'var(--sc-prime)';
+      const ov = this._open(
+        '<div class="sc-mod" style="max-width:460px">'
+        + '<div class="sc-mod-head">'
+        + '<div class="sc-mod-ico" style="background:' + iconBg + ';color:' + iconColor + '"><i class="bi ' + icon + '"></i></div>'
+        + '<div><h3 id="sc-cf-title">' + escHtml(title) + '</h3><p>' + escHtml(message) + '</p></div>'
+        + '<button class="sc-mod-x" data-cf="cancel" type="button" aria-label="Close">&times;</button>'
+        + '</div>'
+        + '<div class="sc-mod-foot">'
+        + '<button class="sc-btn sc-btn-outline" data-cf="cancel" type="button">' + escHtml(cancelLabel) + '</button>'
+        + '<button class="sc-btn" data-cf="ok" data-autofocus type="button" style="background:' + okColor + ';color:#fff">' + escHtml(okLabel) + '</button>'
+        + '</div></div>', 'sc-cf-title');
+      const done = (val) => { this._dismiss(); resolve(val); };
+      ov.querySelectorAll('[data-cf="cancel"]').forEach(el => el.onclick = () => done(false));
+      ov.querySelector('[data-cf="ok"]').onclick = () => done(true);
+      ov.onclick = (e) => { if (e.target === ov) done(false); };
+      this._onKey = (e) => { if (e.key === 'Escape') done(false); else if (e.key === 'Tab') this._trap(e); };
+      document.addEventListener('keydown', this._onKey);
+    });
+  },
+  info({ title = '', message = '', bodyHtml = '', icon = 'bi-info-circle-fill', tone = 'info' } = {}) {
+    const tones = {
+      info: ['rgba(37,99,235,0.12)', '#1d4ed8'], success: ['rgba(22,163,74,0.12)', '#15803d'],
+      danger: ['rgba(220,38,38,0.12)', 'var(--sc-red)'], vls: ['rgba(124,58,237,0.12)', 'var(--sc-prime)'],
+    };
+    const [bg, col] = tones[tone] || tones.info;
+    const ov = this._open(
+      '<div class="sc-mod" style="max-width:520px">'
+      + '<div class="sc-mod-head">'
+      + '<div class="sc-mod-ico" style="background:' + bg + ';color:' + col + '"><i class="bi ' + icon + '"></i></div>'
+      + '<div><h3 id="sc-if-title">' + escHtml(title) + '</h3>' + (message ? '<p>' + escHtml(message) + '</p>' : '') + '</div>'
+      + '<button class="sc-mod-x" data-if="close" type="button" aria-label="Close">&times;</button>'
+      + '</div>'
+      + '<div class="sc-mod-body">' + bodyHtml + '</div>'
+      + '<div class="sc-mod-foot"><button class="sc-btn sc-btn-outline" data-if="close" data-autofocus type="button">Close</button></div>'
+      + '</div>', 'sc-if-title');
+    const done = () => this._dismiss();
+    ov.querySelectorAll('[data-if="close"]').forEach(el => el.onclick = done);
+    ov.onclick = (e) => { if (e.target === ov) done(); };
+    this._onKey = (e) => { if (e.key === 'Escape') done(); else if (e.key === 'Tab') this._trap(e); };
+    document.addEventListener('keydown', this._onKey);
+  },
+};
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function fmtDate(d) {
   if (!d) return '—';

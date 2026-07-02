@@ -54,6 +54,13 @@
       border-radius: 12px; margin-bottom: 10px;
     }
     .dd-row:hover { border-color: var(--sc-prime); box-shadow: 0 4px 20px rgba(124,58,237,0.1); }
+    /* R-F2293: keyboard focus affordance for the (now focusable) rows. */
+    .dd-row:focus-visible { outline: none; border-color: var(--sc-prime); box-shadow: 0 0 0 3px rgba(124,58,237,0.25); }
+    /* R-F2293: on touch / no-hover devices the row actions must be permanently
+       visible (hover-reveal is unreachable) — re-run/copy/delete were unusable on mobile. */
+    @media (hover: none), (max-width: 720px) {
+      .dd-row-actions { opacity: 1 !important; max-width: none !important; overflow: visible; }
+    }
     .dd-row.expanded { border-color: var(--sc-prime); box-shadow: 0 4px 24px rgba(124,58,237,0.15);
       margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 
@@ -458,7 +465,7 @@
   </div>
 </main>
 
-<script src="js/app.js?v=6"></script>
+<script src="js/app.js?v=7"></script>
 <script src="js/sidebar.js?v=6"></script>
 <script>
 Auth.requireAuth();
@@ -532,7 +539,11 @@ function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
 function renderTable(reports) {
   const content = document.getElementById('dd-content');
   if (!reports.length) {
-    content.innerHTML = '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
+    // R-F2293: distinguish "no matches for a search" from "no reports at all".
+    const q = (document.getElementById('dd-search') || {}).value || '';
+    content.innerHTML = q.trim()
+      ? '<div class="dd-empty"><i class="bi bi-search"></i>No reports match “' + escText(q.trim()) + '”. Try a different name, or clear the search.</div>'
+      : '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
   // R-F2281 — removed the standalone Entity/Severity/Version·Last Run column-header
@@ -568,7 +579,7 @@ function renderTable(reports) {
         '<i class="bi bi-people-fill"></i> shared</span>';
     }
 
-    html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
+    html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '" tabindex="0" role="button" aria-expanded="false" aria-label="Open DD report for ' + escAttr(entityName) + '">' +
         '<div class="dd-row-inner">' +
           '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
           '<div class="dd-entity-info">' +
@@ -587,9 +598,9 @@ function renderTable(reports) {
             '</div>' +
             sharedBadge +
             '<div class="dd-row-actions">' +
-              '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" title="Re-run DD"><i class="bi bi-arrow-clockwise"></i></button>' +
-              '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown"><i class="bi bi-clipboard"></i></button>' +
-              '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report"><i class="bi bi-trash"></i></button>' +
+              '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-type="' + escAttr(entityType) + '" title="Re-run DD" aria-label="Re-run DD for ' + escAttr(entityName) + '"><i class="bi bi-arrow-clockwise"></i></button>' +
+              '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown" aria-label="Copy report markdown"><i class="bi bi-clipboard"></i></button>' +
+              '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report" aria-label="Delete report for ' + escAttr(entityName) + '"><i class="bi bi-trash"></i></button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -604,25 +615,25 @@ function renderTable(reports) {
       if (e.target.closest('.dd-row-action-btn')) return;
       toggleDetail(row, row.dataset.runId);
     });
+    // R-F2293: keyboard-operable rows (Enter/Space open the report).
+    row.addEventListener('keydown', (e) => {
+      if (e.target.closest('.dd-row-action-btn')) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleDetail(row, row.dataset.runId);
+      }
+    });
   });
 
-  // Re-run buttons
+  // Re-run buttons — R-F2293: carry identifying context + Toast feedback.
   content.querySelectorAll('.dd-rerun-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const entity = btn.dataset.entity;
-      const orig = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-      try {
-        const r = await authed('/api/aria/dd/orchestrate', {
-          method: 'POST',
-          body: JSON.stringify({ name: entity, mode: 'standard', async_mode: true }), // R-F2271: fire-and-poll — sync re-run dies at the proxy (HTTP 500)
-        });
-        if (!r.ok) { alert('Re-run failed (HTTP ' + r.status + ')'); }
-        else { await loadReports(); }
-      } catch (err) { alert('Re-run error: ' + err.message); }
-      btn.disabled = false; btn.innerHTML = orig;
+      await startRerun(btn, {
+        name: btn.dataset.entity,
+        jurisdiction: btn.dataset.jur || undefined,
+        entity_type: btn.dataset.type || undefined,
+      });
     });
   });
 
@@ -632,36 +643,63 @@ function renderTable(reports) {
       e.stopPropagation();
       const runId = btn.dataset.runId;
       const orig = btn.innerHTML;
+      btn.disabled = true;
       btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId) + '?format=markdown');
-        if (!r.ok) { alert('Copy failed (HTTP ' + r.status + ')'); btn.innerHTML = orig; return; }
+        if (!r.ok) { Toast.show('Copy failed (HTTP ' + r.status + ')', 'error'); btn.disabled = false; btn.innerHTML = orig; return; }
         const data = await r.json();
         const md = data.markdown || (data.report && data.report.markdown) || '';
         await navigator.clipboard.writeText(md);
         btn.innerHTML = '<i class="bi bi-check2"></i>';
-        setTimeout(() => { btn.innerHTML = orig; }, 1500);
-      } catch (err) { alert('Copy error: ' + err.message); }
-      btn.disabled = false; btn.innerHTML = orig;
+        Toast.show('Report markdown copied', 'success');
+        setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 1500);
+      } catch (err) { Toast.show('Copy error: ' + err.message, 'error'); btn.disabled = false; btn.innerHTML = orig; }
     });
   });
 
-  // Delete buttons
+  // Delete buttons — R-F2293: professional confirm modal + Toast (no confirm()/alert()).
   content.querySelectorAll('.dd-delete-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const runId = btn.dataset.runId;
-      if (!confirm('Delete report ' + (runId || '').slice(0, 14) + '?')) return;
+      const entity = btn.getAttribute('aria-label') || 'this report';
+      const ok = await Modal.confirm({
+        title: 'Delete this report?',
+        message: 'This permanently removes the report and its full version history. This cannot be undone.',
+        okLabel: 'Delete report',
+      });
+      if (!ok) return;
       const orig = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId), { method: 'DELETE' });
-        if (!r.ok) { alert('Delete failed (HTTP ' + r.status + ')'); btn.disabled = false; btn.innerHTML = orig; return; }
+        if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); btn.disabled = false; btn.innerHTML = orig; return; }
+        Toast.show('Report deleted', 'success');
         await loadReports();
-      } catch (err) { alert('Delete error: ' + err.message); btn.disabled = false; btn.innerHTML = orig; }
+      } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); btn.disabled = false; btn.innerHTML = orig; }
     });
   });
+}
+
+// R-F2293 — shared re-run helper: carries identifying context (jurisdiction /
+// entity_type / mode) so a re-run screens the SAME entity, and gives Toast
+// feedback (the async job appears in the list once it completes).
+async function startRerun(btn, ctx) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
+  try {
+    const body = Object.assign({ mode: 'standard', async_mode: true }, ctx); // R-F2271 fire-and-poll
+    const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
+    if (!r.ok) { Toast.show('Re-run failed (HTTP ' + r.status + ')', 'error'); }
+    else {
+      Toast.show('Re-run started for ' + (ctx.name || 'entity') + ' — it will appear when ready', 'info', 6000);
+      await loadReports();
+    }
+  } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = orig;
 }
 
 // R-F2264 — professional report formatting: risk-verdict hero + clean citations.
@@ -727,22 +765,29 @@ async function toggleDetail(row, runId) {
   // Collapse previously open
   if (_expandedRow && _expandedRow !== row) {
     _expandedRow.classList.remove('expanded');
+    _expandedRow.setAttribute('aria-expanded', 'false');   // R-F2293
     const next = _expandedRow.nextElementSibling;
     if (next && next.classList.contains('dd-detail-row')) next.remove();
     _expandedRow = null;
   }
   if (row.classList.contains('expanded')) {
     row.classList.remove('expanded');
+    row.setAttribute('aria-expanded', 'false');            // R-F2293
     const next = row.nextElementSibling;
     if (next && next.classList.contains('dd-detail-row')) next.remove();
     _expandedRow = null;
     return;
   }
   row.classList.add('expanded');
+  row.setAttribute('aria-expanded', 'true');               // R-F2293
   _expandedRow = row;
   const detailRow = document.createElement('div');
   detailRow.className = 'dd-detail-row';
-  detailRow.innerHTML = '<div class="dd-detail"><div class="dd-loading">Loading report…</div></div>';
+  // R-F2293: skeleton placeholder instead of a plain "Loading…" line.
+  detailRow.innerHTML = '<div class="dd-detail"><div style="display:flex;flex-direction:column;gap:12px">'
+    + '<div class="sc-skeleton sc-skeleton-block" style="height:74px"></div>'
+    + '<div class="sc-skeleton sc-skeleton-block" style="height:120px"></div>'
+    + '<div class="sc-skeleton sc-skeleton-block" style="height:120px"></div></div></div>';
   row.parentNode.insertBefore(detailRow, row.nextSibling);
 
   try {
@@ -842,32 +887,34 @@ async function toggleDetail(row, runId) {
     detailRow.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
       const b = e.currentTarget;
       const rid = b.getAttribute('data-run-id');
-      if (!confirm('Delete report ' + (rid || '').slice(0, 14) + '? This removes it from the library and Redis. Cannot be undone.')) return;
+      const ok = await Modal.confirm({
+        title: 'Delete this report?',
+        message: 'This permanently removes the report and its full version history. This cannot be undone.',
+        okLabel: 'Delete report',
+      });
+      if (!ok) return;
       const orig = b.innerHTML;
       b.disabled = true;
       b.innerHTML = '<i class="bi bi-hourglass-split"></i> Deleting…';
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(rid), { method: 'DELETE' });
-        if (!r.ok) { alert('Delete failed (HTTP ' + r.status + ').'); b.disabled = false; b.innerHTML = orig; return; }
+        if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); b.disabled = false; b.innerHTML = orig; return; }
+        Toast.show('Report deleted', 'success');
         await loadReports();
-      } catch (err) { alert('Delete error: ' + err.message); b.disabled = false; b.innerHTML = orig; }
+      } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); b.disabled = false; b.innerHTML = orig; }
     });
     detailRow.querySelector('[data-action="rerun"]').addEventListener('click', async (e) => {
-      const b = e.currentTarget;
-      const orig = b.innerHTML;
-      b.disabled = true;
-      b.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
-      try {
-        const r = await authed('/api/aria/dd/orchestrate', {
-          method: 'POST',
-          body: JSON.stringify({ name: entityName, mode: 'standard', async_mode: true }), // R-F2271: fire-and-poll — sync re-run dies at the proxy (HTTP 500)
-        });
-        if (!r.ok) { alert('Re-run failed (HTTP ' + r.status + ').'); }
-        else { await loadReports(); }
-      } catch (err) { alert('Re-run error: ' + err.message); }
-      b.disabled = false; b.innerHTML = orig;
+      // R-F2293: carry the report's own identity (jurisdiction / type / mode) so
+      // the re-run screens the SAME entity, not just a bare name.
+      const _id = (data && data.identity) || {};
+      await startRerun(e.currentTarget, {
+        name: entityName,
+        jurisdiction: _id.jurisdiction || undefined,
+        entity_type: _id.entity_type || undefined,
+        mode: (data && data.orchestrator_mode) || undefined,
+      });
     });
-    // VLS verify
+    // VLS verify — R-F2293: styled result modal (was a raw alert)
     const vlsVerifyBtn = detailRow.querySelector('[data-action="vls-verify"]');
     if (vlsVerifyBtn) {
       vlsVerifyBtn.addEventListener('click', async (e) => {
@@ -878,16 +925,28 @@ async function toggleDetail(row, runId) {
         b.innerHTML = '<i class="bi bi-hourglass-split"></i> Verifying…';
         try {
           const r = await authed('/api/aria/dd/vls/verify/' + encodeURIComponent(rid));
-          if (!r.ok) { alert('VLS verify failed (HTTP ' + r.status + ')'); b.disabled = false; b.innerHTML = orig; return; }
-          const data = await r.json();
-          const verified = data.verified ? '✅ PASS — integrity verified' : '❌ FAIL — ' + (data.reason || 'integrity check failed');
-          const detail = data.hash_valid !== undefined ? '\nHash valid: ' + data.hash_valid + '\nSignature valid: ' + data.signature_valid : '';
-          alert('VLS Verification for ' + rid + ':\n' + verified + detail);
-        } catch (err) { alert('VLS verify error: ' + err.message); }
+          if (!r.ok) { Toast.show('VLS verify failed (HTTP ' + r.status + ')', 'error'); b.disabled = false; b.innerHTML = orig; return; }
+          const data2 = await r.json();
+          const pass = !!data2.verified;
+          const kv = (k, v) => '<span style="color:var(--sc-muted);font-size:12.5px">' + escText(k) + '</span><span style="font-weight:600">' + escText(String(v)) + '</span>';
+          Modal.info({
+            title: 'Cryptographic integrity verification',
+            icon: pass ? 'bi-shield-check' : 'bi-shield-exclamation',
+            tone: pass ? 'success' : 'danger',
+            bodyHtml:
+              '<div class="sc-alert ' + (pass ? 'sc-alert-success' : 'sc-alert-danger') + '">'
+              + (pass ? '<strong>PASS</strong> — this report is intact and matches its cryptographic seal.'
+                      : '<strong>FAIL</strong> — ' + escText(data2.reason || 'the integrity check did not pass.')) + '</div>'
+              + (data2.hash_valid !== undefined
+                  ? '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px 18px;align-items:baseline">'
+                    + kv('Hash valid', data2.hash_valid) + kv('Signature valid', data2.signature_valid) + '</div>'
+                  : ''),
+          });
+        } catch (err) { Toast.show('VLS verify error: ' + err.message, 'error'); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
-    // VLS proof
+    // VLS proof — R-F2293: styled result modal
     const vlsProofBtn = detailRow.querySelector('[data-action="vls-proof"]');
     if (vlsProofBtn) {
       vlsProofBtn.addEventListener('click', async (e) => {
@@ -899,25 +958,28 @@ async function toggleDetail(row, runId) {
         try {
           const r = await authed('/api/aria/dd/vls/proof/' + encodeURIComponent(rid));
           if (!r.ok) {
-            if (r.status === 404) { alert('No VLS proof found for this report. Pre-R-F1182 reports do not have cryptographic proofs.'); }
-            else { alert('VLS proof failed (HTTP ' + r.status + ')'); }
+            if (r.status === 404) { Toast.show('No cryptographic proof for this report (pre-R-F1182 report).', 'info'); }
+            else { Toast.show('VLS proof failed (HTTP ' + r.status + ')', 'error'); }
             b.disabled = false; b.innerHTML = orig; return;
           }
-          const data = await r.json();
-          const proof = data.proof || {};
-          const lines = ['VLS Cryptographic Proof','━━━━━━━━━━━━━━━━━━━━',
-            'Version: ' + (proof.version || '?'),
-            'Timestamp: ' + (proof.timestamp || '?'),
-            'Hash: ' + (proof.hash || '').slice(0, 24) + '…',
-            'Previous hash: ' + (proof.previous_hash || '').slice(0, 24) + '…',
-            'Signature: ' + (proof.signature || '').slice(0, 32) + '…',
-          ];
-          alert(lines.join('\n'));
-        } catch (err) { alert('VLS proof error: ' + err.message); }
+          const data2 = await r.json();
+          const proof = data2.proof || {};
+          const kv = (k, v) => '<span style="color:var(--sc-muted);font-size:12.5px">' + escText(k) + '</span>'
+            + '<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + escText(v || '—') + '</span>';
+          Modal.info({
+            title: 'Cryptographic proof',
+            icon: 'bi-file-lock', tone: 'vls',
+            bodyHtml:
+              '<div class="sc-alert sc-alert-info">This report is cryptographically sealed. The proof below verifies independently against the exported VLS public key.</div>'
+              + '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 18px;align-items:baseline">'
+              + kv('Version', proof.version) + kv('Timestamp', proof.timestamp) + kv('Hash', proof.hash)
+              + kv('Previous hash', proof.previous_hash) + kv('Signature', proof.signature) + '</div>',
+          });
+        } catch (err) { Toast.show('VLS proof error: ' + err.message, 'error'); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
-    // Case file
+    // Case file — R-F2293: styled version-history modal
     const caseFileBtn = detailRow.querySelector('[data-action="case-file"]');
     if (caseFileBtn) {
       caseFileBtn.addEventListener('click', async (e) => {
@@ -929,18 +991,25 @@ async function toggleDetail(row, runId) {
         try {
           const r = await authed('/api/aria/dd/case/' + encodeURIComponent(cid));
           if (!r.ok) {
-            if (r.status === 404) { alert('No case file found for this entity.'); }
-            else { alert('Case file failed (HTTP ' + r.status + ')'); }
+            if (r.status === 404) { Toast.show('No case file found for this entity.', 'info'); }
+            else { Toast.show('Case file failed (HTTP ' + r.status + ')', 'error'); }
             b.disabled = false; b.innerHTML = orig; return;
           }
-          const data = await r.json();
-          const versions = data.versions || [];
-          const lines = ['Case File: ' + (data.canonical_entity_id || cid), 'Total versions: ' + (data.total_versions || 0), '━━━━━━━━━━━━━━━━━━━━'];
-          for (const v of versions) {
-            lines.push('v' + (v.version_number || '?') + ' — ' + (v.risk_classification || '?') + ' — ' + (v.generated_at || '').slice(0, 10) + ' — ' + (v.run_id || '').slice(0, 14));
-          }
-          alert(lines.join('\n'));
-        } catch (err) { alert('Case file error: ' + err.message); }
+          const data2 = await r.json();
+          const versions = data2.versions || [];
+          const rows = versions.map(v =>
+            '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--sc-border)">'
+            + '<span style="font-weight:700">v' + escText(String(v.version_number || '?')) + '</span>'
+            + '<span>' + escText(v.risk_classification || '?') + '</span>'
+            + '<span style="color:var(--sc-muted);font-size:12px">' + escText((v.generated_at || '').slice(0, 10)) + '</span>'
+            + '</div>').join('');
+          Modal.info({
+            title: 'Case file — version history',
+            message: (data2.total_versions || versions.length) + ' version' + ((data2.total_versions || versions.length) === 1 ? '' : 's'),
+            icon: 'bi-diagram-2', tone: 'vls',
+            bodyHtml: '<div style="font-size:13px">' + (rows || '<span style="color:var(--sc-muted)">No versions recorded.</span>') + '</div>',
+          });
+        } catch (err) { Toast.show('Case file error: ' + err.message, 'error'); }
         b.disabled = false; b.innerHTML = orig;
       });
     }
@@ -1078,7 +1147,15 @@ function renderSectionBody(text) {
 
 async function loadReports() {
   const content = document.getElementById('dd-content');
-  content.innerHTML = '<div class="dd-loading">Loading reports…</div>';
+  // R-F2293: skeleton cards instead of a plain "Loading…" line.
+  content.innerHTML = '<div class="dd-list-body">' + Array.from({ length: 4 }).map(() =>
+    '<div class="dd-row" style="cursor:default"><div class="dd-row-inner">'
+    + '<div class="sc-skeleton sc-skeleton-circle"></div>'
+    + '<div style="flex:1;display:flex;flex-direction:column;gap:8px">'
+    + '<div class="sc-skeleton sc-skeleton-text" style="max-width:280px"></div>'
+    + '<div class="sc-skeleton sc-skeleton-text" style="max-width:140px"></div></div>'
+    + '<div class="sc-skeleton sc-skeleton-text" style="width:90px"></div>'
+    + '</div></div>').join('') + '</div>';
   try {
     const resp = await authed('/api/aria/dd/reports?limit=100');
     if (!resp.ok) {
@@ -1136,6 +1213,9 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
   document.getElementById('dd-run-close').addEventListener('click', closeRun);
   document.getElementById('dd-run-cancel').addEventListener('click', closeRun);
   m.addEventListener('click', e => { if (e.target === m) closeRun(); });
+  // R-F2293: Escape-to-close (parity with click-outside) + dialog semantics.
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && m.classList.contains('open')) closeRun(); });
+  { const _md = m.querySelector('.sc-mod'); if (_md) { _md.setAttribute('role', 'dialog'); _md.setAttribute('aria-modal', 'true'); } }
 
   // interactive entity-type segmented control
   document.getElementById('dd-r-type-seg').addEventListener('click', e => {
@@ -1253,7 +1333,7 @@ document.getElementById('dd-vls-key-btn').addEventListener('click', async () => 
   try {
     const r = await authed('/api/aria/dd/vls/key');
     if (!r.ok) {
-      alert('VLS key export failed (HTTP ' + r.status + ')');
+      Toast.show('VLS key export failed (HTTP ' + r.status + ')', 'error');
       btn.disabled = false; btn.innerHTML = orig;
       return;
     }
@@ -1262,9 +1342,10 @@ document.getElementById('dd-vls-key-btn').addEventListener('click', async () => 
     // Copy to clipboard
     await navigator.clipboard.writeText(pem);
     btn.innerHTML = '<i class="bi bi-check2"></i> Copied to clipboard';
+    Toast.show('VLS public key copied — share it for third-party verification', 'success');
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
   } catch (err) {
-    alert('VLS key error: ' + err.message);
+    Toast.show('VLS key error: ' + err.message, 'error');
     btn.disabled = false; btn.innerHTML = orig;
   }
 });
