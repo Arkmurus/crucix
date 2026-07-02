@@ -1157,10 +1157,24 @@ function renderSectionBody(text) {
   return s;
 }
 
-async function loadReports() {
+// R-F2343 — self-refresh the list while any DD row is still "Running", so a completed DD
+// flips from "Running" to its verdict AUTOMATICALLY (no stale "still running" until a manual
+// reload). Silent (no skeleton flash) and never yanks an open detail out from under the user.
+let _runningRefreshTimer = null;
+function scheduleRunningRefresh() {
+  if (_runningRefreshTimer) { clearTimeout(_runningRefreshTimer); _runningRefreshTimer = null; }
+  const anyRunning = (_allReports || []).some(r => r && r.status === 'running');
+  if (!anyRunning) return;
+  _runningRefreshTimer = setTimeout(() => {
+    if (_expandedRow) { scheduleRunningRefresh(); return; }  // detail open → re-check later
+    loadReports(true);
+  }, 8000);
+}
+
+async function loadReports(silent = false) {
   const content = document.getElementById('dd-content');
-  // R-F2293: skeleton cards instead of a plain "Loading…" line.
-  content.innerHTML = '<div class="dd-list-body">' + Array.from({ length: 4 }).map(() =>
+  // R-F2293: skeleton cards instead of a plain "Loading…" line (skip on silent auto-refresh).
+  if (!silent) content.innerHTML = '<div class="dd-list-body">' + Array.from({ length: 4 }).map(() =>
     '<div class="dd-row" style="cursor:default"><div class="dd-row-inner">'
     + '<div class="sc-skeleton sc-skeleton-circle"></div>'
     + '<div style="flex:1;display:flex;flex-direction:column;gap:8px">'
@@ -1171,14 +1185,15 @@ async function loadReports() {
   try {
     const resp = await authed('/api/aria/dd/reports?limit=100');
     if (!resp.ok) {
-      content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + ').</div>';
+      if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + ').</div>';
       return;
     }
     const data = await resp.json();
     _allReports = data.reports || [];
     applySearch();
+    scheduleRunningRefresh();       // keep the list live while anything is running
   } catch (err) {
-    content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
+    if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
   }
 }
 

@@ -1290,6 +1290,36 @@ REPORT_INDEX_KEY = "crucix:dd:report_index"
 # (12 call sites) but semantically "persist forever".
 REPORT_TTL_SECONDS = None
 
+# R-F2343 — ONE process-wide lock for every report-index read-modify-write. The index is a
+# single shared key (crucix:dd:report_index); mark_dd_running / mark_dd_failed / the
+# completion persist / reconcile each did a non-atomic get -> modify -> set, so a concurrent
+# DD start/completion could CLOBBER another DD's freshly-written row (lost update), and the
+# completion path reused an index snapshot read minutes earlier. Routing all mutations
+# through _mutate_report_index (lock + read the CURRENT index INSIDE the lock) makes them
+# serialisable + last-write-consistent. aria-intel is single-process, so one asyncio.Lock
+# fully serialises them.
+_REPORT_INDEX_LOCK = asyncio.Lock()
+
+
+async def _mutate_report_index(mutator, *, persist: bool = True):
+    """R-F2343 — atomically read-modify-write the report index under _REPORT_INDEX_LOCK,
+    always reading the CURRENT index inside the lock (never a stale snapshot). `mutator`
+    is a pure, quick transform ``(index: list) -> new_index: list``. Returns the new index
+    (or None on error). Best-effort — index maintenance must never break a DD run."""
+    from . import redis_store as rs
+    try:
+        async with _REPORT_INDEX_LOCK:
+            index = await rs.get_json(REPORT_INDEX_KEY) or []
+            new_index = mutator(list(index))
+            if new_index is None:
+                new_index = index
+            if persist:
+                await rs.set_json(REPORT_INDEX_KEY, new_index[:500], ex=REPORT_TTL_SECONDS)
+            return new_index
+    except Exception:
+        logger.exception("[R-F2343] report-index mutate failed")
+        return None
+
 
 # =============================================================================
 # LAYER RUNNERS — each layer is a coroutine that fills a section of the report
@@ -6901,7 +6931,6 @@ async def _persist_report(report: ARKDDReport) -> None:
             ex=REPORT_TTL_SECONDS,
         )
         try:
-            index = existing_index  # already loaded above for version resolution
             new_entry = {
                 "run_id": report.run_id,
                 "generated_at": report.generated_at,
@@ -6933,12 +6962,15 @@ async def _persist_report(report: ARKDDReport) -> None:
                 # entries are shared to the company by default.
                 "share_to_company": getattr(report, "share_to_company", True),
             }
-            # R-F2341 — drop any prior entry for this run_id (e.g. the mark_dd_running
-            # 'running' placeholder) so the completed report REPLACES it, not duplicates.
-            index = [e for e in index if e.get("run_id") != report.run_id]
-            index.insert(0, new_entry)
-            index = index[:500]
-            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+            # R-F2341/R-F2343 — atomically REPLACE this run_id's entry (e.g. the
+            # mark_dd_running 'running' placeholder) with the completed report. Reads the
+            # CURRENT index inside the lock (NOT the minutes-old `existing_index` snapshot),
+            # so a DD that started/finished during this run's layers is not clobbered.
+            def _add_completed(index):
+                index = [e for e in index if e.get("run_id") != report.run_id]
+                index.insert(0, new_entry)
+                return index
+            await _mutate_report_index(_add_completed)
             # R-F575: mirror the index entry into the SQLite cold tier as a
             # redundant case-file chain store. Best-effort — failure is
             # non-fatal (the primary store now persists forever per R-F877).
@@ -9789,14 +9821,20 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
                 "canonical_entity_id": canonical_entity_id,
                 "started_at": now_iso,
                 "bottom_line": f"Due diligence in progress for {entity_name}…",
+                # R-F2343 — persist the owner on the placeholder too, so mark_dd_failed can
+                # recover it for an UPSERT if the DD fails before its index row is visible.
+                "user_id": user_id,
+                "user_email_lower": user_email_lower,
+                "user_email_domain": user_email_domain,
+                "share_to_company": share_to_company,
             },
             ex=REPORT_TTL_SECONDS,
         )
     except Exception:
         logger.exception("[R-F2250] mark_dd_running placeholder failed for %s", run_id)
-    # R-F2341 — reports-list index entry (owner-scoped) so the running DD is visible now.
-    try:
-        index = await rs.get_json(REPORT_INDEX_KEY) or []
+    # R-F2341/R-F2343 — reports-list index entry (owner-scoped), added ATOMICALLY under the
+    # index lock so a concurrent DD start/completion can't clobber it (lost-update race).
+    def _add_running(index):
         index = [e for e in index if e.get("run_id") != run_id]   # dedup by run_id
         index.insert(0, {
             "run_id": run_id,
@@ -9814,9 +9852,8 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
             "user_email_domain": user_email_domain,
             "share_to_company": share_to_company,
         })
-        await rs.set_json(REPORT_INDEX_KEY, index[:500], ex=REPORT_TTL_SECONDS)
-    except Exception:
-        logger.exception("[R-F2341] mark_dd_running index entry failed for %s", run_id)
+        return index
+    await _mutate_report_index(_add_running)
 
 
 async def mark_dd_failed(run_id: str, error: str) -> None:
@@ -9824,32 +9861,47 @@ async def mark_dd_failed(run_id: str, error: str) -> None:
     terminal 'failed' status instead of polling 'running' forever on an exception."""
     from . import redis_store as rs
     from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cur: dict = {}
     try:
         cur = (await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))) or {}
         cur.update({
             "run_id": run_id,
             "status": "failed",
             "error": str(error)[:300],
-            "failed_at": datetime.now(timezone.utc).isoformat(),
+            "failed_at": now_iso,
             "bottom_line": f"Due diligence could not complete: {str(error)[:160]}",
         })
         await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), cur, ex=REPORT_TTL_SECONDS)
     except Exception:
         logger.exception("[R-F2250] mark_dd_failed failed for %s", run_id)
-    # R-F2341 — reflect the failure in the reports-list index entry so the row shows
-    # 'failed' instead of a stuck 'running' (or vanishing).
-    try:
-        index = await rs.get_json(REPORT_INDEX_KEY) or []
-        changed = False
+    # R-F2341/R-F2343 — reflect the failure in the index ATOMICALLY, and UPSERT: if the
+    # running row never landed (fast-fail race / transient error) INSERT a 'failed' row
+    # (owner recovered from the placeholder) so a failed DD ALWAYS shows 'Failed', never
+    # vanishes.
+    def _mark_failed(index):
+        found = False
         for e in index:
             if e.get("run_id") == run_id:
                 e["status"] = "failed"
                 e["risk_classification"] = e["risk"] = e["severity"] = "FAILED"
-                changed = True
-        if changed:
-            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
-    except Exception:
-        logger.exception("[R-F2341] mark_dd_failed index update failed for %s", run_id)
+                found = True
+        if not found:
+            index.insert(0, {
+                "run_id": run_id,
+                "status": "failed",
+                "entity_name": cur.get("entity_name") or run_id,
+                "jurisdiction": None,
+                "risk_classification": "FAILED", "risk": "FAILED", "severity": "FAILED",
+                "generated_at": now_iso, "created_at": now_iso,
+                "canonical_entity_id": cur.get("canonical_entity_id"),
+                "user_id": cur.get("user_id"),
+                "user_email_lower": cur.get("user_email_lower"),
+                "user_email_domain": cur.get("user_email_domain"),
+                "share_to_company": cur.get("share_to_company", True),
+            })
+        return index
+    await _mutate_report_index(_mark_failed)
 
 
 async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
@@ -10434,15 +10486,16 @@ async def delete_report(run_id: str) -> dict:
     except Exception as e:
         logger.warning("delete_report blob delete failed for %s: %s", run_id, e)
     removed_from_index = 0
-    try:
-        index = await rs.get_json(REPORT_INDEX_KEY) or []
+
+    def _remove(index):
+        nonlocal removed_from_index
         before = len(index)
         index = [e for e in index if not (isinstance(e, dict) and e.get("run_id") == run_id)]
         removed_from_index = before - len(index)
-        if removed_from_index:
-            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
-    except Exception as e:
-        logger.warning("delete_report index write failed for %s: %s", run_id, e)
+        return index
+    # R-F2343 — atomic removal under the index lock so a concurrent DD start/completion
+    # can't resurrect the row (or be clobbered by the delete's stale-snapshot write).
+    await _mutate_report_index(_remove)
     logger.info(
         "[dd_orchestrator] R-F162 delete_report %s: blob=%s index_entries=%d",
         run_id, blob_existed, removed_from_index,

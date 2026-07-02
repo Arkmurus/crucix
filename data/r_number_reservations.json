@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2343,
+  "next_available": 2346,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17716,6 +17716,34 @@
       "r_number": "R-F2342",
       "title": "ARIA Network tab — opt-in presence directory + 1:1 real-time DM (community layer)",
       "claimed_at": "2026-07-02T21:18:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f498f8b0",
+      "notes": null,
+      "shipped_at": "2026-07-02T21:40:31Z"
+    },
+    {
+      "r_number": "R-F2343",
+      "title": "report-index atomicity: lock+fresh-read all index mutations (no concurrent clobber) + mark_dd_failed UPSERT (fast-fail always shows Failed)",
+      "claimed_at": "2026-07-02T21:41:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2344",
+      "title": "network routes: localhost-bypass req.user guard",
+      "claimed_at": "2026-07-02T21:42:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2345",
+      "title": "ARIA-in-channel: DM ARIA inside the Network tab (brain routing + screening in-thread)",
+      "claimed_at": "2026-07-02T21:42:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
