@@ -17687,18 +17687,20 @@
       "title": "Brave->SearXNG STUDENT loop: learn Brave source-selection methodology from distill corpus + apply reranker + eval agreement",
       "claimed_at": "2026-07-02T19:47:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ced82fa9",
+      "notes": null,
+      "shipped_at": "2026-07-02T20:04:59Z"
     },
     {
       "r_number": "R-F2340",
       "title": "coverage heatmap: measured per-cell freshness from corpus fact recency (canonical domains)",
       "claimed_at": "2026-07-02T19:49:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ced82fa9",
+      "notes": null,
+      "shipped_at": "2026-07-02T20:08:58Z"
     }
   ]
 }
