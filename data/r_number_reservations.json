@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2283,
+  "next_available": 2288,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17109,14 +17109,64 @@
       "title": "remove nonsensical Entity/Severity/Version column-header strip above DD report cards",
       "claimed_at": "2026-07-02T08:09:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "27e75cba",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:00:10Z"
     },
     {
       "r_number": "R-F2282",
       "title": "DD verification honesty — real corroboration counting + actually invoke source_verifier (kill fake grounded_rate)",
       "claimed_at": "2026-07-02T08:23:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "27e75cba",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:00:10Z"
+    },
+    {
+      "r_number": "R-F2283",
+      "title": "mastery gate#2 free-loop acceleration: reading prioritised by floor_breach_cells + §21e gap recording (no spend, no metric change)",
+      "claimed_at": "2026-07-02T08:31:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ae272aa4",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:34:17Z"
+    },
+    {
+      "r_number": "R-F2284",
+      "title": "grounded_rate_unknown: distinguish no-citable-claims (no_data) from failed-grounding so health isn't permanently degraded",
+      "claimed_at": "2026-07-02T08:31:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ae272aa4",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:34:17Z"
+    },
+    {
+      "r_number": "R-F2285",
+      "title": "chat-DD button parity — reject garbage entity fragments + upgrade thin chat reports to full-depth",
+      "claimed_at": "2026-07-02T08:32:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "27e75cba",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:00:10Z"
+    },
+    {
+      "r_number": "R-F2286",
+      "title": "fix R-F2282 citation grounding false-negative — build fetched-evidence set from ALL layers not just press_coverage",
+      "claimed_at": "2026-07-02T09:25:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2287",
+      "title": "Telegram Broadcast Channel Publisher Engine",
+      "claimed_at": "2026-07-02T09:29:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
