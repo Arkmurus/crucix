@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2330,
+  "next_available": 2332,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17586,6 +17586,25 @@
       "r_number": "R-F2329",
       "title": "mobile landing polish: terminal-demo overflow, contact-form widths, nav-links hamburger, model-card table overflow",
       "claimed_at": "2026-07-02T16:52:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bdb8ef61",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:56:54Z"
+    },
+    {
+      "r_number": "R-F2330",
+      "title": "landing page: remove UK brokering / SIA regulated (Measure Group Europe) footer line",
+      "claimed_at": "2026-07-02T17:29:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2331",
+      "title": "DD report structured-JSON view + evidence-rich frontend redesign (retire markdown round-trip)",
+      "claimed_at": "2026-07-02T17:38:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

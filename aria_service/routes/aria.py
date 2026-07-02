@@ -950,6 +950,16 @@ async def dd_report_ep(run_id: str, format: str = "json", user_id: str = "",
             return {"run_id": run_id, "markdown": _md}
         except Exception as e:
             _log.debug("dd report markdown rebuild failed (falling back to raw): %s", e)
+    if format == "structured":
+        # R-F2331 — decision-first, evidence-rich render contract for the web report
+        # page. Built from the persisted structured dict (NOT re-parsed markdown), so
+        # each finding keeps its detail / source / confidence / citations.
+        from ..intel import dd_schema
+        try:
+            return {"run_id": run_id, "structured": dd_schema.structured_view(report)}
+        except Exception as e:
+            _log.debug("dd report structured view failed (falling back to raw): %s", e)
+            return report
     if format == "download":
         from ..intel import dd_schema
         from starlette.responses import Response as _Resp

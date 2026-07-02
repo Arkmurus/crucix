@@ -873,6 +873,173 @@ def weakest_confidence(tags: list[str]) -> str:
         return "ASSESSED"
     return min(ranked, key=lambda t: _CONFIDENCE_RANK[t])
 
+# ── R-F2331: render-ready STRUCTURED view ────────────────────────────────────
+# The web report page used to re-parse the WhatsApp markdown (render_markdown) back
+# into cards, silently dropping each finding's detail / source / confidence / citations
+# and breaking whenever the prose wording changed. structured_view() emits a stable,
+# typed, DECISION-FIRST contract straight from the persisted report dict so the frontend
+# is a dumb renderer over real structured data — evidence, sources and confidence kept.
+
+_SEVERITY_RANK = {"hard_stop": 0, "red": 1, "amber": 2, "amber_dark": 2,
+                  "amber_light": 3, "info": 4}
+
+
+def _sv_finding(f: dict) -> dict:
+    """Normalise one persisted finding dict into the render contract (loses nothing)."""
+    if not isinstance(f, dict):
+        return {}
+    src = (f.get("source") or "").strip()
+    sources = [s for s in (f.get("sources") or []) if s] or ([src] if src else [])
+    return {
+        "severity": (f.get("severity") or "info").lower(),
+        "title": f.get("title") or "",
+        "detail": f.get("detail") or "",
+        "source": src,
+        "sources": sources,
+        "confidence": f.get("confidence") or "",
+        "gate_demoted": bool(f.get("gate_demoted")),
+        "gate_reason": f.get("gate_reason") or "",
+    }
+
+
+def _sv_findings(section: dict) -> list[dict]:
+    out = [_sv_finding(f) for f in (section.get("findings") or []) if f]
+    out = [f for f in out if f.get("title")]
+    out.sort(key=lambda f: _SEVERITY_RANK.get(f.get("severity", "info"), 5))
+    return out
+
+
+def _sv_section(key, title, icon, section, highlights, *, kind="standard", evidence=None):
+    """Assemble one render-ready section. Returns None when a non-core section has no content."""
+    section = section or {}
+    meta = section.get("meta") or {}
+    findings = _sv_findings(section)
+    gaps = [g for g in (section.get("data_gaps") or []) if g]
+    hl = [{"label": l, "value": (str(v) if not isinstance(v, str) else v)}
+          for (l, v) in highlights if v not in (None, "", [], {}, 0)]
+    ev = evidence or []
+    if not (findings or gaps or hl or ev) and kind != "core":
+        return None
+    return {
+        "key": key, "title": title, "icon": icon,
+        "status": (meta.get("status") or "ok"),
+        "duration_ms": meta.get("duration_ms") or 0,
+        "subcalls": meta.get("subcalls") or 0,
+        "error": meta.get("error"),
+        "highlights": hl, "findings": findings, "data_gaps": gaps, "evidence": ev,
+    }
+
+
+@fail_wire(module="dd_schema", gap_type="engine_failure")
+def structured_view(r: dict) -> dict:
+    """Build a DECISION-FIRST, evidence-rich render contract from a persisted DD report
+    dict (crucix:dd:report:{run_id} == ARKDDReport.as_dict()). Frontends render this
+    directly instead of re-parsing markdown. Never raises on a partial/quick report."""
+    r = r or {}
+    ident = r.get("identity") or {}
+    comp = r.get("compliance") or {}
+    net = r.get("network") or {}
+    dig = r.get("digital") or {}
+    ver = r.get("verification") or {}
+    comm = r.get("commercial_coherence") or {}
+    sweep = r.get("sweep_data") or {}
+
+    is_person = (ident.get("entity_type") or "").lower() == "person"
+    sanc = ident.get("sanctions_screen") or {}
+    n_matches = len(sanc.get("matches") or [])
+    ghost = ident.get("ghost_score") or {}
+    cr = comp.get("country_risk") or {}
+    fin = comp.get("financial_health") or {}
+    ec = comp.get("export_control") or {}
+
+    # Digital press evidence (real cited URLs)
+    press_ev = []
+    for _p in (dig.get("press_coverage") or [])[:20]:
+        if not isinstance(_p, dict):
+            continue
+        _u = _p.get("url")
+        if not _u:
+            continue
+        press_ev.append({
+            "url": _u,
+            "source": _p.get("source") or "",
+            "tier": _p.get("source_tier") or "",
+            "snippet": (_p.get("snippet") or "")[:240],
+        })
+
+    gr = ver.get("grounded_rate")
+    sections = [
+        # 1) IDENTITY — who is this on paper (core, always shown)
+        _sv_section("identity", "Identity", "👤" if is_person else "🪪", ident, [
+            ("Type", ident.get("entity_type")),
+            ("Nationality" if is_person else "Jurisdiction", ident.get("jurisdiction")),
+            ("Reg no", ident.get("registration_number")),
+            ("Reg status", ident.get("registration_status")),
+            ("Incorporated", ident.get("incorporation_date")),
+            ("Sanctions matches", (n_matches if sanc else None)),
+            ("Ghost score", (f"{ghost.get('total')}/{ghost.get('max_total', '20')} "
+                             f"{ghost.get('classification', '')}".strip() if ghost.get("total") is not None else None)),
+        ], kind="core"),
+        # 2) COMPLIANCE & SANCTIONS — the decision drivers (core)
+        _sv_section("compliance", "Compliance & Sanctions", "⚖", comp, [
+            ("Country risk", cr.get("headline_risk") or cr.get("risk_level")),
+            ("Financial health", fin.get("health_verdict")),
+            ("Export control", ec.get("recommendation")),
+            ("Sanctions regimes", ", ".join(comp.get("sanctions_regimes") or []) or None),
+            ("Licence path", comp.get("licence_path")),
+            ("IHL criterion-2", comp.get("ihl_criterion_2_risk")),
+        ], kind="core"),
+        # 3) NETWORK & OWNERSHIP
+        _sv_section("network", "Network & Ownership", "🕸", net, [
+            ("Cross-linked entities", len(net.get("cross_linked_entities") or []) or None),
+            ("PEP connections", len(net.get("pep_connections") or []) or None),
+            ("Flagged in chain", len(net.get("sanctions_network") or []) or None),
+            ("UBO chain depth", len(net.get("ubo_chain") or []) or None),
+        ]),
+        # 4) DIGITAL & ADVERSE MEDIA
+        _sv_section("digital", "Digital & Adverse Media", "🌐", dig, [
+            ("Press items", len(dig.get("press_coverage") or []) or None),
+            ("People investigated", len(dig.get("people") or []) or None),
+            ("Source tiers", ", ".join(f"{k}:{v}" for k, v in (dig.get("source_tier_breakdown") or {}).items()) or None),
+        ], evidence=press_ev),
+        # 5) COMMERCIAL COHERENCE (only if populated)
+        _sv_section("commercial", "Commercial Coherence", "🧭", comm, []),
+        # 6) LIVE SWEEP SIGNALS (only if populated)
+        _sv_section("sweep", "Live Sweep Signals", "📡", sweep, []),
+        # 7) VERIFICATION & METHODOLOGY — trust footer (core)
+        _sv_section("verification", "Verification & Methodology", "🧪", ver, [
+            ("Grounded rate", (f"{gr:.0%}" if isinstance(gr, (int, float)) else None)),
+            ("Confidence floor", ver.get("confidence_floor")),
+            ("Conflicts detected", len(ver.get("conflicts") or []) or None),
+            ("Independent source verification",
+             ("run" if ver.get("independent_source_verification_run") else "not run (triangulation only)")),
+            ("Citations grounded",
+             (f"{ver.get('citations_grounded', 0)}/{ver.get('citations_checked', 0)}"
+              if ver.get("citations_checked") else None)),
+        ], kind="core"),
+    ]
+    sections = [s for s in sections if s]
+
+    return {
+        "run_id": r.get("run_id"),
+        "entity_name": ident.get("entity_name") or (r.get("target") or {}).get("query") or "(unnamed)",
+        "entity_type": ident.get("entity_type"),
+        "jurisdiction": ident.get("jurisdiction"),
+        "risk_classification": r.get("risk_classification") or "",
+        "bottom_line": r.get("bottom_line") or "",
+        "recommendation": r.get("recommendation") or "",
+        "confidence_tag": r.get("confidence_tag") or "",
+        "confidence_gate_triggered": bool(r.get("confidence_gate_triggered")),
+        "generated_at": r.get("generated_at"),
+        "orchestrator_mode": r.get("orchestrator_mode"),
+        "canonical_entity_id": r.get("canonical_entity_id"),
+        "version_number": r.get("version_number") or 1,
+        "next_actions": [a for a in (r.get("next_actions") or []) if a],
+        "data_gaps_summary": [g for g in (r.get("data_gaps_summary") or []) if g],
+        "sections": sections,
+    }
+
+
 # R-F2119 §21a — wire failure handler for dd_schema
 try:
     wire_failure(module="dd_schema", detail="module shutdown",
