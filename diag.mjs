@@ -2,7 +2,7 @@
 // Crucix Diagnostic — run this to find out why server.mjs fails silently
 // Usage: node diag.mjs
 
-console.log('=== CRUCIX DIAGNOSTICS ===\n');
+console.log('=== ARIA DIAGNOSTICS ===\n');
 console.log('Node version:', process.version);
 console.log('Platform:', process.platform, process.arch);
 console.log('CWD:', process.cwd());

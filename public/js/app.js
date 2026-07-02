@@ -1,5 +1,5 @@
 /**
- * CRUCIX — Shared App Utilities
+ * ARIA — Shared App Utilities
  * Auth helpers, API wrappers, JWT management
  */
 

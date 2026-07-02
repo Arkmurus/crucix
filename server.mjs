@@ -555,7 +555,7 @@ if (telegramAlerter.isConfigured) {
       ? logTimeShort(new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000))
       : 'pending';
     return [
-      `🖥️ *CRUCIX STATUS*`, ``,
+      `🖥️ *ARIA STATUS*`, ``,
       `Uptime: ${h}h ${m}m`,
       `Last sweep: ${lastSweepTime ? logTimeShort(new Date(lastSweepTime)) + ' London' : 'never'}`,
       `Next sweep: ${nextSweep} London`,
@@ -1016,7 +1016,7 @@ if (discordAlerter.isConfigured) {
       ? logTimeShort(new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000))
       : 'pending';
     return [
-      `**🖥️ CRUCIX STATUS**\n`,
+      `**🖥️ ARIA STATUS**\n`,
       `Uptime: ${h}h ${m}m`,
       `Last sweep: ${lastSweepTime ? logTimeShort(new Date(lastSweepTime)) + ' London' : 'never'}`,
       `Next sweep: ${nextSweep} London`,
@@ -1040,7 +1040,7 @@ if (discordAlerter.isConfigured) {
     const energy = currentData.energy || {};
     const delta = memory.getLastDelta();
     const ideas = (currentData.ideas || []).slice(0, 3);
-    const sections = [`**📋 CRUCIX BRIEF**\n_${londonTs()} London_\n`];
+    const sections = [`**📋 ARIA BRIEF**\n_${londonTs()} London_\n`];
     if (delta?.summary) {
       const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
       sections.push(`${dirEmoji} Direction: **${delta.summary.direction.toUpperCase()}** | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical\n`);
@@ -6155,7 +6155,7 @@ async function start() {
 
   console.log(`
   ╔══════════════════════════════════════════════╗
-  ║           CRUCIX INTELLIGENCE ENGINE         ║
+  ║           ARIA INTELLIGENCE ENGINE         ║
   ║          Local Palantir · 36+ Sources        ║
   ╠══════════════════════════════════════════════╣
   ║  Dashboard:  http://localhost:${port}${' '.repeat(Math.max(0, 14 - String(port).length))}║

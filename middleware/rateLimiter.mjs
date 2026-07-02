@@ -1,5 +1,5 @@
 /**
- * CRUCIX — Rate Limiting & Input Validation Middleware
+ * ARIA — Rate Limiting & Input Validation Middleware
  * GAP 2 FIX: Protects all 70+ routes from abuse.
  *
  * Mount in server.mjs BEFORE route registration:
