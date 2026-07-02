@@ -17318,18 +17318,20 @@
       "title": "reply-keyword conversion content — SCREEN via real /sanctions/fuzzy (never-false-clean) + COUNTRY/TENDER via /chat, verifiable output",
       "claimed_at": "2026-07-02T11:47:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf17c206",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:56:27Z"
     },
     {
       "r_number": "R-F2303",
       "title": "chat DD honesty: stop LLM fabricating frozen 'running, ETA Xm' per-tool narration → honest background-task guidance (dialogue_router COMMAND block)",
       "claimed_at": "2026-07-02T11:51:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8b9c5ef5",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:00:48Z"
     }
   ]
 }
