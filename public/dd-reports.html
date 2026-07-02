@@ -59,7 +59,7 @@
 
     .dd-row-inner {
       display: grid;
-      grid-template-columns: 44px minmax(0,1fr) 132px 108px 104px;
+      grid-template-columns: 44px minmax(0,1fr) auto;
       column-gap: 18px; align-items: center;
       padding: 16px 22px;
     }
@@ -86,10 +86,13 @@
     }
     .dd-type-badge i { font-size: 10px; }
 
-    /* Right-side info group — severity + version + date + actions in one row */
+    /* Right-side info group — severity + version·date + shared badge + actions,
+       laid out left→right and pinned to the right edge of the row. The SHARED
+       badge is the last always-visible item, so it reads "…verdict · v·date ·
+       SHARED" at the right end. */
     .dd-right-group {
       display: flex; align-items: center; gap: 16px;
-      flex-shrink: 0;
+      flex-shrink: 0; justify-content: flex-end;
     }
 
     /* Severity pill */
@@ -138,9 +141,13 @@
     .dd-version { font-size: 12px; font-weight: 600; color: var(--sc-text); white-space: nowrap; }
     .dd-date { font-size: 11px; color: var(--sc-muted); white-space: nowrap; }
 
-    /* Row actions (visible on hover) */
-    .dd-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .2s; flex-shrink: 0; width: 104px; justify-content: flex-end; }
-    .dd-row:hover .dd-row-actions { opacity: 1; }
+    /* Row actions — collapsed at rest so the SHARED badge sits flush at the
+       right edge; slide in on hover (to the right of the badge). */
+    .dd-row-actions {
+      display: flex; gap: 4px; opacity: 0; flex-shrink: 0; justify-content: flex-end;
+      max-width: 0; overflow: hidden; transition: opacity .2s, max-width .2s;
+    }
+    .dd-row:hover .dd-row-actions { opacity: 1; max-width: 120px; }
     .dd-row-action-btn {
       display: inline-flex; align-items: center; justify-content: center;
       width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--sc-border);
@@ -150,10 +157,10 @@
     .dd-row-action-btn:hover { color: var(--sc-prime-dark); border-color: var(--sc-prime); background: var(--sc-prime-soft); }
     .dd-row-action-btn.danger:hover { color: #dc2626; border-color: #dc2626; background: rgba(220,38,38,0.06); }
 
-    /* Shared badge */
+    /* Shared badge — pinned to the right end of the row (see .dd-right-group) */
     .dd-shared-badge {
       display: inline-flex; align-items: center; gap: 4px;
-      padding: 2px 8px; margin-left: 6px;
+      padding: 2px 8px; margin-left: 0; flex-shrink: 0; white-space: nowrap;
       border-radius: 5px; font-size: 10.5px; font-weight: 600;
       letter-spacing: 0.3px; text-transform: uppercase;
       background: rgba(124,58,237,0.12); color: var(--sc-prime-dark);
@@ -565,21 +572,25 @@ function renderTable(reports) {
         '<div class="dd-row-inner">' +
           '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
           '<div class="dd-entity-info">' +
-            '<div class="dd-entity-name">' + escText(entityName) + sharedBadge + '</div>' +
+            '<div class="dd-entity-name">' + escText(entityName) + '</div>' +
             '<div class="dd-entity-meta">' +
               '<span class="dd-type-badge"><i class="bi ' + typeIcon + '"></i> ' + escText(entityType) + '</span>' +
               (jur ? '<span>' + escText(jur) + '</span>' : '') +
             '</div>' +
           '</div>' +
-          '<div class="dd-sev-col">' + severityPill(sev) + '</div>' +
-          '<div class="dd-meta-col">' +
-            '<div class="dd-version">v' + (r.version_number || 1) + '</div>' +
-            '<div class="dd-date">' + fmtDate(created) + '</div>' +
-          '</div>' +
-          '<div class="dd-row-actions">' +
-            '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" title="Re-run DD"><i class="bi bi-arrow-clockwise"></i></button>' +
-            '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown"><i class="bi bi-clipboard"></i></button>' +
-            '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report"><i class="bi bi-trash"></i></button>' +
+          // R-F2289 — right group: verdict · version·date · SHARED (end) · actions.
+          '<div class="dd-right-group">' +
+            '<div class="dd-sev-col">' + severityPill(sev) + '</div>' +
+            '<div class="dd-meta-col">' +
+              '<div class="dd-version">v' + (r.version_number || 1) + '</div>' +
+              '<div class="dd-date">' + fmtDate(created) + '</div>' +
+            '</div>' +
+            sharedBadge +
+            '<div class="dd-row-actions">' +
+              '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" title="Re-run DD"><i class="bi bi-arrow-clockwise"></i></button>' +
+              '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown"><i class="bi bi-clipboard"></i></button>' +
+              '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report"><i class="bi bi-trash"></i></button>' +
+            '</div>' +
           '</div>' +
         '</div>' +
     '</div>';

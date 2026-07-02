@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2288,
+  "next_available": 2290,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17159,14 +17159,34 @@
       "title": "fix R-F2282 citation grounding false-negative — build fetched-evidence set from ALL layers not just press_coverage",
       "claimed_at": "2026-07-02T09:25:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9366aa34",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:45:11Z"
     },
     {
       "r_number": "R-F2287",
       "title": "Telegram Broadcast Channel Publisher Engine",
       "claimed_at": "2026-07-02T09:29:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "978af0b1",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:37:40Z"
+    },
+    {
+      "r_number": "R-F2288",
+      "title": "Telegram Channel Media LinkedIn Design Interactivity",
+      "claimed_at": "2026-07-02T09:45:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2289",
+      "title": "dd-reports card: move SHARED badge to the right end (verdict·version·date·SHARED)",
+      "claimed_at": "2026-07-02T09:45:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
