@@ -3952,8 +3952,12 @@ app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res
 });
 
 app.post('/api/aria/think', requireAuth, async (req, res) => {
-  const { question, context, fast } = req.body || {};
+  const { question, context, fast, session_id } = req.body || {};
   if (!question) return res.status(400).json({ error: 'question required' });
+  // R-F2316 — pin the owner (email-slug, same bucket as /chat + delete) so the Python
+  // /think handler can PERSIST the deep-analysis turn to this conversation. Forward the
+  // client's session_id (the conversation the user is in). Never trust a client user_id.
+  const _thinkUid = stableUserId(req);
 
   // Try Python ARIA service first.
   // Round 5c → 5d: bumped 90s → 240s → 300s. Inner timeout must exceed
@@ -3963,7 +3967,7 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/think`, {
         method: 'POST',
         headers: _ariaHeaders(),
-        body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
+        body: JSON.stringify({ question, context: context || {}, fast: fast || false, session_id: session_id || '', user_id: _thinkUid }),
         signal: AbortSignal.timeout(300000),
       });
       if (r.ok) return res.json(await r.json());

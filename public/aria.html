@@ -2255,8 +2255,18 @@ var Convos = (function() {
       newTitleLine.textContent = optimistic;
       input.replaceWith(newTitleLine);
       c.title = optimistic;
-      authedJson('PUT', '/api/aria/conversations/' + encodeURIComponent(c.session_id) + '/title',
-                 { title: optimistic, user_id: USER_ID_SLUG })
+      // R-F2316 — keepalive:true so a refresh while the title editor is focused
+      // (blur→commit fires on unload) still persists the rename instead of the
+      // async PUT being aborted and the title reverting on reload (same refresh-
+      // persistence class as the delete fix above).
+      var _tok = localStorage.getItem('crucix_token') || '';
+      fetch('/api/aria/conversations/' + encodeURIComponent(c.session_id) + '/title', {
+        method: 'PUT',
+        headers: { 'Authorization': 'Bearer ' + _tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: optimistic, user_id: USER_ID_SLUG }),
+        keepalive: true,
+      })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
         .catch(function(err) {
           console.error('[Convos] rename', err);
           c.title = current;
@@ -2507,11 +2517,43 @@ var Convos = (function() {
     }
   }
 
+  // R-F2316 — pending conversation deletes awaiting commit. The delete is fired
+  // only on the undo-toast onCommit (6s timer / dismiss); before this, a page
+  // refresh DURING the undo window meant the DELETE never reached the server and
+  // the conversation REAPPEARED on reload. keepalive:true lets the DELETE complete
+  // even when fired during page unload, and pagehide/visibilitychange flush any
+  // still-pending delete so a refresh always persists it.
+  var _pendingConvoDeletes = {};
+  function _commitConvoDelete(sid) {
+    delete _pendingConvoDeletes[sid];
+    var token = localStorage.getItem('crucix_token') || '';
+    return fetch('/api/aria/conversations/' + encodeURIComponent(sid) +
+        '?user_id=' + encodeURIComponent(USER_ID_SLUG), {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token },
+      keepalive: true,
+    }).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r; });
+  }
+  function _flushPendingConvoDeletes() {
+    Object.keys(_pendingConvoDeletes).forEach(function(sid) {
+      try { _commitConvoDelete(sid); } catch (e) { /* keepalive best-effort */ }
+    });
+  }
+  // R-F2316 — flush ONLY on genuine page discard (refresh / navigate away / close),
+  // i.e. pagehide with persisted===false. Committing on a mere tab-background or
+  // bfcache suspend would fire the DELETE while the Undo toast is still live, turning
+  // Undo into a lie (the row would come back deleted on the next load). A refresh —
+  // the exact case reported — is a non-persisted pagehide, so it still persists.
+  window.addEventListener('pagehide', function(e) {
+    if (!e.persisted) _flushPendingConvoDeletes();
+  });
+
   // R-F1690 — delete-with-undo. No blocking confirm(): the row vanishes
   // instantly and a non-blocking "Conversation deleted · Undo" toast lets the
   // user reverse it for ~6s. The active conversation's feed is left intact
   // during the grace window (so Undo is seamless) and only cleared if the
   // delete actually commits. On server failure the row is restored.
+  // R-F2316 — the pending delete is registered so a refresh mid-undo still persists.
   function del(sid, title) {
     if (!CURRENT_USER) return;
     var idx = rows.findIndex(function(c) { return c.session_id === sid; });
@@ -2519,15 +2561,16 @@ var Convos = (function() {
     var removed = rows[idx];
     rows.splice(idx, 1);          // optimistic remove
     render();
+    _pendingConvoDeletes[sid] = true;   // R-F2316 — persists even on refresh mid-undo
     showUndoToast(
       'Conversation deleted',
       function onUndo() {
+        delete _pendingConvoDeletes[sid];   // R-F2316 — cancel the pending delete
         rows.splice(Math.min(idx, rows.length), 0, removed);
         render();
       },
       function onCommit() {
-        authedJson('DELETE', '/api/aria/conversations/' + encodeURIComponent(sid) +
-          '?user_id=' + encodeURIComponent(USER_ID_SLUG))
+        _commitConvoDelete(sid)   // R-F2316 — keepalive DELETE (survives unload)
           .then(function() {
             if (sid === activeSid) startNewConversation();
           })

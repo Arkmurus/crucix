@@ -536,6 +536,8 @@ class ThinkRequest(BaseModel):
     question: str
     context: dict | None = None
     fast: bool = False
+    session_id: str = ""   # R-F2316 — persist the deep-analysis turn to this conversation
+    user_id: str = ""      # R-F2316 — proxy-pinned owner (stableUserId); never trusted raw from client
 
 class FactRequest(BaseModel):
     topic: str
@@ -10968,6 +10970,33 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
 
 
 # 19. POST /api/aria/think
+def _think_result_to_history_text(result) -> str:
+    """R-F2316 — flatten a /think structured result into the plain-text form stored
+    in conversation history. Mirrors the aria.html deep-analysis renderer so a
+    persisted deep-analysis turn reads the same on reload as it did live."""
+    if not isinstance(result, dict):
+        return str(result or "")
+    concl = result.get("conclusion") or {}
+    if concl.get("statement"):
+        parts = []
+        if result.get("orientation"):
+            parts.append("## Orientation\n" + str(result["orientation"]))
+        parts.append("## Conclusion\n" + str(concl["statement"]))
+        if concl.get("confidence"):
+            parts.append("**Confidence:** %s%% (%s)" % (
+                concl["confidence"], concl.get("epistemic_status") or "ASSESSED"))
+        if result.get("reasoning"):
+            parts.append("## Reasoning\n" + str(result["reasoning"]))
+        action = concl.get("action") or {}
+        if action.get("what"):
+            parts.append("## Recommended Action\n" + str(action["what"]))
+        meta = result.get("metacognition") or {}
+        if meta.get("biggest_gap"):
+            parts.append("**Knowledge gap:** " + str(meta["biggest_gap"]))
+        return "\n\n".join(parts)
+    return str(result.get("full_text") or result.get("response") or "")
+
+
 @router.post("/think")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def think_ep(req: ThinkRequest, request: Request):
@@ -10978,6 +11007,31 @@ async def think_ep(req: ThinkRequest, request: Request):
     # Attribute /think LLM calls so they don't land in `uncategorized`.
     with cost_tracker.feature("think"):
         result = await aria_think(req.question, req.context, llm, intel)
+    # R-F2316 — persist the deep-analysis turn so it SURVIVES A REFRESH. The chat
+    # (/chat/stream) persists via _save_session + conversation_store; /think never did,
+    # so "Deep analysis" turns silently vanished on reload (the sidebar even showed a
+    # false client-only row). Fully additive: no-op unless the proxy supplied both a
+    # session_id and a server-pinned user_id.
+    try:
+        if req.session_id and req.user_id:
+            from ..aria_engine import _get_session, _save_session, MAX_TURNS
+            from ..intel import conversation_store
+            _reply = _think_result_to_history_text(result)
+            session = await _get_session(req.session_id)
+            session.setdefault("userId", req.user_id)
+            history = session.get("messages") or []
+            history.append({"role": "user", "content": req.question})
+            history.append({"role": "aria", "content": _reply})
+            session["messages"] = history[-MAX_TURNS * 2:]
+            session["updatedAt"] = time.time()
+            await _save_session(req.session_id, session)
+            if len(history) <= 2:
+                await conversation_store.create_conversation(
+                    req.user_id, req.session_id, req.question)
+            else:
+                await conversation_store.touch_conversation(req.session_id, req.user_id)
+    except Exception as _e:
+        logger.debug("think persist failed (non-fatal): %s", _e)
     return result
 
 

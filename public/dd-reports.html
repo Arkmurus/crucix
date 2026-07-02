@@ -1358,7 +1358,11 @@ function openRunFromUrl() {
     if (!run) return;
     var sel = (window.CSS && CSS.escape) ? CSS.escape(run) : run.replace(/"/g, '\\"');
     var row = document.querySelector('.dd-row[data-run-id="' + sel + '"]');
-    if (row) { toggleDetail(row, run); row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    if (row) { toggleDetail(row, run); row.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    // R-F2316 — the run isn't in the loaded top-100 (older, aged out, or a shared
+    // report). Previously this no-op'd silently (chat's "View full report" appeared
+    // to do nothing). Tell the user instead of leaving them on a dead click.
+    if (window.Toast) Toast.show('That report isn’t in your current list — search the company name to open it.', 'info');
   } catch (e) { /* best-effort deep-link */ }
 }
 loadReports().then(openRunFromUrl);
