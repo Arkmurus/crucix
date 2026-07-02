@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2315,
+  "next_available": 2316,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17437,6 +17437,16 @@
       "r_number": "R-F2314",
       "title": "landing+billing: restore original tiers (Essentials £79 / Pro Intel £199 / Enterprise) + Free tier; align account/billing (tiers.mjs + account.html £) to match",
       "claimed_at": "2026-07-02T13:32:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3afe8829",
+      "notes": null,
+      "shipped_at": "2026-07-02T13:38:00Z"
+    },
+    {
+      "r_number": "R-F2315",
+      "title": "4-step review batch 1: fix opensanctions wiring (marquee sanctions content inert in prod) + activeTenders->tenders + flash scoring + parseReply greedy country match",
+      "claimed_at": "2026-07-02T13:35:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
