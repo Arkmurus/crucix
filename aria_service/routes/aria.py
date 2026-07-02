@@ -24431,7 +24431,12 @@ async def learning_stats_ep():
         "output_harvester":  {},
         "quarantine":        {"count": 0, "items": []},
         "bright_lines":      {"total_24h": 0, "by_code": {}},
-        "sanctions_propagation": {"oems_tracked": 0},
+        # R-F2333: default shape matches sanctions_propagation.summary() (real key
+        # is oems_covered, not oems_tracked — the old default was a dead key the
+        # frontend never read, so the failure-path row silently showed 0).
+        "sanctions_propagation": {"oems_covered": 0, "by_country": {},
+                                  "regimes_tracked": [], "currencies_mapped": [],
+                                  "kind": "static_manifest"},
         "style_learner":     {},
         "pdf_deep_ingest":   {},
         "memory_backup":     {},
@@ -24501,7 +24506,7 @@ async def learning_stats_ep():
 
     async def _pdf():
         from ..intel import pdf_deep_ingest
-        return pdf_deep_ingest.summary()
+        return await pdf_deep_ingest.summary()  # R-F2333: now async (live counters)
 
     async def _memory_backup():
         from ..learning import memory_replication

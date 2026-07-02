@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2332,
+  "next_available": 2335,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17605,6 +17605,33 @@
       "r_number": "R-F2331",
       "title": "DD report structured-JSON view + evidence-rich frontend redesign (retire markdown round-trip)",
       "claimed_at": "2026-07-02T17:38:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2332",
+      "title": "coverage heatmap staleness namespace fix — unknown not stale",
+      "claimed_at": "2026-07-02T17:53:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2333",
+      "title": "wire pdf_deep_ingest activity counter + sanctions_propagation key reconcile",
+      "claimed_at": "2026-07-02T17:53:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2334",
+      "title": "autonomy surface claim_ledger sentinel + timeout-default honesty",
+      "claimed_at": "2026-07-02T17:53:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

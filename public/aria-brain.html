@@ -1470,6 +1470,12 @@ async function loadSurface() {
     memBits.push(`Redis: ${mem.redis_reachable ? '<span class="value good">up</span>' : '<span class="value bad">down</span>'}`);
     if ((mem.rag_chunks || 0) > 0) memBits.push(`RAG: ${mem.rag_chunks} chunks`);
     if ((mem.mem0_facts || 0) > 0) memBits.push(`mem0: ${mem.mem0_facts} facts`);
+    // R-F2334: claim-ledger — honest availability (count deliberately not probed).
+    if (mem.claim_ledger_entries != null) {
+      memBits.push(`claim-ledger: ${mem.claim_ledger_entries}`);
+    } else if (mem.claim_ledger_available) {
+      memBits.push('claim-ledger: available');
+    }
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Memory — ${memBits.join(' · ')}</div>`;
     html += '</div>';
   }
@@ -1639,7 +1645,8 @@ async function loadLearning() {
       .join(', ');
     html += `<div style="margin-top:4px;font-size:0.8em;color:#c2410c">Open: ${openIds}</div>`;
   }
-  html += metricRow('Sanctions OEMs tracked', sx.oems_covered ?? 0, 'good');
+  // R-F2333: honest label — this is a static coverage manifest, not a live counter.
+  html += metricRow('Sanctions OEMs (coverage manifest)', sx.oems_covered ?? 0, 'good');
   const sl = d.style_learner || {};
   html += metricRow('Style exemplars', sl.total_exemplars ?? 0,
                     (sl.total_exemplars ?? 0) > 5 ? 'good' : 'neutral');
@@ -1650,6 +1657,19 @@ async function loadLearning() {
       .map(([k,v]) => `${k}:${v}`)
       .join(' · ');
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Styles: ${topTopics}</div>`;
+  }
+  // R-F2333: PDF deep-ingest live activity (was a DARK panel — no counter existed).
+  const pdf = d.pdf_deep_ingest || {};
+  if (pdf.total_ingests != null) {
+    const pdfN = pdf.total_ingests || 0;
+    html += metricRow('PDFs deep-ingested', pdfN, pdfN > 0 ? 'good' : 'neutral');
+    if (pdfN > 0) {
+      html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">`
+            + `${pdf.chunks_ingested || 0} chunks · ${pdf.pages_ingested || 0} pages`
+            + (pdf.failed_ingests ? ` · ${pdf.failed_ingests} failed` : '')
+            + (pdf.last_ingest_at ? ` · last ${String(pdf.last_ingest_at).slice(0,10)}` : '')
+            + `</div>`;
+    }
   }
   // Memory durability row (backup freshness + retention)
   const mb = d.memory_backup || {};
@@ -1928,9 +1948,14 @@ async function loadCoverageHeatmap() {
   scoreBadge.textContent = score;
   scoreBadge.className = 'badge ' + scoreClass(d.coverage_score || 0);
   const summary = d.summary || {};
+  // R-F2332: stale = KNOWN-stale only; disclose unknown-freshness cells separately
+  // instead of the old "100% stale" artifact from the domain-namespace divergence.
+  const unkCells = summary.staleness_unknown_cells || 0;
   sumEl.innerHTML = `${summary.cells || 0} cells · ${summary.deep_cells || 0} deep · `
                   + `${summary.gap_count || 0} absent (${summary.gap_pct || 0}%) · `
-                  + `${summary.stale_cells || 0} stale${d.from_cache ? ' · cached' : ''}`;
+                  + `${summary.stale_cells || 0} stale`
+                  + (unkCells ? ` · ${unkCells} freshness unknown` : '')
+                  + `${d.from_cache ? ' · cached' : ''}`;
 
   // Get priority targets for highlighting
   let priorityKeys = new Set();
@@ -1982,7 +2007,8 @@ async function loadCoverageHeatmap() {
         `tier: ${cell.tier}`,
         `facts: ${cell.fact_count || 0}`,
         `signals: ${cell.signal_count || 0}`,
-        cell.is_stale ? 'STALE' : 'fresh',
+        // R-F2332: tri-state — unknown (no freshness signal) must NOT read as "fresh".
+        cell.is_stale === true ? 'STALE' : cell.is_stale === false ? 'fresh' : 'freshness: unknown',
       ];
       html += `<td style="background:${colour};border:${border};padding:6px 3px;text-align:center;cursor:help"
                   title="${escapeHtml(titleParts.join(' · '))}">

@@ -38,6 +38,37 @@ _MAX_IMAGES_PER_PDF     = 20
 _MIN_IMAGE_AREA_PIXELS  = 40_000    # skip tiny icons / bullets
 _MAX_OCR_TIMEOUT_SEC    = 20.0
 
+# R-F2333 §21 — live activity ledger. Before this, summary() returned ONLY the
+# four tuning constants above, so the brain dashboard could never show whether a
+# single PDF had actually been deep-ingested (a DARK panel). We now record every
+# ingest (success AND failure) to state and surface real counters in summary().
+_STATS_KEY = "crucix:pdf_deep_ingest:stats"
+
+
+async def _record_ingest(out: dict[str, Any], ok: bool) -> None:
+    """Best-effort persistent activity counters. Never raises (§21 wiring must
+    not break the ingest path)."""
+    try:
+        from . import redis_store as rs
+        from datetime import datetime, timezone
+        stats = await rs.get_json(_STATS_KEY)
+        if not isinstance(stats, dict):
+            stats = {}
+        stats["total_ingests"] = int(stats.get("total_ingests", 0)) + 1
+        if ok:
+            stats["ok_ingests"] = int(stats.get("ok_ingests", 0)) + 1
+        else:
+            stats["failed_ingests"] = int(stats.get("failed_ingests", 0)) + 1
+        stats["pages_ingested"]  = int(stats.get("pages_ingested", 0))  + int(out.get("total_pages", 0) or 0)
+        stats["chunks_ingested"] = int(stats.get("chunks_ingested", 0)) + int(out.get("chunks_ingested", 0) or 0)
+        stats["images_ocrd"]     = int(stats.get("images_ocrd", 0))     + int(out.get("images_ocrd", 0) or 0)
+        stats["last_ingest_at"]  = datetime.now(timezone.utc).isoformat()
+        stats["last_filename"]   = str(out.get("filename", ""))[:200]
+        stats["last_ok"]         = bool(ok)
+        await rs.set_json(_STATS_KEY, stats, ex=180 * 86400)
+    except Exception as exc:
+        logger.debug("pdf_deep_ingest stats record failed: %s", exc)
+
 
 @fail_wire(module="pdf_deep_ingest", gap_type="file_parse")
 async def ingest_pdf_multi_page(
@@ -80,6 +111,7 @@ async def ingest_pdf_multi_page(
         wire_failure(module="pdf_deep_ingest",
                      detail="fitz (PyMuPDF) not available — cannot ingest PDF",
                      gap_type="file_parse", source="pdf_deep_ingest")
+        await _record_ingest(out, ok=False)  # R-F2333
         return out
 
     try:
@@ -89,6 +121,7 @@ async def ingest_pdf_multi_page(
         wire_failure(module="pdf_deep_ingest",
                      detail=f"PDF open failed for {filename}: {str(exc)[:160]}",
                      gap_type="file_parse", source="pdf_deep_ingest")
+        await _record_ingest(out, ok=False)  # R-F2333
         return out
 
     out["total_pages"] = doc.page_count
@@ -246,6 +279,8 @@ async def ingest_pdf_multi_page(
             gap_type="file_parse", source="pdf_deep_ingest",
         )
 
+    # R-F2333 §21 — record the completed ingest to the live activity ledger.
+    await _record_ingest(out, ok=out["chunks_ingested"] > 0)
     return out
 
 
@@ -260,11 +295,38 @@ async def _ingest_chunk(text: str, source: str, metadata: dict[str, Any]) -> Non
 
 
 @fail_wire(module="pdf_deep_ingest", gap_type="file_parse")
-def summary() -> dict[str, Any]:
-    """Capability manifest summary."""
-    return {
+async def summary() -> dict[str, Any]:
+    """Live activity + capability manifest.
+
+    R-F2333 §21: previously returned ONLY the four tuning constants, so the
+    dashboard could never tell whether any PDF had actually been ingested (DARK).
+    Now surfaces the real _STATS_KEY activity counters written by every ingest.
+    """
+    out: dict[str, Any] = {
+        # capability manifest (tuning constants)
         "min_page_text_chars":   _MIN_PAGE_TEXT_CHARS,
         "max_images_per_page":   _MAX_IMAGES_PER_PAGE,
         "max_images_per_pdf":    _MAX_IMAGES_PER_PDF,
         "min_image_area_pixels": _MIN_IMAGE_AREA_PIXELS,
+        # live activity (measured zeros are honest — no ingest has run yet)
+        "total_ingests":   0,
+        "ok_ingests":      0,
+        "failed_ingests":  0,
+        "pages_ingested":  0,
+        "chunks_ingested": 0,
+        "images_ocrd":     0,
+        "last_ingest_at":  None,
+        "last_filename":   None,
     }
+    try:
+        from . import redis_store as rs
+        stats = await rs.get_json(_STATS_KEY)
+        if isinstance(stats, dict):
+            for k in ("total_ingests", "ok_ingests", "failed_ingests",
+                      "pages_ingested", "chunks_ingested", "images_ocrd",
+                      "last_ingest_at", "last_filename"):
+                if k in stats:
+                    out[k] = stats[k]
+    except Exception as exc:
+        logger.debug("pdf_deep_ingest summary read failed: %s", exc)
+    return out

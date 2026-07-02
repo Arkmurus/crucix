@@ -370,11 +370,19 @@ def propagate(
 
 
 def summary() -> dict[str, Any]:
-    """Capability manifest summary."""
+    """Static coverage manifest.
+
+    R-F2333: `oems_covered` is a real count of the in-code OEM-sanctions manifest
+    (how many OEMs ARIA can propagate sanctions for), NOT a live-learning counter —
+    `propagate()` has no live callers, so a per-run counter would be a permanent 0
+    that implies activity where there is none. `kind` marks it honestly so the
+    dashboard labels it a manifest rather than a learning metric.
+    """
     by_country: dict[str, int] = {}
     for e in _OEM_SANCTIONS:
         by_country[e.country] = by_country.get(e.country, 0) + 1
     return {
+        "kind": "static_manifest",
         "oems_covered": len(_OEM_SANCTIONS),
         "by_country": by_country,
         "regimes_tracked": list(_REGIMES.keys()),

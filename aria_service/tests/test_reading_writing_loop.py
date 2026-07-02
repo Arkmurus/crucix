@@ -32,10 +32,14 @@ def test_spider_chunk_bumped():
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_pdf_deep_ingest_summary():
+    # R-F2333: summary() is now async (surfaces live activity counters alongside
+    # the tuning-constant manifest).
+    import asyncio
     from aria_service.intel import pdf_deep_ingest
-    s = pdf_deep_ingest.summary()
+    s = asyncio.run(pdf_deep_ingest.summary())
     for k in ("min_page_text_chars", "max_images_per_page",
-              "max_images_per_pdf", "min_image_area_pixels"):
+              "max_images_per_pdf", "min_image_area_pixels",
+              "total_ingests", "chunks_ingested", "last_ingest_at"):
         assert k in s
 
 

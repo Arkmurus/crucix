@@ -612,7 +612,14 @@ async def _build_heatmap_uncached(
                     "fact_count":          fact_count,
                     "signal_count":        signal_count,
                     "tier":                tier,
-                    "is_stale":            domain_freshness.get("is_stale", True),
+                    # R-F2332: absence of a freshness record = staleness UNKNOWN,
+                    # not stale. learning_progress tracks a DISJOINT auto-topic
+                    # namespace, so canonical heatmap domains never match a record;
+                    # the old default `True` made every cell read "STALE" and
+                    # penalised the score for phantom staleness (stale_cells==cells).
+                    # None = unknown → no penalty, disclosed via staleness_unknown_cells.
+                    "is_stale":            domain_freshness.get("is_stale"),
+                    "freshness_known":     "is_stale" in domain_freshness,
                     "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
                 }
         return m
@@ -648,13 +655,22 @@ def _compute_score(
     deep_count = 0
     gap_count = 0
     stale_count = 0
+    unknown_staleness = 0
     for d in domains:
         for j in jurisdictions:
             cell = matrix.get(d, {}).get(j) or {"tier": "absent"}
             w = tier_weights.get(cell.get("tier", "absent"), 0.0)
-            if cell.get("is_stale"):
+            # R-F2332: ONLY a known-stale cell (is_stale is True) is penalised.
+            # is_stale None = unknown (no freshness signal for this domain) → no
+            # penalty; counted separately so the summary honestly discloses that
+            # the freshness data does not cover these cells, rather than deflating
+            # the score with a phantom 0.7× on every cell.
+            stale = cell.get("is_stale")
+            if stale is True:
                 w *= 0.7
                 stale_count += 1
+            elif stale is None:
+                unknown_staleness += 1
             total += w
             n += 1
             if cell.get("tier") == "deep":
@@ -667,6 +683,7 @@ def _compute_score(
         "gap_count":   gap_count,
         "deep_cells":  deep_count,
         "stale_cells": stale_count,
+        "staleness_unknown_cells": unknown_staleness,
         "gap_pct":     round(gap_count / n * 100, 1) if n else 0,
     }
 

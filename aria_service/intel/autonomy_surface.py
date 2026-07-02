@@ -358,7 +358,10 @@ async def _resilience_floor() -> dict[str, Any]:
             "redis_reachable": False,
             "rag_chunks": 0,
             "mem0_facts": 0,
-            "claim_ledger_entries": 0,
+            # R-F2334: unmeasured on the degraded path — None (not a fake 0),
+            # available False (we could not confirm the store).
+            "claim_ledger_entries": None,
+            "claim_ledger_available": False,
         },
         "resilience_count": 0,
         "verdict": "unknown",
@@ -470,8 +473,12 @@ async def _resilience_floor() -> dict[str, Any]:
 
     # R-F772: counterparty_claim_ledger is eager-imported at module top
     # (see header), so presence is guaranteed by import time. Exact count
-    # requires iteration; skip for speed — presence is enough.
-    out["memory"]["claim_ledger_entries"] = -1  # "available, count not probed"
+    # requires a per-counterparty key scan; skip for speed — presence is enough.
+    # R-F2334: emit None + an explicit availability boolean rather than the raw
+    # `-1` sentinel, which leaked into the API payload reading like an error /
+    # negative count. None = "count not probed"; available = the store is up.
+    out["memory"]["claim_ledger_entries"] = None
+    out["memory"]["claim_ledger_available"] = True
 
     # ── Resilience count ──
     # How many independent fallback paths are available RIGHT NOW?
@@ -555,7 +562,9 @@ _DEFAULT_RESILIENCE: dict[str, Any] = {
         "redis_reachable": False,
         "rag_chunks": 0,
         "mem0_facts": 0,
-        "claim_ledger_entries": 0,
+        # R-F2334: timeout default — unmeasured, not "0 entries".
+        "claim_ledger_entries": None,
+        "claim_ledger_available": False,
     },
     "resilience_count": 0,
     "verdict": "unknown",
