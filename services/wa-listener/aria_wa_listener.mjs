@@ -39,12 +39,12 @@
  * STEP 1 — Install WhatsApp Business App on your Portuguese SIM
  *   - Download "WhatsApp Business" (free) on any phone
  *   - Register using your Portuguese number (+351 ...)
- *   - Set profile name: "ARIA — Arkmurus Intelligence"
- *   - Set profile picture (optional — ARIA logo or Arkmurus logo)
- *   - Set business description: "Arkmurus Research Intelligence Agent"
+ *   - Set profile name: "ARIA Intelligence"
+ *   - Set profile picture (optional — ARIA logo or ARIA logo)
+ *   - Set business description: "Autonomous Research Intelligence Agent"
  *
  * STEP 2 — Add ARIA to your WhatsApp group
- *   - Open your Arkmurus WhatsApp group
+ *   - Open your ARIA WhatsApp group
  *   - Group info → Add participant
  *   - Add your Portuguese number
  *   - ARIA is now a member of the group
@@ -827,7 +827,7 @@ async function _handleOcrResult(extracted, ocrResult, filename, caption, groupNa
     `1. *Document type* — what is this? (invoice / contract / tender notice / business card / screenshot / news article / chart / other)`,
     `2. *Key entities* — companies, people (with roles), countries, military units, products, contract IDs, dates, monetary values`,
     `3. *Compliance flags* — any sanctions, export control, ML category, or embargo concerns`,
-    `4. *Arkmurus relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
+    `4. *Strategic relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
     `5. *Recommended next action* — what should the team do with this information? (investigate further, screen entity, contact source, file in pipeline, ignore)`,
     // R-F1321: raised caption preview from 200 to 2000 so the LLM sees the
     // user's full instruction, not just the first sentence.
