@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2280,
+  "next_available": 2283,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17088,6 +17088,35 @@
       "r_number": "R-F2279",
       "title": "forensic thread-stack dump before state_store wedge os._exit — capture the stuck SQL op the 2026-07-02 wedge could not log",
       "claimed_at": "2026-07-02T07:47:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6b430d4d",
+      "notes": null,
+      "shipped_at": "2026-07-02T08:02:33Z"
+    },
+    {
+      "r_number": "R-F2280",
+      "title": "state_store DB size root-cause + safe reclamation (checkpoint/vacuum) — NO data deletion per infinite-memory §7",
+      "claimed_at": "2026-07-02T07:53:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "176f2a63",
+      "notes": null,
+      "shipped_at": "2026-07-02T08:25:07Z"
+    },
+    {
+      "r_number": "R-F2281",
+      "title": "remove nonsensical Entity/Severity/Version column-header strip above DD report cards",
+      "claimed_at": "2026-07-02T08:09:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2282",
+      "title": "DD verification honesty — real corroboration counting + actually invoke source_verifier (kill fake grounded_rate)",
+      "claimed_at": "2026-07-02T08:23:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
