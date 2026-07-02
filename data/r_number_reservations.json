@@ -17188,9 +17188,10 @@
       "title": "dd-reports card: move SHARED badge to the right end (verdict·version·date·SHARED)",
       "claimed_at": "2026-07-02T09:45:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "25e8bfcf",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:54:01Z"
     }
   ]
 }
