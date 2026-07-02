@@ -5708,12 +5708,11 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     # R-F393: pin the honest scope on the section the moment the
     # function fires, so a mid-flight crash still leaves the truth
     # visible to downstream consumers.
+    # R-F2282: safe default — set True only if source_verifier actually runs below.
     report.verification.independent_source_verification_run = False
     report.verification.scope_note = (
-        "Layer 3 = source triangulation + conflict detection over "
-        "Layers 1/2/4/5 outputs. Independent source verification "
-        "(URL re-fetch via source_verifier) is NOT invoked — grounded_rate "
-        "is a triangulation rate, not a URL-verified rate."
+        "Layer 3 = source triangulation + conflict detection over Layers 1/2/4/5 "
+        "outputs (scope finalised after source_verifier runs)."
     )
 
     # Count sources per material claim. A "claim" here is a distinct
@@ -5724,8 +5723,24 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
         sources_for_claim.setdefault(claim, set()).add(src)
 
     # Identity claims
-    if report.identity.sanctions_screen:
-        _add("identity:sanctions_checked", "sanctions")
+    # R-F2282: count the REAL distinct sources that back the sanctions claim.
+    # A screen queries MANY independent lists (OFAC SDN, UK OFSI, EU Consolidated,
+    # UN 1267, ICC, Interpol, OpenSanctions PEP …); the old code hard-coded ONE
+    # label ("sanctions"), so this claim could NEVER reach source_count>=2 —
+    # structurally capping grounded_rate regardless of how many lists corroborated.
+    _ss = report.identity.sanctions_screen or {}
+    if _ss:
+        _vsrc = _ss.get("verified_sources") or {}
+        # count only lists actually QUERIED (CLEAN/HIT), never UNAVAILABLE ones.
+        _checked_lists = [
+            k for k, v in _vsrc.items()
+            if isinstance(v, dict) and str(v.get("status", "")).upper() in ("CLEAN", "HIT")
+        ]
+        if _checked_lists:
+            for _lst in _checked_lists:
+                _add("identity:sanctions_checked", f"sanctions:{_lst}")
+        else:
+            _add("identity:sanctions_checked", "sanctions")
     if report.identity.directors:
         _add("identity:directors_known", "companies_house")
     if report.identity.ghost_score:
@@ -5736,8 +5751,25 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     if report.network.pep_connections:
         _add("network:pep_checked", "sanctions")
     # Compliance
-    if report.compliance.country_risk:
-        _add("compliance:country_risk_known", "risk_indices")
+    # R-F2282: country risk is corroborated by MULTIPLE independent indices
+    # (Transparency Intl CPI, Basel AML Index, FATF, World Bank WGI, OECD CRC).
+    # Count each index actually present, not a single hard-coded "risk_indices".
+    _cr = report.compliance.country_risk or {}
+    if _cr:
+        _idx_sources = {
+            "transparency_intl_cpi": _cr.get("cpi_score"),
+            "basel_aml_index": _cr.get("basel_aml"),
+            "fatf": _cr.get("fatf_status"),
+            "worldbank_wgi": _cr.get("wgi"),
+            "oecd_crc": _cr.get("oecd_crc"),
+        }
+        _present_idx = [k for k, v in _idx_sources.items()
+                        if v not in (None, "", "unknown", "n/a")]
+        if _present_idx:
+            for _k in _present_idx:
+                _add("compliance:country_risk_known", _k)
+        else:
+            _add("compliance:country_risk_known", "risk_indices")
     if report.compliance.export_control:
         _add("compliance:export_classified", "tech_classifier")
     if report.compliance.regional_bloc_requirements:
@@ -5798,13 +5830,55 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
             all_confidences.append(getattr(f, "confidence", "ASSESSED"))
     report.verification.confidence_floor = weakest_confidence(all_confidences)
 
-    # Pull in unverified claim count from source_verifier IF we have
-    # any tool_context blob to verify. The orchestrator isn't invoking
-    # source_verifier against LLM outputs (no LLM outputs yet here),
-    # so this is a structural placeholder.
     report.verification.unverified_claim_count = sum(
         1 for t in triangulated if t["source_count"] < 2
     )
+
+    # R-F2282: ACTUALLY invoke source_verifier (previously "not invoked" — a
+    # standing Phase-A honesty gap). It checks that every URL the report CITES in
+    # its findings was genuinely fetched into the evidence set (exact/domain match)
+    # — a real citation-grounding rate, not a triangulation proxy. Network-free:
+    # it only cross-references URLs already present in the report. Any finding that
+    # cites a URL absent from the fetched evidence is surfaced as unverified.
+    try:
+        from . import source_verifier as _sv
+        # tool_context = URLs ARIA actually RETRIEVED (press coverage evidence).
+        _fetched_bits: list[str] = []
+        for _e in (report.digital.press_coverage or []):
+            _u = getattr(_e, "url", None)
+            if _u:
+                _fetched_bits.append(str(_u))
+        _tool_context = "\n".join(_fetched_bits)
+        # response_text = what the report ASSERTS — findings across every layer.
+        _claim_bits: list[str] = []
+        for _section in (report.identity, report.network, report.compliance,
+                         report.digital, report.commercial_coherence):
+            for _f in (getattr(_section, "findings", []) or []):
+                _claim_bits.append(getattr(_f, "detail", "") or "")
+                _claim_bits.append(getattr(_f, "source", "") or "")
+        _response_text = "\n".join(b for b in _claim_bits if b)
+        _sv_res = _sv.verify_response(_response_text, _tool_context)
+        report.verification.independent_source_verification_run = True
+        report.verification.citation_grounding_rate = _sv_res.get("grounded_rate")
+        report.verification.citation_verdict = _sv_res.get("verdict") or ""
+        report.verification.citations_checked = len(_sv_res.get("cited_urls") or [])
+        report.verification.citations_grounded = len(_sv_res.get("grounded") or [])
+        report.verification.scope_note = (
+            "Layer 3 = (a) source triangulation: grounded_rate = fraction of "
+            "material claims backed by >=2 independent sources (real per-list "
+            "sanctions + per-index country-risk counting, R-F2282); (b) independent "
+            "citation grounding via source_verifier: citation_grounding_rate = "
+            "fraction of URLs cited in the report's findings that were actually "
+            "retrieved into the evidence set."
+        )
+    except Exception as _sv_e:
+        logger.warning("[R-F2282] source_verifier grounding failed: %s", _sv_e)
+        report.verification.independent_source_verification_run = False
+        report.verification.scope_note = (
+            "Layer 3 = source triangulation + conflict detection over Layers "
+            "1/2/4/5. Independent citation grounding (source_verifier) errored "
+            "this run — grounded_rate is the triangulation source-count metric."
+        )
 
     report.verification.meta.duration_ms = int((time.time() - t0) * 1000)
     report.verification.meta.status = LayerStatus.OK.value

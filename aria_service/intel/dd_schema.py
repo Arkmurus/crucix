@@ -270,6 +270,14 @@ class VerificationSection:
     # (it is not, as of 2026-05-13; the integration is a placeholder).
     independent_source_verification_run: bool = False
     scope_note: str = ""
+    # R-F2282: real source-verifier output. citation_grounding_rate = fraction of
+    # URLs cited across the report's findings that were actually fetched into the
+    # evidence set (source_verifier.verify_response). Distinct from grounded_rate
+    # (the triangulation source-count metric). None = no inline URL citations to check.
+    citation_grounding_rate: Optional[float] = None
+    citation_verdict: str = ""
+    citations_checked: int = 0
+    citations_grounded: int = 0
 
 
 @dataclass
