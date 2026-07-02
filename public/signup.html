@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create Account — ARIA Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=8">
+  <link rel="stylesheet" href="css/aria.css?v=9">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); }
@@ -505,10 +505,26 @@
         document.getElementById('verify-error').style.display = 'block';
         return;
       }
-      // Code verified — show pending approval
+      // Code verified.
       document.getElementById('verify-screen').style.display = 'none';
       document.getElementById('pending-screen').style.display = 'block';
-      document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your email is verified. Your account is now in the admin approval queue.';
+      if (result.data && result.data.active) {
+        // R-F2327 — instant auto-approval (R-F2034): the account is ACTIVE now.
+        // Do NOT send self-serve users to a non-existent admin queue. Auto-login if
+        // a token came back, otherwise take them straight to sign in.
+        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your account is active — welcome to ARIA. Taking you in…';
+        if (result.data.token) {
+          try {
+            localStorage.setItem('crucix_token', result.data.token);
+            if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user));
+          } catch (e) {}
+          setTimeout(function(){ window.location.href = '/dashboard.html'; }, 1400);
+        } else {
+          setTimeout(function(){ window.location.href = '/signin?email=' + encodeURIComponent(window._pendingEmail || ''); }, 1800);
+        }
+      } else {
+        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your email is verified. Your account is pending review — we’ll email you the moment it’s active.';
+      }
     } catch (e) {
       btn.textContent = 'Verify Email'; btn.disabled = false;
       document.getElementById('verify-error').textContent = 'Unexpected error — please try again.';

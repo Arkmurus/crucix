@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Account & Billing — ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=8">
+  <link rel="stylesheet" href="css/aria.css?v=9">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     .acct-shell { max-width: 960px; margin: 0 auto; padding: 28px 24px 60px; }
@@ -347,13 +347,16 @@ Sidebar.init('account');
       });
       var data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        alert('Checkout failed: ' + (data.error || resp.status));
+        // R-F2327 — use the app Toast (not raw alert) at the money moment.
+        var m1 = 'Checkout failed: ' + (data.error || resp.status);
+        (typeof Toast !== 'undefined') ? Toast.show(m1, 'error', 6000) : alert(m1);
         btn.disabled = false; btn.textContent = orig;
         return;
       }
       window.location.href = data.url;
     } catch (err) {
-      alert('Checkout error: ' + err.message);
+      var m2 = 'Checkout error: ' + err.message;
+      (typeof Toast !== 'undefined') ? Toast.show(m2, 'error', 6000) : alert(m2);
       btn.disabled = false; btn.textContent = orig;
     }
   }

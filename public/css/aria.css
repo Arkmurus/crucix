@@ -698,11 +698,25 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
   #app-header { left: 0; }
   /* On mobile, collapse class must not push the sidebar further off-screen */
   body.sidebar-collapsed #app-main { margin-left: 0; }
+  /* R-F2327 — the sidebar is off-canvas on mobile, so its open button MUST be
+     visible or logged-in users have no navigation (it was display:none, only
+     re-shown by body.sidebar-collapsed which is desktop-only). */
+  .header-toggle { display: flex; }
   .sidebar-overlay {
     position: fixed; inset: 0; background: rgba(15,23,42,0.4);
     z-index: 99; display: none;
   }
   .sidebar-overlay.show { display: block; }
+}
+
+/* R-F2327 — iOS Safari force-zooms (and won't zoom back) when a focused field is
+   < 16px. Bump interactive fields to 16px on phones; visual sizing stays via
+   padding. */
+@media (max-width: 640px){
+  input, select, textarea,
+  .sc-field input, .sc-field select, .sc-field textarea,
+  .sc-mod-field input, .sc-mod-field select, .sc-mod-field textarea,
+  #chat-input { font-size: 16px; }
 }
 
 /* ── Status dot ───────────────────────────────────────────────────── */
