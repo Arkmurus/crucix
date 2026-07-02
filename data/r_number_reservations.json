@@ -17567,9 +17567,10 @@
       "title": "conversion-flow fixes: signup active-user screen (not fake admin-queue) + checkout alert->toast + pricing tier param",
       "claimed_at": "2026-07-02T16:41:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d5e271f1",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:46:36Z"
     },
     {
       "r_number": "R-F2328",

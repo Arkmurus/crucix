@@ -64,7 +64,8 @@ def test_findings_severities_and_never_false_clean():
     unknown = {"data_available": False, "summary": "no public financials", "health_verdict": "UNKNOWN"}
     fs = fh.financial_health_findings(unknown)
     assert fs and all(f["severity"] in valid for f in fs)
-    assert "not publicly filed" in fs[0]["title"].lower()   # honest — not a clean bill
+    assert "no us-listed" in fs[0]["title"].lower()   # honest, source-scoped — not a clean bill
+    assert "info" == fs[0]["severity"]                # UNKNOWN is never a positive/clean verdict
     distress = {"data_available": True, "health_verdict": "DISTRESSED", "summary": "bad",
                 "distress_flags": ["negative shareholders' equity"]}
     sev = [f["severity"] for f in fh.financial_health_findings(distress)]
@@ -196,3 +197,58 @@ async def test_instant_balance_sheet_tag_not_duration_filtered(monkeypatch):
     r = await fh._assess_sec_edgar("Instant Co")
     assert r["financials"]["2023"]["assets"] == 2000    # instant kept despite 0-day start
     assert r["financials"]["2023"]["revenue"] == 1000
+
+
+@pytest.mark.asyncio
+async def test_income_only_data_is_unknown_not_stable(monkeypatch):
+    """R-F2328 (review #2): income-statement data with NO balance sheet cannot yield a
+    solvency signal (Altman / leverage / liquidity), so a POSITIVE verdict is impossible —
+    the result must be an honest UNKNOWN (data_available False), never STABLE/STRONG."""
+    async def fake_resolve(name): return ("0000000123", "Income Only Co")
+    async def fake_facts(cik):
+        return {"cik": 123, "entityName": "Income Only Co", "facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [
+                {"start": "2023-01-01", "end": "2023-12-31", "val": 5000, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+            # positive net income (no loss flag), and NO Assets/Liabilities/Equity at all
+            "NetIncomeLoss": {"units": {"USD": [
+                {"start": "2023-01-01", "end": "2023-12-31", "val": 400, "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01"}]}},
+        }}}
+    monkeypatch.setattr(fh, "_resolve_cik", fake_resolve)
+    monkeypatch.setattr(fh, "_fetch_company_facts", fake_facts)
+    r = await fh._assess_sec_edgar("Income Only Co")
+    assert r["health_verdict"] == "UNKNOWN"          # NOT "STABLE" on thin data
+    assert r["data_available"] is False
+    assert r.get("partial_financials")               # figures retained, but honestly UNKNOWN
+    assert "not a clean" in r["summary"].lower()
+
+
+@pytest.mark.asyncio
+async def test_cik_single_token_low_similarity_rejected(monkeypatch):
+    """R-F2328 (review #3): a candidate sharing ONE token but with fuzzy similarity below
+    0.92 must NOT resolve — attaching the wrong company's financials is a decision-grade
+    safety error. `_resolve_cik` returns None (→ honest UNKNOWN downstream)."""
+    async def fake_tickers(): return [{"title": "Zephyr Airlines", "cik_str": "0000000999"}]
+    monkeypatch.setattr(fh._sec, "_load_tickers", fake_tickers)
+    # one shared 6-char token ("zephyr") but score 0.88 (< 0.92) → rejected
+    monkeypatch.setattr(fh._common, "fuzzy_filter",
+                        lambda hits, name, **kw: [{"title": "Zephyr Airlines",
+                                                   "cik_str": "0000000999", "_match_score": 0.88}])
+    assert await fh._resolve_cik("Zephyr Dynamics") is None
+
+
+@pytest.mark.asyncio
+async def test_cik_resolves_on_strong_single_token_or_multi_token(monkeypatch):
+    """R-F2328 (review #3): the tightening must NOT over-reject — a strong single-token
+    match (≥5 chars AND sim ≥0.92) OR a two-token match still resolves correctly."""
+    async def fake_tickers(): return [{"title": "x", "cik_str": "1"}]
+    monkeypatch.setattr(fh._sec, "_load_tickers", fake_tickers)
+    # strong single token: "zephyr" (6 chars) + score 0.93 → resolves
+    monkeypatch.setattr(fh._common, "fuzzy_filter",
+                        lambda hits, name, **kw: [{"title": "Zephyr Airlines",
+                                                   "cik_str": "0000000999", "_match_score": 0.93}])
+    assert await fh._resolve_cik("Zephyr Dynamics") == ("0000000999", "Zephyr Airlines")
+    # two shared tokens ("lockheed","martin") resolve even at a lower score (0.90)
+    monkeypatch.setattr(fh._common, "fuzzy_filter",
+                        lambda hits, name, **kw: [{"title": "Lockheed Martin Corp",
+                                                   "cik_str": "0000000936", "_match_score": 0.90}])
+    assert await fh._resolve_cik("Lockheed Martin") == ("0000000936", "Lockheed Martin Corp")

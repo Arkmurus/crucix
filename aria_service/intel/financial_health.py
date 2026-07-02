@@ -521,9 +521,14 @@ def financial_health_findings(result: dict) -> list[dict]:
     if not result.get("data_available"):
         # Honest UNKNOWN finding — explicitly NOT a clean bill of health.
         findings.append({
-            "title": "Financial health — not publicly filed",
+            # Source-scoped (R-F2328): SEC EDGAR only covers US-listed filers, so this states
+            # "no US/SEC filings" — NOT "no financials anywhere". A non-US entity may still
+            # file with its home registry (e.g. UK Companies House, surfaced by the identity
+            # layer), so an absolute "not publicly filed" would contradict that data. Stays
+            # honestly UNKNOWN either way (never a clean bill).
+            "title": "Financial health — no US-listed (SEC EDGAR) filings",
             "detail": result.get("summary") or result.get("reason")
-                      or "No public financials available (data gap, not a clean bill).",
+                      or "No SEC/EDGAR (US-listed) financials available — UNKNOWN, not a clean bill.",
             "severity": "info",
             "source": src,
             "confidence": "CONFIRMED",
