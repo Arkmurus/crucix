@@ -44,6 +44,20 @@
   th { text-align: left; color: #6b6862; padding: 6px 8px; border-bottom: 1px solid var(--border); }
   td { padding: 6px 8px; border-bottom: 1px solid #e9e6df; }
   .heatmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
+  /* R-F2276 (2026-07-02): heatmap grids must size to their content and scroll
+     horizontally — not crush into the card width. The global `table{width:100%}`
+     (below) plus `td,th{overflow-wrap:anywhere;word-break:break-word}` (above)
+     forced the 51-column coverage grid to fit ~360px on mobile, wrapping every
+     domain label and fact-count ONE CHARACTER PER LINE ("D o m a i n"). Restore
+     natural table sizing and let the container scroll instead of char-wrapping. */
+  #heatmap, #cov-heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #heatmap table, #cov-heatmap table {
+    display: table; width: auto; max-width: none; table-layout: auto;
+  }
+  #heatmap th, #heatmap td,
+  #cov-heatmap th, #cov-heatmap td {
+    white-space: nowrap; overflow-wrap: normal; word-break: normal;
+  }
   .heat-cell { padding: 8px; border-radius: 4px; text-align: center; font-size: 0.75em; }
   .refresh-btn { background: var(--blue); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
   .refresh-btn:hover { opacity: 0.8; }
@@ -1235,7 +1249,9 @@ async function loadHeatmap() {
   const topicList = Object.keys(d.heatmap).sort();
 
   let html = '<table><tr><th></th>';
-  regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);height:80px">${r}</th>`; });
+  // R-F2276: no fixed height — with white-space:nowrap the vertical label sizes
+  // to its own length; a hard 80px clipped/overlapped long names (latam_non_lusophone).
+  regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);padding:4px 2px;vertical-align:bottom">${r}</th>`; });
   html += '</tr>';
   topicList.forEach(topic => {
     html += `<tr><td style="font-size:0.8em">${topic}</td>`;
