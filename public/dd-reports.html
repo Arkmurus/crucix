@@ -466,7 +466,7 @@
 </main>
 
 <script src="js/app.js?v=7"></script>
-<script src="js/sidebar.js?v=8"></script>
+<script src="js/sidebar.js?v=9"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('dd-reports');
@@ -1183,17 +1183,29 @@ async function loadReports(silent = false) {
     + '<div class="sc-skeleton sc-skeleton-text" style="width:90px"></div>'
     + '</div></div>').join('') + '</div>';
   try {
-    const resp = await authed('/api/aria/dd/reports?limit=100');
+    // R-F2350 — hard timeout so a hung fetch (e.g. a proxy machine swap mid-deploy) can
+    // NEVER leave the page stuck on the loading skeleton; it surfaces a retryable error.
+    const resp = await Promise.race([
+      authed('/api/aria/dd/reports?limit=100'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('request timed out')), 15000)),
+    ]);
     if (!resp.ok) {
-      if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + ').</div>';
+      if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + '). <button class="sc-btn sc-btn-sm" onclick="loadReports()">Retry</button></div>';
       return;
     }
     const data = await resp.json();
-    _allReports = data.reports || [];
+    const next = data.reports || [];
+    // R-F2350 — on a SILENT auto-refresh, skip the re-render when nothing changed (same
+    // run_ids + statuses) so the list doesn't flicker every 8s while a DD is running.
+    if (silent) {
+      const _sig = a => (a || []).map(r => (r.run_id || '') + ':' + (r.status || 'done')).join('|');
+      if (_sig(next) === _sig(_allReports)) { _allReports = next; scheduleRunningRefresh(); return; }
+    }
+    _allReports = next;
     applySearch();
     scheduleRunningRefresh();       // keep the list live while anything is running
   } catch (err) {
-    if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Network error: ' + escText(err.message) + '</div>';
+    if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Could not load reports (' + escText(err.message) + '). <button class="sc-btn sc-btn-sm" onclick="loadReports()">Retry</button></div>';
   }
 }
 

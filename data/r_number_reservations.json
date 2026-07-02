@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2349,
+  "next_available": 2351,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17727,9 +17727,10 @@
       "title": "report-index atomicity: lock+fresh-read all index mutations (no concurrent clobber) + mark_dd_failed UPSERT (fast-fail always shows Failed)",
       "claimed_at": "2026-07-02T21:41:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80528664",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:08:23Z"
     },
     {
       "r_number": "R-F2344",
@@ -17754,9 +17755,10 @@
       "title": "financial-footprint search: drop memory:// + non-http + entity-irrelevant results (garbage financial references bug)",
       "claimed_at": "2026-07-02T21:52:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "799f8ff7",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:08:23Z"
     },
     {
       "r_number": "R-F2347",
@@ -17771,6 +17773,24 @@
       "r_number": "R-F2348",
       "title": "Network socket.io: connect to app host on apex/proxy domains (imaria.io 308s /socket.io)",
       "claimed_at": "2026-07-02T22:06:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2349",
+      "title": "profile photo upload — main profile avatar feeds Network roster (shared source)",
+      "claimed_at": "2026-07-02T22:14:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2350",
+      "title": "dd-reports self-refresh: no-flicker (only re-render when run_id/status changed) — fixes list glitch while a DD runs",
+      "claimed_at": "2026-07-02T22:18:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
