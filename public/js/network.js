@@ -4,9 +4,16 @@
 (function () {
   'use strict';
 
-  const me = (window.Auth && Auth.user()) || {};
-  const myId = me.id || me.userId || null;
-  const myName = me.fullName || me.username || 'You';
+  // R-F2354 — resolve the signed-in user RELIABLY. `Auth` is a const global (NOT
+  // window.Auth) and Auth.user is a property (not a method); the previous
+  // `window.Auth && Auth.user()` silently short-circuited to {} → myId null →
+  // boot() aborted before wiring ANY button. Read the cache directly.
+  let me = (function () {
+    try { if (typeof Auth !== 'undefined' && Auth.user && typeof Auth.user === 'object') return Auth.user; } catch (e) {}
+    try { return JSON.parse(localStorage.getItem('crucix_user') || '{}'); } catch (e) { return {}; }
+  })();
+  let myId = me.id || me.userId || null;
+  let myName = me.fullName || me.username || 'You';
 
   let socket = null;
   let members = [];              // opt-in directory (other users)
@@ -425,7 +432,7 @@
         const cu = JSON.parse(localStorage.getItem('crucix_user') || '{}');
         cu.avatarUrl = myAvatarUrl; cu.avatarUpdatedAt = new Date().toISOString();
         localStorage.setItem('crucix_user', JSON.stringify(cu));
-        if (window.Auth) Auth.user = cu;
+        if (typeof Auth !== 'undefined') Auth.user = cu;
       } catch {}
       renderSelf();
       flashStatus('Photo updated ✓');
@@ -485,12 +492,25 @@
   }
 
   // ---------- boot ----------
-  function boot() {
-    if (!myId) { console.error('[network] no authenticated user'); return; }
+  async function boot() {
+    // R-F2354 — if the cache wasn't ready, recover from /me before giving up
+    // (never silently die → dead buttons). Only redirect if truly unauthenticated.
+    if (!myId && typeof Auth !== 'undefined' && Auth.me) {
+      try {
+        const u = await Auth.me();
+        if (u) { me = u; myId = u.id || u.userId || null; myName = u.fullName || u.username || 'You'; myAvatarUrl = u.avatarUrl || null; }
+      } catch (e) {}
+    }
+    if (!myId) {
+      console.error('[network] no authenticated user — redirecting to sign in');
+      if (typeof Auth !== 'undefined' && Auth.requireAuth) Auth.requireAuth();
+      else location.href = '/signin.html';
+      return;
+    }
     userInfo.set(ARIA.id, ARIA);   // ARIA renders by name in header / typing / previews
     renderSelf();
     // R-F2349 — refresh my photo from the authoritative /me (localStorage may be stale).
-    if (window.Auth && Auth.me) {
+    if (typeof Auth !== 'undefined' && Auth.me) {
       Auth.me().then(u => { if (u) { myAvatarUrl = u.avatarUrl || null; renderSelf(); } }).catch(() => {});
     }
     wireDom();

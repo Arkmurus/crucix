@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2354,
+  "next_available": 2355,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17737,18 +17737,20 @@
       "title": "network routes: localhost-bypass req.user guard",
       "claimed_at": "2026-07-02T21:42:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b8dfc65d",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:09Z"
     },
     {
       "r_number": "R-F2345",
       "title": "ARIA-in-channel: DM ARIA inside the Network tab (brain routing + screening in-thread)",
       "claimed_at": "2026-07-02T21:42:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b8dfc65d",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:09Z"
     },
     {
       "r_number": "R-F2346",
@@ -17765,59 +17767,75 @@
       "title": "landing pipeline: fix missing Deception icon (bi-incognito not in font → bi-mask)",
       "claimed_at": "2026-07-02T21:59:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b8dc0c5",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:09Z"
     },
     {
       "r_number": "R-F2348",
       "title": "Network socket.io: connect to app host on apex/proxy domains (imaria.io 308s /socket.io)",
       "claimed_at": "2026-07-02T22:06:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b8dc0c5",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:10Z"
     },
     {
       "r_number": "R-F2349",
       "title": "profile photo upload — main profile avatar feeds Network roster (shared source)",
       "claimed_at": "2026-07-02T22:14:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c6285050",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:10Z"
     },
     {
       "r_number": "R-F2350",
       "title": "dd-reports self-refresh: no-flicker (only re-render when run_id/status changed) — fixes list glitch while a DD runs",
       "claimed_at": "2026-07-02T22:18:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2c8bac5f",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:41:15Z"
     },
     {
       "r_number": "R-F2351",
       "title": "dd-reports row-action buttons: icon-only loading (no text overflow) + highlighted pressed/loading/success states + press feedback",
       "claimed_at": "2026-07-02T22:25:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "23a997fb",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:41:15Z"
     },
     {
       "r_number": "R-F2352",
       "title": "DD orchestrate: normalize entity_type->type so re-run (sends entity_type) doesnt fast-fail R-F659 (re-run was broken)",
       "claimed_at": "2026-07-02T22:28:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "23a997fb",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:41:16Z"
     },
     {
       "r_number": "R-F2353",
       "title": "Network: clear feedback when presence is activated (empty-state reflects online)",
       "claimed_at": "2026-07-02T22:34:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "026c2434",
+      "notes": null,
+      "shipped_at": "2026-07-02T22:38:10Z"
+    },
+    {
+      "r_number": "R-F2354",
+      "title": "Network buttons dead — window.Auth const-global bug aborted boot before wireDom",
+      "claimed_at": "2026-07-02T22:46:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
