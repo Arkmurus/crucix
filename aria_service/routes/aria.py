@@ -1245,10 +1245,19 @@ async def dd_health_ep():
     }
 
 
-@router.get("/dd/layer-5c/stats")
+@router.get("/dd/layer-5c/digital-stats")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_layer_5c_stats_ep(limit: int = 200):
+async def dd_layer_5c_digital_stats_ep(limit: int = 200):
     """R-F1506: Layer 5C (digital footprint) stats for the brain command center.
+
+    R-F2278 (2026-07-02): renamed from `/dd/layer-5c/stats` (fn was
+    `dd_layer_5c_stats_ep`) — it COLLIDED with the commercial-coherence handler
+    of the same path/name defined earlier (line ~1112). FastAPI served that
+    earlier handler, so this digital-footprint variant was dead code. The live
+    consumer (aria-brain.html loadLayer5c → by_tier/runs_scanned) reads the
+    commercial-coherence shape, so THAT one keeps the canonical path; this
+    variant is renamed to preserve it without shadowing. No live consumer read
+    this path.
 
     Returns aggregate stats about digital-layer DD runs: how many entities
     have been scanned, how many have web presence data, certificate transparency
@@ -3837,56 +3846,28 @@ async def proactive_alerts_stats_ep():
     return await proactive.get_alert_stats()
 
 
-# ── R-F2150: Brain stats + health/perf + lead-hunt for the web app proxy chain ──
+# ── R-F2150 / R-F2278: web-app proxy-chain endpoints ──────────────────────────
 # The Node-tier web app (server.mjs) has _brainStubGone redirects that point
-# old /api/brain/* callers to these endpoints. Before R-F2150 they pointed to
-# routes that didn't exist on the brain, so every redirect returned 404/503.
-
-
-@router.get("/brain/stats")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def brain_stats_ep():
-    """R-F2150 — lightweight brain stats for the web app dashboard.
-
-    Replaces the old Node-tier /api/brain/brief and /api/brain/history
-    endpoints (deprecated R-F382). Returns a minimal stats snapshot that
-    the web app's _brainStubGone redirects point to.
-    """
-    try:
-        from ..intel import redis_store as rs
-        rag_stats = {}
-        try:
-            from ..intel.rag_store import get_stats as _rag_stats
-            rag_stats = await _rag_stats()
-        except Exception:
-            pass
-        return {
-            "status": "ok",
-            "rag_documents": rag_stats.get("documents_indexed", 0) if rag_stats else 0,
-            "rag_facts": rag_stats.get("facts_indexed", 0) if rag_stats else 0,
-            "rag_chunks": rag_stats.get("total_chunks", 0) if rag_stats else 0,
-        }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-
-@router.get("/health/perf")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def health_perf_ep():
-    """R-F2150 — lightweight performance health for the web app.
-
-    Replaces the old Node-tier /api/brain/status endpoint (deprecated R-F382).
-    Returns only the bare minimum — no auth, no heavy computation.
-    """
-    try:
-        from ..intel import redis_store as rs
-        return {
-            "status": "ok",
-            "state_backend": "sqlite",
-            "state_backend_reachable": True,
-        }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+# old /api/brain/* callers to these endpoints.
+#
+# R-F2278 (2026-07-02): the R-F2150 `/brain/stats` and `/health/perf` STUBS that
+# used to live here were DELETED. Both silently SHADOWED the canonical handlers
+# defined later in this file — FastAPI serves the FIRST-registered route for a
+# given (method, path), so these stubs won and the real handlers were dead:
+#   - /brain/stats  → canonical is brain_hook.get_stats() (line ~14938): per-module
+#     signal counts + total_signals + _by_sector + composite_score. jarvis.html,
+#     sources.html (sector table) and the WA /brief command all read THOSE fields;
+#     the stub returned only rag_* counts, so every consumer silently got the
+#     wrong shape (0 signals / empty sector table).
+#   - /health/perf  → canonical is the R-F396 self-introspection endpoint (line
+#     ~22757): inventory / retention / autonomy / cross_tier. The stub returned a
+#     hardcoded {status:"ok"} that also broke 20 R-F396/F400/F974 source-scan tests
+#     (they text-scan the FIRST `health_perf_ep`, which was the stub).
+# The direct-import call sites (self_introspect_guard, main.py) already resolved to
+# the full defs (Python binds the LAST def of a duplicated name), so only the HTTP
+# routes and the source-scan tests were affected — both fixed by the deletion.
+# The duplicate-route guard (aria_service/route_audit.py + test_rf2278) now fails
+# CI if any (method, path) is ever registered twice again.
 
 
 @router.get("/proactive/lead-hunt")

@@ -3629,6 +3629,18 @@ async def _limit_body_size(request, call_next):
 # Routes
 app.include_router(aria_router)
 
+# R-F2278: fail-loud (non-fatal) audit for duplicate (method, path) registrations.
+# FastAPI serves the first-registered route for a colliding path, so a second
+# handler becomes silent dead code (this shipped 3 times: R-F2150 stubs, the
+# /dd/layer-5c/stats feature collision, the /ingest shadow). The CI test
+# (test_rf2278_no_duplicate_routes) is the hard gate; this boot log makes any
+# future slip-through visible in the fly logs instead of invisible.
+try:
+    from .route_audit import log_duplicate_routes as _log_dup_routes
+    _log_dup_routes(app)
+except Exception:  # pragma: no cover - never let the audit break boot
+    pass
+
 # R-F1241: Serve static files (ARIA demo page) + public demo endpoint
 import os as _static_os
 _static_dir = _static_os.path.join(_static_os.path.dirname(__file__), "static")
