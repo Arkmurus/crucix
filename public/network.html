@@ -39,6 +39,35 @@
   .net-self .st{font-size:11.5px;font-family:'SF Mono',Consolas,monospace;margin-top:2px;}
   .net-self .st.on{color:var(--n-on);}
   .net-self .st.off{color:var(--n-muted);}
+  /* R-F2356 — click-to-edit profile affordance + modal */
+  .net-name-row{display:inline-flex;align-items:center;gap:6px;cursor:pointer;max-width:100%;}
+  .net-name-row #self-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .net-edit-ico{font-size:10px;color:var(--n-faint);opacity:0;transition:opacity .15s;flex:0 0 auto;}
+  .net-name-row:hover .net-edit-ico,.net-name-row:focus-visible .net-edit-ico{opacity:1;}
+  .net-name-row:focus-visible{outline:2px solid var(--n-prime);outline-offset:2px;border-radius:4px;}
+  .pm-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(31,30,28,.45);
+    align-items:center;justify-content:center;padding:24px;}
+  .pm-overlay.open{display:flex;}
+  .pm-card{background:var(--n-panel);border:1px solid var(--n-line);border-radius:16px;width:100%;
+    max-width:460px;box-shadow:0 24px 60px -20px rgba(31,25,40,.4);overflow:hidden;
+    max-height:calc(100vh - 48px);display:flex;flex-direction:column;}
+  .pm-head{display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid var(--n-line);}
+  .pm-head h3{margin:0;font-size:17px;font-weight:700;color:var(--n-ink);letter-spacing:-.01em;}
+  .pm-head .pm-x{margin-left:auto;background:none;border:none;color:var(--n-muted);font-size:20px;cursor:pointer;line-height:1;}
+  .pm-body{padding:18px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;}
+  .pm-field label{display:block;font-size:12px;font-weight:600;color:var(--n-muted);margin-bottom:6px;
+    letter-spacing:.02em;text-transform:uppercase;}
+  .pm-field input,.pm-field select{width:100%;border:1px solid var(--n-line2);border-radius:9px;
+    padding:10px 13px;font:14px/1.4 inherit;font-family:inherit;color:var(--n-ink);background:var(--n-panel2);outline:none;}
+  .pm-field input:focus,.pm-field select:focus{border-color:var(--n-prime);box-shadow:0 0 0 3px var(--n-prime-soft);background:#fff;}
+  .pm-two{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .pm-msg{font-size:12.5px;min-height:16px;}
+  .pm-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--n-line);}
+  .pm-btn{border-radius:9px;padding:10px 18px;font:600 13.5px/1 inherit;font-family:inherit;cursor:pointer;border:1px solid var(--n-line2);}
+  .pm-btn.ghost{background:#fff;color:var(--n-body);}
+  .pm-btn.primary{background:var(--n-grad);color:#fff;border:none;}
+  .pm-btn:disabled{opacity:.5;cursor:default;}
+  @media (max-width:520px){.pm-two{grid-template-columns:1fr;}}
   .toggle{width:42px;height:24px;border-radius:100px;background:var(--n-line2);
     position:relative;cursor:pointer;flex:0 0 auto;transition:background .18s;border:none;padding:0;}
   .toggle[aria-checked="true"]{background:var(--n-on);}
@@ -174,7 +203,10 @@
           <span class="net-av-cam"><i class="bi bi-camera-fill"></i></span>
         </div>
         <div class="bd">
-          <div class="nm" id="self-name">You</div>
+          <!-- R-F2356 — click the name to edit your profile -->
+          <div class="nm net-name-row" id="self-name-row" role="button" tabindex="0" title="Edit your profile">
+            <span id="self-name">You</span><i class="bi bi-pencil-fill net-edit-ico" aria-hidden="true"></i>
+          </div>
           <div class="st off" id="self-status">Presence off</div>
         </div>
         <button class="toggle" id="self-toggle" role="switch" aria-checked="false"
@@ -222,7 +254,56 @@
   </div>
 </main>
 
+<!-- R-F2356 — Edit profile modal (fields feed the roster + sidebar) -->
+<div class="pm-overlay" id="pm-overlay" role="dialog" aria-modal="true" aria-labelledby="pm-title">
+  <div class="pm-card">
+    <div class="pm-head">
+      <h3 id="pm-title">Edit profile</h3>
+      <button class="pm-x" id="pm-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pm-body">
+      <div class="pm-field">
+        <label for="pm-fullName">Display name</label>
+        <input type="text" id="pm-fullName" maxlength="120" autocomplete="name" placeholder="Your name">
+      </div>
+      <div class="pm-field">
+        <label for="pm-jobTitle">Job title</label>
+        <input type="text" id="pm-jobTitle" maxlength="120" placeholder="e.g. Compliance Analyst">
+      </div>
+      <div class="pm-two">
+        <div class="pm-field">
+          <label for="pm-companyName">Company</label>
+          <input type="text" id="pm-companyName" maxlength="200" placeholder="Your organisation">
+        </div>
+        <div class="pm-field">
+          <label for="pm-companyCountry">Country</label>
+          <input type="text" id="pm-companyCountry" maxlength="80" placeholder="e.g. United Kingdom">
+        </div>
+      </div>
+      <div class="pm-field">
+        <label for="pm-sector">Sector</label>
+        <select id="pm-sector">
+          <option value="">— select —</option>
+          <option value="defence_broker">Defence broker / dealer / agent</option>
+          <option value="oem_export">OEM (defence manufacturer)</option>
+          <option value="government_acquisition">Government / acquisition / intel</option>
+          <option value="compliance_consultancy">Compliance / export-control consultancy</option>
+          <option value="banking_insurance">Banking / insurance (defence accounts)</option>
+          <option value="research">Research / academic / NGO</option>
+          <option value="journalism">Defence journalism</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="pm-msg" id="pm-msg" role="status" aria-live="polite"></div>
+    </div>
+    <div class="pm-foot">
+      <button class="pm-btn ghost" id="pm-cancel">Cancel</button>
+      <button class="pm-btn primary" id="pm-save">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
-<script src="js/network.js?v=6"></script>
+<script src="js/network.js?v=7"></script>
 </body>
 </html>

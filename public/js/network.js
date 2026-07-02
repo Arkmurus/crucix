@@ -439,6 +439,54 @@
     } catch (e) { flashStatus('Could not process that image', true); }
   }
 
+  // ---------- edit profile (R-F2356) ----------
+  function openProfileModal() {
+    const ov = $('pm-overlay'); if (!ov) return;
+    $('pm-fullName').value      = me.fullName || '';
+    $('pm-jobTitle').value      = me.jobTitle || '';
+    $('pm-companyName').value   = me.companyName || '';
+    $('pm-companyCountry').value = me.companyCountry || '';
+    $('pm-sector').value        = me.sector || '';
+    const msg = $('pm-msg'); msg.textContent = ''; msg.style.color = '';
+    ov.classList.add('open');
+    setTimeout(() => $('pm-fullName').focus(), 40);
+  }
+  function closeProfileModal() { const ov = $('pm-overlay'); if (ov) ov.classList.remove('open'); }
+  async function saveProfile() {
+    const btn = $('pm-save'), msg = $('pm-msg');
+    const body = {
+      fullName:       $('pm-fullName').value.trim(),
+      jobTitle:       $('pm-jobTitle').value.trim(),
+      companyName:    $('pm-companyName').value.trim(),
+      companyCountry: $('pm-companyCountry').value.trim(),
+      sector:         $('pm-sector').value,
+    };
+    if (!body.fullName) { msg.style.color = 'var(--n-off)'; msg.textContent = 'Display name is required.'; return; }
+    btn.disabled = true; msg.style.color = ''; msg.textContent = 'Saving…';
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token() },
+        body: JSON.stringify(body),
+      });
+      const u = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = 'var(--n-off)'; msg.textContent = u.error || 'Could not save.'; btn.disabled = false; return; }
+      // Apply the authoritative response everywhere: self card, cache, sidebar.
+      me = u; myName = u.fullName || u.username || 'You'; myAvatarUrl = u.avatarUrl || myAvatarUrl;
+      try {
+        localStorage.setItem('crucix_user', JSON.stringify(u));
+        if (typeof Auth !== 'undefined') Auth.user = u;
+      } catch (e) {}
+      renderSelf();
+      const nn = document.getElementById('nav-user-name'); if (nn) nn.textContent = myName;
+      msg.style.color = 'var(--n-on)'; msg.textContent = 'Profile updated ✓';
+      setTimeout(closeProfileModal, 750);
+    } catch (e) {
+      msg.style.color = 'var(--n-off)'; msg.textContent = 'Network error — please try again.';
+    }
+    btn.disabled = false;
+  }
+
   // ---------- events ----------
   function wireDom() {
     // segmented control
@@ -479,6 +527,19 @@
       });
       photoInput.addEventListener('change', onPhotoChange);
     }
+    // R-F2356 — click the name (pencil) to edit profile; modal controls.
+    const nameRow = $('self-name-row');
+    if (nameRow) {
+      nameRow.addEventListener('click', openProfileModal);
+      nameRow.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProfileModal(); }
+      });
+    }
+    if ($('pm-close'))  $('pm-close').addEventListener('click', closeProfileModal);
+    if ($('pm-cancel')) $('pm-cancel').addEventListener('click', closeProfileModal);
+    if ($('pm-save'))   $('pm-save').addEventListener('click', saveProfile);
+    if ($('pm-overlay')) $('pm-overlay').addEventListener('click', e => { if (e.target.id === 'pm-overlay') closeProfileModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProfileModal(); });
     $('empty-cta').addEventListener('click', async () => {
       if (!iAmVisible) await toggleVisibility();
       // nudge to members view

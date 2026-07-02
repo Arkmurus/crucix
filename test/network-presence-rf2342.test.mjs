@@ -137,6 +137,30 @@ test('R-F2349: photo upload/serve wired end to end (routes + shared source + UI)
   assert.match(sb, /user\.avatarUrl/, 'sidebar shows the same shared photo');
 });
 
+test('R-F2356: editable profile — modal wired to PUT /api/auth/profile, updates touch points', () => {
+  const html = readFileSync(new URL('../public/network.html', import.meta.url), 'utf8');
+  assert.match(html, /pm-overlay/, 'edit-profile modal present');
+  assert.match(html, /self-name-row/, 'the name is the click-to-edit trigger');
+  assert.match(html, /pm-fullName[\s\S]*pm-jobTitle[\s\S]*pm-companyName[\s\S]*pm-sector/, 'profile fields present');
+  const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
+  assert.match(js, /function openProfileModal/, 'opens the modal');
+  assert.match(js, /\/api\/auth\/profile/, 'saves to the profile endpoint');
+  assert.match(js, /method: 'PUT'/, 'via PUT');
+  assert.match(js, /nav-user-name/, 'updates the sidebar name too');
+  assert.match(js, /crucix_user/, 'updates the shared cache so every page reflects it');
+});
+
+test('R-F2356: profile field edits persist + surface via updateUser/cleanUser', () => {
+  const u = mk('prof2');
+  const upd = updateUser(u.id, { fullName: 'Jane Analyst', jobTitle: 'Compliance Lead',
+    companyName: 'Acme Defence', companyCountry: 'UK', sector: 'compliance_consultancy' });
+  assert.equal(upd.fullName, 'Jane Analyst');
+  assert.equal(upd.jobTitle, 'Compliance Lead');
+  assert.equal(upd.companyName, 'Acme Defence');
+  assert.equal(upd.sector, 'compliance_consultancy');
+  assert.equal(findUserById(u.id).jobTitle, 'Compliance Lead', 'persisted');
+});
+
 test('R-F2353: activating presence gives clear feedback (empty state reacts, CTA hides)', () => {
   const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
   assert.match(js, /function renderEmptyState/, 'has a reactive empty state');
