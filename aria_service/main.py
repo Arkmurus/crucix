@@ -829,6 +829,16 @@ async def lifespan(app: FastAPI):
     _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
     # ---- R-F2154 - background expired-entry sweeper --------------------------
     _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"))
+    # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---
+    # gated: each process owns a connection that can wedge). Recovers a hung
+    # aiosqlite thread the event-loop watchdog (R-F1417) can't see, escalating
+    # reconnect → os._exit so Fly cold-boots. Fixes the 2026-07-02 3.5h outage.
+    try:
+        from .intel import state_store as _ss_wd
+        _bg_task(asyncio.create_task(
+            _ss_wd.liveness_watchdog_loop(), name="state_store_liveness_watchdog"))
+    except Exception as _ss_wd_e:
+        logger.error("[R-F2277] could not start state_store liveness watchdog: %s", _ss_wd_e)
     # ---- R-F2149 - yield IMMEDIATELY so the server starts serving --------
     # Everything below this point is moved into a background task. The
     # previous code had ~2500 lines of boot init between here and the yield

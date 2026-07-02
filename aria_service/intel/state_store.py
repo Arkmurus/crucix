@@ -525,7 +525,13 @@ async def _reconnect() -> None:
                 pass  # dead or wedged — proceed with replacement
         if _DB_PATH is None:
             return
-        conn = await aiosqlite.connect(str(_DB_PATH))
+        # R-F2277: bound the reopen. The old code awaited aiosqlite.connect()
+        # unbounded — if the wedged OLD connection's thread holds a lock, the
+        # replacement's open (and its journal_mode=WAL replay) can block behind
+        # it, so _reconnect never returns and _reconnect_in_progress stays True
+        # forever → no further self-heal. connect() (boot) already bounds this
+        # at 30s; mirror it here so a locked DB can't hang the self-heal path.
+        conn = await asyncio.wait_for(aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
         # R-F2131/R-F2132: set busy_timeout (120s) BEFORE journal_mode=WAL.
         # R-F2131: the old 5s value caused reconnect to fail under WAL-replay
         # contention, keeping the app on the in-memory fallback indefinitely.
@@ -576,6 +582,152 @@ def _schedule_reconnect_if_dead(e: Exception) -> None:
         asyncio.get_running_loop().create_task(_reconnect())
     except Exception:
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# R-F2277 — state-store liveness watchdog (escalating self-heal)
+#
+# The 2026-07-02 3.5h outage: the single aiosqlite WRITER thread wedged (one op
+# blocked the thread — aiosqlite serialises all ops on one thread per connection,
+# and asyncio.wait_for cancels the awaiting coroutine but CANNOT interrupt the
+# running thread, so every later op queued behind it and timed out forever). The
+# event-loop watchdog (main.py R-F1417) never fired because the LOOP stayed
+# healthy — all state_store ops timed out at 5s and returned graceful defaults,
+# so the loop heartbeat kept ticking while the DB limb was dead. The reconnect
+# self-heal never fired either: it only triggers on _is_conn_dead() error strings
+# ('closed'/'cannot operate'), never on a TimeoutError. So nothing escalated to
+# the one action that recovers a lock-holding wedged thread — a process restart.
+#
+# This watchdog is that missing recovery actor. It runs PER-PROCESS (each process
+# owns a connection that can wedge — NOT election-gated), round-trips the store on
+# an interval, and on sustained unavailability escalates: first an in-process
+# _reconnect (cheap, recovers a merely-slow/closed conn), then past a hard ceiling
+# os._exit(1) so Fly cold-boots a fresh process + fresh connection. Mirrors the
+# proven R-F1417 event-loop self-restart, but for the state_store limb.
+# ─────────────────────────────────────────────────────────────────────────
+
+_ss_wd_unhealthy_since: float | None = None  # monotonic ts of first failed probe (None = healthy)
+_ss_wd_reconnect_fired: bool = False         # reconnect attempted for the current unhealthy streak
+
+
+def _ss_env_true(name: str, default: bool = True) -> bool:
+    """Env-truthy helper — default-on kill-switches read '0/false/no/off' as off."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
+def _should_restart_for_wedge(
+    unhealthy_for_s: float, armed: bool, enabled: bool, ceiling_s: float
+) -> bool:
+    """R-F2277 — decide whether the liveness watchdog should force os._exit(1)
+    (so Fly cold-boots a fresh process). Pure + module-level so the dangerous
+    exit it gates is unit-testable. True ONLY when self-restart is enabled, the
+    watchdog is armed (past the boot-settle window — never fires during the
+    ~10-min cold boot), and the store has been continuously unavailable past the
+    hard ceiling (a genuine wedge, not a transient slow op). Mirrors
+    main._should_force_restart."""
+    try:
+        return bool(enabled and armed and float(unhealthy_for_s) > float(ceiling_s))
+    except (TypeError, ValueError):
+        return False
+
+
+async def probe_liveness(timeout_s: float = 3.0) -> bool:
+    """R-F2277 — real round-trip that exercises BOTH the wedge-prone paths: a
+    write drained through the single writer thread AND a read through the pool.
+    Returns True iff the full write→flush→read completes within timeout_s. Any
+    timeout/exception → False (the store is unavailable). Never raises."""
+    key = "crucix:state_store:wd_heartbeat"
+    val = str(_now())
+    try:
+        await asyncio.wait_for(set_key(key, val, ex=120), timeout=timeout_s)
+        # Force the write through the writer thread NOW (don't wait for the
+        # 100ms background drain) — this is the exact op that wedged 2026-07-02.
+        await asyncio.wait_for(_flush_write_queue(), timeout=timeout_s)
+        got = await asyncio.wait_for(get(key), timeout=timeout_s)
+        return got == val
+    except Exception:
+        return False
+
+
+async def liveness_watchdog_loop() -> None:
+    """R-F2277 — escalating self-heal for a wedged store. Probe every interval;
+    on a sustained failure, reconnect once, then os._exit past the ceiling so
+    Fly cold-boots. Runs per-process. Gated by ARIA_STATE_STORE_WATCHDOG_ENABLED
+    (default on) and armed only after the boot-settle window."""
+    global _ss_wd_unhealthy_since, _ss_wd_reconnect_fired
+    import os as _os
+    if not _ss_env_true("ARIA_STATE_STORE_WATCHDOG_ENABLED", default=True):
+        logger.info("[R-F2277] state_store liveness watchdog DISABLED via env")
+        return
+    interval = float(_os.getenv("ARIA_SS_WATCHDOG_INTERVAL_S", "15"))
+    reconnect_after = float(_os.getenv("ARIA_SS_WATCHDOG_RECONNECT_S", "45"))
+    ceiling = float(_os.getenv("ARIA_SS_WATCHDOG_CEILING_S", "180"))
+    settle = float(_os.getenv("ARIA_SS_WATCHDOG_SETTLE_S", "120"))
+    self_restart = _ss_env_true("ARIA_SS_WATCHDOG_SELF_RESTART", default=True)
+    # Boot-settle: cold boot legitimately makes the store slow/absent for
+    # minutes (WAL replay, 907 MB hydrate) — never act during that window.
+    await asyncio.sleep(settle)
+    armed = True
+    _ss_wd_unhealthy_since = None
+    _ss_wd_reconnect_fired = False
+    logger.info(
+        "[R-F2277] state_store liveness watchdog armed "
+        "(interval=%.0fs reconnect_after=%.0fs ceiling=%.0fs self_restart=%s)",
+        interval, reconnect_after, ceiling, self_restart,
+    )
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            ok = await probe_liveness()
+            now = time.monotonic()
+            if ok:
+                if _ss_wd_unhealthy_since is not None:
+                    logger.warning(
+                        "[R-F2277] state_store RECOVERED after %.0fs unavailable",
+                        now - _ss_wd_unhealthy_since,
+                    )
+                _ss_wd_unhealthy_since = None
+                _ss_wd_reconnect_fired = False
+                continue
+            # Unavailable this tick.
+            if _ss_wd_unhealthy_since is None:
+                _ss_wd_unhealthy_since = now
+            unhealthy_for = now - _ss_wd_unhealthy_since
+            logger.warning(
+                "[R-F2277] state_store liveness probe FAILED — unavailable for %.0fs",
+                unhealthy_for,
+            )
+            # Step 1 — in-process reconnect once per streak. Fire-and-forget so a
+            # hung reopen can't block the watchdog's own escalation to os._exit.
+            if unhealthy_for >= reconnect_after and not _ss_wd_reconnect_fired:
+                _ss_wd_reconnect_fired = True
+                logger.warning("[R-F2277] attempting in-process reconnect self-heal")
+                try:
+                    asyncio.get_running_loop().create_task(_reconnect())
+                    asyncio.get_running_loop().create_task(_ensure_read_conn())
+                except Exception as _e:
+                    logger.error("[R-F2277] reconnect self-heal scheduling failed: %s", _e)
+            # Step 2 — escalate to a process restart (the only reliable recovery
+            # for a lock-holding wedged thread).
+            if _should_restart_for_wedge(unhealthy_for, armed, self_restart, ceiling):
+                logger.critical(
+                    "[R-F2277] state_store unavailable %.0fs > ceiling %.0fs — "
+                    "forcing os._exit(1) so Fly cold-boots a fresh process "
+                    "(self-recovery from a wedged aiosqlite connection)",
+                    unhealthy_for, ceiling,
+                )
+                # os._exit (not sys.exit): immediate, no atexit hooks that would
+                # themselves try to touch the wedged store. WAL is crash-consistent
+                # so an exit mid-write is safe; Fly's on-failure restart cold-boots.
+                _os._exit(1)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Watchdog must never die on an unexpected error.
+            continue
 
 
 class StateReadError(Exception):
