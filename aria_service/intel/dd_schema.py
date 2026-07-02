@@ -285,6 +285,7 @@ class ComplianceSection:
     """Layer 4 — which legal / regulatory regimes bite on this transaction?"""
     meta: SectionMeta = field(default_factory=SectionMeta)
     country_risk: dict = field(default_factory=dict)           # from risk_indices.get_country_risk
+    financial_health: dict = field(default_factory=dict)       # R-F2322 — from financial_health.assess (SEC EDGAR + search + vault)
     export_control: dict = field(default_factory=dict)         # from tech_classifier.classify_export_control
     sanctions_regimes: list[str] = field(default_factory=list)  # applicable regimes (UK/US/EU/UN)
     ihl_criterion_2_risk: Optional[str] = None                 # low | medium | high | clear

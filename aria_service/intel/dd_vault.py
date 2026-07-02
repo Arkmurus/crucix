@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS vault_meta (
     value TEXT NOT NULL
 );
 
+-- R-F2322 — multi-jurisdiction financial/company profile registry. Keyed by the
+-- same canonical_entity_id as dd_cases, but INDEPENDENT of the DD-case lifecycle so a
+-- company can be registered with value-added financial info (from SEC EDGAR, search,
+-- registries, uploaded docs — ANY jurisdiction) even without a full DD run. This is the
+-- accumulation store: pay-once-remember-forever (§15) across jurisdictions.
+CREATE TABLE IF NOT EXISTS financial_profiles (
+    canonical_entity_id TEXT PRIMARY KEY,
+    entity_name         TEXT NOT NULL DEFAULT '',
+    jurisdiction        TEXT DEFAULT '',
+    profile_json        TEXT NOT NULL DEFAULT '{}',
+    updated_at          REAL NOT NULL
+);
+
 INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('schema_version', '1');
 """
 
@@ -202,6 +215,90 @@ class DDVault:
         if row is None:
             return None
         return dict(row)
+
+    # ── R-F2322: multi-jurisdiction financial-profile registry ───────────────
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def get_financial_profile(self, canonical_entity_id: str) -> dict[str, Any] | None:
+        """Return the stored financial profile for an entity (any jurisdiction), or None.
+        Includes `updated_at` so callers can apply a freshness policy."""
+        if not canonical_entity_id:
+            return None
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM financial_profiles WHERE canonical_entity_id = ?",
+            (canonical_entity_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        rec = dict(row)
+        try:
+            profile = json.loads(rec.get("profile_json") or "{}")
+        except Exception:
+            profile = {}
+        profile["_vault_updated_at"] = rec.get("updated_at")
+        profile["_vault_entity_name"] = rec.get("entity_name")
+        profile["_vault_jurisdiction"] = rec.get("jurisdiction")
+        return profile
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def set_financial_profile(
+        self,
+        canonical_entity_id: str,
+        profile: dict[str, Any],
+        entity_name: str = "",
+        jurisdiction: str = "",
+    ) -> bool:
+        """Register/update an entity's financial profile (upsert). This is how ARIA
+        accumulates value-added multi-jurisdiction company info over time (§7/§15)."""
+        if not canonical_entity_id or not isinstance(profile, dict):
+            try:
+                wire_failure(module="dd_vault",
+                             detail="set_financial_profile rejected invalid input (no id / non-dict profile)",
+                             gap_type="engine_failure", source="dd_vault:set_financial_profile")
+            except Exception:
+                pass
+            return False
+        conn = self._get_conn()
+        now = time.time()
+        # Don't persist transient vault-echo keys back into the blob.
+        clean = {k: v for k, v in profile.items() if not k.startswith("_vault_")}
+        conn.execute(
+            """INSERT INTO financial_profiles
+                 (canonical_entity_id, entity_name, jurisdiction, profile_json, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(canonical_entity_id) DO UPDATE SET
+                 entity_name = excluded.entity_name,
+                 jurisdiction = excluded.jurisdiction,
+                 profile_json = excluded.profile_json,
+                 updated_at = excluded.updated_at""",
+            (canonical_entity_id, entity_name or clean.get("entity", ""),
+             jurisdiction, json.dumps(clean), now),
+        )
+        conn.commit()
+        try:
+            wire_success(
+                module="dd_vault",
+                summary=f"financial profile registered: {entity_name or canonical_entity_id}",
+                source_id=f"dd_vault:fin:{canonical_entity_id}",
+            )
+        except Exception:
+            pass
+        return True
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def search_financial_profiles(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Search registered financial profiles by entity name or jurisdiction."""
+        conn = self._get_conn()
+        like = f"%{query}%"
+        rows = conn.execute(
+            """SELECT canonical_entity_id, entity_name, jurisdiction, updated_at
+               FROM financial_profiles
+               WHERE entity_name LIKE ? OR jurisdiction LIKE ?
+               ORDER BY updated_at DESC LIMIT ?""",
+            (like, like, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:

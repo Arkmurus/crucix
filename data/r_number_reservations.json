@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2321,
+  "next_available": 2325,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17502,6 +17502,43 @@
       "commit_sha": "5ead1443",
       "notes": null,
       "shipped_at": "2026-07-02T14:43:46Z"
+    },
+    {
+      "r_number": "R-F2321",
+      "title": "channel cleanup: cross-day post dedup (persisted) + cron send MD->plain-text retry",
+      "claimed_at": "2026-07-02T14:45:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e6d1c4bf",
+      "notes": null,
+      "shipped_at": "2026-07-02T14:50:26Z"
+    },
+    {
+      "r_number": "R-F2322",
+      "title": "real financial-health DD: SEC EDGAR + Companies House accounts → revenue/ratios/solvency/distress, honest gaps, wired into DD financial layer",
+      "claimed_at": "2026-07-02T14:55:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2323",
+      "title": "Fix entity rail showing No active entity — backend never emits entity SSE event",
+      "claimed_at": "2026-07-02T15:43:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2324",
+      "title": "UI review fixes: close searxng public exposure + fix dead footer links (Privacy/Terms/Contact/Platform/Coverage) + global coverage labels",
+      "claimed_at": "2026-07-02T16:23:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

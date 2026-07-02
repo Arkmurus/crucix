@@ -3713,6 +3713,35 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     except Exception as _pe:
         logger.debug("Compliance: usaspending lookup failed: %s", _pe)
 
+    # ── 4a-quater. Financial health (R-F2322 — SEC EDGAR + search + vault) ──
+    # Decision-grade: is this counterparty solvent + a going concern? Structured US
+    # financials (SEC EDGAR) → ratios + Altman Z'' + distress flags; a cross-jurisdiction
+    # web-search footprint when it isn't US-listed; the merged profile is registered to the
+    # vault (pay-once, ANY jurisdiction — operator directive 2026-07-02). HONEST: UNKNOWN
+    # when no data is found anywhere — never a false clean bill of health.
+    try:
+        _fin_name = (target.get("name") or target.get("entity")
+                     or getattr(report.identity, "entity_name", "") or "").strip()
+        if len(_fin_name) >= 3:
+            from . import financial_health as _fh
+            _fin = await _fh.assess(
+                _fin_name,
+                jurisdiction_iso2=(report.identity.jurisdiction_iso2 or target.get("jurisdiction_iso2") or ""),
+                registration_number=(getattr(report.identity, "registration_number", "")
+                                     or target.get("registration_number") or ""),
+                entity_type=(target.get("type") or "company"),
+            )
+            report.compliance.financial_health = _fin
+            report.compliance.meta.subcalls += 1
+            for _f in _fh.financial_health_findings(_fin):
+                report.compliance.findings.append(Finding(**_f))
+            if not _fin.get("data_available"):
+                report.compliance.data_gaps.append(
+                    f"Financial health: {_fin.get('reason') or 'no structured financials found'} "
+                    "— UNKNOWN, not a clean result.")
+    except Exception as _fe:
+        logger.debug("Compliance: financial health failed: %s", _fe)
+
     # ── 4a-bis. Country macro overlay (quantitative — World Bank Indicators v2) ──
     # R-F160 (2026-05-10) — wires the WB Indicators v2 + Data360 adapter
     # (R-F158) into the jurisdiction_country_risk discipline (R-F152). Free
