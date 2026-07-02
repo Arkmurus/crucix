@@ -5842,21 +5842,41 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     # cites a URL absent from the fetched evidence is surfaced as unverified.
     try:
         from . import source_verifier as _sv
-        # tool_context = URLs ARIA actually RETRIEVED (press coverage evidence).
+        # R-F2286: build the fetched-evidence set from EVERY source/evidence field
+        # across ALL layers. R-F2282 used press_coverage[].url ONLY, so URLs ARIA
+        # genuinely consulted (registry, cert-transparency, GLEIF, RAG hits …)
+        # looked "ungrounded" and citation_grounding_rate under-reported to ~0 — a
+        # FALSE NEGATIVE, itself a Phase-A honesty bug. response_text = the report's
+        # prose claims (finding `detail`); tool_context = every consulted URL
+        # (finding `source`/`sources`, evidence `url`/`snippet`/`link`, anywhere in
+        # the report). verify_response.extract_urls filters non-URL strings, so
+        # dumping source labels ("companies_house") is harmless.
+        _cited_bits: list[str] = []
         _fetched_bits: list[str] = []
-        for _e in (report.digital.press_coverage or []):
-            _u = getattr(_e, "url", None)
-            if _u:
-                _fetched_bits.append(str(_u))
+        try:
+            _rd = report.as_dict()
+        except Exception:
+            _rd = {}
+
+        def _walk_ev(_o):
+            if isinstance(_o, dict):
+                for _k, _v in _o.items():
+                    if isinstance(_v, str):
+                        if _k == "detail":
+                            _cited_bits.append(_v)            # prose claim — CHECKED
+                        elif _k in ("url", "source", "snippet", "link", "href"):
+                            _fetched_bits.append(_v)          # consulted source — EVIDENCE
+                    elif _k == "sources" and isinstance(_v, list):
+                        _fetched_bits.extend(str(_s) for _s in _v)
+                    else:
+                        _walk_ev(_v)
+            elif isinstance(_o, (list, tuple)):
+                for _it in _o:
+                    _walk_ev(_it)
+
+        _walk_ev(_rd)
         _tool_context = "\n".join(_fetched_bits)
-        # response_text = what the report ASSERTS — findings across every layer.
-        _claim_bits: list[str] = []
-        for _section in (report.identity, report.network, report.compliance,
-                         report.digital, report.commercial_coherence):
-            for _f in (getattr(_section, "findings", []) or []):
-                _claim_bits.append(getattr(_f, "detail", "") or "")
-                _claim_bits.append(getattr(_f, "source", "") or "")
-        _response_text = "\n".join(b for b in _claim_bits if b)
+        _response_text = "\n".join(_cited_bits)
         _sv_res = _sv.verify_response(_response_text, _tool_context)
         report.verification.independent_source_verification_run = True
         report.verification.citation_grounding_rate = _sv_res.get("grounded_rate")
