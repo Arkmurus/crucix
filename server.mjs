@@ -4618,6 +4618,10 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     // Return clean user (no passwordHash) — findUserById returns raw; strip here
     const { passwordHash, verificationCode, verificationExpiry, resetCode, resetExpiry, verificationAttempts, ...clean } = user;
+    // R-F2349 — derive the shared avatarUrl (cleanUser() does this, but this
+    // handler strips inline) so the sidebar + Network self-avatar get the photo.
+    clean.avatarUrl = clean.avatarUpdatedAt
+      ? `/api/profile/photo/${clean.id}?v=${Date.parse(clean.avatarUpdatedAt) || 0}` : null;
     res.json(clean);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch user' });
