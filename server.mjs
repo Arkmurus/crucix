@@ -62,7 +62,7 @@ import { storeMessage, getConversation, markRead, getConversationSummaries, unre
 import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
 import { applyRateLimiting, applyInputValidation, applySecurityHeaders } from './middleware/rateLimiter.mjs';
 import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaCommand, buildArkmursBrief } from './lib/telegram/telegramCommands.mjs';
-import { curateSignals, formatChannelPost, formatDailyBrief, canPostNow, recordPost, getSchedulerState } from './lib/telegram/channelPublisher.mjs';
+import { curateSignals, formatChannelPost, formatDailyBrief, canPostNow, recordPost, getSchedulerState, publishSignal } from './lib/telegram/channelPublisher.mjs';
 import { startComplianceRefreshScheduler, screenEntity, getComplianceVersions } from './lib/compliance/listRefresher.mjs';
 import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observability/errorTracker.mjs';
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
@@ -5104,6 +5104,92 @@ app.post('/api/admin/channel/daily-brief', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Channel Media Routes ──────────────────────────────────────────────────────
+app.get('/api/admin/channel/media/infographic', requireAdmin, async (req, res) => {
+  try {
+    const { generateInfographicCard } = await import('./lib/telegram/channelMedia.mjs');
+    const { title, subtitle, source, type } = req.query;
+    const svg = generateInfographicCard({
+      title: title || 'ARIA Intelligence',
+      subtitle: subtitle || '',
+      source: source || 'ARIA Intelligence',
+      type: type || 'intel',
+    });
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.send(svg);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate infographic', detail: err.message });
+  }
+});
+
+app.post('/api/admin/channel/media/post-with-image', requireAdmin, async (req, res) => {
+  try {
+    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const { title, summary, source, severity, country, sector, type } = req.body || {};
+    if (!title) return res.status(400).json({ error: 'title is required' });
+
+    const signal = { title, summary: summary || title, source: source || 'Admin', severity: severity || 'medium', timestamp: new Date().toISOString(), country, sector };
+    const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
+    const result = await publishSignal(signal, bot, { generateImage: true, registerKeyword: true, crossPostLinkedIn: false });
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to post with image', detail: err.message });
+  }
+});
+
+// ── Channel Interactive Routes ────────────────────────────────────────────────
+app.get('/api/admin/channel/interactive/stats', requireAdmin, async (req, res) => {
+  try {
+    const { getEngagementStats } = await import('./lib/telegram/channelInteractive.mjs');
+    res.json(getEngagementStats());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get engagement stats', detail: err.message });
+  }
+});
+
+app.post('/api/admin/channel/interactive/poll', requireAdmin, async (req, res) => {
+  try {
+    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const { sendPoll, buildPoll } = await import('./lib/telegram/channelMedia.mjs');
+    const { question, options, isQuiz, correctOptionId, explanation } = req.body || {};
+    if (!question || !options || options.length < 2) return res.status(400).json({ error: 'question and 2+ options required' });
+
+    const pollData = buildPoll({ question, options, isQuiz, correctOptionId, explanation });
+    const bot = { botToken: config.telegram.botToken, chatId: config.telegram.channelId || config.telegram.chatId };
+    const result = await sendPoll(bot, pollData);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to send poll', detail: err.message });
+  }
+});
+
+// ── LinkedIn Publisher Routes ─────────────────────────────────────────────────
+app.get('/api/admin/linkedin/status', requireAdmin, async (req, res) => {
+  try {
+    const { getConfig, getState } = await import('./lib/linkedin/linkedinPublisher.mjs');
+    res.json({ config: getConfig(), state: getState() });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get LinkedIn status', detail: err.message });
+  }
+});
+
+app.post('/api/admin/linkedin/post', requireAdmin, async (req, res) => {
+  try {
+    const { postTextUpdate, formatForLinkedIn, canPostNow } = await import('./lib/linkedin/linkedinPublisher.mjs');
+    const { text, extraTags } = req.body || {};
+    if (!text) return res.status(400).json({ error: 'text is required' });
+
+    const { canPost, reason } = canPostNow();
+    if (!canPost) return res.status(429).json({ error: reason });
+
+    const liPost = formatForLinkedIn(text, { extraTags });
+    const result = await postTextUpdate(liPost);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to post to LinkedIn', detail: err.message });
+  }
+});
+
 
 // ── Admin User Management Routes ──────────────────────────────────────────────
 
@@ -5939,10 +6025,10 @@ async function runSweepCycle() {
       }
     }
 
-    // ── Channel Publisher: curate and post to public broadcast channel ─────
+    // ── Channel Publisher: full pipeline (curate → format → media → keyword → post → LinkedIn) ──
     try {
-      const { canPost, reason } = canPostNow();
-      if (canPost && currentData) {
+      const { canPost } = canPostNow();
+      if (canPost && currentData && telegramAlerter?.isConfigured) {
         // Collect signals from sweep results
         const signals = [];
         if (currentData.correlations) signals.push(...currentData.correlations);
@@ -5961,16 +6047,21 @@ async function runSweepCycle() {
 
         const curated = curateSignals(signals, { maxPosts: 2 });
         for (const signal of curated) {
-          const post = formatChannelPost(signal);
-          if (telegramAlerter.isConfigured) {
-            await telegramAlerter.sendMessage(post);
-            recordPost();
-            console.log('[ChannelPublisher] Posted to channel:', signal.title?.substring(0, 60));
+          const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
+          const result = await publishSignal(signal, bot, {
+            generateImage: true,
+            registerKeyword: true,
+            crossPostLinkedIn: false, // Enable by setting LINKEDIN_ACCESS_TOKEN
+          });
+          if (result.ok) {
+            console.log('[ChannelPublisher] Published:', signal.title?.substring(0, 60), 'keyword:', result.keyword);
+          } else {
+            console.warn('[ChannelPublisher] Publish skipped:', result.error);
           }
         }
       }
     } catch (err) {
-      console.error('[ChannelPublisher] Post error:', err.message);
+      console.error('[ChannelPublisher] Pipeline error:', err.message);
     }
 
     // Flash push for critical correlations
