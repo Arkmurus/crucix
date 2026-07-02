@@ -2914,6 +2914,37 @@ async def lifespan(app: FastAPI):
     watchlist_rescreen_task = _singleton_task(_watchlist_rescreen_loop, "watchlist_rescreen_loop")  # R-F2073 singleton
     logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
 
+    # ── BRAVE STUDENT TRAINER (R-F2339) ───────────────────────────────────
+    # Closes the Brave->SearXNG learning loop: periodically re-trains the student
+    # re-ranker on the brave_distill teacher corpus and evaluates student-vs-teacher
+    # agreement. The model file accumulates so the free stack can (once ARIA_BRAVE_
+    # STUDENT_ENABLED=1 after eval) imitate Brave's source-selection methodology.
+    async def _brave_student_loop():
+        await asyncio.sleep(1200)  # 20 min after startup (let the corpus warm)
+        while True:
+            from .autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                await asyncio.sleep(21600)
+                continue
+            try:
+                await _tick_heartbeat("brave_student", "Train student re-ranker on the Brave teacher corpus")
+                from .intel import brave_student as _bs
+                _m = await asyncio.to_thread(_bs.train_from_corpus)
+                _ev = await asyncio.to_thread(_bs.evaluate)
+                logger.info(
+                    "[BraveStudent] trained on %d teacher records, %d domains; "
+                    "eval baseline=%s student=%s lift=%s",
+                    _m.get("records_seen", 0), len(_m.get("domain_pref") or {}),
+                    _ev.get("baseline_topk_overlap"), _ev.get("student_topk_overlap"),
+                    _ev.get("lift"),
+                )
+            except Exception as e:
+                logger.warning("[BraveStudent] trainer loop failed: %s", e)
+            await asyncio.sleep(21600)  # every 6 hours
+
+    brave_student_task = _singleton_task(_brave_student_loop, "brave_student_loop")  # R-F2339
+    logger.info("Brave student trainer loop started (every 6h, 20 min after startup)")
+
     # ── TENDER MONITOR ────────────────────────────────────────────────────
     # Every 6 hours, crawl public defence procurement portals (TED, SAM.gov,
     # Contracts Finder, UNGM, AfDB) for relevant tenders. Equivalent to

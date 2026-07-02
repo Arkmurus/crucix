@@ -1634,6 +1634,24 @@ async def search(
     except Exception:
         pass
 
+    # R-F2339 — Brave STUDENT re-rank: when the FREE stack served (Brave did NOT contribute),
+    # re-order by the learned Brave-preference so ARIA's own search imitates Brave's
+    # source-selection methodology. ENV-gated (ARIA_BRAVE_STUDENT_ENABLED, default OFF —
+    # staged rollout after eval agreement). Safe no-op when disabled / model unlearned.
+    try:
+        _brave_contributed = False
+        if "brave" in _backend_names:
+            _bi = _backend_names.index("brave")
+            _brave_contributed = (_bi < len(raw_results)
+                                  and not isinstance(raw_results[_bi], BaseException)
+                                  and bool(raw_results[_bi]))
+        if not _brave_contributed and len(results) > 1:
+            from . import brave_student as _bs
+            if _bs.apply_enabled():
+                results = _bs.rerank(results)
+    except Exception:
+        pass
+
     logger.info("Search %r: %d results from %d backends (deduped from %d)",
                 query[:60], min(len(results), max_results),
                 sum(1 for b in raw_results if not isinstance(b, Exception) and b),

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2339,
+  "next_available": 2341,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17657,18 +17657,20 @@
       "title": "VLS key persistence bug: ec.from_pem doesnt exist -> new key every boot -> all signatures fail; fix load + honest hash-vs-sig UX",
       "claimed_at": "2026-07-02T18:24:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8971d2ea",
+      "notes": null,
+      "shipped_at": "2026-07-02T18:43:44Z"
     },
     {
       "r_number": "R-F2337",
       "title": "reset_dd_memory + DDVault.clear_all + admin endpoint — wipe all DD state for clean start",
       "claimed_at": "2026-07-02T18:32:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8971d2ea",
+      "notes": null,
+      "shipped_at": "2026-07-02T18:43:44Z"
     },
     {
       "r_number": "R-F2338",
@@ -17679,6 +17681,24 @@
       "commit_sha": "a9824b0e",
       "notes": null,
       "shipped_at": "2026-07-02T18:42:31Z"
+    },
+    {
+      "r_number": "R-F2339",
+      "title": "Brave->SearXNG STUDENT loop: learn Brave source-selection methodology from distill corpus + apply reranker + eval agreement",
+      "claimed_at": "2026-07-02T19:47:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2340",
+      "title": "coverage heatmap: measured per-cell freshness from corpus fact recency (canonical domains)",
+      "claimed_at": "2026-07-02T19:49:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

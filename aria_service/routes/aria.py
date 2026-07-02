@@ -19277,6 +19277,30 @@ async def search_health_ep():
     return health
 
 
+@router.get("/search/student/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def search_student_stats_ep():
+    """R-F2339 — Brave->SearXNG STUDENT loop proprioception (§25): teacher-corpus size,
+    learned-domain coverage, top learned domains, and whether the learned re-rank is
+    applied live. The definitive 'is the paid dependency droppable yet' surface — pair
+    with the trainer loop's eval lift in the logs/brain."""
+    from ..intel import brave_student as _bs
+    return _bs.stats()
+
+
+@router.post("/search/student/train")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def search_student_train_ep():
+    """R-F2339 — force an immediate student re-train + eval (admin-gated at the web tier).
+    Normally runs on the 6h trainer loop; this triggers it on demand."""
+    from ..intel import brave_student as _bs
+    model = await asyncio.to_thread(_bs.train_from_corpus)
+    ev = await asyncio.to_thread(_bs.evaluate)
+    return {"trained": {"records_seen": model.get("records_seen", 0),
+                        "domains_learned": len(model.get("domain_pref") or {})},
+            "eval": ev}
+
+
 class SearchRequest(BaseModel):
     query: str
     max_results: int = 10

@@ -50,6 +50,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger("aria.coverage_heatmap")
@@ -308,6 +309,21 @@ def _signal_text(s: dict) -> str:
     ).lower()
 
 
+def _fact_ts(fact: dict) -> float | None:
+    """R-F2340: epoch seconds of a fact's most recent write (updatedAt, else
+    createdAt), or None if absent/unparseable. Facts store these as ISO strings
+    (knowledge.py: datetime.now(timezone.utc).isoformat()). Used to derive
+    MEASURED per-cell freshness from the real corpus instead of leaving every
+    canonical-domain cell's staleness unknown."""
+    raw = fact.get("updatedAt") or fact.get("createdAt")
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
 def _count_facts_for_cell_sync(
     domain: str,
     jurisdiction: str,
@@ -563,8 +579,11 @@ async def _build_heatmap_uncached(
 
         fact_cells: dict[tuple[str, str], int] = {}
         signal_cells: dict[tuple[str, str], int] = {}
+        # R-F2340: newest fact timestamp per cell → measured freshness.
+        cell_newest_ts: dict[tuple[str, str], float] = {}
 
-        def _tally(items: list, text_fn, target: dict[tuple[str, str], int]) -> None:
+        def _tally(items: list, text_fn, target: dict[tuple[str, str], int],
+                   ts_target: dict[tuple[str, str], float] | None = None) -> None:
             for idx, it in enumerate(items):
                 # R-F931 — yield the GIL every 1024 items so this worker thread
                 # can't starve the event loop, regardless of corpus size
@@ -588,18 +607,29 @@ async def _build_heatmap_uncached(
                 ]
                 if not matched_jurs:
                     continue
+                # R-F2340: parse the item's timestamp ONCE per item (not per cell).
+                fts = _fact_ts(it) if ts_target is not None else None
                 for d in matched_doms:
                     for j in matched_jurs:
                         key = (d, j)
                         target[key] = target.get(key, 0) + 1
+                        if fts is not None:
+                            prev = ts_target.get(key)
+                            if prev is None or fts > prev:
+                                ts_target[key] = fts
 
-        _tally(facts, _fact_text, fact_cells)
+        _tally(facts, _fact_text, fact_cells, cell_newest_ts)
         _tally(signals, _signal_text, signal_cells)
+
+        # R-F2340: precompute per-domain staleness windows (hours) once.
+        now_ts = time.time()
+        dom_window_h = {d: _lp._max_staleness_for(d) for d in domain_list}
 
         m: dict[str, dict[str, Any]] = {}
         for d in domain_list:
             m[d] = {}
             domain_freshness = freshness_records.get(d, {})
+            window_h = dom_window_h[d]
             for j in juris_list:
                 fact_count = fact_cells.get((d, j), 0)
                 signal_count = signal_cells.get((d, j), 0)
@@ -608,19 +638,34 @@ async def _build_heatmap_uncached(
                 # coverage but thin curated knowledge still surface.
                 combined = fact_count + int(signal_count * 0.5)
                 tier = density_tier(combined)
+                # R-F2340: MEASURED freshness. A cell's staleness is derived from
+                # the recency of its own facts (newest updatedAt/createdAt) vs the
+                # domain's max-staleness window — grounded in the real corpus, not
+                # the disjoint learning_progress auto-topic namespace (R-F2332).
+                # Precedence: (1) corpus fact recency, (2) a matching
+                # learning_progress domain record (future-proof; no-op today),
+                # (3) None = genuinely unknown (cell has no dated facts).
+                newest = cell_newest_ts.get((d, j))
+                if newest is not None:
+                    hours_since = (now_ts - newest) / 3600.0
+                    is_stale = hours_since > window_h
+                    freshness_known = True
+                    hours_since_refresh = round(hours_since, 1)
+                elif "is_stale" in domain_freshness:
+                    is_stale = domain_freshness.get("is_stale")
+                    freshness_known = True
+                    hours_since_refresh = domain_freshness.get("hours_since_refresh")
+                else:
+                    is_stale = None
+                    freshness_known = False
+                    hours_since_refresh = None
                 m[d][j] = {
                     "fact_count":          fact_count,
                     "signal_count":        signal_count,
                     "tier":                tier,
-                    # R-F2332: absence of a freshness record = staleness UNKNOWN,
-                    # not stale. learning_progress tracks a DISJOINT auto-topic
-                    # namespace, so canonical heatmap domains never match a record;
-                    # the old default `True` made every cell read "STALE" and
-                    # penalised the score for phantom staleness (stale_cells==cells).
-                    # None = unknown → no penalty, disclosed via staleness_unknown_cells.
-                    "is_stale":            domain_freshness.get("is_stale"),
-                    "freshness_known":     "is_stale" in domain_freshness,
-                    "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
+                    "is_stale":            is_stale,
+                    "freshness_known":     freshness_known,
+                    "hours_since_refresh": hours_since_refresh,
                 }
         return m
 
