@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2301,
+  "next_available": 2302,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17288,18 +17288,30 @@
       "title": "wireBreakingAlertsToChannel — FLASH/critical signals (score>=0.85) post to channel immediately, bypassing the routine cadence cap",
       "claimed_at": "2026-07-02T11:22:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4f5d9246",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:40:41Z"
     },
     {
       "r_number": "R-F2300",
       "title": "reconcile stale 'running' async-DD placeholders → failed at boot (killed by restart, hung 'running' forever; UI spins on dead poll)",
       "claimed_at": "2026-07-02T11:33:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5078887e",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:43:48Z"
+    },
+    {
+      "r_number": "R-F2301",
+      "title": "rebrand user-facing CRUCIX -> ARIA (preserve CRUCIX_LANG env + crucix: data keys + [Crucix] logs)",
+      "claimed_at": "2026-07-02T11:35:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f0e9203d",
+      "notes": null,
+      "shipped_at": "2026-07-02T11:40:41Z"
     }
   ]
 }
