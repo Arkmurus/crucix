@@ -317,7 +317,7 @@
       margin-bottom: 64px;
     }
 
-    /* ── HERO TETRIS (capability blocks, brand palette) ───────────── */
+    /* ── HERO TETRIS (capability word blocks, brand purple) ──────── */
     .lp-hero-tetris {
       flex: 0 0 auto;
       display: flex;
@@ -327,7 +327,7 @@
 
     .lp-tetris-well {
       position: relative;
-      padding: 14px;
+      padding: 16px;
       border-radius: 16px;
       background: rgba(255,255,255,0.55);
       border: 1px solid rgba(17,17,17,0.10);
@@ -341,8 +341,7 @@
       border-radius: 8px;
     }
 
-    @media (max-width: 980px) {
-      .lp-hero-inner { display: block; }
+    @media (max-width: 1100px) {
       .lp-hero-tetris { display: none; }
     }
 
@@ -1122,7 +1121,7 @@
 
     <div class="lp-hero-tetris" aria-hidden="true">
       <div class="lp-tetris-well">
-        <canvas id="lp-tetris" width="288" height="504"></canvas>
+        <canvas id="lp-tetris" width="440" height="704"></canvas>
       </div>
     </div>
 
@@ -1587,14 +1586,15 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
 });
 </script>
 
-<!-- Hero Tetris — capability blocks: each piece shows an ARIA capability (R-F2296) -->
+<!-- Hero Tetris — capability word blocks: one letter per cell, full word per piece (R-F2296) -->
 <script>
 (function () {
   var canvas = document.getElementById('lp-tetris');
   if (!canvas || !canvas.getContext) return;
   var ctx = canvas.getContext('2d');
 
-  var COLS = 8, ROWS = 14, CELL = 36;
+  // ── Grid: 10 cols × 16 rows, 44px cells for readable text ─────
+  var COLS = 10, ROWS = 16, CELL = 44;
   var Wpx = COLS * CELL, Hpx = ROWS * CELL;
   var dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.style.width = Wpx + 'px';
@@ -1603,62 +1603,68 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   canvas.height = Math.round(Hpx * dpr);
   ctx.scale(dpr, dpr);
 
-  // ── Brand palette ──────────────────────────────────────────────
-  var COLORS = [
-    { bg: '#7c3aed', fg: '#ffffff', glow: 'rgba(124,58,237,0.25)' },  // purple
-    { bg: '#0066FF', fg: '#ffffff', glow: 'rgba(0,102,255,0.25)' },    // blue
-    { bg: '#16a34a', fg: '#ffffff', glow: 'rgba(22,163,74,0.25)' },    // green
-    { bg: '#b8860b', fg: '#ffffff', glow: 'rgba(184,134,11,0.25)' },   // gold
-    { bg: '#dc2626', fg: '#ffffff', glow: 'rgba(220,38,38,0.25)' },    // red
-    { bg: '#0891b2', fg: '#ffffff', glow: 'rgba(8,145,178,0.25)' },    // cyan
-    { bg: '#7c3aed', fg: '#ffffff', glow: 'rgba(124,58,237,0.25)' },   // purple
-    { bg: '#0066FF', fg: '#ffffff', glow: 'rgba(0,102,255,0.25)' },    // blue
+  // ── Brand palette — single purple gradient, opacity for depth ──
+  var BRAND = '#7c3aed';
+  var BRAND_LIGHT = '#a78bfa';
+  var BRAND_DARK = '#5b21b6';
+  var BRAND_MUTED = 'rgba(124,58,237,0.55)';
+  var BRAND_GLOW = 'rgba(124,58,237,0.20)';
+
+  // Depth layers: each piece gets a subtly different shade
+  var SHADES = [
+    { bg: '#7c3aed', fg: '#ffffff' },
+    { bg: '#6d28d9', fg: '#ffffff' },
+    { bg: '#8b5cf6', fg: '#ffffff' },
+    { bg: '#5b21b6', fg: '#ffffff' },
+    { bg: '#7c3aed', fg: '#ffffff' },
+    { bg: '#6d28d9', fg: '#ffffff' },
+    { bg: '#8b5cf6', fg: '#ffffff' },
+    { bg: '#5b21b6', fg: '#ffffff' },
+    { bg: '#7c3aed', fg: '#ffffff' },
+    { bg: '#6d28d9', fg: '#ffffff' },
   ];
 
-  // ── Capability labels (each maps to a piece) ───────────────────
-  var CAPABILITIES = [
-    'ENTITY', 'DD',
-    'SANCTIONS', 'SCREEN',
-    'RESEARCH', 'INTEL',
-    'CHANGE', 'DETECT',
-    'DEAL', 'COHERENCE',
-    'RCA', 'PEP',
-    'COMPLIANCE', 'AUDIT',
-    'FORENSIC', 'TBML',
-    'UBO', 'NETWORK',
-    'COUNTER', 'INTEL',
-    'WATCH', 'ALERT',
-    'RISK', 'SCORE',
-    'EVIDENCE', 'CHAIN',
-    'EXPORT', 'CONTROL',
+  // ── 4-letter capability words (one letter per cell) ────────────
+  var WORDS = [
+    'EDGE', 'DEEP', 'WIDE', 'TRUE',
+    'FAST', 'SAFE', 'BOLD', 'KEEN',
+    'LIVE', 'FULL', 'HIGH', 'WISE',
+    'DARK', 'PURE', 'VAST', 'CALM',
+    'FINE', 'RICH', 'NEAR', 'SURE',
+    'COOL', 'WARM', 'EASY', 'NICE',
+    'RARE', 'NEAT', 'MILD', 'SOFT',
+    'HARD', 'LONG', 'WILD', 'DEEP',
   ];
 
-  // ── Build the plan: pieces with capability labels ──────────────
+  // ── Build the plan ─────────────────────────────────────────────
+  // Each piece = 4 cells forming a tetromino, each cell shows one letter.
+  // The 4 cells together spell a capability word.
   function makePlan() {
-    var plan = [], ci = 0, capIdx = 0;
+    var plan = [], ci = 0, wi = 0;
+    // Fill bottom-up in 2-row layers, 5 pieces per layer (10 cols / 2 per row)
     for (var rTop = ROWS - 2; rTop >= 0; rTop -= 2) {
-      for (var bc = 0; bc < COLS; bc += 4) {
+      for (var bc = 0; bc < COLS; bc += 2) {
         var r0 = rTop, r1 = rTop + 1, c = bc;
-        var kind = (ci) % 3;
-        var a, b;
-        if (kind === 0) {                      // two O squares
-          a = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]];
-          b = [[c + 2, r0], [c + 3, r0], [c + 2, r1], [c + 3, r1]];
-        } else if (kind === 1) {               // J (support) + L
-          a = [[c, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
-          b = [[c + 1, r0], [c + 2, r0], [c + 3, r0], [c + 3, r1]];
-        } else {                               // mirror: L' (support) + J'
-          a = [[c + 3, r0], [c + 1, r1], [c + 2, r1], [c + 3, r1]];
-          b = [[c, r0], [c + 1, r0], [c + 2, r0], [c, r1]];
+        var kind = ci % 4;
+        var cells;
+        if (kind === 0) {                      // O — 2×2 square
+          cells = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]];
+        } else if (kind === 1) {               // L — 3+1
+          cells = [[c, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
+        } else if (kind === 2) {               // J — mirror L
+          cells = [[c + 2, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
+        } else {                               // I — vertical 4
+          cells = [[c, r0], [c, r1], [c, r1 + 1], [c, r1 + 2]];
+          // I piece spans 4 rows; adjust rTop so it fits
+          if (r1 + 2 >= ROWS) {
+            cells = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]]; // fallback to O
+          }
         }
-        var colA = COLORS[ci % COLORS.length];
-        var colB = COLORS[(ci + 3) % COLORS.length];
-        var labelA = CAPABILITIES[capIdx % CAPABILITIES.length];
-        var labelB = CAPABILITIES[(capIdx + 1) % CAPABILITIES.length];
-        plan.push({ cells: a, fill: colA.bg, text: labelA, textColor: colA.fg });
-        plan.push({ cells: b, fill: colB.bg, text: labelB, textColor: colB.fg });
+        var word = WORDS[wi % WORDS.length];
+        var shade = SHADES[ci % SHADES.length];
+        plan.push({ cells: cells, word: word, fill: shade.bg, fg: shade.fg });
         ci++;
-        capIdx += 2;
+        wi++;
       }
     }
     return plan;
@@ -1666,47 +1672,51 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
 
   var plan = makePlan();
 
-  // ── Drawing helpers ────────────────────────────────────────────
-  function drawCell(col, row, fill, text, textColor, alpha) {
-    var x = col * CELL, y = row * CELL, g = 1;
+  // ── Drawing ────────────────────────────────────────────────────
+  function drawCell(col, row, fill, letter, alpha) {
+    var x = col * CELL, y = row * CELL, g = 1.5;
     var s = CELL - g * 2;
+    var cx = x + CELL / 2, cy = y + CELL / 2;
 
-    // Cell background with subtle gradient
+    ctx.globalAlpha = alpha != null ? alpha : 1;
+
+    // Rounded rect background with subtle gradient
     var grad = ctx.createLinearGradient(x + g, y + g, x + g, y + g + s);
     grad.addColorStop(0, fill);
-    grad.addColorStop(1, darken(fill, 0.15));
-    ctx.globalAlpha = alpha != null ? alpha : 1;
+    grad.addColorStop(1, darken(fill, 0.18));
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.roundRect(x + g, y + g, s, s, 3);
+    ctx.roundRect(x + g, y + g, s, s, 4);
     ctx.fill();
 
-    // Subtle inner highlight (top-left shine)
+    // Inner highlight (top-left shine)
     var hl = ctx.createLinearGradient(x + g, y + g, x + g + s, y + g + s);
-    hl.addColorStop(0, 'rgba(255,255,255,0.12)');
-    hl.addColorStop(1, 'rgba(0,0,0,0.08)');
+    hl.addColorStop(0, 'rgba(255,255,255,0.10)');
+    hl.addColorStop(1, 'rgba(0,0,0,0.06)');
     ctx.fillStyle = hl;
     ctx.beginPath();
-    ctx.roundRect(x + g, y + g, s, s, 3);
+    ctx.roundRect(x + g, y + g, s, s, 4);
     ctx.fill();
 
-    // Border
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    // Thin border
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(x + g + 0.5, y + g + 0.5, s - 1, s - 1, 3);
+    ctx.roundRect(x + g + 0.5, y + g + 0.5, s - 1, s - 1, 4);
     ctx.stroke();
 
-    // Text label
-    if (text && text.length > 0) {
-      ctx.globalAlpha = alpha != null ? alpha : 1;
-      ctx.fillStyle = textColor;
+    // Letter — large, bold, centered
+    if (letter) {
+      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      var fontSize = text.length > 6 ? 9 : text.length > 4 ? 10 : 11;
-      ctx.font = 'bold ' + fontSize + 'px "Inter","Segoe UI",system-ui,sans-serif';
-      ctx.fillText(text, x + CELL / 2, y + CELL / 2 + 1);
+      ctx.font = 'bold 22px "Inter","Segoe UI",system-ui,sans-serif';
+      ctx.shadowColor = 'rgba(0,0,0,0.20)';
+      ctx.shadowBlur = 2;
+      ctx.fillText(letter, cx, cy + 1);
+      ctx.shadowBlur = 0;
     }
+
     ctx.globalAlpha = 1;
   }
 
@@ -1721,7 +1731,7 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   }
 
   function drawWellGrid() {
-    ctx.strokeStyle = 'rgba(17,17,17,0.04)';
+    ctx.strokeStyle = 'rgba(124,58,237,0.04)';
     ctx.lineWidth = 1;
     for (var r = 0; r <= ROWS; r++) {
       ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(Wpx, r * CELL + 0.5); ctx.stroke();
@@ -1733,7 +1743,8 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
 
   function drawPiece(p, rowShift, alpha) {
     for (var i = 0; i < p.cells.length; i++) {
-      drawCell(p.cells[i][0], p.cells[i][1] + (rowShift || 0), p.fill, p.text, p.textColor, alpha);
+      var letter = p.word ? p.word[i] || '' : '';
+      drawCell(p.cells[i][0], p.cells[i][1] + (rowShift || 0), p.fill, letter, alpha);
     }
   }
 
@@ -1747,13 +1758,13 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     return;
   }
 
-  var HOLD = 2000, CLEAR = 800;
+  var HOLD = 2500, CLEAR = 800;
   var phase = 'drop', idx = 0, tStart = 0, dropDur = 0, fallRows = 0;
 
   function beginDrop(now) {
     var p = plan[idx];
     fallRows = Math.min.apply(null, p.cells.map(function (c) { return c[1]; }));
-    dropDur = 120 + fallRows * 28;
+    dropDur = 100 + fallRows * 30;
     tStart = now;
   }
 
@@ -1762,9 +1773,7 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     drawWellGrid();
 
     if (phase === 'drop') {
-      // Draw locked pieces
       for (var i = 0; i < idx; i++) drawPiece(plan[i]);
-      // Draw falling piece
       var p = plan[idx];
       var t = Math.min(1, (now - tStart) / dropDur);
       var e = 1 - (1 - t) * (1 - t);
