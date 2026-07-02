@@ -883,8 +883,79 @@ async def get_all_facts() -> list[dict]:
     return cache.get("facts", [])
 
 
+# ── R-F2280: reclaim orphaned atomic-write temp files left by KILLED processes ──
+# _write_facts_sidecar and _write_to_disk_atomic each unlink their mkstemp .tmp on
+# any Python exception — but they CANNOT clean up when the process is KILLED
+# mid-write (SIGKILL, fly SIGTERM, OOM, or the R-F2277 state_store watchdog's
+# os._exit): the atomic rename never runs and the .tmp is orphaned. During the
+# 2026-06-29..07-01 wedge-restart incidents this leaked ~1.5 GB of
+# .aria_kn_facts.*.jsonl.tmp (some 100-147 MB) into /data. These are INCOMPLETE
+# temp files, never live knowledge, so removing them does not touch ARIA's
+# infinite memory (§7). Swept once at boot (init), before this process writes
+# anything, with an age floor so a CONCURRENT worker's in-flight write (seconds
+# old) is never removed.
+_TMP_SWEEP_PREFIXES = (".aria_kn_facts.", ".aria_kn_meta.", ".aria_knowledge.")
+
+
+def _sweep_orphaned_sidecar_tmp(min_age_s: float | None = None) -> dict:
+    """Remove stale orphaned atomic-write .tmp files from the knowledge data dir.
+
+    Best-effort, never raises. Only removes files that both (a) match an
+    atomic-write temp prefix AND end in ``.tmp``, and (b) are older than
+    ``min_age_s`` (default 1800s; a real atomic write completes in seconds, so
+    this floor guarantees we never delete a concurrent worker's live temp).
+    The canonical ``aria_knowledge.json`` and the derived ``*.facts.jsonl`` /
+    ``*.meta.json`` sidecars have no leading dot and no ``.tmp`` suffix, so they
+    are never matched. Returns {removed, bytes_reclaimed, skipped_recent}.
+    """
+    if min_age_s is None:
+        try:
+            min_age_s = float(os.getenv("ARIA_KN_TMP_SWEEP_MIN_AGE_S", "1800"))
+        except (TypeError, ValueError):
+            min_age_s = 1800.0
+    target_dir = os.path.dirname(str(_DISK_PATH)) or "."
+    removed = reclaimed = skipped_recent = 0
+    now = time.time()
+    try:
+        with os.scandir(target_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not name.endswith(".tmp"):
+                    continue
+                if not any(name.startswith(p) for p in _TMP_SWEEP_PREFIXES):
+                    continue
+                try:
+                    st = entry.stat()
+                    if (now - st.st_mtime) < min_age_s:
+                        skipped_recent += 1  # possibly a concurrent worker's live write
+                        continue
+                    size = st.st_size
+                    os.unlink(entry.path)
+                    removed += 1
+                    reclaimed += size
+                except OSError:
+                    continue
+    except OSError as e:
+        logger.debug("knowledge: R-F2280 tmp sweep skipped (scandir failed): %s", e)
+        return {"removed": 0, "bytes_reclaimed": 0, "skipped_recent": 0}
+    if removed:
+        logger.info(
+            "knowledge: R-F2280 reclaimed %d orphaned atomic-write tmp file(s), "
+            "%.1f MB (skipped %d too-recent)",
+            removed, reclaimed / 1048576.0, skipped_recent,
+        )
+    return {"removed": removed, "bytes_reclaimed": reclaimed, "skipped_recent": skipped_recent}
+
+
 @fail_wire(module="knowledge", gap_type="engine_failure")
 async def init() -> None:
+    # R-F2280: reclaim orphaned atomic-write .tmp files leaked by killed processes
+    # (e.g. R-F2277 os._exit / fly SIGTERM mid-sidecar-write) BEFORE we load or
+    # write anything. Best-effort, age-gated; never touches live knowledge (§7).
+    try:
+        _sweep_orphaned_sidecar_tmp()
+    except Exception:  # pragma: no cover - defensive; boot must never fail here
+        pass
     await _load()
     facts = (_cache or {}).get("facts", [])
     logger.info(f"Knowledge base loaded: {len(facts)} facts")
