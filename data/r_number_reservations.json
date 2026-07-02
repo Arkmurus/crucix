@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2338,
+  "next_available": 2339,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17664,6 +17664,15 @@
       "r_number": "R-F2337",
       "title": "reset_dd_memory + DDVault.clear_all + admin endpoint — wipe all DD state for clean start",
       "claimed_at": "2026-07-02T18:32:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2338",
+      "title": "SECURITY: admin-gate /api/aria/dd/admin/reset at aria-web (destructive wipe-all was only requireAuth via catch-all — any user could wipe all DD data)",
+      "claimed_at": "2026-07-02T18:36:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

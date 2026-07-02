@@ -2559,6 +2559,16 @@ app.delete('/api/aria/vault/:siteId', requireAdmin, (req, res) =>
 app.delete('/api/aria/vault', requireAdmin, (req, res) =>
   ariaProxy(req, res, '/api/aria/vault' + (req.query.keep_portals ? ('?keep_portals=' + encodeURIComponent(req.query.keep_portals)) : ''), { method: 'DELETE' }));
 
+// R-F2338 (SECURITY) — DD-memory reset is a DESTRUCTIVE wipe-all (every report + index,
+// all VLS proofs/chains, watchlist + alerts, DD vault). The Python handler
+// (aria.py /dd/admin/reset) has NO auth and its docstring claimed "admin-gated at the web
+// tier" — but there was NO explicit route here, so it fell through the `/api/aria/*`
+// catch-all which is only `requireAuth` → ANY authenticated user (incl. free-tier) could
+// wipe all DD data. Register the explicit `requireAdmin` gate (mirrors DELETE /vault),
+// which sits BEFORE the catch-all so admin auth is enforced server-side.
+app.post('/api/aria/dd/admin/reset', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/dd/admin/reset' + (req.query.confirm ? ('?confirm=' + encodeURIComponent(req.query.confirm)) : ''), { method: 'POST' }));
+
 // R-F2045 — per-USER data sources (any signed-in user, scoped to themselves).
 // user_id is pinned from the JWT and never trusted from the client; the brain
 // scopes every read/write to agent_id="user:<uid>".
