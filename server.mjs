@@ -62,6 +62,7 @@ import { storeMessage, getConversation, markRead, getConversationSummaries, unre
 import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
 import { applyRateLimiting, applyInputValidation, applySecurityHeaders } from './middleware/rateLimiter.mjs';
 import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaCommand, buildArkmursBrief } from './lib/telegram/telegramCommands.mjs';
+import { curateSignals, formatChannelPost, formatDailyBrief, canPostNow, recordPost, getSchedulerState } from './lib/telegram/channelPublisher.mjs';
 import { startComplianceRefreshScheduler, screenEntity, getComplianceVersions } from './lib/compliance/listRefresher.mjs';
 import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observability/errorTracker.mjs';
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
@@ -251,6 +252,14 @@ memory.initFromRedis().catch(() => {});
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+const channelPublisher = {
+    curateSignals,
+    formatChannelPost,
+    formatDailyBrief,
+    canPostNow,
+    recordPost,
+    getSchedulerState,
+};
 
 // === Persistence Initialization — restores Redis backups if local files are missing ===
 // initAdminUser MUST wait for initUsersStore, otherwise it reads empty store
@@ -5053,6 +5062,48 @@ app.post('/api/admin/test-telegram', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Admin Channel Publisher — manage broadcast channel posts ─────────────────
+app.get('/api/admin/channel/state', requireAdmin, (req, res) => {
+  try {
+    res.json(getSchedulerState());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get channel state', detail: err.message });
+  }
+});
+
+app.post('/api/admin/channel/post', requireAdmin, async (req, res) => {
+  try {
+    if (!telegramAlerter?.isConfigured) {
+      return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    }
+    const { title, summary, source, severity, country, sector } = req.body || {};
+    if (!title) return res.status(400).json({ error: 'title is required' });
+
+    const signal = { title, summary: summary || title, source: source || 'Admin', severity: severity || 'medium', timestamp: new Date().toISOString(), country, sector };
+    const post = formatChannelPost(signal, { includeReplyHint: true });
+    await telegramAlerter.sendMessage(post);
+    recordPost();
+    res.json({ posted: true, title, length: post.length });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to post', detail: err.message });
+  }
+});
+
+app.post('/api/admin/channel/daily-brief', requireAdmin, async (req, res) => {
+  try {
+    if (!telegramAlerter?.isConfigured) {
+      return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    }
+    const briefData = req.body || {};
+    const post = formatDailyBrief(briefData);
+    await telegramAlerter.sendMessage(post);
+    recordPost();
+    res.json({ posted: true, type: 'daily-brief', length: post.length });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to post daily brief', detail: err.message });
+  }
+});
+
 
 // ── Admin User Management Routes ──────────────────────────────────────────────
 
@@ -5888,6 +5939,40 @@ async function runSweepCycle() {
       }
     }
 
+    // ── Channel Publisher: curate and post to public broadcast channel ─────
+    try {
+      const { canPost, reason } = canPostNow();
+      if (canPost && currentData) {
+        // Collect signals from sweep results
+        const signals = [];
+        if (currentData.correlations) signals.push(...currentData.correlations);
+        if (currentData.sanctions) signals.push(...currentData.sanctions);
+        if (currentData.opportunities) signals.push(...currentData.opportunities);
+        if (currentData.bdIntelligence?.activeTenders) {
+          for (const t of currentData.bdIntelligence.activeTenders) {
+            signals.push({ title: t.title, summary: t.description, source: 'BD Intelligence', timestamp: new Date().toISOString(), severity: 'medium', sector: t.sector, country: t.country, value: t.value });
+          }
+        }
+        if (currentData.explorerFindings?.insights) {
+          for (const i of currentData.explorerFindings.insights) {
+            signals.push({ title: i.title, summary: i.text, source: 'Web Explorer', timestamp: new Date().toISOString(), severity: 'low' });
+          }
+        }
+
+        const curated = curateSignals(signals, { maxPosts: 2 });
+        for (const signal of curated) {
+          const post = formatChannelPost(signal);
+          if (telegramAlerter.isConfigured) {
+            await telegramAlerter.sendMessage(post);
+            recordPost();
+            console.log('[ChannelPublisher] Posted to channel:', signal.title?.substring(0, 60));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[ChannelPublisher] Post error:', err.message);
+    }
+
     // Flash push for critical correlations
     const critFlash = (currentData.correlations || []).filter(c => c.severity === 'critical');
     if (critFlash.length > 0) {
@@ -6210,6 +6295,33 @@ async function start() {
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
       pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
+    }, { timezone: 'Europe/London' });
+
+    // Channel daily briefing — 08:00 London (after morning digest)
+    cron.schedule('0 8 * * *', async () => {
+      console.log('[ChannelPublisher] Sending daily briefing to broadcast channel...');
+      try {
+        const { canPost } = canPostNow();
+        if (!canPost || !telegramAlerter?.isConfigured) return;
+        // Build a brief from current sweep data
+        const sections = [];
+        if (currentData?.sanctions?.length > 0) {
+          sections.push({ title: 'Sanctions Updates', text: currentData.sanctions.slice(0, 3).map(s => s.title || s.summary).filter(Boolean).join('\n') });
+        }
+        if (currentData?.opportunities?.length > 0) {
+          sections.push({ title: 'Opportunity Signals', text: currentData.opportunities.slice(0, 3).map(o => o.title || o.summary).filter(Boolean).join('\n') });
+        }
+        if (currentData?.bdIntelligence?.activeTenders?.length > 0) {
+          sections.push({ title: 'Active Tenders', text: currentData.bdIntelligence.activeTenders.slice(0, 3).map(t => `${t.title}${t.country ? ' — ' + t.country : ''}${t.value ? ' (' + t.value + ')' : ''}`).join('\n') });
+        }
+        if (sections.length === 0) {
+          sections.push({ title: 'Market Overview', text: 'No significant signals detected in the latest sweep. Monitoring continues.' });
+        }
+        const post = formatDailyBrief({ sections });
+        await telegramAlerter.sendMessage(post);
+        recordPost();
+        console.log('[ChannelPublisher] Daily briefing posted to channel');
+      } catch (e) { console.error('[ChannelPublisher] Daily briefing failed:', e.message); }
     }, { timezone: 'Europe/London' });
 
     // Weekly query evolution — Sunday 04:00 UTC

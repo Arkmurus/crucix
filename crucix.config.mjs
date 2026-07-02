@@ -17,6 +17,10 @@ export default {
     chatId:            process.env.TELEGRAM_CHAT_ID || null,
     botPollingInterval: parseInt(process.env.TELEGRAM_POLL_INTERVAL) || 5000,
     channels:          process.env.TELEGRAM_CHANNELS || null, // Comma-separated extra channel IDs
+    channelId:         process.env.TELEGRAM_CHANNEL_ID || null, // Public broadcast channel ID
+    channelDiscussionId: process.env.TELEGRAM_CHANNEL_DISCUSSION_ID || null, // Linked discussion group ID
+    channelMaxDaily:   parseInt(process.env.TELEGRAM_CHANNEL_MAX_DAILY) || 6, // Max posts per day
+    channelCooldownMin: parseInt(process.env.TELEGRAM_CHANNEL_COOLDOWN_MIN) || 90, // Min between posts
   },
 
   discord: {
