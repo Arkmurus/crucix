@@ -1191,6 +1191,21 @@ async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/dd/admin/reset")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_admin_reset_ep(confirm: bool = False):
+    """R-F2337 — DANGER: wipe ALL DD memory (every report + index, all VLS proofs/chains,
+    the watchlist + alerts, and the DD vault) for a clean start. Admin-gated at the web
+    tier (like DELETE /vault). Requires ?confirm=true. Runs IN-PROCESS on the single
+    state_store connection — never spawns a second writer (R-F2277)."""
+    from ..intel import dd_orchestrator
+    if confirm is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true required — this irreversibly wipes ALL DD reports")
+    return await dd_orchestrator.reset_dd_memory(confirm=True)
+
+
 @router.get("/dd/layer-5c/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_layer_5c_stats_ep(limit: int = 200):

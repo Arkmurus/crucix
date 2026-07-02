@@ -9685,6 +9685,49 @@ async def get_watchlist() -> list[dict]:
     return await rs.get_json(WATCHLIST_KEY) or []
 
 
+async def reset_dd_memory(confirm: bool = False) -> dict:
+    """R-F2337 — DANGER: wipe ALL DD state for a clean start (clears accumulated test
+    data). Deletes every report body, the report index, all VLS proofs + chains, the
+    watchlist + its alerts, and the DD vault (cases / cross-refs / financial profiles).
+    Irreversible. Requires confirm=True. Runs IN-PROCESS on the single state_store
+    connection (never spawn a second writer — R-F2277)."""
+    if confirm is not True:
+        return {"ok": False, "error": "confirm=True required (irreversible wipe)"}
+    from . import redis_store as rs
+    cleared: dict[str, Any] = {}
+    # 1) report bodies (crucix:dd:report:{run_id}) — NOTE report_index uses '_' not ':'
+    rep_keys = await rs.scan_keys("crucix:dd:report:*", count=5000)
+    for k in rep_keys:
+        await rs.delete(k)
+    cleared["reports"] = len(rep_keys)
+    # 2) report index
+    await rs.delete(REPORT_INDEX_KEY)
+    # 3) VLS proofs + chains (crucix:dd:vls:* covers both proofs and :chain:)
+    vls_keys = await rs.scan_keys("crucix:dd:vls:*", count=10000)
+    for k in vls_keys:
+        await rs.delete(k)
+    cleared["vls_proofs_and_chains"] = len(vls_keys)
+    # 4) watchlist + alerts
+    await rs.delete(WATCHLIST_KEY)
+    await rs.delete(WATCHLIST_ALERTS_KEY)
+    cleared["watchlist_and_alerts"] = 2
+    # 5) DD vault (separate sqlite at /data/dd_vault.db, own connection)
+    try:
+        from .dd_vault import get_vault
+        cleared["vault"] = get_vault().clear_all()
+    except Exception as e:
+        cleared["vault_error"] = str(e)
+    try:
+        from .engine_wiring import wire_success
+        wire_success(module="dd_orchestrator",
+                     summary=f"DD memory reset (clean slate): {cleared}",
+                     source_id="dd_orchestrator:reset_dd_memory")
+    except Exception:
+        pass
+    logger.warning("[dd_reset] R-F2337 DD memory WIPED for clean start: %s", cleared)
+    return {"ok": True, "cleared": cleared}
+
+
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs

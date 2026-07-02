@@ -301,6 +301,28 @@ class DDVault:
         return [dict(r) for r in rows]
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def clear_all(self) -> dict[str, int]:
+        """R-F2337 — DANGER: delete EVERY DD case, cross-reference, and financial
+        profile. Used to wipe accumulated test data for a clean start. Irreversible."""
+        conn = self._get_conn()
+        counts: dict[str, int] = {}
+        for tbl in ("dd_cases", "dd_cross_references", "financial_profiles"):
+            try:
+                before = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                conn.execute(f"DELETE FROM {tbl}")
+                counts[tbl] = int(before)
+            except Exception as e:
+                logger.warning("[dd_vault] clear_all(%s) failed: %s", tbl, e)
+                counts[tbl] = -1
+        conn.commit()
+        try:
+            wire_success(module="dd_vault", summary=f"DD vault cleared: {counts}",
+                         source_id="dd_vault:clear_all")
+        except Exception:
+            pass
+        return counts
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
     def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Search cases by entity name, jurisdiction, or tags."""
         conn = self._get_conn()

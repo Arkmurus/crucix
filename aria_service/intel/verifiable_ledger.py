@@ -44,6 +44,7 @@ from cryptography.hazmat.primitives.serialization import (
     NoEncryption,
     PrivateFormat,
     PublicFormat,
+    load_pem_private_key,
 )
 
 logger = logging.getLogger("aria.verifiable_ledger")
@@ -66,18 +67,42 @@ _PUBLIC_KEY_PATH = _DATA_DIR / "aria_vls_key.pub"
 # ============================================================================
 
 def _load_or_generate_key() -> ec.EllipticCurvePrivateKey:
-    """Load existing ECDSA key or generate a new SECP256K1 pair.
+    """Load the existing ECDSA key, or generate a new SECP256K1 pair on FIRST use only.
 
-    The key is stored on the persistent /data volume so it survives
-    restarts. If the key file doesn't exist, a new pair is generated
-    and both private and public keys are written to disk.
+    The key is stored on the persistent /data volume so it survives restarts.
+
+    R-F2336 (bug fix): the previous loader called ``ec.EllipticCurvePrivateKey.from_pem`` —
+    a method that DOES NOT EXIST in `cryptography` — so loading an existing key ALWAYS
+    raised AttributeError, the except swallowed it, and a brand-new key was generated and
+    written over the file on EVERY boot. That silently rotated the signing key on every
+    restart, so every report sealed under a prior boot's key failed signature verification
+    (the hash stayed valid — the report body was intact — only the signature could not be
+    checked against the current key). Loading via serialization.load_pem_private_key makes
+    the key STABLE across restarts. A valid key file present on disk is NEVER overwritten;
+    regeneration happens only when no file exists, or (loudly, wired to the brain) when an
+    existing file is genuinely unreadable.
     """
     if _PRIVATE_KEY_PATH.exists():
         try:
             with open(_PRIVATE_KEY_PATH, "rb") as f:
-                return ec.EllipticCurvePrivateKey.from_pem(f.read())
+                key = load_pem_private_key(f.read(), password=None)
+            if isinstance(key, ec.EllipticCurvePrivateKey):
+                return key
+            raise TypeError(f"stored VLS key is not an EC private key: {type(key).__name__}")
         except Exception as e:
-            logger.warning("VLS: failed to load key, generating new: %s", e)
+            # Do NOT silently rotate — surface loudly. With the correct API this only fires
+            # on a genuinely corrupt/truncated file (rare), where prior proofs are already
+            # unverifiable; regenerating keeps NEW reports sealable rather than breaking VLS.
+            logger.error(
+                "VLS: existing key at %s failed to load (%s) — regenerating (LOUD). Reports "
+                "sealed under the previous key can no longer be signature-verified.",
+                _PRIVATE_KEY_PATH, e,
+            )
+            try:
+                wire_failure("verifiable_ledger", f"VLS key load failed, regenerating: {e}",
+                             gap_type="engine_failure", source="verifiable_ledger:key")
+            except Exception:
+                pass
 
     private_key = ec.generate_private_key(ec.SECP256K1())
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -454,11 +479,26 @@ async def verify_single(run_id: str) -> dict:
         # R-F2065: include risk_classification for frontend display
         _risk = report_body.get("risk_classification", "")
 
+        # R-F2336: hash mismatch = the body CHANGED since sealing (real tampering).
+        # hash-OK but signature-invalid = the body is INTACT but was signed under a
+        # superseded key (pre-fix key-rotation artifact) — NOT tampering. Report these
+        # distinctly so the UI never cries "tampered" when the content is provably intact.
+        if hash_valid and not sig_valid:
+            _reason = ("Report content is INTACT (hash matches the sealed value) but its "
+                       "signature was produced under a superseded signing key and cannot be "
+                       "re-verified — a key-rotation artifact (R-F2336), NOT evidence of tampering.")
+        elif not hash_valid:
+            _reason = ("Report content hash does NOT match the sealed value — the stored "
+                       "report may have been altered since it was sealed.")
+        else:
+            _reason = "Report is intact and its signature verifies against the VLS key."
         return {
             "verified": hash_valid and sig_valid,
+            "content_intact": hash_valid,
             "run_id": run_id,
             "hash_valid": hash_valid,
             "signature_valid": sig_valid,
+            "reason": _reason,
             "version": proof.get("version"),
             "timestamp": proof.get("timestamp"),
             "previous_hash": proof.get("previous_hash"),
