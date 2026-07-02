@@ -17408,9 +17408,10 @@
       "title": "landing page: centre/space hero stats + align pricing tiers to backend (Free/Pro/Pro-Intelligence) matching account.html + add free tier",
       "claimed_at": "2026-07-02T13:07:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a9d372b9",
+      "notes": null,
+      "shipped_at": "2026-07-02T13:22:24Z"
     },
     {
       "r_number": "R-F2312",
@@ -17427,9 +17428,10 @@
       "title": "landing contact section: reframe 'Request access' → 'Find out more' (open acquisition + free tier) + remove aria@arkmurus.com email",
       "claimed_at": "2026-07-02T13:15:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d6a64373",
+      "notes": null,
+      "shipped_at": "2026-07-02T13:22:24Z"
     }
   ]
 }
