@@ -878,6 +878,26 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
     )
 
 
+async def _dd_report_acl_context(dd_orchestrator, run_id: str, report: dict) -> dict:
+    """R-F2291 — build the ownership context for the ACL check by overlaying the
+    INDEX entry (authoritative user_id / user_email_domain / share_to_company)
+    onto the report body. The body can carry user_id but a None domain; the index
+    has the real domain (it's what list_reports + the 'shared' badge read). Index
+    wins; the body is the fallback when the run_id has aged out of the index cap.
+    """
+    acl = dict(report)
+    try:
+        owner = await dd_orchestrator.get_report_owner(run_id)
+    except Exception:
+        owner = None
+    if owner:
+        for k in ("user_id", "user_email_domain", "share_to_company"):
+            v = owner.get(k)
+            if v is not None:
+                acl[k] = v
+    return acl
+
+
 @router.get("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_report_ep(run_id: str, format: str = "json", user_id: str = "",
@@ -888,8 +908,11 @@ async def dd_report_ep(run_id: str, format: str = "json", user_id: str = "",
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     # R-F1820 + R-F2291: owner OR same-company-shared may view (404 to avoid
     # leaking existence otherwise). Node pins user_id + user_email_domain from the
-    # JWT so the client cannot forge them.
-    if not _dd_report_access_allowed(report, user_id, user_email_domain):
+    # JWT so the client cannot forge them. Ownership is read from the INDEX (the
+    # authoritative source the list uses) via _dd_report_acl_context — the report
+    # BODY can have user_email_domain=None and would 404 a same-company colleague.
+    _acl = await _dd_report_acl_context(dd_orchestrator, run_id, report)
+    if not _dd_report_access_allowed(_acl, user_id, user_email_domain):
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     if format == "markdown":
         from ..intel import dd_schema
@@ -1124,7 +1147,9 @@ async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain:
     from ..intel import dd_orchestrator
     _report = await dd_orchestrator.get_report(run_id)
     if _report is not None:
-        if not _dd_report_access_allowed(_report, user_id, user_email_domain):
+        # R-F2291: read ownership from the INDEX (authoritative), not the body.
+        _acl = await _dd_report_acl_context(dd_orchestrator, run_id, _report)
+        if not _dd_report_access_allowed(_acl, user_id, user_email_domain):
             raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     try:
         return await dd_orchestrator.delete_report(run_id)
