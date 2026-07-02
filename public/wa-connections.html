@@ -222,7 +222,7 @@
         ...opts,
       });
       if (res.status === 401) {
-        throw new Error('Not signed in — log in to intel.arkmurus.com first, then reload this page.');
+        throw new Error('Not signed in — log in to imaria.io first, then reload this page.');
       }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
