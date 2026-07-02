@@ -261,6 +261,34 @@ def main():
         print("\nFix the SyntaxError(s) above before committing — broken Python breaks import + any deploy.")
         return 1
 
+    # Check 0c: NODE BOOT SMOKE (R-F2292) — verify server.mjs can import without
+    # ReferenceError. This catches the class of bug where a module uses bare
+    # shorthand names in an object literal that reference unimported functions.
+    # Only runs when server.mjs is staged.
+    _server_staged = any(fp.name == "server.mjs" for fp in files)
+    if _server_staged:
+        _boot_result = subprocess.run(
+            [sys.executable, "-c", """
+import subprocess as _sp, sys as _sys
+_r = _sp.run(
+    ['node', '--input-type=module', '-e',
+     'try { await import("./server.mjs"); } catch(e) { console.error("BOOT FAILED:", e.message); _sys.exit(1); }'],
+    capture_output=True, text=True, timeout=30,
+)
+if _r.returncode != 0:
+    print(_r.stderr[:500])
+_sys.exit(_r.returncode)
+"""],
+            capture_output=True, text=True, timeout=35,
+        )
+        if _boot_result.returncode != 0:
+            print("[pre-commit] VERIFICATION FAILED — NODE BOOT SMOKE:")
+            print(f"  server.mjs failed to import. Stderr:")
+            print(f"    {_boot_result.stderr[:500]}")
+            print("\nFix the ReferenceError/import error before committing.")
+            print("Run: node --input-type=module -e \"await import('./server.mjs')\"")
+            return 1
+
     # R-F1961 — per-file ADDED-line numbers + ADDED function names, so the
     # whole-file checks gate only what THIS commit introduces (not pre-existing
     # debt in a touched legacy file). Empty maps fall back to whole-file behavior.

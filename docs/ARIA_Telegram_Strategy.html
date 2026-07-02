@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA Telegram — Growth Strategy & Implementation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0a1628;--navy-m:#0f1e3c;--navy-l:#162444;
+  --gold:#c9a84c;--gold-bg:#fdf8ee;
+  --green:#1a7a5e;--green-bg:#f0faf6;--green-bd:#9fd4c4;
+  --red:#c0392b;--red-bg:#fdf0ef;
+  --amber:#d4800a;--amber-bg:#fdf4e7;
+  --blue:#185fa5;--blue-bg:#eaf2fb;
+  --tg:#2AABEE;--tg-dark:#0088cc;--tg-bg:#e8f6fe;
+  --text:#1a2030;--mid:#3a4558;--dim:#6a7888;
+  --border:#dde3ea;--light:#f7f9fc;--white:#fff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--white);color:var(--text);
+     font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* COVER */
+.cover{background:var(--navy);padding:80px 60px 72px;position:relative;overflow:hidden}
+.cover::before{content:'';position:absolute;inset:0;
+  background-image:linear-gradient(rgba(42,171,238,.03) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(42,171,238,.03) 1px,transparent 1px);
+  background-size:56px 56px}
+.cover-bar{position:absolute;top:0;left:0;right:0;height:3px;background:var(--tg)}
+.cover-eye{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--tg);
+  letter-spacing:3px;text-transform:uppercase;margin-bottom:24px;opacity:.8}
+.cover-title{font-family:'Syne',sans-serif;font-size:clamp(52px,7vw,96px);
+  font-weight:800;color:#f0f4f8;line-height:.9;margin-bottom:14px;letter-spacing:-2px}
+.cover-title span{color:var(--tg)}
+.cover-sub{font-family:'Syne',sans-serif;font-size:20px;color:var(--gold);margin-bottom:28px}
+.cover-desc{max-width:680px;font-size:15.5px;color:#8a9ab8;line-height:1.75;
+  border-left:2px solid rgba(42,171,238,.3);padding-left:20px;margin-bottom:48px}
+.cover-pillars{display:flex;gap:14px;flex-wrap:wrap}
+.pillar{background:rgba(42,171,238,.08);border:.5px solid rgba(42,171,238,.2);
+  border-radius:8px;padding:14px 18px}
+.pillar-n{font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--tg)}
+.pillar-l{font-size:11px;color:#6a90b0;margin-top:2px;font-family:'IBM Plex Mono',monospace}
+
+/* NAV */
+.nav{background:var(--white);border-bottom:1px solid var(--border);padding:14px 60px;
+  display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
+.nav-brand{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--navy)}
+.nav-links{display:flex;gap:20px}
+.nav-links a{font-size:12px;color:var(--dim);text-decoration:none;font-family:'IBM Plex Mono',monospace}
+
+/* LAYOUT */
+.wrap{max-width:1100px;margin:0 auto;padding:72px 60px}
+.sec-eye{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);
+  letter-spacing:2.5px;text-transform:uppercase;margin-bottom:8px}
+.sec-title{font-family:'Syne',sans-serif;font-size:clamp(28px,4vw,42px);
+  font-weight:700;color:var(--navy);margin-bottom:6px}
+.sec-rule{height:3px;background:var(--navy);width:48px;margin-bottom:20px}
+.sec-intro{font-size:16px;color:var(--mid);line-height:1.75;max-width:760px;margin-bottom:32px}
+.sec-break{background:var(--navy);padding:36px 60px;margin:60px -60px;
+  display:flex;justify-content:space-between;align-items:center}
+.sec-break-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#f0f4f8}
+.subhead{font-family:'Syne',sans-serif;font-size:19px;font-weight:600;color:var(--navy);
+  margin:32px 0 14px;padding-bottom:8px;border-bottom:1.5px solid var(--border)}
+
+/* ARCHITECTURE FLOW */
+.flow{display:flex;align-items:stretch;gap:0;border:.5px solid var(--border);
+  border-radius:10px;overflow:hidden;margin:24px 0}
+.flow-step{flex:1;padding:20px;border-right:.5px solid var(--border);position:relative;background:var(--white)}
+.flow-step:last-child{border-right:none}
+.flow-num{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--tg);
+  letter-spacing:1px;margin-bottom:6px}
+.flow-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--navy);margin-bottom:6px}
+.flow-body{font-size:12px;color:var(--mid);line-height:1.55}
+.flow-tag{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 7px;border-radius:4px;
+  margin-top:8px;display:inline-block}
+.flow-existing{background:var(--green-bg);color:var(--green);border:.5px solid var(--green-bd)}
+.flow-new{background:var(--tg-bg);color:var(--tg-dark)}
+
+/* PHONE MOCKUP */
+.phone-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:24px 0;align-items:start}
+.phone{background:#fff;border-radius:20px;overflow:hidden;
+  box-shadow:0 16px 48px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06);max-width:280px;margin:0 auto;width:100%}
+.phone-bar{background:var(--tg-dark);padding:10px 14px;display:flex;align-items:center;gap:8px}
+.phone-bar-avatar{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.2);
+  display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.phone-bar-info .name{font-size:13px;font-weight:600;color:#fff;line-height:1.2}
+.phone-bar-info .sub{font-size:10px;color:rgba(255,255,255,.5)}
+.phone-body{padding:10px;background:#f1f1f1;min-height:260px;display:flex;flex-direction:column;gap:6px}
+.tg-msg{background:#fff;border-radius:12px 12px 12px 2px;padding:10px 12px;
+  font-size:12px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.08);max-width:95%}
+.tg-msg strong{font-weight:600}
+.tg-msg .time{font-size:10px;color:var(--dim);float:right;margin-left:8px;margin-top:2px}
+.tg-btn-row{display:flex;gap:4px;margin-top:6px}
+.tg-btn{background:var(--tg);color:#fff;border-radius:6px;padding:5px 8px;
+  font-size:10px;font-weight:500;text-align:center;flex:1}
+.tg-views{font-size:10px;color:var(--dim);text-align:right;padding:2px 4px}
+
+/* CONTENT CARDS */
+.cards2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+.cards3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:20px 0}
+.card{background:var(--white);border:.5px solid var(--border);border-radius:10px;overflow:hidden}
+.card-hdr{padding:14px 16px 12px;border-bottom:.5px solid var(--border)}
+.card-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;
+  text-transform:uppercase;margin-bottom:4px}
+.card-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:600;color:var(--navy)}
+.card-body{padding:14px 16px;font-size:13px;color:var(--mid);line-height:1.65}
+.card-body p{margin-bottom:8px}
+.card-body p:last-child{margin-bottom:0}
+.card-body strong{font-weight:500;color:var(--text)}
+.cn{border-top:3px solid var(--navy)}.cg{border-top:3px solid var(--green)}
+.ca{border-top:3px solid var(--amber)}.ctg{border-top:3px solid var(--tg)}
+.cgold{border-top:3px solid var(--gold)}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;border:.5px solid var(--border);
+  border-radius:10px;overflow:hidden;font-size:13px;margin:20px 0}
+.tbl th{background:var(--navy);color:#fff;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:10px 14px;
+  text-align:left;border-right:1px solid rgba(255,255,255,.1);font-weight:400}
+.tbl td{padding:10px 14px;border-bottom:.5px solid var(--border);
+  border-right:.5px solid var(--border);color:var(--mid);vertical-align:top;line-height:1.5}
+.tbl td:first-child{font-family:'IBM Plex Mono',monospace;font-size:11.5px;
+  font-weight:500;color:var(--navy);background:rgba(26,50,96,.03)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:nth-child(even) td{background:var(--light)}
+.tbl th:last-child,.tbl td:last-child{border-right:none}
+
+/* CODE BLOCK */
+.code{background:#0d1421;border-radius:10px;padding:20px 24px;margin:20px 0;
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.75;
+  color:#c8d8e8;overflow-x:auto}
+.code .cm{color:#4a6a6a}.code .ck{color:var(--gold)}.code .cs{color:#9fd4a4}
+.code .cc{color:#7a9ab8}.code .cn-c{color:#a8d8ea}.code .cg-c{color:var(--tg)}
+
+/* HBOX */
+.hbox{border-radius:10px;padding:18px 22px;margin:18px 0;font-size:14.5px;line-height:1.7}
+.hbox strong{font-weight:600}
+.hbox-gold{background:var(--gold-bg);border-left:3px solid var(--gold)}
+.hbox-green{background:var(--green-bg);border-left:3px solid var(--green);color:#0f5040}
+.hbox-tg{background:var(--tg-bg);border-left:3px solid var(--tg);color:#005a8c}
+.hbox-navy{background:rgba(10,22,40,.05);border-left:3px solid var(--navy)}
+
+/* METRICS GRID */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:24px 0}
+.metric{background:var(--white);border:.5px solid var(--border);border-radius:10px;padding:20px}
+.metric-n{font-family:'Syne',sans-serif;font-size:32px;font-weight:700;color:var(--tg)}
+.metric-l{font-size:12px;color:var(--dim);margin-top:4px;font-family:'IBM Plex Mono',monospace}
+
+/* PHASES */
+.phases{display:flex;flex-direction:column;gap:0;margin:24px 0}
+.phase{border:.5px solid var(--border);overflow:hidden}
+.phase:first-child{border-radius:10px 10px 0 0}
+.phase:last-child{border-radius:0 0 10px 10px;margin-bottom:0}
+.phase:not(:last-child){border-bottom:none}
+.phase-hdr{display:grid;grid-template-columns:160px 1fr auto auto;gap:16px;
+  align-items:center;padding:16px 20px}
+.phase-badge{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;
+  padding:3px 10px;border-radius:20px}
+.ph-active{background:var(--green-bg);color:var(--green)}
+.ph-next{background:var(--tg-bg);color:var(--tg-dark)}
+.ph-future{background:var(--light);color:var(--dim);border:.5px solid var(--border)}
+.phase-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:600}
+.phase-when{font-size:12px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.phase-body{padding:0 20px 20px;display:grid;grid-template-columns:1fr 1fr;
+  gap:16px;border-top:.5px solid var(--border);padding-top:16px;background:var(--light)}
+.ph-col-title{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.ph-item{font-size:13px;color:var(--mid);padding:5px 0;border-bottom:.5px solid var(--border);
+  display:flex;gap:8px;line-height:1.5}
+.ph-item:last-child{border-bottom:none}
+.ph-item::before{content:'→';color:var(--gold);flex-shrink:0;font-weight:500}
+.ph-item strong{font-weight:500;color:var(--text)}
+
+/* FOOTER */
+.footer{background:var(--navy);padding:28px 60px;display:flex;
+  justify-content:space-between;align-items:center;margin-top:72px}
+.footer-brand{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--tg)}
+.footer-meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#3a5070;text-align:right;line-height:1.7}
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="cover-bar"></div>
+  <div class="cover-eye">Arkmurus Group · ARIA Intelligence Platform · Telegram Growth Strategy</div>
+  <div class="cover-title">ARIA on<br><span>Telegram</span></div>
+  <div class="cover-sub">From Private Bot to Public Acquisition Channel</div>
+  <div class="cover-desc">
+    The infrastructure is built. 1,981 lines of alerting code, 491 lines of bot commands, a live sweep pipeline. What's missing is the public channel that turns that intelligence into a customer acquisition engine. This is the plan to build it — and grow it to 10,000 qualified subscribers in 12 months.
+  </div>
+  <div class="cover-pillars">
+    <div class="pillar"><div class="pillar-n">1B+</div><div class="pillar-l">Telegram monthly users (March 2025)</div></div>
+    <div class="pillar"><div class="pillar-n">21×</div><div class="pillar-l">Average daily app opens per user</div></div>
+    <div class="pillar"><div class="pillar-n">100%</div><div class="pillar-l">Subscriber reach — no algorithm</div></div>
+    <div class="pillar"><div class="pillar-n">39%</div><div class="pillar-l">YoY growth in B2B Telegram channels 2025</div></div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <div class="nav-brand">ARIA Telegram — Growth Strategy & Implementation</div>
+  <nav class="nav-links">
+    <a href="#architecture">Architecture</a>
+    <a href="#content">Content</a>
+    <a href="#keywords">Keywords</a>
+    <a href="#growth">Growth</a>
+    <a href="#phases">Phases</a>
+    <a href="#code">Integration</a>
+  </nav>
+</div>
+
+<!-- SECTION 1: ARCHITECTURE -->
+<div class="wrap" id="architecture">
+  <div class="sec-eye">Section 01</div>
+  <div class="sec-title">What Exists vs What Needs Building</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">ARIA's Telegram infrastructure is more complete than any comparable project at this stage. The distinction between the private operator bot and the public acquisition channel is the key architectural decision. They are separate products serving separate purposes and must not be merged.</div>
+
+  <div class="hbox hbox-tg">
+    <strong>The core distinction:</strong> The existing <code>TelegramAlerter</code> is a private operations tool — operator-only, full intelligence output, no curation required. The new public channel is a customer acquisition tool — curated, branded, designed to demonstrate value to people who have never heard of ARIA. Different audience, different content standard, different purpose.
+  </div>
+
+  <div class="subhead">The Four-Layer Architecture</div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">LAYER 01</div>
+      <div class="flow-title">CRUCIX Sweep</div>
+      <div class="flow-body">49 sources. 5-minute cycle. 20K+ signals in the ledger. Raw intelligence feed into ARIA's brain.</div>
+      <span class="flow-tag flow-existing">✓ Existing</span>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">LAYER 02</div>
+      <div class="flow-title">Private Bot</div>
+      <div class="flow-body">TelegramAlerter. FLASH/PRIORITY/ROUTINE tiers. Operator-only. Full 8-section briefing. No curation needed.</div>
+      <span class="flow-tag flow-existing">✓ Existing (1,981 lines)</span>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">LAYER 03</div>
+      <div class="flow-title">Curation Engine</div>
+      <div class="flow-body">Scores signals for public suitability. Max 2 posts/day. "Would a defence broker screenshot this?" filter. Quality gate.</div>
+      <span class="flow-tag flow-new">⚡ Build: channelPublisher.mjs</span>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">LAYER 04</div>
+      <div class="flow-title">Public Channel</div>
+      <div class="flow-body">@ARIAIntelligence. Formatted, branded, with inline buttons. Reply-keyword system for drill-down. Stripe CTA on conversion posts.</div>
+      <span class="flow-tag flow-new">⚡ Build: channelScheduler.mjs</span>
+    </div>
+  </div>
+
+  <div class="subhead">Channel Configuration — Critical Setup Decisions</div>
+  <table class="tbl">
+    <thead><tr><th>Setting</th><th>Decision</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td>Channel type</td><td>Public with @ARIAIntelligence username</td><td>Searchable in Telegram directory. Shareable link. Required for Telegram Ads platform (1,000+ subs).</td></tr>
+      <tr><td>Discussion group</td><td>Enable a linked discussion group</td><td>Subscribers can comment on posts, creating community signal. Bot can monitor for reply keywords. Post views appear in analytics.</td></tr>
+      <tr><td>Signatures</td><td>Enable "Sign messages" with ARIA brand</td><td>Every post shows "ARIA" as author. Builds brand recognition. Required for multi-admin channels.</td></tr>
+      <tr><td>Slow mode (group)</td><td>30 seconds on discussion group</td><td>Prevents spam while allowing genuine engagement. Discussion group comment quality matters for new visitor impression.</td></tr>
+      <tr><td>Pinned post</td><td>Pin the "What is ARIA" welcome post permanently</td><td>New subscribers see it first. Must explain value and reply keywords immediately.</td></tr>
+      <tr><td>Bot posting rights</td><td>Bot has post + edit + pin rights on channel</td><td>Required for scheduled autonomous posting. Allows scheduler to update pinned post monthly.</td></tr>
+      <tr><td>Post scheduling</td><td>Use channelScheduler.mjs, not Telegram native scheduling</td><td>ARIA content is dynamic (live sweep data). Cannot be scheduled days in advance without current data.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 2: CONTENT DESIGN -->
+<div class="sec-break" id="content">
+  <div class="sec-break-title">Section 02 — Content Design & Post Library</div>
+  <div class="sec-break-num">02</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 02</div>
+  <div class="sec-title">What Gets Published and Why</div>
+  <div class="sec-rule"></div>
+
+  <div class="subhead">The Seven Post Formats — Actual Channel Posts</div>
+  <div class="phone-row">
+
+    <!-- Morning Signal Phone -->
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--tg-dark);margin-bottom:10px;text-align:center">Morning Signal · Daily 07:00</div>
+      <div class="phone">
+        <div class="phone-bar">
+          <div class="phone-bar-avatar">◆</div>
+          <div class="phone-bar-info"><div class="name">ARIA Intelligence</div><div class="sub">12,481 subscribers</div></div>
+        </div>
+        <div class="phone-body">
+          <div class="tg-msg">
+            <strong>🔴 SANCTIONS 🇦🇪</strong><br><br>
+            OFAC designated two UAE-registered entities under E.O. 13846 last night. Both in marine cargo sector, Sharjah.<br><br>
+            If you have counterparties in UAE marine logistics — screen before first contact today.<br><br>
+            <em>Reply SCREEN [name] — 60-second check.</em>
+            <span class="time">07:02</span>
+          </div>
+          <div class="tg-views">👁 3,847 views · 28 shares</div>
+          <div class="tg-btn-row">
+            <div class="tg-btn">⚡ Screen Entity</div>
+            <div class="tg-btn">📋 Full Brief</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Case File Phone -->
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--tg-dark);margin-bottom:10px;text-align:center">Case File · Friday 10:00</div>
+      <div class="phone">
+        <div class="phone-bar">
+          <div class="phone-bar-avatar">◆</div>
+          <div class="phone-bar-info"><div class="name">ARIA Intelligence</div><div class="sub">12,481 subscribers</div></div>
+        </div>
+        <div class="phone-body">
+          <div class="tg-msg">
+            <strong>🕵️ CASE FILE #3</strong><br>
+            <em>The deal that looked fine until it didn't</em><br><br>
+            Aviation parts. Clean entity. Export licence in place. Competitive price.<br><br>
+            <strong>Layer 5c:</strong> ML10 components. End-use: "civilian training." End-user: Mali.<br><br>
+            Mali under UN arms embargo since 2022. EUC not credible.<br><br>
+            🔴 Transaction declined.<br>
+            <em>Standard DD · 15 min · Criminal prosecution avoided.</em>
+            <span class="time">10:04</span>
+          </div>
+          <div class="tg-views">👁 5,211 views · 67 shares</div>
+          <div class="tg-btn-row">
+            <div class="tg-btn">🎯 Book Demo</div>
+            <div class="tg-btn">💼 Pro Intel</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Country Read Phone -->
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--tg-dark);margin-bottom:10px;text-align:center">Country Read · Monday 09:00</div>
+      <div class="phone">
+        <div class="phone-bar">
+          <div class="phone-bar-avatar">◆</div>
+          <div class="phone-bar-info"><div class="name">ARIA Intelligence</div><div class="sub">12,481 subscribers</div></div>
+        </div>
+        <div class="phone-body">
+          <div class="tg-msg">
+            <strong>🇳🇬 NIGERIA — MARKET BRIEF</strong><br><br>
+            <em>Three things for doing business in Nigeria this week:</em><br><br>
+            <strong>1. FX</strong> — NGN at 1,580/$. Stable. Dollar contracts fine. Naira over 90 days: repatriation risk.<br><br>
+            <strong>2. Procurement</strong> — DICON Q2 pipeline active. 7 open tenders. ML4/ML10 dominant. August window.<br><br>
+            <strong>3. Risk</strong> — 3 northern states under emergency decree. Check counterparty location before delivery terms.
+            <span class="time">09:01</span>
+          </div>
+          <div class="tg-views">👁 4,102 views · 41 shares</div>
+          <div class="tg-btn-row">
+            <div class="tg-btn">📄 Full NG Brief</div>
+            <div class="tg-btn">🔍 DD in Nigeria</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">Engagement Mechanics — What Makes Telegram Different</div>
+  <div class="cards3">
+    <div class="card ctg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--tg-dark)">Telegram native</div><div class="card-title">Inline Buttons</div></div>
+      <div class="card-body">
+        <p>Every post has 1–2 inline buttons below the text. Not hyperlinks — actual interactive buttons that trigger bot responses. <strong>Screen Entity</strong> → bot runs the sanctions check. <strong>Full Brief</strong> → bot sends the country intelligence. <strong>Pro Intel</strong> → bot sends the Stripe link.</p>
+        <p>This is the reply-keyword system made visual. Buttons convert significantly better than text keywords because they require zero effort from the subscriber.</p>
+      </div>
+    </div>
+    <div class="card cg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--green)">Growth mechanism</div><div class="card-title">View Count as Social Proof</div></div>
+      <div class="card-body">
+        <p>Telegram shows view counts on every post. A post with <strong>4,800 views</strong> visible to a new visitor signals that this channel is worth following. Unlike Twitter or LinkedIn, the number is real — no algorithm suppression means every subscriber sees every post.</p>
+        <p>View counts also show Arkmurus which content resonates. Case Files and Breaking Alerts consistently outperform — this drives content calendar decisions.</p>
+      </div>
+    </div>
+    <div class="card ca">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--amber)">Conversion</div><div class="card-title">Discussion Group Comments</div></div>
+      <div class="card-body">
+        <p>The linked discussion group under each post allows subscribers to comment and ask questions. ARIA's bot monitors these comments for keywords and responds. A public compliance question answered visibly in comments becomes the best possible demonstration of ARIA's capability to every subscriber who reads that thread.</p>
+        <p>Comments also provide market research — what questions people ask reveals what content to produce next.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">The Pinned Welcome Post — Copy Ready to Use</div>
+  <div class="code">
+    <span class="cm"># Pinned post — first thing every new subscriber sees</span>
+    <br>
+    <span class="cg-c">◆ Welcome to ARIA Intelligence</span>
+    <br><br>
+    <span class="cc">ARIA is an autonomous defence due diligence and compliance intelligence agent</span>
+    <br>
+    <span class="cc">built by Arkmurus Group — operating across 80+ countries since 2024.</span>
+    <br><br>
+    <span class="ck">What you'll get here (free, always):</span>
+    <br>
+    <span class="cs">⚡ Morning Signals</span> <span class="cm">— sanctions, procurement, overnight market events</span>
+    <br>
+    <span class="cs">📋 Procurement Radar</span> <span class="cm">— real tenders, real deadlines, real reference numbers</span>
+    <br>
+    <span class="cs">🌍 Country Reads</span> <span class="cm">— Angola, Nigeria, Guinea, Turkey, UAE, Balkans weekly</span>
+    <br>
+    <span class="cs">🕵️ Case Files</span> <span class="cm">— anonymised real DD cases and what ARIA found</span>
+    <br>
+    <span class="cs">💡 Know Your Rights</span> <span class="cm">— export control, sanctions, brokering law in plain English</span>
+    <br>
+    <span class="cs">🚨 Breaking Alerts</span> <span class="cm">— when something material happens in your market, immediately</span>
+    <br><br>
+    <span class="ck">Reply keywords (bot responds instantly):</span>
+    <br>
+    <span class="cn-c">SCREEN [company name]</span> <span class="cm">→ 60-second sanctions check</span>
+    <br>
+    <span class="cn-c">ANGOLA / NIGERIA / TURKEY / UAE</span> <span class="cm">→ country intelligence brief</span>
+    <br>
+    <span class="cn-c">TENDER</span> <span class="cm">→ latest procurement opportunities</span>
+    <br>
+    <span class="cn-c">DEMO</span> <span class="cm">→ book a live ARIA demonstration</span>
+    <br>
+    <span class="cn-c">PRO</span> <span class="cm">→ Pro Intel subscription (full DD in under 10 minutes, £199/mo)</span>
+    <br><br>
+    <span class="cg-c">→ intel.arkmurus.com</span>
+  </div>
+</div>
+
+<!-- SECTION 3: REPLY KEYWORDS -->
+<div class="sec-break" id="keywords">
+  <div class="sec-break-title">Section 03 — Reply-Keyword System & Bot Integration</div>
+  <div class="sec-break-num">03</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 03</div>
+  <div class="sec-title">The Reply System — Your Automated CRM</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">The reply-keyword system converts a passive subscriber into an identified prospect with a specific need. Every reply is a data point. ARIA's existing bot infrastructure handles responses automatically. No human involvement required for standard flows.</div>
+
+  <table class="tbl">
+    <thead><tr><th>Keyword</th><th>What ARIA does</th><th>Response time</th><th>Conversion path</th></tr></thead>
+    <tbody>
+      <tr><td>SCREEN [entity]</td><td>Calls /api/aria/sanctions/quick. Returns clear/hit status with list matches across OFAC/EU/UN/OFSI</td><td>≤60 seconds</td><td>User sees ARIA work live → CTA: "Full DD available — Pro Intel"</td></tr>
+      <tr><td>ANGOLA / NIGERIA / TURKEY / UAE / GUINEA / BALKANS</td><td>Calls ARIA chat with country brief prompt. Returns 3-point brief with FX, procurement, risk</td><td>≤90 seconds</td><td>Demonstrates depth → CTA: "Full brief + DD in this market"</td></tr>
+      <tr><td>TENDER</td><td>Pulls top 3 current procurement opportunities from CRUCIX sweep for relevant markets</td><td>≤30 seconds</td><td>Procurement professionals: highest intent → Pro Intel CTA</td></tr>
+      <tr><td>BRIEF</td><td>Generates current ARIA situation briefing based on last 24h sweep signals</td><td>≤120 seconds</td><td>Analysts: shows ARIA's synthesis capability → Demo CTA</td></tr>
+      <tr><td>DEMO</td><td>Sends cal.com booking link for 20-minute live DD demonstration</td><td>Instant</td><td>Direct enterprise path — personal relationship</td></tr>
+      <tr><td>PRO / ACCESS / SUBSCRIBE</td><td>Sends Pro Intel explanation + Stripe payment link (£199/mo)</td><td>Instant</td><td>Direct conversion — no sales call needed</td></tr>
+      <tr><td>HELP / ?</td><td>Sends full keyword reference list + channel description</td><td>Instant</td><td>Onboarding new subscribers who missed the pinned post</td></tr>
+    </tbody>
+  </table>
+
+  <div class="hbox hbox-tg">
+    <strong>Wiring to existing infrastructure:</strong> The <code>ReplyKeywordRouter</code> class in <code>channelPublisher.mjs</code> connects directly to ARIA's existing API endpoints (<code>/api/aria/sanctions/quick</code>, <code>/api/aria/chat</code>). The existing <code>handleTelegramWebhook</code> in <code>telegramCommands.mjs</code> needs one routing addition: messages from the public channel discussion group get sent to <code>ReplyKeywordRouter.route()</code> before the existing ARIA command handlers.
+  </div>
+
+  <div class="subhead">Integration Code — Wire Into server.mjs</div>
+  <div class="code">
+<span class="cm">// In server.mjs — add to the existing Telegram webhook handler</span>
+
+<span class="ck">import</span> { ChannelScheduler, wireBreakingAlertsToChannel } <span class="ck">from</span> <span class="cs">'./lib/telegram/channelScheduler.mjs'</span>;
+<span class="ck">import</span> { ReplyKeywordRouter } <span class="ck">from</span> <span class="cs">'./lib/telegram/channelPublisher.mjs'</span>;
+
+<span class="cm">// After initialising TelegramAlerter (existing)</span>
+<span class="ck">const</span> channelScheduler = <span class="ck">new</span> ChannelScheduler();
+<span class="ck">const</span> keywordRouter    = <span class="ck">new</span> ReplyKeywordRouter();
+
+<span class="cm">// Wire breaking alerts from private bot to public channel</span>
+wireBreakingAlertsToChannel(telegramAlerter, channelScheduler);
+
+<span class="cm">// Start autonomous posting schedule</span>
+<span class="ck">await</span> channelScheduler.start();
+
+<span class="cm">// In the existing Telegram webhook handler — add channel message routing</span>
+<span class="ck">app.post</span>(<span class="cs">'/api/telegram/webhook'</span>, <span class="ck">async</span> (req, res) => {
+  <span class="ck">const</span> update = req.body;
+  
+  <span class="cm">// Existing: handle private bot commands</span>
+  <span class="ck">await</span> handleTelegramWebhook(update);
+  
+  <span class="cm">// NEW: handle public channel discussion group replies</span>
+  <span class="ck">const</span> msg = update?.message || update?.channel_post;
+  <span class="ck">if</span> (msg?.chat?.type === <span class="cs">'supergroup'</span> || msg?.text) {
+    <span class="ck">await</span> keywordRouter.route(msg);
+  }
+  
+  <span class="cm">// NEW: handle inline button callbacks from channel posts</span>
+  <span class="ck">if</span> (update?.callback_query) {
+    <span class="ck">await</span> handleCallbackQuery(update.callback_query, keywordRouter);
+  }
+  
+  res.json({ ok: <span class="ck">true</span> });
+});
+  </div>
+</div>
+
+<!-- SECTION 4: GROWTH STRATEGY -->
+<div class="sec-break" id="growth">
+  <div class="sec-break-title">Section 04 — Growth Strategy & Subscriber Acquisition</div>
+  <div class="sec-break-num">04</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 04</div>
+  <div class="sec-title">10,000 Qualified Subscribers in 12 Months</div>
+  <div class="sec-rule"></div>
+  <div class="sec-intro">The target is not 10,000 followers — it is 10,000 defence brokers, compliance officers, and procurement professionals. These are the people who will convert to Pro Intel. A channel with 2,000 of the right subscribers is worth more than one with 50,000 general followers. Every growth tactic below is filtered through that lens.</div>
+
+  <div class="subhead">Growth Layer 1 — The Arkmurus Network (Day 1–30)</div>
+  <div class="cards2">
+    <div class="card cn">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--navy)">Immediate · Zero cost</div><div class="card-title">Seed with existing relationships</div></div>
+      <div class="card-body">
+        <p>Every person who has received a DD report, attended a briefing, or done business with Arkmurus in the last 3 years is a potential subscriber. This is not a mass email — it is a personal WhatsApp message: <em>"We've launched an intelligence channel on Telegram. First post is about [topic relevant to them]. Thought you'd find it useful."</em></p>
+        <p>Target: 300–500 subscribers from personal network alone in the first week. These are the highest-quality subscribers and the most likely to share with their professional network.</p>
+      </div>
+    </div>
+    <div class="card cg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--green)">Organic amplification</div><div class="card-title">Make the content shareable</div></div>
+      <div class="card-body">
+        <p>The Friday Case File is the single most shareable post format. A compliance professional who reads "standard DD, 8 minutes, criminal prosecution avoided" will forward it to their team. A defence broker will send it to a client who just asked them about DD. Build the Case Files first — before the channel launches — so three weeks of posts are ready.</p>
+        <p>Every post should end with: <em>"Forward to one colleague who would find this useful."</em> Not a hashtag. Not a follow request. A specific ask that feels like a favour, not marketing.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">Growth Layer 2 — Cross-Platform Promotion (Month 1–3)</div>
+  <div class="cards3">
+    <div class="card ctg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--tg-dark)">LinkedIn</div><div class="card-title">Teaser posts</div></div>
+      <div class="card-body">
+        <p>Post the first two lines of every Case File on LinkedIn with "Full story on the ARIA Intelligence Telegram channel →". LinkedIn's professional audience in compliance and defence maps precisely to ARIA's target subscriber profile. Each LinkedIn post sends qualified traffic to Telegram.</p>
+        <p><strong>Key:</strong> Cut off the post before the finding. Curiosity drives the click.</p>
+      </div>
+    </div>
+    <div class="card ctg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--tg-dark)">ARIA website</div><div class="card-title">Channel CTA on every page</div></div>
+      <div class="card-body">
+        <p>Add a sticky channel join CTA to intel.arkmurus.com and the new landing page. Anyone who visits the website and does not convert to Pro Intel should be invited to join the free channel. This converts website visitors who are not ready to pay into warm subscribers who stay in the ecosystem.</p>
+      </div>
+    </div>
+    <div class="card ctg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--tg-dark)">Niche channel partnerships</div><div class="card-title">Cross-promotion</div></div>
+      <div class="card-body">
+        <p>Identify 5–10 existing Telegram channels covering defence news, West Africa business, compliance, or MENA markets with 1,000–10,000 subscribers. Offer to do a content swap: ARIA provides an exclusive intelligence post for their channel in exchange for a shoutout to ARIA's channel. Cost: zero. Returns: directly qualified new subscribers.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">Growth Layer 3 — Telegram Ads Platform (Month 3+)</div>
+  <div class="hbox hbox-navy">
+    <strong>The platform:</strong> Telegram's official Sponsored Messages appear in large public channels (1,000+ subscribers). Channel owners earn 50–70% of ad revenue on their own channel, and sponsored messages can be placed in competitor channels. For ARIA, this means running sponsored posts in defence news channels, compliance channels, and West Africa business channels. Cost per qualified subscriber in niche B2B channels is significantly lower than LinkedIn or Google.
+  </div>
+  <div class="cards2">
+    <div class="card ca">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--amber)">Sponsored placement</div><div class="card-title">Target channels for placement</div></div>
+      <div class="card-body">
+        <p>Place sponsored posts in: defence industry news channels, Africa business and investment channels, MENA trade channels, sanctions and compliance professional channels, procurement and tender monitoring channels.</p>
+        <p>The sponsored post text should be the Morning Signal format — showing ARIA's output, not describing it. The prospect should think "this channel has what I need" before they see it's an ad.</p>
+      </div>
+    </div>
+    <div class="card cg">
+      <div class="card-hdr"><div class="card-tag" style="color:var(--green)">Revenue from own channel</div><div class="card-title">Monetise the channel audience</div></div>
+      <div class="card-body">
+        <p>Telegram shares ad revenue with channel owners — the official program allows creators with 1,000+ subscribers to earn 50% of ad revenue. At 10,000+ subscribers, this generates passive income that partially offsets channel operating costs.</p>
+        <p>More importantly: at 1,000+ subscribers ARIA qualifies for the Telegram Ads platform to place sponsored posts in other channels, dramatically amplifying organic reach.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead">12-Month Growth and Revenue Projection</div>
+  <table class="tbl">
+    <thead><tr><th>Month</th><th>Subscribers</th><th>Pro Intel (£199/mo)</th><th>Monthly Revenue</th><th>Key milestone</th></tr></thead>
+    <tbody>
+      <tr><td>M1</td><td>400–600</td><td>8–15</td><td>£1,592–£2,985</td><td>Launch. Arkmurus network seeded. First 3 Case Files posted.</td></tr>
+      <tr><td>M2</td><td>800–1,500</td><td>20–35</td><td>£3,980–£6,965</td><td>LinkedIn cross-promotion active. First channel partnerships live. Qualifies for Telegram Ads platform.</td></tr>
+      <tr><td>M3</td><td>2,000–3,500</td><td>40–70</td><td>£7,960–£13,930</td><td>First sponsored placements in partner channels. WhatsApp channel mirrors top Telegram posts.</td></tr>
+      <tr><td>M6</td><td>5,000–8,000</td><td>100–150</td><td>£19,900–£29,850</td><td>Enterprise conversations from DEMO keyword. Ad revenue from own channel. First bespoke contracts.</td></tr>
+      <tr><td>M12</td><td>10,000–15,000</td><td>200–300</td><td>£39,800–£59,700</td><td>Channel self-funds ARIA-LLM GPU serving. Pro Intel revenue covers full platform cost.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 5: PHASES -->
+<div class="sec-break" id="phases">
+  <div class="sec-break-title">Section 05 — Build Phases & Exit Gates</div>
+  <div class="sec-break-num">05</div>
+</div>
+
+<div class="wrap">
+  <div class="sec-eye">Section 05</div>
+  <div class="sec-title">Four Phases. Clear Gates. No Drift.</div>
+  <div class="sec-rule"></div>
+
+  <div class="phases">
+    <div class="phase" style="background:#f0faf6">
+      <div class="phase-hdr">
+        <div><span class="phase-badge ph-active">PHASE 1 — NOW</span></div>
+        <div class="phase-title">Broadcast Channel — Public Intelligence Dissemination</div>
+        <div class="phase-when">Week 1–2</div>
+        <div style="font-weight:600;color:var(--green)">~16 hours dev</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="ph-col-title">What to build</div>
+          <div class="ph-item"><strong>Create @ARIAIntelligence channel</strong> in Telegram. Set up linked discussion group. Write and pin the welcome post.</div>
+          <div class="ph-item"><strong>Deploy channelPublisher.mjs</strong> — CurationEngine + FormattingEngine. Wire to existing sweep output.</div>
+          <div class="ph-item"><strong>Deploy channelScheduler.mjs</strong> — autonomous daily posting at configured times.</div>
+          <div class="ph-item"><strong>Wire breaking alerts</strong> from existing TelegramAlerter to public channel via wireBreakingAlertsToChannel().</div>
+          <div class="ph-item"><strong>Prepare 3 weeks of scheduled content</strong> — 3 Case Files, 3 Know Your Rights, 3 Country Reads — before launch.</div>
+        </div>
+        <div>
+          <div class="ph-col-title">Exit gate</div>
+          <div class="ph-item">Channel live and posting autonomously at 07:00 UTC without operator input</div>
+          <div class="ph-item">Breaking alerts from private bot also appear on public channel (score ≥85)</div>
+          <div class="ph-item">First 100 subscribers — Arkmurus network seeded</div>
+          <div class="ph-item">Pinned welcome post with all keywords visible to new subscribers</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" style="background:#e8f6fe">
+      <div class="phase-hdr">
+        <div><span class="phase-badge ph-next">PHASE 2</span></div>
+        <div class="phase-title">Reply-Keyword System — Subscriber Interactivity</div>
+        <div class="phase-when">Week 3–4</div>
+        <div style="font-weight:600;color:var(--tg-dark)">~12 hours dev</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="ph-col-title">What to build</div>
+          <div class="ph-item"><strong>ReplyKeywordRouter</strong> — wire into handleTelegramWebhook in server.mjs</div>
+          <div class="ph-item"><strong>handleScreen()</strong> — calls /api/aria/sanctions/quick, returns formatted result</div>
+          <div class="ph-item"><strong>handleCountryBrief()</strong> — calls /api/aria/chat with country brief prompt</div>
+          <div class="ph-item"><strong>handleSubscribe()</strong> — sends Stripe link + Pro Intel description</div>
+          <div class="ph-item"><strong>Inline button callbacks</strong> — callback_query handler for all post buttons</div>
+        </div>
+        <div>
+          <div class="ph-col-title">Exit gate</div>
+          <div class="ph-item">SCREEN keyword responds with sanctions result in ≤60 seconds</div>
+          <div class="ph-item">Country keywords return ARIA-generated brief in ≤90 seconds</div>
+          <div class="ph-item">PRO keyword sends working Stripe payment link</div>
+          <div class="ph-item">First subscriber converts via keyword → Pro Intel payment</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" style="background:var(--light)">
+      <div class="phase-hdr">
+        <div><span class="phase-badge ph-future">PHASE 3</span></div>
+        <div class="phase-title">WhatsApp Mirror — Second Channel Activation</div>
+        <div class="phase-when">Month 2</div>
+        <div style="font-weight:600;color:var(--dim)">~8 hours dev</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="ph-col-title">What to build</div>
+          <div class="ph-item"><strong>WhatsApp channel publisher</strong> — mirrors top Telegram post daily via existing aria-wa Baileys listener</div>
+          <div class="ph-item"><strong>Format adapter</strong> — Telegram markdown → WhatsApp compatible format (no inline buttons, text links only)</div>
+          <div class="ph-item"><strong>Reply routing</strong> — WhatsApp replies to same keyword system as Telegram</div>
+        </div>
+        <div>
+          <div class="ph-col-title">Exit gate</div>
+          <div class="ph-item">WhatsApp channel posts the same content as Telegram within 30 minutes</div>
+          <div class="ph-item">WhatsApp reply keywords work (SCREEN, ANGOLA, PRO)</div>
+          <div class="ph-item">Combined Telegram + WhatsApp subscriber count exceeds 1,000</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" style="background:var(--light)">
+      <div class="phase-hdr">
+        <div><span class="phase-badge ph-future">PHASE 4</span></div>
+        <div class="phase-title">Monetisation Layer — Ads + Paid Content</div>
+        <div class="phase-when">Month 3+ (1,000+ subscribers gate)</div>
+        <div style="font-weight:600;color:var(--dim)">Operator actions</div>
+      </div>
+      <div class="phase-body">
+        <div>
+          <div class="ph-col-title">Operator actions</div>
+          <div class="ph-item"><strong>Apply for Telegram Ad Revenue</strong> at 1,000+ subscribers — 50% of sponsored message revenue</div>
+          <div class="ph-item"><strong>Launch first sponsored placements</strong> in 3–5 partner channels (defence, Africa business, compliance)</div>
+          <div class="ph-item"><strong>Monthly Live DD event</strong> — public demonstration, announced 48h in advance</div>
+          <div class="ph-item"><strong>Telegram Stars for premium posts</strong> — paywalled deep-dive reports at ₺50 Stars</div>
+        </div>
+        <div>
+          <div class="ph-col-title">Exit gate</div>
+          <div class="ph-item">First Pro Intel subscriber acquired via Telegram keyword conversion</div>
+          <div class="ph-item">First Telegram Ad Revenue payment received</div>
+          <div class="ph-item">Monthly Live DD has 200+ viewers and generates ≥3 Pro Intel conversions</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 6: KPIs -->
+<div class="wrap" id="code">
+  <div class="sec-eye">Section 06</div>
+  <div class="sec-title">What to Measure — The Only Metrics That Matter</div>
+  <div class="sec-rule"></div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-n">≥30%</div>
+      <div class="metric-l">Post view rate<br>(views ÷ subscribers)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-n">≥5%</div>
+      <div class="metric-l">Weekly keyword reply rate<br>(subscribers using keywords)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-n">≥2%</div>
+      <div class="metric-l">Subscriber-to-Pro conversion<br>(monthly)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-n">≤7d</div>
+      <div class="metric-l">Time from first reply keyword<br>to Pro Intel payment</div>
+    </div>
+  </div>
+
+  <div class="hbox hbox-gold">
+    <strong>The one metric that matters most:</strong> Not subscriber count. Not view count. <strong>Keyword reply rate.</strong> A subscriber who replies SCREEN or ANGOLA has self-identified as an active intelligence consumer. Track the ratio of keyword replies to total subscribers weekly. If it drops below 5%, the content is not relevant enough to prompt action. If it rises above 15%, increase posting frequency and add more reply opportunities per post.
+  </div>
+
+  <div class="subhead">The Honest Assessment — What This Is and Is Not</div>
+  <div class="cards2">
+    <div class="card cg">
+      <div class="card-hdr"><div class="card-title">What this will achieve</div></div>
+      <div class="card-body">
+        <p>A curated public intelligence channel that demonstrates ARIA's capability to exactly the right professional audience — on a platform where they already spend 41 minutes per day and open the app 21 times. Every post is a product demonstration. Every reply keyword is a sales conversation that happens automatically.</p>
+        <p>By Month 3, ARIA's channel will be the most specific and actionable intelligence resource for defence brokers and compliance professionals covering Lusophone Africa, West Africa, Turkey, and the Gulf. That specificity is the moat — no general intelligence channel serves this audience.</p>
+      </div>
+    </div>
+    <div class="card ca">
+      <div class="card-hdr"><div class="card-title">What this will not achieve (honest)</div></div>
+      <div class="card-body">
+        <p>Viral growth. ARIA's audience is narrow and professional. A Case File that is fascinating to a defence compliance officer is boring to 99% of Telegram users. Do not optimise for broad reach. Optimise for depth with the right 10,000 people.</p>
+        <p>Instant revenue. The channel builds trust before it converts. The Case Files and Country Reads need 4–6 weeks to establish credibility before the Pro Intel CTA converts at scale. The first 30 days are investment, not returns.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="footer-brand">ARIA INTELLIGENCE</div>
+  <div class="footer-meta">
+    Telegram Growth Strategy &amp; Implementation · July 2026<br>
+    Arkmurus Group · Confidential
+  </div>
+</div>
+
+</body>
+</html>
