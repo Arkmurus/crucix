@@ -1036,6 +1036,148 @@ def _quick_similarity(a: str, b: str) -> float:
     return inter / union if union > 0 else 0.0
 
 
+# ── R-F2283 (2026-07-02): gate-#2 free-loop accelerator ────────────────────────
+# Phase A gate #2 is the regional-mastery heatmap floor (topic×region EWMA, target
+# ≥0.70). Its blocking cells are weak in specific REGIONS. The feed-selection in
+# reading_session is region-BLIND and research_engine routes its hits to the
+# spider queue (→facts/coverage), never to update_regional_mastery — so no path
+# lifts a blocked CELL. This helper (extracted from reading_session so the
+# crediting path is directly testable, and to raise throughput without changing
+# the EWMA scoring — no metric gaming) reads region-specific content for the
+# weakest cells and lifts the exact cell ONLY when the fetched text actually
+# mentions the region (detect_regions confirms — read-grounded, not a blind bump).
+# R-F2283 raises reach (10→15 cells, 3→6 articles/cell) and records a per-CELL
+# §21e gap for uncredited floor breaches (the update_mastery gap is TOPIC-level
+# only). `explore` is injectable for tests.
+async def _study_weak_regional_cells(
+    *, explore=None, max_cells: int = 15, max_results_per_cell: int = 6,
+) -> list[dict]:
+    """Lift the weakest topic×region gate-#2 cells via read-grounded reinforcement.
+    Returns the list of cells credited this session. Never raises (best-effort)."""
+    regional_studied: list[dict] = []
+    _uncredited: list[dict] = []
+    try:
+        if explore is None:
+            from . import web_explorer as _we2
+            explore = _we2.explore
+        _hm = await get_regional_heatmap()
+        _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
+        # R-F1925/R-F2283: target the weakest cells (10→15) and ALWAYS include the
+        # argmin floor cell — the gate only closes when the single weakest cell
+        # crosses 0.70, so it must be targeted every session regardless of breadth.
+        _target_cells = list(_weak_cells[:max_cells])
+        _floor_cells = _hm.get("floor_breach_cells") or []
+        if _floor_cells:
+            _floor = _floor_cells[0]
+            if _floor not in _target_cells:
+                _target_cells.append(_floor)
+        for _cell in _target_cells:
+            _topic = (_cell.get("topic") or "").strip()
+            _region = (_cell.get("region") or "").strip()
+            # Only act on real, region-specific gate-#2 cells.
+            if _topic not in TOPICS or _region not in REGIONS or _region == "global":
+                continue
+            _rphrase = _REGION_QUERY_PHRASE.get(_region, _region.replace("_", " "))
+            _tphrase = _topic.replace("_", " ")
+            _query = f"{_tphrase} {_rphrase} defence procurement 2026"
+            try:
+                _er = await explore(
+                    query=_query, cost_free=True,
+                    max_results=max_results_per_cell, memory_first=True,
+                )
+            except Exception as _wee:
+                logger.debug("[student] R-F1744 explore failed %s:%s — %s",
+                             _topic, _region, _wee)
+                continue
+            _stored = 0
+            _grounded = False
+            for _f in (getattr(_er, "facts", None) or []):
+                _val = str(getattr(_f, "value", "") or "")
+                _ctx = str(getattr(_f, "context", "") or "")
+                # Read-grounded: only credit the cell when the fetched text
+                # actually mentions the region (detect_regions confirms).
+                if _region in detect_regions(f"{_val} {_ctx}"):
+                    _grounded = True
+                if getattr(_f, "source_url", ""):
+                    try:
+                        await kb.store_fact(
+                            topic=f"{_tphrase} {_rphrase}: {_val[:60]}",
+                            content=(_ctx or _val)[:800],
+                            source=f"reading_region:{_topic}:{_region}",
+                            confidence="ASSESSED",
+                        )
+                        _stored += 1
+                    except Exception as _kse:
+                        logger.debug("[student] R-F1744 kb store failed: %s", _kse)
+            if _stored and _grounded:
+                await update_regional_mastery(
+                    [_topic], [_region], correct=True, weight=0.3,
+                )
+                regional_studied.append({
+                    "topic": _topic, "region": _region, "stored": _stored,
+                })
+                logger.info(
+                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts)",
+                    _topic, _region, _stored,
+                )
+            else:
+                # R-F1947: a cell visited but NOT credited (stored=0 or detect_regions
+                # didn't geo-confirm the region) leaves the gate-#2 floor frozen —
+                # make that failure visible + queue a per-cell gap (below).
+                _uncredited.append({"topic": _topic, "region": _region})
+                logger.info(
+                    "[student] R-F1947 gate-2 cell %s:%s NOT credited (stored=%d grounded=%s) "
+                    "— visited, no mastery lift",
+                    _topic, _region, _stored, _grounded,
+                )
+    except Exception as _rce:
+        logger.warning("[student] R-F1744 region-targeted branch failed (non-fatal): %s", _rce)
+
+    # R-F2283 §21e: record a per-CELL capability gap for floor cells this session
+    # could not lift (no region-grounded content found), so the autonomous
+    # coder/research loop has explicit topic×region targets — the existing
+    # update_mastery gap is TOPIC-level and can't point at a specific region.
+    # Bounded to the top few + deduped by capability_gaps (R-F903).
+    if _uncredited:
+        try:
+            from . import capability_gaps as _cg
+            for _c in _uncredited[:5]:
+                _t = asyncio.create_task(_cg.record_gap(
+                    gap_type="knowledge_gap",
+                    detail=(f"Gate-#2 region cell '{_c['topic']}:{_c['region']}' is below the "
+                            f"{GATE_2_FLOOR_TARGET:.0%} floor and no region-grounded content was "
+                            f"found this reading cycle — needs region-specific reading/training "
+                            f"for {_c['region']}."),
+                    source=f"student.regional_cell:{_c['topic']}:{_c['region']}",
+                ))
+                _t.add_done_callback(
+                    lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+        except Exception:
+            pass
+
+    # §21a: wire the outcome of this gate-#2 learning pass to the brain on BOTH
+    # branches — success (cells lifted) and failure (targeted cells but credited
+    # none), so the self-heal/coder loop can see whether the free loop is moving.
+    try:
+        from .engine_wiring import wire_success, wire_failure
+        if regional_studied:
+            wire_success(
+                module="student",
+                summary=f"gate-2 reading lifted {len(regional_studied)} region cell(s)",
+                source_id="student:_study_weak_regional_cells",
+            )
+        elif _uncredited:
+            wire_failure(
+                module="student",
+                detail=f"gate-2 reading credited 0 of {len(_uncredited)} targeted region cells",
+                gap_type="knowledge_gap",
+                source="student:_study_weak_regional_cells",
+            )
+    except Exception:
+        pass
+    return regional_studied
+
+
 # ── Reading session: deep-read authoritative sources ───────────────────────
 
 @fail_wire(module="student", gap_type="engine_failure")
@@ -1335,83 +1477,9 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
     # fetch region-specific content cost-free, and lift the exact cell — but
     # ONLY when the fetched text actually mentions the region (detect_regions
     # confirms), so the lift is read-grounded reinforcement, not a blind bump.
-    regional_studied: list[dict] = []
-    try:
-        _hm = await get_regional_heatmap()
-        _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
-        from . import web_explorer as _we2
-        # R-F1925: target up to 10 weakest cells per session (was 3) to
-        # accelerate gate #2 closure. Also include 'thin' cells (1-9 facts)
-        # that are below the floor target — they need fewer lifts to cross.
-        # R-F1925b: ALWAYS include the current argmin cell (the floor) even
-        # if it's not in the top 10 — the gate only closes when the single
-        # weakest cell crosses 0.70, so the floor cell must be targeted
-        # every session regardless of breadth.
-        _target_cells = list(_weak_cells[:10])
-        _floor_cells = _hm.get("floor_breach_cells") or []
-        if _floor_cells:
-            _floor = _floor_cells[0]
-            if _floor not in _target_cells:
-                _target_cells.append(_floor)
-        for _cell in _target_cells:
-            _topic = (_cell.get("topic") or "").strip()
-            _region = (_cell.get("region") or "").strip()
-            # Only act on real, region-specific gate-#2 cells.
-            if _topic not in TOPICS or _region not in REGIONS or _region == "global":
-                continue
-            _rphrase = _REGION_QUERY_PHRASE.get(_region, _region.replace("_", " "))
-            _tphrase = _topic.replace("_", " ")
-            _query = f"{_tphrase} {_rphrase} defence procurement 2026"
-            try:
-                _er = await _we2.explore(
-                    query=_query, cost_free=True, max_results=3, memory_first=True,
-                )
-            except Exception as _wee:
-                logger.debug("[student] R-F1744 explore failed %s:%s — %s",
-                             _topic, _region, _wee)
-                continue
-            _stored = 0
-            _grounded = False
-            for _f in (getattr(_er, "facts", None) or []):
-                _val = str(getattr(_f, "value", "") or "")
-                _ctx = str(getattr(_f, "context", "") or "")
-                # Read-grounded: only credit the cell when the fetched text
-                # actually mentions the region (detect_regions confirms).
-                if _region in detect_regions(f"{_val} {_ctx}"):
-                    _grounded = True
-                if getattr(_f, "source_url", ""):
-                    try:
-                        await kb.store_fact(
-                            topic=f"{_tphrase} {_rphrase}: {_val[:60]}",
-                            content=(_ctx or _val)[:800],
-                            source=f"reading_region:{_topic}:{_region}",
-                            confidence="ASSESSED",
-                        )
-                        _stored += 1
-                    except Exception as _kse:
-                        logger.debug("[student] R-F1744 kb store failed: %s", _kse)
-            if _stored and _grounded:
-                await update_regional_mastery(
-                    [_topic], [_region], correct=True, weight=0.3,
-                )
-                regional_studied.append({
-                    "topic": _topic, "region": _region, "stored": _stored,
-                })
-                logger.info(
-                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts)",
-                    _topic, _region, _stored,
-                )
-            else:
-                # R-F1947: a cell visited but NOT credited (stored=0 or detect_regions
-                # didn't geo-confirm the region) leaves the gate-#2 floor frozen — make
-                # that failure visible instead of silent so the credit chain is debuggable.
-                logger.info(
-                    "[student] R-F1947 gate-2 cell %s:%s NOT credited (stored=%d grounded=%s) "
-                    "— visited, no mastery lift",
-                    _topic, _region, _stored, _grounded,
-                )
-    except Exception as _rce:
-        logger.warning("[student] R-F1744 region-targeted branch failed (non-fatal): %s", _rce)
+    # R-F1744/R-F2283 — region-targeted gate-#2 closer (extracted + accelerated
+    # into _study_weak_regional_cells so the crediting path is directly testable).
+    regional_studied = await _study_weak_regional_cells()
 
     # R-F167 (2026-05-11): drain the queue for topics we actually
     # consumed this session. Without this the same tags re-surface every
