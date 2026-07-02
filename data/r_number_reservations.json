@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2313,
+  "next_available": 2314,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17421,6 +17421,15 @@
       "commit_sha": "325d8598",
       "notes": null,
       "shipped_at": "2026-07-02T13:13:09Z"
+    },
+    {
+      "r_number": "R-F2313",
+      "title": "landing contact section: reframe 'Request access' → 'Find out more' (open acquisition + free tier) + remove aria@arkmurus.com email",
+      "claimed_at": "2026-07-02T13:15:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

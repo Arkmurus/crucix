@@ -1152,7 +1152,7 @@
         <div class="lp-demo-dot" style="background:#ff5f57"></div>
         <div class="lp-demo-dot" style="background:#febc2e"></div>
         <div class="lp-demo-dot" style="background:#28c840"></div>
-        <div class="lp-demo-title">ARIA Intelligence Agent — intel.arkmurus.com</div>
+        <div class="lp-demo-title">ARIA Intelligence Agent — imaria.io</div>
       </div>
       <div class="lp-demo-body">
         <div><span class="lp-d-dim">◆ ARIA  </span><span class="lp-d-gold">v1.0  </span><span class="lp-d-dim">Sovereign LLM  AUTO  </span></div>
@@ -1413,9 +1413,9 @@
 <section id="contact" style="padding: 96px 0 128px">
   <div class="lp-container">
     <div class="lp-sovereign">
-      <div class="lp-eyebrow">Get started</div>
-      <h2>Request access to ARIA</h2>
-      <p>We onboard a limited number of clients each quarter. Tell us about your use case and we will respond within 48 hours.</p>
+      <div class="lp-eyebrow">Find out more</div>
+      <h2>See what ARIA can do for you</h2>
+      <p>Start free in minutes — no card required. Or tell us about your use case and we'll show you exactly how ARIA fits your compliance and due-diligence workflow.</p>
       <div class="lp-sovereign-actions">
         <div class="lp-form-row">
           <input type="text" class="lp-form-input" placeholder="Name" style="width:220px">
@@ -1429,10 +1429,10 @@
             <option>Other</option>
           </select>
         </div>
-        <button class="lp-btn lp-btn-prime lp-btn-lg" id="lp-request-btn" style="min-width:200px">Request access <i class="bi bi-arrow-right"></i></button>
+        <button class="lp-btn lp-btn-prime lp-btn-lg" id="lp-request-btn" style="min-width:200px">Find out more <i class="bi bi-arrow-right"></i></button>
       </div>
       <div class="lp-sovereign-note">
-        Or email <a href="mailto:aria@arkmurus.com">aria@arkmurus.com</a> · Typically responds within 48h
+        Prefer to dive straight in? <a href="https://imaria.io/signup.html">Start free &rarr;</a> &middot; We typically respond within 48h
       </div>
     </div>
   </div>
@@ -1474,7 +1474,7 @@
         <a href="#">Privacy Policy</a>
         <a href="#">Terms of Service</a>
         <a href="/signin">Sign in</a>
-        <a href="mailto:aria@arkmurus.com">Contact</a>
+        <a href="#contact">Contact</a>
       </div>
     </div>
     <div class="lp-footer-bottom">
@@ -1507,12 +1507,12 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   var name = inputs[0].value.trim();
   var email = inputs[1].value.trim();
   if (!name || !email) {
-    this.innerHTML = 'Please fill in name and email';
+    this.innerHTML = 'Please add your name and email';
     var self = this;
-    setTimeout(function() { self.innerHTML = 'Request access <i class="bi bi-arrow-right"></i>'; }, 2000);
+    setTimeout(function() { self.innerHTML = 'Find out more <i class="bi bi-arrow-right"></i>'; }, 2000);
     return;
   }
-  this.innerHTML = '<i class="bi bi-check-lg"></i> Request received';
+  this.innerHTML = '<i class="bi bi-check-lg"></i> Thanks — we\'ll be in touch';
   this.style.background = '#16a34a';
   for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
 });
