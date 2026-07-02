@@ -1121,7 +1121,7 @@
 
     <div class="lp-hero-tetris" aria-hidden="true">
       <div class="lp-tetris-well">
-        <canvas id="lp-tetris" width="440" height="704"></canvas>
+        <canvas id="lp-tetris" width="400" height="320"></canvas>
       </div>
     </div>
 
@@ -1586,15 +1586,15 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
 });
 </script>
 
-<!-- Hero Tetris — capability word blocks: one letter per cell, full word per piece (R-F2296) -->
+<!-- Hero Tetris — capability blocks: each piece shows a full ARIA capability word (R-F2296) -->
 <script>
 (function () {
   var canvas = document.getElementById('lp-tetris');
   if (!canvas || !canvas.getContext) return;
   var ctx = canvas.getContext('2d');
 
-  // ── Grid: 10 cols × 16 rows, 44px cells for readable text ─────
-  var COLS = 10, ROWS = 16, CELL = 44;
+  // ── Grid: 10 cols × 8 rows, 40px cells — proportional to hero ──
+  var COLS = 10, ROWS = 8, CELL = 40;
   var Wpx = COLS * CELL, Hpx = ROWS * CELL;
   var dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.style.width = Wpx + 'px';
@@ -1603,14 +1603,7 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   canvas.height = Math.round(Hpx * dpr);
   ctx.scale(dpr, dpr);
 
-  // ── Brand palette — single purple gradient, opacity for depth ──
-  var BRAND = '#7c3aed';
-  var BRAND_LIGHT = '#a78bfa';
-  var BRAND_DARK = '#5b21b6';
-  var BRAND_MUTED = 'rgba(124,58,237,0.55)';
-  var BRAND_GLOW = 'rgba(124,58,237,0.20)';
-
-  // Depth layers: each piece gets a subtly different shade
+  // ── Brand purple shades for visual depth ───────────────────────
   var SHADES = [
     { bg: '#7c3aed', fg: '#ffffff' },
     { bg: '#6d28d9', fg: '#ffffff' },
@@ -1624,41 +1617,45 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     { bg: '#6d28d9', fg: '#ffffff' },
   ];
 
-  // ── 4-letter capability words (one letter per cell) ────────────
+  // ── ARIA capability words (actual capabilities from the page) ──
   var WORDS = [
-    'EDGE', 'DEEP', 'WIDE', 'TRUE',
-    'FAST', 'SAFE', 'BOLD', 'KEEN',
-    'LIVE', 'FULL', 'HIGH', 'WISE',
-    'DARK', 'PURE', 'VAST', 'CALM',
-    'FINE', 'RICH', 'NEAR', 'SURE',
-    'COOL', 'WARM', 'EASY', 'NICE',
-    'RARE', 'NEAT', 'MILD', 'SOFT',
-    'HARD', 'LONG', 'WILD', 'DEEP',
+    'ENTITY', 'DUE', 'DILIGENCE',
+    'SANCTIONS', 'COMPLIANCE',
+    'DEEP', 'RESEARCH',
+    'CHANGE', 'DETECT',
+    'DEAL', 'COHERENCE',
+    'RCA', 'PEP', 'SCREEN',
+    'IDENTITY', 'NETWORK',
+    'UBO', 'CHAIN',
+    'ADVERSE', 'MEDIA',
+    'LIVE', 'MONITOR',
+    'INTEL', 'BRIEF',
+    'EVIDENCE', 'AUDIT',
+    'EXPORT', 'CONTROL',
+    'TRADE', 'WATCH',
+    'RISK', 'SCORE',
+    'FORENSIC', 'TBML',
+    'COUNTER', 'INTEL',
+    'ALERT', 'FLAG',
   ];
 
   // ── Build the plan ─────────────────────────────────────────────
-  // Each piece = 4 cells forming a tetromino, each cell shows one letter.
-  // The 4 cells together spell a capability word.
+  // Each piece = 4 cells forming a tetromino.
+  // The piece displays a full capability word centered across its cells.
+  // 8 rows = 4 layers of 2 rows, 5 pieces per layer = 20 pieces.
   function makePlan() {
     var plan = [], ci = 0, wi = 0;
-    // Fill bottom-up in 2-row layers, 5 pieces per layer (10 cols / 2 per row)
     for (var rTop = ROWS - 2; rTop >= 0; rTop -= 2) {
       for (var bc = 0; bc < COLS; bc += 2) {
         var r0 = rTop, r1 = rTop + 1, c = bc;
-        var kind = ci % 4;
+        var kind = ci % 3;
         var cells;
         if (kind === 0) {                      // O — 2×2 square
           cells = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]];
         } else if (kind === 1) {               // L — 3+1
           cells = [[c, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
-        } else if (kind === 2) {               // J — mirror L
+        } else {                               // J — mirror L
           cells = [[c + 2, r0], [c, r1], [c + 1, r1], [c + 2, r1]];
-        } else {                               // I — vertical 4
-          cells = [[c, r0], [c, r1], [c, r1 + 1], [c, r1 + 2]];
-          // I piece spans 4 rows; adjust rTop so it fits
-          if (r1 + 2 >= ROWS) {
-            cells = [[c, r0], [c + 1, r0], [c, r1], [c + 1, r1]]; // fallback to O
-          }
         }
         var word = WORDS[wi % WORDS.length];
         var shade = SHADES[ci % SHADES.length];
@@ -1673,10 +1670,9 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
   var plan = makePlan();
 
   // ── Drawing ────────────────────────────────────────────────────
-  function drawCell(col, row, fill, letter, alpha) {
+  function drawCell(col, row, fill, alpha) {
     var x = col * CELL, y = row * CELL, g = 1.5;
     var s = CELL - g * 2;
-    var cx = x + CELL / 2, cy = y + CELL / 2;
 
     ctx.globalAlpha = alpha != null ? alpha : 1;
 
@@ -1705,19 +1701,42 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     ctx.roundRect(x + g + 0.5, y + g + 0.5, s - 1, s - 1, 4);
     ctx.stroke();
 
-    // Letter — large, bold, centered
-    if (letter) {
+    ctx.globalAlpha = 1;
+  }
+
+  function drawWordOnPiece(p, rowShift, alpha) {
+    // Compute piece bounding box
+    var minCol = COLS, maxCol = 0, minRow = ROWS, maxRow = 0;
+    for (var i = 0; i < p.cells.length; i++) {
+      var c = p.cells[i][0], r = p.cells[i][1] + (rowShift || 0);
+      if (c < minCol) minCol = c;
+      if (c > maxCol) maxCol = c;
+      if (r < minRow) minRow = r;
+      if (r > maxRow) maxRow = r;
+    }
+
+    // Draw each cell background
+    for (var j = 0; j < p.cells.length; j++) {
+      drawCell(p.cells[j][0], p.cells[j][1] + (rowShift || 0), p.fill, alpha);
+    }
+
+    // Draw word centered across the piece
+    if (p.word) {
+      var cx = (minCol + maxCol + 1) * CELL / 2;
+      var cy = (minRow + maxRow + 1) * CELL / 2;
+      var w = p.word.length;
+      var fontSize = w <= 4 ? 16 : w <= 6 ? 14 : w <= 8 ? 12 : 10;
+      ctx.globalAlpha = alpha != null ? alpha : 1;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 22px "Inter","Segoe UI",system-ui,sans-serif';
-      ctx.shadowColor = 'rgba(0,0,0,0.20)';
-      ctx.shadowBlur = 2;
-      ctx.fillText(letter, cx, cy + 1);
+      ctx.font = 'bold ' + fontSize + 'px "Inter","Segoe UI",system-ui,sans-serif';
+      ctx.shadowColor = 'rgba(0,0,0,0.25)';
+      ctx.shadowBlur = 3;
+      ctx.fillText(p.word, cx, cy + 1);
       ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
     }
-
-    ctx.globalAlpha = 1;
   }
 
   function darken(hex, amt) {
@@ -1741,24 +1760,17 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     }
   }
 
-  function drawPiece(p, rowShift, alpha) {
-    for (var i = 0; i < p.cells.length; i++) {
-      var letter = p.word ? p.word[i] || '' : '';
-      drawCell(p.cells[i][0], p.cells[i][1] + (rowShift || 0), p.fill, letter, alpha);
-    }
-  }
-
   // ── Animation ──────────────────────────────────────────────────
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   if (reduce) {
     ctx.clearRect(0, 0, Wpx, Hpx);
     drawWellGrid();
-    for (var k = 0; k < plan.length; k++) drawPiece(plan[k]);
+    for (var k = 0; k < plan.length; k++) drawWordOnPiece(plan[k]);
     return;
   }
 
-  var HOLD = 2500, CLEAR = 800;
+  var HOLD = 3000, CLEAR = 800;
   var phase = 'drop', idx = 0, tStart = 0, dropDur = 0, fallRows = 0;
 
   function beginDrop(now) {
@@ -1773,23 +1785,23 @@ document.getElementById('lp-request-btn').addEventListener('click', function() {
     drawWellGrid();
 
     if (phase === 'drop') {
-      for (var i = 0; i < idx; i++) drawPiece(plan[i]);
+      for (var i = 0; i < idx; i++) drawWordOnPiece(plan[i]);
       var p = plan[idx];
       var t = Math.min(1, (now - tStart) / dropDur);
       var e = 1 - (1 - t) * (1 - t);
       var shift = -fallRows * (1 - e);
-      drawPiece(p, shift);
+      drawWordOnPiece(p, shift);
       if (t >= 1) {
         idx++;
         if (idx >= plan.length) { phase = 'hold'; tStart = now; }
         else { beginDrop(now); }
       }
     } else if (phase === 'hold') {
-      for (var j = 0; j < plan.length; j++) drawPiece(plan[j]);
+      for (var j = 0; j < plan.length; j++) drawWordOnPiece(plan[j]);
       if (now - tStart >= HOLD) { phase = 'clear'; tStart = now; }
     } else if (phase === 'clear') {
       var ct = Math.min(1, (now - tStart) / CLEAR);
-      for (var m = 0; m < plan.length; m++) drawPiece(plan[m], 0, 1 - ct);
+      for (var m = 0; m < plan.length; m++) drawWordOnPiece(plan[m], 0, 1 - ct);
       if (ct >= 1) { idx = 0; phase = 'drop'; beginDrop(now); }
     }
     requestAnimationFrame(frame);
