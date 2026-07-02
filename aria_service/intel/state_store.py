@@ -652,6 +652,51 @@ async def probe_liveness(timeout_s: float = 3.0) -> bool:
         return False
 
 
+def _dump_wedge_forensics(unhealthy_for_s: float, base_dir: str | None = None) -> None:
+    """R-F2279 — best-effort dump of ALL thread stacks right before the watchdog's
+    os._exit, so the operation that wedged the aiosqlite connection thread is
+    captured (the 2026-07-02 outage left no trace of its trigger). Writes to
+    stderr (→ fly logs) AND a durable file under /data/wedge_stacks (the fly
+    volume survives the cold-boot). Mirrors main.py's R-F704 wedge dump. Never
+    raises — a forensic failure must not delay the recovery restart."""
+    import os as _o
+    import sys as _s
+    import time as _t
+    import faulthandler as _fh
+    header = (
+        f"=== [R-F2279] state_store WEDGE forensic dump — store unavailable "
+        f"{unhealthy_for_s:.0f}s at "
+        f"{_t.strftime('%Y-%m-%d %H:%M:%S UTC', _t.gmtime())} (pid {_o.getpid()}) "
+        f"— ALL thread stacks below; the aiosqlite connection worker thread's "
+        f"frame is the op that wedged the store ===\n"
+    )
+    # 1) stderr — always captured in the container/fly log stream.
+    try:
+        _s.stderr.write(header)
+        _s.stderr.flush()
+        _fh.dump_traceback(file=_s.stderr, all_threads=True)
+        _s.stderr.flush()
+    except Exception:
+        pass
+    # 2) durable file on the /data volume (survives the cold-boot for post-mortem).
+    try:
+        if base_dir is not None:
+            base = base_dir
+        elif _o.path.isdir("/data") and _o.access("/data", _o.W_OK):
+            base = "/data/wedge_stacks"
+        else:
+            base = _o.path.join(_o.path.dirname(__file__), "..", "..", "data", "wedge_stacks")
+        _o.makedirs(base, exist_ok=True)
+        path = _o.path.join(base, f"ss_wedge_{_o.getpid()}_{int(_t.time())}.log")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(header)
+            _fh.dump_traceback(file=fh, all_threads=True)
+            fh.write("=== end [R-F2279] dump ===\n")
+        logger.critical("[R-F2279] state_store wedge forensic dump written -> %s", path)
+    except Exception:
+        pass
+
+
 async def liveness_watchdog_loop() -> None:
     """R-F2277 — escalating self-heal for a wedged store. Probe every interval;
     on a sustained failure, reconnect once, then os._exit past the ceiling so
@@ -719,6 +764,13 @@ async def liveness_watchdog_loop() -> None:
                     "(self-recovery from a wedged aiosqlite connection)",
                     unhealthy_for, ceiling,
                 )
+                # R-F2279: BEFORE exiting, capture WHAT wedged the store. The op
+                # that blocked the aiosqlite thread is not otherwise logged — the
+                # 2026-07-02 wedge left zero trace of its trigger, so it could not
+                # be root-caused. Dump ALL thread stacks (the aiosqlite connection
+                # worker thread's frame reveals the exact stuck SQL) so the NEXT
+                # wedge is diagnosable. Best-effort; never blocks the exit.
+                _dump_wedge_forensics(unhealthy_for)
                 # os._exit (not sys.exit): immediate, no atexit hooks that would
                 # themselves try to touch the wedged store. WAL is crash-consistent
                 # so an exit mid-write is safe; Fly's on-failure restart cold-boots.
