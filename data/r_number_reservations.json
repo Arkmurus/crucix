@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2279,
+  "next_available": 2280,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17069,14 +17069,25 @@
       "title": "state_store liveness watchdog — escalating self-heal (reconnect→os._exit) so a wedged aiosqlite conn self-recovers instead of 3.5h outage",
       "claimed_at": "2026-07-02T07:02:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "19411b9c",
+      "notes": null,
+      "shipped_at": "2026-07-02T07:29:34Z"
     },
     {
       "r_number": "R-F2278",
       "title": "boot/CI duplicate-route guard + resolve 3 shadowed route collisions",
       "claimed_at": "2026-07-02T07:13:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1a4fe8bd",
+      "notes": null,
+      "shipped_at": "2026-07-02T07:47:07Z"
+    },
+    {
+      "r_number": "R-F2279",
+      "title": "forensic thread-stack dump before state_store wedge os._exit — capture the stuck SQL op the 2026-07-02 wedge could not log",
+      "claimed_at": "2026-07-02T07:47:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
