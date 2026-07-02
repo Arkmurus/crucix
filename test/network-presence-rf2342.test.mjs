@@ -136,3 +136,12 @@ test('R-F2349: photo upload/serve wired end to end (routes + shared source + UI)
   const sb = readFileSync(new URL('../public/js/sidebar.js', import.meta.url), 'utf8');
   assert.match(sb, /user\.avatarUrl/, 'sidebar shows the same shared photo');
 });
+
+test('R-F2353: activating presence gives clear feedback (empty state reacts, CTA hides)', () => {
+  const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
+  assert.match(js, /function renderEmptyState/, 'has a reactive empty state');
+  assert.match(js, /cta\.style\.display = 'none'/, 'hides the CTA once presence is on');
+  assert.match(js, /Presence on/, 'confirms activation to the user');
+  // the "Turn on my presence" CTA and the toggle both call the visibility endpoint
+  assert.match(js, /empty-cta[\s\S]{0,120}toggleVisibility/, 'the CTA activates presence');
+});

@@ -118,6 +118,26 @@
     st.className = 'st ' + (iAmVisible ? 'on' : 'off');
     const t = $('self-toggle');
     t.setAttribute('aria-checked', iAmVisible ? 'true' : 'false');
+    renderEmptyState();
+  }
+  // R-F2353 — the welcome pane must REACT when presence is activated, so the
+  // user gets clear confirmation that "Turn on my presence" worked.
+  function renderEmptyState() {
+    const msg = $('empty-msg'), cta = $('empty-cta'), h = document.querySelector('#net-empty h2');
+    if (!msg || !cta) return;
+    if (iAmVisible) {
+      if (h) h.textContent = "You're live on the network";
+      msg.innerHTML = "✅ <b>Presence on</b> — you're visible to other members. "
+        + "Pick someone on the left to start a secure conversation, or message "
+        + "<b>ARIA</b> to screen a company, check sanctions, or summarise intel.";
+      cta.style.display = 'none';
+    } else {
+      if (h) h.textContent = 'Welcome to the ARIA network';
+      msg.textContent = 'Turn on your presence to appear to other members, then pick '
+        + 'someone to start a secure conversation. Share intel, documents, and context '
+        + '— with the people building ARIA alongside you.';
+      cta.style.display = '';
+    }
   }
 
   function memberRow(m, isOnline) {
@@ -341,6 +361,7 @@
       iAmVisible = next; // optimistic; server emits network_update to reconcile
     }
     renderSelf();
+    flashStatus(iAmVisible ? 'Presence on ✓' : 'Presence off');
     loadDirectory();
   }
   // Minimal POST helper (app.js API may not expose post()).
