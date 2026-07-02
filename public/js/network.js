@@ -263,9 +263,18 @@
   }
 
   // ---------- socket wiring ----------
+  // R-F2348 — the apex/proxy host (imaria.io) does NOT route /socket.io/ to the
+  // gateway (it 308-strips the trailing slash → 404); only the app host serves
+  // it. So when we're on a non-app host, connect the socket straight to the app
+  // origin (already in the server's CORS allowlist). Same-origin on fly.dev/local.
+  const SOCKET_URL = (/(^|\.)fly\.dev$/.test(location.hostname)
+      || /^(localhost|127\.|\[?::1)/.test(location.hostname))
+    ? undefined
+    : 'https://aria-web.fly.dev';
+
   function connect() {
     if (typeof io !== 'function') { console.error('[network] socket.io client missing'); return; }
-    socket = io({ auth: { token: API.token() }, transports: ['websocket', 'polling'] });
+    socket = io(SOCKET_URL, { auth: { token: API.token() }, transports: ['websocket', 'polling'] });
 
     socket.on('connect', () => { connected = true; setConn(false); updateSendEnabled(); });
     socket.on('disconnect', () => { connected = false; setConn(true); updateSendEnabled(); });

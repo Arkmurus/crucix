@@ -45,7 +45,7 @@
     <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">—</div><div class="sc-stat-label">DD Reports</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">—</div><div class="sc-stat-label">Watchlist</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">—</div><div class="sc-stat-label">Active Deals</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up-arrow"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
   </div>
 
   <!-- Main two-col: DD Activity + Watchlist -->
@@ -76,7 +76,7 @@
   <!-- Intelligence Brief (OSINT market sweep — collapsible secondary) -->
   <div class="sc-card mb-24">
     <div class="sc-card-header" style="cursor:pointer" onclick="toggleBrief()">
-      <div class="sc-card-title"><i class="bi bi-radar"></i> OSINT Market Sweep</div>
+      <div class="sc-card-title"><i class="bi bi-broadcast-pin"></i> OSINT Market Sweep</div>
       <span class="sc-badge sc-badge-muted" id="brief-toggle">Show</span>
     </div>
     <div id="brief-content" style="display:none">
@@ -88,8 +88,8 @@
         <div class="sc-grid-4 mb-16" id="sweep-kpi-row">
           <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
           <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bar-chart-line"></i></div><div><div class="sc-stat-value" id="kpi-vix">—</div><div class="sc-stat-label">VIX</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-fuel-pump"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-satellite"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-droplet-half"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-broadcast"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
         </div>
         <div class="sc-grid-2">
           <div>
@@ -172,7 +172,7 @@
 
 </main>
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=7"></script>
+<script src="js/sidebar.js?v=8"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('brief');

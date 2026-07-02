@@ -241,10 +241,10 @@ const Sidebar = {
       </div>
       <nav class="sidebar-nav">
         <div class="sidebar-section">Intelligence</div>
-        ${link('brief',       '/dashboard.html',         'bi-radar',          'Intelligence Brief')}
+        ${link('brief',       '/dashboard.html',         'bi-broadcast-pin',          'Intelligence Brief')}
         ${link('news',        '/news.html',              'bi-newspaper',      'News Monitor')}
         ${link('opportunities','/opportunities.html',     'bi-briefcase',      'Opportunities')}
-        ${link('bd',           '/bd-intelligence.html',   'bi-graph-up-arrow', 'BD Intelligence')}
+        ${link('bd',           '/bd-intelligence.html',   'bi-graph-up', 'BD Intelligence')}
         ${link('aria',         '/aria.html',              'bi-cpu',            'ARIA', 'aria-link')}
         ${link('network',      '/network.html',           'bi-people',         'Network')}
         ${link('dd-reports',   '/dd-reports.html',        'bi-folder2-open',   'DD Reports')}
@@ -253,9 +253,9 @@ const Sidebar = {
 
         <div class="sidebar-divider"></div>
         <div class="sidebar-section">System</div>
-        ${link('sources', '/sources.html', 'bi-activity', 'Source Health')}
+        ${link('sources', '/sources.html', 'bi-reception-4', 'Source Health')}
         ${link('vault',   '/vault.html',   'bi-key', 'Signup Vault')}
-        ${link('brain',   '/aria-brain',   'bi-heart-pulse', 'ARIA Brain')}
+        ${link('brain',   '/aria-brain',   'bi-heart-fill', 'ARIA Brain')}
         ${link('status',  '/status.html',  'bi-broadcast-pin', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text', 'Model Card')}
 
@@ -294,7 +294,7 @@ const Sidebar = {
           </div>
         </div>
         <a href="/sources.html" class="header-icon-btn" title="Source Health" aria-label="View source health dashboard">
-          <i class="bi bi-activity" aria-hidden="true"></i>
+          <i class="bi bi-reception-4" aria-hidden="true"></i>
         </a>
         <div class="nav-dropdown" style="position:relative">
           <button class="nav-avatar" id="nav-avatar" title="Profile" aria-label="Open profile menu" aria-haspopup="true" aria-expanded="false">?</button>
@@ -305,13 +305,13 @@ const Sidebar = {
             </div>
             <div class="nav-dropdown-divider"></div>
             <a href="/dashboard.html" class="nav-dropdown-item">
-              <i class="bi bi-radar"></i> Intelligence Brief
+              <i class="bi bi-broadcast-pin"></i> Intelligence Brief
             </a>
             <a href="/account.html" class="nav-dropdown-item">
               <i class="bi bi-person-circle"></i> Account & billing
             </a>
             <a href="/sources.html" class="nav-dropdown-item">
-              <i class="bi bi-activity"></i> Source Health
+              <i class="bi bi-reception-4"></i> Source Health
             </a>
             <a href="/vault.html" class="nav-dropdown-item">
               <i class="bi bi-key"></i> Signup Vault

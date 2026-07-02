@@ -148,7 +148,7 @@
 <div id="header-placeholder"></div>
 
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=7"></script>
+<script src="js/sidebar.js?v=8"></script>
 <script>
   Auth.requireAuth();
   Sidebar.init('network');
@@ -201,7 +201,7 @@
         <div class="net-typing" id="net-typing"></div>
         <div class="net-composer">
           <textarea id="net-input" rows="1" maxlength="2000" placeholder="Write a message…"></textarea>
-          <button class="net-send" id="net-send" disabled aria-label="Send"><i class="bi bi-send-fill"></i></button>
+          <button class="net-send" id="net-send" disabled aria-label="Send"><i class="bi bi-cursor-fill"></i></button>
         </div>
       </div>
     </section>
@@ -209,6 +209,6 @@
 </main>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="js/network.js?v=2"></script>
+<script src="js/network.js?v=3"></script>
 </body>
 </html>

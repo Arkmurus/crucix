@@ -301,7 +301,7 @@
 </main>
 
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=7"></script>
+<script src="js/sidebar.js?v=8"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('explorer');
@@ -835,7 +835,7 @@ Sidebar.init('explorer');
       { name: 'Counter-Intel scan',    rfn: 'R-F84', icon: 'bi-shield-shaded',href: ddUrl('counter-intel') },
       { name: 'Crypto wallet screen',  rfn: 'R-F74', icon: 'bi-currency-bitcoin', click: () => promptWallet(q) },
       { name: "Benford's Law check",   rfn: 'R-F70', icon: 'bi-bar-chart',    click: () => promptBenford(q) },
-      { name: 'TBML classifier',       rfn: 'R-F73', icon: 'bi-graph-up-arrow', click: () => promptTbml(q) },
+      { name: 'TBML classifier',       rfn: 'R-F73', icon: 'bi-graph-up', click: () => promptTbml(q) },
       { name: 'Provenance lineage',    rfn: 'R-F75', icon: 'bi-diagram-2',    click: () => promptProvenance(q) },
       { name: 'Open in chat',          rfn: 'aria',  icon: 'bi-chat-dots',    click: () => openInChat(q) },
     ];

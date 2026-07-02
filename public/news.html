@@ -130,7 +130,7 @@
 </main>
 
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=7"></script>
+<script src="js/sidebar.js?v=8"></script>
 <script>
 (function() {
   if (typeof Auth !== 'undefined' && Auth.requireAuth) Auth.requireAuth();
@@ -271,7 +271,7 @@
       const banner = document.getElementById('fetch-failure-banner');
       banner.style.display = 'block';
       banner.textContent = 'Failed to load news data: ' + (err.message || 'unknown error') + '. The hourly poll may not have run yet.';
-      document.getElementById('articles-list').innerHTML = '<div class="empty-state"><i class="bi bi-cloud-off"></i><p>Could not load articles. The news monitor may still be initializing — click <strong>Poll Now</strong> to trigger the first poll.</p></div>';
+      document.getElementById('articles-list').innerHTML = '<div class="empty-state"><i class="bi bi-cloud-slash"></i><p>Could not load articles. The news monitor may still be initializing — click <strong>Poll Now</strong> to trigger the first poll.</p></div>';
     }
   }
 
