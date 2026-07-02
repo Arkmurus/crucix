@@ -252,3 +252,27 @@ async def test_cik_resolves_on_strong_single_token_or_multi_token(monkeypatch):
                         lambda hits, name, **kw: [{"title": "Lockheed Martin Corp",
                                                    "cik_str": "0000000936", "_match_score": 0.90}])
     assert await fh._resolve_cik("Lockheed Martin") == ("0000000936", "Lockheed Martin Corp")
+
+
+@pytest.mark.asyncio
+async def test_financial_footprint_filters_garbage(monkeypatch):
+    """R-F2346 — the financial-footprint search must DROP memory:// RAG hits and
+    entity-irrelevant keyword matches (the live Modirum Gespi DD surfaced a dance school +
+    a council directory + memory:// URLs as 'financial references')."""
+    class R:
+        def __init__(s, u, t, sn=""):
+            s.url, s.title, s.snippet = u, t, sn
+    async def fake_search(q, max_results=10):
+        return [
+            R("https://modirum-gespi.com/annual-report", "Modirum Gespi Annual Report 2025"),
+            R("memory://9c169972a942", "Modirum Gespi cached memory hit"),
+            R("https://www.raynersschoolofdancing.com/", "Rayners School of Dancing"),
+            R("https://directory.luton.gov.uk/x", "Luton directory service page"),
+        ]
+    import aria_service.intel.web_search as ws
+    monkeypatch.setattr(ws, "search", fake_search)
+    r = await fh._search_financial_footprint("Modirum Gespi", "BR")
+    urls = [s["url"] for s in r["sources"]]
+    assert urls == ["https://modirum-gespi.com/annual-report"]   # only the relevant real URL
+    assert all(not u.startswith("memory://") for u in urls)
+    assert not any("dancing" in u or "luton" in u for u in urls)

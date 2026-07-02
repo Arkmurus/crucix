@@ -409,21 +409,42 @@ async def _search_financial_footprint(name: str, jurisdiction_iso2: str = "") ->
         return {"found": False, "sources": []}
     q = f'"{name}" (annual report OR financial statements OR revenue OR turnover OR filing)'
     try:
-        hits = await web_search.search(q, max_results=6)
+        hits = await web_search.search(q, max_results=10)
     except Exception:
         return {"found": False, "sources": []}
+    # R-F2346 — RELEVANCE GATE. web_search also returns internal RAG hits (memory:// URLs)
+    # and generic keyword matches (e.g. a dance school, a council directory) that are NOT
+    # about this entity — surfacing them as "financial references" is misleading noise on a
+    # decision-grade report. Keep only real http(s) URLs whose title/snippet/url actually
+    # reference the entity (same relevance discipline the digital layer uses, R-F1631).
+    from ._sanctions_classify import _tokenize_entity_name
+    _ent_tokens = _tokenize_entity_name(name)
+
+    def _relevant(title: str, snippet: str, url: str) -> bool:
+        if not _ent_tokens:
+            return True  # name too short to discriminate — don't over-filter
+        hay = f"{title} {snippet} {url}".lower()
+        return any(tok in hay for tok in _ent_tokens)
+
     sources = []
-    for r in (hits or [])[:6]:
-        url = getattr(r, "url", "") or ""
-        title = getattr(r, "title", "") or ""
-        snippet = getattr(r, "snippet", "") or ""
-        if url and title:
-            sources.append({"title": title[:160], "url": url, "snippet": snippet[:240]})
+    for r in (hits or []):
+        url = (getattr(r, "url", "") or "").strip()
+        title = (getattr(r, "title", "") or "").strip()
+        snippet = (getattr(r, "snippet", "") or "").strip()
+        if not (url and title):
+            continue
+        if not url.lower().startswith(("http://", "https://")):
+            continue  # drop memory:// / rag:// / non-web pseudo-URLs — not citable references
+        if not _relevant(title, snippet, url):
+            continue  # drop entity-irrelevant keyword matches
+        sources.append({"title": title[:160], "url": url, "snippet": snippet[:240]})
+        if len(sources) >= 6:
+            break
     return {
         "found": bool(sources),
         "sources": sources,
         "summary": (f"{len(sources)} public financial reference(s) found via search"
-                    if sources else "no public financial references found via search"),
+                    if sources else "no entity-relevant public financial references found via search"),
     }
 
 
