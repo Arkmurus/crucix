@@ -246,6 +246,7 @@ const Sidebar = {
         ${link('opportunities','/opportunities.html',     'bi-briefcase',      'Opportunities')}
         ${link('bd',           '/bd-intelligence.html',   'bi-graph-up-arrow', 'BD Intelligence')}
         ${link('aria',         '/aria.html',              'bi-cpu',            'ARIA', 'aria-link')}
+        ${link('network',      '/network.html',           'bi-people',         'Network')}
         ${link('dd-reports',   '/dd-reports.html',        'bi-folder2-open',   'DD Reports')}
         ${link('watchlist',    '/watchlist.html',         'bi-eye',            'Watchlist')}
         ${link('vls-chain',    '/vls-chain.html',         'bi-shield-check',   'VLS Chain')}

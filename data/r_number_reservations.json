@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2342,
+  "next_available": 2343,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17706,6 +17706,16 @@
       "r_number": "R-F2341",
       "title": "New-DD async: running/failed DDs appear in reports list (index entry) + dedup on complete + accurate message",
       "claimed_at": "2026-07-02T20:32:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0d9574b6",
+      "notes": null,
+      "shipped_at": "2026-07-02T21:16:29Z"
+    },
+    {
+      "r_number": "R-F2342",
+      "title": "ARIA Network tab — opt-in presence directory + 1:1 real-time DM (community layer)",
+      "claimed_at": "2026-07-02T21:18:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

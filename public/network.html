@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Network — ARIA Intelligence</title>
+<link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+<link rel="stylesheet" href="css/aria.css?v=9">
+<link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+<style>
+  /* ARIA Network (R-F2342) — self-contained styles scoped to .net-* so they
+     never collide with the shared aria.css cascade. Palette mirrors the brand:
+     warm ground, purple→blue gradient accent, green/red presence semantics. */
+  :root{
+    --n-bg:#faf9f5; --n-panel:#ffffff; --n-panel2:#f5f4ef; --n-panel3:#efece4;
+    --n-ink:#1f1e1c; --n-body:#4a463f; --n-muted:#7a746a; --n-faint:#9b968c;
+    --n-line:#e7e3da; --n-line2:#dcd7cc;
+    --n-grad:linear-gradient(135deg,#913BFF,#0066FF);
+    --n-prime:#7c3aed; --n-prime-soft:rgba(124,58,237,.10);
+    --n-on:#16a34a; --n-off:#dc2626; --n-away:#d08700;
+  }
+  #app-main{padding:0;min-width:0;overflow:hidden;}
+  .net-wrap{display:grid;grid-template-columns:340px 1fr;height:calc(100vh - 56px);
+    min-height:480px;background:var(--n-bg);}
+  @media (max-width:900px){
+    .net-wrap{grid-template-columns:1fr;}
+    .net-wrap.showing-thread .net-list{display:none;}
+    .net-wrap:not(.showing-thread) .net-thread{display:none;}
+  }
+
+  /* ---- left list ---- */
+  .net-list{border-right:1px solid var(--n-line);background:var(--n-panel);
+    display:flex;flex-direction:column;min-height:0;}
+  .net-self{display:flex;align-items:center;gap:11px;padding:16px 16px;
+    border-bottom:1px solid var(--n-line);}
+  .net-self .bd{min-width:0;flex:1;}
+  .net-self .nm{font-size:14px;font-weight:700;color:var(--n-ink);line-height:1.2;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .net-self .st{font-size:11.5px;font-family:'SF Mono',Consolas,monospace;margin-top:2px;}
+  .net-self .st.on{color:var(--n-on);}
+  .net-self .st.off{color:var(--n-muted);}
+  .toggle{width:42px;height:24px;border-radius:100px;background:var(--n-line2);
+    position:relative;cursor:pointer;flex:0 0 auto;transition:background .18s;border:none;padding:0;}
+  .toggle[aria-checked="true"]{background:var(--n-on);}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;
+    border-radius:50%;background:#fff;transition:transform .18s;box-shadow:0 1px 2px rgba(0,0,0,.25);}
+  .toggle[aria-checked="true"]::after{transform:translateX(18px);}
+  .toggle:focus-visible{outline:2px solid var(--n-prime);outline-offset:2px;}
+
+  .net-seg{display:flex;gap:4px;padding:10px 12px;border-bottom:1px solid var(--n-line);}
+  .net-seg button{flex:1;border:1px solid transparent;background:transparent;color:var(--n-muted);
+    font:600 12.5px/1 inherit;padding:8px 6px;border-radius:8px;cursor:pointer;display:flex;
+    align-items:center;justify-content:center;gap:6px;font-family:inherit;}
+  .net-seg button.on{background:var(--n-panel2);color:var(--n-ink);border-color:var(--n-line);}
+  .net-seg .cnt{font-family:'SF Mono',Consolas,monospace;font-size:11px;color:var(--n-faint);}
+  .net-seg button.on .cnt{color:var(--n-prime);}
+
+  .net-scroll{flex:1;overflow-y:auto;min-height:0;padding:6px 8px 16px;}
+  .net-grouplbl{font:600 10px/1 'SF Mono',Consolas,monospace;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--n-faint);padding:14px 10px 7px;}
+
+  .row{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px;
+    cursor:pointer;position:relative;}
+  .row:hover{background:var(--n-panel2);}
+  .row.active{background:var(--n-prime-soft);}
+  .row .bd{min-width:0;flex:1;}
+  .row .nm{font-size:13.5px;font-weight:600;color:var(--n-ink);line-height:1.25;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row .sub{font-size:11.5px;color:var(--n-muted);line-height:1.3;margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row.offl .nm{color:var(--n-muted);}
+  .row .unread{margin-left:auto;background:var(--n-prime);color:#fff;font:700 11px/1 'SF Mono',monospace;
+    min-width:19px;height:19px;border-radius:100px;display:flex;align-items:center;justify-content:center;
+    padding:0 6px;flex:0 0 auto;}
+  .row .time{margin-left:auto;font-size:10.5px;color:var(--n-faint);font-family:'SF Mono',monospace;flex:0 0 auto;}
+
+  /* ---- avatar + presence ring ---- */
+  .av{width:38px;height:38px;border-radius:50%;position:relative;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;
+    font-size:14px;letter-spacing:.01em;user-select:none;}
+  .av.sm{width:32px;height:32px;font-size:12px;}
+  .av.lg{width:44px;height:44px;font-size:16px;}
+  .av::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+    border:2.5px solid var(--n-away);}
+  .av.on::after{border-color:var(--n-on);}
+  .av.offl::after{border-color:var(--n-off);opacity:.55;}
+  .av.aria{background:var(--n-grad)!important;}
+  .av.aria.on.pulse::after{animation:npulse 2.6s ease-out infinite;}
+  @keyframes npulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.4);}70%{box-shadow:0 0 0 8px rgba(22,163,74,0);}100%{box-shadow:0 0 0 0 rgba(22,163,74,0);}}
+  @media (prefers-reduced-motion:reduce){.av.aria.on.pulse::after{animation:none;}}
+
+  /* ---- right / thread ---- */
+  .net-thread{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--n-bg);}
+  .net-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:40px;gap:8px;}
+  .net-empty .mark{width:64px;height:64px;border-radius:20px;background:var(--n-grad);margin-bottom:8px;
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:30px;}
+  .net-empty h2{font-size:22px;color:var(--n-ink);margin:0;letter-spacing:-.01em;}
+  .net-empty p{color:var(--n-muted);font-size:14px;max-width:42ch;line-height:1.55;margin:0;}
+  .net-empty .cta{margin-top:10px;background:var(--n-grad);color:#fff;border:none;border-radius:10px;
+    padding:11px 20px;font:600 14px/1 inherit;cursor:pointer;font-family:inherit;}
+
+  .net-convo{flex:1;display:flex;flex-direction:column;min-height:0;}
+  .net-convo-head{display:flex;align-items:center;gap:12px;padding:14px 18px;
+    border-bottom:1px solid var(--n-line);background:var(--n-panel);}
+  .net-back{display:none;background:none;border:none;color:var(--n-muted);font-size:20px;cursor:pointer;padding:0 4px 0 0;}
+  @media (max-width:900px){.net-back{display:block;}}
+  .net-convo-head .who{font-size:15px;font-weight:700;color:var(--n-ink);line-height:1.2;}
+  .net-convo-head .pres{font-size:11.5px;font-family:'SF Mono',Consolas,monospace;margin-top:2px;}
+  .net-convo-head .pres.on{color:var(--n-on);}
+  .net-convo-head .pres.off{color:var(--n-muted);}
+
+  .net-messages{flex:1;overflow-y:auto;min-height:0;padding:20px 18px 8px;
+    display:flex;flex-direction:column;gap:3px;}
+  .day{align-self:center;font:600 10.5px/1 'SF Mono',monospace;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--n-faint);background:var(--n-panel2);border:1px solid var(--n-line);
+    padding:4px 11px;border-radius:100px;margin:14px 0 8px;}
+  .bubble{max-width:70%;padding:9px 13px;border-radius:15px;font-size:14px;line-height:1.45;
+    word-wrap:break-word;overflow-wrap:anywhere;position:relative;}
+  .bubble .mt{display:block;font-size:10px;font-family:'SF Mono',monospace;margin-top:4px;opacity:.7;}
+  .b-them{align-self:flex-start;background:var(--n-panel);border:1px solid var(--n-line);color:var(--n-ink);
+    border-bottom-left-radius:5px;}
+  .b-me{align-self:flex-end;background:var(--n-grad);color:#fff;border-bottom-right-radius:5px;}
+  .b-me .mt{color:rgba(255,255,255,.85);}
+  .b-me .rd{color:rgba(255,255,255,.85);}
+
+  .net-typing{height:20px;padding:0 20px;font-size:12px;color:var(--n-muted);font-style:italic;}
+  .net-composer{display:flex;gap:10px;align-items:flex-end;padding:12px 16px 16px;
+    border-top:1px solid var(--n-line);background:var(--n-panel);}
+  .net-composer textarea{flex:1;resize:none;border:1px solid var(--n-line2);border-radius:12px;
+    padding:11px 14px;font:14px/1.4 inherit;font-family:inherit;color:var(--n-ink);background:var(--n-panel2);
+    max-height:120px;outline:none;}
+  .net-composer textarea:focus{border-color:var(--n-prime);box-shadow:0 0 0 3px var(--n-prime-soft);background:#fff;}
+  .net-send{width:44px;height:44px;border-radius:12px;background:var(--n-grad);border:none;color:#fff;
+    font-size:18px;cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+  .net-send:disabled{opacity:.45;cursor:default;}
+
+  /* connection + empty states */
+  .net-conn{display:none;padding:7px 14px;background:rgba(220,38,38,.08);color:#b91c1c;
+    font-size:12px;text-align:center;border-bottom:1px solid rgba(220,38,38,.2);}
+  .net-conn.show{display:block;}
+  .net-hollow{padding:26px 14px;text-align:center;color:var(--n-muted);font-size:13px;line-height:1.6;}
+  .net-hollow b{color:var(--n-ink);}
+</style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+
+<script src="js/app.js?v=6"></script>
+<script src="js/sidebar.js?v=7"></script>
+<script>
+  Auth.requireAuth();
+  Sidebar.init('network');
+</script>
+
+<main id="app-main">
+  <div class="net-wrap" id="net-wrap">
+    <!-- LEFT: presence + lists -->
+    <aside class="net-list">
+      <div class="net-self" id="net-self">
+        <span class="av lg" id="self-av">··</span>
+        <div class="bd">
+          <div class="nm" id="self-name">You</div>
+          <div class="st off" id="self-status">Presence off</div>
+        </div>
+        <button class="toggle" id="self-toggle" role="switch" aria-checked="false"
+                aria-label="Appear online in the network"></button>
+      </div>
+      <div class="net-seg" id="net-seg">
+        <button data-view="members" class="on">Members <span class="cnt" id="cnt-members">0</span></button>
+        <button data-view="chats">Chats <span class="cnt" id="cnt-chats">0</span></button>
+      </div>
+      <div class="net-scroll">
+        <div id="view-members"><div class="net-hollow">Loading the network…</div></div>
+        <div id="view-chats" hidden><div class="net-hollow">No conversations yet.</div></div>
+      </div>
+    </aside>
+
+    <!-- RIGHT: thread -->
+    <section class="net-thread" id="net-thread">
+      <div class="net-empty" id="net-empty">
+        <div class="mark"><i class="bi bi-people"></i></div>
+        <h2>Welcome to the ARIA network</h2>
+        <p id="empty-msg">Turn on your presence to appear to other members, then pick someone
+          to start a secure conversation. Share intel, documents, and context — with the people
+          building ARIA alongside you.</p>
+        <button class="cta" id="empty-cta">Turn on my presence</button>
+      </div>
+      <div class="net-convo" id="net-convo" hidden>
+        <header class="net-convo-head">
+          <button class="net-back" id="net-back" aria-label="Back to list"><i class="bi bi-chevron-left"></i></button>
+          <span class="av sm" id="convo-av">··</span>
+          <div>
+            <div class="who" id="convo-who">—</div>
+            <div class="pres off" id="convo-pres">offline</div>
+          </div>
+        </header>
+        <div class="net-conn" id="net-conn">Reconnecting to the network…</div>
+        <div class="net-messages" id="net-messages"></div>
+        <div class="net-typing" id="net-typing"></div>
+        <div class="net-composer">
+          <textarea id="net-input" rows="1" maxlength="2000" placeholder="Write a message…"></textarea>
+          <button class="net-send" id="net-send" disabled aria-label="Send"><i class="bi bi-send-fill"></i></button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/network.js?v=1"></script>
+</body>
+</html>

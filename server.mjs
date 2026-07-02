@@ -6239,22 +6239,47 @@ async function start() {
     }
   });
 
+  // R-F2342 — ARIA Network: presence is OPT-IN. A user only appears in the
+  // network roster (and only broadcasts online/offline) when networkVisible is
+  // true. Everyone still connects (so their own DMs work), but invisible users
+  // are never announced to others.
+  const _isVisible = (id) => !!findUserById(id)?.networkVisible;
+  // R-F2342 hardening — last-seen kept in memory (NOT users.json) so socket
+  // churn never rewrites the credential store (avoids a lost-update race with
+  // password/token writes); best-effort, resets on restart. Plus a tiny
+  // per-socket send rate limit to stop a runaway/abusive send_message loop.
+  const lastSeen = new Map();                    // userId -> ISO timestamp
+  const _SEND_WINDOW_MS = 10000, _SEND_MAX = 25; // ≤25 msgs / 10s / socket
+
   io.on('connection', (socket) => {
     const uid = socket.userId;
+    socket._sendTimes = [];
 
-    // Track online
-    if (!onlineUsers.has(uid)) onlineUsers.set(uid, new Set());
+    // Track online (regardless of visibility — needed for the user's own DMs)
+    const firstSocket = !onlineUsers.has(uid);
+    if (firstSocket) onlineUsers.set(uid, new Set());
     onlineUsers.get(uid).add(socket.id);
 
-    // Broadcast presence update
-    io.emit('presence', { userId: uid, online: true });
-    socket.emit('online_users', Array.from(onlineUsers.keys()));
+    // Broadcast presence ONLY if this user has opted into the network.
+    if (firstSocket && _isVisible(uid)) {
+      io.emit('presence', { userId: uid, online: true });
+    }
+    // Send the connecting client the set of users who are online AND visible.
+    // ONE user-store read (build a visible-id set) rather than one per user.
+    const _visibleIds = new Set(listUsers().filter(u => u.networkVisible).map(u => u.id));
+    socket.emit('online_users',
+      Array.from(onlineUsers.keys()).filter(id => _visibleIds.has(id)));
 
     // Send message
     socket.on('send_message', ({ toId, text }) => {
       if (!toId || !text || typeof text !== 'string') return;
       const safeText = text.trim().slice(0, 2000);
       if (!safeText) return;
+      // R-F2342 — per-socket send rate limit (abuse / runaway-loop guard).
+      const _now = Date.now();
+      socket._sendTimes = socket._sendTimes.filter(t => _now - t < _SEND_WINDOW_MS);
+      if (socket._sendTimes.length >= _SEND_MAX) return;
+      socket._sendTimes.push(_now);
 
       const msg = storeMessage(uid, toId, safeText);
       const enrichFrom = findUserById(uid);
@@ -6302,10 +6327,64 @@ async function start() {
         sockets.delete(socket.id);
         if (sockets.size === 0) {
           onlineUsers.delete(uid);
-          io.emit('presence', { userId: uid, online: false });
+          // R-F2342 — in-memory last-seen (no users.json write); announce
+          // offline only if this user opted into the network.
+          lastSeen.set(uid, new Date().toISOString());
+          if (_isVisible(uid)) io.emit('presence', { userId: uid, online: false });
         }
       }
     });
+  });
+
+  // ── R-F2342 · ARIA Network API ────────────────────────────────────────────
+  // Placed after the io block so onlineUsers + io are in scope. Express matches
+  // by path at request time, so registration order doesn't shadow these.
+
+  // GET /api/network/directory — the opt-in member roster + live online state.
+  app.get('/api/network/directory', requireAuth, (req, res) => {
+    const meId = req.user.userId;
+    const members = listUsers()
+      .filter(u => u.status === 'active' && u.networkVisible && u.id !== meId)
+      .map(u => ({
+        id: u.id,
+        username: u.username,
+        fullName: u.fullName || u.username,
+        role: u.role || 'viewer',
+        sector: u.sector || '',
+        jobTitle: u.jobTitle || '',
+        companyName: u.companyName || '',
+        online: onlineUsers.has(u.id),
+        lastSeenAt: lastSeen.get(u.id) || u.lastSeenAt || null,
+      }))
+      .sort((a, b) => (Number(b.online) - Number(a.online)) ||
+                      a.fullName.localeCompare(b.fullName));
+    const me = findUserById(meId);
+    res.json({
+      visible: !!me?.networkVisible,
+      memberCount: members.length,
+      onlineCount: members.filter(m => m.online).length,
+      members,
+    });
+  });
+
+  // POST /api/network/visibility { visible } — opt in/out of the network.
+  app.post('/api/network/visibility', requireAuth, (req, res) => {
+    const visible = !!req.body?.visible;
+    const meId = req.user.userId;
+    // networkVisible is a durable preference — persisted (low frequency, unlike
+    // presence). Guarded so a deleted-mid-request user can't 500 the route.
+    try { updateUser(meId, { networkVisible: visible }); }
+    catch (e) { return res.status(500).json({ error: 'Could not update visibility' }); }
+    // Real-time appear/disappear: if the user is currently connected, announce
+    // their online presence (visible=true) or removal (visible=false), and tell
+    // every client to refresh the roster membership.
+    if (onlineUsers.has(meId) && visible) {
+      io.emit('presence', { userId: meId, online: true });
+    } else if (!visible) {
+      io.emit('presence', { userId: meId, online: false });
+    }
+    io.emit('network_update', { userId: meId, visible });
+    res.json({ visible });
   });
 
   // R-F16 2026-05-01: rebuild staged-module disk area from Redis before
