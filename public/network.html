@@ -128,14 +128,18 @@
 
   /* ---- right / thread ---- */
   .net-thread{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--n-bg);}
+  /* R-F2357 — [hidden] MUST win over the display:flex below, else the empty
+     conversation header + composer render as a phantom "bar" when nothing is
+     open. */
+  .net-empty[hidden],.net-convo[hidden]{display:none!important;}
   .net-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    text-align:center;padding:40px;gap:8px;}
-  .net-empty .mark{width:64px;height:64px;border-radius:20px;background:var(--n-grad);margin-bottom:8px;
-    display:flex;align-items:center;justify-content:center;color:#fff;font-size:30px;}
-  .net-empty h2{font-size:22px;color:var(--n-ink);margin:0;letter-spacing:-.01em;}
-  .net-empty p{color:var(--n-muted);font-size:14px;max-width:42ch;line-height:1.55;margin:0;}
-  .net-empty .cta{margin-top:10px;background:var(--n-grad);color:#fff;border:none;border-radius:10px;
-    padding:11px 20px;font:600 14px/1 inherit;cursor:pointer;font-family:inherit;}
+    text-align:center;padding:32px;gap:6px;}
+  .net-empty .mark{width:46px;height:46px;border-radius:14px;background:var(--n-grad);margin-bottom:4px;
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;}
+  .net-empty h2{font-size:16px;font-weight:700;color:var(--n-ink);margin:0;letter-spacing:-.01em;}
+  .net-empty p{color:var(--n-muted);font-size:12.5px;max-width:40ch;line-height:1.5;margin:0;}
+  .net-empty .cta{margin-top:8px;background:var(--n-grad);color:#fff;border:none;border-radius:9px;
+    padding:9px 18px;font:600 13px/1 inherit;cursor:pointer;font-family:inherit;}
 
   .net-convo{flex:1;display:flex;flex-direction:column;min-height:0;}
   .net-convo-head{display:flex;align-items:center;gap:12px;padding:14px 18px;
@@ -176,8 +180,11 @@
   .net-conn{display:none;padding:7px 14px;background:rgba(220,38,38,.08);color:#b91c1c;
     font-size:12px;text-align:center;border-bottom:1px solid rgba(220,38,38,.2);}
   .net-conn.show{display:block;}
-  .net-hollow{padding:26px 14px;text-align:center;color:var(--n-muted);font-size:13px;line-height:1.6;}
+  .net-hollow{padding:26px 14px;text-align:center;color:var(--n-muted);font-size:13px;line-height:1.6;
+    transition:opacity .22s ease, transform .22s ease;}
   .net-hollow b{color:var(--n-ink);}
+  /* R-F2357 — the in-conversation placeholder moves up + fades as you start typing */
+  .net-messages.typing .net-hollow{opacity:0;transform:translateY(-10px);pointer-events:none;}
 </style>
 </head>
 <body>
@@ -304,6 +311,6 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="js/network.js?v=8"></script>
+<script src="js/network.js?v=9"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2357,
+  "next_available": 2358,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17856,6 +17856,16 @@
       "r_number": "R-F2356",
       "title": "editable profile — name/title/company/sector modal from Network self-card, feeds roster+sidebar",
       "claimed_at": "2026-07-02T23:05:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bc912f20",
+      "notes": null,
+      "shipped_at": "2026-07-02T23:27:41Z"
+    },
+    {
+      "r_number": "R-F2357",
+      "title": "Network empty-state: hide phantom convo bar/composer, shrink welcome, typing collapses it",
+      "claimed_at": "2026-07-02T23:36:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

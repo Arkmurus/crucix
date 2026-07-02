@@ -243,6 +243,7 @@
   }
   function renderMessages(msgs) {
     const host = $('net-messages');
+    host.classList.remove('typing');   // R-F2357 — fresh render shows the placeholder
     if (!msgs.length) {
       host.innerHTML = activeId === ARIA.id
         ? `<div class="net-hollow">👋 I'm <b>ARIA</b>. Ask me to screen a counterparty, check sanctions, or summarise intel — I'll run it and reply right here.</div>`
@@ -283,6 +284,7 @@
     if (!text || !activeId || !connected) return;
     socket.emit('send_message', { toId: activeId, text });
     input.value = ''; input.style.height = 'auto';
+    const _m = $('net-messages'); if (_m) _m.classList.remove('typing');  // R-F2357
     stopTyping();
     updateSendEnabled();
   }
@@ -511,6 +513,9 @@
     const input = $('net-input');
     input.addEventListener('input', () => {
       input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px';
+      // R-F2357 — collapse the "say hello" placeholder up as the user types
+      const msgs = $('net-messages');
+      if (msgs) msgs.classList.toggle('typing', input.value.trim().length > 0);
       onTyping();
     });
     input.addEventListener('keydown', (e) => {
