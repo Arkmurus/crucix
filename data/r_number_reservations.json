@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2325,
+  "next_available": 2327,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17518,9 +17518,10 @@
       "title": "real financial-health DD: SEC EDGAR + Companies House accounts → revenue/ratios/solvency/distress, honest gaps, wired into DD financial layer",
       "claimed_at": "2026-07-02T14:55:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "981df997",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:33:22Z"
     },
     {
       "r_number": "R-F2323",
@@ -17535,6 +17536,25 @@
       "r_number": "R-F2324",
       "title": "UI review fixes: close searxng public exposure + fix dead footer links (Privacy/Terms/Contact/Platform/Coverage) + global coverage labels",
       "claimed_at": "2026-07-02T16:23:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5181fa2b",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:26:22Z"
+    },
+    {
+      "r_number": "R-F2325",
+      "title": "aria-wa branding: remove customer-visible ARKMURUS from WhatsApp report headers + prompt framing",
+      "claimed_at": "2026-07-02T16:27:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2326",
+      "title": "financial_health flow-metric duration guard + remove import-time phantom gap",
+      "claimed_at": "2026-07-02T16:31:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
