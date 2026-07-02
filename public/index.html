@@ -143,6 +143,10 @@
 
     .lp-nav-cta { display: flex; gap: 10px; align-items: center; }
 
+    /* R-F2329 — mobile nav menu button (hidden until ≤600px). */
+    .lp-nav-toggle { display: none; background: transparent; border: none; font-size: 22px; line-height: 1; color: var(--sc-heading); cursor: pointer; padding: 4px 10px; border-radius: 6px; }
+    .lp-nav-toggle:hover { background: var(--sc-prime-soft); }
+
     /* ── Buttons ────────────────────────────────────────────────── */
     .lp-btn {
       display: inline-flex;
@@ -486,6 +490,9 @@
       line-height: 2;
       background: #1a1a2e;
       color: #c9d1d9;
+      /* R-F2329 — the 54-char monospace divider clips on phones; let it scroll. */
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .lp-d-dim { color: #6a7e98; }
@@ -997,7 +1004,20 @@
     @media (max-width: 600px) {
       .lp-caps-grid { grid-template-columns: 1fr; }
       .lp-pipeline-grid { grid-template-columns: 1fr 1fr; }
-      .lp-nav-links { display: none; }
+      /* R-F2329 — section-nav becomes a tap-to-open dropdown (was display:none, so
+         the links just vanished with no way to reach them). */
+      .lp-nav-toggle { display: inline-flex; }
+      .lp-nav-links {
+        display: none; position: absolute; top: 64px; left: 0; right: 0;
+        flex-direction: column; gap: 0; background: rgba(250,249,245,0.98);
+        border-bottom: 1px solid var(--sc-border); padding: 6px 0;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.08);
+      }
+      .lp-nav-links.open { display: flex; }
+      .lp-nav-links a { padding: 12px 32px; font-size: 15px; }
+      /* R-F2329 — contact form fields were fixed px (220/280/200) → full-width. */
+      .lp-form-input, .lp-form-select { width: 100% !important; }
+      #lp-request-btn { width: 100%; min-width: 0 !important; justify-content: center; }
       .lp-cert-grid { grid-template-columns: 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr; }
     }
@@ -1020,6 +1040,7 @@
       <a href="#compliance">Compliance</a>
     </div>
     <div class="lp-nav-cta">
+      <button class="lp-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" onclick="var l=document.querySelector('.lp-nav-links');var o=l.classList.toggle('open');this.setAttribute('aria-expanded',o)">&#9776;</button>
       <a href="/signin" class="lp-btn lp-btn-ghost">Sign in</a>
       <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime">Sign Up</a>
     </div>

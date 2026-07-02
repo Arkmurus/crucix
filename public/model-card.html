@@ -65,6 +65,12 @@
 
     .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--sc-border); font-size: 12px; color: var(--sc-muted); }
     .mc-footer a { color: var(--sc-prime); }
+
+    /* R-F2329 — reference tables (fixed-width th columns) overflow the ~342px
+       content box on phones; let them scroll horizontally instead of clipping. */
+    @media (max-width: 600px) {
+      .mc-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
   </style>
 </head>
 <body>
