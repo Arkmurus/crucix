@@ -395,7 +395,164 @@ async def _stop_write_worker() -> None:
         _WRITE_WORKER_TASK = None
 
 
-async def _enqueue_write(sql: str, params: tuple) -> None:
+# ─────────────────────────────────────────────────────────────────────────
+# R-F2290 — hot/cold DB split, PHASE 0 (flag-gated, default OFF).
+#
+# The 907 MB single-writer ceiling: hot operational writes (cost, gaps,
+# heartbeats) share one file + one writer thread with ~450k COLD, permanent,
+# append-only rows (audit chains, verified facts/intel). One slow op stalls ALL
+# writes. Phase 0 ships the router + a SECOND ("cold") SQLite file with its own
+# connection + write queue + worker, and routes the K/V (set_key/set_json ↔
+# get/get_json) write & read path by key. COMPOUND-op cold keys (lists/hashes,
+# e.g. crucix:audit:by_entity via lpush) are NOT routed yet — Phase 0b (the ~30
+# direct _conn.execute sites) + delete/scan.
+#
+# SAFETY: when ARIA_STATE_HOTCOLD_SPLIT is unset/0 (the DEFAULT + the live state)
+# NOTHING changes — every accessor short-circuits to the existing hot globals,
+# the cold file is never opened, and no cold worker starts. The split only
+# activates when the flag is explicitly set (the Phase 2 cutover).
+# ─────────────────────────────────────────────────────────────────────────
+
+_HOTCOLD_SPLIT = os.getenv("ARIA_STATE_HOTCOLD_SPLIT", "").strip().lower() in (
+    "1", "true", "yes", "on")
+_COLD_DB_PATH = None          # Path to the cold DB file (set in _open_cold_store)
+_cold_conn = None             # aiosqlite writer connection for the cold DB
+_cold_read_conn = None        # aiosqlite read connection for the cold DB
+_cold_queue: "asyncio.Queue[tuple] | None" = None
+_COLD_WORKER_TASK: "asyncio.Task | None" = None
+
+# COLD (permanent, append-only, read-rarely) K/V key prefixes. ONLY simple-K/V
+# prefixes here — list/hash prefixes (audit:by_entity …) route in Phase 0b.
+_COLD_KEY_PREFIXES: tuple = (
+    "crucix:audit:by_hash",
+    "aria:verified_facts:",
+    "crucix:verified_intel:fact",
+    "crucix:aria:reasoning_library",
+)
+
+
+def _route_db(key: str) -> str:
+    """R-F2290 — route a KEY to 'cold' (permanent append-only store) or 'hot'
+    (operational store). Pure + module-level → unit-testable. Consulted ONLY
+    when _HOTCOLD_SPLIT is on; otherwise every op uses the hot store."""
+    if key:
+        for _p in _COLD_KEY_PREFIXES:
+            if key.startswith(_p):
+                return "cold"
+    return "hot"
+
+
+def _writer_queue_for(key: str):
+    """Write queue for `key`. Flag OFF → the hot queue, byte-identical to
+    pre-R-F2290. Cold K/V keys → the cold queue when the split is open."""
+    if not _HOTCOLD_SPLIT:
+        return _QUEUED_WRITES
+    if _cold_queue is not None and _route_db(key) == "cold":
+        return _cold_queue
+    return _QUEUED_WRITES
+
+
+def _reader_conn_for(key: str):
+    """Read connection for `key`. Flag OFF → the hot read pool, byte-identical.
+    Cold K/V keys → the cold read connection when the split is open."""
+    if not _HOTCOLD_SPLIT:
+        return _get_read_conn()
+    if _cold_read_conn is not None and _route_db(key) == "cold":
+        return _cold_read_conn
+    return _get_read_conn()
+
+
+async def _flush_cold_queue() -> int:
+    """R-F2290 — drain the cold write queue into the cold connection (mirror of
+    _flush_write_queue). No-op when the split is off / cold queue absent."""
+    queue = _cold_queue
+    if queue is None or queue.empty() or _cold_conn is None:
+        return 0
+    flushed = 0
+    batch: list[tuple] = []
+    while not queue.empty():
+        try:
+            sql, params = queue.get_nowait()
+            batch.append((sql, params))
+            flushed += 1
+        except asyncio.QueueEmpty:
+            break
+    if batch and _cold_conn is not None:
+        try:
+            for sql, params in batch:
+                await asyncio.wait_for(_cold_conn.execute(sql, params), timeout=60.0)
+            await asyncio.wait_for(_cold_conn.commit(), timeout=60.0)
+        except asyncio.TimeoutError:
+            logger.error("state_store[cold]: flush timed out (%d writes) — may be lost.", len(batch))
+        except Exception as e:
+            logger.error("state_store[cold]: flush failed (%d writes): %s", len(batch), e)
+    return flushed
+
+
+async def _start_cold_write_worker() -> None:
+    """R-F2290 — start the cold write queue + background worker (mirror of
+    _start_write_worker). Called from _open_cold_store only when the split is on."""
+    global _cold_queue, _COLD_WORKER_TASK
+    if _cold_queue is not None:
+        return
+    _cold_queue = asyncio.Queue(maxsize=_WRITE_QUEUE_MAX)
+
+    async def _cold_loop():
+        while True:
+            try:
+                await asyncio.sleep(0.1)
+                await _flush_cold_queue()
+            except asyncio.CancelledError:
+                await _flush_cold_queue()
+                break
+            except Exception:
+                pass
+
+    _COLD_WORKER_TASK = asyncio.ensure_future(_cold_loop())
+    logger.info("state_store: R-F2290 cold-store write worker started")
+
+
+async def _stop_cold_write_worker() -> None:
+    global _COLD_WORKER_TASK
+    if _COLD_WORKER_TASK is not None:
+        _COLD_WORKER_TASK.cancel()
+        try:
+            await _COLD_WORKER_TASK
+        except asyncio.CancelledError:
+            pass
+        _COLD_WORKER_TASK = None
+
+
+async def _open_cold_store() -> None:
+    """R-F2290 — open + configure the cold DB file (same `state` schema as hot)
+    and its read connection, then start the cold write worker. Sibling of the hot
+    connect() plumbing; only called when _HOTCOLD_SPLIT is on. The cold file lives
+    beside the hot DB (`aria_knowledge_store.db`). On any failure the split
+    silently degrades to hot-only (cold conns stay None → accessors fall back)."""
+    global _cold_conn, _cold_read_conn, _COLD_DB_PATH
+    if _DB_PATH is None:
+        return
+    import aiosqlite
+    _COLD_DB_PATH = _DB_PATH.with_name("aria_knowledge_store.db")
+    _cold_conn = await asyncio.wait_for(aiosqlite.connect(str(_COLD_DB_PATH)), timeout=30.0)
+    await _cold_conn.execute("PRAGMA busy_timeout=120000")
+    await _cold_conn.execute("PRAGMA journal_mode=WAL")
+    await _cold_conn.execute("PRAGMA synchronous=NORMAL")
+    await _cold_conn.execute("PRAGMA foreign_keys=OFF")
+    await _cold_conn.execute(
+        "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL, "
+        "kind TEXT NOT NULL DEFAULT 'string', expires_at REAL)")
+    await _cold_conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_state_expires ON state(expires_at) "
+        "WHERE expires_at IS NOT NULL")
+    await _cold_conn.commit()
+    _cold_read_conn = await asyncio.wait_for(aiosqlite.connect(str(_COLD_DB_PATH)), timeout=30.0)
+    await _configure_read_conn(_cold_read_conn)
+    await _start_cold_write_worker()
+    logger.info("state_store: R-F2290 cold store OPEN at %s", _COLD_DB_PATH)
+
+
+async def _enqueue_write(sql: str, params: tuple, key: str | None = None) -> None:
     """Enqueue a write operation. Raises StateWriteError if the queue is full.
     
     This is the core of R-F1541: instead of calling _conn.execute() with a
@@ -405,8 +562,12 @@ async def _enqueue_write(sql: str, params: tuple) -> None:
     
     The caller MUST handle StateWriteError — either retry, fall back, or
     accept the loss. No write is ever silently dropped.
+
+    R-F2290: `key` routes the write to the cold store when the hot/cold split is
+    on and the key is a cold prefix; otherwise (and always when the flag is off)
+    it goes to the hot queue.
     """
-    queue = _QUEUED_WRITES
+    queue = _writer_queue_for(key)
     if queue is None:
         raise StateWriteError("state_store: write queue not initialised")
     try:
@@ -1076,6 +1237,14 @@ async def connect(db_path: str | None = None) -> bool:
             await _start_write_worker()
         except Exception as e:
             logger.warning("state_store: write worker start failed: %s", e)
+        # R-F2290: open the cold store ONLY when the split is explicitly enabled.
+        # A cold-open failure must NOT break boot — degrade to hot-only.
+        if _HOTCOLD_SPLIT:
+            try:
+                await _open_cold_store()
+            except Exception as e:
+                logger.error("state_store: R-F2290 cold store open failed — "
+                             "degrading to hot-only: %s", e)
         logger.info("state_store: SQLite ready at %s (WAL mode)", _DB_PATH)
         return True
     except Exception as e:
@@ -1088,7 +1257,7 @@ async def close() -> None:
     """Close the database connection.
     
     R-F1541: flushes pending writes before closing."""
-    global _conn, _read_conn, _read_pool
+    global _conn, _read_conn, _read_pool, _cold_conn, _cold_read_conn, _cold_queue
     # Flush any pending writes first
     try:
         await _flush_write_queue()
@@ -1099,6 +1268,21 @@ async def close() -> None:
         await _stop_write_worker()
     except Exception:
         pass
+    # R-F2290: flush + stop + close the cold store (no-op when split is off).
+    try:
+        await _flush_cold_queue()
+        await _stop_cold_write_worker()
+    except Exception:
+        pass
+    for _cc in (_cold_conn, _cold_read_conn):
+        if _cc is not None:
+            try:
+                await _cc.close()
+            except Exception:
+                pass
+    _cold_conn = None
+    _cold_read_conn = None
+    _cold_queue = None
     # R-F2242: close every pool member (was the single _read_conn).
     for _rc in (_read_pool or ([_read_conn] if _read_conn else [])):
         try:
@@ -1246,15 +1430,20 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     # read-after-write consistency in the common case (single writes, tests).
     # Large backlogs are handled by the background worker.
     try:
-        queue = _QUEUED_WRITES
+        # R-F2290: flush the queue this key actually routes to (cold or hot), so
+        # read-after-write holds for cold keys too. Flag OFF → the hot queue.
+        _routed_cold = _HOTCOLD_SPLIT and _cold_queue is not None and _route_db(key) == "cold"
+        queue = _cold_queue if _routed_cold else _QUEUED_WRITES
         if queue is not None and not queue.empty() and queue.qsize() <= 10:
             # R-F2154: bounded flush — a bloated DB or contested WAL can
             # make _conn.execute() block past busy_timeout; cap at 5s so
             # a slow flush never hangs a read (and thus boot) indefinitely.
-            await asyncio.wait_for(_flush_write_queue(), timeout=5.0)
+            await asyncio.wait_for(
+                _flush_cold_queue() if _routed_cold else _flush_write_queue(),
+                timeout=5.0)
     except (asyncio.TimeoutError, Exception):
         pass
-    conn = _get_read_conn()
+    conn = _reader_conn_for(key)  # R-F2290: cold keys read from the cold conn
     if conn is None:
         return None
     try:
@@ -1362,8 +1551,8 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
             "kind = excluded.kind, expires_at = excluded.expires_at"
         )
         params = (key, value, kind, expires_at)
-    
-    await _enqueue_write(sql, params)
+
+    await _enqueue_write(sql, params, key=key)  # R-F2290: route by key
 
 
 # ─────────────────────────────────────────────────────────────────────────
