@@ -4267,6 +4267,96 @@ async def _enrich_registry_gap(target: dict, report, name: str) -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# R-F2294 — multi-angle digital research for DD. The single generic query
+# ("<name> defence procurement") surfaced mostly the entity's own site + one
+# facet; adverse-media / ownership / sanctions-adjacent / regulatory coverage was
+# systematically under-retrieved (the confirmed _run_digital weakness). This
+# plans the facets a defence-DD analyst searches by hand and retrieves them IN
+# PARALLEL through ARIA's own free backends — Brave-API-class breadth, natively.
+# §21a-wired, enabled by default (ARIA_DD_MULTIQUERY_ENABLED, kill-switch=0).
+# ─────────────────────────────────────────────────────────────────────────
+_DD_MULTIQUERY_ENABLED = os.getenv(
+    "ARIA_DD_MULTIQUERY_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+_DD_MULTIQUERY_PER_ANGLE = max(3, int(os.getenv("ARIA_DD_MULTIQUERY_PER_ANGLE", "6")))
+_DD_MULTIQUERY_CONCURRENCY = max(1, int(os.getenv("ARIA_DD_MULTIQUERY_CONCURRENCY", "4")))
+
+
+def _plan_digital_queries(name_for_search: str, target: dict) -> list[tuple]:
+    """R-F2294 — plan the DD digital-research angles for `name_for_search`. Pure +
+    deterministic (free, fast, always works) → unit-testable. Returns a list of
+    (query, angle_label, multilingual). Covers the facets a defence-DD analyst
+    searches by hand: procurement, sanctions-adjacent, adverse media, ownership,
+    leadership, and — when known — jurisdiction-regulatory + product context."""
+    n = (name_for_search or "").strip()
+    jur = str(target.get("jurisdiction") or target.get("country") or "").strip()
+    product = str(target.get("product_description") or target.get("goods") or "").strip()
+    q: list[tuple] = [
+        (f"{n} defence procurement", "procurement", True),  # original angle (multilingual)
+        (f'"{n}" sanctions OR OFAC OR sanctioned OR embargo OR designated', "sanctions_adverse", False),
+        (f'"{n}" fraud OR investigation OR lawsuit OR corruption OR bribery OR "money laundering"', "adverse_media", False),
+        (f'"{n}" owner OR shareholder OR "parent company" OR subsidiary OR "beneficial owner"', "ownership", False),
+        (f'"{n}" director OR CEO OR founder OR chairman OR "board of directors"', "leadership", False),
+    ]
+    if jur:
+        q.append((f'"{n}" {jur} regulator OR licence OR license OR fine OR penalty OR enforcement', "regulatory", False))
+    if product:
+        q.append((f'"{n}" {product}', "product_context", False))
+    return q
+
+
+async def _multi_query_search(name_for_search: str, target: dict) -> list:
+    """R-F2294 — run the planned DD angles in parallel, aggregate + dedupe by URL.
+    Each angle is best-effort (a blocked/failed angle is skipped, never fatal),
+    concurrency-bounded so we don't hammer the datacenter IP. §21a-wired: success
+    → metric (angles / unique / independent), zero-yield or error → capability gap.
+    Returns a combined, de-duplicated list of SearchResult."""
+    from . import web_search
+    plan = _plan_digital_queries(name_for_search, target)
+    sem = asyncio.Semaphore(_DD_MULTIQUERY_CONCURRENCY)
+
+    async def _one(query: str, label: str, multilingual: bool):
+        async with sem:
+            try:
+                if multilingual:
+                    return await web_search.search_multilingual(query, max_results=_DD_MULTIQUERY_PER_ANGLE)
+                return await web_search.search(query, max_results=_DD_MULTIQUERY_PER_ANGLE)
+            except Exception as _e:  # best-effort per angle
+                logger.debug("[R-F2294] digital angle %s failed: %s", label, _e)
+                return []
+
+    results = await asyncio.gather(*[_one(qq, ll, ml) for (qq, ll, ml) in plan])
+    seen: set = set()
+    merged: list = []
+    for lst in results:
+        for h in (lst or []):
+            u = (getattr(h, "url", None) or "").strip().lower()
+            key = u or (getattr(h, "title", "") or "")[:80].lower()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(h)
+    try:
+        from .engine_wiring import wire_success, wire_failure
+        n_unique = len(merged)
+        _ent_site = str(target.get("website") or target.get("website_url") or "").lower()
+        _ent_dom = _ent_site.split("//")[-1].split("/")[0] if _ent_site else ""
+        n_independent = (sum(1 for h in merged if _ent_dom and _ent_dom not in (getattr(h, "url", "") or "").lower())
+                         if _ent_dom else n_unique)
+        if n_unique > 0:
+            wire_success(
+                module="dd_digital_multiquery",
+                summary=f"{len(plan)} angles -> {n_unique} unique sources ({n_independent} independent) for {name_for_search[:60]}",
+                entity_name=name_for_search[:80], source_id="dd_orchestrator:R-F2294")
+        else:
+            wire_failure(
+                module="dd_digital_multiquery",
+                detail=f"multi-angle digital search returned ZERO sources for {name_for_search[:80]} across {len(plan)} angles (backends blocked/silent?)",
+                gap_type="source_failure", source="dd_orchestrator:_multi_query_search")
+    except Exception:
+        pass
+    return merged
+
+
 async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:
     """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research.
 
@@ -4288,13 +4378,17 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     # target["name"] for storage/audit.
     name_for_search = _brandify_name_for_search(name, target)
 
-    # ── 5a. Multilingual web search ──
+    # ── 5a. Web search — R-F2294 multi-angle (Brave-class breadth) by default,
+    #        single generic query only when the kill-switch is set. ──
     try:
         from . import web_search
-        hits = await web_search.search_multilingual(
-            f"{name_for_search} defence procurement",
-            max_results=12,
-        )
+        if _DD_MULTIQUERY_ENABLED:
+            hits = await _multi_query_search(name_for_search, target)
+        else:
+            hits = await web_search.search_multilingual(
+                f"{name_for_search} defence procurement",
+                max_results=12,
+            )
         # R-F1880 (search best-effort honesty): a BLOCKED search (all engines
         # 403/CAPTCHA the datacenter IP) must NOT be read as "no adverse media →
         # clean entity". Inspect the backend ecosystem; when search is DEAD/
@@ -9566,6 +9660,28 @@ async def get_watchlist() -> list[dict]:
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs
     return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+
+
+async def get_report_owner(run_id: str) -> dict | None:
+    """R-F2291 — authoritative ownership for a run_id, from the INDEX entry
+    (user_id, user_email_domain, share_to_company) — the SAME source list_reports
+    (:9925) and the 'shared' badge trust. The persisted report BODY can have
+    user_email_domain=None even when the index carries the owner's domain (the
+    body only gets stamped when a full user_email is threaded at creation), so
+    access control MUST read the index, not the body, or a same-company colleague
+    is wrongly 404'd on a SHARED report (2026-07-02). Returns None if the run_id
+    isn't in the index (aged past the cap) — callers fall back to the body.
+    """
+    from . import redis_store as rs
+    index = await rs.get_json(REPORT_INDEX_KEY) or []
+    for entry in index:
+        if isinstance(entry, dict) and entry.get("run_id") == run_id:
+            return {
+                "user_id": entry.get("user_id"),
+                "user_email_domain": entry.get("user_email_domain"),
+                "share_to_company": entry.get("share_to_company", True),
+            }
+    return None
 
 
 async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
