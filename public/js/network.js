@@ -471,6 +471,8 @@
       });
       const u = await res.json().catch(() => ({}));
       if (!res.ok) { msg.style.color = 'var(--n-off)'; msg.textContent = u.error || 'Could not save.'; btn.disabled = false; return; }
+      // Guard a malformed 200 so we never clobber the cache with {} (review note).
+      if (!u || !u.id) { msg.style.color = 'var(--n-off)'; msg.textContent = 'Could not save — try again.'; btn.disabled = false; return; }
       // Apply the authoritative response everywhere: self card, cache, sidebar.
       me = u; myName = u.fullName || u.username || 'You'; myAvatarUrl = u.avatarUrl || myAvatarUrl;
       try {
