@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2358,
+  "next_available": 2361,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17866,6 +17866,34 @@
       "r_number": "R-F2357",
       "title": "Network empty-state: hide phantom convo bar/composer, shrink welcome, typing collapses it",
       "claimed_at": "2026-07-02T23:36:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b033f840",
+      "notes": null,
+      "shipped_at": "2026-07-02T23:43:02Z"
+    },
+    {
+      "r_number": "R-F2358",
+      "title": "entity rail: emit progress event with resolved canonical entity so aria.html rail shows the entity (frontend R-F735 reads evt.entity but backend never emitted it)",
+      "claimed_at": "2026-07-02T23:47:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2359",
+      "title": "profile/account editing on the top-bar avatar menu → proper Account & Profile page",
+      "claimed_at": "2026-07-02T23:48:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2360",
+      "title": "test hygiene: coding-RAG tests skip cleanly when chromadb absent (were FAILING locally = false red / blind spot)",
+      "claimed_at": "2026-07-02T23:49:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

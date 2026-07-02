@@ -4804,6 +4804,21 @@ async def _aria_chat_stream_impl(
     except Exception as _it_err_s:
         logger.debug("R-F734 stream investigation_thread failed (non-fatal): %s", _it_err_s)
 
+    # R-F2358 — surface the resolved entity to the streaming UI's entity rail. The frontend
+    # (aria.html:1647, R-F735) reads `entity` off a `progress` event, but NOTHING ever emitted
+    # one, so the rail stayed "No active entity" even when a company was resolved. Emit the
+    # resolver's CANONICAL name once (not the raw message line — that would show the user's
+    # sentence, not the entity). No-op for plain chat (no entity resolved).
+    try:
+        _rail_entity = ((_resolved_s or {}).get("canonical")
+                        or (_resolved_s or {}).get("query") or "").strip()
+        if _rail_entity:
+            yield _emit("progress", message=f"Focus: {_rail_entity}", stage="entity",
+                        entity=_rail_entity,
+                        entity_type=((_resolved_s or {}).get("entity_type") or ""))
+    except Exception as _rail_err_s:
+        logger.debug("R-F2358 entity-rail progress emit failed (non-fatal): %s", _rail_err_s)
+
     try:
         from .intel import user_model as _um
         _uid_for_touch_s = (user_id or "").strip()

@@ -19,6 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+# R-F2360 — the coding RAG requires chromadb. Skip this module CLEANLY when chromadb is
+# absent (a dev venv), so the local suite is honest instead of showing false-red failures
+# that mask a real regression. On prod/CI chromadb IS installed and these run for real.
+pytest.importorskip("chromadb")
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
