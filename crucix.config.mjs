@@ -17,7 +17,13 @@ export default {
     chatId:            process.env.TELEGRAM_CHAT_ID || null,
     botPollingInterval: parseInt(process.env.TELEGRAM_POLL_INTERVAL) || 5000,
     channels:          process.env.TELEGRAM_CHANNELS || null, // Comma-separated extra channel IDs
-    channelId:         process.env.TELEGRAM_CHANNEL_ID || null, // Public broadcast channel ID
+    // R-F2295 — the public broadcast channel. Operator directive (2026-07-02):
+    // "use the same telegram channel already available." When a dedicated public
+    // channel ID isn't set, fall back to the existing TELEGRAM_CHAT_ID so all the
+    // channel infra (scheduler crons, sweep→curate→publish, breaking alerts)
+    // posts to the channel that already exists. Set TELEGRAM_CHANNEL_ID later to
+    // split the public channel off from the private ops chat (strategy §01).
+    channelId:         process.env.TELEGRAM_CHANNEL_ID || process.env.TELEGRAM_CHAT_ID || null,
     channelDiscussionId: process.env.TELEGRAM_CHANNEL_DISCUSSION_ID || null, // Linked discussion group ID
     channelMaxDaily:   parseInt(process.env.TELEGRAM_CHANNEL_MAX_DAILY) || 6, // Max posts per day
     channelCooldownMin: parseInt(process.env.TELEGRAM_CHANNEL_COOLDOWN_MIN) || 90, // Min between posts
