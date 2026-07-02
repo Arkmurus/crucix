@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2318,
+  "next_available": 2319,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17458,14 +17458,25 @@
       "title": "fix chat delete not persisting (reappears on refresh) + 4-step review of dd-reports + aria chat",
       "claimed_at": "2026-07-02T13:42:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5a9e8fd5",
+      "notes": null,
+      "shipped_at": "2026-07-02T14:11:42Z"
     },
     {
       "r_number": "R-F2317",
       "title": "4-step review batch 2 (surgical): channel proprioception + SCREEN daily cap + honest welcome + PRO->checkout + discovery loop",
       "claimed_at": "2026-07-02T13:52:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "218be684",
+      "notes": null,
+      "shipped_at": "2026-07-02T14:07:54Z"
+    },
+    {
+      "r_number": "R-F2318",
+      "title": "Brave API as the search backend for DD tools ONLY (dd_orchestrator digital/adverse-media legs); general web_search unchanged; key via fly secret",
+      "claimed_at": "2026-07-02T14:05:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
