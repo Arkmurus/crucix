@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2309,
+  "next_available": 2313,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17382,6 +17382,45 @@
       "commit_sha": "50366b61",
       "notes": null,
       "shipped_at": "2026-07-02T12:44:04Z"
+    },
+    {
+      "r_number": "R-F2309",
+      "title": "channel editorial queue — drain one curated post/day (seeded with 3 deep-research posts) before live signal fallback",
+      "claimed_at": "2026-07-02T12:48:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5fee3bfa",
+      "notes": null,
+      "shipped_at": "2026-07-02T12:56:40Z"
+    },
+    {
+      "r_number": "R-F2310",
+      "title": "fix broken daily-post wiring — draw from opensanctions.recent + bdIntelligence.tenders(verified) + projected opportunities (audit R-F2309 found field-name mismatches → empty posts)",
+      "claimed_at": "2026-07-02T12:58:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "42c37ab8",
+      "notes": null,
+      "shipped_at": "2026-07-02T13:02:17Z"
+    },
+    {
+      "r_number": "R-F2311",
+      "title": "landing page: centre/space hero stats + align pricing tiers to backend (Free/Pro/Pro-Intelligence) matching account.html + add free tier",
+      "claimed_at": "2026-07-02T13:07:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2312",
+      "title": "wire Python sanctions engine into channel feed — daily sanctions spotlight (screen day's topical entity via /sanctions/fuzzy, feature only verified blocking hits, 1/day lean)",
+      "claimed_at": "2026-07-02T13:08:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "325d8598",
+      "notes": null,
+      "shipped_at": "2026-07-02T13:13:09Z"
     }
   ]
 }

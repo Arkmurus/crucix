@@ -202,7 +202,10 @@
       display: flex;
       align-items: center;
       position: relative;
-      padding-top: 64px;
+      /* R-F2311 — nav is position:fixed height:64px; add clearance so the hero
+         badge ("Sovereign · No external dependencies …") sits below the nav line
+         instead of touching it. */
+      padding-top: 96px;
       overflow: hidden;
       background: linear-gradient(160deg, #faf7f1 0%, #f1ecfb 100%);
     }
@@ -312,11 +315,18 @@
       margin-bottom: 64px;
     }
 
+    /* R-F2311 — hero stats: centred + proportionally spread (equal-width cells) */
     .lp-hero-metrics {
       display: flex;
-      gap: 48px;
+      gap: 24px;
       padding-top: 48px;
       border-top: 1px solid var(--sc-border);
+      flex-wrap: wrap;
+    }
+    .lp-hero-metrics > div {
+      flex: 1 1 0;
+      min-width: 130px;
+      text-align: center;
     }
 
     .lp-metric-n {
@@ -660,13 +670,16 @@
     /* ── PRICING ────────────────────────────────────────────────── */
     .lp-pricing-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(4, 1fr);   /* R-F2311 — Free/Pro/Pro-Intelligence/Enterprise */
       gap: 2px;
       background: var(--sc-border);
       border-radius: var(--sc-radius);
       overflow: hidden;
-      max-width: 900px;
+      max-width: 1180px;
       margin: 0 auto;
+    }
+    @media (max-width: 1080px) and (min-width: 641px) {
+      .lp-pricing-grid { grid-template-columns: 1fr 1fr; }
     }
 
     .lp-plan {
@@ -1284,46 +1297,63 @@
     <div class="lp-section-hdr">
       <div class="lp-eyebrow">Pricing</div>
       <h2>Transparent. <em>Scalable.</em></h2>
-      <p>From individual DD runs to enterprise-wide deployment. All plans include the full intelligence pipeline.</p>
+      <p>Start free, scale as you grow — from a free intelligence account to enterprise-wide deployment. Paid tiers unlock the full 10-layer due-diligence pipeline.</p>
     </div>
     <div class="lp-pricing-grid">
+      <!-- R-F2311 — tiers aligned to the billing source of truth (lib/billing/tiers.mjs
+           → /api/billing/config → account.html). Free/Pro/Professional Intelligence
+           match what customers actually pay; Enterprise is the sales-led custom tier. -->
+      <div class="lp-plan">
+        <span class="lp-plan-badge">Free</span>
+        <div class="lp-plan-name">Free</div>
+        <div class="lp-plan-price">$0<sub>/mo</sub></div>
+        <div class="lp-plan-cadence">Explore ARIA — sign up, no card</div>
+        <div class="lp-plan-divider"></div>
+        <ul class="lp-plan-features">
+          <li><i class="bi bi-check-lg"></i> 10 chat messages / day</li>
+          <li><i class="bi bi-check-lg"></i> Dashboard &amp; intelligence feed</li>
+          <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
+          <li><i class="bi bi-check-lg"></i> 1 MB document uploads</li>
+          <li class="dim"><i class="bi bi-dash"></i> No DD runs</li>
+          <li class="dim"><i class="bi bi-dash"></i> No deep research</li>
+          <li class="dim"><i class="bi bi-dash"></i> No API access</li>
+        </ul>
+        <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-outline" style="width:100%;justify-content:center">Sign up free</a>
+      </div>
       <div class="lp-plan">
         <span class="lp-plan-badge">Starter</span>
-        <div class="lp-plan-name">Essentials</div>
-        <div class="lp-plan-price">£79<sub>/mo</sub></div>
+        <div class="lp-plan-name">Pro</div>
+        <div class="lp-plan-price">$20<sub>/mo</sub></div>
         <div class="lp-plan-cadence">Individual analysts &amp; small teams</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
-          <li><i class="bi bi-check-lg"></i> 10 DD runs / month</li>
+          <li><i class="bi bi-check-lg"></i> 200 messages / day</li>
+          <li><i class="bi bi-check-lg"></i> 20 DD runs / month</li>
           <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
-          <li><i class="bi bi-check-lg"></i> Dashboard access</li>
-          <li><i class="bi bi-check-lg"></i> PDF export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
-          <li class="dim"><i class="bi bi-dash"></i> RCA screening</li>
-          <li class="dim"><i class="bi bi-dash"></i> Deal DD assessment</li>
-          <li class="dim"><i class="bi bi-dash"></i> API access</li>
+          <li><i class="bi bi-check-lg"></i> 5 MB uploads &middot; PDF export</li>
+          <li class="dim"><i class="bi bi-dash"></i> No deep research</li>
+          <li class="dim"><i class="bi bi-dash"></i> No API access</li>
         </ul>
-        <a href="#contact" class="lp-btn lp-btn-outline" style="width:100%;justify-content:center">Get started</a>
+        <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-outline" style="width:100%;justify-content:center">Get started</a>
       </div>
       <div class="lp-plan featured">
         <span class="lp-plan-badge">Most popular</span>
-        <div class="lp-plan-name">Pro Intel</div>
-        <div class="lp-plan-price">£199<sub>/mo</sub></div>
+        <div class="lp-plan-name">Professional Intelligence</div>
+        <div class="lp-plan-price">$199<sub>/mo</sub></div>
         <div class="lp-plan-cadence">Compliance &amp; advisory teams</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
-          <li><i class="bi bi-check-lg"></i> Unlimited DD runs</li>
+          <li><i class="bi bi-check-lg"></i> 2,000 messages / day</li>
+          <li><i class="bi bi-check-lg"></i> 100 DD runs / month</li>
           <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
-          <li><i class="bi bi-check-lg"></i> WhatsApp interface</li>
-          <li><i class="bi bi-check-lg"></i> PDF + JSON export</li>
-          <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
           <li><i class="bi bi-check-lg"></i> RCA &amp; PEP screening</li>
-          <li><i class="bi bi-check-lg"></i> Deal DD assessment</li>
+          <li><i class="bi bi-check-lg"></i> Deep research + autonomous watchlist</li>
+          <li><i class="bi bi-check-lg"></i> WhatsApp interface</li>
+          <li><i class="bi bi-check-lg"></i> 50 MB uploads &middot; PDF + JSON</li>
           <li><i class="bi bi-check-lg"></i> Full API access</li>
-          <li><i class="bi bi-check-lg"></i> Watchlist monitoring</li>
-          <li><i class="bi bi-check-lg"></i> Temporal change alerts</li>
         </ul>
-        <a href="#contact" class="lp-btn lp-btn-prime" style="width:100%;justify-content:center">Get started</a>
+        <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime" style="width:100%;justify-content:center">Get started</a>
       </div>
       <div class="lp-plan">
         <span class="lp-plan-badge">Enterprise</span>
@@ -1332,13 +1362,12 @@
         <div class="lp-plan-cadence">Defence &amp; government</div>
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
+          <li><i class="bi bi-check-lg"></i> Everything in Professional Intelligence</li>
           <li><i class="bi bi-check-lg"></i> Air-gap deployment option</li>
           <li><i class="bi bi-check-lg"></i> Dedicated infrastructure</li>
           <li><i class="bi bi-check-lg"></i> Custom jurisdiction packs</li>
           <li><i class="bi bi-check-lg"></i> SLA / uptime guarantee</li>
-          <li><i class="bi bi-check-lg"></i> SOC 2 Type II (in progress)</li>
           <li><i class="bi bi-check-lg"></i> Procurement portal integrations</li>
-          <li><i class="bi bi-check-lg"></i> Training on client data</li>
           <li><i class="bi bi-check-lg"></i> Dedicated analyst support</li>
         </ul>
         <a href="#contact" class="lp-btn lp-btn-outline" style="width:100%;justify-content:center">Contact us</a>
