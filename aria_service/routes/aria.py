@@ -676,8 +676,30 @@ async def knowledge_seed_latam_asia_catalogue_ep():
 # endpoints continue to work unchanged. This is the entry point when a
 # caller wants a full structured report instead of ad-hoc chat reasoning.
 
+def _brave_scope(fn):
+    """R-F2318 — enable Brave as the PRIMARY search backend for the wrapped
+    user-facing handler's async context (DD / research / user search). Sets the
+    web_search context flag BEFORE the handler body, so it propagates through every
+    downstream gather()/create_task() to search(). Applied ONLY to user-facing
+    endpoints — NEVER to the autonomous loops (research_auto_ep / student /
+    _research_loop), which therefore stay on the free stack. Best-effort."""
+    import functools as _ft
+
+    @_ft.wraps(fn)
+    async def _wrapped(*args, **kwargs):
+        try:
+            from ..intel import web_search as _ws_brave
+            _ws_brave.enable_brave_for_scope(True)
+        except Exception:
+            pass
+        return await fn(*args, **kwargs)
+
+    return _wrapped
+
+
 @router.post("/dd/orchestrate")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def dd_orchestrate_ep(req: Request):
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -1842,6 +1864,7 @@ class SpawnTaskRequest(BaseModel):
 
 @router.post("/research/spawn")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def research_spawn_ep(req: SpawnTaskRequest, request: Request):
     """Spawn a long-running research task. Returns immediately with the
     task_id so the caller can acknowledge the user. Actual work runs in
@@ -1918,6 +1941,7 @@ class AdverseMediaRequest(BaseModel):
 
 @router.post("/dd/adverse-media-search")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
     """Run structured adverse-media deep search on an entity.
 
@@ -2012,6 +2036,7 @@ async def research_link_tree_get_ep(tree_id: str):
 # behind one entry point with ecosystem awareness baked in.
 @router.post("/explore")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def explore_ep(req: Request):
     """Powerful unified web exploration. Memory-first, cost-free by
     default, language fan-out, same-host bias, ecosystem snapshot.
@@ -2048,6 +2073,7 @@ async def explore_ep(req: Request):
 # ── R-F308: explore-deep endpoint — auto-runs all suggested-action modules
 @router.post("/explore-deep")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def explore_deep_ep(req: Request):
     """R-F308 (2026-05-11): the /explorer.html page showed shallow
     Google-News results and presented 9 "Suggested actions" (dd, R-F68
@@ -8815,6 +8841,7 @@ async def _maybe_handle_coder_command(req: ChatRequest, request: Request) -> dic
 
 
 @router.post("/chat")
+@_brave_scope
 async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
         raise HTTPException(status_code=400, detail="message required")
@@ -10384,6 +10411,7 @@ def _fire_web_delivery_outcome(session_id: str, outcome: str, detail: str = "", 
 
 # 18b. POST /api/aria/chat/stream — SSE streaming variant of /chat
 @router.post("/chat/stream")
+@_brave_scope
 async def chat_stream_ep(req: ChatRequest, request: Request):
     """Streaming chat endpoint — returns Server-Sent Events.
 
@@ -19233,6 +19261,7 @@ class SearchRequest(BaseModel):
 
 @router.post("/search/web")
 @fail_wire(module="aria", gap_type="engine_failure")
+@_brave_scope
 async def search_web_ep(req: SearchRequest):
     """Run ARIA's independent multi-backend web search."""
     from ..intel import web_search

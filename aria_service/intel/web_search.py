@@ -133,6 +133,53 @@ def get_last_search_ecosystem() -> dict:
 # ── Configuration ───────────────────────────────────────────────────────────
 
 BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
+
+# R-F2318 — Brave routing. Brave is the PRIMARY backend for USER-FACING DD +
+# deep-research + chat search ONLY; the continuous/autonomous researcher stays on the
+# free stack (so its learning transfers to SearXNG and the paid quota isn't burned by
+# the high-volume loop). Callers opt in either explicitly (search(..., use_brave=True))
+# or by setting the context flag at a user-facing entry point (enable_brave_for_scope()),
+# which propagates through asyncio to every downstream search() in that request — while
+# the autonomous loop, running in its own background task tree, never sets it.
+import contextvars as _contextvars
+_BRAVE_CTX: "_contextvars.ContextVar[bool]" = _contextvars.ContextVar("aria_brave_enabled", default=False)
+# Global hard kill-switch (ops): ARIA_BRAVE_DISABLED=1 forces the free stack everywhere.
+_BRAVE_GLOBALLY_OFF = (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes")
+
+
+def enable_brave_for_scope(on: bool = True) -> None:
+    """Enable Brave as the primary search backend for the CURRENT async context and
+    everything it awaits/spawns. Call at user-facing entry points (DD / deep-research /
+    chat search). The continuous researcher never calls this → stays on the free stack."""
+    _BRAVE_CTX.set(bool(on))
+
+
+def brave_is_enabled() -> bool:
+    """True when Brave should be used for the current call: key present, not globally
+    disabled, and the context flag is set (or an explicit use_brave=True is passed)."""
+    if _BRAVE_GLOBALLY_OFF or not BRAVE_API_KEY:
+        return False
+    try:
+        return bool(_BRAVE_CTX.get())
+    except Exception:
+        return False
+
+
+def mask_brave_source(results: list) -> None:
+    """R-F2318 — relabel the internal 'brave' backend source to 'aria_search' on results
+    LEAVING search(), so no user-facing surface (DD report, citations, triangulation)
+    reveals Brave. In-place; internal consumers upstream already used the real label.
+    Operator directive 2026-07-02: "the brave branding must not appear on user DDs —
+    all under Aria"."""
+    for r in results:
+        src = getattr(r, "source", "") or ""
+        if src == "brave" or src.startswith("brave:"):
+            try:
+                r.source = "aria_search"
+            except Exception:
+                pass
+
+
 SEARXNG_INSTANCES: list[str] = [
     # Removed 2026-04-20 — all 5 previously-listed public instances
     # (search.sapti.me, searxng.world, search.bus-hit.me, searx.tiekoetter.com,
@@ -384,24 +431,100 @@ def _score_relevance(result: SearchResult, query: str) -> float:
 
 # ── Backend: Brave Search API ───────────────────────────────────────────────
 
+# ── Backend: Brave Search API (R-F2318, restored 2026-07-02) ────────────────
+#
+# Operator directive 2026-07-02: Brave is the PRIMARY search backend for
+# user-facing DD + deep-research + chat search. It is NOT used by ARIA's
+# continuous/autonomous researcher (that stays on the free stack so its learning
+# transfers to SearXNG and the paid quota isn't burned by the high-volume loop).
+# Routing is via the `use_brave` flag / _BRAVE_CTX contextvar in search().
+# Every Brave call is captured (query → results) into the distillation corpus so
+# ARIA can learn to MATCH Brave with SearXNG and eventually drop the dependency (§6).
+#
+# Rate-limit throttle: Brave's free tier is ~1 query/sec; a DD multi-query fan-out
+# would otherwise 429-storm. _BRAVE_MIN_INTERVAL spaces call STARTS (env-tunable
+# via ARIA_BRAVE_MAX_QPS; raise it on a paid data tier). We hold the lock only for
+# the spacing sleep, not the HTTP request, so requests still overlap.
+_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+_BRAVE_MIN_INTERVAL = 1.0 / max(0.1, float(os.getenv("ARIA_BRAVE_MAX_QPS", "1") or "1"))
+_brave_last_call = 0.0
+_brave_lock = asyncio.Lock()
+
+
 async def _search_brave(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """R-F320 (2026-05-11): Brave Search REMOVED. Permanent stub.
-
-    Operator directive 2026-05-11: "please remove brave then... lets
-    focus reducing dependency". Per aria_mirrors_claude memory, Brave
-    is deprecated; the free-tier multilingual aggregator (Google News
-    + Bing News + DuckDuckGo + Crossref + OpenAlex + Semantic Scholar)
-    covers Brave's ground with richer fan-out and zero cost.
-
-    The function is kept as a stub returning [] so existing callers
-    that import `_search_brave` don't break. The body (circuit
-    breaker, billing-exhaustion sticky, 402 streak counter, request
-    code) is gone — Brave does not execute.
-
-    To restore Brave (not recommended), revert R-F320 in
-    aria_service/intel/web_search.py.
-    """
-    return []
+    """Brave Web Search API. Returns [] when unconfigured, cooled, rate-limited, or
+    on error (never raises) so the parallel gather degrades gracefully to the free
+    stack (§14 fallback transparency). Gated upstream by the use_brave flag; this
+    function additionally no-ops without BRAVE_API_KEY."""
+    if not BRAVE_API_KEY:
+        return []
+    from .circuit_breaker import get_breaker as _get_cb_brave
+    _cb = _get_cb_brave("search:brave", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
+    # Respect Brave's rate limit: space call starts by _BRAVE_MIN_INTERVAL.
+    global _brave_last_call
+    async with _brave_lock:
+        _wait = _BRAVE_MIN_INTERVAL - (time.monotonic() - _brave_last_call)
+        if _wait > 0:
+            await asyncio.sleep(_wait)
+        _brave_last_call = time.monotonic()
+    count = max(1, min(int(max_results or 10), 20))   # Brave caps count at 20
+    params = {
+        "q": query,
+        "count": count,
+        "search_lang": _normalise_brave_lang(language),
+        "safesearch": "off",
+        "text_decorations": "false",
+    }
+    headers = {
+        "X-Subscription-Token": BRAVE_API_KEY,
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "User-Agent": random_ua(),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.get(_BRAVE_ENDPOINT, params=params, headers=headers)
+            if resp.status_code == 429:
+                _cb.record_failure(reason="rate_limited")
+                logger.info("Brave search rate-limited (429) for %r — falling back to free stack", query[:60])
+                return []
+            if resp.status_code in (401, 403):
+                _cb.record_failure(reason="auth")
+                logger.warning("Brave search auth failed (%s) — check BRAVE_SEARCH_API_KEY secret", resp.status_code)
+                return []
+            if resp.status_code != 200:
+                _cb.record_failure(reason=classify_status(resp.status_code))
+                return []
+            data = resp.json()
+            web = (data.get("web") or {}).get("results") or []
+            results: list[SearchResult] = []
+            for item in web[:max_results]:
+                title = (item.get("title") or "").strip()
+                url = (item.get("url") or "").strip()
+                snippet = re.sub(r"<[^>]+>", "", (item.get("description") or ""))[:300]
+                if not (title and url):
+                    continue
+                results.append(SearchResult(
+                    title=title, url=url, snippet=snippet, source="brave",
+                    credibility_tier=_score_credibility(url),
+                    language=language,
+                    timestamp=(item.get("age") or item.get("page_age") or ""),
+                ))
+            _cb.record_success()
+            logger.info("Brave search %r → %d results (lang=%s)", query[:60], len(results), language)
+            return results
+    except Exception as e:
+        _cb.record_failure(reason="timeout")
+        logger.warning("Brave search failed: %s", e)
+        wire_failure(
+            module="web_search._search_brave",
+            detail=f"brave backend failed (returned [] — fell back to free stack): {e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
+        return []
 
 
 # ── Backend: SearXNG (free meta-search) ─────────────────────────────────────
@@ -1234,6 +1357,7 @@ async def search(
     language: str = "en",
     min_credibility: int = 6,
     require_triangulation: bool = False,
+    use_brave: bool | None = None,
 ) -> list[SearchResult]:
     """ARIA's primary search — queries all backends, deduplicates, ranks.
 
@@ -1247,13 +1371,20 @@ async def search(
     Returns:
         Deduplicated, credibility-scored, relevance-ranked results.
     """
+    # R-F2318 — resolve the Brave gate FIRST so it can namespace the cache: a
+    # free/autonomous-populated entry must NOT serve a Brave-on user (that would skip
+    # the Brave call + miss the distillation capture), and a Brave-populated entry must
+    # NOT bleed into the free-stack autonomous loop. Explicit param > context flag.
+    _brave_on = (use_brave if use_brave is not None else brave_is_enabled()) \
+        and bool(BRAVE_API_KEY) and not _BRAVE_GLOBALLY_OFF
+
     # R-F2059: search result cache — pay-once-remember-forever.
     # Check cache before fanning out to backends. Repeated queries
-    # (common in DD workflows) skip the wire entirely.
-    _cache_key = _search_cache_key(query, language)
+    # (common in DD workflows) skip the wire entirely. R-F2318: brave-namespaced.
+    _cache_key = _search_cache_key(query, language) + ("|brave" if _brave_on else "")
     cached = _search_cache_get(_cache_key)
     if cached is not None:
-        logger.debug("Search cache HIT for %r (language=%s)", query[:60], language)
+        logger.debug("Search cache HIT for %r (language=%s, brave=%s)", query[:60], language, _brave_on)
         return cached[:max_results]
 
     # R-F120 (2026-05-09): added DuckDuckGo + Bing News to the main
@@ -1269,8 +1400,14 @@ async def search(
     # case directly: Turkish defence press indexes the contract data
     # that Google-News-en doesn't surface.
     extra_langs = _detect_query_languages(query, base_lang=language)
-    backend_tasks = [
+    # R-F2318 — Brave is the PRIMARY backend when _brave_on (resolved above, before the
+    # cache check): prepended so it leads; the free backends still run and provide
+    # fallback (§14). Enabled ONLY for user-facing DD/research/search; the continuous
+    # researcher never sets the flag → free stack.
+    backend_tasks = ([_search_brave(query, MAX_RESULTS_PER_BACKEND, language)] if _brave_on else []) + [
         # R-F1630 (2026-06-17): _search_brave removed (R-F320 permanent stub).
+        # R-F2318 (2026-07-02): restored as the PRIMARY backend for user-facing
+        # DD/research/search (prepended above when _brave_on).
         # SearXNG self-host (R-F183) + DuckDuckGo cover general web.
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
         _search_duckduckgo(query, MAX_RESULTS_PER_BACKEND),
@@ -1329,11 +1466,13 @@ async def search(
     # to see ACTUAL backend health for the most-recent search.
     _backend_names = (
         ["memory"]
-        # R-F1657: "brave" removed (R-F1630 stub). Order must match
-        # backend_tasks list above: searxng, ddg, gnews, bing, academic,
-        # defence_event, gnews[langs]...
+        # R-F2318: "brave" restored as PRIMARY when _brave_on — prepended to match
+        # the backend_tasks prepend above. Order must match _all_tasks (= memory +
+        # backend_tasks): [brave?], searxng, ddg, gnews, bing, academic,
+        # defence_event, gdelt, gnews[langs]...
+        + (["brave"] if _brave_on else [])
         + ["searxng", "duckduckgo", "google_news", "bing_news",
-           "academic", "defence_event"]
+           "academic", "defence_event", "gdelt"]   # R-F2318: added gdelt (was missing → off-by-one label drift)
         + [f"google_news[{l}]" for l in extra_langs[:3]]
     )
     import time as _t_ws
@@ -1364,6 +1503,17 @@ async def search(
     )
     raw_results = list(raw_results_list)
     _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
+
+    # R-F2318 — distillation capture. When Brave participated, record the per-backend
+    # ranked URLs (Brave = teacher, SearXNG/free = student) so ARIA can learn to MATCH
+    # Brave with the free stack and eventually drop the paid dependency (§6). Best-effort,
+    # never blocks/raises. Internal only — the "brave" label never reaches the user.
+    if _brave_on:
+        try:
+            from . import brave_distill
+            brave_distill.capture(query, language, _backend_names, raw_results)
+        except Exception:
+            pass
 
     # R-W5: build the per-backend snapshot
     _backend_snapshot: list[dict] = []
@@ -1504,27 +1654,12 @@ async def search(
             # Identify backend by position: 0=memory then the
             # backend_tasks list in order. The names map mirrors the
             # asyncio.gather order at the call site.
-            if backend_idx == 0:
-                bname = "memory"
-            else:
-                # backend_tasks order:
-                # searxng, ddg, google_news, bing_news, academic, defence_event
-                _names = ["searxng", "ddg", "google_news",
-                          "bing_news", "academic", "defence_event"]
-                _ord = backend_idx - 1
-                if 0 <= _ord < len(_names):
-                    bname = _names[_ord]
-                else:
-                    # R-F190 follow-up (2026-05-11 verification): extra-
-                    # language fan-out tasks at positions 7+ are
-                    # google_news (see backend_tasks loop). Re-
-                    # attribute them to their underlying backend with a
-                    # `_lang` suffix so telemetry stays accurate rather
-                    # than bucketing as `backend_<n>`.
-                    _post = _ord - len(_names)
-                    # R-F1657: brave was removed (R-F1630), all fan-out
-                    # tasks are google_news now.
-                    bname = "google_news_lang"
+            # R-F2318: use the single in-scope name list (brave-aware + includes
+            # gdelt + lang fan-out) instead of a second, stale hardcoded map. The
+            # prior list omitted gdelt AND didn't know about the brave prepend, so
+            # on the Brave path every backend's ok/fail counter was shifted by one
+            # (brave→"searxng", searxng→"ddg", …) — Brave's health was invisible.
+            bname = _backend_names[backend_idx] if backend_idx < len(_backend_names) else f"backend_{backend_idx}"
             ok = (not isinstance(batch, Exception)) and bool(batch)
             metric = "ok" if ok else "fail"
             try:
@@ -1563,7 +1698,11 @@ async def search(
                 continue
             _rag_batch.append({
                 "text": body_for_rag,
-                "source": f"web_search:{r.source}",
+                # R-F2318 — mask the internal "brave" label in the RAG store too
+                # (defense-in-depth: a citation surface that ever renders a RAG hit's
+                # raw source must never reveal Brave). brain_hook.absorb keeps the real
+                # label (internal learning only, never user-facing).
+                "source": f"web_search:{'aria_search' if (r.source == 'brave' or r.source.startswith('brave:')) else r.source}",
                 "source_type": "search_result",
                 "title": (r.title or "")[:200],
                 "url": (r.url or "")[:500],
@@ -1644,6 +1783,14 @@ async def search(
         )
     except Exception:
         pass
+
+    # R-F2318 — USER-FACING BRANDING: mask the internal "brave" backend label on the
+    # RETURNED results so NO downstream user-facing surface (DD report, citations,
+    # source triangulation) ever reveals Brave — all search is presented as ARIA's own.
+    # Every INTERNAL consumer (distillation capture, ecosystem snapshot via _backend_names,
+    # the brain_hook/RAG absorb above) already ran with the real "brave" label; this only
+    # affects what leaves the function. The cache stores the masked copy (consistent).
+    mask_brave_source(final)
 
     # R-F2059: write to search result cache
     _search_cache_set(_cache_key, final)
@@ -1855,6 +2002,7 @@ async def search_multilingual(
     *,
     max_results: int = 15,
     translate_query: bool = True,
+    use_brave: bool | None = None,   # R-F2318 — forwarded to each per-language search()
 ) -> list[SearchResult]:
     """Search in multiple languages simultaneously.
 
@@ -1952,7 +2100,7 @@ async def search_multilingual(
             queries_by_lang.append((lang, query))
 
     per_query_cap = max(3, max_results // max(1, len(queries_by_lang)) + 2)
-    tasks = [search(q, max_results=per_query_cap, language=lang)
+    tasks = [search(q, max_results=per_query_cap, language=lang, use_brave=use_brave)
              for lang, q in queries_by_lang]
     raw = await asyncio.gather(*tasks, return_exceptions=True)
 
