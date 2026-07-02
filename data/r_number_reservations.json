@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2329,
+  "next_available": 2330,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17576,6 +17576,16 @@
       "r_number": "R-F2328",
       "title": "R-F2322 review batch: solvency-gate + CIK-tightening capability tests + source-scope UNKNOWN financial finding title",
       "claimed_at": "2026-07-02T16:45:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "84710502",
+      "notes": null,
+      "shipped_at": "2026-07-02T16:54:48Z"
+    },
+    {
+      "r_number": "R-F2329",
+      "title": "mobile landing polish: terminal-demo overflow, contact-form widths, nav-links hamburger, model-card table overflow",
+      "claimed_at": "2026-07-02T16:52:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
