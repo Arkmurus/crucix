@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2290,
+  "next_available": 2292,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17179,9 +17179,10 @@
       "title": "Telegram Channel Media LinkedIn Design Interactivity",
       "claimed_at": "2026-07-02T09:45:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b442407",
+      "notes": null,
+      "shipped_at": "2026-07-02T09:59:40Z"
     },
     {
       "r_number": "R-F2289",
@@ -17192,6 +17193,24 @@
       "commit_sha": "25e8bfcf",
       "notes": null,
       "shipped_at": "2026-07-02T09:54:01Z"
+    },
+    {
+      "r_number": "R-F2290",
+      "title": "state_store hot/cold split Phase 0 — flag-gated router + cold-DB plumbing + K/V-path routing (default OFF)",
+      "claimed_at": "2026-07-02T10:02:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2291",
+      "title": "shared DD report view+delete: honor same-company sharing on by-id GET/DELETE (was 404 for same-domain colleagues)",
+      "claimed_at": "2026-07-02T10:03:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

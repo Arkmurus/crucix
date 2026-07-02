@@ -3009,21 +3009,22 @@ app.get('/api/aria/dd/case/:cid', requireAuth, (req, res) => {
   return ariaProxy(req, res, `/api/aria/dd/case/${encodeURIComponent(req.params.cid)}?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
-  // R-F1820 (audit H3): pin user_id from the JWT (strip any client value) so the
-  // brain can enforce report ownership. Pre-fix this forwarded the client query
-  // verbatim → ?user_id=victim defeated the check. Mirrors /dd/reports (2692).
+  // R-F1820: pin user_id from the JWT (strip any client value) so the brain can
+  // enforce report ownership. R-F2291: ALSO pin user_email_domain (via
+  // _ddPinUserParams, fail-closed) so the brain can honour same-company sharing —
+  // without it, opening a SHARED report 404'd ("no content on click"). Mirrors
+  // /dd/reports + /dd/case.
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
-  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
-  const params = new URLSearchParams(existingQs);
-  params.set('user_id', userId);
-  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?${params.toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
 });
 app.delete('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
-  // R-F1820 (audit H3): ownership-pinned delete (was unguarded via the catch-all).
+  // R-F1820: ownership-pinned delete (was unguarded via the catch-all).
+  // R-F2291: pin user_email_domain too so a colleague can delete a company-shared
+  // report (was 404 "delete fails"); cross-COMPANY delete stays blocked.
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
-  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
+  return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?${_ddPinUserParams(req).toString()}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
 });
 // R-F1852 (audit, DD stage 4) — explicit ownership-pinned poll routes for async
 // job results + the DD entity-graph. These MUST sit before the catch-all proxy,

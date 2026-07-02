@@ -851,21 +851,45 @@ async def dd_orchestrate_ep(req: Request):
     return report.as_dict()
 
 
+def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str = "") -> bool:
+    """R-F2291 — who may VIEW / DELETE a DD report by id.
+
+    Mirrors the LIST view's sharing (R-F607/R-F608, dd_orchestrator.list_reports):
+    a report is accessible to its OWNER, or to a same-email-domain colleague when
+    the report is company-shared (``share_to_company`` != False). Admin /
+    autonomous / unscoped callers pass user_id='' and are allowed. Cross-COMPANY
+    access stays blocked (R-F1820).
+
+    Before R-F2291 the by-id GET/DELETE used an owner-EXACT check, so a same-
+    company colleague opening a SHARED report got 404 — the report body was empty
+    ("no content on click") and delete failed (2026-07-02 operator report). The
+    list already shares same-domain, so view/delete-by-id must match it.
+    """
+    if not user_id:
+        return True  # admin / autonomous / no-filter path
+    owner = (report.get("user_id") or "").strip()
+    if not owner or owner == user_id:
+        return True  # owner match (or legacy report with no stored owner)
+    caller_domain = (user_email_domain or "").strip().lower()
+    rep_domain = (report.get("user_email_domain") or "").strip().lower()
+    return bool(
+        caller_domain and rep_domain and caller_domain == rep_domain
+        and report.get("share_to_company", True) is not False
+    )
+
+
 @router.get("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_report_ep(run_id: str, format: str = "json", user_id: str = ""):
+async def dd_report_ep(run_id: str, format: str = "json", user_id: str = "",
+                       user_email_domain: str = ""):
     from ..intel import dd_orchestrator
     report = await dd_orchestrator.get_report(run_id)
     if not report:
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
-    # R-F1820 (audit H3): ownership — a DD report is confidential to its owner.
-    # When the report has a stored owner and the caller is user-scoped, they must
-    # match (404 to avoid leaking existence). Legacy pre-R-F607 reports have
-    # user_id=''; the admin/no-filter path passes user_id=''. Node pins user_id
-    # from the JWT, so the client cannot forge it. The list view (R-F607) already
-    # scopes per user — this closes the by-id bypass.
-    _owner = (report.get("user_id") or "").strip()
-    if user_id and _owner and _owner != user_id:
+    # R-F1820 + R-F2291: owner OR same-company-shared may view (404 to avoid
+    # leaking existence otherwise). Node pins user_id + user_email_domain from the
+    # JWT so the client cannot forge them.
+    if not _dd_report_access_allowed(report, user_id, user_email_domain):
         raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     if format == "markdown":
         from ..intel import dd_schema
@@ -1088,18 +1112,19 @@ async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False,
 
 @router.delete("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_report_delete_ep(run_id: str, user_id: str = ""):
+async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain: str = ""):
     """R-F162 (2026-05-11): drop a single DD report + its index entry.
     Needed so operators can clean up bad reports (the 2026-05-10 12:39
     'this company...' case) the validator couldn't catch retroactively.
 
     R-F1820 (audit H3): ownership check — pre-fix any authenticated user could
-    delete any other user's DD report by run_id."""
+    delete any other user's DD report by run_id.
+    R-F2291: honour same-company sharing (like the list/view) so a colleague can
+    delete a company-shared report; cross-COMPANY delete stays blocked."""
     from ..intel import dd_orchestrator
     _report = await dd_orchestrator.get_report(run_id)
     if _report is not None:
-        _owner = (_report.get("user_id") or "").strip()
-        if user_id and _owner and _owner != user_id:
+        if not _dd_report_access_allowed(_report, user_id, user_email_domain):
             raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
     try:
         return await dd_orchestrator.delete_report(run_id)
