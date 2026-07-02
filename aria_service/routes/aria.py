@@ -4658,6 +4658,59 @@ def _infer_jurisdiction_from_text(text: str) -> tuple[str | None, str | None]:
     return display, iso2
 
 
+# R-F2285 — plausible-entity gate for chat-triggered DDs. The prose capture
+# regex can grab a clause AFTER a "dd"/"due diligence"/"background on" trigger
+# (e.g. "is explicitly covered", "and Investigation cognitive and reasoning"),
+# which then ran a full DD on garbage and persisted a junk report in the panel —
+# the button never can (it takes a required form field). A real entity/URL never
+# starts with a lowercase connective/verb/stop-word unless it also carries a
+# corporate suffix (e.g. "the Boeing Company") or is a URL.
+_DD_ENTITY_STOP_PREFIXES = frozenset({
+    "is", "are", "was", "were", "be", "been", "being", "and", "or", "but", "the",
+    "a", "an", "of", "to", "for", "with", "in", "on", "at", "by", "from", "that",
+    "this", "these", "those", "it", "he", "she", "they", "we", "you", "i", "also",
+    "which", "who", "whom", "what", "when", "where", "how", "why", "has", "have",
+    "had", "will", "would", "should", "could", "can", "may", "might", "must", "do",
+    "does", "did", "not", "no", "if", "as", "so", "than", "then", "explicitly",
+    "covered", "cognitive", "reasoning", "because", "however", "therefore", "about",
+})
+_DD_ENTITY_SUFFIX_RE = re.compile(
+    r"\b(ltd|limited|llc|inc|incorporated|plc|gmbh|ag|s\.?a\.?|bv|nv|oyj|oy|ab|as|"
+    r"corp|corporation|company|co|group|holdings?|partners|llp|pte|pty|srl|spa|"
+    r"sarl|kg|gesellschaft|fzco|fze|jsc|ojsc|pjsc|limitada|ltda)\b", re.I)
+
+
+def _is_plausible_dd_entity(name: str) -> bool:
+    """R-F2285 — True when `name` looks like a real DD subject (company / person /
+    URL), False for sentence-fragment garbage. Conservative: only rejects a
+    stop-word-led fragment that carries NO corporate suffix and is NOT a URL, so
+    legitimate names ("Boeing", "Acme Defence GmbH", "the Boeing Company",
+    "modirumgespi.com") always pass."""
+    n = (name or "").strip()
+    if len(n) < 3:
+        return False
+    if not re.search(r"[A-Za-zÀ-ɏ]", n):  # must contain a letter
+        return False
+    low = n.lower()
+    is_urlish = low.startswith(("http://", "https://", "www.")) or (
+        "." in n and " " not in n)
+    if is_urlish:
+        return True
+    tokens = [t for t in re.split(r"[\s,]+", n) if t]
+    first = tokens[0].lower().strip(".:;\"'()") if tokens else ""
+    if first not in _DD_ENTITY_STOP_PREFIXES:
+        return True
+    # Stop-word-led phrase: a real entity only when it ALSO carries a corporate
+    # suffix AND a capitalized proper noun (e.g. "the Boeing Company"). A bare
+    # fragment like "of the company" or "is explicitly covered" has neither.
+    has_suffix = bool(_DD_ENTITY_SUFFIX_RE.search(n))
+    has_proper = any(
+        t[:1].isupper() and t.lower() not in _DD_ENTITY_STOP_PREFIXES
+        for t in tokens
+    )
+    return has_suffix and has_proper
+
+
 def _detect_dd_intent(message: str) -> dict | None:
     """Detect DD orchestrator intent in a chat message.
 
@@ -4675,6 +4728,11 @@ def _detect_dd_intent(message: str) -> dict | None:
     name = m.group(1).strip().strip(".,;:\"'")
     # Reject too-short or too-long captures — probably not an entity name
     if len(name) < 3 or len(name) > 500:
+        return None
+    # R-F2285 — reject sentence-fragment captures ("is explicitly covered",
+    # "and Investigation cognitive and reasoning") that produced junk DD reports.
+    # URL-shaped captures are handled by the URL bridge below, so exempt them here.
+    if not _is_plausible_dd_entity(name):
         return None
 
     # ── URL-as-entity bridge (2026-04-17 21:30 fix) ──
@@ -6574,6 +6632,24 @@ def _get_dd_inline_user_lock(user_id: str) -> "asyncio.Lock":
     return lk
 
 
+def _dd_report_warrants_deep_upgrade(report, requested_mode: str) -> bool:
+    """R-F2285 — should the chat path launch a full-depth background DD so the
+    persisted report reaches the same quality as the "New DD" button (which runs
+    unbounded at the orchestrator's full budget)? YES when the inline run is a
+    weak proxy for a full run — it TIME-BOXED (hit the response deadline → partial)
+    OR the CONFIDENCE GATE tripped (thin/insufficient data). NO when we already
+    ran deep inline (requested deep, or R-F409 auto-escalated) so we don't stack a
+    second deep job. Pure + module-level so the parity decision is unit-testable."""
+    if requested_mode == "deep":
+        return False
+    if getattr(report, "rf409_auto_escalated", False):
+        return False
+    return bool(
+        getattr(report, "time_boxed", False)
+        or getattr(report, "confidence_gate_triggered", False)
+    )
+
+
 def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | None) -> bool:
     """Fire-and-forget a full-depth DD that persists to the user's panel.
     Returns True if a job was launched, False if not eligible / de-duped."""
@@ -6899,7 +6975,12 @@ async def _execute_tool(
             # in the user's DD Reports panel. Gated to callers that supplied a
             # user_id (the web stream) + de-duped inside the launcher.
             _deep_bg_note = ""
-            if user_id and getattr(report, "time_boxed", False):
+            # R-F2285 — button parity: upgrade to a full-depth persisted report
+            # whenever the inline run is weak (time-boxed OR confidence-gate
+            # tripped), not only when it time-boxed. Deduped + globally capped
+            # inside _launch_deep_dd_bg, so a thin chat DD no longer persists as
+            # the final report while the button's stays full-depth.
+            if user_id and _dd_report_warrants_deep_upgrade(report, mode):
                 if _launch_deep_dd_bg(target, llm, user_id=user_id, user_email=user_email):
                     _deep_bg_note = (
                         "\n[DEEP-DD BACKGROUND JOB STARTED — R-F1830]\n"
@@ -22576,9 +22657,11 @@ async def health_check_ep():
         pass
 
     grounded = None
+    grounded_data_source = None
     try:
         stats = await source_verifier.get_verification_stats()
         grounded = stats.get("avg_grounded_rate")
+        grounded_data_source = stats.get("data_source")
     except Exception:
         pass
 
@@ -22658,7 +22741,14 @@ async def health_check_ep():
         degraded_reasons.append("rag_unavailable")
     if mode != "NORMAL":
         degraded_reasons.append(f"mode_{mode.lower()}")
-    if grounded is None:
+    # R-F2284: `grounded is None` with data_source == "no_data" means NO recent
+    # answer made a citable claim (e.g. 363/500 were no_claims/no_citations) — a
+    # benign "nothing to ground" state, NOT a grounding failure. Flagging it as
+    # degraded left health permanently "degraded" on a null-because-no-claims
+    # metric (2026-07-02). Only degrade when grounding genuinely could not be
+    # measured (stats error → data_source absent), not when there was simply
+    # nothing citable to score.
+    if grounded is None and grounded_data_source != "no_data":
         degraded_reasons.append("grounded_rate_unknown")
     if adversarial is None:
         degraded_reasons.append("adversarial_no_recent_run")
