@@ -27,6 +27,7 @@ const Sidebar = {
         }
       }
       if (role) role.textContent = user.role || 'analyst';
+      const em = document.getElementById('nav-user-email'); if (em) em.textContent = user.email || '';   // R-F2359
       // Show admin links
       if (user.role === 'admin') {
         document.querySelectorAll('[data-admin]').forEach(e => e.style.display = '');
@@ -314,13 +315,15 @@ const Sidebar = {
             <div class="nav-dropdown-user">
               <div class="nav-dropdown-name" id="nav-user-name">Loading…</div>
               <div class="nav-dropdown-role" id="nav-role">analyst</div>
+              <div id="nav-user-email" style="font-size:11px;color:#9b968c;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
             </div>
             <div class="nav-dropdown-divider"></div>
+            <!-- R-F2359 — profile/settings is the primary action -->
+            <a href="/account.html" class="nav-dropdown-item">
+              <i class="bi bi-person-circle"></i> Account &amp; profile
+            </a>
             <a href="/dashboard.html" class="nav-dropdown-item">
               <i class="bi bi-broadcast-pin"></i> Intelligence Brief
-            </a>
-            <a href="/account.html" class="nav-dropdown-item">
-              <i class="bi bi-person-circle"></i> Account & billing
             </a>
             <a href="/sources.html" class="nav-dropdown-item">
               <i class="bi bi-reception-4"></i> Source Health

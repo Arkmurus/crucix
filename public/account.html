@@ -108,6 +108,33 @@
     }
     .pricing-cta-btn.outline:hover { border-color: var(--sc-prime); color: var(--sc-prime); }
     .pricing-cta-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* R-F2359 — Profile card (edit name/info/photo; the canonical profile home) */
+    .pf-card { display:flex; gap:24px; background:#fff; border:1px solid var(--sc-border);
+      border-radius:14px; padding:22px; margin-bottom:22px; box-shadow:0 1px 3px rgba(15,23,42,.04); flex-wrap:wrap; }
+    .pf-avatar-col { display:flex; flex-direction:column; align-items:center; gap:10px; flex:0 0 auto; }
+    .pf-avatar { width:96px; height:96px; border-radius:50%; background:linear-gradient(135deg,#913BFF,#0066FF);
+      background-size:cover; background-position:center; position:relative; cursor:pointer; display:flex;
+      align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:30px; user-select:none; }
+    .pf-avatar.has-photo { color:transparent; }
+    .pf-avatar:focus-visible { outline:2px solid var(--sc-prime); outline-offset:3px; }
+    .pf-cam { position:absolute; right:2px; bottom:2px; width:28px; height:28px; border-radius:50%;
+      background:#1f1e1c; color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; border:2px solid #fff; }
+    .pf-photo-btn { background:none; border:none; color:var(--sc-prime); font-size:12.5px; font-weight:600; cursor:pointer; }
+    .pf-form { flex:1; min-width:260px; }
+    .pf-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .pf-field.pf-span2 { grid-column:1 / -1; }
+    .pf-field label { display:block; font-size:12px; font-weight:600; color:var(--sc-muted);
+      text-transform:uppercase; letter-spacing:.02em; margin-bottom:6px; }
+    .pf-field input, .pf-field select { width:100%; border:1px solid var(--sc-border-strong); border-radius:9px;
+      padding:10px 13px; font-size:14px; font-family:inherit; color:var(--sc-heading); background:#fff; outline:none; }
+    .pf-field input:focus, .pf-field select:focus { border-color:var(--sc-prime); box-shadow:0 0 0 3px rgba(124,58,237,.15); }
+    .pf-foot { display:flex; align-items:center; gap:14px; margin-top:16px; flex-wrap:wrap; }
+    .pf-save { background:linear-gradient(135deg,#7c3aed,#2563eb); color:#fff; border:none; border-radius:9px;
+      padding:11px 22px; font-size:14px; font-weight:600; cursor:pointer; }
+    .pf-save:disabled { opacity:.5; cursor:default; }
+    .pf-msg { font-size:13px; }
+    @media (max-width:560px){ .pf-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -117,8 +144,46 @@
 <main id="app-main">
   <div class="acct-shell">
 
-    <h1 class="sc-page-title" style="margin-bottom: 6px"><i class="bi bi-person-circle"></i> Account & Billing</h1>
+    <h1 class="sc-page-title" style="margin-bottom: 6px"><i class="bi bi-person-circle"></i> Account &amp; Profile</h1>
     <p class="sc-page-sub" style="margin-bottom: 24px" id="acct-email"><span class="sc-skeleton sc-skeleton-text"></span></p>
+
+    <!-- R-F2359 — Profile (canonical editor, reached from the top-bar avatar menu) -->
+    <div class="acct-section-title">Profile</div>
+    <div class="pf-card">
+      <div class="pf-avatar-col">
+        <div class="pf-avatar" id="pf-avatar" role="button" tabindex="0" aria-label="Change profile photo" title="Change photo">
+          <span id="pf-initials">··</span>
+          <span class="pf-cam"><i class="bi bi-camera-fill"></i></span>
+        </div>
+        <button type="button" class="pf-photo-btn" id="pf-photo-btn">Change photo</button>
+        <input type="file" id="pf-photo-input" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
+      <div class="pf-form">
+        <div class="pf-grid">
+          <div class="pf-field"><label for="pf-fullName">Display name</label><input id="pf-fullName" type="text" maxlength="120" autocomplete="name"></div>
+          <div class="pf-field"><label for="pf-jobTitle">Job title</label><input id="pf-jobTitle" type="text" maxlength="120"></div>
+          <div class="pf-field"><label for="pf-companyName">Company</label><input id="pf-companyName" type="text" maxlength="200"></div>
+          <div class="pf-field"><label for="pf-companyCountry">Country</label><input id="pf-companyCountry" type="text" maxlength="80"></div>
+          <div class="pf-field pf-span2"><label for="pf-sector">Sector</label>
+            <select id="pf-sector">
+              <option value="">— select —</option>
+              <option value="defence_broker">Defence broker / dealer / agent</option>
+              <option value="oem_export">OEM (defence manufacturer)</option>
+              <option value="government_acquisition">Government / acquisition / intel</option>
+              <option value="compliance_consultancy">Compliance / export-control consultancy</option>
+              <option value="banking_insurance">Banking / insurance (defence accounts)</option>
+              <option value="research">Research / academic / NGO</option>
+              <option value="journalism">Defence journalism</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="pf-foot">
+          <button type="button" class="pf-save" id="pf-save">Save changes</button>
+          <span class="pf-msg" id="pf-msg" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
 
     <div class="acct-banner info" id="acct-billing-disabled" style="display:none">
       <i class="bi bi-info-circle"></i>
@@ -185,7 +250,7 @@
 </main>
 
 <script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=9"></script>
+<script src="js/sidebar.js?v=10"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('account');
@@ -502,6 +567,98 @@ Sidebar.init('account');
     c.className = 'acct-banner';
     c.innerHTML = '<i class="bi bi-info-circle"></i><span>Checkout cancelled — no payment was taken.</span>';
     document.querySelector('.acct-shell').insertBefore(c, document.querySelector('.acct-shell').firstChild.nextSibling);
+  }
+})();
+</script>
+
+<!-- R-F2359 — Profile editor logic (reuses PUT /api/auth/profile + POST /api/profile/photo) -->
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const token = () => localStorage.getItem('crucix_token');
+  let current = {};
+  function initials(u) {
+    const n = (u.fullName || u.username || '').trim();
+    return n.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+  }
+  function paint(u) {
+    current = u || {};
+    $('pf-fullName').value       = u.fullName || '';
+    $('pf-jobTitle').value       = u.jobTitle || '';
+    $('pf-companyName').value    = u.companyName || '';
+    $('pf-companyCountry').value = u.companyCountry || '';
+    $('pf-sector').value         = u.sector || '';
+    const av = $('pf-avatar'), ini = $('pf-initials');
+    if (u.avatarUrl) { av.style.backgroundImage = 'url("' + u.avatarUrl + '")'; av.classList.add('has-photo'); ini.textContent = ''; }
+    else { av.style.backgroundImage = ''; av.classList.remove('has-photo'); ini.textContent = initials(u); }
+  }
+  function msg(t, ok) { const m = $('pf-msg'); m.textContent = t || ''; m.style.color = ok ? '#15803d' : '#b91c1c'; }
+  function syncHeader(u) {
+    const nn = document.getElementById('nav-user-name'); if (nn) nn.textContent = u.fullName || u.username || '';
+    const na = document.getElementById('nav-avatar');
+    if (na && u.avatarUrl) { na.textContent = ''; na.style.backgroundImage = 'url("' + u.avatarUrl + '")'; na.style.backgroundSize = 'cover'; na.style.backgroundPosition = 'center'; na.style.color = 'transparent'; }
+  }
+  function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (window.Auth) Auth.user = u; } catch (e) {} }
+
+  // Load current profile.
+  (window.Auth && Auth.me ? Auth.me() : Promise.resolve(JSON.parse(localStorage.getItem('crucix_user') || '{}')))
+    .then(u => { if (u) paint(u); }).catch(() => {});
+
+  // Save profile fields.
+  $('pf-save').addEventListener('click', async () => {
+    const btn = $('pf-save');
+    const body = {
+      fullName:       $('pf-fullName').value.trim(),
+      jobTitle:       $('pf-jobTitle').value.trim(),
+      companyName:    $('pf-companyName').value.trim(),
+      companyCountry: $('pf-companyCountry').value.trim(),
+      sector:         $('pf-sector').value,
+    };
+    if (!body.fullName) { msg('Display name is required.'); return; }
+    btn.disabled = true; msg('Saving…', true);
+    try {
+      const r = await fetch('/api/auth/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() }, body: JSON.stringify(body) });
+      const u = await r.json().catch(() => ({}));
+      if (!r.ok || !u || !u.id) { msg((u && u.error) || 'Could not save.'); btn.disabled = false; return; }
+      paint(u); cacheUser(u); syncHeader(u);
+      msg('Profile saved ✓', true);
+    } catch (e) { msg('Network error — please try again.'); }
+    btn.disabled = false;
+  });
+
+  // Photo upload (client-resize to 256²).
+  const pin = $('pf-photo-input');
+  const openPicker = () => pin.click();
+  $('pf-photo-btn').addEventListener('click', openPicker);
+  $('pf-avatar').addEventListener('click', openPicker);
+  $('pf-avatar').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); } });
+  pin.addEventListener('change', async () => {
+    const f = pin.files && pin.files[0]; pin.value = '';
+    if (!f) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(f.type)) { msg('Use a PNG, JPG or WebP image.'); return; }
+    msg('Uploading…', true);
+    try {
+      const dataUrl = await resize(f, 256);
+      const r = await fetch('/api/profile/photo', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() }, body: JSON.stringify({ dataUrl }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { msg(d.error || 'Upload failed.'); return; }
+      current.avatarUrl = d.avatarUrl; paint(current);
+      const cu = Object.assign({}, current); cu.avatarUpdatedAt = new Date().toISOString(); cacheUser(cu); syncHeader(cu);
+      msg('Photo updated ✓', true);
+    } catch (e) { msg('Could not process that image.'); }
+  });
+  function resize(file, size) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(img.width, img.height), sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+        const c = document.createElement('canvas'); c.width = size; c.height = size;
+        c.getContext('2d').drawImage(img, sx, sy, s, s, 0, 0, size, size);
+        res(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => rej(new Error('decode'));
+      const fr = new FileReader(); fr.onload = () => { img.src = fr.result; }; fr.onerror = () => rej(new Error('read')); fr.readAsDataURL(file);
+    });
   }
 })();
 </script>

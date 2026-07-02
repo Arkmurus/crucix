@@ -161,6 +161,19 @@ test('R-F2356: profile field edits persist + surface via updateUser/cleanUser', 
   assert.equal(findUserById(u.id).jobTitle, 'Compliance Lead', 'persisted');
 });
 
+test('R-F2359: Account page is the canonical profile editor; avatar menu points to it', () => {
+  const acct = readFileSync(new URL('../public/account.html', import.meta.url), 'utf8');
+  assert.match(acct, /Account &amp; Profile/, 'page retitled to Account & Profile');
+  assert.match(acct, /pf-fullName[\s\S]*pf-jobTitle[\s\S]*pf-companyName[\s\S]*pf-sector/, 'editable profile fields');
+  assert.match(acct, /pf-photo-input/, 'photo upload control');
+  assert.match(acct, /method: 'PUT'[\s\S]{0,120}\/api\/auth\/profile|\/api\/auth\/profile/, 'saves the profile');
+  assert.match(acct, /\/api\/profile\/photo/, 'uploads the photo');
+  assert.match(acct, /nav-user-name|nav-avatar/, 'syncs the top-bar header on save');
+  const sb = readFileSync(new URL('../public/js/sidebar.js', import.meta.url), 'utf8');
+  assert.match(sb, /Account &amp; profile/, 'avatar menu shows Account & profile as the primary item');
+  assert.match(sb, /nav-user-email/, 'avatar menu shows the signed-in email');
+});
+
 test('R-F2353: activating presence gives clear feedback (empty state reacts, CTA hides)', () => {
   const js = readFileSync(new URL('../public/js/network.js', import.meta.url), 'utf8');
   assert.match(js, /function renderEmptyState/, 'has a reactive empty state');
