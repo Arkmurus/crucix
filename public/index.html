@@ -346,6 +346,154 @@
       letter-spacing: 0.5px;
     }
 
+    /* ── HERO VISUAL (R-F2369) ──────────────────────────────────────
+       Two-column hero: copy left, DD-flow visual right. The visual is
+       built only from ARIA's own UI vocabulary (scan terminal, evidence
+       card, verdict/stage pills, icon entity-nodes) — no photographic
+       assets, so it never reads as an AI-generated photo. */
+    .lp-hero-grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+      gap: 48px;
+      align-items: center;
+    }
+    .lp-hero-copy { min-width: 0; }
+
+    .lp-hero-visual { position: relative; width: 100%; min-width: 0; }
+    .lp-hv-stage {
+      position: relative;
+      width: 100%;
+      max-width: 520px;
+      margin-left: auto;
+      aspect-ratio: 520 / 560;
+    }
+    .lp-hv-lines {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      overflow: visible; pointer-events: none;
+    }
+
+    /* shared floating-card chrome */
+    .lp-hv-entity, .lp-hv-term, .lp-hv-ev {
+      position: absolute;
+      background: var(--sc-card);
+      border: 1px solid var(--sc-border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(40,36,30,0.10), 0 2px 6px rgba(40,36,30,0.06);
+    }
+
+    /* entity node — subject under DD */
+    .lp-hv-entity {
+      top: 12.5%; left: 0; width: 44%;
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px;
+    }
+    .lp-hv-node-ic {
+      width: 36px; height: 36px; flex: none;
+      border-radius: 9px;
+      background: var(--sc-prime-soft);
+      border: 1px solid rgba(124,58,237,0.15);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--sc-prime); font-size: 16px;
+    }
+    .lp-hv-node-name { font-size: 13px; font-weight: 700; color: var(--sc-heading); line-height: 1.2; }
+    .lp-hv-node-sub  { font-size: 11px; color: var(--sc-muted); margin-top: 2px; }
+
+    /* dark scan terminal — the autonomous pipeline running */
+    .lp-hv-term {
+      top: 0; right: 0; width: 60.5%;
+      overflow: hidden;
+      border-color: #24243c;
+    }
+    .lp-hv-term-hd {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 12px;
+      background: #242438;
+      border-bottom: 1px solid #33334f;
+    }
+    .lp-hv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .lp-hv-term-ttl { margin-left: 6px; font-size: 10px; font-weight: 600; color: #9aa6c4; letter-spacing: 0.3px; }
+    .lp-hv-term-bd {
+      background: #1a1a2e;
+      padding: 12px 14px;
+      font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 11.5px; line-height: 1.9; color: #c9d1d9;
+      white-space: nowrap;
+    }
+    .lp-hv-dim { color: #6a7e98; }
+    .lp-hv-g   { color: #4ee88a; }
+    .lp-hv-a   { color: #ffa500; }
+
+    /* pipeline stage pills */
+    .lp-hv-pill {
+      position: absolute;
+      font-size: 12px; font-weight: 600;
+      padding: 8px 16px; border-radius: 20px;
+      background: var(--sc-card);
+      border: 1px solid var(--sc-border);
+      color: var(--sc-text);
+      box-shadow: 0 4px 12px rgba(40,36,30,0.08);
+    }
+    .lp-hv-pill-a {
+      top: 43.5%; left: 4.5%;
+      background: linear-gradient(90deg, #913BFF, #0066FF);
+      border: none; color: #fff;
+      box-shadow: 0 6px 18px rgba(124,58,237,0.35);
+    }
+    .lp-hv-pill-b { top: 66%; left: 33%; }
+
+    /* evidence / finding card */
+    .lp-hv-ev { top: 44.5%; right: 0; width: 53%; padding: 13px 15px; }
+    .lp-hv-ev-hd {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--sc-prime); margin-bottom: 10px;
+    }
+    .lp-hv-ev-src {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11.5px; color: var(--sc-text);
+      font-family: 'IBM Plex Mono', monospace;
+      margin-bottom: 6px;
+    }
+    .lp-hv-src-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lp-green); flex: none; }
+    .lp-hv-src-sc  { margin-left: auto; color: var(--sc-muted); }
+    .lp-hv-ev-ft {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid var(--sc-border);
+    }
+    .lp-hv-grade {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+      padding: 3px 8px; border-radius: 6px;
+      background: var(--lp-green-soft); color: var(--lp-green);
+    }
+    .lp-hv-conf { font-size: 11px; color: var(--sc-muted); }
+
+    /* verdict chip */
+    .lp-hv-verdict {
+      position: absolute;
+      bottom: 6.5%; left: 1.5%;
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 700; color: #7a5a00;
+      padding: 9px 16px; border-radius: 22px;
+      background: #fff7e6;
+      border: 1px solid rgba(184,134,11,0.35);
+      box-shadow: 0 6px 16px rgba(184,134,11,0.18);
+    }
+    .lp-hv-vdot { width: 8px; height: 8px; border-radius: 50%; background: #d9a218; flex: none; }
+
+    /* junction avatars — icon entity-nodes (never photographic) */
+    .lp-hv-av {
+      position: absolute;
+      width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--sc-card);
+      border: 1px solid var(--sc-border);
+      box-shadow: 0 4px 12px rgba(40,36,30,0.12);
+      color: var(--sc-prime); font-size: 16px;
+    }
+    .lp-hv-av-1 { top: 31%; left: 28%; }
+    .lp-hv-av-2 { top: 35%; left: 57%; color: #0066FF; }
+
     /* ── TRUST BAR ──────────────────────────────────────────────── */
     .lp-trust {
       padding: 32px 0;
@@ -999,6 +1147,9 @@
       .lp-cert-grid { grid-template-columns: 1fr 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr 1fr; }
       .lp-hero-metrics { flex-wrap: wrap; gap: 24px; }
+      /* R-F2369 — stack hero: copy above, visual below, both centred */
+      .lp-hero-grid-2 { grid-template-columns: 1fr; gap: 44px; }
+      .lp-hv-stage { margin: 0 auto; max-width: 440px; }
     }
 
     @media (max-width: 600px) {
@@ -1020,6 +1171,8 @@
       #lp-request-btn { width: 100%; min-width: 0 !important; justify-content: center; }
       .lp-cert-grid { grid-template-columns: 1fr; }
       .lp-footer-inner { grid-template-columns: 1fr; }
+      /* R-F2369 — hide the decorative DD-flow visual on phones for a clean stack */
+      .lp-hero-visual { display: none; }
     }
   </style>
 </head>
@@ -1055,6 +1208,8 @@
     <div class="lp-hero-glow-2"></div>
   </div>
   <div class="lp-hero-inner">
+   <div class="lp-hero-grid-2">
+    <div class="lp-hero-copy">
     <div class="lp-hero-badge">
       <span class="lp-hero-badge-dot"></span>
       <span>Sovereign · No external dependencies · EU-data compliant</span>
@@ -1065,7 +1220,7 @@
       your domain.
     </h1>
     <p class="lp-hero-sub">
-      Autonomous due diligence and compliance intelligence for defence, security, and financial advisory professionals. Built on ARIA — Autonomous Research Intelligence Agent.
+      Autonomous due diligence and compliance intelligence for defence, security, and financial advisory professionals. Built on ARIA, the Autonomous Research Intelligence Agent.
     </p>
     <div class="lp-hero-actions">
       <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime lp-btn-lg">Sign Up</a>
@@ -1073,6 +1228,78 @@
       <a href="https://t.me/+ZOPRsO9-IPdiNmI0" class="lp-btn lp-btn-outline lp-btn-lg" target="_blank" rel="noopener">📡 Free intel channel</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
     </div>
+    </div><!-- /.lp-hero-copy -->
+
+    <!-- R-F2369 — hero DD-flow visual: recreates the connected-workflow language of
+         the reference (nodes + floating data/terminal/document cards + flow lines),
+         but rebuilt entirely from ARIA's own UI vocabulary (no photographic assets,
+         so it never reads as an AI-generated photo) and the light corporate palette.
+         Purely decorative — hidden from AT. -->
+    <div class="lp-hero-visual" aria-hidden="true">
+      <div class="lp-hv-stage">
+        <!-- connecting flow lines (scale with the viewBox) -->
+        <svg class="lp-hv-lines" viewBox="0 0 520 560" fill="none" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="hvFlow" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#913BFF"/>
+              <stop offset="1" stop-color="#0066FF"/>
+            </linearGradient>
+          </defs>
+          <path d="M114 136 C 150 175, 150 210, 100 244" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.50"/>
+          <path d="M300 150 C 320 200, 300 250, 285 296" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.50"/>
+          <path d="M143 262 C 195 275, 200 305, 244 322" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.40"/>
+          <path d="M90 280 C 80 360, 110 430, 122 482" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.45"/>
+          <path d="M300 399 C 275 400, 255 393, 240 388" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.35" stroke-dasharray="3 5"/>
+          <path d="M205 108 C 235 116, 245 124, 262 134" stroke="url(#hvFlow)" stroke-width="2" stroke-opacity="0.28" stroke-dasharray="3 5"/>
+        </svg>
+
+        <!-- entity node (the subject under DD) -->
+        <div class="lp-hv-node lp-hv-entity">
+          <div class="lp-hv-node-ic"><i class="bi bi-building"></i></div>
+          <div>
+            <div class="lp-hv-node-name">Meridian Trading LLC</div>
+            <div class="lp-hv-node-sub">UAE · Oil &amp; energy</div>
+          </div>
+        </div>
+
+        <!-- dark scan terminal (the autonomous pipeline running) -->
+        <div class="lp-hv-term">
+          <div class="lp-hv-term-hd">
+            <span class="lp-hv-dot" style="background:#ff5f57"></span>
+            <span class="lp-hv-dot" style="background:#febc2e"></span>
+            <span class="lp-hv-dot" style="background:#28c840"></span>
+            <span class="lp-hv-term-ttl">ARIA · live screening</span>
+          </div>
+          <div class="lp-hv-term-bd">
+            <div><span class="lp-hv-dim">⤷ identity&nbsp;&nbsp;</span><span class="lp-hv-g">✓ resolved</span></div>
+            <div><span class="lp-hv-dim">⤷ network&nbsp;&nbsp;&nbsp;</span><span class="lp-hv-g">✓ 3-layer UBO</span></div>
+            <div><span class="lp-hv-dim">⤷ sanctions&nbsp;</span><span class="lp-hv-g">✓ CLEAR</span></div>
+            <div><span class="lp-hv-dim">⤷ deception&nbsp;</span><span class="lp-hv-a">! elevated</span></div>
+          </div>
+        </div>
+
+        <!-- pipeline stage pills -->
+        <div class="lp-hv-pill lp-hv-pill-a">Compliance</div>
+        <div class="lp-hv-pill lp-hv-pill-b">Forensic</div>
+
+        <!-- evidence / finding card -->
+        <div class="lp-hv-ev">
+          <div class="lp-hv-ev-hd">Finding — Sanctions</div>
+          <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>ofac_sdn<span class="lp-hv-src-sc">0.99</span></div>
+          <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>eu_consolidated<span class="lp-hv-src-sc">0.99</span></div>
+          <div class="lp-hv-ev-ft"><span class="lp-hv-grade">CONFIRMED</span><span class="lp-hv-conf">3 sources</span></div>
+        </div>
+
+        <!-- verdict chip -->
+        <div class="lp-hv-verdict"><span class="lp-hv-vdot"></span>AMBER · proceed with conditions</div>
+
+        <!-- junction avatars (icon entity-nodes, never photos) -->
+        <div class="lp-hv-av lp-hv-av-1"><i class="bi bi-person-badge"></i></div>
+        <div class="lp-hv-av lp-hv-av-2"><i class="bi bi-diagram-3"></i></div>
+      </div>
+    </div><!-- /.lp-hero-visual -->
+   </div><!-- /.lp-hero-grid-2 -->
+
     <div class="lp-hero-metrics">
       <div>
         <div class="lp-metric-n">87K+</div>
