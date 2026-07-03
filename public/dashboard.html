@@ -75,7 +75,7 @@
 
   <!-- Intelligence Brief (OSINT market sweep — collapsible secondary) -->
   <div class="sc-card mb-24">
-    <div class="sc-card-header" style="cursor:pointer" onclick="toggleBrief()">
+    <div class="sc-card-header" id="brief-header" style="cursor:pointer" role="button" tabindex="0">
       <div class="sc-card-title"><i class="bi bi-broadcast-pin"></i> OSINT Market Sweep</div>
       <span class="sc-badge sc-badge-muted" id="brief-toggle">Show</span>
     </div>
@@ -220,6 +220,14 @@ function toggleBrief() {
     btn.textContent = 'Show';
   }
 }
+// R-F2383 — CSP (script-src-attr 'none') blocks inline onclick; wire via listener.
+(function () {
+  const h = document.getElementById('brief-header');
+  if (h) {
+    h.addEventListener('click', toggleBrief);
+    h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBrief(); } });
+  }
+})();
 
 // ── Severity pill helper ──
 function severityPill(sev) {

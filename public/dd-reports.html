@@ -1219,7 +1219,7 @@ async function loadReports(silent = false) {
       new Promise((_, rej) => setTimeout(() => rej(new Error('request timed out')), 15000)),
     ]);
     if (!resp.ok) {
-      if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + '). <button class="sc-btn sc-btn-sm" onclick="loadReports()">Retry</button></div>';
+      if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load reports (HTTP ' + resp.status + '). <button class="sc-btn sc-btn-sm" data-retry-reports>Retry</button></div>';
       return;
     }
     const data = await resp.json();
@@ -1234,9 +1234,13 @@ async function loadReports(silent = false) {
     applySearch();
     scheduleRunningRefresh();       // keep the list live while anything is running
   } catch (err) {
-    if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Could not load reports (' + escText(err.message) + '). <button class="sc-btn sc-btn-sm" onclick="loadReports()">Retry</button></div>';
+    if (!silent) content.innerHTML = '<div class="dd-empty"><i class="bi bi-wifi-off"></i>Could not load reports (' + escText(err.message) + '). <button class="sc-btn sc-btn-sm" data-retry-reports>Retry</button></div>';
   }
 }
+// R-F2383 — CSP blocks inline onclick; delegate the injected Retry buttons.
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-retry-reports]')) loadReports();
+});
 
 function applySearch() {
   const q = (document.getElementById('dd-search').value || '').trim().toLowerCase();

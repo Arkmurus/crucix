@@ -1193,7 +1193,7 @@
       <a href="#compliance">Compliance</a>
     </div>
     <div class="lp-nav-cta">
-      <button class="lp-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" onclick="var l=document.querySelector('.lp-nav-links');var o=l.classList.toggle('open');this.setAttribute('aria-expanded',o)">&#9776;</button>
+      <button class="lp-nav-toggle" id="lp-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false">&#9776;</button>
       <a href="/signin" class="lp-btn lp-btn-ghost">Sign in</a>
       <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime">Sign Up</a>
     </div>
@@ -1737,6 +1737,17 @@
 </footer>
 
 <script>
+// R-F2383 — CSP (script-src-attr 'none') blocks inline onclick; wire the mobile
+// nav toggle via a listener so the menu opens on phones.
+(function () {
+  var btn = document.getElementById('lp-nav-toggle');
+  if (btn) btn.addEventListener('click', function () {
+    var l = document.querySelector('.lp-nav-links');
+    var o = l.classList.toggle('open');
+    this.setAttribute('aria-expanded', o);
+  });
+})();
+
 // Smooth scroll for anchor links
 document.querySelectorAll('a[href^="#"]').forEach(function(a) {
   a.addEventListener('click', function(e) {

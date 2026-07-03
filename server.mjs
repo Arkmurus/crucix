@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from '
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec, execSync } from 'child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
@@ -1230,7 +1230,7 @@ app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
     const upstreamToken = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
     const headers = {
       'Content-Type': ct,
-      'Authorization': upstreamToken ? `Bearer ${upstreamToken}` : clientAuth,
+      'Authorization': upstreamToken ? `Bearer ${upstreamToken}` : (req.headers.authorization || ''),  // R-F2383: `clientAuth` was undefined → ReferenceError if env token unset
     };
     if (req.headers['content-length']) {
       headers['Content-Length'] = req.headers['content-length'];
@@ -2876,14 +2876,14 @@ app.get('/api/aria/student/mastery', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/mastery', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/student/mastery/heatmap', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/mastery/heatmap', { fallback: async () => res.status(503).json(_brainFallback()) }));
-app.get('/api/aria/adversarial/stats', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/adversarial/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F2383 — removed dead duplicate GET /api/aria/adversarial/stats (the public
+// _r577PublicProxy registration above wins; this later auth'd def never fired).
 // R-F57: trigger a fresh weekly run from the dashboard. Long-running
 // (each attack is an LLM round-trip + verifier check), 5-min timeout.
 app.post('/api/aria/adversarial/run_weekly', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/adversarial/run_weekly', { method: 'POST', timeoutMs: 300000, fallback: async () => res.status(503).json(_brainFallback()) }));
-app.get('/api/aria/chat-audit/stats', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/chat-audit/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F2383 — removed dead duplicate GET /api/aria/chat-audit/stats (public
+// _r577PublicProxy above wins; this later auth'd def never fired).
 app.get('/api/aria/chat-audit/recent', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/chat-audit/recent${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/chat-audit/verify', requireAuth, (req, res) =>
@@ -3259,16 +3259,8 @@ app.get('/api/aria/training-data/library-export', requireAdmin, (req, res) =>
   }}));
 
 // ── ARIA student mode (active learning) ────────────────────────────────────
-app.get('/api/aria/student/stats', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/student/stats', { fallback: async () => {
-    res.status(503).json({ error: 'Student stats unavailable' });
-  }}));
-
-app.get('/api/aria/student/mastery', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/student/mastery', { fallback: async () => {
-    res.status(503).json({ error: 'Mastery report unavailable' });
-  }}));
-
+// R-F2383 — removed dead duplicate GET /api/aria/student/stats + /student/mastery
+// (both registered earlier at their first definitions, which win; these never fired).
 app.get('/api/aria/student/curriculum', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/curriculum', { fallback: async () => {
     res.status(503).json({ error: 'Curriculum unavailable' });
@@ -4397,6 +4389,31 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// R-F2383 — per-account login brute-force lockout. IP rate-limiting alone
+// (TIERS.auth) lets an attacker rotating IPs grind a single account's password;
+// this adds a per-email failure counter + temporary lockout, mirroring the
+// reset-code throttle (_resetAttempts).
+const _loginAttempts = new Map(); // email_lower → { count, firstAt, lockedUntil }
+const _LOGIN_MAX_ATTEMPTS = 8;
+const _LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const _LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+function _loginThrottleCheck(emailLower) {
+  const now = Date.now();
+  const e = _loginAttempts.get(emailLower);
+  if (!e) return { allowed: true };
+  if (e.lockedUntil && e.lockedUntil > now) return { allowed: false };
+  if (e.firstAt && now - e.firstAt > _LOGIN_WINDOW_MS) { _loginAttempts.delete(emailLower); return { allowed: true }; }
+  return { allowed: true };
+}
+function _loginThrottleFail(emailLower) {
+  const now = Date.now();
+  const e = _loginAttempts.get(emailLower) || { count: 0, firstAt: now };
+  e.count += 1; e.firstAt = e.firstAt || now;
+  if (e.count >= _LOGIN_MAX_ATTEMPTS) e.lockedUntil = now + _LOGIN_LOCKOUT_MS;
+  _loginAttempts.set(emailLower, e);
+}
+function _loginThrottleClear(emailLower) { _loginAttempts.delete(emailLower); }
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -4404,19 +4421,27 @@ app.post('/api/auth/login', async (req, res) => {
       console.warn(`[Auth] login: missing email or password ip=${req.ip}`);
       return res.status(400).json({ error: 'Email and password required' });
     }
+    const _emLower = String(email).trim().toLowerCase();
+    if (!_loginThrottleCheck(_emLower).allowed) {
+      console.warn(`[Auth] login LOCKED email=${email} ip=${req.ip}`);
+      return res.status(429).json({ error: 'Too many failed attempts. Please wait a few minutes and try again.' });
+    }
 
     // R-F427: log distinct failure paths so the operator can diagnose
     // "Invalid credentials" reports from seenode logs. The HTTP response
     // stays generic to avoid enumeration; the log line names the cause.
     const user = findUserByEmail(email);
     if (!user) {
+      _loginThrottleFail(_emLower);   // R-F2383 — throttle enumeration + brute force
       console.warn(`[Auth] login FAIL no-user email=${email} ip=${req.ip}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     if (!verifyPassword(password, user.passwordHash)) {
+      _loginThrottleFail(_emLower);   // R-F2383 — per-account lockout after repeated wrong passwords
       console.warn(`[Auth] login FAIL password-mismatch email=${email} id=${user.id} status=${user.status} ip=${req.ip}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    _loginThrottleClear(_emLower);    // R-F2383 — successful password clears the counter
 
     if (user.status === 'pending_approval') {
       console.warn(`[Auth] login BLOCKED pending_approval email=${email} ip=${req.ip}`);
@@ -4536,7 +4561,14 @@ app.post('/api/auth/verify-email', async (req, res) => {
     // R-F2035 — verify-code brute-force lockout. A 6-digit code is grindable; cap
     // wrong attempts, then BURN the code (force a fresh resend) so brute force
     // degrades into a resend-rate problem, not a 1e6 guessing game.
-    if (user.verificationCode !== String(code)) {
+    // R-F2383 — timing-safe compare (align with the reset-code flow R-F609).
+    const _vcExpected = String(user.verificationCode || '');
+    const _vcProvided = String(code || '');
+    let _vcMatch = false;
+    if (_vcExpected && _vcProvided.length === _vcExpected.length) {
+      try { _vcMatch = timingSafeEqual(Buffer.from(_vcExpected, 'utf8'), Buffer.from(_vcProvided, 'utf8')); } catch { _vcMatch = false; }
+    }
+    if (!_vcMatch) {
       const attempts = (user.verificationAttempts || 0) + 1;
       if (attempts >= MAX_VERIFY_ATTEMPTS) {
         updateUser(user.id, { verificationCode: null, verificationExpiry: null, verificationAttempts: 0 });
@@ -5490,7 +5522,13 @@ app.use('/api/aria', requireAuth, async (req, res, next) => {
   // owner-scoped endpoint. Admin/internal keep see-all (see proxyPin.mjs).
   const fullPath = pinNonAdminUserId(req.originalUrl, req.user);
   if (!isPrivileged(req.user) && req.body && typeof req.body === 'object') {
-    try { req.body.user_id = (req.user && req.user.userId) || ''; } catch { /* immutable body — ignore */ }
+    try {
+      req.body.user_id = (req.user && req.user.userId) || '';
+      // R-F2383 — mirror the query-side domain strip so a non-admin can't forge
+      // body.user_email_domain to read another company's shared data.
+      delete req.body.user_email_domain;
+      delete req.body.user_email;
+    } catch { /* immutable body — ignore */ }
   }
   ariaProxy(req, res, fullPath, {
     method: req.method,
@@ -6004,7 +6042,10 @@ app.get('/events', (req, res) => {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
+    // R-F2383 — dropped `Access-Control-Allow-Origin: *`: this is an authenticated
+    // stream (JWT/internal-token) and same-origin EventSource needs no CORS grant;
+    // `*` on authed data is a needless misconfiguration.
+    'Referrer-Policy': 'no-referrer',
   });
   res.write('data: {"type":"connected"}\n\n');
   sseClients.add(res);

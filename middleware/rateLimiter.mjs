@@ -78,7 +78,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       5,
     message:   { error: 'ARIA think rate limit reached. Max 5 requests/minute.' },
-    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
     skip:      _internalTokenBypass,   // R-F390
   },
 
@@ -87,7 +87,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       20,
     message:   { error: 'ARIA chat rate limit reached. Max 20 messages/minute.' },
-    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
     skip:      _internalTokenBypass,   // R-F390
   },
 
@@ -110,7 +110,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       30,
     message:   { error: 'Admin rate limit reached.' },
-    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
     skip:      _internalTokenBypass,   // R-F390
   },
 };
