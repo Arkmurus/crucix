@@ -26,6 +26,9 @@
   let view = 'members';
   let connected = false;
   let typingTimer = null, typingSent = false, peerTypingTimer = null;
+  let activePeer = null;         // R-F2371 — current conversation partner (for bubble avatars + profile pane)
+  let filterText = '';           // R-F2371 — left-list search query (lower-cased)
+  let attachTimer = null;        // R-F2371 — attach "coming soon" hint timer
 
   // ---------- utilities ----------
   const $ = (id) => document.getElementById(id);
@@ -91,9 +94,47 @@
     if (s < 86400) return `last seen ${Math.floor(s / 3600)}h ago`;
     return `last seen ${Math.floor(s / 86400)}d ago`;
   }
+  // R-F2371 — insert text (emoji) at the textarea caret, then refresh state.
+  function insertAtCaret(el, text) {
+    if (!el) return;
+    const s = el.selectionStart != null ? el.selectionStart : el.value.length;
+    const e = el.selectionEnd != null ? el.selectionEnd : el.value.length;
+    el.value = el.value.slice(0, s) + text + el.value.slice(e);
+    const pos = s + text.length; el.setSelectionRange(pos, pos);
+    el.focus();
+    el.dispatchEvent(new Event('input'));
+  }
 
   const ARIA = { id: 'aria', isAria: true, fullName: 'ARIA', username: 'aria',
     role: 'Intelligence', sector: 'always on' };
+
+  // R-F2371 — friendly labels for the sector codes stored on the profile.
+  const SECTOR_LABELS = {
+    defence_broker: 'Defence broker / dealer / agent',
+    oem_export: 'OEM (defence manufacturer)',
+    government_acquisition: 'Government / acquisition / intel',
+    compliance_consultancy: 'Compliance / export-control consultancy',
+    banking_insurance: 'Banking / insurance (defence accounts)',
+    research: 'Research / academic / NGO',
+    journalism: 'Defence journalism',
+    other: 'Other',
+  };
+  function sectorLabel(v) { return SECTOR_LABELS[v] || v || ''; }
+
+  // R-F2371 — small avatar for a message row (no presence ring).
+  function miniAvatar(user) {
+    const aria = !!user.isAria;
+    const style = (user.avatarUrl && !aria) ? '' : avatarStyle(user.id, aria);
+    return `<span class="av msgav${aria ? ' aria' : ''}" style="${style}">${avatarInner(user)}</span>`;
+  }
+
+  // R-F2371 — does a roster entry match the current search query?
+  function memMatch(u) {
+    if (!filterText) return true;
+    const hay = [u.fullName, u.username, u.jobTitle, u.role, u.companyName, u.companyCountry,
+      sectorLabel(u.sector)].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(filterText);
+  }
 
   // ---------- data loading ----------
   async function loadDirectory() {
@@ -159,13 +200,17 @@
   }
   function renderMembers() {
     const host = $('view-members');
-    const on = members.filter(m => online.has(m.id));
-    const off = members.filter(m => !online.has(m.id));
-    let html = memberRow(ARIA, true); // ARIA pinned, always available
+    const on = members.filter(m => online.has(m.id) && memMatch(m));
+    const off = members.filter(m => !online.has(m.id) && memMatch(m));
+    let html = memMatch(ARIA) ? memberRow(ARIA, true) : ''; // ARIA pinned, always available
     if (on.length) html += `<div class="net-grouplbl">Online · ${on.length}</div>`
       + on.map(m => memberRow(m, true)).join('');
     if (off.length) html += `<div class="net-grouplbl">Offline · ${off.length}</div>`
       + off.map(m => memberRow(m, false)).join('');
+    if (filterText && !on.length && !off.length && !memMatch(ARIA)) {
+      host.innerHTML = `<div class="net-hollow">No one matches “<b>${esc(filterText)}</b>”.</div>`;
+      return;
+    }
     if (!members.length) {
       html += `<div class="net-hollow">${iAmVisible
         ? 'You are the first one here — invite your team to turn on their presence and the network fills in.'
@@ -176,7 +221,9 @@
   function renderChats() {
     const host = $('view-chats');
     if (!convos.length) { host.innerHTML = `<div class="net-hollow">No conversations yet.<br>Pick a member to start one.</div>`; return; }
-    host.innerHTML = convos.map(s => {
+    const shown = convos.filter(s => memMatch(userInfo.get(s.userId) || s));
+    if (!shown.length) { host.innerHTML = `<div class="net-hollow">No conversations match “<b>${esc(filterText)}</b>”.</div>`; return; }
+    host.innerHTML = shown.map(s => {
       const u = userInfo.get(s.userId) || s;
       const isOnline = online.has(s.userId);
       const last = s.lastMessage || {};
@@ -207,6 +254,10 @@
     paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username, isAria, avatarUrl: u.avatarUrl }, { size: 'sm', isOnline });
     $('convo-who').textContent = u.fullName || u.username || 'Member';
     setConvoPresence(isOnline, u.lastSeenAt, isAria);
+    // R-F2371 — remember the peer (bubble avatars) + populate the profile pane
+    activePeer = Object.assign({ id }, u, { isAria });
+    renderProfilePanel(activePeer, isOnline, isAria);
+    document.getElementById('net-wrap').classList.add('has-profile');
     $('net-messages').innerHTML = '<div class="net-hollow">Loading…</div>';
     $('net-typing').textContent = '';
     $('net-input').placeholder = isAria
@@ -221,6 +272,37 @@
     p.textContent = isAria ? 'online · your always-on analyst'
       : (isOnline ? 'online now' : relSeen(lastSeenAt));
     p.className = 'pres ' + ((isOnline || isAria) ? 'on' : 'off');
+  }
+  // R-F2371 — right-hand profile pane, populated live from the roster entry.
+  function renderProfilePanel(u, isOnline, isAria) {
+    if (!$('net-profile')) return;
+    paintAvatar($('np-av'), { id: u.id, fullName: u.fullName || u.username, isAria, avatarUrl: u.avatarUrl },
+      { size: 'lg', isOnline });
+    $('np-name').textContent = u.fullName || u.username || 'Member';
+    $('np-role').textContent = isAria ? 'Autonomous Research Intelligence Agent'
+      : ([u.jobTitle || u.role, u.companyName].filter(Boolean).join(' · ') || 'ARIA network member');
+    const pres = $('np-pres'), onNow = isOnline || isAria;
+    pres.className = 'np-pres' + (onNow ? ' on' : '');
+    $('np-pres-t').textContent = isAria ? 'Active now · always on'
+      : (onNow ? 'Active now' : relSeen(u.lastSeenAt));
+    // detail fields
+    const fields = [];
+    if (isAria) {
+      fields.push(['Role', 'Intelligence analyst']);
+      fields.push(['Availability', '24/7 autonomous']);
+      fields.push(['Ask about', 'Sanctions · DD · adverse media · intel summaries']);
+    } else {
+      if (u.companyName) fields.push(['Company', u.companyName]);
+      if (u.companyCountry) fields.push(['Country', u.companyCountry]);
+      if (u.sector) fields.push(['Sector', sectorLabel(u.sector)]);
+      if ((u.jobTitle || u.role)) fields.push(['Title', u.jobTitle || u.role]);
+    }
+    $('np-fields').innerHTML = fields.length
+      ? fields.map(([k, v]) => `<div class="np-field"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join('')
+      : `<div class="np-empty">This member hasn't added profile details yet.</div>`;
+    // per-conversation notification preference (persisted locally)
+    const nt = $('np-notif');
+    if (nt) nt.setAttribute('aria-checked', localStorage.getItem('net_mute_' + u.id) === '1' ? 'false' : 'true');
   }
   async function loadHistory(id) {
     try {
@@ -237,9 +319,13 @@
   }
   function bubbleHtml(m) {
     const mine = m.from === myId;
-    const read = mine && m.read ? '<span class="rd">· Read</span>' : '';
-    return `<div class="bubble ${mine ? 'b-me' : 'b-them'}" data-mid="${esc(m.id || '')}">
-      ${esc(m.text)}<span class="mt">${fmtTime(m.ts)} ${read}</span></div>`;
+    // R-F2371 — double-tick read receipt on my messages (brightens once seen)
+    const read = mine ? `<span class="rd${m.read ? ' seen' : ''}"><i class="bi bi-check2-all"></i></span>` : '';
+    // R-F2371 — incoming messages carry the peer's avatar (reference-style rows)
+    const av = mine ? '' : miniAvatar(activePeer || { id: m.from, fullName: 'Member' });
+    return `<div class="msg ${mine ? 'me' : 'them'}">${av}` +
+      `<div class="bubble ${mine ? 'b-me' : 'b-them'}" data-mid="${esc(m.id || '')}">` +
+      `${esc(m.text)}<span class="mt">${fmtTime(m.ts)} ${read}</span></div></div>`;
   }
   function renderMessages(msgs) {
     const host = $('net-messages');
@@ -522,6 +608,48 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
     $('net-send').addEventListener('click', sendMessage);
+
+    // R-F2371 — left-list search filter
+    const search = $('net-search-input');
+    if (search) search.addEventListener('input', () => {
+      filterText = search.value.trim().toLowerCase();
+      renderMembers(); renderChats();
+    });
+    // R-F2371 — emoji palette (inserts at the caret)
+    const emojiBtn = $('net-emoji-btn'), emojiBox = $('net-emoji');
+    if (emojiBtn && emojiBox) {
+      const EMOJI = ['👍', '🙏', '✅', '🔥', '👀', '⚠️', '📎', '📊', '🕵️', '🚩', '💡', '🤝',
+        '🟢', '🟡', '🔴', '📈', '🧭', '✍️', '😊', '🎯', '⏱️', '🔒', '📄', '🌍'];
+      emojiBox.innerHTML = EMOJI.map(e => `<button type="button" tabindex="-1" aria-label="${e}">${e}</button>`).join('');
+      emojiBtn.addEventListener('click', (e) => { e.stopPropagation(); emojiBox.classList.toggle('open'); });
+      emojiBox.addEventListener('click', (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        insertAtCaret($('net-input'), b.textContent);
+        emojiBox.classList.remove('open');
+      });
+      document.addEventListener('click', (e) => {
+        if (emojiBox.contains(e.target) || e.target === emojiBtn || emojiBtn.contains(e.target)) return;
+        emojiBox.classList.remove('open');
+      });
+    }
+    // R-F2371 — attach is on the roadmap: give honest feedback, never a dead control
+    if ($('net-attach-btn')) $('net-attach-btn').addEventListener('click', () => {
+      const t = $('net-typing'); if (!t) return;
+      t.textContent = '📎 File sharing is coming soon — send text or ask ARIA to pull a document for now.';
+      clearTimeout(attachTimer);
+      attachTimer = setTimeout(() => { if (t.textContent.startsWith('📎')) t.textContent = ''; }, 3200);
+    });
+    // R-F2371 — info button toggles the profile drawer on ≤1200px
+    if ($('net-info')) $('net-info').addEventListener('click', () =>
+      document.getElementById('net-wrap').classList.toggle('profile-open'));
+    // R-F2371 — per-conversation notification preference (persisted locally)
+    if ($('np-notif')) $('np-notif').addEventListener('click', () => {
+      if (!activePeer) return;
+      const nt = $('np-notif'), on = nt.getAttribute('aria-checked') === 'true';
+      nt.setAttribute('aria-checked', on ? 'false' : 'true');
+      try { localStorage.setItem('net_mute_' + activePeer.id, on ? '1' : '0'); } catch (e) {}
+    });
+
     // toggle + CTA + back
     $('self-toggle').addEventListener('click', toggleVisibility);
     // R-F2349 — click the round self-avatar to upload/change the profile photo.
@@ -554,8 +682,9 @@
       $('net-seg').querySelector('[data-view="members"]').click();
     });
     $('net-back').addEventListener('click', () => {
-      document.getElementById('net-wrap').classList.remove('showing-thread');
-      activeId = null; highlightActive();
+      const w = document.getElementById('net-wrap');
+      w.classList.remove('showing-thread', 'has-profile', 'profile-open');   // R-F2371 — also drop the profile pane
+      activeId = null; activePeer = null; highlightActive();
     });
   }
 
