@@ -6021,21 +6021,25 @@ app.get('/events', (req, res) => {
   // SECURITY 2026-04-09: this stream broadcasts the entire sweep payload
   // (intel signals, news, opportunities, BD pipeline state) — previously
   // anyone with the URL could subscribe and receive confidential data.
-  // Now requires either a localhost-internal connection OR a valid JWT
-  // passed as ?token=<jwt> (EventSource cannot send custom headers, so the
-  // query-param pattern matches /api/search/deep above).
+  // R-F2389 — no longer accepts a raw JWT in ?token= (that leaks the 7-day
+  // credential into access logs / browser history / Referer). Mirrors
+  // /api/search/deep: localhost, OR the internal service token, OR an
+  // Authorization: Bearer JWT header, OR a short-lived single-use SSE ticket
+  // via ?ticket= (issued by POST /api/sse/ticket).
   const ip = req.ip || req.socket?.remoteAddress || '';
   const isLocalhost = (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
   if (!isLocalhost) {
-    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || '';
-    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    const header = req.headers.authorization?.replace('Bearer ', '') || '';
     const internalToken = (process.env.ARIA_INTERNAL_TOKEN || '').trim();
-    if (!(internalToken && token === internalToken)) {
-      try {
-        verifyToken(token);
-      } catch {
-        return res.status(401).json({ error: 'Invalid or expired token' });
-      }
+    if (internalToken && header === internalToken) {
+      /* internal service — allowed */
+    } else if (header) {
+      try { verifyToken(header); }
+      catch { return res.status(401).json({ error: 'Invalid or expired token' }); }
+    } else {
+      const payload = redeemSseTicket(req.query.ticket);
+      if (!payload) return res.status(401).json({ error: 'Authentication required (SSE ticket invalid or expired)' });
+      req.user = payload;
     }
   }
   res.writeHead(200, {
