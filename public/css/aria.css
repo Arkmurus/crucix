@@ -162,16 +162,18 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
 .rail-new > i { color: var(--sc-prime); }
 
-/* scrolling nav */
-.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; }
+/* scrolling nav — R-F2377: healthier vertical rhythm (was gap:2px → cramped) */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .rail-nav::-webkit-scrollbar { width: 0; height: 0; }
 .rail-section {
   font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--sc-muted); white-space: nowrap; overflow: hidden;
   height: 0; opacity: 0; padding: 0 12px; transition: opacity 0.15s;
 }
-body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 14px 12px 4px; }
-.rail-divider { height: 1px; background: var(--sc-border); margin: 8px 10px; }
+body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 20px 12px 8px; }
+/* first section sits right under "New chat" — trim its top padding */
+body.nav-expanded .rail-nav > .rail-section:first-child { padding-top: 8px; }
+.rail-divider { height: 1px; background: var(--sc-border); margin: 12px 10px; }
 body.nav-expanded .rail-divider { display: none; }   /* section labels replace dividers when expanded */
 
 /* bottom cluster: alerts + account */
