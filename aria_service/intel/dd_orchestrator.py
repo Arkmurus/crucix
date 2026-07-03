@@ -10151,6 +10151,24 @@ async def get_case_file(
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
+def _dd_legacy_owner_fallback() -> tuple[str | None, str | None]:
+    """R-F2382 — owner for legacy owner-less vault cases.
+
+    The dd_vault ``dd_cases`` table has no ``user_id`` column, so reports
+    rebuilt from the vault after a state_store index reset (e.g. the
+    2026-07-02 wipe) come back owner-less and disappear from every user's
+    scoped DD-reports list. Fall back to the configured operator so the
+    primary user keeps seeing their reports. Returns ``(user_id, email_domain)``
+    — both ``None`` when no operator is configured (then behaviour is
+    unchanged: owner-less, admin-only).
+    """
+    import os as _os
+    uid = (_os.getenv("ARIA_CODER_OPERATOR_USER_ID") or "").strip() or None
+    email = (_os.getenv("ARIA_OPERATOR_EMAIL") or "").strip()
+    dom = email.split("@")[-1].strip().lower() if "@" in email else None
+    return uid, dom
+
+
 async def list_reports(
     limit: int = 50,
     *,
@@ -10190,14 +10208,23 @@ async def list_reports(
             vault = _get_dd_vault()
             vault_cases = vault.list_all(limit=limit)
             if vault_cases:
+                _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
                 for case in vault_cases:
                     index.append({
                         "run_id": case.get("latest_report_id", ""),
                         "entity_name": case.get("entity_name", "unknown"),
                         "entity_type": case.get("entity_type", "company"),
                         "jurisdiction": case.get("jurisdiction", ""),
-                        "user_id": case.get("user_id"),
-                        "user_email_domain": case.get("user_email_domain"),
+                        # R-F2382 — the dd_vault schema has NO user_id column, so a
+                        # case rebuilt from the vault (after a state_store index
+                        # reset, e.g. the 2026-07-02 wipe) is owner-less and
+                        # vanishes from EVERY user's scoped list. Fall back to the
+                        # configured operator so the primary user keeps seeing their
+                        # reports; a real user_id on the case (once the vault stores
+                        # one) always wins.
+                        "user_id": case.get("user_id") or _ff_uid,
+                        "user_email_domain": case.get("user_email_domain") or _ff_dom,
+                        "share_to_company": True,
                         # R-F2240 — normalize at write time (root cause): dd_vault
                         # last_run_at is a float epoch; store it as ISO so the
                         # persisted index stays single-type (str) for future reads.
