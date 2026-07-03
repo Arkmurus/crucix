@@ -52,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import random
 import re
 import time
@@ -1056,6 +1057,7 @@ async def _study_weak_regional_cells(
     Returns the list of cells credited this session. Never raises (best-effort)."""
     regional_studied: list[dict] = []
     _uncredited: list[dict] = []
+    _brave_sourced = 0
     try:
         if explore is None:
             from . import web_explorer as _we2
@@ -1071,6 +1073,69 @@ async def _study_weak_regional_cells(
             _floor = _floor_cells[0]
             if _floor not in _target_cells:
                 _target_cells.append(_floor)
+        # R-F2392 §17/§21: Brave-escalated region sourcing. The R-F1947 stall is
+        # that the FREE stack often cannot find region-specific content for a floor
+        # cell, so detect_regions never confirms and the cell stays UNCREDITED no
+        # matter how often it is visited. For the worst cells we escalate ONE
+        # region-targeted query to the live Brave-primary search (R-F2318, masked
+        # as aria_search), English-only fanout (~1 Brave call/cell), bounded by a
+        # per-session budget. This ONLY changes what content the loop can SEE — the
+        # crediting/EWMA path below is byte-for-byte unchanged (no metric gaming).
+        # Pay-once-remember-forever (§15) amortizes the quota: once Brave content
+        # is stored, the NEXT session's free memory-first pass grounds the cell for
+        # $0, so Brave fires ~once per cell, not every cycle. Brave stays OFF on the
+        # free pass so the high-volume loop never burns quota on groundable cells.
+        try:
+            from . import web_search as _ws
+            _brave_available = (
+                bool(getattr(_ws, "BRAVE_API_KEY", ""))
+                and not getattr(_ws, "_BRAVE_GLOBALLY_OFF", False)
+            )
+        except Exception:
+            _ws = None
+            _brave_available = False
+        _brave_budget = int(os.getenv("ARIA_STUDENT_BRAVE_BUDGET", "3") or "3")
+
+        def _region_grounded(_er, _rgn: str):
+            """Return (grounded, [(value, context) for facts with a source_url]).
+            `grounded` is True iff the fetched text actually mentions the region
+            (the R-F1947 detect_regions gate) — this credit condition is NOT
+            changed by R-F2392; only the CONTENT fed into it improves."""
+            _g = False
+            _uf: list[tuple[str, str]] = []
+            for _f in (getattr(_er, "facts", None) or []):
+                _val = str(getattr(_f, "value", "") or "")
+                _ctx = str(getattr(_f, "context", "") or "")
+                if _rgn in detect_regions(f"{_val} {_ctx}"):
+                    _g = True
+                if getattr(_f, "source_url", ""):
+                    _uf.append((_val, _ctx))
+            return _g, _uf
+
+        async def _explore_region(_q: str, *, use_brave: bool):
+            """One region-targeted explore pass. When use_brave, enable the Brave
+            scope (R-F2318) for THIS call only and reset it after; English-only
+            fanout caps quota to ~1 Brave call. Never raises."""
+            if use_brave and _ws is not None:
+                _ws.enable_brave_for_scope(True)
+            try:
+                return await explore(
+                    query=_q, cost_free=True,
+                    max_results=max_results_per_cell,
+                    memory_first=not use_brave,
+                    language_fanout=("off" if use_brave else "auto"),
+                )
+            except Exception as _wee:
+                logger.debug("[student] R-F2392 explore failed (brave=%s): %s", use_brave, _wee)
+                return None
+            finally:
+                # The autonomous loop never enables Brave otherwise → reset to OFF.
+                if use_brave and _ws is not None:
+                    try:
+                        _ws.enable_brave_for_scope(False)
+                    except Exception:
+                        pass
+
         for _cell in _target_cells:
             _topic = (_cell.get("topic") or "").strip()
             _region = (_cell.get("region") or "").strip()
@@ -1080,25 +1145,34 @@ async def _study_weak_regional_cells(
             _rphrase = _REGION_QUERY_PHRASE.get(_region, _region.replace("_", " "))
             _tphrase = _topic.replace("_", " ")
             _query = f"{_tphrase} {_rphrase} defence procurement 2026"
-            try:
-                _er = await explore(
-                    query=_query, cost_free=True,
-                    max_results=max_results_per_cell, memory_first=True,
-                )
-            except Exception as _wee:
-                logger.debug("[student] R-F1744 explore failed %s:%s — %s",
-                             _topic, _region, _wee)
-                continue
+
+            # Pass 1 — free multi-backend stack (region-targeted, cost-free).
+            _er = await _explore_region(_query, use_brave=False)
+            _grounded, _url_facts = (
+                _region_grounded(_er, _region) if _er is not None else (False, [])
+            )
+            _via_brave = False
+
+            # Pass 2 — Brave escalation (R-F2392): ONLY when the free stack could
+            # not ground the region, per-session budget remains, and a key exists.
+            if (not _grounded) and _brave_budget > 0 and _brave_available:
+                _brave_budget -= 1
+                _ber = await _explore_region(_query, use_brave=True)
+                if _ber is not None:
+                    _bg, _buf = _region_grounded(_ber, _region)
+                    if _bg:
+                        _grounded, _url_facts, _via_brave = True, _buf, True
+                        _brave_sourced += 1
+                        logger.info(
+                            "[student] R-F2392 Brave sourced region content for %s:%s "
+                            "(free stack missed it)", _topic, _region,
+                        )
+
+            # Store grounded facts (only those with a source_url). The crediting
+            # condition (`_stored and _grounded`) is IDENTICAL to R-F1744/R-F1947.
             _stored = 0
-            _grounded = False
-            for _f in (getattr(_er, "facts", None) or []):
-                _val = str(getattr(_f, "value", "") or "")
-                _ctx = str(getattr(_f, "context", "") or "")
-                # Read-grounded: only credit the cell when the fetched text
-                # actually mentions the region (detect_regions confirms).
-                if _region in detect_regions(f"{_val} {_ctx}"):
-                    _grounded = True
-                if getattr(_f, "source_url", ""):
+            if _grounded:
+                for (_val, _ctx) in _url_facts:
                     try:
                         await kb.store_fact(
                             topic=f"{_tphrase} {_rphrase}: {_val[:60]}",
@@ -1109,26 +1183,29 @@ async def _study_weak_regional_cells(
                         _stored += 1
                     except Exception as _kse:
                         logger.debug("[student] R-F1744 kb store failed: %s", _kse)
+
             if _stored and _grounded:
                 await update_regional_mastery(
                     [_topic], [_region], correct=True, weight=0.3,
                 )
                 regional_studied.append({
                     "topic": _topic, "region": _region, "stored": _stored,
+                    "via_brave": _via_brave,
                 })
                 logger.info(
-                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts)",
-                    _topic, _region, _stored,
+                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts, brave=%s)",
+                    _topic, _region, _stored, _via_brave,
                 )
             else:
-                # R-F1947: a cell visited but NOT credited (stored=0 or detect_regions
-                # didn't geo-confirm the region) leaves the gate-#2 floor frozen —
-                # make that failure visible + queue a per-cell gap (below).
+                # R-F1947/R-F2392: a cell still NOT credited AFTER the Brave
+                # escalation is genuinely region-data-starved (or Brave is off) —
+                # record it (below) so the coder/research loop and the operator see
+                # which regions have no reachable content, not just that the cell is low.
                 _uncredited.append({"topic": _topic, "region": _region})
                 logger.info(
-                    "[student] R-F1947 gate-2 cell %s:%s NOT credited (stored=%d grounded=%s) "
-                    "— visited, no mastery lift",
-                    _topic, _region, _stored, _grounded,
+                    "[student] R-F1947 gate-2 cell %s:%s NOT credited (stored=%d grounded=%s "
+                    "brave_available=%s) — visited, no mastery lift",
+                    _topic, _region, _stored, _grounded, _brave_available,
                 )
     except Exception as _rce:
         logger.warning("[student] R-F1744 region-targeted branch failed (non-fatal): %s", _rce)
@@ -1145,9 +1222,10 @@ async def _study_weak_regional_cells(
                 _t = asyncio.create_task(_cg.record_gap(
                     gap_type="knowledge_gap",
                     detail=(f"Gate-#2 region cell '{_c['topic']}:{_c['region']}' is below the "
-                            f"{GATE_2_FLOOR_TARGET:.0%} floor and no region-grounded content was "
-                            f"found this reading cycle — needs region-specific reading/training "
-                            f"for {_c['region']}."),
+                            f"{GATE_2_FLOOR_TARGET:.0%} floor and NEITHER the free stack NOR Brave "
+                            f"region-sourcing (R-F2392) found region-grounded content this cycle — "
+                            f"{_c['region']} is genuinely data-starved; needs region-specific "
+                            f"reading/training or a dedicated source for {_c['region']}."),
                     source=f"student.regional_cell:{_c['topic']}:{_c['region']}",
                 ))
                 _t.add_done_callback(
@@ -1163,13 +1241,19 @@ async def _study_weak_regional_cells(
         if regional_studied:
             wire_success(
                 module="student",
-                summary=f"gate-2 reading lifted {len(regional_studied)} region cell(s)",
+                summary=(
+                    f"gate-2 reading lifted {len(regional_studied)} region cell(s)"
+                    + (f" ({_brave_sourced} via Brave region-sourcing)" if _brave_sourced else "")
+                ),
                 source_id="student:_study_weak_regional_cells",
             )
         elif _uncredited:
             wire_failure(
                 module="student",
-                detail=f"gate-2 reading credited 0 of {len(_uncredited)} targeted region cells",
+                detail=(
+                    f"gate-2 reading credited 0 of {len(_uncredited)} targeted region cells"
+                    " (free + Brave sourcing both found no region-grounded content)"
+                ),
                 gap_type="knowledge_gap",
                 source="student:_study_weak_regional_cells",
             )
