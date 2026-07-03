@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2361,
+  "next_available": 2364,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17877,23 +17877,53 @@
       "title": "entity rail: emit progress event with resolved canonical entity so aria.html rail shows the entity (frontend R-F735 reads evt.entity but backend never emitted it)",
       "claimed_at": "2026-07-02T23:47:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2fd690b7",
+      "notes": null,
+      "shipped_at": "2026-07-03T06:36:30Z"
     },
     {
       "r_number": "R-F2359",
       "title": "profile/account editing on the top-bar avatar menu → proper Account & Profile page",
       "claimed_at": "2026-07-02T23:48:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f216cfe",
+      "notes": null,
+      "shipped_at": "2026-07-03T03:55:55Z"
     },
     {
       "r_number": "R-F2360",
       "title": "test hygiene: coding-RAG tests skip cleanly when chromadb absent (were FAILING locally = false red / blind spot)",
       "claimed_at": "2026-07-02T23:49:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7609423",
+      "notes": null,
+      "shipped_at": "2026-07-03T06:36:30Z"
+    },
+    {
+      "r_number": "R-F2361",
+      "title": "DD honesty: run substance/confidence gate on AMBER-LIGHT not only GREEN (no over-reassuring headline on data-starved entities)",
+      "claimed_at": "2026-07-03T06:37:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2362",
+      "title": "sanctions: suppress acronym-collision noise (extend token-overlap gate to info-tier + drop <=2-char acronym aliases)",
+      "claimed_at": "2026-07-03T06:37:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2363",
+      "title": "Phase A gate #2 accel: reading-loop cadence env-tunable, default 6h->2.5h so region-grounded reads accumulate faster (honest EWMA, no alpha/weight/grounding change = no gaming)",
+      "claimed_at": "2026-07-03T06:55:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

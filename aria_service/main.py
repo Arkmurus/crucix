@@ -2422,7 +2422,16 @@ async def lifespan(app: FastAPI):
             finally:
                 cost_tracker.reset_feature(_t)
                 reset_priority(_p)
-            await asyncio.sleep(6 * 3600)  # Every 6 hours
+            # R-F2363 — Phase A gate #2 accelerator. The regional heatmap floor closes only
+            # as the weakest topic×region cell accumulates ~17 READ-GROUNDED observations
+            # (weight=0.3/alpha=0.03, credited only when the fetched text actually mentions
+            # the region — student.py:1099/1113). At the old 6h cadence that's ~4+ days. A
+            # shorter cadence = MORE genuine region-specific reading = legitimately faster
+            # mastery — NOT gaming (alpha/weight/read-grounding are UNCHANGED). Runs at
+            # Priority.BACKGROUND + cost_free, honours the R-F1395 pause flag. Env-tunable so
+            # the operator can dial load; default 2.5h.
+            _reading_interval_s = float(os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")
+            await asyncio.sleep(max(600.0, _reading_interval_s))
 
     async def _library_consolidate_loop():
         # Daily housekeeping — prune stale low-quality cases
