@@ -56,6 +56,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from typing import Any
 
 from . import store
@@ -66,6 +68,95 @@ logger = logging.getLogger("aria.sanctions_canonical.lookup")
 # Tunables — kept loose, the entity-overlap gate is the real safety net.
 _JACCARD_FLOOR = 0.5
 _HARD_STOP_THRESHOLD = 0.85
+
+# R-F2373 — never-false-clean freshness gate. A store not refreshed for weeks
+# (old rows persist) must NOT return an authoritative CLEAR. Env-tunable; only
+# ever DOWNGRADES a would-be CLEAR, never a REVIEW/HARD_STOP.
+_DEFAULT_MAX_STALENESS_DAYS = 30.0
+
+
+def _max_staleness_seconds() -> float:
+    """Staleness threshold in seconds (env `ARIA_SANCTIONS_MAX_STALENESS_DAYS`,
+    default 30). A would-be CLEAR whose freshest successful refresh is older
+    than this downgrades to INSUFFICIENT_DATA."""
+    raw = (os.environ.get("ARIA_SANCTIONS_MAX_STALENESS_DAYS", "") or "").strip()
+    try:
+        days = float(raw) if raw else _DEFAULT_MAX_STALENESS_DAYS
+    except (TypeError, ValueError):
+        days = _DEFAULT_MAX_STALENESS_DAYS
+    if days <= 0:
+        days = _DEFAULT_MAX_STALENESS_DAYS
+    return days * 86400.0
+
+
+def _expected_sources() -> list[str]:
+    """R-F2373 (H2) — the canonical loader registry: every source
+    check_sanctions is expected to have loaded when `sources is None`.
+
+    Derived from the loader modules' `SOURCE_ID` so it tracks the ACTUAL
+    registry (ofac_sdn + eu_consolidated) rather than a hardcoded list.
+    Returns [] if it cannot be determined — callers then fall back to the
+    aggregate count>0 gate (never hard-fail on an undeterminable registry)."""
+    srcs: list[str] = []
+    try:
+        from . import eu_consolidated, ofac_sdn
+        for mod in (ofac_sdn, eu_consolidated):
+            sid = getattr(mod, "SOURCE_ID", None)
+            if isinstance(sid, str) and sid:
+                srcs.append(sid)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.debug("could not determine expected sanctions sources: %s", e)
+        return []
+    return srcs
+
+
+def _has_refresh_metadata() -> bool:
+    """True once the REAL refresh pipeline has recorded at least one refresh
+    (production). Pure direct-seed stores (test fixtures / operator-manual
+    seed via replace_source) carry NO refresh metadata — in that context we
+    cannot reason about expected coverage or freshness, so the H1/H2 gates
+    fall back rather than fabricate a signal (R-F2373; mirrors the operator's
+    'unknown freshness is a soft signal' directive)."""
+    try:
+        return len(store.get_last_refresh()) > 0
+    except Exception:
+        return False
+
+
+def _freshest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
+    """Age (seconds) of the FRESHEST successful refresh among the in-scope
+    sources. Returns None when no freshness metadata is available at all —
+    unknown freshness is a SOFT signal (do not fabricate / do not hard-fail a
+    would-be CLEAR on missing metadata alone)."""
+    summary = _cache_status_summary()
+    now = time.time()
+    freshest_ts: float | None = None
+    for src, meta in summary.items():
+        if in_scope and src not in in_scope:
+            continue
+        # Only a SUCCESSFUL refresh counts as fresh. success is stored as an
+        # INTEGER 1/0 in refresh_log (store.py:218), None for direct-seeded
+        # sources. R-F2373 cross-check: `is False` would NOT skip a failed
+        # refresh (0 is not False in Python), so a source that keeps FAILING to
+        # refresh (recent failed-attempt timestamps over stale successful data)
+        # would be counted as fresh → a false-clean. Skip any explicit non-
+        # success (0 / False); keep None (unknown/direct-seed, whose ts is None
+        # anyway) for the soft-signal path.
+        _succ = meta.get("success")
+        if _succ is not None and not _succ:
+            continue
+        ts = meta.get("last_refresh_at")
+        if ts is None:
+            continue
+        try:
+            ts = float(ts)
+        except (TypeError, ValueError):
+            continue
+        if freshest_ts is None or ts > freshest_ts:
+            freshest_ts = ts
+    if freshest_ts is None:
+        return None
+    return max(0.0, now - freshest_ts)
 
 
 def _country_aliases() -> dict[str, set[str]]:
@@ -345,6 +436,9 @@ def check_sanctions(
     # readiness; an unloaded store → INSUFFICIENT_DATA + source_unavailable so
     # callers render UNVERIFIED, never "clean".
     store_unavailable = False
+    coverage_gap: list[str] = []
+    reason: str | None = None
+    freshness_age_days: float | None = None
     if not matches:
         try:
             if sources:
@@ -356,10 +450,53 @@ def check_sanctions(
         if _loaded <= 0:
             verdict = "INSUFFICIENT_DATA"
             store_unavailable = True
+            reason = "sanctions_store_empty_or_unavailable"
         elif exact_rows or q_entity_tokens:
-            verdict = "CLEAR"
+            # A would-be CLEAR. Before returning it, apply two R-F2373
+            # never-false-clean gates that only ever DOWNGRADE a clean (they
+            # never touch a REVIEW/HARD_STOP, which live in the else branch):
+            #   H2 partial-coverage — every EXPECTED in-scope source must hold
+            #       rows, else an EU-only entity screens CLEAR against an
+            #       OFAC-only store (EU loader failed/empty).
+            #   H1 staleness — the freshest SUCCESSFUL refresh of the in-scope
+            #       sources must be within ARIA_SANCTIONS_MAX_STALENESS_DAYS.
+            expected = _expected_sources()
+            in_scope = list(sources) if sources else (expected or None)
+            # H2 is enforced only once the real refresh pipeline has run at
+            # least once (production). Pure direct-seed stores carry no refresh
+            # metadata → we cannot reason about expected coverage → fall back to
+            # the aggregate count>0 gate above (never hard-fail a seeded store).
+            if expected and _has_refresh_metadata():
+                check_set = list(sources) if sources else expected
+                for src in check_set:
+                    if src not in expected:
+                        continue  # unknown/non-registry source — do not enforce
+                    try:
+                        if store.count_entries(src) <= 0:
+                            coverage_gap.append(src)
+                    except Exception:
+                        coverage_gap.append(src)
+            if coverage_gap:
+                verdict = "INSUFFICIENT_DATA"
+                store_unavailable = True
+                reason = "sanctions_partial_coverage"
+            else:
+                # H1 — unknown freshness (None) is a SOFT signal: do NOT
+                # hard-fail CLEAR on missing metadata alone (keeps direct-seeded
+                # fixtures working). Downgrade only when we KNOW the freshest
+                # successful refresh is older than the threshold.
+                age = _freshest_refresh_age_seconds(in_scope)
+                if age is not None and age > _max_staleness_seconds():
+                    verdict = "INSUFFICIENT_DATA"
+                    store_unavailable = True
+                    reason = "sanctions_data_stale"
+                    freshness_age_days = round(age / 86400.0, 1)
+                else:
+                    verdict = "CLEAR"
         else:
             verdict = "INSUFFICIENT_DATA"
+            store_unavailable = True
+            reason = "sanctions_store_empty_or_unavailable"
     else:
         # Take max score among gate-passing matches
         top = max(m["match_score"] for m in matches)
@@ -383,8 +520,15 @@ def check_sanctions(
         # vocabulary so every caller can render COULD_NOT_VERIFY, not "clean".
         "source_unavailable": store_unavailable,
     }
-    if store_unavailable:
-        result["reason"] = "sanctions_store_empty_or_unavailable"
+    # R-F2373 — surface WHY the screen could not clear so callers render the
+    # right UNVERIFIED reason (stale vs partial-coverage vs empty store).
+    if reason:
+        result["reason"] = reason
+    if coverage_gap:
+        result["coverage_gap"] = coverage_gap
+    if freshness_age_days is not None:
+        result["freshness_age_days"] = freshness_age_days
+        result["max_staleness_days"] = round(_max_staleness_seconds() / 86400.0, 1)
     # R-F1304 — wire to brain (§21a)
     try:
         from ..engine_wiring import wire_success

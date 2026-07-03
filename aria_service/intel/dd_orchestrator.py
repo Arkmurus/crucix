@@ -8818,8 +8818,13 @@ async def _orchestrate_dd_impl(
                 _rca.screen_with_relatives(report.identity.entity_name or ""),
                 timeout=_clamp(10),
             )
+            # R-F2373 (H3): also record when the RCA screen could NOT verify
+            # (source unavailable) so the DD surfaces "UNVERIFIED — not a
+            # clearance" instead of silently dropping the block (which read as
+            # "no inherited risk").
             if isinstance(_rca_out, dict) and (_rca_out.get("relatives_screened")
-                                               or _rca_out.get("inherited_risks")):
+                                               or _rca_out.get("inherited_risks")
+                                               or _rca_out.get("source_unavailable")):
                 try:
                     report.rca_relatives = _rca_out  # type: ignore[attr-defined]
                 except Exception:

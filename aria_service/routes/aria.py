@@ -258,8 +258,20 @@ _OPERATOR_ONLY_RE = re.compile(
     r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code)|self/improvements/"
     r"|coder/(?!rag/)|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
-    r"|eval/|operating-mode/set|knowledge/fact)"
+    r"|eval/|operating-mode/set|knowledge/fact"
+    # R-F2374: destructive DD/brain wipes — the shared SERVICE token (held by
+    # aria-web + aria-wa) must NOT reach these; only the OPERATOR token. These
+    # were gated at the web tier only, so any service-token holder calling
+    # aria-intel.internal directly bypassed the gate — the exact 2026-07-02
+    # dd/admin/reset wipe-incident vector ("gate at FUNCTION level, not just HTTP").
+    r"|dd/admin/reset|admin/reset-brain-stats|neural/conflicts/clear)"
 )
+
+# R-F2374: paths that are operator-only for DESTRUCTIVE methods ONLY (a GET is a
+# normal read, so these can't go in the path-only regex above). The global site
+# vault wipe/delete lives here; the per-tenant /dd/vault/case delete is NOT here
+# (users delete their own DD vault cases).
+_OPERATOR_ONLY_DELETE_RE = re.compile(r"/api/aria/vault(?:/|$)")
 
 
 def _accepted_tokens() -> list[str]:
@@ -403,8 +415,16 @@ def require_aria_token(request: Request) -> None:
     _scoping_disabled = (_os_p3.getenv("ARIA_TOKEN_SCOPING") or "").strip() == "0"
     if not _scoping_disabled:
         _op = _aria_operator_token()
-        if _op and _OPERATOR_ONLY_RE.search(request.url.path or ""):
-            if not _hmac.compare_digest(presented, _op):
+        if _op:
+            _p3_path = request.url.path or ""
+            # R-F2374: operator-only if the path matches the control/destructive
+            # regex, OR it's a DELETE against a global-vault path (method-aware —
+            # GET/POST vault reads/writes stay service-tier).
+            _op_only = bool(_OPERATOR_ONLY_RE.search(_p3_path)) or (
+                getattr(request, "method", "") == "DELETE"
+                and bool(_OPERATOR_ONLY_DELETE_RE.search(_p3_path))
+            )
+            if _op_only and not _hmac.compare_digest(presented, _op):
                 raise HTTPException(
                     status_code=403,
                     detail="Operator-tier token required for this control/destructive endpoint.",
@@ -3178,12 +3198,18 @@ async def crypto_screen_one_ep(address: str):
         raise HTTPException(status_code=400, detail="address required")
     try:
         from ..intel import crypto_sanctions as _cs
-        hits = await _cs.screen_wallet(address.strip())
+        # R-F2373: use the never-false-clean checked screen so an unavailable
+        # index renders UNVERIFIED (screened=False, source_unavailable=True),
+        # NOT matched=false (which reads as a clean bill).
+        r = await _cs.screen_wallet_checked(address.strip())
         return {
             "address": address,
-            "chain":   _cs.detect_chain(address),
-            "matches": hits,
-            "matched": bool(hits),
+            "chain":   r.get("chain"),
+            "matches": r.get("hits") or [],
+            "matched": r.get("matched", False),
+            "screened": r.get("screened", False),
+            "source_unavailable": r.get("source_unavailable", False),
+            "reason": r.get("reason"),
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -8617,10 +8643,16 @@ async def _execute_tool(
                 if entity_for_screen and len(entity_for_screen.strip()) >= 3:
                     screen_r = await aria_sanctions.fuzzy_screen(entity_for_screen)
                     top = (screen_r.get("matches") or [])[:3]
-                    top_str = "\n".join(
-                        f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
-                        for m in top
-                    ) or "  - No matches found"
+                    # R-F2373 (M1): an unavailable/not-screened source must NOT
+                    # render "No matches found" (a false clearance) on the tool
+                    # path the R-F2143 yes/no claim-guard does not cover.
+                    if screen_r.get("source_unavailable") or screen_r.get("screened") is False:
+                        top_str = "  - COULD NOT VERIFY — sanctions source unavailable (NOT a clearance)"
+                    else:
+                        top_str = "\n".join(
+                            f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                            for m in top
+                        ) or "  - No matches found"
                     base += (
                         f"\n\n[TOOL: auto_sanctions_screen]\n"
                         f"Entity: {entity_for_screen}\n"
@@ -8671,10 +8703,14 @@ async def _execute_tool(
                 if entity and len(entity.strip()) >= 3:
                     screen_r = await aria_sanctions.fuzzy_screen(entity)
                     top = (screen_r.get("matches") or [])[:3]
-                    top_str = "\n".join(
-                        f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
-                        for m in top
-                    ) or "  - No matches found"
+                    # R-F2373 (M1): unavailable source → UNVERIFIED, not a clean.
+                    if screen_r.get("source_unavailable") or screen_r.get("screened") is False:
+                        top_str = "  - COULD NOT VERIFY — sanctions source unavailable (NOT a clearance)"
+                    else:
+                        top_str = "\n".join(
+                            f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                            for m in top
+                        ) or "  - No matches found"
                     base += (
                         f"\n\n[TOOL: auto_sanctions_screen]\nEntity: {entity}\n"
                         f"Top matches:\n{top_str}\n"
@@ -8690,10 +8726,14 @@ async def _execute_tool(
             r = await aria_sanctions.fuzzy_screen(intent["entity"])
             kb_hits = knowledge_mod.search_knowledge(intent["entity"]) or ""
             top = (r.get("matches") or [])[:3]
-            top_str = "\n".join(
-                f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
-                for m in top
-            ) or "  - no matches"
+            # R-F2373 (M1): unavailable source → UNVERIFIED, not "no matches".
+            if r.get("source_unavailable") or r.get("screened") is False:
+                top_str = "  - COULD NOT VERIFY — sanctions source unavailable (NOT a clearance)"
+            else:
+                top_str = "\n".join(
+                    f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                    for m in top
+                ) or "  - no matches"
             return (
                 f"\n\n[TOOL: compliance_screen]\nEntity: {intent['entity']}\n"
                 f"Top matches:\n{top_str}\n"
@@ -8704,10 +8744,14 @@ async def _execute_tool(
         if tool == "fuzzy_sanctions":
             r = await aria_sanctions.fuzzy_screen(intent["entity"])
             top = (r.get("matches") or [])[:5]
-            top_str = "\n".join(
-                f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')} via='{m.get('matched_via_variant')}'"
-                for m in top
-            ) or "  - no matches"
+            # R-F2373 (M1): unavailable source → UNVERIFIED, not "no matches".
+            if r.get("source_unavailable") or r.get("screened") is False:
+                top_str = "  - COULD NOT VERIFY — sanctions source unavailable (NOT a clearance)"
+            else:
+                top_str = "\n".join(
+                    f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')} via='{m.get('matched_via_variant')}'"
+                    for m in top
+                ) or "  - no matches"
             return (
                 f"\n\n[TOOL: fuzzy_sanctions_screen]\n"
                 f"Entity: {intent['entity']}\n"
@@ -11047,6 +11091,19 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                             _aio2364.create_task(_r2364_judge_bg())
                 except Exception as _e2364:
                     _log.debug("[R-F2364] stream verification/honesty dispatch failed: %s", _e2364)
+
+                # R-F2376 (M5/§25): the web SSE path recorded ONLY failure
+                # outcomes (timeout_fallback/error) and never success, so
+                # get_surface_health("web") saw only failures for genuine browser
+                # traffic and its success rate was uncomputable. Fire the SUCCESS
+                # outcome on the clean-completion path (the deadline-cut path
+                # already reported timeout_fallback above, so guard on it).
+                if not _compose_cut:
+                    _fire_web_delivery_outcome(
+                        session_id, "delivered_real_answer",
+                        f"tool={tool_used or 'none'}",
+                        latency_ms=int((time.monotonic() - _stream_req_t0) * 1000),
+                    )
 
                 # Finally emit the deferred done event so the client closes
                 # cleanly. If we never got a done event (shouldn't happen),
@@ -23118,24 +23175,24 @@ async def health_perf_ep():
     verify_stats: dict = {}
     try:
         from ..learning import verification_gate as _vg
-        verify_stats = await _vg.get_stats_24h() if hasattr(_vg, "get_stats_24h") else {}
-    except Exception:
-        try:
-            from ..intel import verification_gate as _vg2
-            if hasattr(_vg2, "get_stats_24h"):
-                verify_stats = await _vg2.get_stats_24h()
-        except Exception:
-            verify_stats = {}
+        # R-F2375 (H5): the real function is get_stats() (async). The old
+        # get_stats_24h() never existed, so hasattr was always False and this
+        # field was permanently {} — blinding ARIA's own verification self-view.
+        verify_stats = await _vg.get_stats()
+    except Exception as e:
+        _log.debug("health/perf verification_24h read failed: %s", e)
+        verify_stats = {}
 
     # Autonomy engine state.
     autonomy_state: dict = {}
     try:
         from ..autonomous import engine as _eng
-        if hasattr(_eng, "get_status"):
-            autonomy_state = await _eng.get_status()
-        elif hasattr(_eng, "status"):
-            autonomy_state = _eng.status()
-    except Exception:
+        # R-F2375 (H5): the real function is get_engine_status() and it is SYNC.
+        # The old get_status()/status() names did not exist → autonomy:{} always,
+        # so /health/perf could not report that autonomy was running (it is).
+        autonomy_state = _eng.get_engine_status()
+    except Exception as e:
+        _log.debug("health/perf autonomy read failed: %s", e)
         autonomy_state = {}
 
     # LLM provider availability — which backends are usable right
@@ -23143,9 +23200,11 @@ async def health_perf_ep():
     providers: dict = {}
     try:
         from ..llm import fallback as _fb
-        if hasattr(_fb, "get_provider_status"):
-            providers = _fb.get_provider_status()
-    except Exception:
+        # R-F2375 (H5): get_provider_status() is now a real aggregator (added to
+        # llm/fallback.py) — configured slots + live circuit-breaker state.
+        providers = _fb.get_provider_status()
+    except Exception as e:
+        _log.debug("health/perf llm_providers read failed: %s", e)
         providers = {}
 
     # R-F400 (2026-05-13): inventory counts ARIA can cite directly.

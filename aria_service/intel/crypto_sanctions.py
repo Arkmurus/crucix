@@ -228,28 +228,59 @@ async def _index_size(rs) -> int:
         return 0
 
 
-@wired(module="crypto_sanctions", summary="Crypto wallet screen", check_falsy_success=True)
+async def screen_wallet_checked(address: str) -> dict[str, Any]:
+    """Never-false-clean wallet screen (R-F2373).
 
-async def screen_wallet(address: str) -> list[dict[str, Any]]:
-    """Look up one wallet address in the indexed table.
+    Returns a STRUCTURED result so a caller can distinguish a genuine
+    no-match (index loaded, address absent) from an UNAVAILABLE index
+    (redis error / never-built / empty). The latter MUST render as
+    UNVERIFIED, never "clean" — that is the single worst output a
+    compliance tool can emit. Mirrors ``sanctions.fuzzy_screen``'s
+    ``screened`` / ``source_unavailable`` vocabulary (R-F1696).
 
-    Returns: list of matching sanctions records (empty if no match).
-    Match is exact (lowercase) — OpenSanctions provides the normalised
-    form. Chain auto-detected and included in the response.
+    Shape::
+
+        {
+          "address": str, "chain": str|None,
+          "screened": bool,            # True only if the index was consulted
+          "source_unavailable": bool,  # True if index missing/empty/errored
+          "matched": bool,             # True if >=1 sanctioned-wallet hit
+          "hits": list[dict],
+          "reason": str|None,
+        }
     """
     if not address or not isinstance(address, str):
-        return []
-    a = address.strip().lower()
+        return {"address": address, "chain": None, "screened": False,
+                "source_unavailable": False, "matched": False, "hits": [],
+                "reason": "empty_address"}
+    addr = address.strip()
+    a = addr.lower()
     if not a:
-        return []
+        return {"address": address, "chain": None, "screened": False,
+                "source_unavailable": False, "matched": False, "hits": [],
+                "reason": "empty_address"}
     rs = await _redis()
     try:
         idx = await rs.get_json(_REDIS_INDEX_KEY)
     except Exception as e:
         logger.warning("crypto_sanctions: redis read failed: %s", e)
-        return []
-    if not isinstance(idx, dict):
-        return []
+        try:
+            wire_failure(module="crypto_sanctions",
+                         detail=f"wallet index read failed: {e}",
+                         gap_type="source_failure", source="crypto_sanctions:screen")
+        except Exception:
+            pass
+        return {"address": addr, "chain": detect_chain(addr), "screened": False,
+                "source_unavailable": True, "matched": False, "hits": [],
+                "reason": "index_read_failed"}
+    # Index never built / wrong type / EMPTY → NOT a clean screen (R-F2373).
+    # The crypto-sanctions dataset always holds thousands of addresses, so an
+    # empty/absent map means the daily refresh has not populated it (cold boot
+    # before first refresh, or a failed refresh) — unavailable, not "no match".
+    if not isinstance(idx, dict) or not idx:
+        return {"address": addr, "chain": detect_chain(addr), "screened": False,
+                "source_unavailable": True, "matched": False, "hits": [],
+                "reason": "index_unavailable"}
     hits = idx.get(a) or []
     if hits:
         # Brain absorb the hit
@@ -259,11 +290,11 @@ async def screen_wallet(address: str) -> list[dict[str, Any]]:
                 await brain_hook.absorb(
                     module="crypto_sanctions",
                     summary=(
-                        f"Sanctioned wallet match: {address[:10]}... ({hit.get('chain')}) "
+                        f"Sanctioned wallet match: {addr[:10]}... ({hit.get('chain')}) "
                         f"linked to {hit.get('entity_name','?')}"
                     ),
                     detail=(
-                        f"Address: {address}. Entity: {hit.get('entity_name')}. "
+                        f"Address: {addr}. Entity: {hit.get('entity_name')}. "
                         f"Topics: {hit.get('topics')}. Countries: {hit.get('countries')}."
                     ),
                     topic="crypto_sanctioned_wallet",
@@ -273,34 +304,74 @@ async def screen_wallet(address: str) -> list[dict[str, Any]]:
                 )
         except Exception as e:
             logger.debug("crypto sanctions brain absorb failed (non-fatal): %s", e)
-    return hits
+    return {"address": addr, "chain": detect_chain(addr), "screened": True,
+            "source_unavailable": False, "matched": bool(hits), "hits": hits,
+            "reason": None}
+
+
+@wired(module="crypto_sanctions", summary="Crypto wallet screen", check_falsy_success=True)
+async def screen_wallet(address: str) -> list[dict[str, Any]]:
+    """Legacy list API — returns the hit list (empty on no-match).
+
+    WARNING (R-F2373): an empty list from this function does NOT
+    distinguish "no match" from "index unavailable". For ANY
+    compliance/verdict decision use :func:`screen_wallet_checked` and
+    honour ``source_unavailable`` — never treat ``[]`` here as a clean
+    screen.
+    """
+    r = await screen_wallet_checked(address)
+    return r.get("hits") or []
 
 
 @wired(module="crypto_sanctions", summary="Crypto wallet batch screen", check_falsy_success=True)
 
 async def screen_wallet_batch(addresses: list[str]) -> dict[str, Any]:
-    """Screen a list of addresses; returns per-address match list."""
+    """Screen a list of addresses; returns per-address match list.
+
+    R-F2373: propagates ``source_unavailable`` so a batch that ran
+    against an unavailable index is NEVER narrated as "none matched"
+    (a false clean). ``screened`` is False only when EVERY address was
+    unscreenable.
+    """
     if not addresses:
-        return {"results": {}, "total_addresses": 0, "matched_addresses": 0}
+        return {"results": {}, "total_addresses": 0, "matched_addresses": 0,
+                "screened": True, "source_unavailable": False,
+                "narrative": "No addresses supplied."}
     results: dict[str, list[dict[str, Any]]] = {}
     matched_count = 0
+    screened_count = 0
+    unavailable_count = 0
     for a in addresses:
         if not a:
             continue
-        hits = await screen_wallet(a)
-        results[a] = hits
-        if hits:
+        r = await screen_wallet_checked(a)
+        results[a] = r.get("hits") or []
+        if r.get("source_unavailable"):
+            unavailable_count += 1
+        else:
+            screened_count += 1
+        if r.get("matched"):
             matched_count += 1
+    n = len(results)
+    all_unavailable = n > 0 and screened_count == 0
+    if all_unavailable:
+        narrative = (f"COULD NOT VERIFY — crypto sanctions index unavailable; "
+                     f"{n} address(es) NOT screened.")
+    elif matched_count:
+        narrative = (f"Screened {screened_count} address(es); {matched_count} matched "
+                     f"sanctioned-entity wallets.")
+    else:
+        narrative = f"Screened {screened_count} address(es); none matched sanctioned wallets."
+        if unavailable_count:
+            narrative += (f" NOTE: {unavailable_count} address(es) could NOT be verified "
+                          f"(index partially unavailable) — NOT a clearance.")
     return {
         "results":           results,
-        "total_addresses":   len(addresses),
+        "total_addresses":   n,
         "matched_addresses": matched_count,
-        "narrative": (
-            f"Screened {len(addresses)} address(es); {matched_count} matched "
-            f"sanctioned-entity wallets."
-            if matched_count
-            else f"Screened {len(addresses)} address(es); none matched sanctioned wallets."
-        ),
+        "screened":          not all_unavailable,
+        "source_unavailable": unavailable_count > 0,
+        "narrative":         narrative,
     }
 
 
@@ -309,10 +380,22 @@ async def index_status() -> dict[str, Any]:
     rs = await _redis()
     last = await rs.get(_REDIS_LAST_REFRESH_KEY)
     size = await _index_size(rs)
+    # R-F2373: compute real staleness so callers/dashboards can tell whether
+    # the index is fresh. `last` is an ISO-8601 UTC string (see fetch_and_index).
+    stale_seconds: float | None = None
+    if last:
+        try:
+            _ts = datetime.fromisoformat(str(last))
+            if _ts.tzinfo is None:
+                _ts = _ts.replace(tzinfo=timezone.utc)
+            stale_seconds = (datetime.now(timezone.utc) - _ts).total_seconds()
+        except Exception:
+            stale_seconds = None
     return {
         "indexed_count":     size,
         "last_refresh":      last,
-        "stale_seconds":     None,  # could compute if last is set
+        "stale_seconds":     stale_seconds,
+        "available":         bool(size and size > 0),
         "source":            _OPENSANCTIONS_TARGETS_URL,
     }
 

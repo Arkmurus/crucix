@@ -765,3 +765,45 @@ def create_fallback_chain(
         return primary or providers[0] if providers else None
 
     return FallbackProvider(providers)
+
+
+def get_provider_status() -> dict:
+    """R-F2375 (H5): aggregate LLM provider availability for /health/perf.
+
+    Grounded self-state (R-F396): reports, per provider slot, whether it is
+    CONFIGURED (env key / url present) and its live circuit-breaker state from
+    the breaker registry. Never fabricates a provider being "up" — a slot with
+    no key is ``configured: False``; a slot whose breaker is OPEN is
+    ``available: False``. Before this existed, /health/perf's ``llm_providers``
+    was permanently ``{}`` (the caller looked up a function that did not exist).
+    """
+    import os as _os
+    slots = [
+        ("aria_llm",  bool((_os.getenv("ARIA_LLM_URL") or "").strip())),
+        ("deepseek",  bool((_os.getenv("DEEPSEEK_API_KEY") or "").strip())),
+        ("anthropic", bool((_os.getenv("ANTHROPIC_API_KEY") or "").strip())),
+        ("openai",    bool((_os.getenv("OPENAI_API_KEY") or "").strip())),
+        ("gemini",    bool((_os.getenv("GEMINI_API_KEY") or _os.getenv("GOOGLE_API_KEY") or "").strip())),
+    ]
+    breaker_state: dict[str, str] = {}
+    try:
+        from ..intel import circuit_breaker as _cb
+        for b in _cb.get_all_breakers():
+            nm = str(b.get("name", "")).lower()
+            if nm:
+                breaker_state[nm] = str(b.get("state", ""))
+    except Exception as e:  # breaker registry unavailable — report config only
+        logger.debug("get_provider_status: breaker registry read failed: %s", e)
+    out: dict[str, dict] = {}
+    for name, configured in slots:
+        st = None
+        for bn, bstate in breaker_state.items():
+            if name in bn:
+                st = bstate
+                break
+        out[name] = {
+            "configured": configured,
+            "breaker_state": st,               # OPEN / CLOSED / HALF_OPEN, or None
+            "available": configured and st != "OPEN",
+        }
+    return out

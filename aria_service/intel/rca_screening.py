@@ -171,6 +171,32 @@ async def screen_with_relatives(
         }
 
     matches = primary.get("matches") or []
+
+    # R-F2373 (H3) — never-false-clean: fuzzy_screen returns matches=[] BOTH
+    # when it screened and found nothing AND when the source was UNAVAILABLE
+    # (OpenSanctions down / breaker open → source_unavailable=True /
+    # screened=False). The empty-matches narrative below ("no direct or
+    # inherited sanctions risk detected") would read a source-outage as a
+    # clearance. Distinguish the two: an unavailable source is UNVERIFIED, not
+    # clean — surface it and stop (no relatives to walk on a screen that did
+    # not run).
+    if primary.get("source_unavailable") or primary.get("screened") is False:
+        return {
+            "name":               name,
+            "ok":                 False,
+            "source_unavailable": True,
+            "primary_screen":     primary,
+            "primary_matches":    0,
+            "relatives_screened": 0,
+            "inherited_risks":    [],
+            "narrative": (
+                f"{name}: sanctions screen UNVERIFIED — source unavailable, "
+                f"NOT a clearance."
+            ),
+            "depth":              depth,
+            "threshold":          threshold,
+        }
+
     relatives_screened = 0
     inherited: list[dict[str, Any]] = []
 

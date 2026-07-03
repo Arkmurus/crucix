@@ -845,6 +845,32 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(600)
     _bg_task(asyncio.create_task(_dd_reconcile_loop(), name="dd_reconcile"))
 
+    # R-F2376 (M4/§25): drive outcome_wire's silent-drop reconciler. Its
+    # reconcile_silent_drops() had ZERO production callers, so the ACTIVE
+    # proprioception layer (a surface that dies AFTER record_request_start but
+    # BEFORE a terminal outcome) never fired. Sweep every known surface on a
+    # loop so those drops surface as a delivery_failure gap for the self-heal
+    # loop. NOTE: producers (record_request_start) are intentionally NOT yet
+    # wired into the hot chat path — record_request_start does a shared-key
+    # read-modify-write per request (one pending:<surface> dict), which would
+    # add hot-key RMW contention (R-F2277). Producer instrumentation needs
+    # per-request pending keys first; tracked as a follow-up gap. The scheduler
+    # is live now so the mechanism drains the moment producers land.
+    async def _outcome_reconcile_loop():
+        await asyncio.sleep(90)  # let the state store settle after boot
+        while True:
+            try:
+                from .intel import outcome_wire as _ow
+                for _surface in _ow.KNOWN_SURFACES:
+                    try:
+                        await _ow.reconcile_silent_drops(_surface)
+                    except Exception as _e2:  # per-surface best-effort
+                        logger.debug("[R-F2376] outcome reconcile(%s) error: %s", _surface, _e2)
+            except Exception as _e:  # noqa: BLE001 — best-effort, never crash boot
+                logger.debug("[R-F2376] outcome reconcile loop error: %s", _e)
+            await asyncio.sleep(600)
+    _bg_task(asyncio.create_task(_outcome_reconcile_loop(), name="outcome_reconcile"))
+
     # ---- R-F2154 - background expired-entry sweeper --------------------------
     _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"))
     # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---
@@ -4222,39 +4248,54 @@ async def phase_gates():
         gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
         sources["heatmap"] = f"error: {e}"
 
-    # Gate #3: 0 fly ERRORs/7d — from mistake_ledger.stats() (WARNING-level, not ERROR)
+    # Gate #3: 0 fly ERRORs/7d. R-F2375 (H6): the old reader looked up
+    # mistake_ledger keys (errors_24h/total_24h) that do NOT exist → -1 sentinel
+    # → a silent fail-by-default that read as "measured 0-errors: FAILED". There
+    # is NO true 7-day ERROR-level counter in the codebase — the only real signal
+    # is the ALL-TIME WARNING+ counter crucix:aria:error_ledger:count. Surface it
+    # for context, but report the gate-as-specified (fly ERROR/7d) as NOT
+    # separately measurable rather than fabricating pass/fail from the wrong data.
     try:
-        from .intel import mistake_ledger as _ml1643
-        ml_stats = await _ml1643.stats()
-        # mistake_ledger tracks WARNING-level events; gate #3 counts ERROR-level
-        # We report the ledger count but flag that this is WARNING not ERROR
-        err_count_24h = ml_stats.get("errors_24h", ml_stats.get("total_24h", -1))
+        from .intel import redis_store as _rs1643
+        _err_total_raw = await _rs1643.get("crucix:aria:error_ledger:count")
+        try:
+            _err_total = int(_err_total_raw) if _err_total_raw is not None else None
+        except (TypeError, ValueError):
+            _err_total = None
         gates["gate_3_zero_errors"] = {
             "label": "0 fly ERRORs/7d",
-            "value": err_count_24h,
-            "pass": err_count_24h == 0,
-            "note": "mistake_ledger tracks WARNING-level; true ERROR count needs Fly log grep",
-            "source": "mistake_ledger.stats()",
+            "value": None,
+            "pass": None,
+            "measurable": False,
+            "error_ledger_total_all_time": _err_total,
+            "note": "No 7-day ERROR-level counter exists; only an all-time WARNING+ "
+                    "counter (crucix:aria:error_ledger:count). A true fly ERROR/7d "
+                    "count needs a windowed source (Fly log grep).",
+            "source": "error_log_handler (crucix:aria:error_ledger:count, all-time)",
         }
-        sources["errors"] = "mistake_ledger.stats()"
+        sources["errors"] = "error_log_handler:count (all-time)"
     except Exception as e:
-        gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": False, "error": str(e)}
+        gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": None, "measurable": False, "error": str(e)}
         sources["errors"] = f"error: {e}"
 
-    # Gate #4: Quarantined DDs closed
+    # Gate #4: Quarantined DDs closed. R-F2375 (H6): the old reader looked up
+    # dd_case_archive keys (quarantined/open) that do NOT exist → -1 sentinel →
+    # silent fail-by-default. The REAL source (the one the /api/aria/phase/gates
+    # fork uses) is the redis list crucix:aria:dd:quarantined — empty = no open
+    # quarantined DDs = closed.
     try:
-        from .intel import dd_case_archive as _ddca1643
-        archive_stats = _ddca1643.stats()
-        quarantined = archive_stats.get("quarantined", archive_stats.get("open", -1))
+        from .intel import redis_store as _rs1643b
+        _quar = await _rs1643b.get_json("crucix:aria:dd:quarantined") or []
+        _qn = len(_quar) if isinstance(_quar, list) else 0
         gates["gate_4_quarantine_closed"] = {
             "label": "Quarantined DDs closed",
-            "value": quarantined,
-            "pass": quarantined == 0,
-            "source": "dd_case_archive.stats()",
+            "value": _qn,
+            "pass": _qn == 0,
+            "source": "redis: crucix:aria:dd:quarantined",
         }
-        sources["quarantine"] = "dd_case_archive.stats()"
+        sources["quarantine"] = "redis: crucix:aria:dd:quarantined"
     except Exception as e:
-        gates["gate_4_quarantine_closed"] = {"label": "Quarantined DDs closed", "value": None, "pass": False, "error": str(e)}
+        gates["gate_4_quarantine_closed"] = {"label": "Quarantined DDs closed", "value": None, "pass": None, "measurable": False, "error": str(e)}
         sources["quarantine"] = f"error: {e}"
 
     # Gate #5: Env vars set
@@ -4314,15 +4355,22 @@ async def phase_gates():
         gates["gate_7_design_partners"] = {"label": ">=4 design-partner convos", "value": None, "pass": False, "error": str(e)}
         sources["design_partners"] = f"error: {e}"
 
-    # Summary
-    passed = sum(1 for g in gates.values() if g.get("pass"))
+    # Summary — R-F2375 (H6): a gate whose metric is genuinely not derivable
+    # reports pass=None (measurable=False) and is EXCLUDED from the pass/fail
+    # tally, so an unmeasurable gate is never silently counted as a failure
+    # (nor a pass). all_pass is over the MEASURABLE gates only.
+    _measurable = [g for g in gates.values() if g.get("pass") is not None]
+    passed = sum(1 for g in _measurable if g.get("pass"))
+    measurable_total = len(_measurable)
     total = len(gates)
     return {
         "gates": gates,
         "summary": {
             "passed": passed,
+            "measurable": measurable_total,
+            "unmeasurable": total - measurable_total,
             "total": total,
-            "all_pass": passed == total,
+            "all_pass": measurable_total > 0 and passed == measurable_total,
             "generated_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
         },
         "sources_consulted": sources,

@@ -101,7 +101,11 @@ def test_rf396_endpoint_swallows_subsystem_errors():
     # Count try/except blocks — should be at least 4 (base, verify,
     # autonomy, providers, advisories).
     try_count = block.count("try:")
-    except_count = block.count("except Exception:")
+    # R-F2375: match both `except Exception:` and `except Exception as e:` — the
+    # per-subsystem handlers now bind the error to LOG it (autonomy/verification/
+    # llm_providers), which is strictly better than a silent swallow. The
+    # invariant this asserts (>=4 isolated subsystem try/except) is unchanged.
+    except_count = block.count("except Exception")
     assert try_count >= 4, (
         f"R-F396: only {try_count} try/ blocks — missing per-subsystem "
         f"error isolation. A single broken import would break the endpoint."

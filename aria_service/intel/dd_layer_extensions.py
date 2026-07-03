@@ -547,15 +547,29 @@ async def _run_tbml_classifier(target: dict) -> dict | None:
 
 
 async def _run_crypto_wallet_screen(wallet: str) -> dict | None:
-    """R-F74: Crypto wallet sanctions screen."""
+    """R-F74: Crypto wallet sanctions screen.
+
+    R-F2373: never-false-clean. Uses screen_wallet_checked so an
+    unavailable index surfaces UNKNOWN/UNVERIFIED rather than a clean
+    "NONE". (Also fixes a latent bug: the old code called ``.get()`` on
+    screen_wallet's *list* return, so this layer always errored to None.)
+    """
     try:
         from . import crypto_sanctions as _cs
-        result = await _cs.screen_wallet(wallet)
-        matches = result.get("matches") or []
+        r = await _cs.screen_wallet_checked(wallet)
+        if r.get("source_unavailable"):
+            return {
+                "severity": "UNKNOWN",
+                "summary": "Crypto wallet screen UNVERIFIED — sanctions index unavailable (NOT a clearance)",
+                "hits": [],
+                "source_unavailable": True,
+            }
+        matches = r.get("hits") or []
         return {
             "severity": "ELEVATED" if matches else "NONE",
             "summary": f"Crypto wallet screen: {len(matches)} match(es)",
             "hits": matches[:10],
+            "source_unavailable": False,
         }
     except Exception as e:
         logger.debug("[R-F1485] crypto_wallet failed: %s", e)

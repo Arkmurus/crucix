@@ -975,12 +975,32 @@ def structured_view(r: dict) -> dict:
     # into "verified" (that would re-inflate the number this fix exists to cut).
     _tb = dig.get("source_tier_breakdown") or {}
     _press_total = len(dig.get("press_coverage") or [])
-    _verified = sum(int(v) for k, v in _tb.items() if k in ("T1", "T2", "OFFICIAL", "INDUSTRY"))
-    _unverified = int(_tb.get("UNVERIFIED", 0))
+    # R-F2376 — reconcile the render vocabulary with the RUNTIME classifier.
+    # web_explorer._classify_tier (web_explorer.py:312-352) emits T1/T2/T3/T4/
+    # UNVERIFIED; dd_orchestrator (4611/4645) also emits ENTITY_SITE + MEMORY_ONLY.
+    # The prior split counted only T1/T2 plus OFFICIAL/INDUSTRY — DEAD keys never
+    # written into source_tier_breakdown (grep-confirmed: they appear only in
+    # comments and unrelated modules), so T3 quality press (Reuters/BBC/FT/WSJ/AP)
+    # and T4 social VANISHED from the headline, understating reputable adverse
+    # media (e.g. "8 T3 + 2 T1" rendered "2 verified / 0 unverified").
+    # Fix: T1/T2 = verified; T3 = quality press (shown distinctly); unverified is
+    # the REMAINDER of the breakdown (UNVERIFIED + T4 social ≈ unverified + any
+    # future/unmapped key) so no tier can ever silently drop again. own-site
+    # (self-reported) and from-memory (RAG-only) stay separate — never folded
+    # into "verified".
+    _tb_total = sum(int(v) for v in _tb.values())
+    _verified = int(_tb.get("T1", 0)) + int(_tb.get("T2", 0))
+    _quality_press = int(_tb.get("T3", 0))
     _own_site = int(_tb.get("ENTITY_SITE", 0))
     _from_memory = int(_tb.get("MEMORY_ONLY", 0))
+    _unverified = _tb_total - _verified - _quality_press - _own_site - _from_memory
+    if _unverified < 0:
+        _unverified = 0  # defensive: remainder can't be negative
     if _press_total:
-        _pp = [f"{_verified} verified", f"{_unverified} unverified"]
+        _pp = [f"{_verified} verified"]
+        if _quality_press:
+            _pp.append(f"{_quality_press} quality press")
+        _pp.append(f"{_unverified} unverified")
         if _own_site:
             _pp.append(f"{_own_site} own-site")
         if _from_memory:
