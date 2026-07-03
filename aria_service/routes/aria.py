@@ -18488,7 +18488,7 @@ async def proactive_lead_hunt_ep(request: Request, structured: bool = False, ref
         )
 
     if structured:
-        prompt = f"""You are ARIA on a lead-hunting cycle. From the intel below, identify markets where Arkmurus has real signal coverage.
+        prompt = f"""You are ARIA on a lead-hunting cycle. From the intel below, identify markets with real defence-procurement signal coverage.
 
 {opp_block}
 
@@ -18498,7 +18498,8 @@ Return ONLY a JSON array (no prose, no markdown fences) of up to 5 objects, each
   "market"           (country name only),
   "signal_summary"   (what intel signals exist for this market, max 2 sentences),
   "signal_count"     (integer — number of intel signals mentioning this market).
-Do NOT invent buyers, win probabilities, timelines, OEM partners, compliance flags, or action items. Only report what the intel actually says. If the intel is thin, say so honestly."""
+Do NOT invent buyers, win probabilities, timelines, OEM partners, compliance flags, or action items. Only report what the intel actually says. If the intel is thin, say so honestly.
+CRITICAL: Arkmurus is the broker READING this intel — the viewer, never a market subject. NEVER write "Arkmurus" inside a signal_summary and never describe Arkmurus as a supplier, bidder, contractor, or cited entity. signal_summary describes only buyer-side / market-side signals."""
         try:
             result = await llm.complete(
                 "ARIA — defence procurement lead generation specialist. Output strict JSON only.",
@@ -18532,9 +18533,17 @@ Do NOT invent buyers, win probabilities, timelines, OEM partners, compliance fla
                 market = str(l.get("market", ""))[:80]
                 if not market:
                     continue
+                _summary = str(l.get("signal_summary", ""))[:500]
+                # R-F2385 — the viewing broker (Arkmurus) must NEVER appear as a
+                # cited entity inside a market signal_summary (self-reference
+                # contamination from the prompt framing). Blank the summary if it
+                # names us; the BD card then shows the honest signal count instead
+                # of a wrong "Arkmurus cited as potential supplier" citation.
+                if "arkmurus" in _summary.lower():
+                    _summary = ""
                 norm.append({
                     "market": market,
-                    "signal_summary": str(l.get("signal_summary", ""))[:500],
+                    "signal_summary": _summary,
                     "signal_count": max(0, int(l.get("signal_count") or 0)),
                     "source": "brain_lead_hunt",
                 })
