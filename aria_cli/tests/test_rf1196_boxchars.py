@@ -39,11 +39,16 @@ def test_boxchars_unicode_on_utf8_terminal():
 
 
 def test_boxchars_ascii_on_cp1252_terminal():
-    """_BoxChars should use ASCII when stdout encoding is cp1252 on old Windows.
+    """_BoxChars must use ASCII when stdout encoding is cp1252 — on EVERY OS.
 
-    R-F1202: On Windows 10+, cp1252 terminals can render Unicode box-drawing
-    characters, so _BoxChars returns Unicode. On older Windows or non-Windows,
-    it falls back to ASCII.
+    R-F1683 SUPERSEDED R-F1202: display capability != byte encoding. If
+    sys.stdout.encoding is literally cp1252, Python ENCODES output as cp1252 and
+    the box glyphs raise UnicodeEncodeError mid-print — which corrupts stdout and
+    (in the full suite) hangs the next test's output. So _probe_unicode now falls
+    back to ASCII for cp1252 REGARDLESS of Windows version. This test previously
+    asserted the old R-F1202 "Win10+ -> Unicode" contract, which contradicted the
+    R-F1683 fix and (correctly) failed on Windows 11 — R-F2368 updates it to the
+    real, safe contract.
     """
     old_enc = getattr(sys.stdout, "encoding", "")
     old_no_color = os.environ.pop("NO_COLOR", None)
@@ -51,22 +56,17 @@ def test_boxchars_ascii_on_cp1252_terminal():
         # Simulate cp1252 terminal (Windows cmd.exe default)
         sys.stdout.reconfigure(encoding="cp1252")
         bx = _BoxChars()
-        # R-F1202: On Windows 10+, cp1252 now returns Unicode
-        is_modern_windows = os.name == "nt" and hasattr(sys, "getwindowsversion") and sys.getwindowsversion().major >= 10
-        if is_modern_windows:
-            assert bx._unicode is True, f"Expected unicode=True on Win10+, got {bx._unicode}"
-            assert bx.tl == "\u2554"  # ╔
-        else:
-            assert bx._unicode is False, f"Expected unicode=False, got {bx._unicode}"
-            assert bx.tl == "+"
-            assert bx.tr == "+"
-            assert bx.bl == "+"
-            assert bx.br == "+"
-            assert bx.h == "-"
-            assert bx.v == "|"
-            assert bx.tm == "|"
-            assert bx.check == "v"
-            assert bx.cross == "x"
+        # R-F1683: cp1252 cannot encode the box glyphs -> ASCII fallback, always.
+        assert bx._unicode is False, f"Expected unicode=False on cp1252, got {bx._unicode}"
+        assert bx.tl == "+"
+        assert bx.tr == "+"
+        assert bx.bl == "+"
+        assert bx.br == "+"
+        assert bx.h == "-"
+        assert bx.v == "|"
+        assert bx.tm == "|"
+        assert bx.check == "v"
+        assert bx.cross == "x"
     finally:
         if old_no_color is not None:
             os.environ["NO_COLOR"] = old_no_color

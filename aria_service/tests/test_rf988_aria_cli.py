@@ -548,7 +548,13 @@ def test_hard_llm_error_does_not_retry_or_resume(tmp_path):
 
         def chat(self, messages, tools=None):
             self.calls += 1
-            raise LLMError("HTTP 401 authentication_error: invalid api key")
+            # R-F2368: replicate PRODUCTION — llm.py raises a 401 with
+            # transient=False (line ~273: 401 is neither 429 nor >=500). The
+            # old mock omitted it, so LLMError defaulted to transient=True and
+            # _is_transient (R-F1418, trusts the typed flag) correctly returned
+            # True — the test was asserting a contract the mock didn't create.
+            raise LLMError("HTTP 401 authentication_error: invalid api key",
+                           transient=False)
 
         def close(self):
             pass

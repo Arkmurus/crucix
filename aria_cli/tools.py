@@ -409,7 +409,21 @@ class Toolbox:
             # as UTF-8 below). Idempotent and harmless for ASCII output.
             tmp.write("$OutputEncoding = [Console]::OutputEncoding = "
                       "[System.Text.Encoding]::UTF8\n")
-            tmp.write(command)
+            # R-F2368 — PowerShell call-operator for quoted-path commands. A .ps1
+            # line that STARTS with a double-quoted string (e.g. the R-F2060
+            # `"C:\...\python.exe" -m pytest`) is parsed as a STRING EXPRESSION,
+            # so the next token (`-m`) raises "ParserError: Unexpected token '-m'
+            # in expression or statement" and the command never runs — silently
+            # breaking the coder's own test()/quoted-path run() self-verification
+            # on Windows since R-F2060 (2026-06-27). To EXECUTE a quoted path,
+            # PowerShell needs the call operator `&`. Prepend it ONLY when the
+            # command leads with a quote (normal `git status` / `python -m x`
+            # parse fine as commands and must stay untouched). Works in both
+            # pwsh 7 and Windows PowerShell 5.1.
+            _ps_command = command
+            if _ps_command.lstrip().startswith('"'):
+                _ps_command = "& " + _ps_command
+            tmp.write(_ps_command)
             tmp.write("\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n")
             tmp.close()
             # R-F2163: prefer PowerShell 7+ (pwsh) — the operator's primary shell —
@@ -846,6 +860,27 @@ TOOL_SCHEMAS: list[dict] = [
                     },
                 },
                 "required": ["plan"],
+            },
+        },
+    },
+    {
+        # R-F2368 — restore fetch_url to the general toolbox schema. The handler
+        # (Toolbox.fetch_url, ~line 660) and the CLI dispatch (cli.py:1608) both
+        # exist, but the schema was dropped (stale "already in coder_tools" note) —
+        # so the general (non-coder) agent had a LIVE handler it could never call.
+        # coder_tools already advertises it; this restores parity so both modes can
+        # pull docs / API responses / raw files.
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "HTTP GET a URL and return its text (docs, an API response, a raw file). Falls back to Playwright JS rendering for SPAs. Read-only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "max_chars": {"type": "integer", "description": "Max chars to return (optional)."},
+                },
+                "required": ["url"],
             },
         },
     },
