@@ -190,7 +190,7 @@ const Nav = {
       if (!user) return;
       const el = document.getElementById('nav-user-name');
       if (el) el.textContent = user.fullName || user.username;
-      const av = document.getElementById('nav-avatar');
+      const av = document.getElementById('nav-avatar-mark') || document.getElementById('nav-avatar');
       if (av) av.textContent = Auth.initials(user);
       const adminLinks = document.querySelectorAll('[data-admin-only]');
       adminLinks.forEach(l => { l.style.display = user.role === 'admin' ? '' : 'none'; });

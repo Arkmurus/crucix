@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Network — ARIA Intelligence</title>
 <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-<link rel="stylesheet" href="css/aria.css?v=9">
+<link rel="stylesheet" href="css/aria.css?v=10">
 <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
 <style>
   /* ARIA Network (R-F2342) — self-contained styles scoped to .net-* so they
@@ -20,7 +20,9 @@
     --n-on:#16a34a; --n-off:#dc2626; --n-away:#d08700;
   }
   #app-main{padding:0;min-width:0;overflow:hidden;}
-  .net-wrap{display:grid;grid-template-columns:340px minmax(0,1fr);height:calc(100vh - 56px);
+  /* R-F2372 — top header removed; the rail owns the left, so the network fills
+     the full viewport height. */
+  .net-wrap{display:grid;grid-template-columns:340px minmax(0,1fr);height:100vh;height:100dvh;
     min-height:480px;background:var(--n-bg);position:relative;}
   /* R-F2371 — a third profile pane opens when a conversation is active (blends the
      reference 3-pane messenger into ARIA). >1200px shows it inline; below, it
@@ -281,8 +283,8 @@
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
 
-<script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=10"></script>
+<script src="js/app.js?v=8"></script>
+<script src="js/sidebar.js?v=11"></script>
 <script>
   Auth.requireAuth();
   Sidebar.init('network');

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Account & Billing — ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=9">
+  <link rel="stylesheet" href="css/aria.css?v=10">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     .acct-shell { max-width: 960px; margin: 0 auto; padding: 28px 24px 60px; }
@@ -250,8 +250,8 @@
   </div>
 </main>
 
-<script src="js/app.js?v=6"></script>
-<script src="js/sidebar.js?v=10"></script>
+<script src="js/app.js?v=8"></script>
+<script src="js/sidebar.js?v=11"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('account');
@@ -611,7 +611,7 @@ Sidebar.init('account');
   function msg(t, ok) { const m = $('pf-msg'); m.textContent = t || ''; m.style.color = ok ? '#15803d' : '#b91c1c'; }
   function syncHeader(u) {
     const nn = document.getElementById('nav-user-name'); if (nn) nn.textContent = u.fullName || u.username || '';
-    const na = document.getElementById('nav-avatar');
+    const na = document.getElementById('nav-avatar-mark');   // R-F2372 — the circular mark inside the rail account row
     if (na && u.avatarUrl) { na.textContent = ''; na.style.backgroundImage = 'url("' + u.avatarUrl + '")'; na.style.backgroundSize = 'cover'; na.style.backgroundPosition = 'center'; na.style.color = 'transparent'; }
   }
   function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (window.Auth) Auth.user = u; } catch (e) {} }

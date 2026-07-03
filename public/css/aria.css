@@ -36,8 +36,14 @@
   --sc-shadow-lg:     0 14px 38px rgba(40,36,30,0.16);
 
   --sc-radius:  14px;
-  --sidebar-w:  260px;
-  --header-h:   64px;
+  /* R-F2372 — Claude-style slim icon rail replaces the sidebar + top header.
+     --header-h is 0 so every `var(--header-h)` consumer (e.g. aria.html's
+     full-height calc) goes edge-to-edge; --sidebar-w aliases the rail width for
+     any page still keying margins off it. */
+  --rail-w:          60px;
+  --rail-expanded-w: 268px;
+  --sidebar-w:  60px;
+  --header-h:   0px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -65,235 +71,168 @@ a { text-decoration: none; }
 /* ── App Shell ─────────────────────────────────────────────────── */
 .app-shell { display: flex; min-height: 100vh; }
 
-/* ── Sidebar ────────────────────────────────────────────────────── */
+/* ═══ Left icon rail (Claude-style) — R-F2372 ══════════════════════
+   A slim icon rail that EXPANDS to a labelled panel overlaying the content
+   (content never reflows → robust on every page). No top header bar: each tab
+   owns the full viewport height. */
 #app-sidebar {
   position: fixed;
   top: 0; left: 0; bottom: 0;
-  width: var(--sidebar-w);
+  width: var(--rail-w);
   background: var(--sc-panel);
   border-right: 1px solid var(--sc-border);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: left 0.28s cubic-bezier(0.4,0,0.2,1);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;                 /* let popups/labels escape; nav clips its own x */
+  transition: width 0.24s cubic-bezier(0.4,0,0.2,1);
+}
+body.nav-expanded #app-sidebar {
+  width: var(--rail-expanded-w);
+  box-shadow: var(--sc-shadow-lg);
+  border-right-color: var(--sc-border-strong);
 }
 
-/* R-F2049 — collapse is driven by `body.sidebar-collapsed` (set by sidebar.js).
-   The old `#app-sidebar.collapsed ~ #app-main` sibling selector never matched
-   because the sidebar is wrapped in #sidebar-placeholder — so the main content
-   never reclaimed the space. Keying off <body> is structure-independent. */
-body.sidebar-collapsed #app-sidebar { left: calc(0px - var(--sidebar-w)); }
+/* click-catcher / scrim shown while the rail is expanded */
+#sidebar-overlay { position: fixed; inset: 0; z-index: 99; background: transparent; display: none; }
+body.nav-expanded #sidebar-overlay { display: block; }
 
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 18px;
-  height: var(--header-h);
-  border-bottom: 1px solid var(--sc-border);
+/* shared rail row (links + buttons): fixed icon column keeps icons aligned as
+   the rail widens; the label only appears when expanded. */
+.rail-link {
+  display: flex; align-items: center;
+  height: 44px; width: 100%;
+  border-radius: 10px;
+  color: var(--sc-text);
+  font-size: 14px; font-weight: 600;
+  background: none; border: none;
+  cursor: pointer; position: relative;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.rail-link > i {
+  width: calc(var(--rail-w) - 20px);
+  min-width: calc(var(--rail-w) - 20px);
+  font-size: 20px; color: var(--sc-muted);
+  display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
+.rail-label {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  display: none;                     /* collapsed: label removed from layout (no spill) */
+  padding-right: 12px;
+}
+body.nav-expanded .rail-label { display: block; }
 
-.sidebar-logo-mark {
-  width: 30px; height: 30px;
-  border-radius: 8px;
+.rail-link:hover { background: var(--sc-hover); color: var(--sc-heading); }
+.rail-link:hover > i { color: var(--sc-prime); }
+.rail-link.active { background: var(--sc-prime-soft); color: var(--sc-prime-dark); }
+.rail-link.active > i { color: var(--sc-prime); }
+.rail-link.aria-link.active { color: var(--sc-prime-dark); }
+.rail-link:focus-visible { outline: 2px solid var(--sc-prime); outline-offset: -2px; }
+
+/* top cluster: brand/toggle row + new-chat */
+.rail-top { flex-shrink: 0; padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 3px; }
+.rail-toprow { display: flex; align-items: center; height: 40px; }
+.rail-logo {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
   background: linear-gradient(135deg, #913BFF, #6d28d9);
   box-shadow: 0 2px 8px rgba(124,58,237,0.30);
-  flex-shrink: 0;
+  margin-left: 5px; display: none;
 }
-
-.sidebar-brand-name {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--sc-heading);
-  flex: 1;
+body.nav-expanded .rail-logo { display: block; }
+.rail-name {
+  flex: 1; margin-left: 11px;
+  font-size: 14px; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--sc-heading);
+  display: none; white-space: nowrap;
 }
-
-/* R-F2052 — Claude-style collapse control lives at the TOP of the sidebar.
-   Clicking it retracts the menu (body.sidebar-collapsed); the header hamburger
-   then appears at the top-left to re-open. */
-.sidebar-collapse-btn {
-  background: none; border: none;
-  color: var(--sc-muted);
-  cursor: pointer;
-  font-size: 18px;
+body.nav-expanded .rail-name { display: block; }
+.rail-toggle {
+  width: 40px; height: 40px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px;
-  border-radius: 7px;
-  flex-shrink: 0;
+  background: none; border: none; cursor: pointer;
+  color: var(--sc-muted); font-size: 19px; border-radius: 9px;
   transition: color 0.15s, background 0.15s;
 }
-.sidebar-collapse-btn:hover { color: var(--sc-heading); background: var(--sc-hover); }
+.rail-toggle:hover { color: var(--sc-heading); background: var(--sc-hover); }
+body:not(.nav-expanded) .rail-toprow { justify-content: center; }
+body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
-.sidebar-nav { padding: 12px 0; flex: 1; }
+.rail-new > i { color: var(--sc-prime); }
 
-.sidebar-section {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--sc-muted);
-  padding: 16px 20px 6px;
+/* scrolling nav */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; }
+.rail-nav::-webkit-scrollbar { width: 0; height: 0; }
+.rail-section {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--sc-muted); white-space: nowrap; overflow: hidden;
+  height: 0; opacity: 0; padding: 0 12px; transition: opacity 0.15s;
+}
+body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 14px 12px 4px; }
+.rail-divider { height: 1px; background: var(--sc-border); margin: 8px 10px; }
+body.nav-expanded .rail-divider { display: none; }   /* section labels replace dividers when expanded */
+
+/* bottom cluster: alerts + account */
+.rail-bottom { flex-shrink: 0; padding: 8px 10px 12px; border-top: 1px solid var(--sc-border); display: flex; flex-direction: column; gap: 2px; }
+.rail-alerts { position: relative; }
+.rail-badge {
+  position: absolute; top: 6px; left: 26px;
+  min-width: 16px; height: 16px; border-radius: 8px;
+  background: #dc2626; color: #fff; font-size: 10px; font-weight: 700;
+  line-height: 16px; padding: 0 4px; text-align: center;
+  box-shadow: 0 0 0 2px var(--sc-panel);
 }
 
-.sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 12px 16px;
-  margin: 2px 8px;
-  border-radius: 8px;
-  color: var(--sc-text);
-  font-size: 14px;            /* R-F2197 */
-  font-weight: 600;
-  transition: all 0.18s;
-  position: relative;
-}
-
-.sidebar-link i { font-size: 20px; flex-shrink: 0; color: var(--sc-muted); }
-
-.sidebar-link:hover {
-  background: var(--sc-hover);
-  color: var(--sc-heading);
-}
-.sidebar-link:hover i { color: var(--sc-prime); }
-
-.sidebar-link.active {
-  background: var(--sc-prime-soft);
-  color: var(--sc-prime-dark);
-  border-left: 3px solid var(--sc-prime);
-  border-radius: 0 8px 8px 0;
-  margin-left: 8px;
-  font-weight: 600;
-}
-
-.sidebar-link.active i { color: var(--sc-prime); }
-
-.sidebar-link .badge {
-  margin-left: auto;
-  background: var(--sc-prime);
-  color: #fff;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-weight: 700;
-}
-
-.sidebar-divider {
-  height: 1px;
-  background: var(--sc-border);
-  margin: 10px 16px;
-}
-
-.sidebar-link.aria-link { color: var(--sc-prime-dark); font-weight: 600; }
-.sidebar-link.aria-link i { color: var(--sc-prime); }
-
-/* ── Header ──────────────────────────────────────────────────────── */
-#app-header {
-  position: fixed;
-  top: 0;
-  left: var(--sidebar-w);
-  right: 0;
-  height: var(--header-h);
-  background: rgba(250,249,245,0.82);
-  backdrop-filter: saturate(160%) blur(10px);
-  border-bottom: 1px solid var(--sc-border);
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
-  gap: 12px;
-  z-index: 90;
-  transition: left 0.28s cubic-bezier(0.4,0,0.2,1);
-}
-
-body.sidebar-collapsed #app-header { left: 0; }
-
-.header-toggle {
-  background: none; border: none;
-  color: var(--sc-muted);
-  cursor: pointer;
-  font-size: 20px;
-  /* R-F2052 — hidden while the sidebar is open (collapse lives in the sidebar);
-     appears at the top-left only when collapsed, as the re-open control. */
-  display: none; align-items: center;
-  padding: 6px;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-}
-.header-toggle:hover { color: var(--sc-heading); background: var(--sc-hover); }
-body.sidebar-collapsed .header-toggle { display: flex; }
-
-.header-brand {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2.5px;
-  text-transform: uppercase;
-  color: var(--sc-muted);
-}
-
-.header-spacer { flex: 1; }
-
-.header-actions { display: flex; align-items: center; gap: 6px; }
-
-.header-icon-btn {
-  background: none; border: none;
-  width: 36px; height: 36px;
-  border-radius: 8px;
-  color: var(--sc-muted);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
-  transition: all 0.15s;
-}
-.header-icon-btn:hover { color: var(--sc-heading); background: var(--sc-hover); }
-
-.nav-avatar {
-  width: 34px; height: 34px;
-  border-radius: 50%;
+/* avatar mark inside the account row */
+.rail-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  margin-left: 4px; flex-shrink: 0;
   background: linear-gradient(135deg, #913BFF, #2563eb);
-  color: #fff;
+  background-size: cover; background-position: center;
+  color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700;
-  cursor: pointer;
   box-shadow: 0 2px 8px rgba(124,58,237,0.30);
-  letter-spacing: 0.5px;
 }
+.rail-account .rail-label { margin-left: 8px; }
 
-/* User dropdown */
-.nav-dropdown {
-  position: relative;
+/* popups (alerts + account) — fixed to the viewport so the slim rail never
+   clips them; anchored just to the right of the rail, bottom-left. */
+.rail-popup {
+  position: fixed; left: calc(var(--rail-w) + 8px); bottom: 14px;
+  width: 360px; max-width: calc(100vw - var(--rail-w) - 24px); max-height: 70vh;
+  background: var(--sc-card); border: 1px solid var(--sc-border);
+  border-radius: 14px; box-shadow: var(--sc-shadow-lg);
+  z-index: 300; overflow: hidden; flex-direction: column;
 }
+body.nav-expanded .rail-popup { left: calc(var(--rail-expanded-w) + 8px); }
+.rail-popup-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--sc-border); flex-shrink: 0; }
+.rail-popup-title { font-size: 13px; font-weight: 700; color: var(--sc-heading); letter-spacing: 0.3px; text-transform: uppercase; }
+.rail-popup-mark { background: #fff; border: 1px solid var(--sc-border-strong); color: var(--sc-muted); font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.rail-popup-mark:hover { color: var(--sc-heading); }
+.rail-popup-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+
+/* account menu — opens upward from the avatar row */
+.nav-dropdown { position: relative; }
 .nav-dropdown-menu {
   display: none;
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 220px;
-  background: var(--sc-card);
-  border: 1px solid var(--sc-border);
-  border-radius: 12px;
-  box-shadow: var(--sc-shadow-lg);
-  overflow: hidden;
-  z-index: 200;
+  position: fixed;
+  left: calc(var(--rail-w) + 8px); bottom: 14px;
+  width: 240px;
+  background: var(--sc-card); border: 1px solid var(--sc-border);
+  border-radius: 12px; box-shadow: var(--sc-shadow-lg);
+  overflow: hidden; z-index: 300;
 }
+body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px); }
 .nav-dropdown-menu.open { display: block; }
-.nav-dropdown-user {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--sc-border);
-}
+.nav-dropdown-user { padding: 14px 16px; border-bottom: 1px solid var(--sc-border); }
 .nav-dropdown-name { font-size: 14px; font-weight: 600; color: var(--sc-heading); }
 .nav-dropdown-role { font-size: 11px; color: var(--sc-muted); margin-top: 2px; }
 .nav-dropdown-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px;
-  font-size: 13px;
-  color: var(--sc-text);
-  cursor: pointer;
-  transition: background 0.15s;
+  padding: 10px 16px; font-size: 13px; color: var(--sc-text);
+  cursor: pointer; transition: background 0.15s;
   border: none; background: none; width: 100%; text-align: left;
 }
 .nav-dropdown-item:hover { background: var(--sc-hover); color: var(--sc-heading); }
@@ -303,15 +242,12 @@ body.sidebar-collapsed .header-toggle { display: flex; }
 
 /* ── Main Content ────────────────────────────────────────────────── */
 #app-main {
-  margin-left: var(--sidebar-w);
-  margin-top: var(--header-h);
-  min-height: calc(100vh - var(--header-h));
-  padding: 28px 28px 60px;
+  margin-left: var(--rail-w);
+  margin-top: 0;
+  min-height: 100vh;
+  padding: 28px 32px 60px;
   background: var(--sc-bg);
-  transition: margin-left 0.28s cubic-bezier(0.4,0,0.2,1);
 }
-
-body.sidebar-collapsed #app-main { margin-left: 0; }
 
 /* ── Cards ───────────────────────────────────────────────────────── */
 .sc-card {
@@ -692,21 +628,10 @@ body.sidebar-collapsed #app-main { margin-left: 0; }
 
 /* ── Responsive sidebar ───────────────────────────────────────────── */
 @media(max-width:1024px){
-  #app-sidebar { left: calc(0px - var(--sidebar-w)); box-shadow: var(--sc-shadow-lg); }
-  #app-sidebar.mobile-open { left: 0; }
-  #app-main { margin-left: 0; }
-  #app-header { left: 0; }
-  /* On mobile, collapse class must not push the sidebar further off-screen */
-  body.sidebar-collapsed #app-main { margin-left: 0; }
-  /* R-F2327 — the sidebar is off-canvas on mobile, so its open button MUST be
-     visible or logged-in users have no navigation (it was display:none, only
-     re-shown by body.sidebar-collapsed which is desktop-only). */
-  .header-toggle { display: flex; }
-  .sidebar-overlay {
-    position: fixed; inset: 0; background: rgba(15,23,42,0.4);
-    z-index: 99; display: none;
-  }
-  .sidebar-overlay.show { display: block; }
+  /* R-F2372 — the slim icon rail stays put on mobile (60px is modest); expanding
+     it dims the content so the labelled overlay reads clearly. */
+  body.nav-expanded #sidebar-overlay { background: rgba(20,18,15,0.38); }
+  .rail-popup, .nav-dropdown-menu { max-width: calc(100vw - var(--rail-w) - 16px); }
 }
 
 /* R-F2327 — iOS Safari force-zooms (and won't zoom back) when a focused field is

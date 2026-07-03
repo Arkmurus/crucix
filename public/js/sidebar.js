@@ -1,18 +1,31 @@
 /**
- * Injects the shared sidebar + header into any dashboard page.
+ * Shared left icon-rail (Claude-style) injected into every app page.
  * Call: Sidebar.init('page-key')
+ *
+ * R-F2372 — replaced the sidebar+top-header shell with a single slim icon rail
+ * that expands (overlaying the content, never reflowing it) to reveal labels.
+ * No top header: each tab owns the full viewport height. Alerts + the account
+ * menu now live at the bottom of the rail.
  */
 const Sidebar = {
   init(activePage) {
     document.getElementById('sidebar-placeholder').innerHTML = this.html(activePage);
-    document.getElementById('header-placeholder').innerHTML = this.headerHtml();
+    // Header bar removed — keep the placeholder empty so existing pages don't break.
+    const hp = document.getElementById('header-placeholder');
+    if (hp) hp.innerHTML = '';
+
+    // Restore the user's expand/collapse preference (default: collapsed rail).
+    try { if (localStorage.getItem('aria_nav_expanded') === '1') document.body.classList.add('nav-expanded'); } catch (e) {}
+
     this._bindEvents();
     Auth.me().then(user => {
       if (!user) return;
       const name = document.getElementById('nav-user-name');
-      const av   = document.getElementById('nav-avatar');
+      const av   = document.getElementById('nav-avatar-mark');   // the circular avatar mark
       const role = document.getElementById('nav-role');
       if (name) name.textContent = user.fullName || user.username;
+      const nameMenu = document.getElementById('nav-user-name-menu');
+      if (nameMenu) nameMenu.textContent = user.fullName || user.username;
       if (av) {
         // R-F2349 — shared profile photo (falls back to initials).
         if (user.avatarUrl) {
@@ -28,7 +41,6 @@ const Sidebar = {
       }
       if (role) role.textContent = user.role || 'analyst';
       const em = document.getElementById('nav-user-email'); if (em) em.textContent = user.email || '';   // R-F2359
-      // Show admin links
       if (user.role === 'admin') {
         document.querySelectorAll('[data-admin]').forEach(e => e.style.display = '');
       }
@@ -36,34 +48,28 @@ const Sidebar = {
   },
 
   _bindEvents() {
-    // Sidebar toggle — R-F2052: there are now TWO toggles (Claude-style):
-    //  • the collapse button at the TOP of the sidebar (visible when open)
-    //  • the header hamburger (visible only when collapsed, to re-open)
-    // Both carry [data-sidebar-toggle]; bind them all to one handler.
-    const sidebar = document.getElementById('app-sidebar');
     const overlay = document.getElementById('sidebar-overlay');
+    // R-F2372 — the single toggle expands/collapses the rail (persisted). The
+    // rail expands as an OVERLAY, so the main content never reflows.
     const onToggle = () => {
-      if (window.innerWidth <= 1024) {
-        sidebar.classList.toggle('mobile-open');
-        overlay && overlay.classList.toggle('show');
-      } else {
-        // R-F2049 — toggle on <body> (not the sidebar) so the CSS that
-        // reclaims the main-content space (body.sidebar-collapsed #app-main)
-        // actually matches. The old #app-sidebar.collapsed ~ #app-main
-        // sibling rule never fired (sidebar is nested in a placeholder).
-        document.body.classList.toggle('sidebar-collapsed');
-      }
+      const expanded = document.body.classList.toggle('nav-expanded');
+      try { localStorage.setItem('aria_nav_expanded', expanded ? '1' : '0'); } catch (e) {}
     };
     document.querySelectorAll('[data-sidebar-toggle]').forEach(t => t.addEventListener('click', onToggle));
 
-    if (overlay) {
-      overlay.addEventListener('click', () => {
-        sidebar.classList.remove('mobile-open');
-        overlay.classList.remove('show');
-      });
-    }
+    // Click the scrim (or press Escape) to collapse the expanded rail.
+    if (overlay) overlay.addEventListener('click', () => {
+      document.body.classList.remove('nav-expanded');
+      try { localStorage.setItem('aria_nav_expanded', '0'); } catch (e) {}
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && document.body.classList.contains('nav-expanded')) {
+        document.body.classList.remove('nav-expanded');
+        try { localStorage.setItem('aria_nav_expanded', '0'); } catch (e) {}
+      }
+    });
 
-    // User dropdown
+    // Account menu (opens upward from the avatar).
     const navAvatar = document.getElementById('nav-avatar');
     const dropdown  = document.getElementById('nav-dropdown');
     if (navAvatar && dropdown) {
@@ -80,15 +86,13 @@ const Sidebar = {
       });
     }
 
-    // Logout
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) logoutBtn.addEventListener('click', e => { e.preventDefault(); Auth.logout(); });
 
-    // R-F51: watchlist alerts bell
     this._bindAlerts();
   },
 
-  // R-F51: watchlist alerts bell + popup
+  // R-F51: watchlist alerts bell + popup (now anchored at the rail bottom).
   _bindAlerts() {
     const bell = document.getElementById('alerts-bell');
     const popup = document.getElementById('alerts-popup');
@@ -230,114 +234,104 @@ const Sidebar = {
       }[c]));
     }
 
-    // Initial badge load + poll every 60s
     refreshBadge();
     setInterval(refreshBadge, 60000);
   },
 
   html(activePage) {
-    const link = (page, href, icon, label, extra='') => {
+    // Each nav item: fixed icon column (keeps icons aligned as the rail expands)
+    // + a label that only shows when expanded. `title` gives a native tooltip
+    // while collapsed.
+    const link = (page, href, icon, label, extra = '') => {
       const cls = activePage === page ? ' active' : '';
-      return `<a href="${href}" class="sidebar-link${cls} ${extra}" data-page="${page}">
-        <i class="bi ${icon}"></i>${label}
+      return `<a href="${href}" class="rail-link${cls} ${extra}" data-page="${page}" title="${label}">
+        <i class="bi ${icon}" aria-hidden="true"></i><span class="rail-label">${label}</span>
       </a>`;
     };
     return `
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
     <aside id="app-sidebar">
-      <div class="sidebar-brand">
-        <div class="sidebar-logo-mark"></div>
-        <span class="sidebar-brand-name">ARIA</span>
-        <button class="sidebar-collapse-btn" data-sidebar-toggle title="Collapse menu" aria-label="Collapse menu">
-          <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
-        </button>
+      <div class="rail-top">
+        <div class="rail-toprow">
+          <a href="/dashboard.html" class="rail-logo" aria-label="ARIA home"></a>
+          <span class="rail-name">ARIA</span>
+          <button class="rail-toggle" data-sidebar-toggle title="Expand / collapse menu" aria-label="Expand or collapse the menu">
+            <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
+          </button>
+        </div>
+        <a href="/aria.html" class="rail-link rail-new" title="New ARIA chat">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i><span class="rail-label">New ARIA chat</span>
+        </a>
       </div>
-      <nav class="sidebar-nav">
-        <div class="sidebar-section">Intelligence</div>
-        ${link('brief',       '/dashboard.html',         'bi-broadcast-pin',          'Intelligence Brief')}
-        ${link('news',        '/news.html',              'bi-newspaper',      'News Monitor')}
-        ${link('opportunities','/opportunities.html',     'bi-briefcase',      'Opportunities')}
-        ${link('bd',           '/bd-intelligence.html',   'bi-graph-up', 'BD Intelligence')}
-        ${link('aria',         '/aria.html',              'bi-cpu',            'ARIA', 'aria-link')}
-        ${link('network',      '/network.html',           'bi-people',         'Network')}
-        ${link('dd-reports',   '/dd-reports.html',        'bi-folder2-open',   'DD Reports')}
-        ${link('watchlist',    '/watchlist.html',         'bi-eye',            'Watchlist')}
-        ${link('vls-chain',    '/vls-chain.html',         'bi-shield-check',   'VLS Chain')}
 
-        <div class="sidebar-divider"></div>
-        <div class="sidebar-section">System</div>
-        ${link('sources', '/sources.html', 'bi-reception-4', 'Source Health')}
-        ${link('vault',   '/vault.html',   'bi-key', 'Signup Vault')}
-        ${link('brain',   '/aria-brain',   'bi-heart-fill', 'ARIA Brain')}
-        ${link('status',  '/status.html',  'bi-broadcast-pin', 'Status')}
-        ${link('model-card', '/model-card.html', 'bi-file-text', 'Model Card')}
+      <nav class="rail-nav">
+        <div class="rail-section">Intelligence</div>
+        ${link('aria',          '/aria.html',            'bi-stars',         'ARIA Chat', 'aria-link')}
+        ${link('brief',         '/dashboard.html',       'bi-broadcast-pin', 'Intelligence Brief')}
+        ${link('news',          '/news.html',            'bi-newspaper',     'News Monitor')}
+        ${link('opportunities', '/opportunities.html',   'bi-briefcase',     'Opportunities')}
+        ${link('bd',            '/bd-intelligence.html', 'bi-graph-up',      'BD Intelligence')}
+        ${link('network',       '/network.html',         'bi-people',        'Network')}
+        ${link('dd-reports',    '/dd-reports.html',      'bi-folder2-open',  'DD Reports')}
+        ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
+        ${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}
+
+        <div class="rail-divider"></div>
+        <div class="rail-section">System</div>
+        ${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}
+        ${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}
+        ${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}
+        ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
+        ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
 
         <div data-admin style="display:none">
-          <div class="sidebar-divider"></div>
-          <div class="sidebar-section">Admin</div>
+          <div class="rail-divider"></div>
+          <div class="rail-section">Admin</div>
           ${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}
         </div>
       </nav>
-    </aside>`;
-  },
 
-  headerHtml() {
-    return `
-    <header id="app-header">
-      <button class="header-toggle" id="sidebar-toggle" data-sidebar-toggle title="Open menu" aria-label="Open navigation menu">
-        <i class="bi bi-list" aria-hidden="true"></i>
-      </button>
-      <span class="header-brand d-none d-md-block">ARIA INTELLIGENCE</span>
-      <div class="header-spacer"></div>
-      <div class="header-actions">
-        <!-- R-F51 watchlist alerts bell -->
-        <div style="position:relative">
-          <button class="header-icon-btn" id="alerts-bell" title="Watchlist alerts" aria-label="Open watchlist alerts" aria-expanded="false" aria-controls="alerts-popup">
-            <i class="bi bi-bell" aria-hidden="true"></i>
-            <span id="alerts-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;border-radius:8px;background:#dc2626;color:#fff;font-size:10px;font-weight:700;line-height:16px;padding:0 4px;text-align:center;box-shadow:0 0 0 2px #fff" aria-label="Unread alert count"></span>
+      <div class="rail-bottom">
+        <div class="rail-alerts">
+          <button class="rail-link" id="alerts-bell" title="Watchlist alerts" aria-label="Open watchlist alerts" aria-expanded="false" aria-controls="alerts-popup">
+            <i class="bi bi-bell" aria-hidden="true"></i><span class="rail-label">Alerts</span>
+            <span id="alerts-badge" class="rail-badge" style="display:none" aria-label="Unread alert count"></span>
           </button>
-          <div id="alerts-popup" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:380px;max-width:calc(100vw - 24px);max-height:70vh;background:#ffffff;border:1px solid #e9e6df;border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,0.18);z-index:100;overflow:hidden;flex-direction:column">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e9e6df;flex-shrink:0">
-              <div style="font-size:13px;font-weight:700;color:#1f1e1c;letter-spacing:0.3px;text-transform:uppercase">Watchlist alerts</div>
-              <button id="alerts-mark-read" style="background:#fff;border:1px solid #dcd8cf;color:#57534b;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer">Mark all read</button>
+          <div id="alerts-popup" class="rail-popup" style="display:none">
+            <div class="rail-popup-head">
+              <div class="rail-popup-title">Watchlist alerts</div>
+              <button id="alerts-mark-read" class="rail-popup-mark">Mark all read</button>
             </div>
-            <div id="alerts-list" style="flex:1;overflow-y:auto;padding:6px 0">
+            <div id="alerts-list" class="rail-popup-list">
               <div style="padding:24px;text-align:center;color:#9b968c;font-size:13px">Loading…</div>
             </div>
           </div>
         </div>
-        <a href="/sources.html" class="header-icon-btn" title="Source Health" aria-label="View source health dashboard">
-          <i class="bi bi-reception-4" aria-hidden="true"></i>
-        </a>
-        <div class="nav-dropdown" style="position:relative">
-          <button class="nav-avatar" id="nav-avatar" title="Profile" aria-label="Open profile menu" aria-haspopup="true" aria-expanded="false">?</button>
+
+        <div class="nav-dropdown">
+          <button class="rail-link rail-account" id="nav-avatar" title="Account" aria-label="Open account menu" aria-haspopup="true" aria-expanded="false">
+            <span class="rail-avatar" id="nav-avatar-mark">?</span>
+            <span class="rail-label" id="nav-user-name">Account</span>
+          </button>
           <div class="nav-dropdown-menu" id="nav-dropdown">
             <div class="nav-dropdown-user">
-              <div class="nav-dropdown-name" id="nav-user-name">Loading…</div>
+              <div class="nav-dropdown-name" id="nav-user-name-menu"></div>
               <div class="nav-dropdown-role" id="nav-role">analyst</div>
               <div id="nav-user-email" style="font-size:11px;color:#9b968c;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
             </div>
             <div class="nav-dropdown-divider"></div>
-            <!-- R-F2359 — profile/settings is the primary action -->
-            <a href="/account.html" class="nav-dropdown-item">
-              <i class="bi bi-person-circle"></i> Account &amp; profile
-            </a>
-            <a href="/dashboard.html" class="nav-dropdown-item">
-              <i class="bi bi-broadcast-pin"></i> Intelligence Brief
-            </a>
-            <a href="/sources.html" class="nav-dropdown-item">
-              <i class="bi bi-reception-4"></i> Source Health
-            </a>
-            <a href="/vault.html" class="nav-dropdown-item">
-              <i class="bi bi-key"></i> Signup Vault
-            </a>
+            <a href="/account.html" class="nav-dropdown-item"><i class="bi bi-person-circle"></i> Account &amp; profile</a>
+            <a href="/dashboard.html" class="nav-dropdown-item"><i class="bi bi-broadcast-pin"></i> Intelligence Brief</a>
+            <a href="/sources.html" class="nav-dropdown-item"><i class="bi bi-reception-4"></i> Source Health</a>
+            <a href="/vault.html" class="nav-dropdown-item"><i class="bi bi-key"></i> Signup Vault</a>
             <div class="nav-dropdown-divider"></div>
-            <button class="nav-dropdown-item danger" id="btn-logout">
-              <i class="bi bi-box-arrow-right"></i> Sign Out
-            </button>
+            <button class="nav-dropdown-item danger" id="btn-logout"><i class="bi bi-box-arrow-right"></i> Sign Out</button>
           </div>
         </div>
       </div>
-    </header>`;
-  }
+    </aside>`;
+  },
+
+  // Header bar removed (R-F2372). Kept for API compatibility — returns nothing.
+  headerHtml() { return ''; }
 };
