@@ -289,6 +289,81 @@ def count_tool_refs(text: str) -> int:
     )
 
 
+# R-F2391 — honest grounding attribution for numbered-snippet citations.
+#
+# The synthesis layer (frame_tool_context_for_citation, below) hands the LLM
+# the tool output as numbered `Snippet #N: …` blocks and instructs it to cite
+# each tool-derived fact inline with `[from snippet #N]`. That makes grounding
+# GENUINELY attributable — a marker points at a specific numbered source block
+# the LLM was actually given. But a marker is only honest if the snippet it
+# names ACTUALLY EXISTS in the context the LLM saw; an LLM that writes
+# `[from snippet #7]` when only 3 snippets were provided is fabricating the
+# provenance. This helper counts those fabricated references so verify_response
+# can DISCOUNT them from the grounded rate instead of blindly trusting every
+# marker. It NEVER credits grounding for a marker whose snippet is absent —
+# that is the "do not credit grounding merely because a tool ran" rule.
+_SNIPPET_REF_RE = re.compile(r"\[(?:from\s+)?snippet\s*#?(\d+)\]", re.IGNORECASE)
+_EXTRACT_REF_RE = re.compile(r"\[(?:from\s+)?EXTRACT\s+(\d+)\]", re.IGNORECASE)
+
+
+def count_invalid_snippet_refs(response_text: str, tool_context: str) -> int:
+    """Count `[from snippet #N]` / `[EXTRACT N]` markers whose numbered source
+    block is NOT present in tool_context — i.e. fabricated provenance markers.
+
+    Only the numbered-snippet / numbered-extract families are validated here;
+    the internal-RAG / dd_orchestrate / doctrine markers are mechanically
+    generated keys the LLM cannot fabricate, so they are trusted by
+    count_tool_refs and NOT re-checked (checking them would need the raw RAG
+    key, which isn't always echoed verbatim into tool_context)."""
+    if not response_text:
+        return 0
+    tc = (tool_context or "").lower()
+    invalid = 0
+    for m in _SNIPPET_REF_RE.finditer(response_text):
+        n = m.group(1)
+        if f"snippet #{n}" not in tc and f"snippet {n}" not in tc:
+            invalid += 1
+    for m in _EXTRACT_REF_RE.finditer(response_text):
+        n = m.group(1)
+        if f"extract {n}" not in tc:
+            invalid += 1
+    return invalid
+
+
+# R-F2391 — snippet-split boundary. Prefer blank-line-separated blocks; this is
+# how search/crawl/research tool outputs already delimit distinct sources.
+_SNIPPET_SPLIT_RE = re.compile(r"\n\s*\n")
+
+
+def frame_tool_context_for_citation(tool_context: str, *, max_snippets: int = 12) -> str:
+    """Number a raw tool_context into cite-able `Snippet #N: …` blocks and
+    prepend an instruction telling the synthesis layer to cite each tool-derived
+    fact inline with `[from snippet #N]`.
+
+    This is the producer half of the R-F2391 grounding loop: it makes ARIA
+    actually cite its sources (an honest product improvement) AND produces
+    markers that verify_response()/count_invalid_snippet_refs() can validate
+    against these exact numbered blocks. Returns "" for empty input so the
+    caller can treat it as a safe no-op (failure/empty → input unchanged)."""
+    tc = (tool_context or "").strip()
+    if not tc:
+        return ""
+    parts = [p.strip() for p in _SNIPPET_SPLIT_RE.split(tc) if p.strip()]
+    if not parts:
+        parts = [tc]
+    parts = parts[:max_snippets]
+    numbered = "\n\n".join(f"Snippet #{i}: {p}" for i, p in enumerate(parts, 1))
+    instruction = (
+        "[The numbered source snippets below are the external evidence gathered "
+        "for this request. Cite every fact you take from them inline with the "
+        "marker [from snippet #N] (N = the exact snippet number it came from). "
+        "Never attach a snippet marker to a claim the snippets do not support — "
+        "state that it is unverified instead. Uncited factual claims are treated "
+        "as ungrounded.]"
+    )
+    return f"{instruction}\n\n{numbered}"
+
+
 def verify_response(response_text: str, tool_context: str) -> dict:
     """Compute the grounding verdict for one chat response.
 
@@ -351,15 +426,30 @@ def verify_response(response_text: str, tool_context: str) -> dict:
         # when a tool produced output), treat as grounded — the LLM cannot
         # fabricate these markers without a tool block in context.
         if tool_refs > 0:
+            # R-F2391 — honest attribution: a numbered-snippet marker only
+            # grounds a claim if that snippet was ACTUALLY in the context the
+            # LLM saw. Discount fabricated `[from snippet #N]`/`[EXTRACT N]`
+            # references (snippet absent) from the rate instead of blanket 1.0.
+            # Genuine markers (all snippets present, or the trusted
+            # internal-RAG/dd/doctrine families) keep the full credit they had.
+            invalid_refs = count_invalid_snippet_refs(response_text, tool_context)
+            rate = round((tool_refs - invalid_refs) / tool_refs, 4) if tool_refs else 0.0
+            if rate >= 0.9:
+                _verdict = "grounded"
+            elif rate >= 0.5:
+                _verdict = "partial"
+            else:
+                _verdict = "ungrounded"
             return {
                 "cited_urls": [],
                 "fetched_urls": fetched,
                 "grounded": [],
                 "unverified": [],
-                "grounded_rate": 1.0,
+                "grounded_rate": rate,
                 "suspicious_count": 0,
                 "tool_refs": tool_refs,
-                "verdict": "grounded",
+                "invalid_refs": invalid_refs,
+                "verdict": _verdict,
             }
         # Document-first grounding: an attached document in context +
         # a response that quotes / references specific clauses counts

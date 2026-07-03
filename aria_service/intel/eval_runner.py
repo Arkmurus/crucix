@@ -283,12 +283,26 @@ def _split_held_out(items: list[dict], split: str, seed: int = 42) -> list[dict]
 
 # ── Run ────────────────────────────────────────────────────────────────────
 
-async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -> dict:
+async def run_eval(
+    llm: Any, *, ids: list[str] | None = None, label: str = "", record: bool = False,
+    limit: int = 0,
+) -> dict:
     """Execute the golden set against the current ARIA chat path.
 
     Each entry's question is fed through aria_chat() (the same code the
     WhatsApp user hits, including tool-use NLU). The actual response is
     embedded and compared to the expected answer.
+
+    R-F2390 — when ``record`` is True, each answered entry ALSO flows through
+    the SAME grounding/honesty recorders the live chat path uses
+    (source_verifier.record_verification + honesty_judge.record_judgment),
+    writing to the exact stores autonomy_scorer.compute_composite reads. This
+    is the deterministic, offline way to populate the composite's verification
+    (45%) + honesty (25%) signals from the frozen golden set — without hammering
+    the live chat writer. Default OFF so a normal scoring eval records nothing.
+    Recording runs frame the tool context into numbered snippets
+    (ground_markers=True) so grounding is genuinely attributable, and validate
+    against the EXACT context the LLM saw.
 
     Returns a run record with per-entry results, summary, and delta vs
     the previous run for regression detection.
@@ -310,6 +324,15 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         )
     if not items:
         return {"ok": False, "reason": "no golden entries to run"}
+
+    # R-F2390 — representative cap: when limit>0 and no explicit ids, take an
+    # evenly-strided sample across the (category-ordered) golden set so the
+    # subset spans categories rather than the first N (which would be one
+    # category). Keeps the recording run honest + bounded on cost.
+    if limit and limit > 0 and not ids and len(items) > limit:
+        stride = len(items) / float(limit)
+        items = [items[int(i * stride)] for i in range(limit)]
+        logger.info("[eval_runner] R-F2390 representative sample: %d entries", len(items))
 
     # R-F1068/R-F1073: run through llm_eval_framework for deeper analysis.
     # evaluate() takes a model name string and list[EvalQuestion], not an LLM object.
@@ -361,11 +384,25 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     # them, but R-F199 keeps them out of the calibration signal mean.
     empty_resp_count = 0
 
+    # R-F2390 — recorders (lazy import; only when recording is requested).
+    _rec_verify_n = 0
+    _rec_honesty_n = 0
+    _grounded_rates: list[float] = []
+    if record:
+        from . import source_verifier as _sv
+        from . import honesty_judge as _hj
+
     for entry in items:
         q = entry.get("question", "")
         expected = entry.get("expected_answer", "")
+        _entry_ctx = ""  # R-F2390 — framed tool_context the LLM saw (recording)
         try:
-            actual = await _aria_chat_session(q, llm)
+            if record:
+                actual, _entry_ctx = await _aria_chat_session(
+                    q, llm, ground_markers=True, return_context=True,
+                )
+            else:
+                actual = await _aria_chat_session(q, llm)
         except Exception as e:
             logger.warning("eval entry %s threw: %s", entry.get("id"), e)
             results.append({
@@ -424,6 +461,46 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
             "expected_preview": expected[:160],
         })
 
+        # R-F2390 — record verification + honesty into the SAME stores the
+        # composite reads. Runs the SAME deterministic verifier + honesty judge
+        # as the live chat path (routes/aria.py), against the exact framed
+        # context the LLM saw this entry. Best-effort: a recorder failure must
+        # never fail the eval run.
+        if record and (actual or "").strip():
+            try:
+                _verification = _sv.verify_response(actual, _entry_ctx or "")
+                await _sv.record_verification(
+                    _verification,
+                    request_id=entry.get("id", ""),
+                    session_id="eval_gate1",
+                    user="eval_runner",
+                    question_preview=q,
+                    response_preview=actual,
+                    tool_used="eval",
+                )
+                _rec_verify_n += 1
+                _gr = _verification.get("grounded_rate")
+                if _gr is not None:
+                    _grounded_rates.append(_gr)
+            except Exception as _ve:
+                logger.debug("[eval_runner] R-F2390 verify record failed: %s", _ve)
+            # Honesty judge — same gate as the live path: needs confidence tags
+            # AND source context to honestly judge against.
+            try:
+                if _entry_ctx and _hj.has_confidence_tags(actual):
+                    _judgment = await _hj.judge_response(llm, actual, _entry_ctx)
+                    await _hj.record_judgment(
+                        _judgment,
+                        trace_id="",
+                        session_id="eval_gate1",
+                        user="eval_runner",
+                        question_preview=q,
+                        response_preview=actual,
+                    )
+                    _rec_honesty_n += 1
+            except Exception as _he:
+                logger.debug("[eval_runner] R-F2390 honesty record failed: %s", _he)
+
     n = len(results)
     # R-F197: degraded flag. ≥80% empty responses → the LLM was effec-
     # tively offline for this run; score data is meaningless for
@@ -444,6 +521,15 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         "duration_ms": int((time.time() - started) * 1000),
         "empty_response_count": empty_resp_count,
         "degraded": degraded,
+        # R-F2390 — signal-recording stats (only meaningful when record=True).
+        "recorded": bool(record),
+        "verification_recorded": _rec_verify_n,
+        "honesty_recorded": _rec_honesty_n,
+        "grounded_rate_samples": len(_grounded_rates),
+        "mean_grounded_rate": (
+            round(sum(_grounded_rates) / len(_grounded_rates), 3)
+            if _grounded_rates else None
+        ),
     }
     if degraded:
         logger.warning(

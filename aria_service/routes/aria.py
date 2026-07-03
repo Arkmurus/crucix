@@ -2354,13 +2354,24 @@ async def feedback_get_ep(feedback_id: str, user_id: str = ""):
 
 
 # ── Eval: golden Q&A regression framework ────────────────────────────────
-async def _aria_chat_session(question: str, llm) -> str:
+async def _aria_chat_session(
+    question: str, llm, *, ground_markers: bool = False, return_context: bool = False,
+):
     """One-shot chat call used by the eval runner. Mirrors chat_ep() so the
     eval exercises the SAME path the user hits (NLU tool detection + chat),
     just without the FastAPI Request object. Each call uses a fresh session
-    id so eval entries don't pollute each other's history."""
+    id so eval entries don't pollute each other's history.
+
+    R-F2391: when ``ground_markers`` is True, the tool output is framed as
+    numbered `Snippet #N:` blocks with a cite-inline instruction (the same
+    honest-grounding path chat_ep uses when ARIA_GROUNDING_MARKERS_ENABLED is
+    set) so the response emits verifiable `[from snippet #N]` markers. When
+    ``return_context`` is True the call returns ``(response, framed_context)``
+    so the eval runner (R-F2390) can record verification/honesty against the
+    EXACT context the LLM saw — otherwise it returns the response string
+    (unchanged legacy contract)."""
     if not question or not llm:
-        return ""
+        return ("", "") if return_context else ""
     session_id = f"eval_{uuid.uuid4().hex[:10]}"
     tool_context = ""
     try:
@@ -2370,11 +2381,58 @@ async def _aria_chat_session(question: str, llm) -> str:
     except Exception as e:
         _log.debug("eval tool detection failed: %s", e)
 
+    # R-F2391 — the context the LLM is shown AND the context grounding is
+    # validated against must be identical, so frame once and reuse.
+    framed_context = tool_context
+    if tool_context and ground_markers:
+        try:
+            from ..intel.source_verifier import frame_tool_context_for_citation
+            framed = frame_tool_context_for_citation(tool_context)
+            if framed:
+                framed_context = framed
+        except Exception as e:
+            _log.debug("R-F2391 eval framing failed (using raw context): %s", e)
+
     message_for_llm = question
-    if tool_context:
-        message_for_llm = f"{question}\n\n{tool_context}"
+    if framed_context:
+        message_for_llm = f"{question}\n\n{framed_context}"
     result = await aria_chat(message_for_llm, session_id, llm, None)
-    return (result or {}).get("response") or (result or {}).get("answer") or ""
+    response = (result or {}).get("response") or (result or {}).get("answer") or ""
+    if return_context:
+        return response, framed_context
+    return response
+
+
+def _grounding_markers_enabled() -> bool:
+    """R-F2391 — env flag (default OFF) that turns on honest-grounding snippet
+    framing on the LIVE chat + stream paths. Kept OFF until the operator has
+    reviewed the diff + observed the eval-measured grounding rate; when OFF the
+    live paths are byte-for-byte unchanged."""
+    return (_os.getenv("ARIA_GROUNDING_MARKERS_ENABLED", "") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _maybe_frame_grounding(tool_context: str) -> str:
+    """R-F2391 — env-gated honest-grounding framing for the live chat + stream
+    paths (§13: called from BOTH). Reframes tool_context as numbered
+    `Snippet #N:` blocks + a cite-inline instruction so the response emits
+    verifiable `[from snippet #N]` markers; returns the input unchanged when the
+    flag is off or on any error (safe no-op). Skips tool outputs that already
+    carry their own citation system (dd_orchestrate run reports) so the two
+    marker doctrines don't collide."""
+    if not tool_context or not _grounding_markers_enabled():
+        return tool_context
+    low = tool_context.lower()
+    if "dd_orchestrate" in low or "run id:" in low:
+        return tool_context
+    try:
+        from ..intel.source_verifier import frame_tool_context_for_citation
+        framed = frame_tool_context_for_citation(tool_context)
+        return framed or tool_context
+    except Exception as e:
+        _log.debug("R-F2391 live framing failed (using raw context): %s", e)
+        return tool_context
 
 
 class GoldenAddRequest(BaseModel):
@@ -2395,6 +2453,13 @@ class PromoteFeedbackRequest(BaseModel):
 class RunEvalRequest(BaseModel):
     ids: list[str] = []
     label: str = ""
+    # R-F2390 — when true, the run ALSO records verification + honesty into the
+    # composite's stores (offline gate-#1 populate). Default OFF: a normal
+    # scoring eval writes no signal records.
+    record: bool = False
+    # R-F2390 — cap the number of entries actually driven this run (cost guard
+    # for the recording run). 0 / unset = no cap (full set / provided ids).
+    limit: int = 0
 
 
 @router.get("/eval/golden")
@@ -2447,7 +2512,10 @@ async def eval_run_ep(req: RunEvalRequest, request: Request):
     llm = get_llm(request)
     if not llm:
         raise HTTPException(status_code=503, detail="LLM not configured")
-    return await eval_runner.run_eval(llm, ids=req.ids or None, label=req.label)
+    return await eval_runner.run_eval(
+        llm, ids=req.ids or None, label=req.label,
+        record=req.record, limit=req.limit,
+    )
 
 
 @router.get("/eval/runs")
@@ -9288,6 +9356,10 @@ async def chat_ep(req: ChatRequest, request: Request):
 
             # Tool result block — appended last so the LLM sees the
             # freshest tool data right before it produces the response.
+            # R-F2391 — reframe into numbered cite-able snippets (env-gated,
+            # default OFF). Reassign tool_context so the message, cache key,
+            # verifier, and honesty judge all see the SAME framed context.
+            tool_context = _maybe_frame_grounding(tool_context)
             if tool_context:
                 message_for_llm = (
                     f"{message_for_llm}\n\n"
@@ -10789,6 +10861,9 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 f"do NOT cite items from this block as facts.]\n"
                 f"{_safe_group_ctx_s}"
             )
+        # R-F2391 (§13 mirror of chat_ep) — env-gated snippet framing; reassign
+        # tool_context so message + verifier + honesty judge stay consistent.
+        tool_context = _maybe_frame_grounding(tool_context)
         if tool_context:
             message_for_llm = (
                 f"{message_for_llm}\n\n"
