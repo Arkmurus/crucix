@@ -609,7 +609,34 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             and SEVERITY_RANK[topic_severity] >= 1
             and SEVERITY_RANK[final_severity] < SEVERITY_RANK[topic_severity]
         )
-        if was_demoted:
+        # R-F2362: the token-overlap demotion in classify_match is gated behind
+        # severity>=amber, so an acronym-collision hit that carries an INFO
+        # topic ("Modirum Gespi"→"MG"→"MG Corp", transparency/state-ownership)
+        # never gets demoted and renders as a real match. Flag any match with
+        # ZERO meaningful-token overlap as noise here, regardless of tier —
+        # preserving the R-F569 near-exact bypass (real transliterations score
+        # >=0.95 & sim>=0.50) so genuine hits are never suppressed.
+        _score_m = float(m.get("score") or 0.0)
+        _sim_m = float(m.get("string_similarity") or 0.0)
+        _near_exact_m = _score_m >= 0.95 and _sim_m >= 0.50
+        # R-F2362: a match on a KNOWN ALIAS of the sanctioned entity is
+        # legitimate even though the candidate's PRIMARY name shares no token
+        # with the query (query "Acme Holdings Ltd" → alias of "Banca Sospetta
+        # SpA"). Detect it by the query actually overlapping the matched alias
+        # token — never treat a real alias hit as noise (never-false-clean).
+        # Acronym noise ("MG"→"MG Corp") fails this: its matched token "MG"
+        # tokenises away, so overlap with the query is 0.
+        _matched_tok = str(m.get("matched_token") or "")
+        _alias_legit = (
+            m.get("match_field") == "alias"
+            and bool(_matched_tok)
+            and _name_overlap(query_name, _matched_tok) >= 1
+        )
+        zero_overlap_noise = bool(
+            query_name and overlap == 0 and not _near_exact_m and not _alias_legit
+        )
+        is_noise = bool((was_demoted or zero_overlap_noise) and not _alias_legit)
+        if is_noise:
             noise_filtered += 1
         _ds = m.get("lists") or m.get("datasets") or []
         _list_labels = [label for _, _, label in _defence_list_hits(_ds)]
@@ -637,7 +664,7 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "list_labels": _list_labels,  # R-F55: human-readable list names
             "severity": final_severity,
             "token_overlap": overlap,
-            "noise_filtered": was_demoted,
+            "noise_filtered": is_noise,  # R-F2362: was_demoted OR zero-overlap noise
             "brandified_hostname_capped": hostname_capped,  # R-F434
             "brandified_stem": m.get("_brandified_stem") or "",  # R-F434
             # R-F335 (2026-05-11): match-path transparency for operator
@@ -657,7 +684,10 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             worst_rank = SEVERITY_RANK[final_severity]
 
     # Compact human summary — show up to 3 worst-class matches
-    worst_matches = [pm for pm in per_match if pm["severity"] == worst]
+    # R-F2362: never list name-overlap noise in the summary — otherwise an
+    # all-noise result reads as "MG Corp; MG Global; …" instead of the honest
+    # "N fuzzy matches, all filtered as noise, no real hits" fallback below.
+    worst_matches = [pm for pm in per_match if pm["severity"] == worst and not pm.get("noise_filtered")]
     parts: list[str] = []
     for pm in worst_matches[:3]:
         topics_str = ",".join(pm["topics"][:3]) or "untagged"

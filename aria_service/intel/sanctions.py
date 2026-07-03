@@ -424,9 +424,13 @@ def _generate_variants(name: str) -> list[str]:
         _add(expanded.strip())
 
     # Acronym extraction (strip vowels from each word for orgs)
+    # R-F2362: a 2-letter initialism ("MG" from "Modirum Gespi") has no
+    # discriminating power — it fuzzy-matches unrelated sanctions names
+    # (MG Corp / MG Global / MGフロート) and burns free-tier /match quota.
+    # Require >=3 chars so acronym variants are meaningful.
     if len(parts) >= 2 and all(p[:1].isupper() for p in parts):
         acro = "".join(p[0] for p in parts if p)
-        if 2 <= len(acro) <= 6:
+        if 3 <= len(acro) <= 6:
             _add(acro)
 
     # Drop common corporate suffixes

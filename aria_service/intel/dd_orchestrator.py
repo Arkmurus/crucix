@@ -2947,21 +2947,44 @@ async def _run_identity(
         elif classified["worst_severity"] == "info":
             # Build detailed breakdown of each info-level match (datasets + topics)
             _info_matches = classified.get("per_match") or []
-            _info_detail_parts = [classified["summary"]]
-            for _im in _info_matches[:5]:
-                if _im.get("severity") == "info" and not _im.get("noise_filtered"):
+            # R-F2362: count/show ONLY real info matches (share a meaningful
+            # token with the query). Acronym-collision noise ("MG"→"MG Corp")
+            # is excluded — otherwise the header said "(5)" while the body
+            # (which already skips noise) showed nothing.
+            _real_info = [
+                m for m in _info_matches
+                if m.get("severity") == "info" and not m.get("noise_filtered")
+            ]
+            _noise_info_n = len([m for m in _info_matches if m.get("noise_filtered")])
+            if _real_info:
+                _info_detail_parts = [classified["summary"]]
+                for _im in _real_info[:5]:
                     _ds = ", ".join(_im.get("datasets", [])[:3]) or "unspecified"
                     _tp = ", ".join(_im.get("topics", [])[:3]) or "untagged"
                     _info_detail_parts.append(
                         f"  → {_im.get('name', '?')} (score {_im.get('score', 0):.2f}, datasets: {_ds}, topics: {_tp})"
                     )
-            report.identity.findings.append(Finding(
-                severity="info",
-                title=f"Transparency/state-ownership matches ({len([m for m in _info_matches if m.get('severity') == 'info'])})",
-                detail="\n".join(_info_detail_parts) + "\n— informational only, not a refusal ground.",
-                source="sanctions.screen_with_aliases",
-                confidence="ASSESSED",
-            ))
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=f"Transparency/state-ownership matches ({len(_real_info)})",
+                    detail="\n".join(_info_detail_parts) + "\n— informational only, not a refusal ground.",
+                    source="sanctions.screen_with_aliases",
+                    confidence="ASSESSED",
+                ))
+            elif _noise_info_n:
+                # All fuzzy hits were name-overlap noise (no shared token with
+                # the query) — screened, nothing real. Honest, not silent.
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title="Sanctions/PEP screen — no entity-name match",
+                    detail=(
+                        classified["summary"]
+                        + "\n— screened via name + aliases; the fuzzy hits share no "
+                        "meaningful token with the entity and are not the subject."
+                    ),
+                    source="sanctions.screen_with_aliases",
+                    confidence="ASSESSED",
+                ))
         elif screen.get("source_unavailable") or screen.get("error") == "sanctions_source_unavailable":
             # R-F1696: ZERO matches but the source NEVER ANSWERED. This is the
             # catastrophic false-negative class — pre-fix this branch stamped
@@ -6621,8 +6644,31 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
         # finding), the honest BLUF is "INSUFFICIENT EVIDENCE", not "can
         # proceed with enhanced DD". Otherwise we paper over data-empty
         # DDs as if they had been investigated.
-        if getattr(report, "confidence_gate_triggered", False):
+        # R-F2361: the confidence gate that sets confidence_gate_triggered
+        # only runs when the classification is GREEN (6192). An entity that
+        # is AMBER for an UNRELATED reason (country risk, commercial
+        # coherence) with NO registry substance — no directors, no
+        # registration-status + incorporation-date — would otherwise skip
+        # the gate and get the over-reassuring "can proceed" headline
+        # despite never being registry-verified. Reframe those too:
+        # honesty > reassurance, and this is most of the non-GB/US world.
+        _has_reg_status = bool(report.identity.registration_status)
+        _has_dirs = bool(report.identity.directors)
+        _has_inc = bool(report.identity.incorporation_date)
+        _data_starved = not (_has_dirs or (_has_reg_status and _has_inc))
+        if getattr(report, "confidence_gate_triggered", False) or _data_starved:
             _gate_reasons = getattr(report, "confidence_gate_reasons", []) or []
+            if not _gate_reasons and _data_starved:
+                _missing_sub = []
+                if not _has_reg_status:
+                    _missing_sub.append("registration status")
+                if not _has_dirs:
+                    _missing_sub.append("directors")
+                if not _has_inc:
+                    _missing_sub.append("incorporation date")
+                _gate_reasons = [
+                    "no registry substance — " + ", ".join(_missing_sub) + " unverified"
+                ]
             _reasons_str = "; ".join(_gate_reasons) if _gate_reasons else "insufficient verification"
 
             # R-F398 (2026-05-13): before emitting INSUFFICIENT EVIDENCE,

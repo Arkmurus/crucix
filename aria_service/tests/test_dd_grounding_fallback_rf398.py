@@ -42,7 +42,9 @@ def _bluf_block() -> str:
     # (OSINT-briefing vs INSUFFICIENT EVIDENCE), so bounding on the first
     # "    else:" cut the block before the INSUFFICIENT branch. Use a generous
     # fixed window that covers the whole AMBER_LIGHT handler.
-    return src[idx:idx + 6500]
+    # R-F2361: widened 6500→8000 after the data-starved reframe added the
+    # _data_starved substance check at the top of the handler.
+    return src[idx:idx + 8000]
 
 
 def test_rf398_block_contains_fallback_search_wiring():
