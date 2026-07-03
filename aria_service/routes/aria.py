@@ -10980,6 +10980,74 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 except Exception as _e:
                     _log.debug("[R-F655] aria_chat_stream brain_hook dispatch failed: %s", _e)
 
+                # R-F2364 (§13 stream-bypass close) — mirror the /chat non-stream
+                # verification + honesty recording into the STREAM path. The
+                # interactive web UI (aria.html → /api/aria/chat/stream) and
+                # WhatsApp both use /chat/stream, which recorded NEITHER signal
+                # (0 record_verification / record_judgment calls after line 10459),
+                # while the recorders lived only in the low-traffic non-stream
+                # /chat (9748 / 10322). Result: the autonomy composite's
+                # verification (45%) + honesty (25%) signals read 0 samples
+                # LIFETIME (verified live 2026-07-03: verifier+honesty indexes
+                # empty) and Phase-A gate #1 was pinned to mastery-only (0.593).
+                # These are the SAME recorders /chat calls — this closes the §13
+                # bypass so the composite measures ARIA's real user-facing
+                # quality. Both fire-and-forget: never block the done event.
+                try:
+                    if _full_text and _full_text.strip():
+                        import asyncio as _aio2364
+                        _verifier_ctx2364 = tool_context or ""
+                        if "[ATTACHED DOCUMENT" in (req.message or ""):
+                            _verifier_ctx2364 = (
+                                (_verifier_ctx2364 + "\n" + req.message)
+                                if _verifier_ctx2364 else req.message
+                            )
+                        _q2364 = req.message
+                        _resp2364 = _full_text
+                        _uid2364 = user_id or ""
+                        _tool2364 = tool_used or ""
+                        _sid2364 = session_id or ""
+
+                        async def _r2364_verify_bg():
+                            try:
+                                _ver = source_verifier.verify_response(_resp2364, _verifier_ctx2364)
+                                await source_verifier.record_verification(
+                                    _ver,
+                                    request_id=_sid2364,
+                                    session_id=_sid2364,
+                                    user=_sid2364,
+                                    # R-F1865: JWT-pinned owner (mirrors 9754).
+                                    user_id=_uid2364,
+                                    question_preview=_q2364,
+                                    response_preview=_resp2364,
+                                    tool_used=_tool2364,
+                                )
+                            except Exception as _e:
+                                _log.debug("[R-F2364] stream record_verification failed: %s", _e)
+                        _aio2364.create_task(_r2364_verify_bg())
+
+                        # Honesty judgment — SAME gate as /chat (10306-10309): a
+                        # tool ran AND the response carries confidence tags
+                        # (nothing to judge otherwise).
+                        if tool_context and honesty_judge.has_confidence_tags(_resp2364):
+                            async def _r2364_judge_bg():
+                                try:
+                                    _judgment = await honesty_judge.judge_response(llm, _resp2364, tool_context)
+                                    await honesty_judge.record_judgment(
+                                        _judgment,
+                                        trace_id=_sid2364,
+                                        session_id=_sid2364,
+                                        # R-F1865: JWT-pinned owner (mirrors 10327).
+                                        user_id=_uid2364,
+                                        question_preview=_q2364,
+                                        response_preview=_resp2364,
+                                    )
+                                except Exception as _e:
+                                    _log.debug("[R-F2364] stream record_judgment failed: %s", _e)
+                            _aio2364.create_task(_r2364_judge_bg())
+                except Exception as _e2364:
+                    _log.debug("[R-F2364] stream verification/honesty dispatch failed: %s", _e2364)
+
                 # Finally emit the deferred done event so the client closes
                 # cleanly. If we never got a done event (shouldn't happen),
                 # synthesise a minimal one so clients don't hang.
