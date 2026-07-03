@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2364,
+  "next_available": 2368,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17907,23 +17907,62 @@
       "title": "DD honesty: run substance/confidence gate on AMBER-LIGHT not only GREEN (no over-reassuring headline on data-starved entities)",
       "claimed_at": "2026-07-03T06:37:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "19d15e60",
+      "notes": null,
+      "shipped_at": "2026-07-03T07:12:16Z"
     },
     {
       "r_number": "R-F2362",
       "title": "sanctions: suppress acronym-collision noise (extend token-overlap gate to info-tier + drop <=2-char acronym aliases)",
       "claimed_at": "2026-07-03T06:37:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "19d15e60",
+      "notes": null,
+      "shipped_at": "2026-07-03T07:12:16Z"
     },
     {
       "r_number": "R-F2363",
       "title": "Phase A gate #2 accel: reading-loop cadence env-tunable, default 6h->2.5h so region-grounded reads accumulate faster (honest EWMA, no alpha/weight/grounding change = no gaming)",
       "claimed_at": "2026-07-03T06:55:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2364",
+      "title": "wire verification+honesty recording into /chat/stream (§13) — composite gate #1 signals were null because stream path never records",
+      "claimed_at": "2026-07-03T07:13:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a456228",
+      "notes": null,
+      "shipped_at": "2026-07-03T07:27:24Z"
+    },
+    {
+      "r_number": "R-F2365",
+      "title": "DD honesty #3: fix false 'GB Companies House only' UBO-walk claim; surface CNPJ/registry-ID unlock (adapter supports BR)",
+      "claimed_at": "2026-07-03T07:14:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2366",
+      "title": "DD quality #4: press relevance by aboutness (title/host, not passing mention) + report verified/unverified split not raw count",
+      "claimed_at": "2026-07-03T07:14:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2367",
+      "title": "§24 eval-contamination pre-flight guard + quarantine contaminated DPO (dpo_v1 100%, dpo_v04 98% eval-derived) — a contaminated cycle must be impossible to run",
+      "claimed_at": "2026-07-03T07:36:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

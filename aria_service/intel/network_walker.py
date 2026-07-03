@@ -638,12 +638,46 @@ async def walk_ubo_chain(
         stats["registry_lookups"] += 1
 
         if not officers:
+            # R-F2365: the automated UBO OWNERSHIP-GRAPH walk is GB-only today
+            # (_fetch_officers_with_provenance only queries Companies House). The
+            # old gap text — "ARIA covers GB via Companies House today" — falsely
+            # implied ARIA is GB-only OVERALL. It is not: entity-level directors
+            # for 24 jurisdictions ARE covered by the identity layer's registry
+            # adapter (ID-gated). Be accurate about BOTH: the walk is GB-only,
+            # AND non-GB directors are reachable elsewhere (don't imply a CNPJ
+            # would make THIS walk succeed — it wouldn't).
+            _cj = (cjur or "").upper()
+            try:
+                from .registry_adapters import _SUPPORTED_JURISDICTIONS as _SJ
+            except Exception:
+                _SJ = set()
+            if _cj == "GB":
+                _reason = (
+                    f"Companies House returned no officers for '{cname}'"
+                    + (f" (reg no. {cnum})" if cnum else " (no registration number supplied)")
+                )
+            elif _cj in _SJ:
+                try:
+                    from .dd_orchestrator import _national_registry_hint
+                    _hint = _national_registry_hint(_cj, None)
+                except Exception:
+                    _hint = "supply the national registration number"
+                _reason = (
+                    f"automated UBO ownership-graph walk is GB-only today (Companies "
+                    f"House); {_cj} entity directors ARE covered separately by the "
+                    f"registry adapter when an ID is supplied (e.g. a CNPJ for BR — "
+                    f"see the Directors data-gap). {_hint}"
+                )
+            else:
+                _reason = (
+                    f"automated UBO ownership-graph walk is GB-only today; ARIA has no "
+                    f"registry coverage for jurisdiction={cjur or 'unknown'} yet"
+                )
             coverage_gaps.append({
                 "jurisdiction": cjur or "unknown",
                 "hop":          hop,
                 "entity_name":  cname,
-                "reason":       f"no officer-registry adapter for jurisdiction={cjur}; "
-                                f"ARIA covers GB via Companies House today",
+                "reason":       _reason,
             })
             continue
 

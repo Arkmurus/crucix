@@ -968,6 +968,26 @@ def structured_view(r: dict) -> dict:
         })
 
     gr = ver.get("grounded_rate")
+    # R-F2366 — press-coverage honesty: lead with the tier split rather than a
+    # raw count, so "14 items" (12 UNVERIFIED) doesn't read as substantive
+    # coverage. "verified" = independent reputable tiers ONLY; own-site (the
+    # entity's own claims) and from-memory are shown separately, never folded
+    # into "verified" (that would re-inflate the number this fix exists to cut).
+    _tb = dig.get("source_tier_breakdown") or {}
+    _press_total = len(dig.get("press_coverage") or [])
+    _verified = sum(int(v) for k, v in _tb.items() if k in ("T1", "T2", "OFFICIAL", "INDUSTRY"))
+    _unverified = int(_tb.get("UNVERIFIED", 0))
+    _own_site = int(_tb.get("ENTITY_SITE", 0))
+    _from_memory = int(_tb.get("MEMORY_ONLY", 0))
+    if _press_total:
+        _pp = [f"{_verified} verified", f"{_unverified} unverified"]
+        if _own_site:
+            _pp.append(f"{_own_site} own-site")
+        if _from_memory:
+            _pp.append(f"{_from_memory} from memory")
+        _press_metric = " / ".join(_pp)
+    else:
+        _press_metric = None
     sections = [
         # 1) IDENTITY — who is this on paper (core, always shown)
         _sv_section("identity", "Identity", "👤" if is_person else "🪪", ident, [
@@ -998,7 +1018,7 @@ def structured_view(r: dict) -> dict:
         ]),
         # 4) DIGITAL & ADVERSE MEDIA
         _sv_section("digital", "Digital & Adverse Media", "🌐", dig, [
-            ("Press items", len(dig.get("press_coverage") or []) or None),
+            ("Press coverage", _press_metric),
             ("People investigated", len(dig.get("people") or []) or None),
             ("Source tiers", ", ".join(f"{k}:{v}" for k, v in (dig.get("source_tier_breakdown") or {}).items()) or None),
         ], evidence=press_ev),

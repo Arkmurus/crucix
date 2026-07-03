@@ -1637,7 +1637,11 @@ class TestUBOChainWalk:
         assert len(result["coverage_gaps"]) >= 1
         gap = result["coverage_gaps"][0]
         assert gap["jurisdiction"] == "PA"
-        assert "GB" in gap["reason"] or "Companies House" in gap["reason"]
+        # R-F2365: the reason must name the jurisdiction and be HONEST — it must
+        # NOT repeat the old false "ARIA covers GB via Companies House today"
+        # claim (the registry adapter supports 24 jurisdictions incl. PA/BR).
+        assert "PA" in gap["reason"]
+        assert "Companies House today" not in gap["reason"]
 
     def test_sanctioned_officer_in_chain_surfaces(self, monkeypatch):
         """If an officer hits sanctions screen, surface in sanctioned_in_chain."""

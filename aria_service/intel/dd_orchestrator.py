@@ -3307,11 +3307,31 @@ async def _run_identity(
                         logger.debug("Virtual-office check on registry addr failed: %s", _vo_err)
             else:
                 # Adapter returned None — jurisdiction not supported or lookup failed
+                # R-F2365: don't claim "GB only" — the registry adapter supports
+                # 24 jurisdictions. State the accurate reason: supported-but-empty
+                # (usually needs a reg number) vs genuinely-not-covered.
                 jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
+                _ji = (jurisdiction_iso2 or "").upper()
+                try:
+                    from .registry_adapters import _SUPPORTED_JURISDICTIONS as _SJ
+                except Exception:
+                    _SJ = set()
+                if _ji and _ji in _SJ:
+                    _cov = (
+                        f"the {_ji} registry is supported but returned no data — a "
+                        f"registration number is often required (e.g. a CNPJ for BR) "
+                        f"or the lookup failed"
+                    )
+                else:
+                    _cov = (
+                        f"jurisdiction={jurisdiction or _ji or 'unspecified'} is not among "
+                        f"ARIA's {len(_SJ)} automated registries yet (GB via Companies House "
+                        f"is a separate path)"
+                    )
                 report.identity.data_gaps.append(
-                    f"Registry lookup unavailable for {jurisdiction or jurisdiction_iso2 or 'unspecified jurisdiction'}"
-                    f" — ARIA has Companies House coverage for GB only. "
-                    f"Manual action: {jur_hint}"
+                    f"Registry lookup unavailable for "
+                    f"{jurisdiction or jurisdiction_iso2 or 'unspecified jurisdiction'}"
+                    f" — {_cov}. Manual action: {jur_hint}"
                 )
                 # Track as capability gap.
                 # R-F150 2026-05-10: removed local `import asyncio` here.
@@ -4214,16 +4234,29 @@ def _entity_distinctive_tokens(*names: str) -> list[str]:
 
 
 def _press_hit_is_relevant(title: str, snippet: str, url: str, distinctive_tokens: list[str]) -> bool:
-    """R-F1631 — True if a search hit actually references the entity (any
-    distinctive token appears in title/snippet/url, accent-normalized). With no
-    distinctive tokens (all-generic name) returns True — never drop everything."""
+    """R-F1631 / R-F2366 — True if a search hit is actually ABOUT the entity.
+
+    R-F2366: relevance is now aboutness, not a passing mention. The distinctive
+    token must appear in the TITLE or the URL (host/slug) — NOT merely in the
+    search snippet. A snippet-only mention (e.g. a RocketReach contact page for
+    an unrelated person whose bio happens to name the entity) is a passing
+    reference, not coverage, and was inflating the press count with noise like
+    the "Nordic Nano Group" hit on the Modirum Gespi DD.
+
+    With no distinctive tokens (all-generic name) returns True — never drop
+    everything."""
     if not distinctive_tokens:
         return True
     import unicodedata
-    hay = "".join(
-        c for c in unicodedata.normalize("NFKD", f"{title or ''} {snippet or ''} {url or ''}")
-        if not unicodedata.combining(c)
-    ).lower()
+
+    def _norm(s: str) -> str:
+        return "".join(
+            c for c in unicodedata.normalize("NFKD", s or "")
+            if not unicodedata.combining(c)
+        ).lower()
+
+    # Aboutness signal: title or URL (host + slug), excluding the snippet.
+    hay = _norm(f"{title or ''} {url or ''}")
     return any(t in hay for t in distinctive_tokens)
 
 
