@@ -264,8 +264,8 @@ const Sidebar = {
         </a>
       </div>
 
+      <!-- R-F2381 — flat, evenly-spaced nav (section headers removed) -->
       <nav class="rail-nav">
-        <div class="rail-section">Intelligence</div>
         ${link('aria',          '/aria.html',            'bi-stars',         'ARIA Chat', 'aria-link')}
         ${link('brief',         '/dashboard.html',       'bi-broadcast-pin', 'Intelligence Brief')}
         ${link('news',          '/news.html',            'bi-newspaper',     'News Monitor')}
@@ -275,20 +275,12 @@ const Sidebar = {
         ${link('dd-reports',    '/dd-reports.html',      'bi-folder2-open',  'DD Reports')}
         ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
         ${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}
-
-        <div class="rail-divider"></div>
-        <div class="rail-section">System</div>
         ${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}
         ${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}
         ${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}
         ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
-
-        <div data-admin style="display:none">
-          <div class="rail-divider"></div>
-          <div class="rail-section">Admin</div>
-          ${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}
-        </div>
+        <div data-admin style="display:none">${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}</div>
       </nav>
 
       <div class="rail-bottom">

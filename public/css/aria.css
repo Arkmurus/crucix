@@ -164,7 +164,8 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
 /* scrolling nav — R-F2379: balanced rhythm that fits all items; a thin visible
    scrollbar means nothing is ever "missing" when the list overflows a short screen. */
-.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 8px; display: flex; flex-direction: column; gap: 10px; }
+/* R-F2381 — flat list, no section headers → one uniform even gap everywhere */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 8px; display: flex; flex-direction: column; gap: 12px; }
 .rail-nav::-webkit-scrollbar { width: 6px; }
 .rail-nav::-webkit-scrollbar-thumb { background: var(--sc-border-strong); border-radius: 3px; }
 .rail-nav::-webkit-scrollbar-thumb:hover { background: var(--sc-muted); }
