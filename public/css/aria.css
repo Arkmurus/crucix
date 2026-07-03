@@ -101,10 +101,10 @@ body.nav-expanded #sidebar-overlay { display: block; }
    the rail widens; the label only appears when expanded. */
 .rail-link {
   display: flex; align-items: center;
-  height: 46px; width: 100%;
+  height: 40px; width: 100%;
   border-radius: 10px;
   color: var(--sc-text);
-  font-size: 14px; font-weight: 600;
+  font-size: 13px; font-weight: 600;   /* R-F2379 — smaller title frees vertical space */
   background: none; border: none;
   cursor: pointer; position: relative;
   white-space: nowrap;
@@ -113,7 +113,7 @@ body.nav-expanded #sidebar-overlay { display: block; }
 .rail-link > i {
   width: calc(var(--rail-w) - 20px);
   min-width: calc(var(--rail-w) - 20px);
-  font-size: 20px; color: var(--sc-muted);
+  font-size: 18px; color: var(--sc-muted);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
@@ -162,18 +162,22 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
 .rail-new > i { color: var(--sc-prime); }
 
-/* scrolling nav — R-F2377/R-F2378: generous vertical rhythm (was gap:2px → cramped) */
-.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 10px; display: flex; flex-direction: column; gap: 10px; }
-.rail-nav::-webkit-scrollbar { width: 0; height: 0; }
+/* scrolling nav — R-F2379: balanced rhythm that fits all items; a thin visible
+   scrollbar means nothing is ever "missing" when the list overflows a short screen. */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 8px; display: flex; flex-direction: column; gap: 7px; }
+.rail-nav::-webkit-scrollbar { width: 6px; }
+.rail-nav::-webkit-scrollbar-thumb { background: var(--sc-border-strong); border-radius: 3px; }
+.rail-nav::-webkit-scrollbar-thumb:hover { background: var(--sc-muted); }
+.rail-nav { scrollbar-width: thin; scrollbar-color: var(--sc-border-strong) transparent; }  /* Firefox */
 .rail-section {
-  font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--sc-muted); white-space: nowrap; overflow: hidden;
   height: 0; opacity: 0; padding: 0 12px; transition: opacity 0.15s;
 }
-body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 20px 12px 8px; }
+body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 14px 12px 5px; }
 /* first section sits right under "New chat" — trim its top padding */
-body.nav-expanded .rail-nav > .rail-section:first-child { padding-top: 8px; }
-.rail-divider { height: 1px; background: var(--sc-border); margin: 12px 10px; }
+body.nav-expanded .rail-nav > .rail-section:first-child { padding-top: 6px; }
+.rail-divider { height: 1px; background: var(--sc-border); margin: 10px 10px; }
 body.nav-expanded .rail-divider { display: none; }   /* section labels replace dividers when expanded */
 
 /* bottom cluster: alerts + account */
