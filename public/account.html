@@ -79,6 +79,7 @@
     }
     .pricing-card.current { border-color: var(--sc-prime); background: var(--sc-prime-soft); }
     .pricing-card.featured { border-color: rgba(37,99,235,0.5); }
+    .pricing-card.preselected { border-color: var(--sc-prime); box-shadow: 0 0 0 3px var(--sc-prime-soft); }
     .pricing-card-head { display: flex; align-items: baseline; justify-content: space-between; }
     .pricing-name { font-size: 17px; font-weight: 700; color: var(--sc-heading); }
     .pricing-current-pill {
@@ -348,6 +349,7 @@ Sidebar.init('account');
     if (isCurrent) classes.push('current');
     if (t.id === 'pro') classes.push('featured');
     card.className = classes.join(' ');
+    card.dataset.tier = t.id;
 
     var priceLabel = t.priceUsd > 0
       ? '<span class="pricing-price">£' + t.priceUsd + '</span><span class="pricing-price-suffix"> /mo</span>'
@@ -390,6 +392,20 @@ Sidebar.init('account');
 
     grid.appendChild(card);
   });
+
+  // ?tier= deep-link — highlight + scroll the requested plan so a landing
+  // "Get started" CTA lands the user on the plan they picked. Purely visual;
+  // does not auto-checkout (checkout stays an explicit click).
+  try {
+    var wantTier = new URLSearchParams(window.location.search).get('tier');
+    if (wantTier) {
+      var target = grid.querySelector('.pricing-card[data-tier="' + wantTier + '"]');
+      if (target) {
+        target.classList.add('preselected');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  } catch (e) {}
 
   grid.addEventListener('click', function(e) {
     var btn = e.target.closest('.pricing-cta-btn[data-tier]');
