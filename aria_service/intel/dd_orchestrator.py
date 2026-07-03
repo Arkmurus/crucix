@@ -10163,7 +10163,16 @@ def _dd_legacy_owner_fallback() -> tuple[str | None, str | None]:
     unchanged: owner-less, admin-only).
     """
     import os as _os
-    uid = (_os.getenv("ARIA_CODER_OPERATOR_USER_ID") or "").strip() or None
+    # R-F2388 — the DD owner must be the operator's REAL aria-web user_id (the
+    # JWT `userId` the /dd/reports proxy pins, server.mjs:2978), NOT
+    # ARIA_CODER_OPERATOR_USER_ID — those are DIFFERENT ids, so the original
+    # R-F2382 fallback stamped a non-matching owner and the reports stayed
+    # hidden. Prefer a dedicated ARIA_DD_LEGACY_OWNER_UID (the real web id).
+    uid = (
+        (_os.getenv("ARIA_DD_LEGACY_OWNER_UID") or "").strip()
+        or (_os.getenv("ARIA_CODER_OPERATOR_USER_ID") or "").strip()
+        or None
+    )
     email = (_os.getenv("ARIA_OPERATOR_EMAIL") or "").strip()
     dom = email.split("@")[-1].strip().lower() if "@" in email else None
     return uid, dom
