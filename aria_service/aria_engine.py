@@ -4806,16 +4806,20 @@ async def _aria_chat_stream_impl(
 
     # R-F2358 — surface the resolved entity to the streaming UI's entity rail. The frontend
     # (aria.html:1647, R-F735) reads `entity` off a `progress` event, but NOTHING ever emitted
-    # one, so the rail stayed "No active entity" even when a company was resolved. Emit the
-    # resolver's CANONICAL name once (not the raw message line — that would show the user's
-    # sentence, not the entity). No-op for plain chat (no entity resolved).
+    # one, so the rail stayed "No active entity" even when a company was resolved.
+    # R-F2358 follow-up: entity_resolver.resolve() ECHOES the raw message as query/canonical
+    # when it can't extract a real entity (it's built for pre-extracted names), so a bare
+    # emit showed the user's whole sentence ("Focus: give me a quick overview of Siemens AG").
+    # Only surface a PLAUSIBLE entity NAME: a known type (person/company) that is short (not a
+    # sentence). No-op otherwise — the rail correctly stays empty for conversational turns.
     try:
         _rail_entity = ((_resolved_s or {}).get("canonical")
                         or (_resolved_s or {}).get("query") or "").strip()
-        if _rail_entity:
+        _rail_type = ((_resolved_s or {}).get("entity_type") or "").strip().lower()
+        if (_rail_entity and _rail_type in ("person", "company")
+                and len(_rail_entity) <= 64 and len(_rail_entity.split()) <= 6):
             yield _emit("progress", message=f"Focus: {_rail_entity}", stage="entity",
-                        entity=_rail_entity,
-                        entity_type=((_resolved_s or {}).get("entity_type") or ""))
+                        entity=_rail_entity, entity_type=_rail_type)
     except Exception as _rail_err_s:
         logger.debug("R-F2358 entity-rail progress emit failed (non-fatal): %s", _rail_err_s)
 

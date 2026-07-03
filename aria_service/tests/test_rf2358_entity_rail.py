@@ -20,7 +20,10 @@ def test_stream_emits_entity_on_progress_event():
     # uses the resolver's CANONICAL/query — NOT message.split(...)[0] (the fragile approach
     # I flagged to ARIA): the rail must show the entity, not the user's raw sentence.
     assert "_resolved_s" in src and "canonical" in src
-    assert "message.split" not in src.split("R-F2358")[1].split("try:")[0]
+    # R-F2358 follow-up: plausibility guard so the resolver's message-echo doesn't show the
+    # whole sentence — require a known type AND a short, name-like value.
+    assert '("person", "company")' in src
+    assert "_rail_entity.split()" in src
 
 
 def test_frontend_reads_entity_from_progress_event():
