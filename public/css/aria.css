@@ -101,7 +101,7 @@ body.nav-expanded #sidebar-overlay { display: block; }
    the rail widens; the label only appears when expanded. */
 .rail-link {
   display: flex; align-items: center;
-  height: 44px; width: 100%;
+  height: 46px; width: 100%;
   border-radius: 10px;
   color: var(--sc-text);
   font-size: 14px; font-weight: 600;
@@ -162,8 +162,8 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
 .rail-new > i { color: var(--sc-prime); }
 
-/* scrolling nav — R-F2377: healthier vertical rhythm (was gap:2px → cramped) */
-.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+/* scrolling nav — R-F2377/R-F2378: generous vertical rhythm (was gap:2px → cramped) */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 10px; display: flex; flex-direction: column; gap: 10px; }
 .rail-nav::-webkit-scrollbar { width: 0; height: 0; }
 .rail-section {
   font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
