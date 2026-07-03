@@ -36,6 +36,9 @@ PARITY="${PARITY:-0.336}"   # DeepSeek open-book defence-DD baseline to beat
 [ -s "$SFT_CORPUS" ] || { echo "[driver] FATAL: grounded SFT corpus missing/empty: $SFT_CORPUS"; exit 1; }
 [ -s "$DPO_PAIRS" ]  || { echo "[driver] FATAL: verified DPO pairs missing/empty: $DPO_PAIRS"; exit 1; }
 [ -s "$EVAL_LOCAL" ] || { echo "[driver] FATAL: open-book eval set missing: $EVAL_LOCAL"; exit 1; }
+# R-F2367 §24 GATE — refuse to train on eval-contaminated data (cancelled, not run).
+python scripts/train/preflight_eval_contamination.py --train "$DPO_PAIRS" --train "$SFT_CORPUS" --eval "$EVAL_LOCAL" --max-overlap 0.01 \
+  || { echo "[driver] FATAL (§24): eval contamination pre-flight failed — cycle ABORTED. See remediation above."; exit 1; }
 echo "[driver] grounded SFT $(wc -l < "$SFT_CORPUS") | verified DPO $(wc -l < "$DPO_PAIRS") | eval $(wc -l < "$EVAL_LOCAL") | parity>=$PARITY"
 
 KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"

@@ -1,5 +1,15 @@
 """build_dpo_from_eval — DPO preference pairs from the 500-Q eval (R-F1336).
 
+⚠️ R-F2367 (§24, 2026-07-03) — THIS SCRIPT PRODUCES EVAL-CONTAMINATED DATA.
+Its output uses the frozen 500-Q eval QUESTIONS as DPO prompts. The 500-Q set is
+Phase-A gate #6's held-out measure, so training on this output makes the eval
+score fraudulent (the audit found aria_dpo_v1.jsonl was 100% eval questions).
+The output is BLOCKED from every train/eval cycle by
+scripts/train/preflight_eval_contamination.py. Do NOT feed this into a cycle
+scored on the 500-Q eval — use grounded_*/dpo_pairs_v1_str/citation_dpo_v2 instead.
+Kept only for research on held-out splits that DO NOT overlap the frozen eval.
+
+
 Recipe: for every golden question the current model FAILED, pair the
 golden expected answer (chosen) against the model's own fresh output
 (rejected). This trains v0.2 to prefer calibrated, on-topic, honest

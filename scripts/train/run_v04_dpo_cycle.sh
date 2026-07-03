@@ -18,12 +18,17 @@ DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | t
 [ -n "$API_KEY" ] || { echo "[driver] FATAL: RUNPOD_API_KEY not in .env"; exit 1; }
 [ -n "$DSK" ] || { echo "[driver] FATAL: DEEPSEEK_API_KEY not in .env — judge required for the eval"; exit 1; }
 
-SFT_CORPUS="data/training/aria_sft_distill_v04.jsonl"
-DPO_PAIRS="data/training/aria_dpo_v04.jsonl"
-EVAL_LOCAL="data/eval_reports/aria_eval_500q.jsonl"
+SFT_CORPUS="${SFT_CORPUS:-data/training/aria_sft_distill_v04.jsonl}"
+# R-F2367: default flipped OFF the eval-contaminated aria_dpo_v04.jsonl (98% of its
+# prompts were eval questions — now quarantined) onto the CLEAN reward-verified pairs.
+DPO_PAIRS="${DPO_PAIRS:-data/training/aria_dpo_pairs_v1_str.jsonl}"
+EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q.jsonl}"
 [ -s "$SFT_CORPUS" ] || { echo "[driver] FATAL: SFT corpus missing/empty: $SFT_CORPUS"; exit 1; }
 [ -s "$DPO_PAIRS" ]  || { echo "[driver] FATAL: DPO pairs missing/empty: $DPO_PAIRS"; exit 1; }
 [ -s "$EVAL_LOCAL" ] || { echo "[driver] FATAL: eval set missing: $EVAL_LOCAL"; exit 1; }
+# R-F2367 §24 GATE — refuse to train on eval-contaminated data (cancelled, not run).
+python scripts/train/preflight_eval_contamination.py --train "$DPO_PAIRS" --train "$SFT_CORPUS" --eval "$EVAL_LOCAL" --max-overlap 0.01 \
+  || { echo "[driver] FATAL (§24): eval contamination pre-flight failed — cycle ABORTED. See remediation above."; exit 1; }
 echo "[driver] SFT $(wc -l < "$SFT_CORPUS") | DPO $(wc -l < "$DPO_PAIRS") | eval $(wc -l < "$EVAL_LOCAL")"
 
 KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"
