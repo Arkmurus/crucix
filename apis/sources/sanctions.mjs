@@ -1,90 +1,31 @@
-// Sanctions Lists - OFAC, EU, UN, UK
-// Critical for due diligence and compliance screening
+// Sanctions actions — US State Department (R-F2419: real Federal Register feed).
+//
+// Was a pure fabricated stub: 0 fetches, hardcoded "12,000+ / Russian defense
+// sector / Iran missile" literals returned on every sweep, still wired in as
+// runSource('Sanctions', ...). OFAC (Treasury) recent actions are already
+// covered for real by ofac.mjs (R-F2416) and the UN consolidated list by
+// un_sc_sanctions.mjs, so this source now surfaces the COMPLEMENTARY US STATE
+// DEPARTMENT sanctions actions (nonproliferation / ISN designations) from the
+// Federal Register API — real, dated, free, no API key. Honest-empty (status
+// 'error', empty updates) on failure — never fabricated.
+//
+// Full on-demand entity screening remains the Python brain (sanctions.py +
+// the OFAC/EU/UK/UN ingests); this feed answers "what did State do recently".
 
 import '../utils/env.mjs';
+import { fetchFederalRegister } from './_federal_register.mjs';
 
 export async function briefing() {
-  console.log('[Sanctions] Fetching sanctions data...');
-  
-  try {
-    const updates = [
-      {
-        source: 'Sanctions Monitor',
-        title: '🛡️ OFAC Sanctions List Active',
-        content: 'Monitoring 12,000+ individuals and entities. Real-time screening for compliance.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'Sanctions Monitor',
-        title: '🇪🇺 EU Consolidated Sanctions',
-        content: 'Tracking 2,200+ sanctioned entities across 40+ regimes.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'Sanctions Monitor',
-        title: '🇺🇳 UN Security Council Sanctions',
-        content: 'Active sanctions regimes: North Korea, Iran, Russia, DRC, Somalia, Yemen, Sudan.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'Sanctions Monitor',
-        title: '🇬🇧 UK Sanctions List',
-        content: 'UK autonomous sanctions: 1,800+ designated persons and entities.',
-        timestamp: Date.now(),
-        priority: 'normal'
-      },
-      {
-        source: 'Sanctions Monitor',
-        title: '⚠️ Defense Sector Watchlist',
-        content: 'Entities restricted from weapons trade: Russian defense companies, Iranian military entities.',
-        timestamp: Date.now(),
-        priority: 'high'
-      }
-    ];
-    
-    const signals = [
-      '🛡️ OFAC: 12,000+ sanctioned entities monitored',
-      '🇪🇺 EU: 40+ sanctions regimes active',
-      '🇺🇳 UN: 7 active sanctions regimes',
-      '⚠️ Russian defense sector under full sanctions',
-      '🔍 Real-time compliance screening active',
-      '⚖️ Export control restrictions tracked'
-    ];
-    
-    return {
-      source: 'Sanctions Monitor',
-      timestamp: new Date().toISOString(),
-      status: 'active',
-      updates: updates,
-      signals: signals,
-      metrics: {
-        ofacEntities: '12,000+',
-        euRegimes: 40,
-        unRegimes: 7,
-        restrictedDefenseEntities: 850,
-        lastUpdated: new Date().toISOString(),
-        highRiskJurisdictions: ['Russia', 'Iran', 'North Korea', 'Syria', 'Venezuela']
-      },
-      counts: {
-        updates: updates.length,
-        signals: signals.length
-      }
-    };
-    
-  } catch (error) {
-    console.error('[Sanctions] Error:', error.message);
-    return {
-      source: 'Sanctions Monitor',
-      timestamp: new Date().toISOString(),
-      status: 'error',
-      error: error.message,
-      updates: [],
-      signals: []
-    };
-  }
+  console.log('[Sanctions] Fetching real State Dept sanctions actions (Federal Register)...');
+  return fetchFederalRegister({
+    sourceName: 'Sanctions',
+    emoji: '⚖️',
+    agencies: ['state-department'],
+    types: ['NOTICE'],   // sanctions actions are Notices — filters out unrelated rules
+    term: 'sanctions',
+    perPage: 12,
+    searchUrl: 'https://www.federalregister.gov/agencies/state-department',
+  });
 }
 
 if (process.argv[1]?.endsWith('sanctions.mjs')) {
