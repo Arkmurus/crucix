@@ -2577,6 +2577,30 @@ async def lifespan(app: FastAPI):
                         )
                     except Exception:
                         pass
+            # R-F2417: piggyback this per-process 20s tick to force-flush any
+            # coalesced mastery write (R-F2408). Mastery can be dirtied on ANY
+            # worker (per-chat aria_engine updates), so the flush must be
+            # per-process (this loop is _bg_task, not _singleton_task) — a
+            # singleton loop would never persist a non-engine worker's cache in a
+            # quiet period. No-op when ARIA_MASTERY_COALESCE_SAVE is OFF (default)
+            # or when nothing is pending; bounds the deferred-write loss window to
+            # one tick. Own try so a flush error never affects health precompute.
+            try:
+                await student.flush_mastery()
+            except Exception as _mfe:
+                logger.debug("[R-F2417] periodic mastery flush failed: %s", _mfe)
+                # §21a — a periodic flush that keeps failing means coalesced
+                # mastery writes are silently stranding; surface to the brain.
+                try:
+                    from .intel.engine_wiring import wire_failure
+                    wire_failure(
+                        module="mastery_flush",
+                        detail=f"periodic mastery flush failed: {type(_mfe).__name__}: {_mfe}",
+                        gap_type="engine_failure",
+                        source="main:_health_precompute_loop",
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(20)   # < the 25s cache TTL so a request never sees a cold/expired entry
 
     health_precompute_task = _bg_task(asyncio.create_task(_health_precompute_loop(), name="health_precompute"), factory=_health_precompute_loop)
@@ -3629,6 +3653,16 @@ async def lifespan(app: FastAPI):
         await intel_ledger.shutdown()
     except Exception as e:
         logger.warning("intel_ledger.shutdown failed (non-fatal): %s", e)
+    # R-F2417: flush any coalesced mastery write (R-F2408) so a graceful
+    # restart persists the last learning signal. When ARIA_MASTERY_COALESCE_SAVE
+    # is OFF (default) this is a no-op inline save (nothing deferred); when ON it
+    # writes the pending whole-cache snapshot that a quiet period left unflushed.
+    # Own try/except — a durability flush must NEVER block or raise during
+    # shutdown (fly's graceful-stop window is short; F28/R-F2158 class).
+    try:
+        await student.flush_mastery()
+    except Exception as e:
+        logger.warning("[R-F2417] mastery flush failed (non-fatal): %s", e)
     # R-F507: stop the crawler loop cleanly so we don't leak a fetch
     # across deploys. The loop checks the stop_event before sleeping;
     # if it's mid-fetch, the task.cancel() interrupt is also caught.
