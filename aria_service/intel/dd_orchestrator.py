@@ -10393,6 +10393,68 @@ async def list_reports(
                 except Exception:
                     pass
 
+    # R-F2393 (2026-07-04) — ADOPT owner-less index entries so a real user's
+    # reports never silently vanish from their scoped DD-reports list.
+    #
+    # Root cause: after a report-index reset, the block above rebuilds the index
+    # from the dd_vault, which has NO user_id column (R-F2382), so rebuilt
+    # entries come back OWNER-LESS (user_id=None). The R-F2382/R-F2388 operator
+    # fallback only stamped an owner INSIDE the `if not index:` rebuild branch
+    # — and only for that single rebuild. Once owner-less entries are persisted
+    # they are STICKY: the index is now non-empty so the fallback never
+    # re-applies, and the scoped filter below drops every user_id=None entry.
+    # Meanwhile the watchlist (a SEPARATE key that is never rebuilt) still
+    # carries the real owner — so the entity shows in the watchlist but its
+    # report is missing from /dd/reports. That mismatch is exactly the operator-
+    # reported symptom.
+    #
+    # Fix (durable, applied on every read, not just the empty-index rebuild):
+    # for each owner-less entry reclaim the TRUE owner from the watchlist by
+    # last_dd_run_id == run_id when available (precise + multi-user-safe, since
+    # the watchlist stamps the requesting user's id at DD time), else fall back
+    # to the configured legacy operator (ARIA_DD_LEGACY_OWNER_UID — single-
+    # operator deployment; matches the R-F2382 policy). _changed → persisted
+    # below so the repair heals once and stays healed.
+    _ownerless = [
+        e for e in index
+        if isinstance(e, dict) and not (e.get("user_id") or "").strip()
+    ]
+    if _ownerless:
+        _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
+        _wl_owner: dict[str, tuple] = {}
+        try:
+            _watch = await rs.get_json(WATCHLIST_KEY) or []
+            for _w in _watch:
+                if not isinstance(_w, dict):
+                    continue
+                _rid = (_w.get("last_dd_run_id") or "").strip()
+                _wuid = (_w.get("user_id") or "").strip()
+                if _rid and _wuid:
+                    _wl_owner[_rid] = (
+                        _wuid,
+                        (_w.get("user_email_domain") or "").strip().lower() or None,
+                        _w.get("share_to_company", True),
+                    )
+        except Exception:
+            _wl_owner = {}
+        for entry in _ownerless:
+            _rid = (entry.get("run_id") or "").strip()
+            _claimed = _wl_owner.get(_rid)
+            if _claimed:
+                entry["user_id"] = _claimed[0]
+                if _claimed[1] and not entry.get("user_email_domain"):
+                    entry["user_email_domain"] = _claimed[1]
+                entry.setdefault("share_to_company", _claimed[2])
+                entry["_owner_reclaimed_by"] = "R-F2393_watchlist"
+                _changed = True
+            elif _ff_uid:
+                entry["user_id"] = _ff_uid
+                if _ff_dom and not entry.get("user_email_domain"):
+                    entry["user_email_domain"] = _ff_dom
+                entry.setdefault("share_to_company", True)
+                entry["_owner_reclaimed_by"] = "R-F2393_legacy_operator"
+                _changed = True
+
     if _changed:
         try:
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
