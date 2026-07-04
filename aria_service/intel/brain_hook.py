@@ -832,6 +832,24 @@ async def absorb(
                 )
             except Exception:
                 pass
+        # R-F2404 — CRITICAL: a reported FAILURE gap must NOT be lost just because
+        # the absorb backlog is at cap. The expensive tiers are shed here (only the
+        # NORMAL branch's absorb_tiers_bg consumes gap_type, brain_hook_bg.py:161),
+        # so without this a module reporting a gap during an autonomous burst — i.e.
+        # exactly when failures cluster — blinds the gap_detector→self_coder loop
+        # (§21c/§21e). record_gap is cheap (no encode/tier work), so record it now.
+        if gap_type:
+            try:
+                from . import capability_gaps
+                await capability_gaps.record_gap(
+                    gap_type=gap_type,
+                    detail=gap_detail or f"{module} reported gap: {gap_type} (recorded under absorb backlog shed)",
+                    source=source,
+                    user_id=user_id,
+                    sector=_sector_normalised,
+                )
+            except Exception:
+                logger.exception("[R-F2404] shed-branch record_gap failed for module=%s", module)
         if _dropped_absorb % 50 == 1:
             logger.warning(
                 "[R-F1342] absorb bg backlog at cap (%d) — shed expensive tiers "

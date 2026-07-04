@@ -1444,7 +1444,10 @@ async def dd_layer_5c_digital_stats_ep(limit: int = 200):
     with_social = 0
     for r in reports:
         ext = r.get("extensions") or {}
-        by_mod = ext.get("by_module") if isinstance(ext, dict) else {}
+        # R-F2409 — `ext.get("by_module")` can be an explicit None (key present,
+        # value null), so guard with `or {}`; the bare version 500'd this endpoint
+        # with AttributeError: 'NoneType' object has no attribute 'get'.
+        by_mod = (ext.get("by_module") or {}) if isinstance(ext, dict) else {}
         if by_mod.get("cert_transparency"):
             with_ct += 1
         if r.get("digital"):
@@ -25885,7 +25888,10 @@ async def sources_health_ep() -> dict:
     """
     from ..intel import redis_store as _rs
     from ..intel import error_log_handler as _elh
-    from ..intel.self_diagnostic import SELF_DIAGNOSTIC_CATALOGUE as _catalogue
+    # R-F2409 — SELF_DIAGNOSTIC_CATALOGUE never existed / was removed; the live
+    # module catalogue is `_MODULES` (list[dict] with name/module/critical). The
+    # stale import raised ImportError → this endpoint 500'd on every call.
+    from ..intel.self_diagnostic import _MODULES as _catalogue
 
     result: dict[str, dict] = {}
 

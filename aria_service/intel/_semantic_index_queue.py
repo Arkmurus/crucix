@@ -151,6 +151,21 @@ async def enqueue(fact_id: str, text: str, meta: Optional[dict] = None) -> bool:
                 "ARIA_INDEX_QUEUE_BATCH_SIZE or scaling out.",
                 _MAX_QUEUE_SIZE, _drops_total,
             )
+            # R-F2404 — a console warning is DARK (§21a): the self-heal loop never
+            # saw "the semantic-search index is degrading". Record a gap on the
+            # drop-burst threshold (deduped by (gap_type, detail) window, so no
+            # flood) so gap_detector→self_coder can act (scale batch size / embedder).
+            try:
+                from . import capability_gaps
+                await capability_gaps.record_gap(
+                    gap_type="embedder_failure",
+                    detail=(f"semantic-index queue full (max={_MAX_QUEUE_SIZE}); embedder "
+                            f"behind — facts persisted but missing from semantic-search index"),
+                    source="_semantic_index_queue.enqueue",
+                    title="Semantic-index queue overflow",
+                )
+            except Exception:
+                pass
         return False
 
 

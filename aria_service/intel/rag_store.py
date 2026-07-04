@@ -894,7 +894,23 @@ async def ingest_fact(
         )
         return True
     except Exception as e:
+        # R-F2404 — the @fail_wire above only fires on a RAISE, but this internal
+        # try/except swallows the upsert failure and returns False, so a persistent
+        # RAG-collection write failure was DARK (§21) — facts silently stopped
+        # becoming retrievable via RAG with no gap/signal (the durable knowledge
+        # fact is still saved per §7; only the RAG index degrades). record_gap
+        # dedupes by (gap_type, detail) within a window, so a chromadb outage won't
+        # flood — it surfaces ONE gap the self-heal loop can act on.
         logger.debug("RAG fact ingest failed: %s", e)
+        try:
+            from . import capability_gaps
+            await capability_gaps.record_gap(
+                gap_type="embedder_failure",
+                detail=f"rag_store.ingest_fact upsert failed: {type(e).__name__}: {str(e)[:200]}",
+                source="rag_store.ingest_fact",
+            )
+        except Exception:
+            pass
         return False
 
 

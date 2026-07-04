@@ -3154,12 +3154,19 @@ app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) => {
     method: 'POST',
     timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '810000', 10),
     fallback: async ({ lastStatus, lastErr } = {}) => {
-      reportOutcome('web', requestId, 'dd_report', 'timeout', Date.now() - t0, lastErr || 'brain timeout');
+      // R-F2405 — MUST use an outcome_wire-valid value; the brain
+      // (/api/aria/outcome) 400-rejects anything outside
+      // {delivered_real_answer,timeout_fallback,error,send_failed}, and
+      // reportOutcome fire-and-forgets so the 400 was swallowed — the flagship
+      // web DD *delivery* leg recorded NO outcome, ever. 'timeout'→'timeout_fallback'.
+      reportOutcome('web', requestId, 'dd_report', 'timeout_fallback', Date.now() - t0, lastErr || 'brain timeout');
       res.status(503).json(_brainFallback());
     },
   }).then(() => {
-    reportOutcome('web', requestId, 'dd_report', 'delivered', Date.now() - t0);
-  }).catch(() => {});
+    reportOutcome('web', requestId, 'dd_report', 'delivered_real_answer', Date.now() - t0);   // R-F2405: 'delivered'→valid value
+  }).catch((e) => {
+    reportOutcome('web', requestId, 'dd_report', 'error', Date.now() - t0, String(e && e.message || e));  // R-F2405: was swallowed silently
+  });
 });
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
