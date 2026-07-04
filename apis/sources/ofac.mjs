@@ -1,103 +1,27 @@
-// OFAC Sanctions List - US Treasury
-// Official sanctions list for compliance screening
+// OFAC Sanctions actions — US Treasury (R-F2416: real Federal Register feed).
+//
+// Was a hardcoded-literal stub: it fetched the SDN download URL then DISCARDED
+// the response and returned fake, static counts and country lines on every
+// sweep (a fabricated feed). It now returns REAL, dated OFAC sanctions
+// actions from the Federal Register API (agency = Office of Foreign Assets
+// Control) — "Notice of OFAC Sanctions Actions" and the like, with real dates
+// and links. Honest-empty (status 'error'/'degraded', no content) on failure.
+//
+// The on-demand entity screening path is separate (aria_service/intel/
+// sanctions.py + OpenSanctions); this feed answers "what did OFAC do recently".
 
 import '../utils/env.mjs';
+import { fetchFederalRegister } from './_federal_register.mjs';
 
 export async function briefing() {
-  console.log('[OFAC] Fetching sanctions data...');
-  
-  try {
-    // OFAC provides SDN (Specially Designated Nationals) list
-    // Using their public CSV/JSON endpoint
-    const response = await fetch('https://ofac.treasury.gov/media/529186/download?inline', {
-      headers: { 'User-Agent': 'Crucix/1.0' }
-    });
-    
-    // Provide current sanctions data
-    const updates = [
-      {
-        source: 'OFAC',
-        title: '🛡️ US Sanctions List Active',
-        content: 'Monitoring 12,000+ designated individuals and entities. Real-time compliance screening available.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'OFAC',
-        title: '🚫 Russian Sanctions Update',
-        content: 'Additional sanctions on Russian defense sector, financial institutions, and oligarchs.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'OFAC',
-        title: '🇮🇷 Iran Sanctions',
-        content: 'Ongoing sanctions on Iranian military, aerospace, and missile programs.',
-        timestamp: Date.now(),
-        priority: 'normal'
-      },
-      {
-        source: 'OFAC',
-        title: '🇰🇵 North Korea Sanctions',
-        content: 'Sanctions on North Korean weapons programs and financial networks.',
-        timestamp: Date.now(),
-        priority: 'normal'
-      },
-      {
-        source: 'OFAC',
-        title: '🔍 How to Check',
-        content: 'Use /sanctions [entity] in Telegram or visit: https://sanctionssearch.ofac.treas.gov/',
-        timestamp: Date.now(),
-        priority: 'info'
-      }
-    ];
-    
-    const signals = [
-      '🛡️ OFAC SDN list: 12,000+ sanctioned entities',
-      '🇷🇺 Russian defense sector under sanctions',
-      '🇮🇷 Iran missile program sanctioned',
-      '🇰🇵 North Korea weapons sanctions active',
-      '🔍 Real-time sanctions search available'
-    ];
-    
-    return {
-      source: 'OFAC',
-      timestamp: new Date().toISOString(),
-      status: 'active',
-      updates: updates,
-      signals: signals,
-      metrics: {
-        totalSanctioned: '12,000+',
-        lastUpdated: new Date().toISOString(),
-        searchUrl: 'https://sanctionssearch.ofac.treas.gov/'
-      },
-      counts: {
-        updates: updates.length,
-        signals: signals.length
-      }
-    };
-    
-  } catch (error) {
-    console.error('[OFAC] Error:', error.message);
-    
-    // Return cached data on error
-    return {
-      source: 'OFAC',
-      timestamp: new Date().toISOString(),
-      status: 'active',
-      updates: [
-        {
-          source: 'OFAC',
-          title: '🛡️ US Sanctions List',
-          content: 'Use /sanctions [entity] in Telegram to check OFAC, EU, and UN sanctions.',
-          timestamp: Date.now(),
-          priority: 'normal'
-        }
-      ],
-      signals: ['Sanctions screening available via Telegram command'],
-      counts: { updates: 1 }
-    };
-  }
+  console.log('[OFAC] Fetching real sanctions actions (Federal Register)...');
+  return fetchFederalRegister({
+    sourceName: 'OFAC',
+    emoji: '🛡️',
+    agencies: ['foreign-assets-control-office'],
+    perPage: 15,
+    searchUrl: 'https://ofac.treasury.gov/recent-actions',
+  });
 }
 
 if (process.argv[1]?.endsWith('ofac.mjs')) {

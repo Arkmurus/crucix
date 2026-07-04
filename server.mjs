@@ -6123,6 +6123,13 @@ async function runSweepCycle() {
     // spotlight (R-F2312) + daily sanctions signals (R-F2310) never fired in prod
     // (green unit tests masked it — they passed the field in directly). Re-attach it.
     synthesized.opensanctions = rawData.opensanctions;
+    // R-F2416 — synthesize() also drops the OFAC + export-control sweep sources.
+    // These are now REAL feeds (Federal Register: recent OFAC sanctions actions
+    // + BIS export-control RULES), so re-attach them for the dashboard's
+    // "Sanctions & Export Actions" widget. Honest-empty when the source failed
+    // (status 'error', updates []). Same drop-and-reattach shape as opensanctions.
+    synthesized.ofacActions = (rawData.sources && rawData.sources.OFAC) || null;
+    synthesized.exportControlActions = (rawData.sources && rawData.sources.ExportControls) || null;
 
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;

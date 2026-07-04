@@ -1,97 +1,29 @@
-// Export Controls - Wassenaar Arrangement, MTCR, NSG, Australia Group
-// Tracks weapons, dual-use goods, and technology export restrictions
+// Export Controls — US BIS export-control rule changes (R-F2416: real feed).
+//
+// Was 100% static (no fetch at all): it returned the same hardcoded
+// "Wassenaar 42 / MTCR 35 / NSG 48" reference text on every sweep. It now
+// returns REAL, dated export-control RULES from the Federal Register API
+// (agency = Bureau of Industry and Security, type = RULE) — Entity List
+// changes, EAR amendments, license-review-policy revisions, Commerce Control
+// List updates. Honest-empty (status 'error'/'degraded') on failure.
+//
+// Dual-use classification of a specific item is a separate on-demand engine
+// (aria_service/intel/dual_use_classifier.py + global_export_control.py); this
+// feed answers "what export-control rules changed recently".
 
 import '../utils/env.mjs';
+import { fetchFederalRegister } from './_federal_register.mjs';
 
 export async function briefing() {
-  console.log('[Export Controls] Fetching export control data...');
-  
-  try {
-    const updates = [
-      {
-        source: 'Export Controls',
-        title: '🔫 Wassenaar Arrangement',
-        content: '42 participating states. Controls conventional weapons and dual-use goods. Munitions list updated annually.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'Export Controls',
-        title: '🚀 Missile Technology Control Regime (MTCR)',
-        content: '35 members. Controls missile technology capable of delivering WMDs. Category I & II items restricted.',
-        timestamp: Date.now(),
-        priority: 'high'
-      },
-      {
-        source: 'Export Controls',
-        title: '⚛️ Nuclear Suppliers Group (NSG)',
-        content: '48 members. Controls nuclear-related exports. Dual-use nuclear technology restrictions.',
-        timestamp: Date.now(),
-        priority: 'normal'
-      },
-      {
-        source: 'Export Controls',
-        title: '🧪 Australia Group',
-        content: '43 members. Controls chemical and biological weapons precursors. Export licensing requirements.',
-        timestamp: Date.now(),
-        priority: 'normal'
-      },
-      {
-        source: 'Export Controls',
-        title: '📋 US ITAR/EAR Compliance',
-        content: 'International Traffic in Arms Regulations (ITAR) and Export Administration Regulations (EAR). Defense articles and services controlled.',
-        timestamp: Date.now(),
-        priority: 'high'
-      }
-    ];
-    
-    const signals = [
-      '🔫 Wassenaar: 42 states, munitions list active',
-      '🚀 MTCR: Missile technology export controls',
-      '⚛️ NSG: Nuclear export controls',
-      '📋 US ITAR: Defense article export restrictions',
-      '🌍 EU Dual-Use Regulation active',
-      '⚠️ New export controls on advanced semiconductors'
-    ];
-    
-    return {
-      source: 'Export Controls',
-      timestamp: new Date().toISOString(),
-      status: 'active',
-      updates: updates,
-      signals: signals,
-      metrics: {
-        wassenaarMembers: 42,
-        mtcrMembers: 35,
-        nsgMembers: 48,
-        australiaGroupMembers: 43,
-        controlledCategories: [
-          'Conventional weapons',
-          'Missile technology',
-          'Nuclear materials',
-          'Chemical/biological precursors',
-          'Dual-use goods',
-          'Advanced technology'
-        ],
-        lastUpdated: new Date().toISOString()
-      },
-      counts: {
-        updates: updates.length,
-        signals: signals.length
-      }
-    };
-    
-  } catch (error) {
-    console.error('[Export Controls] Error:', error.message);
-    return {
-      source: 'Export Controls',
-      timestamp: new Date().toISOString(),
-      status: 'error',
-      error: error.message,
-      updates: [],
-      signals: []
-    };
-  }
+  console.log('[Export Controls] Fetching real BIS export-control rules (Federal Register)...');
+  return fetchFederalRegister({
+    sourceName: 'Export Controls',
+    emoji: '🚦',
+    agencies: ['industry-and-security-bureau'],
+    types: ['RULE'],
+    perPage: 12,
+    searchUrl: 'https://www.federalregister.gov/agencies/industry-and-security-bureau',
+  });
 }
 
 if (process.argv[1]?.endsWith('export_controls.mjs')) {

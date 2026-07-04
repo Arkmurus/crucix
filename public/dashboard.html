@@ -113,6 +113,20 @@
             </div>
           </div>
         </div>
+        <!-- R-F2416 — real Sanctions & Export-Control actions (Federal Register).
+             Only rendered when the real feed returned data; never fabricated. -->
+        <div id="sanctions-export-block" style="display:none;margin-top:16px">
+          <div class="sc-grid-2">
+            <div>
+              <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Sanctions Actions <span style="text-transform:none;color:var(--sc-muted);font-weight:400">· OFAC</span></h3>
+              <div id="ofac-actions-list" style="max-height:280px;overflow-y:auto"></div>
+            </div>
+            <div>
+              <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Export-Control Rules <span style="text-transform:none;color:var(--sc-muted);font-weight:400">· US BIS</span></h3>
+              <div id="export-actions-list" style="max-height:280px;overflow-y:auto"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -551,6 +565,32 @@ async function loadData() {
           + '</div>';
       }).join('');
     }
+
+    // ── R-F2416 — real Sanctions & Export-Control actions (Federal Register) ──
+    // Only shown when the real feed returned data; honest-empty → hidden.
+    (function renderActions() {
+      const ofac = (data.ofacActions && Array.isArray(data.ofacActions.updates)) ? data.ofacActions.updates : [];
+      const exp = (data.exportControlActions && Array.isArray(data.exportControlActions.updates)) ? data.exportControlActions.updates : [];
+      const block = document.getElementById('sanctions-export-block');
+      if (!block) return;
+      if (!ofac.length && !exp.length) { block.style.display = 'none'; return; }
+      block.style.display = '';
+      function renderList(el, items, emptyMsg) {
+        if (!el) return;
+        if (!items.length) { el.innerHTML = '<p class="text-muted" style="padding:8px">' + emptyMsg + '</p>'; return; }
+        el.innerHTML = items.slice(0, 8).map(function (u) {
+          const date = u.timestamp ? new Date(u.timestamp).toLocaleDateString() : '';
+          const href = (u.url && /^https:\/\//i.test(u.url)) ? u.url : '';   // only trust https links
+          const inner = '<div style="font-size:12px;font-weight:600;color:var(--sc-heading);line-height:1.4">' + escHtml(truncate(u.title || '', 110)) + '</div>'
+            + '<div style="font-size:10px;color:#9b968c;margin-top:2px">' + escHtml(date) + '</div>';
+          return '<div style="padding:8px 0;border-bottom:1px solid var(--sc-border)">'
+            + (href ? '<a href="' + escHtml(href) + '" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit;display:block">' + inner + '</a>' : inner)
+            + '</div>';
+        }).join('');
+      }
+      renderList(document.getElementById('ofac-actions-list'), ofac, 'No recent OFAC actions this sweep.');
+      renderList(document.getElementById('export-actions-list'), exp, 'No recent export-control rules this sweep.');
+    })();
   }
 
   // ── Opportunities preview ──
