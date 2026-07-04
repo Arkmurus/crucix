@@ -26,6 +26,17 @@ from dataclasses import dataclass, field
 
 # Citation labels the corpus uses: "[Source: web_search:...]" and "[from <x>]".
 _CITE_RE = re.compile(r"\[(?:Source:|from )\s*([^\]]+?)\s*\]", re.IGNORECASE)
+
+# R-F2397 — ARIA's REAL production RAG context format (get_rag_context_with_sources)
+# does NOT use "[Source: Sx]"; it uses authoritative "↳ source: <label>" lines and
+# "• [n.nn] <type>:..." chunk headers. The old _CITE_RE extracted ~0 sources from a
+# production context, so score() flagged every genuine citation as fabricated (the
+# bug behind 3 false FAIL verdicts). These recognise the production source labels.
+_CTX_SOURCE_RE = re.compile(r"↳\s*source:\s*([^|\n]+)", re.IGNORECASE)      # "↳ source: <label> | <date>"
+_CTX_HEADER_RE = re.compile(                                                # "• [1.04] web_search:...:" typed header prefix
+    r"[•\-\*]\s*\[\s*\d+(?:\.\d+)?\s*\]\s*"
+    r"([A-Za-z][\w-]*(?::[\w-]+)*:[^\n:]{0,80})",
+)
 _ABSTAIN_MARKERS = (
     "cannot confirm", "does not contain", "not supported", "cannot determine",
     "no information", "context does not", "not enough information", "cannot answer",
@@ -40,6 +51,50 @@ def _norm(s: str) -> str:
 
 def extract_citations(text: str) -> list[str]:
     return [_norm(m) for m in _CITE_RE.findall(text or "")]
+
+
+def extract_context_sources(context: str) -> set[str]:
+    """R-F2397 — the set of source labels ACTUALLY present in a retrieved context.
+
+    Recognises BOTH formats so grounding is measured against real evidence:
+      - synthetic  "[Source: Sx]" / "[from x]"     (extract_citations — back-compat)
+      - production "↳ source: <label>"             (the authoritative per-chunk label)
+      - production "• [n.nn] <type>:..." headers   (typed chunk-header prefix)
+    Format recognition only — no scoring weight/threshold is involved here.
+    """
+    ctx = context or ""
+    srcs = set(extract_citations(ctx))
+    for m in _CTX_SOURCE_RE.findall(ctx):
+        n = _norm(m)
+        if n:
+            srcs.add(n)
+    for m in _CTX_HEADER_RE.findall(ctx):
+        n = _norm(m)
+        if n:
+            srcs.add(n)
+    return {s for s in srcs if s}
+
+
+def _cite_grounded(cite: str, ctx_sources: set[str]) -> bool:
+    """Is a normalized answer citation grounded in the context's source set?
+
+    Exact match, OR hierarchical containment against a REAL extracted label only
+    (production labels are hierarchical — a model legitimately cites the leaf
+    "investigation:X" of "research:investigation:X", or appends "| <date>" to a
+    label). Bounded to the extracted label set + a length floor so a fabricated
+    citation cannot be credited by trivial/free-text overlap (no over-crediting).
+    """
+    c = _norm(cite)
+    if not c:
+        return False
+    if c in ctx_sources:
+        return True
+    if len(c) < 8:
+        return False
+    for lb in ctx_sources:
+        if len(lb) >= 8 and (c in lb or lb in c):
+            return True
+    return False
 
 
 def _is_abstention(answer: str) -> bool:
@@ -100,10 +155,10 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     carries a valid citation. Backward-compatible: answerable=None + no keywords ->
     the original behaviour exactly.
     """
-    ctx_sources = set(extract_citations(context))
+    ctx_sources = extract_context_sources(context)  # R-F2397 — production + synthetic
     ans_cites = extract_citations(answer)
-    grounded = [c for c in ans_cites if c in ctx_sources]
-    fabricated = [c for c in ans_cites if c not in ctx_sources]
+    grounded = [c for c in ans_cites if _cite_grounded(c, ctx_sources)]
+    fabricated = [c for c in ans_cites if not _cite_grounded(c, ctx_sources)]
     b = RewardBreakdown(
         score=0.0,
         total_citations=len(ans_cites),

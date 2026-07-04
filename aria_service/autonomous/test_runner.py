@@ -115,6 +115,7 @@ class TestRunner:
         workspace: Path,
         new_tests: dict[str, str],
         tests_dir: str = "aria_service/tests",
+        bypass_rate_limit: bool = False,
     ) -> TestResult:
         """Apply workspace patches and run pytest in a tempdir copy.
 
@@ -123,6 +124,18 @@ class TestRunner:
           - Circuit breaker: auto-disables after 3 failures in 1h
           - Rate limit: max 1 run per 5 minutes
           - Resource-limited subprocess with strict timeout
+
+        R-F2395: `bypass_rate_limit` skips ONLY the intra-fix rate limiter (Gate
+        3). It exists for the REQUIRED capability-test verification (fix_gap STEP
+        6.5 re-runs the reproduce test on the FIXED code) which is called back-to-
+        back with STEP 6's healing run — under the single-global-key 1-run/5-min
+        limiter the second call ALWAYS returned a vacuous no-op green, so the
+        capability test never GENUINELY executed and `reproduce_fail_to_pass` was
+        being set from nothing. That silently defeated the auto-deploy gate. The
+        bypass is one bounded run per fix (already capped by the coder's hourly
+        bucket + the 5-min scan interval); the master switch (Gate 1) and the
+        circuit breaker (Gate 2) still apply, so tests-disabled still no-ops and a
+        wedge storm still trips the breaker.
         """
         # ── Gate 1: Master switch ──────────────────────────────────────────
         if os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "0":
@@ -140,10 +153,13 @@ class TestRunner:
             )
 
         # ── Gate 3: Rate limit ─────────────────────────────────────────────
-        rate_allowed = await self._check_rate_limit()
-        if not rate_allowed:
-            logger.info("[test_runner] rate limited — skipping")
-            return TestResult(all_green=True, passed=0, failed=0, safe_mode=True)
+        # R-F2395: the required capability-test verification bypasses this (see
+        # docstring) so it GENUINELY runs instead of returning a no-op green.
+        if not bypass_rate_limit:
+            rate_allowed = await self._check_rate_limit()
+            if not rate_allowed:
+                logger.info("[test_runner] rate limited — skipping")
+                return TestResult(all_green=True, passed=0, failed=0, safe_mode=True)
 
         # ── Determine mode ─────────────────────────────────────────────────
         full_suite = os.environ.get("ARIA_CODER_TESTS_FULL", "0").strip() == "1"

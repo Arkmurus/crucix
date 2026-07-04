@@ -197,6 +197,39 @@ def apply_capability_test_gate(
     return (force_stage, force_deploy, False)
 
 
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
+def capability_test_genuinely_passed(test_result: Any) -> bool:
+    """R-F2395 — a capability/reproduce test counts as PASSED for the AUTO-DEPLOY
+    gate ONLY when it GENUINELY EXECUTED (>=1 test actually ran) AND was green.
+
+    Why this exists (root cause of "AUTO_DEPLOY guarded only by the truncation
+    check"): TestRunner.run_isolated returns a NO-OP TestResult
+    (all_green=True, passed=0) whenever ARIA_CODER_TESTS_ENABLED != "1"
+    (test_runner.py Gate 1), whenever it is rate-limited (Gate 3), or whenever a
+    generated/reproduce test file collects zero tests. STEP 6.5 of fix_gap
+    re-runs the reproduce test on the FIXED code through run_isolated and set
+    `_reproduce_fail_to_pass` from a bare `all_green` — so a vacuous green made
+    the capability-test gate (apply_capability_test_gate) trivially satisfied and
+    the autonomous fix auto-deployed WITHOUT any test ever running. A no-op run
+    proves NOTHING and MUST NOT satisfy the gate.
+
+    The honesty encoded in build_coder_reward_record's gold gate
+    (tests_ran = tests_enabled AND passed+failed>0) is now ALSO enforced at the
+    DEPLOY gate: THE TEST is the gate, never the model's confidence, and never a
+    disabled/rate-limited no-op that merely returns green.
+
+    Returns True iff the run is green AND at least one test actually passed AND
+    nothing failed/errored. Defensive against a None/partial result.
+    """
+    if test_result is None:
+        return False
+    passed = getattr(test_result, "passed", 0) or 0
+    failed = getattr(test_result, "failed", 0) or 0
+    errors = getattr(test_result, "errors", 0) or 0
+    all_green = bool(getattr(test_result, "all_green", False))
+    return bool(all_green and passed > 0 and failed == 0 and errors == 0)
+
+
 @dataclass
 class FixResult:
     success: bool
@@ -892,22 +925,73 @@ class ARIACoder:
                     "Re-running reproduce test on FIXED code (isolated) — must PASS",
                 )
                 # _repro_src + _reproduce_target were set in STEP 5.5 (same scope).
+                # R-F2395 — THREE distinct outcomes, not two:
+                #   (1) GENUINE PASS  — green AND >=1 test actually ran, none
+                #       failed → reproduce_fail_to_pass=True → may auto-deploy.
+                #   (2) GENUINE FAIL  — the test RAN and FAILED → the fix did not
+                #       resolve the symptom → REJECT the fix.
+                #   (3) COULD-NOT-VERIFY — run_isolated returned a vacuous green
+                #       (ARIA_CODER_TESTS_ENABLED!=1 / rate-limited / zero tests
+                #       collected) → NOT a valid capability test. Do NOT reject
+                #       (the fix may still be worth staging) and do NOT set
+                #       reproduce_fail_to_pass — the downstream capability-test
+                #       gate then forces STAGE-ONLY. This is the coupling that
+                #       makes AUTO_DEPLOY safe: no genuinely-executed green test,
+                #       no autonomous deploy.
                 if _reproduce_target and _repro_src:
+                    # R-F2395 — bypass_rate_limit=True: this REQUIRED capability
+                    # verification runs right after STEP 6's healing run, so the
+                    # single-global 1-run/5-min limiter would otherwise force it
+                    # to a no-op green and it could never GENUINELY execute.
                     _repro_result = await self.test_runner.run_isolated(
                         workspace, {_reproduce_target: _repro_src},
+                        bypass_rate_limit=True,
                     )
-                    _repro_ok = bool(_repro_result.all_green)
+                    _repro_genuine_pass = capability_test_genuinely_passed(_repro_result)
+                    _repro_all_green = bool(getattr(_repro_result, "all_green", False))
                     _repro_msg = _repro_result.failure_summary or ""
                 else:
-                    _repro_ok = False
+                    _repro_result = None
+                    _repro_genuine_pass = False
+                    _repro_all_green = False
                     _repro_msg = "reproduce test code missing from workspace"
-                if _repro_ok:
+
+                if _repro_genuine_pass:
+                    # (1) genuine FAIL->PASS confirmed
                     _reproduce_fail_to_pass = True
                     logger.info(
                         "[aria_coder] R-F1685 reproduce test FAIL->PASS confirmed "
-                        "(isolated, fixed code) for %s", gap.gap_id,
+                        "(isolated, fixed code, genuinely executed) for %s", gap.gap_id,
                     )
+                elif _repro_all_green:
+                    # (3) could-not-verify — vacuous green (no genuine execution).
+                    # Leave reproduce_fail_to_pass False so the capability-test
+                    # gate forces stage-only; do NOT reject the fix.
+                    logger.warning(
+                        "[aria_coder] R-F2395 reproduce test did NOT genuinely "
+                        "execute for %s (passed=%s failed=%s errors=%s) — tests "
+                        "disabled/rate-limited/zero-collected. Not a valid "
+                        "capability test; capability-test gate will force "
+                        "stage-only (no autonomous deploy).",
+                        gap.gap_id,
+                        getattr(_repro_result, "passed", 0),
+                        getattr(_repro_result, "failed", 0),
+                        getattr(_repro_result, "errors", 0),
+                    )
+                    try:
+                        from aria_service.intel.engine_wiring import wire_failure as _wf2395
+                        _wf2395(
+                            module="aria_coder",
+                            detail=(f"Reproduce test could not genuinely execute for "
+                                    f"{gap.gap_id} — staging only (tests disabled/"
+                                    f"rate-limited/zero-collected)"),
+                            gap_type="capability_test_missing",
+                            source="aria_coder:reproduce_not_genuine",
+                        )
+                    except Exception:
+                        pass
                 else:
+                    # (2) genuine FAIL — the fix did not resolve the symptom
                     logger.warning(
                         "[aria_coder] R-F1685 reproduce test still FAILS after fix "
                         "(isolated) for %s: %s", gap.gap_id, _repro_msg,
