@@ -364,6 +364,80 @@ def _mark_mastery_dirty() -> None:
     _mastery_dirty = True
 
 
+# ── R-F2408: coalesce the whole-blob MASTERY_KEY save (flag-gated, default OFF) ──
+# state_store write-ceiling relief. update_mastery() rewrites the ENTIRE mastery
+# cache to ONE key (`crucix:aria:mastery`) via set_json on EVERY observation — a
+# whole-blob rewrite per learning signal. Under the accelerated free-learning loop
+# (R-F2283: 15 cells / 6 articles per cycle) + per-chat aria_engine updates + per-
+# absorb brain_hook_bg updates, that is a bursty hot-key write hammering the single
+# aiosqlite writer (exactly the "per-request hot-key RMW" antipattern CLAUDE.md §
+# state_store warns against). Mastery is a DERIVED, slowly-moving EWMA held in an
+# in-memory cache (the runtime source of truth; reports read the cache, not the DB)
+# and TTL'd 180d — so deferring the durability write a few seconds is safe (losing
+# the final pre-crash update is acceptable; the loop rebuilds it). This mirrors the
+# proven R-F2172 cost-coalescing pattern: time-gated, single-flight, no new
+# background task, no boot-path change. DEFAULT OFF → byte-identical to today; the
+# save stays inline until the operator flips ARIA_MASTERY_COALESCE_SAVE=1.
+_MASTERY_SAVE_COALESCE = os.getenv(
+    "ARIA_MASTERY_COALESCE_SAVE", "").strip().lower() in ("1", "true", "yes", "on")
+_MASTERY_FLUSH_INTERVAL_S = float(os.getenv("ARIA_MASTERY_FLUSH_INTERVAL_S", "15"))
+_mastery_last_save: float = 0.0
+_mastery_save_lock: asyncio.Lock | None = None
+
+
+def _get_mastery_save_lock() -> asyncio.Lock:
+    """Lazy-bound single-flight lock (created inside the running loop, like
+    state_store._get_lock) so pytest's per-test asyncio.run loops each bind a
+    fresh lock."""
+    global _mastery_save_lock
+    if _mastery_save_lock is None:
+        _mastery_save_lock = asyncio.Lock()
+    return _mastery_save_lock
+
+
+async def _maybe_flush_mastery(force: bool = False) -> bool:
+    """R-F2408 — persist the mastery cache, coalesced when the flag is ON.
+
+    Flag OFF (default): identical to the pre-R-F2408 inline behaviour — write
+    now via _save_mastery() (which itself no-ops when not dirty).
+
+    Flag ON: write at most once per _MASTERY_FLUSH_INTERVAL_S. Intervening
+    updates leave _mastery_dirty=True so the next flush (or a force flush)
+    persists the latest whole-cache snapshot. Single in-flight flush via a
+    lazy lock so concurrent update_mastery calls can't double-write. Returns
+    True iff a DB write actually happened.
+    """
+    global _mastery_last_save
+    if not _MASTERY_SAVE_COALESCE:
+        await _save_mastery()
+        return True  # inline path always attempts (no-op inside if not dirty)
+    if not _mastery_dirty:
+        return False
+    now = time.time()
+    if not force and (now - _mastery_last_save) < _MASTERY_FLUSH_INTERVAL_S:
+        return False  # coalesce — keep the dirty flag, defer the write
+    lock = _get_mastery_save_lock()
+    if lock.locked() and not force:
+        return False
+    async with lock:
+        now = time.time()
+        if not force and (now - _mastery_last_save) < _MASTERY_FLUSH_INTERVAL_S:
+            return False
+        if not _mastery_dirty:
+            return False
+        await _save_mastery()  # resets _mastery_dirty on success
+        _mastery_last_save = now
+        return True
+
+
+async def flush_mastery() -> bool:
+    """R-F2408 — public force-flush of any deferred mastery write. Wire this
+    into shutdown / a periodic tick when activating ARIA_MASTERY_COALESCE_SAVE
+    so a quiet period (no further update_mastery) can't leave the last learning
+    signal unpersisted. Safe to call anytime; no-op when nothing is pending."""
+    return await _maybe_flush_mastery(force=True)
+
+
 async def _load_mastery() -> dict:
     global _mastery_cache
     if _mastery_cache is not None:
@@ -568,7 +642,10 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             m.pop("below_floor", None)
             m.pop("floor", None)
     _mark_mastery_dirty()  # R-F267 — actual learning, persist
-    await _save_mastery()
+    # R-F2408: coalesced save (flag-gated). Flag OFF → inline _save_mastery()
+    # exactly as before; flag ON → at most one whole-blob write per interval,
+    # relieving the single aiosqlite writer on the hot learning path.
+    await _maybe_flush_mastery()
 
     # Log remediation needs so the weekly report and proactive loop
     # can act on them. Non-blocking fire-and-forget.
@@ -699,6 +776,15 @@ async def get_topic_retention(topic: str) -> dict:
 
 @fail_wire(module="student", gap_type="engine_failure")
 async def get_mastery_report() -> dict:
+    # R-F2408: opportunistic, time-gated flush of any deferred mastery write
+    # (no-op when the coalesce flag is off or nothing is pending). A dashboard/
+    # report refresh thus bounds how long a deferred whole-blob save can sit
+    # unpersisted during a quiet learning period. Report values read the cache
+    # below, so this never changes what is reported — it is durability only.
+    try:
+        await _maybe_flush_mastery()
+    except Exception:
+        pass
     mastery = await _load_mastery()
     total_samples = sum(m.get("samples", 0) for m in mastery.values())
     weak = [t for t, m in mastery.items() if m.get("score", 0) < WEAK_THRESHOLD]
