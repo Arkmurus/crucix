@@ -97,6 +97,8 @@
           <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-briefcase"></i></div><div><div class="sc-stat-value" id="kpi-tenders">—</div><div class="sc-stat-label">Active Tenders</div></div></div>
           <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-hdd-network"></i></div><div><div class="sc-stat-value" id="kpi-srchealth">—</div><div class="sc-stat-label">Source Health</div></div></div>
         </div>
+        <!-- R-F2414 — personalisation spine: live signals matching THE USER's watchlist -->
+        <div id="wl-signal-match" style="display:none;margin-bottom:12px"></div>
         <div class="sc-grid-2">
           <div>
             <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Situation Awareness</h3>
@@ -241,6 +243,50 @@ function severityPill(sev) {
   const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
   const map = { 'hard_stop': 'sc-badge-red', 'red': 'sc-badge-red', 'amber-light': 'sc-badge-orange', 'amber-dark': 'sc-badge-orange', 'green': 'sc-badge-green' };
   return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
+}
+
+// ── R-F2414 — provenance badge. Makes cross-source corroboration VISIBLE:
+// a single-source signal is honestly labelled unconfirmed. ARIA's honesty
+// moat vs black-box feeds is that the user can SEE how well a signal is
+// corroborated instead of trusting an opaque score.
+function provenanceBadge(sourceCount) {
+  const n = sourceCount || 0;
+  if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Corroborated across ' + n + ' independent sources">✓ corroborated · ' + n + ' sources</span>';
+  return '<span class="sc-badge sc-badge-muted" title="Seen in a single source — treat as unconfirmed">single-source</span>';
+}
+
+// ── R-F2414 — watchlist matcher (personalisation spine). Flags live signals
+// that mention an entity on THE USER's own watchlist. Names are normalised
+// (corporate suffixes stripped) and require >=4 chars so short/common tokens
+// don't produce noise matches; matching is word-boundary-aware and every hit
+// is shown WITH the entity name so the user can judge it.
+function buildWatchlistMatcher(wlData) {
+  const raw = (wlData && wlData.watchlist) || [];
+  const SUFFIX = /\b(ltd|limited|llc|inc|incorporated|corp|corporation|plc|gmbh|sa|ag|co|company|holdings?|group)\b\.?/gi;
+  const entries = [];
+  for (const w of raw) {
+    const orig = ((w && w.name) || '').trim();
+    if (!orig) continue;
+    const cleaned = orig.toLowerCase().replace(SUFFIX, '').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+    if (cleaned.length < 4) continue;
+    entries.push({ orig: orig, needle: cleaned });
+  }
+  return {
+    size: entries.length,
+    find: function (text) {
+      if (!text || !entries.length) return [];
+      const hay = String(text).toLowerCase();
+      const hits = [];
+      for (const e of entries) {
+        const i = hay.indexOf(e.needle);
+        if (i < 0) continue;
+        const before = i === 0 ? ' ' : hay[i - 1];
+        const after = (i + e.needle.length >= hay.length) ? ' ' : hay[i + e.needle.length];
+        if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) hits.push(e.orig);
+      }
+      return hits;
+    }
+  };
 }
 
 // R-F2024 — authed(): thin fetch wrapper that attaches the JWT and returns the
@@ -433,6 +479,32 @@ async function loadData() {
       }
     } catch (e) { /* health is best-effort; leave the tile at its placeholder */ }
 
+    // ── R-F2414 — personalisation spine: match live signals to the user's watchlist ──
+    const wlMatch = buildWatchlistMatcher(wlData);
+    const allPosts = (data.tg && data.tg.urgent) || [];
+    let wlSignalCount = 0;
+    const wlHitNames = new Set();
+    for (const p of allPosts) {
+      const hits = wlMatch.find(p.text || '');
+      if (hits.length) { wlSignalCount++; hits.forEach(function (n) { wlHitNames.add(n); }); }
+    }
+    const wlSummary = document.getElementById('wl-signal-match');
+    if (wlSummary) {
+      if (wlMatch.size === 0) {
+        wlSummary.style.display = 'none';   // no watchlist → nothing to personalise
+      } else if (wlSignalCount > 0) {
+        const names = Array.from(wlHitNames).slice(0, 4).map(escHtml).join(', ');
+        const more = wlHitNames.size > 4 ? (' +' + (wlHitNames.size - 4) + ' more') : '';
+        wlSummary.style.display = '';
+        wlSummary.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:8px 12px;font-size:12px;color:#b91c1c">'
+          + '<i class="bi bi-star-fill"></i> <strong>' + wlSignalCount + ' live signal' + (wlSignalCount > 1 ? 's' : '') + '</strong> mention entities on your watchlist: ' + names + escHtml(more) + '</div>';
+      } else {
+        wlSummary.style.display = '';
+        wlSummary.innerHTML = '<div style="background:#f5f4ef;border:1px solid var(--sc-border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--sc-muted)">'
+          + '<i class="bi bi-star"></i> No entities on your watchlist appear in this sweep’s live signals.</div>';
+      }
+    }
+
     // Correlations
     const corrEl = document.getElementById('correlations-list');
     const corrs = data.correlations || [];
@@ -448,8 +520,9 @@ async function loadData() {
           + '<strong style="color:var(--sc-heading);font-size:12px">' + escHtml(c.region) + '</strong>'
           + '<span class="sc-badge ' + (c.severity==='critical'?'sc-badge-red':'sc-badge-orange') + ' ms-auto">' + escHtml(c.severity||'').toUpperCase() + '</span>'
           + '</div>'
-          + '<div style="padding:6px 10px;font-size:11px;color:#57534b">'
-          + (c.signalCount||0) + ' signals · ' + (c.sourceCount||0) + ' sources · score ' + (c.totalScore||0)
+          + '<div style="padding:6px 10px;font-size:11px;color:#57534b;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+          + '<span>' + (c.signalCount||0) + ' signals · score ' + (c.totalScore||0) + '</span>'
+          + provenanceBadge(c.sourceCount)
           + '</div></div>';
       }).join('');
     }
@@ -461,10 +534,18 @@ async function loadData() {
       osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
     } else {
       osintEl.innerHTML = posts.slice(0,6).map(function(p) {
-        return '<div style="padding:8px 0;border-bottom:1px solid var(--sc-border)">'
-          + '<div style="display:flex;justify-content:space-between;margin-bottom:2px">'
+        // R-F2414 — flag posts mentioning a watchlist entity (personalisation)
+        const hits = wlMatch.find(p.text || '');
+        const flagged = hits.length > 0;
+        const wlBadge = flagged
+          ? '<span class="sc-badge sc-badge-red" title="Mentions an entity on your watchlist">⭐ ' + escHtml(hits[0]) + (hits.length > 1 ? (' +' + (hits.length - 1)) : '') + '</span>'
+          : '';
+        return '<div style="padding:8px 0;border-bottom:1px solid var(--sc-border)'
+          + (flagged ? ';background:rgba(239,68,68,0.06);border-left:3px solid #dc2626;padding-left:8px;padding-right:8px' : '') + '">'
+          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'
           + '<span style="font-size:10px;font-weight:700;color:var(--sc-prime)">' + escHtml(p.channel||'OSINT') + '</span>'
-          + '<span style="font-size:10px;color:#9b968c">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
+          + wlBadge
+          + '<span style="font-size:10px;color:#9b968c;margin-left:auto">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
           + '</div>'
           + '<p style="font-size:12px;color:var(--sc-text);line-height:1.5;margin:0">' + escHtml(truncate(p.text||'',150)) + '</p>'
           + '</div>';
