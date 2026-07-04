@@ -9768,8 +9768,19 @@ async def add_to_watchlist(target: dict) -> dict:
     name = (target.get("name") or target.get("entity") or "").strip()
     if not name:
         raise ValueError("target must include a name")
+    _t_owner = (target.get("user_id") or "").strip()
     for w in current:
         if (w.get("name") or "").strip().lower() == name.lower():
+            # R-F2401 — dedup PER-OWNER, not globally. A watchlist entry is
+            # per-user (R-F2355); deduping by name alone meant tenant B adding a
+            # name tenant A already watches got "already on watchlist" and NEVER
+            # received an owned entry, so B could not see it (get_watchlist fails
+            # closed on A's entry) — a cross-tenant denial + existence leak. Only
+            # collapse when the owner matches (or both are owner-less); otherwise
+            # fall through and insert B's own entry.
+            _w_owner = (w.get("user_id") or "").strip()
+            if _w_owner != _t_owner:
+                continue
             # R-F878 — already present: backfill canonical_entity_id /
             # entity_type / jurisdiction when this DD supplies them and the
             # existing entry lacks them, so the R-F876 re-screen can match by
@@ -9795,13 +9806,41 @@ async def add_to_watchlist(target: dict) -> dict:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def remove_from_watchlist(name: str) -> dict:
+async def remove_from_watchlist(name: str, user_id: str = "",
+                                user_email_domain: str = "") -> dict:
+    """R-F2401 — owner-scoped delete. Pre-fix this removed EVERY entry matching
+    the name regardless of owner, so any authenticated user could delete another
+    tenant's watchlist entry (IDOR write, violates R-F2097). Now a scoped caller
+    (user_id set) removes ONLY entries they own or a same-company-shared entry;
+    the configured legacy operator may also remove owner-less entries (single-
+    operator deployment). user_id='' = admin / internal → unrestricted (keeps the
+    autonomous re-screen self-purge working)."""
     from . import redis_store as rs
     current = await rs.get_json(WATCHLIST_KEY) or []
     before = len(current)
-    current = [w for w in current if (w.get("name") or "").strip().lower() != (name or "").strip().lower()]
-    await rs.set_json(WATCHLIST_KEY, current)
-    return {"ok": True, "removed": before - len(current), "count": len(current)}
+    tgt = (name or "").strip().lower()
+    _legacy_uid, _ = _dd_legacy_owner_fallback()
+    _cdom = (user_email_domain or "").strip().lower()
+
+    def _caller_may_remove(w: dict) -> bool:
+        if not user_id:
+            return True  # admin / internal — unrestricted
+        w_owner = (w.get("user_id") or "").strip()
+        if w_owner:
+            if w_owner == user_id:
+                return True
+            w_dom = (w.get("user_email_domain") or "").strip().lower()
+            return bool(_cdom and w_dom and _cdom == w_dom
+                        and w.get("share_to_company", True) is not False)
+        # owner-less entry: only the configured legacy operator may remove it
+        return bool(_legacy_uid and user_id == _legacy_uid)
+
+    kept = [
+        w for w in current
+        if not ((w.get("name") or "").strip().lower() == tgt and _caller_may_remove(w))
+    ]
+    await rs.set_json(WATCHLIST_KEY, kept)
+    return {"ok": True, "removed": before - len(kept), "count": len(kept)}
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
@@ -9814,6 +9853,57 @@ async def get_watchlist(user_id: str | None = None,
     sees the FULL list so monitoring still covers every watched entity."""
     from . import redis_store as rs
     items = await rs.get_json(WATCHLIST_KEY) or []
+
+    # R-F2401 — reclaim OWNER-LESS watchlist entries (mirrors the R-F2393 report
+    # reclaim). A DD auto-enroll before R-F2355, or an entry whose owner was lost,
+    # is owner-less and would stay hidden from the operator's scoped watchlist
+    # forever (get_watchlist fails closed). Reclaim the true owner from the report
+    # index by last_dd_run_id (the index carries owners post-R-F2393), else fall
+    # back to the configured legacy operator; persist so it heals once.
+    _ownerless_wl = [w for w in items
+                     if isinstance(w, dict) and not (w.get("user_id") or "").strip()]
+    if _ownerless_wl:
+        _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
+        _idx_owner: dict[str, tuple] = {}
+        try:
+            _idx = await rs.get_json(REPORT_INDEX_KEY) or []
+            for _e in _idx:
+                if not isinstance(_e, dict):
+                    continue
+                _rid = (_e.get("run_id") or "").strip()
+                _euid = (_e.get("user_id") or "").strip()
+                if _rid and _euid:
+                    _idx_owner[_rid] = (
+                        _euid,
+                        (_e.get("user_email_domain") or "").strip().lower() or None,
+                        _e.get("share_to_company", True),
+                    )
+        except Exception:
+            _idx_owner = {}
+        _wl_changed = False
+        for w in _ownerless_wl:
+            _rid = (w.get("last_dd_run_id") or "").strip()
+            _claim = _idx_owner.get(_rid)
+            if _claim:
+                w["user_id"] = _claim[0]
+                if _claim[1] and not w.get("user_email_domain"):
+                    w["user_email_domain"] = _claim[1]
+                w.setdefault("share_to_company", _claim[2])
+                w["_owner_reclaimed_by"] = "R-F2401_report_index"
+                _wl_changed = True
+            elif _ff_uid:
+                w["user_id"] = _ff_uid
+                if _ff_dom and not w.get("user_email_domain"):
+                    w["user_email_domain"] = _ff_dom
+                w.setdefault("share_to_company", True)
+                w["_owner_reclaimed_by"] = "R-F2401_legacy_operator"
+                _wl_changed = True
+        if _wl_changed:
+            try:
+                await rs.set_json(WATCHLIST_KEY, items)
+            except Exception:
+                pass
+
     if not user_id:
         return items
     out: list[dict] = []
@@ -11060,6 +11150,12 @@ async def rescreen_watchlist(llm=None) -> dict:
                     "new_score": round(new_score, 3),
                     "detail": detail,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+                    # R-F2401 — stamp the owner from the watched entry so the
+                    # alerts read-path (get_watchlist_alerts) can owner-scope
+                    # precisely, not only by name-in-scoped-watchlist.
+                    "user_id": (entry.get("user_id") or "").strip() or None,
+                    "user_email_domain": (entry.get("user_email_domain") or "").strip() or None,
+                    "share_to_company": entry.get("share_to_company", True),
                 }
 
                 # Fan out to linked deals on worsening changes only — don't
@@ -11126,7 +11222,8 @@ async def rescreen_watchlist(llm=None) -> dict:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list[dict]:
+async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "",
+                               user_email_domain: str = "") -> list[dict]:
     """Retrieve recent watchlist re-screen alerts from Redis.
 
     R-F51: when user_id is supplied, every alert carries an additional
@@ -11148,6 +11245,7 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list
     # is unavailable — alerts come back marked unread, which is the
     # conservative default).
     read_until_ts = 0.0
+    _allowed_names: set[str] | None = None
     if user_id:
         try:
             ru = await rs.get(f"crucix:aria:watchlist:read_until:{user_id}")
@@ -11155,8 +11253,26 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list
                 read_until_ts = float(ru)
         except Exception:
             pass
+        # R-F2401 — owner-scope the alerts. Pre-fix this returned the GLOBAL alert
+        # list to every caller (user_id was used ONLY for the per-alert `read`
+        # flag), leaking every tenant's watched-entity risk-change alerts (live-
+        # confirmed cross-tenant leak; same class as the R-F2355 get_watchlist
+        # fix, which missed this read-path). An alert is about a watched entity,
+        # so restrict to alerts for entities on the CALLER'S scoped watchlist
+        # (matched by name — the field every alert carries, incl. legacy ones
+        # written before owners were stamped). An explicitly stamped owner also
+        # admits the alert.
+        try:
+            _owned = await get_watchlist(user_id=user_id, user_email_domain=user_email_domain or None)
+            _allowed_names = {
+                (w.get("name") or "").strip().lower()
+                for w in (_owned or []) if (w.get("name") or "").strip()
+            }
+        except Exception:
+            _allowed_names = set()  # fail CLOSED — a real user sees nothing, not everything
 
     cutoff = _dt.now(timezone.utc).timestamp() - (since_hours * 3600)
+    _cdom = (user_email_domain or "").strip().lower()
     alerts: list[dict] = []
     for raw in raw_list:
         try:
@@ -11168,6 +11284,17 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list
                 if ts < cutoff:
                     continue
             if user_id:
+                a_owner = (alert.get("user_id") or "").strip()
+                a_dom = (alert.get("user_email_domain") or "").strip().lower()
+                a_name = (alert.get("entity") or "").strip().lower()
+                _permit = (
+                    (a_owner and a_owner == user_id)
+                    or (_cdom and a_dom and _cdom == a_dom
+                        and alert.get("share_to_company", True) is not False)
+                    or (a_name and _allowed_names is not None and a_name in _allowed_names)
+                )
+                if not _permit:
+                    continue
                 alert = {**alert, "read": (ts > 0 and ts <= read_until_ts)}
             alerts.append(alert)
         except Exception:
@@ -11195,12 +11322,20 @@ async def mark_watchlist_alerts_read(user_id: str) -> dict:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def get_watchlist_unread_count(user_id: str, since_hours: int = 168) -> int:
+async def get_watchlist_unread_count(user_id: str, since_hours: int = 168,
+                                     user_email_domain: str = "") -> int:
     """R-F51: light-weight unread badge probe. Counts alerts in the last
     `since_hours` (default 7d) that arrived after the per-user read-until
     timestamp. Skips the JSON re-shape get_watchlist_alerts performs.
+
+    R-F2401 — inherits the owner-scoping of get_watchlist_alerts (threads
+    user_email_domain through) so the unread badge counts only the caller's
+    own alerts, never every tenant's.
     """
     if not user_id:
         return 0
-    alerts = await get_watchlist_alerts(since_hours=since_hours, user_id=user_id)
+    alerts = await get_watchlist_alerts(
+        since_hours=since_hours, user_id=user_id,
+        user_email_domain=user_email_domain or "",
+    )
     return sum(1 for a in alerts if not a.get("read", False))

@@ -52,7 +52,14 @@ def test_access_helper_matrix():
     assert f(R, "colleague_b", "evil.com") is False           # different company
     assert f(R, "colleague_b", "") is False                   # no domain → blocked
     assert f(R, "", "") is True                               # admin / unscoped
-    assert f({"run_id": "x"}, "anyone", "any.com") is True    # legacy report, no owner
+    # R-F2402 — owner-less report now FAILS CLOSED for an arbitrary scoped user
+    # (was fail-open `return True` = a GDPR cross-tenant leak). Admin (user_id='')
+    # still bypasses above; only the configured legacy operator may read owner-less
+    # (covered in test_rf2402_ownerless_report_failclosed).
+    import os as _os
+    _os.environ.pop("ARIA_DD_LEGACY_OWNER_UID", None)
+    _os.environ.pop("ARIA_CODER_OPERATOR_USER_ID", None)
+    assert f({"run_id": "x"}, "anyone", "any.com") is False   # owner-less → fail closed
     assert f({**R, "user_email_domain": "ArkMurus.COM"}, "colleague_b", "arkmurus.com") is True  # case-insensitive
 
 

@@ -929,14 +929,31 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
     if not user_id:
         return True  # admin / autonomous / no-filter path
     owner = (report.get("user_id") or "").strip()
-    if not owner or owner == user_id:
-        return True  # owner match (or legacy report with no stored owner)
-    caller_domain = (user_email_domain or "").strip().lower()
-    rep_domain = (report.get("user_email_domain") or "").strip().lower()
-    return bool(
-        caller_domain and rep_domain and caller_domain == rep_domain
-        and report.get("share_to_company", True) is not False
+    if owner:
+        if owner == user_id:
+            return True  # owner match
+        caller_domain = (user_email_domain or "").strip().lower()
+        rep_domain = (report.get("user_email_domain") or "").strip().lower()
+        return bool(
+            caller_domain and rep_domain and caller_domain == rep_domain
+            and report.get("share_to_company", True) is not False
+        )
+    # R-F2402 — OWNER-LESS report + a scoped requester: FAIL CLOSED (was fail-open:
+    # `if not owner: return True` let ANY authenticated user read/download an
+    # owner-less report by id — a GDPR cross-tenant leak, live-confirmed HTTP 200
+    # for a stranger). An owner-less report (e.g. a vault-rebuilt legacy report
+    # before the R-F2393 index reclaim has healed ownership) must NOT be visible to
+    # an arbitrary user. Allow ONLY the configured legacy operator (the sole tenant
+    # that has explicitly claimed legacy owner-less DDs via ARIA_DD_LEGACY_OWNER_UID,
+    # mirroring the R-F2393 adoption). With that env unset → nobody scoped may read
+    # an owner-less report (fail-closed default); admin/internal still uses the
+    # user_id='' bypass above.
+    import os as _os
+    _legacy = (
+        (_os.getenv("ARIA_DD_LEGACY_OWNER_UID") or "").strip()
+        or (_os.getenv("ARIA_CODER_OPERATOR_USER_ID") or "").strip()
     )
+    return bool(_legacy and user_id == _legacy)
 
 
 async def _dd_report_acl_context(dd_orchestrator, run_id: str, report: dict) -> dict:
@@ -1278,9 +1295,14 @@ async def dd_watchlist_add_ep(req: Request):
 
 @router.delete("/dd/watchlist/{name}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_delete_ep(name: str):
+async def dd_watchlist_delete_ep(name: str, user_id: str = "", user_email_domain: str = ""):
+    # R-F2401 — owner-scoped delete. user_id/user_email_domain are pinned by the
+    # aria-web proxy from the JWT (client cannot forge). A scoped caller removes
+    # ONLY their own (or same-company-shared) entry; pre-fix any user could delete
+    # any tenant's watchlist entry by name (IDOR). Empty user_id = internal/admin.
     from ..intel import dd_orchestrator
-    return await dd_orchestrator.remove_from_watchlist(name)
+    return await dd_orchestrator.remove_from_watchlist(
+        name, user_id=user_id or "", user_email_domain=user_email_domain or "")
 
 
 @router.post("/dd/watchlist/rescreen")
@@ -1294,15 +1316,20 @@ async def dd_watchlist_rescreen_ep(request: Request):
 
 @router.get("/dd/watchlist/alerts")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_alerts_ep(since_hours: int = 24, user_id: str = ""):
+async def dd_watchlist_alerts_ep(since_hours: int = 24, user_id: str = "",
+                                 user_email_domain: str = ""):
     """Retrieve recent watchlist re-screen alerts.
 
     R-F51: when user_id is supplied, each alert is annotated with a
     read flag computed against the per-user read-until timestamp,
     and the response includes an unread_count for the badge.
+
+    R-F2401 — owner-scoped: only alerts for entities on the CALLER'S watchlist
+    are returned (pre-fix the GLOBAL alert list leaked to every tenant).
     """
     from ..intel import dd_orchestrator
-    alerts = await dd_orchestrator.get_watchlist_alerts(since_hours=since_hours, user_id=user_id)
+    alerts = await dd_orchestrator.get_watchlist_alerts(
+        since_hours=since_hours, user_id=user_id, user_email_domain=user_email_domain or "")
     unread_count = sum(1 for a in alerts if not a.get("read", False)) if user_id else None
     out = {"alerts": alerts, "count": len(alerts), "since_hours": since_hours}
     if unread_count is not None:
@@ -1326,10 +1353,13 @@ async def dd_watchlist_alerts_read_ep(req: WatchlistAlertsReadRequest):
 
 @router.get("/dd/watchlist/alerts/unread-count")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: int = 168):
-    """R-F51: light-weight badge probe — unread count for the last 7d."""
+async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: int = 168,
+                                              user_email_domain: str = ""):
+    """R-F51: light-weight badge probe — unread count for the last 7d.
+    R-F2401 — owner-scoped (threads user_email_domain to get_watchlist_alerts)."""
     from ..intel import dd_orchestrator
-    n = await dd_orchestrator.get_watchlist_unread_count(user_id or "", since_hours=since_hours)
+    n = await dd_orchestrator.get_watchlist_unread_count(
+        user_id or "", since_hours=since_hours, user_email_domain=user_email_domain or "")
     return {"unread_count": n, "user_id": user_id, "since_hours": since_hours}
 
 
