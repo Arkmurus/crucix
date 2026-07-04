@@ -27,6 +27,30 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_regenerate_uses_constrained_resynthesis_not_full_rechat():
+    """R-F2412: the repair must re-synthesize via llm.complete (contract in the SYSTEM
+    position), NOT re-run aria_chat — which re-detects intent, re-runs the tool (re-over-
+    asserting the same training facts), and puts the contract in the user message where the
+    constitution refuses it as injection. This is why R-F2406's repair never fired live."""
+    calls = {"complete": 0}
+
+    class _LLM:
+        async def complete(self, system, user, *, max_tokens=4096, timeout=90.0):
+            calls["complete"] += 1
+            assert "CONFIRMED" in system          # demote-or-drop contract is in the SYSTEM prompt
+            assert user == "who is the entity?"   # the question is the user turn (trusted split)
+            return type("R", (), {"text": "Grounded answer [ASSESSED]."})()
+
+    async def _boom(*a, **k):
+        raise AssertionError("repair must NOT re-run aria_chat")
+
+    with patch.object(aria_mod, "aria_chat", _boom):
+        out = _run(aria_mod._regenerate_with_stricter_grounding(
+            _LLM(), "who is the entity?", _TOOL_CTX))
+    assert calls["complete"] == 1
+    assert "Grounded answer" in out
+
+
 def _j(n_claims, supported, status="ok"):
     return {"status": status, "claims": [f"c{i}" for i in range(n_claims)],
             "supported_count": supported, "verdicts": []}

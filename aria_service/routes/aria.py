@@ -2433,13 +2433,20 @@ async def _regenerate_with_stricter_grounding(llm, question: str, framed_context
     original). Cost-bound: callers invoke this at most once per turn."""
     if not (llm and framed_context):
         return ""
-    sid = session_id or f"repair_{uuid.uuid4().hex[:8]}"
-    msg = f"{question}\n\n{_wrap_tool_block(framed_context)}{_GROUNDING_REPAIR_NOTE}"
+    # R-F2411 — constrained RE-SYNTHESIS from the TRUSTED system position. Do NOT
+    # re-run aria_chat: it re-detects intent + RE-RUNS the tool (→ re-over-asserts the
+    # same training facts) and places the contract in the USER message, where the
+    # constitution refuses tag/format instructions as injection (aria_engine.py:627 —
+    # the exact confound R-F2396 fixed for the main path). Instead call the LLM
+    # directly with the tool block + demote-or-drop contract as the SYSTEM prompt and
+    # the original question as the user turn: a pure re-synthesis from the context
+    # already retrieved, no second tool run, contract in the trusted position.
+    system = f"{_wrap_tool_block(framed_context)}{_GROUNDING_REPAIR_NOTE}"
     try:
-        result = await aria_chat(msg, sid, llm, None)
-        return (result or {}).get("response") or (result or {}).get("answer") or ""
+        result = await llm.complete(system, question, max_tokens=2048, timeout=60.0)
+        return (getattr(result, "text", "") or "").strip()
     except Exception as e:
-        _log.debug("R-F2396 grounding repair failed: %s", e)
+        _log.debug("R-F2411 grounding repair (constrained re-synthesis) failed: %s", e)
         return ""
 
 
