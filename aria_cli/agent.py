@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -111,6 +112,42 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _dedup_tool_schemas(schemas: list[dict]) -> list[dict]:
+    """R-F2398 — return schemas with duplicate function names removed, keeping
+    the FIRST occurrence (base wins, matching _dispatch which checks the base
+    toolbox before the coder toolbox).
+
+    Why this must exist: DeepSeek / OpenAI reject the WHOLE chat request with
+    HTTP 400 ``"Tool names must be unique."`` if ``tools[]`` carries any
+    duplicate name — which bricks EVERY LLM turn (the CLI showed the 400 and
+    could never produce a response). A plain ``TOOL_SCHEMAS + CODER_TOOL_SCHEMAS``
+    concat let a name present in both lists (e.g. ``fetch_url``) slip through.
+    Deduping here eliminates the whole failure class: no accidental overlap —
+    now or in future — can malform the request again. A dropped duplicate is
+    surfaced (not silent) so a real double-registration is still noticed."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    dropped: list[str] = []
+    for s in schemas:
+        try:
+            name = s["function"]["name"]
+        except (KeyError, TypeError):
+            out.append(s)  # malformed schema — pass through untouched
+            continue
+        if name in seen:
+            dropped.append(name)
+            continue
+        seen.add(name)
+        out.append(s)
+    if dropped:
+        print(
+            f"[aria] R-F2398: dropped duplicate tool schema(s) {sorted(set(dropped))} "
+            f"before the LLM call (kept first / base occurrence)",
+            file=sys.stderr,
+        )
+    return out
+
+
 LLM_MAX_ATTEMPTS = max(1, _env_int("ARIA_CODER_LLM_RETRIES", 4))
 AUTO_RESUME_MAX = max(0, _env_int("ARIA_CODER_AUTO_RESUME", 4))
 
@@ -170,8 +207,11 @@ class Agent:
         self.task_rag = task_rag
         self.retry_backoff = 2.0  # seconds, exponential; overridden to 0 in tests
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        # Merge base + coder tool schemas for the LLM
-        self._all_schemas = TOOL_SCHEMAS + CODER_TOOL_SCHEMAS
+        # Merge base + coder tool schemas for the LLM. R-F2398 — dedup by
+        # function name so a name present in both lists (the fetch_url overlap
+        # that shipped the "Tool names must be unique." HTTP 400 and bricked
+        # every CLI turn) can never malform the provider request again.
+        self._all_schemas = _dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)
         self._all_mutating = MUTATING_TOOLS | CODER_MUTATING_TOOLS
         # R-F1299: per-call LLM watchdog timeout for this turn (None → default).
         self._call_timeout: float | None = None

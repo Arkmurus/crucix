@@ -852,21 +852,13 @@ CODER_TOOL_SCHEMAS: list[dict] = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_url",
-            "description": "HTTP GET a URL and return its text (docs, an API response, a raw file). Falls back to Playwright JS rendering for SPAs. Read-only.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "max_chars": {"type": "integer", "description": "Max chars to return (optional)."},
-                },
-                "required": ["url"],
-            },
-        },
-    },
+    # R-F2398 — `fetch_url` is REMOVED from the coder schema list: it duplicated
+    # the identical base-toolbox schema (aria_cli/tools.py), and DeepSeek/OpenAI
+    # reject the whole request with HTTP 400 "Tool names must be unique." on any
+    # duplicate — which bricked every CLI turn. _dispatch already routed
+    # fetch_url to the base toolbox (checked first), so the coder schema was dead
+    # weight. The CoderToolbox.fetch_url method is kept (harmless, unreferenced by
+    # the LLM now) and agent._dedup_tool_schemas guards against any future overlap.
     {
         "type": "function",
         "function": {
