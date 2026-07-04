@@ -126,36 +126,101 @@ const alertsDiv = document.getElementById('wl-alerts');
 
 searchInput.addEventListener('input', applySearch);
 
+// R-F2403 — polished on-brand Add modal (replaces three stacked prompt() dialogs).
+// Self-contained overlay reusing the design-system sc-mod classes (same look as
+// Modal.confirm), so the whole page shares one visual language. Returns the form
+// values via a Promise, or null on cancel. Escape / backdrop / × all cancel;
+// Enter in the name field submits.
+function openAddModal() {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'sc-mod-overlay open';
+    ov.innerHTML =
+      '<div class="sc-mod" role="dialog" aria-modal="true" aria-labelledby="wl-add-title" style="max-width:460px">'
+      + '<div class="sc-mod-head">'
+      + '<div class="sc-mod-ico" style="background:rgba(124,58,237,0.12);color:var(--sc-prime)"><i class="bi bi-plus-lg"></i></div>'
+      + '<div><h3 id="wl-add-title">Add entity to watchlist</h3><p>ARIA re-screens it against sanctions &amp; PEP lists on every cycle.</p></div>'
+      + '<button class="sc-mod-x" data-add="cancel" type="button" aria-label="Close">&times;</button>'
+      + '</div>'
+      + '<div class="sc-mod-body">'
+      + '<label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Entity name <span style="color:var(--sc-red)">*</span></label>'
+      + '<input id="wl-add-name" class="wl-search" style="width:100%;min-width:0;margin-bottom:14px" placeholder="e.g. Assan Group" autocomplete="off">'
+      + '<div style="display:flex;gap:12px">'
+      + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Type</label>'
+      + '<select id="wl-add-type" class="wl-search" style="width:100%;min-width:0"><option value="">—</option><option value="company">Company</option><option value="person">Person</option><option value="vessel">Vessel</option><option value="aircraft">Aircraft</option></select></div>'
+      + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Jurisdiction</label>'
+      + '<input id="wl-add-juris" class="wl-search" style="width:100%;min-width:0" placeholder="ISO2, e.g. GB" maxlength="2" autocomplete="off"></div>'
+      + '</div>'
+      + '<div id="wl-add-err" style="color:var(--sc-red);font-size:12.5px;margin-top:10px;display:none"></div>'
+      + '</div>'
+      + '<div class="sc-mod-foot">'
+      + '<button class="sc-btn sc-btn-outline" data-add="cancel" type="button">Cancel</button>'
+      + '<button class="sc-btn" data-add="ok" type="button" style="background:var(--sc-prime);color:#fff">Add to watchlist</button>'
+      + '</div></div>';
+    document.body.appendChild(ov);
+    const prevFocus = document.activeElement;
+    const nameEl = ov.querySelector('#wl-add-name');
+    const errEl = ov.querySelector('#wl-add-err');
+    const close = (val) => {
+      document.removeEventListener('keydown', onKey);
+      ov.remove();
+      if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) {} }
+      resolve(val);
+    };
+    const submit = () => {
+      const name = (nameEl.value || '').trim();
+      if (!name) { errEl.textContent = 'Entity name is required.'; errEl.style.display = 'block'; nameEl.focus(); return; }
+      close({
+        name,
+        entity_type: (ov.querySelector('#wl-add-type').value || '').trim(),
+        jurisdiction: (ov.querySelector('#wl-add-juris').value || '').trim().toUpperCase(),
+      });
+    };
+    ov.querySelectorAll('[data-add="cancel"]').forEach(el => el.onclick = () => close(null));
+    ov.querySelector('[data-add="ok"]').onclick = submit;
+    ov.onclick = (e) => { if (e.target === ov) close(null); };
+    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    const onKey = (e) => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    setTimeout(() => nameEl.focus(), 0);
+  });
+}
+
 document.getElementById('wl-add-btn').addEventListener('click', async () => {
-  const name = prompt('Entity name to watch:');
-  if (!name || !name.trim()) return;
-  const entityType = prompt('Entity type (company/person/vessel/aircraft) [optional]:') || '';
-  const jurisdiction = prompt('Jurisdiction (ISO2 code, e.g. GB) [optional]:') || '';
+  const vals = await openAddModal();
+  if (!vals) return;
   const btn = document.getElementById('wl-add-btn');
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
   try {
-    const body = { name: name.trim() };
-    if (entityType.trim()) body.entity_type = entityType.trim();
-    if (jurisdiction.trim()) body.jurisdiction = jurisdiction.trim();
+    const body = { name: vals.name };
+    if (vals.entity_type) body.entity_type = vals.entity_type;
+    if (vals.jurisdiction) body.jurisdiction = vals.jurisdiction;
     const r = await authed('/api/aria/dd/watchlist', {
       method: 'POST',
       body: JSON.stringify(body),
     });
     if (!r.ok) {
-      alert('Failed to add (HTTP ' + r.status + ')');
+      Toast.show('Failed to add "' + vals.name + '" (HTTP ' + r.status + ')', 'error');
     } else {
+      Toast.show('"' + vals.name + '" added to watchlist', 'success');
       await loadWatchlist();
     }
   } catch (err) {
-    alert('Error: ' + err.message);
+    Toast.show('Error adding entity: ' + err.message, 'error');
   }
   btn.disabled = false; btn.innerHTML = orig;
 });
 
 document.getElementById('wl-rescreen-btn').addEventListener('click', async () => {
-  if (!confirm('Re-screen all watchlist entities? This will run sanctions + PEP checks on every entity.')) return;
+  const ok = await Modal.confirm({
+    title: 'Re-screen all entities?',
+    message: 'Runs sanctions + PEP checks on every entity on your watchlist. This may take a moment.',
+    okLabel: 'Re-screen all', cancelLabel: 'Cancel',
+    danger: false, icon: 'bi-arrow-clockwise',
+  });
+  if (!ok) return;
   const btn = document.getElementById('wl-rescreen-btn');
   const orig = btn.innerHTML;
   btn.disabled = true;
@@ -163,18 +228,32 @@ document.getElementById('wl-rescreen-btn').addEventListener('click', async () =>
   try {
     const r = await authed('/api/aria/dd/watchlist/rescreen', { method: 'POST' });
     if (!r.ok) {
-      alert('Re-screen failed (HTTP ' + r.status + ')');
+      Toast.show('Re-screen failed (HTTP ' + r.status + ')', 'error');
     } else {
+      // R-F2403 — map the REAL response fields (rescreen_watchlist returns
+      // entities_screened + changes_detected[] + errors[]); the old code read
+      // data.scanned/alerts/errors which don't exist, so it always showed 0/0
+      // and rendered "Errors: [object Object]" for the errors LIST.
       const data = await r.json();
-      alert('Re-screen complete.\n' +
-        'Scanned: ' + (data.scanned || 0) + '\n' +
-        'Alerts: ' + (data.alerts || 0) + '\n' +
-        'Errors: ' + (data.errors || 0));
+      const scanned = data.entities_screened || 0;
+      const changes = Array.isArray(data.changes_detected) ? data.changes_detected.length : (data.changes_detected || 0);
+      const errs = Array.isArray(data.errors) ? data.errors.length : (data.errors || 0);
+      Modal.info({
+        title: 'Re-screen complete',
+        icon: errs ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill',
+        tone: errs ? 'danger' : 'success',
+        bodyHtml:
+          '<div style="display:grid;grid-template-columns:1fr auto;gap:8px 18px;font-size:13.5px">'
+          + '<span style="color:var(--sc-muted)">Entities scanned</span><span style="font-weight:600;text-align:right">' + scanned + '</span>'
+          + '<span style="color:var(--sc-muted)">Changes detected</span><span style="font-weight:600;text-align:right">' + changes + '</span>'
+          + '<span style="color:var(--sc-muted)">Errors</span><span style="font-weight:600;text-align:right' + (errs ? ';color:var(--sc-red)' : '') + '">' + errs + '</span>'
+          + '</div>',
+      });
       await loadWatchlist();
       await loadAlerts();
     }
   } catch (err) {
-    alert('Error: ' + err.message);
+    Toast.show('Re-screen error: ' + err.message, 'error');
   }
   btn.disabled = false; btn.innerHTML = orig;
 });
@@ -260,13 +339,24 @@ async function loadAlerts() {
     alertsSection.style.display = 'block';
     let html = '';
     for (const a of alerts.slice(0, 20)) {
-      const entity = a.entity_name || a.name || '(unknown)';
-      const date = a.generated_at || a.timestamp || '';
-      const detail = a.summary || a.detail || a.change_description || '';
+      // R-F2403 — read the REAL alert fields (get_watchlist_alerts emits
+      // entity / detail / timestamp / change_type). The old code read
+      // entity_name / summary / generated_at, which don't exist → every alert
+      // rendered "(unknown)" with no detail.
+      const entity = a.entity || a.entity_name || a.name || '(unknown)';
+      const date = a.timestamp || a.generated_at || '';
+      const detail = a.detail || a.summary || a.change_description || '';
+      const ctype = String(a.change_type || '').replace(/_/g, ' ');
+      const worsening = a.change_type === 'new_hit' || a.change_type === 'new_pep'
+                        || (a.change_type === 'score_change' && (a.new_score || 0) > (a.old_score || 0));
+      const chip = ctype
+        ? '<span class="wl-pill ' + (worsening ? '' : 'inactive') + '" style="' + (worsening ? 'background:rgba(220,38,38,0.12);color:#b91c1c' : '') + '">' + escText(ctype) + '</span>'
+        : '';
       html += '<div class="wl-alert">' +
         '<div class="wl-alert-head">' +
           '<span class="wl-alert-entity">' + escText(entity) + '</span>' +
-          (date ? '<span class="wl-alert-date">' + new Date(date).toLocaleString() + '</span>' : '') +
+          chip +
+          (date ? '<span class="wl-alert-date" style="margin-left:auto">' + new Date(date).toLocaleString() + '</span>' : '') +
         '</div>' +
         (detail ? '<div class="wl-alert-detail">' + escText(detail) + '</div>' : '') +
       '</div>';
@@ -277,35 +367,54 @@ async function loadAlerts() {
   }
 }
 
-async function runDD(name) {
-  const btn = event.target;
+// R-F2403 — take the button explicitly (was `event.target`, the implicit global
+// `event`, which on click targeted the inner <i> icon, not the button — so the
+// spinner replaced the icon's contents unreliably and disabled the wrong node).
+async function runDD(name, btn) {
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
   try {
     const r = await authed('/api/aria/dd/orchestrate', {
       method: 'POST',
-      body: JSON.stringify({ name: name, mode: 'standard' }),
+      body: JSON.stringify({ name: name, mode: 'standard', type: 'company', async_mode: true }),
     });
     if (r.ok) {
+      Toast.show('DD started for "' + name + '" — see DD Reports when it completes', 'info', 6000);
       await loadWatchlist();
       await loadAlerts();
+    } else {
+      Toast.show('Could not start DD for "' + name + '" (HTTP ' + r.status + ')', 'error');
     }
-  } catch (err) { /* silent */ }
+  } catch (err) { Toast.show('DD error: ' + err.message, 'error'); }
   btn.disabled = false; btn.innerHTML = orig;
 }
 
-async function removeEntry(name) {
-  if (!confirm('Remove "' + name + '" from watchlist?')) return;
+// R-F2403 — same professional delete modal + Toast as the DD reports page (was a
+// primitive confirm()/alert()). Loading state on the row button while deleting.
+async function removeEntry(name, btn) {
+  const ok = await Modal.confirm({
+    title: 'Remove from watchlist?',
+    message: '“' + name + '” will no longer be re-screened against sanctions & PEP lists. You can add it back any time.',
+    okLabel: 'Remove', cancelLabel: 'Cancel',
+    danger: true, icon: 'bi-trash-fill',
+  });
+  if (!ok) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
   try {
     const r = await authed('/api/aria/dd/watchlist/' + encodeURIComponent(name), { method: 'DELETE' });
     if (r.ok) {
+      Toast.show('“' + name + '” removed from watchlist', 'success');
       await loadWatchlist();
     } else {
-      alert('Failed to remove (HTTP ' + r.status + ')');
+      Toast.show('Failed to remove (HTTP ' + r.status + ')', 'error');
+      btn.disabled = false; btn.innerHTML = orig;
     }
   } catch (err) {
-    alert('Error: ' + err.message);
+    Toast.show('Error removing entity: ' + err.message, 'error');
+    btn.disabled = false; btn.innerHTML = orig;
   }
 }
 
@@ -331,8 +440,8 @@ content.addEventListener('click', function(ev) {
   const btn = ev.target.closest('button[data-name]');
   if (!btn) return;
   const name = btn.getAttribute('data-name') || '';
-  if (btn.classList.contains('wl-act-dd')) runDD(name);
-  else if (btn.classList.contains('wl-act-remove')) removeEntry(name);
+  if (btn.classList.contains('wl-act-dd')) runDD(name, btn);
+  else if (btn.classList.contains('wl-act-remove')) removeEntry(name, btn);
 });
 
 // Load on init
