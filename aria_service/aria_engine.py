@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .llm.provider import LLMProvider, LLMResult
+from .llm import model_router  # R-F2410 two-track sovereign/DeepSeek router (default-off)
 from .intel import redis_store as rs
 from .intel.knowledge import search_knowledge, auto_extract_facts, store_fact
 from .intel.intel_ledger import query_ledger
@@ -3976,7 +3977,15 @@ async def _aria_chat_impl(
         intel_context=context, history=history, raw_message=message,
     )
     try:
-        result = await llm.complete(system_prompt, user_prompt, max_tokens=_completion_max_tokens(message), timeout=_llm_timeout)
+        # R-F2410 — two-track router: grounded synthesis -> sovereign (when
+        # ARIA_LLM_URL set), else DeepSeek; sovereign error -> DeepSeek fallback
+        # (operational, §14). URL unset -> byte-identical pass-through to llm.complete.
+        result = await model_router.complete_synthesis(
+            llm, system_prompt, user_prompt,
+            message=message, context=context,
+            max_tokens=_completion_max_tokens(message), timeout=_llm_timeout,
+            canary_key=session_id,
+        )
         response_text = result.text
     except Exception as e:
         # Record error for autonomous self-improvement
@@ -4881,10 +4890,13 @@ async def _aria_chat_stream_impl(
     else:
         _stream_timeout = 120.0
     try:
-        async for chunk in llm.stream(
-            system_prompt, user_prompt,
+        # R-F2410 §13 mirror — two-track router on the stream path. URL unset ->
+        # byte-identical pass-through to llm.stream (DeepSeek).
+        async for chunk in model_router.stream_synthesis(
+            llm, system_prompt, user_prompt,
+            message=message, context=context,
             max_tokens=_completion_max_tokens(message), timeout=_stream_timeout,
-            on_done=_on_stream_done,
+            on_done=_on_stream_done, canary_key=session_id,
         ):
             full_text += chunk
             yield _emit("chunk", text=chunk)

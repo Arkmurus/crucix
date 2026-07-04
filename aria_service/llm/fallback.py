@@ -577,6 +577,13 @@ def create_fallback_chain(
     # safe canary — while DeepSeek stays primary. Unset ARIA_LLM_SHADOW to promote
     # ARIA-LLM to primary (the original R-F93 behaviour).
     _aria_llm_shadow = (os.getenv("ARIA_LLM_SHADOW", "").strip().lower() in ("1", "true", "yes"))
+    # R-F2410 — TWO-TRACK is now the DEFAULT when ARIA_LLM_URL is set: the sovereign
+    # serves GROUNDED SYNTHESIS only (via model_router at the synthesis call sites),
+    # and is NOT inserted as the global chain primary, so all coverage/closed-book/
+    # general traffic stays on DeepSeek. The legacy R-F93 "sovereign primary for ALL
+    # turns" is preserved behind ARIA_LLM_PRIMARY_ALL=1 (escape hatch). SHADOW is
+    # unchanged (append below the primary as a canary).
+    _aria_llm_primary_all = (os.getenv("ARIA_LLM_PRIMARY_ALL", "").strip().lower() in ("1", "true", "yes"))
     _aria_llm_provider = None
     if _aria_llm_url:
         # ARIA-LLM speaks OpenAI-compatible API; reuse the OpenAICompatProvider.
@@ -591,15 +598,23 @@ def create_fallback_chain(
                 _aria_llm_provider.name = "aria_llm"
             except Exception:
                 pass
-            if not _aria_llm_shadow:
+            if _aria_llm_shadow:
+                logger.info(
+                    "ARIA-LLM (R-F1949 SHADOW) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
+                    _aria_llm_url,
+                )
+            elif _aria_llm_primary_all:
+                # Legacy R-F93 escape hatch — sovereign primary for ALL turns.
                 providers.append(_aria_llm_provider)
                 logger.info(
-                    "ARIA-LLM (R-F93 sovereign) configured at %s — taking PRIMARY position",
+                    "ARIA-LLM (R-F93 PRIMARY_ALL) configured at %s — taking PRIMARY position for ALL turns",
                     _aria_llm_url,
                 )
             else:
+                # R-F2410 DEFAULT two-track — sovereign NOT global-primary; it serves
+                # grounded synthesis via model_router while DeepSeek stays chain primary.
                 logger.info(
-                    "ARIA-LLM (R-F1949 SHADOW) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
+                    "ARIA-LLM (R-F2410 TWO-TRACK) at %s — grounded synthesis via model_router; DeepSeek stays chain primary for coverage/fallback",
                     _aria_llm_url,
                 )
 
