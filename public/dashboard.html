@@ -81,15 +81,21 @@
     </div>
     <div id="brief-content" style="display:none">
       <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
-        <i class="bi bi-info-circle"></i> Live OSINT market sweep (Node intelligence tier) — distinct from ARIA's brain knowledge base above.
+        <i class="bi bi-info-circle"></i> Live multi-source OSINT sweep (Node intelligence tier) — conflict correlation, defence tenders and source health — distinct from ARIA's brain knowledge base above.
       </p>
       <div class="sc-card-body">
-        <!-- KPI Tiles for market sweep -->
+        <!-- R-F2411 — real intelligence tiles. Replaced the VIX / Brent /
+             Market-Direction financial noise (wrong audience for a
+             defence/security buyer) with populated brain fields. Every tile
+             traces to a real data path (correlations = ACLED conflict,
+             bdIntelligence = live tenders, /api/health = source health) —
+             no fabricated deltas from stub feeds (OFAC/export-control sweep
+             feeds are stubs and are deliberately NOT surfaced here). -->
         <div class="sc-grid-4 mb-16" id="sweep-kpi-row">
-          <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bar-chart-line"></i></div><div><div class="sc-stat-value" id="kpi-vix">—</div><div class="sc-stat-label">VIX</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-droplet-half"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-broadcast"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-exclamation-octagon" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-critical">—</div><div class="sc-stat-label">Critical Alerts</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="kpi-conflict">—</div><div class="sc-stat-label">Conflict Signals</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-briefcase"></i></div><div><div class="sc-stat-value" id="kpi-tenders">—</div><div class="sc-stat-label">Active Tenders</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-hdd-network"></i></div><div><div class="sc-stat-value" id="kpi-srchealth">—</div><div class="sc-stat-label">Source Health</div></div></div>
         </div>
         <div class="sc-grid-2">
           <div>
@@ -398,14 +404,34 @@ async function loadData() {
   if (sweepRes.status === 'fulfilled' && sweepRes.value) {
     const data = sweepRes.value;
 
-    // Sweep KPIs
-    const vix = data.markets ? data.markets.vix ? data.markets.vix.value : null : null;
-    const d = vix > 25 ? 'risk-off' : (vix && vix < 15) ? 'risk-on' : 'neutral';
-    document.getElementById('kpi-direction').textContent = d.toUpperCase();
-    document.getElementById('kpi-direction').style.color = d === 'risk-off' ? '#dc2626' : d === 'risk-on' ? '#16a34a' : '#ea580c';
-    document.getElementById('kpi-vix').textContent = vix ? vix.toFixed(1) : '—';
-    document.getElementById('kpi-brent').textContent = data.energy && data.energy.brent ? '$' + data.energy.brent : '—';
-    document.getElementById('kpi-osint').textContent = (data.tg && data.tg.urgent || []).length;
+    // ── R-F2411 — real intelligence KPIs (replaces VIX/Brent/market-direction) ──
+    // Every value derives from a populated brain field; nothing is fabricated.
+    const corrs0 = data.correlations || [];
+    // Critical Alerts — correlations flagged critical (what needs attention now)
+    const critEls = corrs0.filter(function (c) { return c.severity === 'critical'; });
+    const kCrit = document.getElementById('kpi-critical');
+    kCrit.textContent = critEls.length;
+    if (critEls.length > 0) { kCrit.style.color = '#dc2626'; kCrit.title = critEls.length + ' critical regional correlation(s)'; }
+    else { kCrit.style.color = ''; kCrit.title = ''; }
+    // Conflict Signals — total ACLED/multi-source signal volume across correlations
+    const conflictSignals = corrs0.reduce(function (n, c) { return n + (c.signalCount || 0); }, 0);
+    document.getElementById('kpi-conflict').textContent = conflictSignals;
+    // Active Tenders — live defence procurement (bdIntelligence, real feed)
+    const tenders = (data.bdIntelligence && data.bdIntelligence.counts && data.bdIntelligence.counts.activeTenders) || 0;
+    document.getElementById('kpi-tenders').textContent = tenders;
+    // Source Health — real feed liveness from /api/health (X/Y OK)
+    try {
+      const h = await API.get('/api/health');
+      const elSh = document.getElementById('kpi-srchealth');
+      if (h && typeof h.sourcesTotal === 'number' && h.sourcesTotal > 0) {
+        const ok = h.sourcesOk || 0, tot = h.sourcesTotal;
+        elSh.textContent = ok + '/' + tot;
+        elSh.style.color = (ok / tot) < 0.85 ? '#dc2626' : (ok < tot ? '#ea580c' : '');
+        elSh.title = (tot - ok) + ' source(s) degraded';
+      } else {
+        elSh.textContent = '—';
+      }
+    } catch (e) { /* health is best-effort; leave the tile at its placeholder */ }
 
     // Correlations
     const corrEl = document.getElementById('correlations-list');
