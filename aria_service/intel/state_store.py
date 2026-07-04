@@ -424,9 +424,13 @@ _COLD_WORKER_TASK: "asyncio.Task | None" = None
 # COLD (permanent, append-only, read-rarely) K/V key prefixes. ONLY simple-K/V
 # prefixes here — list/hash prefixes (audit:by_entity …) route in Phase 0b.
 _COLD_KEY_PREFIXES: tuple = (
-    "crucix:audit:by_hash",
+    "crucix:audit:by_hash:",
     "aria:verified_facts:",
-    "crucix:verified_intel:fact",
+    # R-F2413: trailing colon so the singular fact keys
+    # (crucix:verified_intel:fact:<id>, knowledge.py:1249) route cold WITHOUT
+    # swallowing the churny plural K/V list crucix:verified_intel:facts
+    # (verified_intel.py:1651, read by 5+ callers) — that stays HOT.
+    "crucix:verified_intel:fact:",
     "crucix:aria:reasoning_library",
 )
 
@@ -1336,6 +1340,21 @@ async def sweep_expired() -> int:
         total += cur.rowcount or 0
     except Exception as e:
         logger.warning("state_store: sweep hash_entries failed: %s", e)
+    # R-F2413: sweep the cold store's expiring `state` rows when the split is on.
+    # reasoning_library keys route cold WITH a TTL (ex=TTL_SECONDS,
+    # reasoning_library.py:744) — without a cold sweeper they'd only lazy-expire
+    # on read and accumulate. The cold DB has only the `state` table
+    # (_open_cold_store), so there are no list/hash entries to sweep there.
+    if _HOTCOLD_SPLIT and _cold_conn is not None:
+        try:
+            cur = await _cold_conn.execute(
+                "DELETE FROM state WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (_now(),),
+            )
+            await _cold_conn.commit()
+            total += cur.rowcount or 0
+        except Exception as e:
+            logger.warning("state_store[cold]: sweep state failed: %s", e)
     if total > 0:
         logger.debug("state_store: swept %d expired rows", total)
     return total
@@ -1747,13 +1766,27 @@ async def delete(key: str) -> bool:
     # the NEXT read and resurrect the key after this delete. Flush-first keeps the
     # FIFO program order (set→delete = deleted), and the bool return is preserved.
     await _flush_write_queue()
+    deleted = False
     try:
         cur = await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
         await _conn.commit()
-        return (cur.rowcount or 0) > 0
+        deleted = (cur.rowcount or 0) > 0
     except Exception as e:
         logger.warning("state_store: DELETE %s failed: %s", key, e)
-        return False
+    # R-F2413: dual-delete the cold store when the split is on. A cold-prefixed
+    # key (reasoning_library case, reasoning_library.py:1030/1129) lands in the
+    # cold file after cutover; deleting only from hot would leave it a zombie.
+    # During migration a key may still be in EITHER file, so we delete from both
+    # and OR the results. Flag OFF → cold conn is None → hot-only, unchanged.
+    if _HOTCOLD_SPLIT and _cold_conn is not None:
+        try:
+            await _flush_cold_queue()
+            cur = await _cold_conn.execute("DELETE FROM state WHERE key = ?", (key,))
+            await _cold_conn.commit()
+            deleted = deleted or (cur.rowcount or 0) > 0
+        except Exception as e:
+            logger.warning("state_store[cold]: DELETE %s failed: %s", key, e)
+    return deleted
 
 
 async def get_json(key: str) -> Any:
@@ -2440,6 +2473,10 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     # freshly-queued writes (latent bug, masked in prod where writes are drained).
     try:
         await _flush_write_queue()
+        # R-F2413: also flush the cold queue so a cold-prefix scan sees its own
+        # freshly-queued writes (mirrors the K/V read-after-write in _row).
+        if _HOTCOLD_SPLIT and _cold_queue is not None:
+            await _flush_cold_queue()
     except Exception:
         pass
     conn = _get_read_conn()
@@ -2458,28 +2495,45 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     # (?, [abc], mid-pattern metachars) over the now-narrow result.
     _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)
     _prefix = pattern if _meta < 0 else pattern[:_meta]
-    try:
-        if _prefix:
-            cur = await conn.execute(
-                "SELECT key FROM state WHERE key GLOB ? "
-                "AND (expires_at IS NULL OR expires_at > ?)",
-                (_prefix + "*", _now()),
-            )
-        else:
-            # Pattern starts with a metachar (e.g. "*foo") — no usable prefix;
-            # fall back to the full scan (rare).
-            cur = await conn.execute(
-                "SELECT key FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
-                (_now(),),
-            )
-        rows = await cur.fetchall()
-        await cur.close()
-    except Exception as e:
-        logger.warning("state_store: SCAN failed: %s", e)
-        _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
-        return []
+
+    async def _scan_conn(c) -> list[str]:
+        """Run the prefix-narrowed SELECT against one connection; [] on error."""
+        if c is None:
+            return []
+        try:
+            if _prefix:
+                cur = await c.execute(
+                    "SELECT key FROM state WHERE key GLOB ? "
+                    "AND (expires_at IS NULL OR expires_at > ?)",
+                    (_prefix + "*", _now()),
+                )
+            else:
+                cur = await c.execute(
+                    "SELECT key FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
+                    (_now(),),
+                )
+            rows = await cur.fetchall()
+            await cur.close()
+            return [r[0] for r in rows]
+        except Exception as e:
+            logger.warning("state_store: SCAN failed: %s", e)
+            _schedule_reconnect_if_dead(e)  # R-F1352: read path self-heals
+            return []
+
+    keys = await _scan_conn(conn)
+    # R-F2413: UNION the cold store's keys when the split is on, so a scan over a
+    # cold prefix (aria:verified_facts:* etc., verified_intel.py:1317/1356/1407)
+    # still finds cold-file rows after cutover. Hot keys first; dedup by key (a
+    # key may exist in BOTH files mid-migration). Flag OFF → cold conn is None →
+    # byte-identical single-file scan.
+    if _HOTCOLD_SPLIT and _cold_read_conn is not None:
+        keys = keys + await _scan_conn(_cold_read_conn)
     matched: list[str] = []
-    for (k,) in rows:
+    seen: set = builtins.set()
+    for k in keys:
+        if k in seen:
+            continue
+        seen.add(k)
         if fnmatch.fnmatch(k, pattern):
             matched.append(k)
             if len(matched) >= count:
@@ -2496,6 +2550,9 @@ async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
     that aren't valid JSON are skipped (mirrors get_json returning None)."""
     try:
         await _flush_write_queue()
+        # R-F2413: flush the cold queue too for cold-prefix read-after-write.
+        if _HOTCOLD_SPLIT and _cold_queue is not None:
+            await _flush_cold_queue()
     except Exception:
         pass
     conn = _get_read_conn()
@@ -2503,28 +2560,43 @@ async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
         return []
     _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)
     _prefix = pattern if _meta < 0 else pattern[:_meta]
-    try:
-        if _prefix:
-            cur = await conn.execute(
-                "SELECT key, value FROM state WHERE key GLOB ? "
-                "AND (expires_at IS NULL OR expires_at > ?)",
-                (_prefix + "*", _now()),
-            )
-        else:
-            cur = await conn.execute(
-                "SELECT key, value FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
-                (_now(),),
-            )
-        rows = await cur.fetchall()
-        await cur.close()
-    except Exception as e:
-        logger.warning("state_store: SCAN_JSON failed: %s", e)
-        _schedule_reconnect_if_dead(e)  # read path self-heals
-        return []
+
+    async def _scan_conn(c) -> list[tuple]:
+        if c is None:
+            return []
+        try:
+            if _prefix:
+                cur = await c.execute(
+                    "SELECT key, value FROM state WHERE key GLOB ? "
+                    "AND (expires_at IS NULL OR expires_at > ?)",
+                    (_prefix + "*", _now()),
+                )
+            else:
+                cur = await c.execute(
+                    "SELECT key, value FROM state WHERE (expires_at IS NULL OR expires_at > ?)",
+                    (_now(),),
+                )
+            rows = await cur.fetchall()
+            await cur.close()
+            return list(rows)
+        except Exception as e:
+            logger.warning("state_store: SCAN_JSON failed: %s", e)
+            _schedule_reconnect_if_dead(e)  # read path self-heals
+            return []
+
+    rows = await _scan_conn(conn)
+    # R-F2413: UNION cold rows when the split is on (see scan_keys). Hot first;
+    # dedup by key so a mid-migration key present in both files isn't double-counted.
+    if _HOTCOLD_SPLIT and _cold_read_conn is not None:
+        rows = rows + await _scan_conn(_cold_read_conn)
     out: list[tuple[str, "Any"]] = []
+    seen: set = builtins.set()
     for (k, v) in rows:
+        if k in seen:
+            continue
         if not fnmatch.fnmatch(k, pattern):
             continue
+        seen.add(k)
         try:
             out.append((k, json.loads(v)))
         except Exception:
