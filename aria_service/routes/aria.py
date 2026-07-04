@@ -264,7 +264,11 @@ _OPERATOR_ONLY_RE = re.compile(
     # were gated at the web tier only, so any service-token holder calling
     # aria-intel.internal directly bypassed the gate — the exact 2026-07-02
     # dd/admin/reset wipe-incident vector ("gate at FUNCTION level, not just HTTP").
-    r"|dd/admin/reset|admin/reset-brain-stats|neural/conflicts/clear)"
+    r"|dd/admin/reset|admin/reset-brain-stats|neural/conflicts/clear"
+    # R-F2415: hot/cold state_store backfill + reconcile control plane. Copy-only
+    # (never deletes hot) but it OPENS the cold store + drives a background writer,
+    # so gate it operator-only — the shared service token must not kick it.
+    r"|admin/state/)"
 )
 
 # R-F2374: paths that are operator-only for DESTRUCTIVE methods ONLY (a GET is a
@@ -1258,6 +1262,62 @@ async def dd_admin_reset_ep(confirm: bool = False):
             status_code=400,
             detail="confirm=true required — this irreversibly wipes ALL DD reports")
     return await dd_orchestrator.reset_dd_memory(confirm=True)
+
+
+@router.post("/admin/state/hotcold-backfill")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_hotcold_backfill_ep(
+    request: Request,
+    page_size: int = 500,
+    sleep_s: float = 0.2,
+    reset: bool = False,
+):
+    """R-F2415 (Phase 1) — kick the hot→cold state_store backfill as a BACKGROUND
+    task and return immediately. COPY ONLY: the hot db is never modified, and
+    ARIA_STATE_HOTCOLD_SPLIT is NOT flipped (live routing unchanged). Operator-gated
+    (_OPERATOR_ONLY_RE). Runs IN-APP (R-F2277: a separate process cannot write the
+    live state_store). Poll GET /admin/state/hotcold-backfill/status for progress,
+    then POST /admin/state/hotcold-reconcile for the go/no-go gate.
+
+    Rate-limited by `sleep_s` between pages; the copy reads via the hot READ pool
+    and writes via the cold conn's own thread, so the hot WRITER (live writes) is
+    never touched. Single-flight — a second kick while one runs is a no-op."""
+    from ..intel import state_store as _ss
+    if getattr(_ss, "_backfill_lock", None) is not None and _ss._backfill_lock.locked():
+        return {"started": False, "note": "backfill already running",
+                "status": await _ss.backfill_status()}
+    # clamp inputs so a bad param can't turn the copy into a writer-saturating loop
+    page_size = max(1, min(int(page_size), 5000))
+    sleep_s = max(0.0, min(float(sleep_s), 10.0))
+
+    async def _run():
+        try:
+            await _ss.backfill_cold(page_size=page_size, sleep_s=sleep_s, reset=bool(reset))
+        except Exception as _e:  # pragma: no cover — belt-and-braces
+            _log.warning("hotcold backfill task failed: %s", _e)
+
+    asyncio.create_task(_run())
+    return {"started": True, "page_size": page_size, "sleep_s": sleep_s,
+            "reset": bool(reset), "status": await _ss.backfill_status()}
+
+
+@router.get("/admin/state/hotcold-backfill/status")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_hotcold_backfill_status_ep():
+    """R-F2415 — live backfill progress (copied/scanned/last_rowid/done/error +
+    persisted checkpoint). Operator-gated."""
+    from ..intel import state_store as _ss
+    return await _ss.backfill_status()
+
+
+@router.post("/admin/state/hotcold-reconcile")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_hotcold_reconcile_ep(sample_n: int = 50):
+    """R-F2415 — go/no-go gate before any flip: per cold prefix COUNT(*) hot vs
+    cold + an N-random-key read-equal spot-check across both files. ok=true means
+    every hot cold-row is present+equal in the cold file. Read-only. Operator-gated."""
+    from ..intel import state_store as _ss
+    return await _ss.reconcile_cold(sample_n=max(1, min(int(sample_n), 1000)))
 
 
 @router.get("/dd/layer-5c/stats")

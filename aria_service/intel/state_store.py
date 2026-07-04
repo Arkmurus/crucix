@@ -1361,6 +1361,227 @@ async def sweep_expired() -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# R-F2415 — hot→cold PHASE 1 backfill (COPY ONLY; flag-independent; reversible)
+#
+# Copies every cold-prefix row from the HOT db to the COLD db (idempotent upsert),
+# paged by rowid, resumable via a checkpoint key, rate-limited by a sleep between
+# pages so it can NEVER saturate the single writer. The hot rows are NEVER deleted
+# (Phase 1 is fully reversible — reclaim is Phase 3). Runs IN-APP (R-F2277: a
+# separate process cannot write the live state_store) and is driven by an
+# operator-gated admin endpoint.
+#
+# CRITICAL for "live traffic unaffected": the page READ uses the hot READ pool
+# (its own threads), the cold WRITE uses the cold conn's own thread, and only the
+# once-per-page checkpoint touches the hot write queue. The hot WRITER thread —
+# the wedge-prone one that serialises all live writes — is never used by the copy
+# loop. Combined with the inter-page sleep, live reads/writes see the backfill only
+# as a trickle of checkpoint writes. The cold store is opened EVEN WHEN
+# ARIA_STATE_HOTCOLD_SPLIT is OFF; that is safe because every live accessor
+# short-circuits on `not _HOTCOLD_SPLIT`, so nothing routes to the cold conn — the
+# backfill just gets a destination handle. The flip stays operator-gated.
+# ─────────────────────────────────────────────────────────────────────────
+
+_BACKFILL_CURSOR_KEY = "crucix:state_store:hotcold_backfill:cursor"
+_backfill_state: dict = {
+    "running": False, "done": False, "copied": 0, "copied_this_run": 0,
+    "scanned": 0, "last_rowid": 0, "started_at": None, "updated_at": None,
+    "error": None,
+}
+_backfill_lock: asyncio.Lock | None = None
+
+
+def _get_backfill_lock() -> asyncio.Lock:
+    global _backfill_lock
+    if _backfill_lock is None:
+        _backfill_lock = asyncio.Lock()
+    return _backfill_lock
+
+
+async def ensure_cold_open() -> bool:
+    """R-F2415 — open the cold store so the backfill has a destination, EVEN WHEN
+    _HOTCOLD_SPLIT is OFF. Safe: with the flag off no live read/write routes to
+    cold (all accessors short-circuit on `not _HOTCOLD_SPLIT`), so opening the
+    cold conn cannot affect live traffic. Idempotent. Returns True iff the cold
+    write conn is available afterwards."""
+    if _cold_conn is not None:
+        return True
+    try:
+        await _open_cold_store()
+    except Exception as e:
+        logger.error("state_store: R-F2415 ensure_cold_open failed: %s", e)
+    return _cold_conn is not None
+
+
+async def backfill_cold(*, page_size: int = 500, sleep_s: float = 0.2,
+                        max_pages: int | None = None, reset: bool = False) -> dict:
+    """R-F2415 — copy cold-prefix rows HOT→COLD. Idempotent (upsert on key,
+    keyed by rowid cursor so a completed run re-runs as a no-op), resumable
+    (checkpoint in _BACKFILL_CURSOR_KEY survives restart), rate-limited
+    (sleep_s between pages). COPY ONLY — hot is never modified. Single-flight.
+
+    page_size: rows scanned per page. sleep_s: pause between pages (writer
+    breathing room). max_pages: stop after N pages (used by tests to simulate an
+    interruption). reset: restart the cursor at 0 (full re-copy).
+    """
+    lock = _get_backfill_lock()
+    if lock.locked():
+        return {**_backfill_state, "note": "already running"}
+    async with lock:
+        if _conn is None:
+            return {**_backfill_state, "error": "hot connection unavailable", "running": False}
+        if not await ensure_cold_open():
+            return {**_backfill_state, "error": "cold store unavailable", "running": False}
+
+        if reset:
+            cursor, copied = 0, 0
+        else:
+            # Bypass the R-F2156 get()-cache: the cursor changes as we page, and a
+            # stale cached value (e.g. the None cached when it was absent at the
+            # start of a prior run) would silently restart the copy from rowid 0.
+            _error_log_cache.pop(_BACKFILL_CURSOR_KEY, None)
+            ck = await get_json(_BACKFILL_CURSOR_KEY)
+            cursor = int(ck.get("last_rowid", 0)) if isinstance(ck, dict) else 0
+            copied = int(ck.get("copied", 0)) if isinstance(ck, dict) else 0
+        copied_this_run = 0
+        scanned = 0
+        pages = 0
+        _backfill_state.update(running=True, done=False, error=None,
+                               started_at=_now(), updated_at=_now(),
+                               last_rowid=cursor, copied=copied,
+                               copied_this_run=0, scanned=0)
+        try:
+            while True:
+                # Read a page from HOT via the READ pool (own threads) — the hot
+                # WRITER thread is never touched, so live writes are unaffected.
+                rconn = _get_read_conn()
+                if rconn is None:
+                    _backfill_state["error"] = "hot read conn unavailable"
+                    break
+                cur = await asyncio.wait_for(rconn.execute(
+                    "SELECT rowid, key, value, kind, expires_at FROM state "
+                    "WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                    (cursor, page_size)), timeout=30.0)
+                rows = await cur.fetchall()
+                await cur.close()
+                if not rows:
+                    _backfill_state["done"] = True
+                    break
+                cold_batch = [(k, v, kind, exp)
+                              for (_rid, k, v, kind, exp) in rows
+                              if _route_db(k) == "cold"]
+                for (k, v, kind, exp) in cold_batch:
+                    # Idempotent upsert into the COLD conn's own thread.
+                    await asyncio.wait_for(_cold_conn.execute(
+                        "INSERT INTO state(key, value, kind, expires_at) "
+                        "VALUES(?, ?, ?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                        "kind=excluded.kind, expires_at=excluded.expires_at",
+                        (k, v, kind, exp)), timeout=30.0)
+                if cold_batch:
+                    await asyncio.wait_for(_cold_conn.commit(), timeout=30.0)
+                copied += len(cold_batch)
+                copied_this_run += len(cold_batch)
+                scanned += len(rows)
+                cursor = rows[-1][0]  # highest rowid this page
+                pages += 1
+                # Checkpoint once per page (hot key; rate-limited by sleep_s →
+                # not a hot-path RMW). Survives restart → resumable.
+                await set_json(_BACKFILL_CURSOR_KEY, {
+                    "last_rowid": cursor, "copied": copied, "scanned": scanned,
+                    "done": False, "updated_at": _now()})
+                _backfill_state.update(last_rowid=cursor, copied=copied,
+                                       copied_this_run=copied_this_run,
+                                       scanned=scanned, updated_at=_now())
+                if max_pages is not None and pages >= max_pages:
+                    break
+                await asyncio.sleep(sleep_s)  # rate-limit — writer breathing room
+            await set_json(_BACKFILL_CURSOR_KEY, {
+                "last_rowid": cursor, "copied": copied, "scanned": scanned,
+                "done": bool(_backfill_state.get("done")), "updated_at": _now()})
+        except Exception as e:
+            _backfill_state["error"] = str(e)[:200]
+            logger.error("state_store: R-F2415 backfill failed: %s", e)
+        finally:
+            _backfill_state["running"] = False
+            _backfill_state["updated_at"] = _now()
+        return dict(_backfill_state)
+
+
+async def backfill_status() -> dict:
+    """R-F2415 — current backfill progress (in-memory live state merged with the
+    persisted checkpoint so it is meaningful even right after a restart)."""
+    out = dict(_backfill_state)
+    try:
+        _error_log_cache.pop(_BACKFILL_CURSOR_KEY, None)  # fresh checkpoint read (see backfill_cold)
+        ck = await get_json(_BACKFILL_CURSOR_KEY)
+        if isinstance(ck, dict):
+            out["checkpoint"] = ck
+    except Exception:
+        pass
+    out["cold_open"] = _cold_conn is not None
+    out["hotcold_split_live"] = _HOTCOLD_SPLIT
+    return out
+
+
+async def reconcile_cold(sample_n: int = 50) -> dict:
+    """R-F2415 — go/no-go gate before any flip: for EACH cold prefix, COUNT(*) of
+    cold-route keys in HOT vs COUNT(*) in COLD, plus an N-random-key read-equal
+    spot-check across both files. ok=True iff every prefix count matches AND no
+    spot-check value mismatch. Read-only (uses the read pools); never mutates."""
+    if _conn is None:
+        return {"ok": False, "error": "hot connection unavailable"}
+    if not await ensure_cold_open():
+        return {"ok": False, "error": "cold store unavailable"}
+    hot = _get_read_conn()
+    cold = _cold_read_conn if _cold_read_conn is not None else _cold_conn
+    prefixes: dict = {}
+    all_match = True
+    for p in _COLD_KEY_PREFIXES:
+        try:
+            c1 = await hot.execute("SELECT COUNT(*) FROM state WHERE key GLOB ?", (p + "*",))
+            hot_n = (await c1.fetchone())[0]
+            await c1.close()
+            c2 = await cold.execute("SELECT COUNT(*) FROM state WHERE key GLOB ?", (p + "*",))
+            cold_n = (await c2.fetchone())[0]
+            await c2.close()
+        except Exception as e:
+            prefixes[p] = {"error": str(e)[:120]}
+            all_match = False
+            continue
+        match = (cold_n == hot_n)
+        prefixes[p] = {"hot": hot_n, "cold": cold_n, "match": match,
+                       "missing_in_cold": max(0, hot_n - cold_n)}
+        all_match = all_match and match
+
+    # Read-equal spot-check: sample random cold-route keys from HOT, compare COLD.
+    mismatches: list[str] = []
+    checked = 0
+    try:
+        c = await hot.execute(
+            "SELECT key, value FROM state WHERE (" +
+            " OR ".join("key GLOB ?" for _ in _COLD_KEY_PREFIXES) +
+            ") ORDER BY RANDOM() LIMIT ?",
+            (*[p + "*" for p in _COLD_KEY_PREFIXES], int(sample_n)))
+        samples = await c.fetchall()
+        await c.close()
+        for (k, v) in samples:
+            _ccur = await cold.execute("SELECT value FROM state WHERE key = ?", (k,))
+            cr = await _ccur.fetchone()
+            await _ccur.close()
+            checked += 1
+            if cr is None or cr[0] != v:
+                mismatches.append(k)
+    except Exception as e:
+        return {"ok": False, "prefixes": prefixes,
+                "error": f"spot-check failed: {str(e)[:120]}"}
+
+    ok = all_match and not mismatches
+    return {"ok": ok, "prefixes": prefixes,
+            "spot_check": {"checked": checked, "mismatches": mismatches[:20],
+                           "mismatch_count": len(mismatches)}}
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────
 
