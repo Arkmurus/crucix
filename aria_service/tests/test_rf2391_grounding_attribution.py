@@ -29,7 +29,14 @@ def test_framing_numbers_snippets_and_instructs_citation():
     )
     assert "Snippet #1:" in framed
     assert "Snippet #2:" in framed
-    assert "[from snippet #N]" in framed  # cite-inline instruction present
+    # R-F2396 — native style: instructs source-name citation + confidence words,
+    # and must NOT carry the foreign token or pre-filled tag examples (those trip
+    # aria_engine.py:627 I1_VERIFICATION_TAG_FAKE).
+    assert "source's own name" in framed              # native source-name citation
+    assert "confidence word" in framed                # tag-on-sentence discipline
+    assert "CONFIRMED" in framed and "ASSESSED" in framed
+    assert "[from snippet #N]" not in framed          # no foreign token
+    assert "[CONFIRMED]" not in framed                # no pre-filled tag example
 
 
 def test_framing_empty_context_is_safe_noop():

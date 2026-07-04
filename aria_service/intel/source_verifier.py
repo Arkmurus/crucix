@@ -336,15 +336,26 @@ _SNIPPET_SPLIT_RE = re.compile(r"\n\s*\n")
 
 
 def frame_tool_context_for_citation(tool_context: str, *, max_snippets: int = 12) -> str:
-    """Number a raw tool_context into cite-able `Snippet #N: …` blocks and
-    prepend an instruction telling the synthesis layer to cite each tool-derived
-    fact inline with `[from snippet #N]`.
+    """Number a raw tool_context into `Snippet #N: …` source blocks and prepend
+    a grounding contract in ARIA's NATIVE, constitution-blessed citation style.
 
-    This is the producer half of the R-F2391 grounding loop: it makes ARIA
-    actually cite its sources (an honest product improvement) AND produces
-    markers that verify_response()/count_invalid_snippet_refs() can validate
-    against these exact numbered blocks. Returns "" for empty input so the
-    caller can treat it as a safe no-op (failure/empty → input unchanged)."""
+    R-F2394 (position+format fix). Step-0 (2026-07-03) proved DeepSeek grounds
+    well under a firm contract but (a) cites by SOURCE NAME + [CONFIRMED] tags,
+    not a foreign `[from snippet #N]` token, and (b) REFUSES tag/format
+    instructions that arrive in the user-message slot (aria_engine.py:627 —
+    I1_VERIFICATION_TAG_FAKE). So this contract:
+      - asks ARIA to cite by the source's OWN NAME (its native style), NOT a
+        foreign token;
+      - instructs it to PRODUCE its own [CONFIRMED]/[PROBABLE]/[ASSESSED] tags
+        (legitimate ONLY because this block is injected in the trusted
+        system/tool-block position, never the user message — see
+        _wrap_tool_block/_maybe_frame_grounding callers);
+      - contains NO pre-filled tag-shaped examples (which would trip the
+        forgery guard);
+      - tells ARIA to abstain when the snippets don't support a fact.
+    Grounding is then scored by the honesty judge's REAL support verdict
+    (native_grounding_from_judgment), not by token presence. Returns "" for
+    empty input so callers treat it as a safe no-op."""
     tc = (tool_context or "").strip()
     if not tc:
         return ""
@@ -354,18 +365,84 @@ def frame_tool_context_for_citation(tool_context: str, *, max_snippets: int = 12
     parts = parts[:max_snippets]
     numbered = "\n\n".join(f"Snippet #{i}: {p}" for i, p in enumerate(parts, 1))
     instruction = (
-        "[The numbered source snippets below are the external evidence gathered "
-        "for this request. Cite every fact you take from them inline with the "
-        "marker [from snippet #N] (N = the exact snippet number it came from). "
-        "Never attach a snippet marker to a claim the snippets do not support — "
-        "state that it is unverified instead. Uncited factual claims are treated "
-        "as ungrounded.]"
+        "[GROUNDING — the numbered source snippets below are the evidence gathered "
+        "for this request. Answer ONLY from them. Write each fact as a full sentence "
+        "that (1) names the source it came from using that source's own name (the "
+        "list, register, regulation or publication the snippet identifies) and "
+        "(2) ENDS with a confidence word for THAT sentence: CONFIRMED when a snippet "
+        "states it directly, PROBABLE when it is a reasonable inference, ASSESSED for "
+        "your own judgement. Put the confidence word on the factual sentence itself, "
+        "never on a heading or bullet label. If the snippets do not support a needed "
+        "fact, say 'not supported by the provided sources' and do not use outside "
+        "knowledge.]"
     )
     return f"{instruction}\n\n{numbered}"
 
 
-def verify_response(response_text: str, tool_context: str) -> dict:
+def native_grounding_from_judgment(judgment: dict | None) -> dict | None:
+    """R-F2396 — HONEST native-grounding credit for ARIA's constitution-blessed
+    citation style (source-name + [CONFIRMED]/[PROBABLE]/[ASSESSED] tags).
+
+    ARIA rarely emits the foreign `[from snippet #N]` token; it cites by source
+    name and self-tags confidence. So the verification signal must be scored the
+    way ARIA actually grounds: from the honesty judge's REAL support verdict —
+    the judge LLM-checks each tagged claim against the retrieved context and
+    reports how many are genuinely backed. grounded_rate = supported / total.
+
+    Integrity guarantees (this must measure "the claim is really backed by a
+    retrieved source", never "a tag exists"):
+      - status must be "ok" — i.e. the judge actually ran the support check
+        against real source content. "no_source" (tagged claims with NO source)
+        and "no_claims"/"judge_failed" return None → the deterministic verdict
+        stands (usually no_citations); a confidence tag with no source is NOT
+        credited here.
+      - A [CONFIRMED] claim the judge finds UNSUPPORTED or CONTRADICTED lowers
+        the rate; all-unsupported → 0.0 (ungrounded). This is R-F2391's
+        anti-inflation guard carried into the native path.
+
+    Returns a verification-shaped dict, or None when support can't be attributed.
+    """
+    if not judgment or judgment.get("status") != "ok":
+        return None
+    claims = judgment.get("claims") or []
+    total = len(claims)
+    if total == 0:
+        return None
+    supported = int(judgment.get("supported_count") or 0)
+    supported = max(0, min(supported, total))
+    rate = round(supported / total, 4)
+    if rate >= 0.9:
+        verdict = "grounded"
+    elif rate >= 0.5:
+        verdict = "partial"
+    else:
+        verdict = "ungrounded"
+    return {
+        "cited_urls": [],
+        "fetched_urls": [],
+        "grounded": [],
+        "unverified": [],
+        "grounded_rate": rate,
+        "supported_claims": supported,
+        "total_claims": total,
+        "suspicious_count": 0,
+        "tool_refs": 0,
+        "verdict": verdict,
+        "source": "native_confidence_support",
+    }
+
+
+def verify_response(response_text: str, tool_context: str, *, support_judgment: dict | None = None) -> dict:
     """Compute the grounding verdict for one chat response.
+
+    R-F2396 — ``support_judgment`` (optional) is an honesty-judge result
+    (honesty_judge.judge_response) for THIS response. When the response carries
+    NO URL citations and NO valid inline markers — ARIA's usual case, it cites
+    by source name + confidence tag — the deterministic verdict would be
+    no_citations. If a support_judgment is supplied, native_grounding_from_
+    judgment() supersedes that with a rate derived from the judge's REAL
+    support check (claims genuinely backed by the retrieved snippets). When no
+    judgment is passed the behaviour is unchanged (backward compatible).
 
     Returns a dict with:
       - cited_urls            : list of URLs the LLM cited in its response
@@ -468,6 +545,13 @@ def verify_response(response_text: str, tool_context: str) -> dict:
                 "verdict": "grounded",
                 "source": "attached_document",
             }
+        # R-F2396 — native-grounding credit: ARIA cites by source name +
+        # confidence tag rather than a foreign token, so with no URLs/markers the
+        # deterministic verdict is no_citations. If a real support judgment is
+        # supplied, score grounding from the judge's verified support instead.
+        _native = native_grounding_from_judgment(support_judgment)
+        if _native is not None:
+            return _native
         return {
             "cited_urls": [],
             "fetched_urls": fetched,

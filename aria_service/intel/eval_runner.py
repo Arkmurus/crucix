@@ -387,6 +387,7 @@ async def run_eval(
     # R-F2390 — recorders (lazy import; only when recording is requested).
     _rec_verify_n = 0
     _rec_honesty_n = 0
+    _repair_used_n = 0  # R-F2396 — grounding repairs that improved the score
     _grounded_rates: list[float] = []
     if record:
         from . import source_verifier as _sv
@@ -461,45 +462,74 @@ async def run_eval(
             "expected_preview": expected[:160],
         })
 
-        # R-F2390 — record verification + honesty into the SAME stores the
-        # composite reads. Runs the SAME deterministic verifier + honesty judge
-        # as the live chat path (routes/aria.py), against the exact framed
-        # context the LLM saw this entry. Best-effort: a recorder failure must
-        # never fail the eval run.
+        # R-F2390/R-F2396 — record verification + honesty into the SAME stores
+        # the composite reads, scoring grounding the way ARIA actually cites
+        # (source name + confidence tag, verified by the judge's REAL support
+        # check). Order: judge FIRST → feed the support verdict to verify_response
+        # → (optional) one grounding repair if weak → record. Best-effort: a
+        # recorder failure must never fail the eval run.
         if record and (actual or "").strip():
+            _q_actual = actual
+            _q_ctx = _entry_ctx or ""
             try:
-                _verification = _sv.verify_response(actual, _entry_ctx or "")
+                # 1. Honesty judgment (real LLM support check) — the source of
+                #    truth for native grounding. Same gate as the live path.
+                _judgment = None
+                if _q_ctx and _hj.has_confidence_tags(_q_actual):
+                    _judgment = await _hj.judge_response(llm, _q_actual, _q_ctx)
+
+                # 2. Deterministic verify, fed the support judgment so native
+                #    (source-name) grounding is credited honestly.
+                _verification = _sv.verify_response(
+                    _q_actual, _q_ctx, support_judgment=_judgment,
+                )
+
+                # 3. R-F2396 grounding repair — ONE retry from the trusted
+                #    position when a tool-backed turn is weakly grounded.
+                _gr = _verification.get("grounded_rate")
+                _weak = _q_ctx and (_gr is None or _gr < 0.5)
+                if _weak:
+                    from ..routes.aria import _regenerate_with_stricter_grounding
+                    _repaired = await _regenerate_with_stricter_grounding(llm, q, _q_ctx)
+                    if (_repaired or "").strip():
+                        _rj = None
+                        if _hj.has_confidence_tags(_repaired):
+                            _rj = await _hj.judge_response(llm, _repaired, _q_ctx)
+                        _rv = _sv.verify_response(_repaired, _q_ctx, support_judgment=_rj)
+                        _rgr = _rv.get("grounded_rate")
+                        # Keep the repair only if it genuinely grounds better.
+                        if _rgr is not None and (_gr is None or _rgr > _gr):
+                            _q_actual, _judgment, _verification = _repaired, _rj, _rv
+                            _repair_used_n += 1
+
+                # 4. Record verification (once, the better of the two).
                 await _sv.record_verification(
                     _verification,
                     request_id=entry.get("id", ""),
                     session_id="eval_gate1",
                     user="eval_runner",
                     question_preview=q,
-                    response_preview=actual,
+                    response_preview=_q_actual,
                     tool_used="eval",
                 )
                 _rec_verify_n += 1
-                _gr = _verification.get("grounded_rate")
-                if _gr is not None:
-                    _grounded_rates.append(_gr)
-            except Exception as _ve:
-                logger.debug("[eval_runner] R-F2390 verify record failed: %s", _ve)
-            # Honesty judge — same gate as the live path: needs confidence tags
-            # AND source context to honestly judge against.
-            try:
-                if _entry_ctx and _hj.has_confidence_tags(actual):
-                    _judgment = await _hj.judge_response(llm, actual, _entry_ctx)
+                _gr2 = _verification.get("grounded_rate")
+                if _gr2 is not None:
+                    _grounded_rates.append(_gr2)
+
+                # 5. Record honesty judgment when one was produced.
+                if _judgment is not None:
                     await _hj.record_judgment(
                         _judgment,
                         trace_id="",
                         session_id="eval_gate1",
                         user="eval_runner",
                         question_preview=q,
-                        response_preview=actual,
+                        response_preview=_q_actual,
                     )
                     _rec_honesty_n += 1
-            except Exception as _he:
-                logger.debug("[eval_runner] R-F2390 honesty record failed: %s", _he)
+            except Exception as _re:
+                logger.debug("[eval_runner] R-F2396 record path failed: %s", _re)
 
     n = len(results)
     # R-F197: degraded flag. ≥80% empty responses → the LLM was effec-
@@ -525,6 +555,7 @@ async def run_eval(
         "recorded": bool(record),
         "verification_recorded": _rec_verify_n,
         "honesty_recorded": _rec_honesty_n,
+        "grounding_repairs_used": _repair_used_n,
         "grounded_rate_samples": len(_grounded_rates),
         "mean_grounded_rate": (
             round(sum(_grounded_rates) / len(_grounded_rates), 3)

@@ -105,7 +105,47 @@ def send(base: Path | str, frm: str, to: str, text: str,
     }
     with mf.open("a", encoding="utf-8") as f:
         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+    # R-F2400 — forward Claude's teaching to the SERVER brain. The local file
+    # mailbox is consumed only by the local aria CLI (ephemeral, no learning
+    # sink) and is NEVER shipped to aria-intel, so without this Claude's
+    # engineering/reasoning guidance never reaches ARIA's brain (R-F2399 audit:
+    # the server Redis collab log had zero writers). Best-effort + env-gated:
+    # a no-op when ARIA_SERVICE_URL/ARIA_BRAIN_URL + a token aren't set, and a
+    # network failure never breaks the local mailbox write above.
+    _forward_to_server(msg)
     return msg
+
+
+def _forward_to_server(msg: dict) -> bool:
+    """Best-effort POST of a Claude→ARIA message to the server collab ingest.
+
+    Only forwards Claude's outbound teaching (frm == "claude"); ARIA's own
+    ask_claude questions (frm == "aria") stay local. Returns True on a 2xx,
+    False otherwise (unreachable, unauthenticated, disabled) — never raises.
+    """
+    try:
+        if (msg or {}).get("frm") != "claude":
+            return False
+        url = (os.getenv("ARIA_SERVICE_URL") or os.getenv("ARIA_BRAIN_URL") or "").strip()
+        token = (os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_API_TOKEN") or "").strip()
+        if not url or not token:
+            return False  # not configured for forwarding — local-only mode
+        import httpx  # already a dependency of the aria CLI
+        resp = httpx.post(
+            f"{url.rstrip('/')}/api/aria/collab/ingest",
+            json={
+                "text": msg.get("text", ""),
+                "kind": msg.get("kind", "note"),
+                "reply_to": msg.get("reply_to") or "",
+                "frm": "claude",
+                "to": "aria",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=6.0,
+        )
+        return resp.status_code < 300
+    except Exception:
+        return False  # never let a forward failure break the local bridge
 
 
 def _load_seen(base: Path | str, reader: str) -> set[str]:

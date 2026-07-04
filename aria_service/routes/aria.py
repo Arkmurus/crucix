@@ -2354,6 +2354,54 @@ async def feedback_get_ep(feedback_id: str, user_id: str = ""):
 
 
 # ── Eval: golden Q&A regression framework ────────────────────────────────
+# R-F2396 — the single trusted tool-block preamble used to inject tool output
+# into the LLM turn. Because it is ARIA's OWN system-generated framing (not user
+# text), a grounding/citation contract carried inside it is honoured, whereas the
+# same contract in the user-message slot is refused as a forged-tag injection
+# (aria_engine.py:627 I1_VERIFICATION_TAG_FAKE). chat_ep, the stream path AND the
+# eval path all inject via this ONE preamble so the position is identical (§13).
+_TOOL_BLOCK_PREAMBLE = (
+    "[I have already run the appropriate tool on your request. "
+    "Use the data below to answer comprehensively, cite specific findings, "
+    "and end with a clear recommendation.]"
+)
+
+
+def _wrap_tool_block(tool_context: str) -> str:
+    """Return the trusted tool-block string (preamble + context), or "" for
+    empty context. This is the ONLY place tool output should enter message_for_llm."""
+    return f"{_TOOL_BLOCK_PREAMBLE}{tool_context}" if tool_context else ""
+
+
+# R-F2396 — grounding-repair note. Appended INSIDE the trusted tool block (never
+# the user message; no pre-filled tag examples) so it is honoured, not refused.
+_GROUNDING_REPAIR_NOTE = (
+    "\n\n[GROUNDING REPAIR — your previous draft left factual claims without a "
+    "named source. Re-answer now: every factual sentence MUST name the source it "
+    "came from (by that source's own name) and carry a CONFIRMED, PROBABLE or "
+    "ASSESSED confidence word. If the snippets do not support a claim, drop it or "
+    "write 'not supported by the provided sources'. Do not use outside knowledge.]"
+)
+
+
+async def _regenerate_with_stricter_grounding(llm, question: str, framed_context: str,
+                                              session_id: str | None = None) -> str:
+    """R-F2396 — ONE-shot grounding repair from the TRUSTED position. Re-prompts
+    once with a firmer cite-or-abstain note appended inside the tool block.
+    Returns the repaired response text, or "" on failure (caller keeps the
+    original). Cost-bound: callers invoke this at most once per turn."""
+    if not (llm and framed_context):
+        return ""
+    sid = session_id or f"repair_{uuid.uuid4().hex[:8]}"
+    msg = f"{question}\n\n{_wrap_tool_block(framed_context)}{_GROUNDING_REPAIR_NOTE}"
+    try:
+        result = await aria_chat(msg, sid, llm, None)
+        return (result or {}).get("response") or (result or {}).get("answer") or ""
+    except Exception as e:
+        _log.debug("R-F2396 grounding repair failed: %s", e)
+        return ""
+
+
 async def _aria_chat_session(
     question: str, llm, *, ground_markers: bool = False, return_context: bool = False,
 ):
@@ -2362,14 +2410,15 @@ async def _aria_chat_session(
     just without the FastAPI Request object. Each call uses a fresh session
     id so eval entries don't pollute each other's history.
 
-    R-F2391: when ``ground_markers`` is True, the tool output is framed as
-    numbered `Snippet #N:` blocks with a cite-inline instruction (the same
-    honest-grounding path chat_ep uses when ARIA_GROUNDING_MARKERS_ENABLED is
-    set) so the response emits verifiable `[from snippet #N]` markers. When
-    ``return_context`` is True the call returns ``(response, framed_context)``
-    so the eval runner (R-F2390) can record verification/honesty against the
-    EXACT context the LLM saw — otherwise it returns the response string
-    (unchanged legacy contract)."""
+    R-F2396 (position fix): when ``ground_markers`` is True the tool output is
+    framed as numbered source snippets with the native grounding contract
+    (frame_tool_context_for_citation) and injected via the TRUSTED tool-block
+    preamble (_wrap_tool_block) — NOT appended to the user message, where the
+    constitution refuses tag/format instructions as injection (the confound that
+    made the recording eval score no_citations). When ``return_context`` is True
+    the call returns ``(response, framed_context)`` so the eval runner can score
+    verification/honesty against the EXACT context the LLM saw; otherwise it
+    returns the response string (unchanged legacy contract)."""
     if not question or not llm:
         return ("", "") if return_context else ""
     session_id = f"eval_{uuid.uuid4().hex[:10]}"
@@ -2381,8 +2430,8 @@ async def _aria_chat_session(
     except Exception as e:
         _log.debug("eval tool detection failed: %s", e)
 
-    # R-F2391 — the context the LLM is shown AND the context grounding is
-    # validated against must be identical, so frame once and reuse.
+    # R-F2396 — frame once; the context the LLM sees AND the context grounding is
+    # scored against must be identical.
     framed_context = tool_context
     if tool_context and ground_markers:
         try:
@@ -2391,11 +2440,13 @@ async def _aria_chat_session(
             if framed:
                 framed_context = framed
         except Exception as e:
-            _log.debug("R-F2391 eval framing failed (using raw context): %s", e)
+            _log.debug("R-F2396 eval framing failed (using raw context): %s", e)
 
     message_for_llm = question
     if framed_context:
-        message_for_llm = f"{question}\n\n{framed_context}"
+        # R-F2396 — inject via the TRUSTED tool-block preamble (mirrors chat_ep),
+        # never as bare user text.
+        message_for_llm = f"{question}\n\n{_wrap_tool_block(framed_context)}"
     result = await aria_chat(message_for_llm, session_id, llm, None)
     response = (result or {}).get("response") or (result or {}).get("answer") or ""
     if return_context:
@@ -9356,18 +9407,13 @@ async def chat_ep(req: ChatRequest, request: Request):
 
             # Tool result block — appended last so the LLM sees the
             # freshest tool data right before it produces the response.
-            # R-F2391 — reframe into numbered cite-able snippets (env-gated,
-            # default OFF). Reassign tool_context so the message, cache key,
-            # verifier, and honesty judge all see the SAME framed context.
+            # R-F2391/R-F2396 — reframe into the native grounding contract
+            # (env-gated, default OFF). Reassign tool_context so the message,
+            # cache key, verifier, and honesty judge all see the SAME framed
+            # context, injected via the TRUSTED tool-block preamble.
             tool_context = _maybe_frame_grounding(tool_context)
             if tool_context:
-                message_for_llm = (
-                    f"{message_for_llm}\n\n"
-                    f"[I have already run the appropriate tool on your request. "
-                    f"Use the data below to answer comprehensively, cite specific findings, "
-                    f"and end with a clear recommendation.]"
-                    f"{tool_context}"
-                )
+                message_for_llm = f"{message_for_llm}\n\n{_wrap_tool_block(tool_context)}"
 
             # R-F1339 — LEAN SERVING MODE. When the small sovereign model
             # (aria-llm 7B) is chain primary, SKIP the agentic pre-passes
@@ -10444,6 +10490,18 @@ async def chat_ep(req: ChatRequest, request: Request):
                             question_preview=_q,
                             response_preview=_resp,
                         )
+                        # R-F2396 — credit ARIA's native (source-name) grounding on
+                        # the verification signal from the judge's REAL support
+                        # verdict. Only when the framed contract was in play
+                        # (grounding markers enabled) so live default is unchanged.
+                        if _grounding_markers_enabled():
+                            _native = source_verifier.native_grounding_from_judgment(judgment)
+                            if _native is not None:
+                                await source_verifier.record_verification(
+                                    _native, request_id=_session, session_id=_session,
+                                    user=_session, user_id=_uid, question_preview=_q,
+                                    response_preview=_resp, tool_used="native_grounding",
+                                )
                     except Exception as e:
                         _log.warning("honesty judge bg failed: %s: %s", type(e).__name__, e)
                 import asyncio as _aio
@@ -10861,17 +10919,12 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 f"do NOT cite items from this block as facts.]\n"
                 f"{_safe_group_ctx_s}"
             )
-        # R-F2391 (§13 mirror of chat_ep) — env-gated snippet framing; reassign
-        # tool_context so message + verifier + honesty judge stay consistent.
+        # R-F2391/R-F2396 (§13 mirror of chat_ep) — env-gated framing; reassign
+        # tool_context so message + verifier + honesty judge stay consistent,
+        # injected via the TRUSTED tool-block preamble.
         tool_context = _maybe_frame_grounding(tool_context)
         if tool_context:
-            message_for_llm = (
-                f"{message_for_llm}\n\n"
-                f"[I have already run the appropriate tool on your request. "
-                f"Use the data below to answer comprehensively, cite specific findings, "
-                f"and end with a clear recommendation.]"
-                f"{tool_context}"
-            )
+            message_for_llm = f"{message_for_llm}\n\n{_wrap_tool_block(tool_context)}"
 
         try:
             # Status: tools finished, now streaming LLM
@@ -11161,6 +11214,19 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                                         question_preview=_q2364,
                                         response_preview=_resp2364,
                                     )
+                                    # R-F2396 (§13 mirror of chat_ep) — native
+                                    # source-name grounding credit from the judge's
+                                    # real support verdict, env-gated.
+                                    if _grounding_markers_enabled():
+                                        _native2364 = source_verifier.native_grounding_from_judgment(_judgment)
+                                        if _native2364 is not None:
+                                            await source_verifier.record_verification(
+                                                _native2364, request_id=_sid2364,
+                                                session_id=_sid2364, user=_sid2364,
+                                                user_id=_uid2364, question_preview=_q2364,
+                                                response_preview=_resp2364,
+                                                tool_used="native_grounding",
+                                            )
                                 except Exception as _e:
                                     _log.debug("[R-F2364] stream record_judgment failed: %s", _e)
                             _aio2364.create_task(_r2364_judge_bg())
@@ -15378,6 +15444,48 @@ async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     )
 
 
+# R-F2399 — inbound writer for the Claude<->ARIA collaboration bridge.
+@router.post("/collab/ingest", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
+async def collab_ingest_ep(request: Request):
+    """Ingest a Claude→ARIA collaboration message into the SERVER brain.
+
+    Root cause this closes (R-F2399 audit): Claude runs on the operator's LOCAL
+    machine and writes to the local ``.agent_bridge/`` file mailbox, which is
+    NEVER shipped to aria-intel — so the server's Redis collab log had **zero
+    writers** (`llen` = 0 live) and everything Claude taught ARIA (engineering
+    guidance, corrections, reasoning) was forgotten. The local
+    ``scripts/agent_bridge.py`` now best-effort POSTs Claude's messages here.
+    This appends to the Redis collab log; the autonomous scheduler's 2-min
+    ``collab_bridge.drain_for_aria`` then absorbs it (RAG/mastery/neural) AND
+    captures it into the ``claude_teacher`` distillation corpus (§24 training).
+
+    Auth: require_aria_token (Bearer ARIA_INTERNAL_TOKEN / ARIA_API_TOKEN) — the
+    collab log is a brain WRITE, so it is not open (cf. R-F1347).
+
+    Body: { text (required), kind?, reply_to?, frm?='claude', to?='aria' }.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    frm = (body.get("frm") or "claude").strip().lower()
+    to = (body.get("to") or "aria").strip().lower()
+    kind = str(body.get("kind") or "note")
+    reply_to = str(body.get("reply_to") or "")
+    from ..intel import collab_bridge
+    try:
+        msg = await collab_bridge.send(
+            frm=frm, to=to, text=text, kind=kind, reply_to=reply_to,
+        )
+    except ValueError as ve:  # bad frm/to or empty text
+        raise HTTPException(status_code=400, detail=str(ve))
+    return {"ok": True, "seq": msg["seq"], "id": msg["id"]}
+
+
 # 43c. GET /api/aria/brain/stats — Brain hook signal stats + per-module health
 @router.get("/brain/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
@@ -19516,6 +19624,20 @@ async def search_student_stats_ep():
     with the trainer loop's eval lift in the logs/brain."""
     from ..intel import brave_student as _bs
     return _bs.stats()
+
+
+@router.get("/learning/claude-teacher/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def claude_teacher_stats_ep():
+    """R-F2399 — Claude→ARIA teacher-signal corpus proprioception (§25).
+
+    How much engineering/reasoning guidance ARIA has captured from the stronger
+    agent (Claude) for distillation (§24). records/shards/latest, source-tagged
+    ``claude_teacher``. 0 records + a live Redis collab log of 0 = the inbound
+    forward is not yet configured (set ARIA_INTERNAL_TOKEN + ARIA_SERVICE_URL on
+    the operator's local machine so scripts/agent_bridge.py forwards)."""
+    from ..intel import claude_distill as _cd
+    return _cd.stats()
 
 
 @router.post("/search/student/train")

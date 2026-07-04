@@ -227,6 +227,24 @@ async def drain_for_aria() -> dict:
                 )
             except Exception as e:
                 logger.warning("[R-F1409] absorb of Claude note failed: %s", e)
+
+            # R-F2399 — distil from the stronger agent. Every Claude→ARIA note is
+            # teacher signal: capture it into the claude_teacher corpus so a future
+            # SFT/DPO cycle (§24) can distil Claude's engineering/reasoning into
+            # ARIA-LLM. brain_hook.absorb above wires the RAG/mastery/neural sinks;
+            # this wires the DISTILL sink. Best-effort — never blocks the drain,
+            # and a failure is §21a-wired inside capture().
+            try:
+                from . import claude_distill
+                claude_distill.capture(
+                    text,
+                    direction=f"{m.get('frm','claude')}->{m.get('to','aria')}",
+                    kind=str(m.get("kind", "note")),
+                    msg_id=str(m.get("id", "")),
+                    reply_to=str(m.get("reply_to", "")),
+                )
+            except Exception as e:
+                logger.debug("[R-F2399] claude_distill capture failed (non-fatal): %s", e)
         last_seq = max(last_seq, seq)
         drained += 1
 
