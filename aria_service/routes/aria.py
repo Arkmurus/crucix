@@ -2409,12 +2409,20 @@ def _wrap_tool_block(tool_context: str) -> str:
 # R-F2396 — grounding-repair note. Appended INSIDE the trusted tool block (never
 # the user message; no pre-filled tag examples) so it is honoured, not refused.
 _GROUNDING_REPAIR_NOTE = (
-    "\n\n[GROUNDING REPAIR — your previous draft left factual claims without a "
-    "named source. Re-answer now: every factual sentence MUST name the source it "
-    "came from (by that source's own name) and carry a CONFIRMED, PROBABLE or "
-    "ASSESSED confidence word. If the snippets do not support a claim, drop it or "
-    "write 'not supported by the provided sources'. Do not use outside knowledge.]"
+    "\n\n[GROUNDING REPAIR — your previous draft marked facts CONFIRMED that the "
+    "snippets above do NOT actually state (you asserted general/training knowledge "
+    "as if source-backed). Re-answer now using ONLY the snippets: keep CONFIRMED "
+    "ONLY for facts a snippet states directly; DEMOTE every other fact to ASSESSED "
+    "or DROP it; and name the source of each CONFIRMED fact. If the snippets do not "
+    "support a claim, write 'not supported by the provided sources'. Do not add "
+    "outside knowledge.]"
 )
+
+# R-F2406 — repair fires only when a tool-backed, confidence-tagged turn scores
+# BELOW this grounded rate (i.e. the judge found unsupported CONFIRMED claims).
+# Already-grounded turns (>= threshold) and no-tool/untagged turns short-circuit
+# with ZERO extra LLM calls, per the R-F2277 hot-path budget.
+_GROUNDING_REPAIR_THRESHOLD = 0.7
 
 
 async def _regenerate_with_stricter_grounding(llm, question: str, framed_context: str,
@@ -2433,6 +2441,52 @@ async def _regenerate_with_stricter_grounding(llm, question: str, framed_context
     except Exception as e:
         _log.debug("R-F2396 grounding repair failed: %s", e)
         return ""
+
+
+async def maybe_repair_grounding(llm, question: str, tool_context: str, response: str):
+    """R-F2406 — LIVE grounding repair for chat_ep + stream (§13-mirror).
+
+    On a tool-backed, confidence-tagged turn, run the honesty judge's REAL support
+    check; if the shipped answer marked CONFIRMED facts the sources don't back
+    (grounded_rate < _GROUNDING_REPAIR_THRESHOLD), regenerate ONCE with the stricter
+    demote-or-drop contract and keep the repaired answer IFF it genuinely grounds
+    better (judge-verified). Returns a dict:
+        {response, judgment, verification, repaired}
+    where `judgment` is the honesty judgment for the FINAL (shipped) answer, so the
+    caller reuses it for the honesty record instead of judging twice.
+
+    R-F2277 hot-path budget: SHORT-CIRCUITS with ZERO LLM calls when the flag is
+    off, no tool ran, or the answer has no confidence tags. When it does run it is
+    ONE judge call (needed to decide), plus — only on a genuinely weak turn — one
+    regenerate + one re-judge. Never adds a state write on the hot path."""
+    from ..intel import source_verifier as _sv
+    from ..intel import honesty_judge as _hj
+    out = {"response": response, "judgment": None, "verification": None, "repaired": False}
+    try:
+        if not (_grounding_markers_enabled() and llm and tool_context and response):
+            return out
+        if not _hj.has_confidence_tags(response):
+            return out
+        judgment = await _hj.judge_response(llm, response, tool_context)
+        verification = _sv.verify_response(response, tool_context, support_judgment=judgment)
+        out["judgment"], out["verification"] = judgment, verification
+        gr = verification.get("grounded_rate")
+        # Already grounded, or nothing the judge could score → no repair.
+        if gr is None or gr >= _GROUNDING_REPAIR_THRESHOLD:
+            return out
+        repaired = await _regenerate_with_stricter_grounding(llm, question, tool_context)
+        if not (repaired or "").strip():
+            return out
+        rj = await _hj.judge_response(llm, repaired, tool_context)
+        rv = _sv.verify_response(repaired, tool_context, support_judgment=rj)
+        rgr = rv.get("grounded_rate")
+        # Keep the repair ONLY if it grounds better (honest lift, never worse).
+        if rgr is not None and rgr > gr:
+            out.update({"response": repaired, "judgment": rj,
+                        "verification": rv, "repaired": True})
+    except Exception as e:
+        _log.debug("R-F2406 maybe_repair_grounding failed (keeping original): %s", e)
+    return out
 
 
 async def _aria_chat_session(
@@ -9929,6 +9983,25 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as _cv_e:
             _log.warning("R-F1633 citation validator failed: %s", _cv_e)
 
+        # ── R-F2406 LIVE grounding repair ─────────────────────────────────
+        # On a tool-backed, confidence-tagged turn where the judge finds
+        # unsupported CONFIRMED claims (grounded_rate below threshold),
+        # regenerate ONCE with the stricter demote-or-drop contract and SHIP the
+        # repaired answer. Reuses the judgment for the verification + honesty
+        # records below (no double judge). Env-gated; zero extra LLM calls on
+        # no-tool / untagged / already-grounded turns (R-F2277 hot-path budget).
+        _grounding_judgment = None
+        try:
+            _r2406 = await maybe_repair_grounding(llm, req.message, tool_context or "", response_text)
+            _grounding_judgment = (_r2406 or {}).get("judgment")
+            if _r2406 and _r2406.get("repaired"):
+                response_text = _r2406["response"]
+                result["response"] = response_text
+                result["grounding_repaired"] = True
+                _log.info("[R-F2406] grounding repair improved a tool-backed answer (session=%s)", session_id)
+        except Exception as _re2406:
+            _log.debug("[R-F2406] live repair skipped: %s", _re2406)
+
         # ── Cited-source verification (deterministic hallucination check) ──
         try:
             if response_text:
@@ -9939,7 +10012,11 @@ async def chat_ep(req: ChatRequest, request: Request):
                 _verifier_ctx = tool_context or ""
                 if "[ATTACHED DOCUMENT" in (req.message or ""):
                     _verifier_ctx = (_verifier_ctx + "\n" + req.message) if _verifier_ctx else req.message
-                verification = source_verifier.verify_response(response_text, _verifier_ctx)
+                # R-F2406 — reuse the repair's judgment so the recorded verdict
+                # reflects the SHIPPED (possibly repaired) answer's native grounding.
+                verification = source_verifier.verify_response(
+                    response_text, _verifier_ctx, support_judgment=_grounding_judgment,
+                )
                 saved = await source_verifier.record_verification(
                     verification,
                     request_id=session_id,
@@ -10511,9 +10588,12 @@ async def chat_ep(req: ChatRequest, request: Request):
                     _session=session_id,
                     _q=req.message,
                     _uid=(req.user_id or "").strip(),
+                    _pre=_grounding_judgment,  # R-F2406 — reuse repair's judgment
                 ):
                     try:
-                        judgment = await honesty_judge.judge_response(_llm, _resp, _ctx)
+                        # R-F2406 — the LIVE repair already judged the SHIPPED
+                        # answer; reuse it instead of judging twice (hot-path cost).
+                        judgment = _pre or await honesty_judge.judge_response(_llm, _resp, _ctx)
                         await honesty_judge.record_judgment(
                             judgment,
                             trace_id=_trace_id,
@@ -11126,6 +11206,24 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         exc_info=True,
                     )
 
+                # ── R-F2406 LIVE grounding repair (§13 mirror of chat_ep) ─────
+                # Same gate: tool-backed + confidence-tagged + weakly grounded.
+                # Updates _full_text (exactly like the R-F448 honesty pass above,
+                # which already rewrites _full_text post-compose) so the RECORDED
+                # verdict + footer reflect the repaired answer, and emits a
+                # `replace` event so the web client can render the corrected body.
+                # Env-gated; zero extra LLM calls on no-tool/untagged/grounded turns.
+                _stream_grounding_judgment = None
+                try:
+                    _sr2406 = await maybe_repair_grounding(llm, req.message, tool_context or "", _full_text)
+                    _stream_grounding_judgment = (_sr2406 or {}).get("judgment")
+                    if _sr2406 and _sr2406.get("repaired"):
+                        _full_text = _sr2406["response"]
+                        yield f'data: {json.dumps({"type":"replace","text":_full_text})}\n\n'
+                        _log.info("[R-F2406] stream grounding repair improved answer (session=%s)", session_id)
+                except Exception as _sre2406:
+                    _log.debug("[R-F2406] stream live repair skipped: %s", _sre2406)
+
                 # R-F412 — build + emit the confidence footer as its own
                 # chunk, AFTER the LLM finishes (so the build_footer regex
                 # sees the full reply) but BEFORE the deferred done event.
@@ -11213,9 +11311,15 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         _tool2364 = tool_used or ""
                         _sid2364 = session_id or ""
 
-                        async def _r2364_verify_bg():
+                        _sgj2406 = _stream_grounding_judgment  # R-F2406 reuse
+                        async def _r2364_verify_bg(_pre=_sgj2406):
                             try:
-                                _ver = source_verifier.verify_response(_resp2364, _verifier_ctx2364)
+                                # R-F2406 — reuse the repair's judgment so the
+                                # recorded verdict reflects the shipped answer's
+                                # native grounding (no double judge).
+                                _ver = source_verifier.verify_response(
+                                    _resp2364, _verifier_ctx2364, support_judgment=_pre,
+                                )
                                 await source_verifier.record_verification(
                                     _ver,
                                     request_id=_sid2364,
@@ -11235,9 +11339,10 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         # tool ran AND the response carries confidence tags
                         # (nothing to judge otherwise).
                         if tool_context and honesty_judge.has_confidence_tags(_resp2364):
-                            async def _r2364_judge_bg():
+                            async def _r2364_judge_bg(_pre=_sgj2406):
                                 try:
-                                    _judgment = await honesty_judge.judge_response(llm, _resp2364, tool_context)
+                                    # R-F2406 — reuse the repair's judgment (no double judge).
+                                    _judgment = _pre or await honesty_judge.judge_response(llm, _resp2364, tool_context)
                                     await honesty_judge.record_judgment(
                                         _judgment,
                                         trace_id=_sid2364,

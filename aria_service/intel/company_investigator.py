@@ -31,6 +31,35 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.company_investigator")
 
+
+def _ws_result_to_dict(r: Any) -> dict:
+    """R-F2407 — normalise a web_search.search() result to a dict.
+
+    web_search.search() returns `SearchResult` DATACLASS objects, not dicts.
+    The web-search phases below (_phase_web_search / _phase_social_media /
+    _phase_procurement) were written to treat each result as a dict and call
+    `r.get("url")` — which raises AttributeError on a dataclass and, caught by
+    the phase's broad `except Exception`, silently dropped EVERY web finding
+    (a genuine retrieval gap, not infra-saturation). SearchResult exposes a
+    `.to_dict()` with keys title/url/snippet/source/... so this converts safely
+    while still passing through anything that is already a dict.
+    """
+    if isinstance(r, dict):
+        return r
+    to_dict = getattr(r, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return to_dict()
+        except Exception:
+            pass
+    # Last-resort attribute scrape so a shape change never re-amputates the leg.
+    return {
+        "url": getattr(r, "url", "") or "",
+        "title": getattr(r, "title", "") or "",
+        "snippet": getattr(r, "snippet", "") or "",
+    }
+
+
 # Gate
 _ENABLED = os.getenv("ARIA_COMPANY_INVESTIGATOR_ENABLED", "1") == "1"
 
@@ -296,10 +325,11 @@ async def _phase_web_search(
         for query in queries[:3]:  # Limit to 3 queries
             try:
                 results = await asyncio.wait_for(
-                    _ws.search(query, num_results=5),
+                    _ws.search(query, max_results=5),  # R-F2407: was num_results= (invalid kwarg → TypeError → 0 web findings)
                     timeout=8.0,
                 )
                 for r in (results or [])[:3]:
+                    r = _ws_result_to_dict(r)  # R-F2407: SearchResult dataclass → dict
                     url = r.get("url", "") or r.get("link", "")
                     title = r.get("title", "")[:200]
                     snippet = r.get("snippet", "")[:300]
@@ -544,10 +574,11 @@ async def _phase_social_media(
         for query in queries:
             try:
                 results = await asyncio.wait_for(
-                    _ws.search(query, num_results=3),
+                    _ws.search(query, max_results=3),  # R-F2407: was num_results= (invalid kwarg → TypeError → 0 findings)
                     timeout=7.0,
                 )
                 for r in (results or [])[:2]:
+                    r = _ws_result_to_dict(r)  # R-F2407: SearchResult dataclass → dict
                     url = r.get("url", "") or r.get("link", "")
                     if url:
                         report.findings.append(InvestigationFinding(
@@ -817,10 +848,11 @@ async def _phase_contract_lookup(
         from . import web_search as _ws
         query = f"{company_name} site:usaspending.gov contract award"
         results = await asyncio.wait_for(
-            _ws.search(query, num_results=5),
+            _ws.search(query, max_results=5),  # R-F2407: was num_results= (invalid kwarg → TypeError → 0 findings)
             timeout=10.0,
         )
         for r in (results or [])[:3]:
+            r = _ws_result_to_dict(r)  # R-F2407: SearchResult dataclass → dict
             url = r.get("url", "") or r.get("link", "")
             if url:
                 report.findings.append(InvestigationFinding(
