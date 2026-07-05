@@ -1248,7 +1248,26 @@ async function loadHeatmap() {
   const regionList = [...allRegions].sort();
   const topicList = Object.keys(d.heatmap).sort();
 
-  let html = '<table><tr><th></th>';
+  // R-F2430 — honest caption. This grid measures topic×REGION coverage (gate
+  // #2), which is region-signal-starved: cells initialise at ~0.50 and only
+  // move when a query is tagged with a specific region. A cell near 50% means
+  // "not yet measured for that region", NOT "51% competent" — ARIA's TOPIC
+  // mastery (finance 0.94, legal 0.91, compliance 0.86, thousands of samples)
+  // is a separate measurement shown in the Mastery panel. Without this caption
+  // an operator reads "compliance 51%" as weak competence, which is wrong.
+  const _cells = [];
+  topicList.forEach(t => regionList.forEach(r => { const v = d.heatmap[t]?.[r]; if (v != null) _cells.push(v); }));
+  const _nearInit = _cells.filter(v => v < 0.55).length;
+  const _rc = regionList.length;
+  const _caption = '<div style="margin-bottom:8px;font-size:0.78em;color:#9b968c;line-height:1.5">'
+    + '<strong>Region-specific coverage</strong> (Phase&nbsp;A gate&nbsp;#2). '
+    + 'A cell near 50% means that topic has <em>not been measured for that region yet</em> — not low competence. '
+    + 'Topic mastery (how well ARIA knows each subject) is tracked separately in the Mastery panel above. '
+    + _rc + ' region' + (_rc === 1 ? '' : 's') + ' ' + (_rc === 1 ? 'has' : 'have') + ' regional samples so far'
+    + (_cells.length ? ('; ' + _nearInit + '/' + _cells.length + ' cell' + (_nearInit === 1 ? '' : 's') + ' still at the ~50% initial scaffold') : '')
+    + '.</div>';
+
+  let html = _caption + '<table><tr><th></th>';
   // R-F2276: no fixed height — with white-space:nowrap the vertical label sizes
   // to its own length; a hard 80px clipped/overlapped long names (latam_non_lusophone).
   regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);padding:4px 2px;vertical-align:bottom">${r}</th>`; });
