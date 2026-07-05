@@ -44,7 +44,10 @@ Public API
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── The encoded typology library ──────────────────────────────────────
 # Each typology is structured to support deterministic matching against
@@ -341,6 +344,77 @@ def summary() -> dict[str, Any]:
         "categories":   sorted({t["category"] for t in _TYPOLOGY_LIBRARY}),
         "sources":      sorted({t["source"] for t in _TYPOLOGY_LIBRARY}),
     }
+
+
+def _typology_fact(t: dict[str, Any]) -> tuple[str, str, str]:
+    """R-F2441 — render one encoded typology as (topic, content, source) for the
+    knowledge corpus. Topic carries 'FATF' + 'typology' so it is discoverable and
+    matches the coverage domain token (R-F2439); content is the real FATF pattern
+    description + provenance; source is a stable per-id key so re-ingest merges
+    in place (knowledge.store_fact dedups by content) rather than duplicating."""
+    cat = str(t.get("category", "")).replace("_", " ").strip()
+    name = str(t.get("name", "")).strip()
+    desc = str(t.get("description", "")).strip()
+    src = str(t.get("source", "FATF")).strip()
+    tid = str(t.get("id", "")).strip()
+    topic = f"FATF {cat} typology — {name}"
+    content = (
+        f"FATF money-laundering typology ({cat}): {name}. {desc} Source: {src}."
+    )
+    return topic, content, f"fatf_typologies:{tid}"
+
+
+async def ingest_to_corpus() -> dict[str, Any]:
+    """R-F2441 — ingest the encoded FATF typology library into the knowledge
+    corpus as SEARCHABLE facts, so the typologies are RAG-retrievable (chat /
+    research / DD narrative), not only reachable via match_typologies() in code.
+
+    Idempotent: knowledge.store_fact merges duplicates by content, so re-running
+    updates in place. §21a-wired on success + failure.
+
+    HONESTY NOTE: FATF typologies are GLOBAL ML patterns, not jurisdiction-
+    specific data, so these facts carry no jurisdiction — they enrich the
+    searchable corpus but do NOT populate the per-jurisdiction coverage heatmap
+    (that needs real per-jurisdiction AML fact sources, not global patterns)."""
+    from . import knowledge as _kb
+    from .engine_wiring import wire_success, wire_failure
+    stored = 0
+    errors = 0
+    for t in _TYPOLOGY_LIBRARY:
+        try:
+            topic, content, source = _typology_fact(t)
+            await _kb.store_fact(
+                topic=topic,
+                content=content,
+                source=source,
+                confidence="CONFIRMED",   # published FATF report — authoritative
+                fact_type="fatf_typology",
+                entity_name=str(t.get("name", "")),
+                entity_type="typology",
+            )
+            stored += 1
+        except Exception as e:  # never let one bad row abort the ingest
+            errors += 1
+            logger.debug("[fatf_typologies] ingest failed for %s: %s", t.get("id"), e)
+    try:
+        if stored:
+            wire_success(
+                module="fatf_typologies",
+                summary=f"ingested {stored} FATF typologies into the searchable corpus",
+                source_id="fatf_typologies:ingest_to_corpus",
+            )
+        elif errors:
+            wire_failure(
+                module="fatf_typologies",
+                detail=f"ingest_to_corpus stored 0 of {len(_TYPOLOGY_LIBRARY)} (all errored)",
+                gap_type="engine_failure",
+                source="fatf_typologies:ingest_to_corpus",
+            )
+    except Exception:
+        pass
+    return {"ok": True, "ingested": stored, "errors": errors,
+            "library_size": len(_TYPOLOGY_LIBRARY)}
+
 
 # R-F2119 §21a — wire failure handler for fatf_typologies
 try:

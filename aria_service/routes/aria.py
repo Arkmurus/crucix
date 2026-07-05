@@ -3370,6 +3370,18 @@ async def fatf_typology_list_ep():
         return {"ok": False, "error": str(e)}
 
 
+@router.post("/fatf/typologies/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def fatf_typologies_ingest_ep():
+    """R-F2441 — ingest the encoded FATF typology library into the knowledge
+    corpus as searchable facts (RAG-retrievable). Idempotent — re-runs merge."""
+    try:
+        from ..intel import fatf_typologies as _ft
+        return await _ft.ingest_to_corpus()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 @router.post("/fatf/match")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def fatf_match_ep(request: Request):
