@@ -264,7 +264,7 @@ function severityPill(sev) {
 // moat vs black-box feeds is that the user can SEE how well a signal is
 // corroborated instead of trusting an opaque score.
 function provenanceBadge(sourceCount) {
-  const n = sourceCount || 0;
+  const n = Number(sourceCount) || 0;
   if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Corroborated across ' + n + ' independent sources">✓ corroborated · ' + n + ' sources</span>';
   return '<span class="sc-badge sc-badge-muted" title="Seen in a single source — treat as unconfirmed">single-source</span>';
 }
@@ -466,7 +466,7 @@ async function loadData() {
 
     // ── R-F2411 — real intelligence KPIs (replaces VIX/Brent/market-direction) ──
     // Every value derives from a populated brain field; nothing is fabricated.
-    const corrs0 = data.correlations || [];
+    const corrs0 = Array.isArray(data.correlations) ? data.correlations : [];
     // Critical Alerts — correlations flagged critical (what needs attention now)
     const critEls = corrs0.filter(function (c) { return c.severity === 'critical'; });
     const kCrit = document.getElementById('kpi-critical');
@@ -474,7 +474,7 @@ async function loadData() {
     if (critEls.length > 0) { kCrit.style.color = '#dc2626'; kCrit.title = critEls.length + ' critical regional correlation(s)'; }
     else { kCrit.style.color = ''; kCrit.title = ''; }
     // Conflict Signals — total ACLED/multi-source signal volume across correlations
-    const conflictSignals = corrs0.reduce(function (n, c) { return n + (c.signalCount || 0); }, 0);
+    const conflictSignals = corrs0.reduce(function (n, c) { return n + (Number(c.signalCount) || 0); }, 0);
     document.getElementById('kpi-conflict').textContent = conflictSignals;
     // Active Tenders — live defence procurement (bdIntelligence, real feed)
     const tenders = (data.bdIntelligence && data.bdIntelligence.counts && data.bdIntelligence.counts.activeTenders) || 0;
@@ -495,7 +495,7 @@ async function loadData() {
 
     // ── R-F2414 — personalisation spine: match live signals to the user's watchlist ──
     const wlMatch = buildWatchlistMatcher(wlData);
-    const allPosts = (data.tg && data.tg.urgent) || [];
+    const allPosts = Array.isArray(data.tg && data.tg.urgent) ? data.tg.urgent : [];
     let wlSignalCount = 0;
     const wlHitNames = new Set();
     for (const p of allPosts) {
@@ -521,7 +521,7 @@ async function loadData() {
 
     // Correlations
     const corrEl = document.getElementById('correlations-list');
-    const corrs = data.correlations || [];
+    const corrs = Array.isArray(data.correlations) ? data.correlations : [];
     if (!corrs.length) {
       corrEl.innerHTML = '<p class="text-muted" style="padding:8px">No critical correlations detected.</p>';
     } else {
@@ -535,7 +535,7 @@ async function loadData() {
           + '<span class="sc-badge ' + (c.severity==='critical'?'sc-badge-red':'sc-badge-orange') + ' ms-auto">' + escHtml(c.severity||'').toUpperCase() + '</span>'
           + '</div>'
           + '<div style="padding:6px 10px;font-size:11px;color:#57534b;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-          + '<span>' + (c.signalCount||0) + ' signals · score ' + (c.totalScore||0) + '</span>'
+          + '<span>' + (Number(c.signalCount)||0) + ' signals · score ' + (Number(c.totalScore)||0) + '</span>'
           + provenanceBadge(c.sourceCount)
           + '</div></div>';
       }).join('');
@@ -543,7 +543,7 @@ async function loadData() {
 
     // Telegram OSINT
     const osintEl = document.getElementById('osint-list');
-    const posts = data.tg && data.tg.urgent || [];
+    const posts = Array.isArray(data.tg && data.tg.urgent) ? data.tg.urgent : [];
     if (!posts.length) {
       osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
     } else {
