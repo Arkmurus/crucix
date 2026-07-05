@@ -95,20 +95,28 @@ def wait_for_mine() -> None:
     _status(phase="1_wait_mine", note="hit 14h cap — proceeding with what exists")
 
 
-def dedup_corpus() -> int:
-    if not _CORPUS.exists():
-        return 0
+def merge_shards() -> int:
+    """Merge the base corpus + all shard corpora into _CORPUS, dedup by sha.
+    Safe to call once every shard worker has exited."""
     seen, out = set(), []
-    for l in _CORPUS.read_text(encoding="utf-8").splitlines():
-        if not l.strip():
+    sources = [_CORPUS] + sorted(_CORPUS.parent.glob("mined_code_fixes_verified.shard*.jsonl"))
+    for src in sources:
+        if not src.exists():
             continue
-        r = json.loads(l)
-        if r["sha"] in seen:
-            continue
-        seen.add(r["sha"])
-        out.append(r)
+        for l in src.read_text(encoding="utf-8").splitlines():
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            if r["sha"] in seen:
+                continue
+            seen.add(r["sha"])
+            out.append(r)
     _CORPUS.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8")
     return len(out)
+
+
+def dedup_corpus() -> int:
+    return merge_shards()
 
 
 def resplit() -> tuple[int, int]:

@@ -46,7 +46,9 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
 _RNUM_RE = re.compile(r"R-F\d+")
-_PYTEST_TIMEOUT = 90  # seconds per (state) run
+_PYTEST_TIMEOUT = 45  # seconds per (state) run — a unit test that needs >45s
+# almost always needs live infra (state_store/network) and is discarded anyway;
+# halving the tail is the biggest single mine-speedup with negligible yield loss.
 _RATE_SLEEP = 0.15    # between subprocess runs
 
 
@@ -333,19 +335,38 @@ def main() -> None:
     ap.add_argument("--report", default="data/eval_reports/mine_git_fixes_report.json")
     ap.add_argument("--checkpoint", default="data/eval/mine_checkpoint.json")
     ap.add_argument("--resume", action="store_true")
+    # Sharding: N parallel workers, worker K processes commits where index%N==K.
+    # Each shard writes its OWN out+checkpoint (no concurrent-writer race). Every
+    # shard SEEDS its done-set from the base checkpoint so already-processed
+    # commits (from the earlier single run) are never re-mined. Merge+dedup the
+    # shard corpora at the end (autonomous_code_prep.merge_shards).
+    ap.add_argument("--nshards", type=int, default=1)
+    ap.add_argument("--shard", type=int, default=0)
     args = ap.parse_args()
 
     out_p = _REPO / args.out
     rep_p = _REPO / args.report
     ckpt_p = _REPO / args.checkpoint
+    base_ckpt_p = ckpt_p
+    if args.nshards > 1:
+        out_p = out_p.with_suffix(f".shard{args.shard}.jsonl")
+        rep_p = rep_p.with_suffix(f".shard{args.shard}.json")
+        ckpt_p = ckpt_p.with_suffix(f".shard{args.shard}.json")
     out_p.parent.mkdir(parents=True, exist_ok=True)
     ckpt_p.parent.mkdir(parents=True, exist_ok=True)
 
     done: dict[str, str] = {}
     verified_rows: list[dict] = []
+    # Seed done from the BASE checkpoint (read-only) so shards skip commits the
+    # earlier single run already processed — no duplicated work, no re-mining.
+    if args.nshards > 1 and base_ckpt_p.exists():
+        try:
+            done.update(json.loads(base_ckpt_p.read_text(encoding="utf-8")).get("done", {}))
+        except Exception:
+            pass
     if args.resume and ckpt_p.exists():
         ck = json.loads(ckpt_p.read_text(encoding="utf-8"))
-        done = ck.get("done", {})
+        done.update(ck.get("done", {}))
         if out_p.exists():
             verified_rows = [json.loads(l) for l in out_p.read_text(encoding="utf-8").splitlines() if l.strip()]
         print(f"resume: {len(done)} shas already processed, {len(verified_rows)} rows kept")
@@ -357,6 +378,9 @@ def main() -> None:
     written_shas: set[str] = {r["sha"] for r in verified_rows}
 
     commits = list_fix_commits(args.limit)
+    if args.nshards > 1:
+        commits = [c for i, c in enumerate(commits) if i % args.nshards == args.shard]
+        print(f"shard {args.shard}/{args.nshards}: {len(commits)} commits in this slice")
     from collections import Counter
     drops: Counter = Counter()
     scanned = candidates = verified = 0
