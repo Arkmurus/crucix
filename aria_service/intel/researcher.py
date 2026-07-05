@@ -13,7 +13,7 @@ Three modes of learning:
 
 This is what makes ARIA a learning analyst, not a chatbot."""
 from __future__ import annotations
-from .engine_wiring import wire_success
+from .engine_wiring import wire_success, wire_failure
 
 import asyncio
 import json
@@ -2475,6 +2475,65 @@ async def deep_research(
         f"{entity} news",                          # recent activity
     ]
 
+    # ── R-F2426: adverse-media / sanctions angles ─────────────────────
+    # Root cause of the adverse-media 0.0-grounding population: the base
+    # angles above are all CORPORATE-generic (company / HQ / directors /
+    # news). For a query like "Wagner Group adverse media" the retrieval
+    # never runs the query that actually surfaces the evidence — proven
+    # live: "Wagner Group headquarters location" / "… directors leadership"
+    # return corporate noise, while "Wagner Group adverse media war crimes"
+    # returns Europol / OFAC / news sources. The sanctions/adverse facet
+    # of the OSINT surface was structurally unqueried. When adverse-media /
+    # sanctions intent is signalled (in the entity phrase itself — the chat
+    # handler folds "adverse media"/"sanctions" into the deep_research
+    # entity — or, when the flag forces it, for every run), add targeted
+    # angles built from the CLEANED entity (adverse nouns stripped so the
+    # angle isn't "<entity> adverse media sanctions OFAC"). Env-gated
+    # (default OFF → base angles byte-for-byte unchanged); best-effort.
+    _adverse_terms = (
+        "adverse media", "adverse", "sanction", "sanctioned", "ofac", "ofsi",
+        "war crime", "human rights", "corruption", "bribery", "fraud",
+        "money laundering", "laundering", "terrorism", "terrorist",
+        "investigation", "allegation", "misconduct", "controversy",
+        "designated", "designation", "criminal", "lawsuit", "litigation",
+    )
+    _adverse_flag = (os.getenv("ARIA_DEEP_RESEARCH_ADVERSE_ANGLES", "") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    _entity_low = entity.lower()
+    _adverse_signalled = any(t in _entity_low for t in _adverse_terms)
+    if _adverse_flag:
+        # Strip adverse nouns from the entity so the targeted angles carry a
+        # clean subject (e.g. "Wagner Group adverse media" → "Wagner Group").
+        _clean = entity
+        for _t in ("adverse media", "adverse-media", "adverse", "sanctions",
+                   "sanction", "sanctioned", "ofac", "ofsi", "screening",
+                   "war crimes", "human rights", "allegations", "investigation"):
+            _clean = re.sub(rf"\b{re.escape(_t)}\b", " ", _clean, flags=re.IGNORECASE)
+        _clean = re.sub(r"\s{2,}", " ", _clean).strip(" .,:;-")
+        if not _clean or len(_clean) < 2:
+            _clean = entity
+        _adverse_angles = [
+            f'"{_clean}" sanctions OFAC EU designation',
+            f'"{_clean}" adverse media allegations',
+            f'"{_clean}" investigation OR lawsuit OR fraud OR corruption OR "war crimes"',
+        ]
+        if _adverse_signalled:
+            # The entity phrase IS an adverse/sanctions request — these are the
+            # discovery angles; PREPEND so they survive max_queries truncation.
+            _base_angles = _adverse_angles + _base_angles
+        else:
+            # Benign lookup with the flag on — APPEND so the corporate angles
+            # keep priority within the query budget (adverse angles are a
+            # supplementary DD-doctrine sweep, not the point of the query).
+            _base_angles = _base_angles + _adverse_angles
+        logger.info(
+            "R-F2426: adverse-media angles added (signalled=%s, position=%s) "
+            "for entity=%r → %r",
+            _adverse_signalled, "prepend" if _adverse_signalled else "append",
+            entity[:80], _adverse_angles,
+        )
+
     # R-F331 (2026-05-11): when the intent hint signals a people /
     # network / officers question, add LinkedIn site-restricted angles.
     # These are the highest-yield queries for people data — LinkedIn
@@ -4228,6 +4287,14 @@ async def run_adverse_media_deep_search(
             years_back=years_back,
         )
     except Exception as e:
+        # §21a — failure branch must reach the brain sink too (balances the
+        # wire_success on the success path below).
+        wire_failure(
+            module="researcher",
+            detail=f"adverse-media template generation failed: {str(e)[:180]}",
+            gap_type="engine_failure",
+            source="researcher:R-F996",
+        )
         return {"ok": False, "error": f"template generation failed: {e}"}
 
     total_templates = len(templates)

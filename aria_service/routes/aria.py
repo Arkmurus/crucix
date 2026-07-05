@@ -7151,6 +7151,85 @@ def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | Non
     return True
 
 
+def _screen_web_context_enabled() -> bool:
+    """R-F2425 — env flag (default OFF) that adds a real web-search leg to the
+    ``screen`` tool so a sanctioned/novel entity carries CITABLE web sources into
+    the grounding context. Default OFF keeps the live screen block byte-for-byte
+    unchanged until the operator reviews the diff + observes the grounding lift."""
+    return (_os.getenv("ARIA_SCREEN_WEB_CONTEXT", "") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+async def _screen_web_context(entity: str, *, budget: float = 9.0) -> str:
+    """R-F2425 — retrieve real, URL-bearing web sources for a screened entity.
+
+    Root cause of the sanctioned-entity 0.0-grounding population: the ``screen``
+    tool block carried ONLY fuzzy_screen matches (``name [list] score`` lines,
+    no URL) + local KB text. OpenSanctions can be rate-limited/unreachable under
+    load → ``source_unavailable`` → nothing citable at all. The grounding judge
+    scores claims against the retrieved CONTEXT, and a context with no source is
+    ungroundable — so a genuinely-sanctioned entity (KTRV, etc.) lands 0.0 even
+    though its designation is trivially findable on the open web (OFAC/EU/UN
+    listings, Treasury press releases, OpenSanctions entity pages).
+
+    This leg runs a small, sanctions-targeted web search with the FULL entity
+    name (acronym-only queries under-retrieve — proven live: "KTRV OFAC" ≪
+    "Tactical Missiles Corporation KTRV sanctions") and appends the results as
+    blank-line-separated, URL-bearing snippet blocks so frame_tool_context_for_
+    citation numbers them and the judge can attribute each fact. Best-effort:
+    never raises, bounded by ``budget``, returns "" on any failure / no results
+    (an honest empty, never a fabricated source — §14 / never-false-clean)."""
+    entity = (entity or "").strip()
+    if not entity or not _screen_web_context_enabled():
+        return ""
+    try:
+        from ..intel import web_search as _ws
+        queries = [
+            f"{entity} sanctions OFAC EU designation",
+            f"{entity} sanctioned adverse media",
+        ]
+        try:
+            batches = await asyncio.wait_for(
+                asyncio.gather(
+                    *[_ws.search(q, max_results=6) for q in queries],
+                    return_exceptions=True,
+                ),
+                timeout=budget,
+            )
+        except asyncio.TimeoutError:
+            _log.info("R-F2425 screen web-context timed out for %r", entity[:60])
+            return ""
+        seen: dict[str, Any] = {}
+        for batch in batches:
+            if isinstance(batch, BaseException) or not batch:
+                continue
+            for x in batch:
+                url = getattr(x, "url", "") or ""
+                if url and url not in seen:
+                    seen[url] = x
+        srcs = list(seen.values())[:8]
+        if not srcs:
+            return ""
+        lines = "\n\n".join(
+            f"[web {i+1}] {getattr(s, 'title', '') or url}\n"
+            f"    URL: {getattr(s, 'url', '')}\n"
+            f"    {(getattr(s, 'snippet', '') or '')[:300]}"
+            for i, (url, s) in enumerate(seen.items())
+            if i < 8
+        )
+        return (
+            "\n\n--- WEB SANCTIONS/ADVERSE-MEDIA CONTEXT "
+            "(real open-web sources — cite the source URL inline for each fact; "
+            "a listing here is evidence of designation, its absence is NOT a "
+            "clearance) ---\n"
+            f"{lines}\n--- End web context ---"
+        )
+    except Exception as e:
+        _log.debug("R-F2425 screen web-context failed for %r: %s", entity[:60], e)
+        return ""
+
+
 async def _execute_tool(
     intent: dict, llm, *,
     dd_budget_s: float | None = None,
@@ -9031,11 +9110,17 @@ async def _execute_tool(
                     f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
                     for m in top
                 ) or "  - no matches"
+            # R-F2425 — append a real web-search leg so a sanctioned/novel entity
+            # carries CITABLE web sources (OFAC/EU/UN listings, designation news)
+            # into the grounding context. fuzzy_screen + KB alone have no URL, so
+            # even a real designation lands 0.0 grounding. Env-gated, best-effort.
+            web_ctx = await _screen_web_context(intent["entity"])
             return (
                 f"\n\n[TOOL: compliance_screen]\nEntity: {intent['entity']}\n"
                 f"Top matches:\n{top_str}\n"
                 f"Blocked: {r.get('blocked')}\n"
                 f"Knowledge base hits: {kb_hits[:1000] or 'None'}"
+                f"{web_ctx}"
             )
 
         if tool == "fuzzy_sanctions":
