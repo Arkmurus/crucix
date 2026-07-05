@@ -54,10 +54,17 @@ describe('R-F1564 — WA requestId propagation for image/OCR + doc-overview', ()
   it('reportOutcome is gated on requestId (precondition for the fix to matter)', () => {
     const body = extractFunctionBody(source, 'async function sendReply(');
     // The success + failure branches only report when requestId is present.
-    assert.ok(/if\s*\(requestId\)\s*\{[\s\S]*?reportOutcome\([^)]*'delivered_real_answer'/.test(body),
-      'sendReply success branch must call reportOutcome under if(requestId)');
-    assert.ok(/if\s*\(requestId\)\s*\{[\s\S]*?reportOutcome\([^)]*'send_failed'/.test(body),
-      'sendReply failure branch must call reportOutcome under if(requestId)');
+    // R-F2451 — accept an ADDITIONAL guard condition after `requestId` (the
+    // success branch is now `if (requestId && !_failedOutcomeReqIds.has(requestId))`,
+    // the R-F1965 duplicate-outcome guard). The invariant under test is
+    // "reportOutcome is gated on requestId", which both forms satisfy.
+    // Lazy span from `if (requestId` to the reportOutcome call tolerates a
+    // guard condition with nested parens (`.has(requestId)`), which a
+    // `[^)]*\)` form cannot.
+    assert.ok(/if\s*\(requestId\b[\s\S]{0,160}?reportOutcome\([^)]*'delivered_real_answer'/.test(body),
+      'sendReply success branch must call reportOutcome guarded by requestId');
+    assert.ok(/if\s*\(requestId\b[\s\S]{0,160}?reportOutcome\([^)]*'send_failed'/.test(body),
+      'sendReply failure branch must call reportOutcome guarded by requestId');
   });
 
   it('_handleOcrResult accepts a requestId parameter', () => {

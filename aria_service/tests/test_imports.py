@@ -316,13 +316,32 @@ def test_verifier_recognises_clause15_markers():
     refs = count_tool_refs(body)
     assert refs == 4, f"expected 4 tool refs, got {refs}"
 
-    # And the verdict should be `grounded` when only marker citations
-    # are present (no URLs but a tool ran).
-    result = verify_response(body, tool_context="some non-empty tool block")
+    # R-F2451 — the verdict is `grounded` when the marker citations reference
+    # blocks that ACTUALLY exist in the tool context. R-F2391 hardened the
+    # verifier to reject `[from snippet #N]` / `[EXTRACT N]` markers whose
+    # numbered block is ABSENT (fabricated provenance = never-false-clean), so
+    # the tool_context must contain snippet #8 and EXTRACT 2 for those markers
+    # to be honest. (The prior fixture passed a generic block and asserted
+    # grounded — that was the STALE expectation this anti-fabrication behavior
+    # correctly broke.)
+    tool_context = (
+        "snippet #8: Modirum acquired GESPI in Brazil.\n\n"
+        "EXTRACT 2: Modirum Gespi is headquartered in Helsinki.\n\n"
+        "RAG: multi-language website confirmed. ATTACHED DOCUMENT: ARK-SER-01.pdf terms."
+    )
+    result = verify_response(body, tool_context=tool_context)
     assert result["verdict"] == "grounded", (
-        f"verifier should treat marker-only citations as grounded, got {result['verdict']}"
+        f"marker citations backed by real tool blocks must be grounded, got {result['verdict']}"
     )
     assert result["tool_refs"] == 4
+
+    # And the anti-fabrication guard the STALE test missed: the SAME markers with
+    # a context that does NOT contain those blocks must NOT be grounded.
+    fabricated = verify_response(body, tool_context="some non-empty tool block")
+    assert fabricated["verdict"] != "grounded", (
+        "fabricated snippet/EXTRACT markers (blocks absent from context) must not "
+        f"read as grounded, got {fabricated['verdict']}"
+    )
 
 
 def test_mem0_retrieve_for_query_handles_empty_cache():
