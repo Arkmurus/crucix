@@ -891,9 +891,18 @@ async def lifespan(app: FastAPI):
     # ever starting, causing Fly's health check to kill the machine.
     # By yielding now, the server starts serving immediately and the heavy
     # init runs in the background without blocking the event loop.
+    # R-F2448 — crawler handles declared at LIFESPAN scope so shutdown (far
+    # below) sees the values set inside _boot_continuation (which now uses
+    # `nonlocal`). Before: the nested assignment was function-local → at
+    # shutdown `_crawler_stop_event` was undefined → a swallowed NameError
+    # ("crawler shutdown failed (non-fatal)") → the crawler never stopped
+    # cleanly across deploys.
+    _crawler_stop_event = None
+    _crawler_task = None
     async def _boot_continuation():
         """Everything that was between the heavy graph warmup and the yield,
         now running in a background task so the server starts immediately."""
+        nonlocal _crawler_stop_event, _crawler_task  # R-F2448: share with shutdown cleanup
         # ---- R-F1891 - recover orphaned async jobs after a restart --------
         try:
             from .routes.aria import recover_orphaned_jobs as _recover_jobs
@@ -1822,6 +1831,7 @@ async def lifespan(app: FastAPI):
                     # the operator log shows phantom verdicts. Skip the whole
                     # validation pass when LLM is absent — hypotheses stay
                     # OPEN until the next cycle with a working LLM.
+                    llm = getattr(app.state, "llm_provider", None)  # R-F2448: was unbound here → NameError (loop reads app.state.llm_provider elsewhere)
                     _llm_ok = bool(llm and getattr(llm, "is_configured", False))
                     if not _llm_ok:
                         logger.info(
@@ -2456,7 +2466,7 @@ async def lifespan(app: FastAPI):
             # mastery — NOT gaming (alpha/weight/read-grounding are UNCHANGED). Runs at
             # Priority.BACKGROUND + cost_free, honours the R-F1395 pause flag. Env-tunable so
             # the operator can dial load; default 2.5h.
-            _reading_interval_s = float(os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")
+            _reading_interval_s = float(_os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")  # R-F2448: was bare `os` (undefined in main.py) → NameError
             await asyncio.sleep(max(600.0, _reading_interval_s))
 
     async def _library_consolidate_loop():

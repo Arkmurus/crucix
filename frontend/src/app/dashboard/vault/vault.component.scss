@@ -1,0 +1,7 @@
+/* R-F2449 — restore the stylesheet vault.component.ts references
+ * (styleUrls: ['./vault.component.scss']). The file was missing, which failed
+ * `npm run build`. Intentionally minimal; component-scoped styles can be added
+ * here. */
+:host {
+  display: block;
+}
