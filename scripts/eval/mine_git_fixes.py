@@ -350,6 +350,12 @@ def main() -> None:
             verified_rows = [json.loads(l) for l in out_p.read_text(encoding="utf-8").splitlines() if l.strip()]
         print(f"resume: {len(done)} shas already processed, {len(verified_rows)} rows kept")
 
+    # Idempotency guard (root cause of the double-launch dup rows): never append
+    # a sha already written to the corpus. `done` is authoritative for skipping;
+    # this covers the race where two writers append the same sha before either
+    # checkpoints. A dedup-by-sha also runs at report time below.
+    written_shas: set[str] = {r["sha"] for r in verified_rows}
+
     commits = list_fix_commits(args.limit)
     from collections import Counter
     drops: Counter = Counter()
@@ -381,8 +387,10 @@ def main() -> None:
             verified += 1
             row = build_row(c, v)
             verified_rows.append(row)
-            with out_p.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            if sha not in written_shas:      # idempotent append (dup guard)
+                with out_p.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written_shas.add(sha)
             done[sha] = "verified"
             print(f"  [{i}/{len(commits)}] {sha[:8]} {c['r_numbers'][0]:<9} VERIFIED "
                   f"(src={len(c['src'])} multi={row['multi_file']})")
@@ -391,6 +399,19 @@ def main() -> None:
             print(f"  [{i}/{len(commits)}] {sha[:8]} {c['r_numbers'][0]:<9} drop:{v['reason']}")
         # checkpoint every commit (cheap, resumable)
         ckpt_p.write_text(json.dumps({"done": done, "ts": time.time()}, indent=0), encoding="utf-8")
+
+    # Final dedup-by-sha rewrite (safe: this process is done appending). Removes
+    # any duplicate rows from an earlier concurrent-writer race; keeps first seen.
+    if out_p.exists():
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for r in (json.loads(l) for l in out_p.read_text(encoding="utf-8").splitlines() if l.strip()):
+            if r["sha"] in seen:
+                continue
+            seen.add(r["sha"])
+            deduped.append(r)
+        out_p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in deduped), encoding="utf-8")
+        verified_rows = deduped
 
     report = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
