@@ -4748,6 +4748,98 @@ _TECH_KW        = re.compile(r"\b(what\s+is\s+(?:a|the)\s+|specs?\s+(?:of|for)\s
                               r"classify\s+(?:this|these)|extract\s+items|what\s+ml\s+category)\b", re.IGNORECASE)
 _FUZZY_KW       = re.compile(r"\b(fuzzy|alias|alternate\s+spelling|transliteration|name\s+variant)\b", re.IGNORECASE)
 
+# R-F2427 (2026-07-05, Blocker 1) — trailing INTENT/PURPOSE clause.
+# Live bug (a99e smoke): "Screen Tactical Missiles Corporation KTRV for
+# sanctions" screened the literal word "sanctions", not "KTRV" — the R-F1749
+# compliance NLU (`_COMPLIANCE_FOR_RE`) matched the tail "for sanctions" and
+# used "sanctions" as the entity. Root cause: the entity-extraction paths grab
+# whatever follows the LAST for/on/of/against, so a trailing purpose clause
+# ("… for sanctions", "… for adverse media check") is mistaken for the entity.
+# This regex matches ONLY a trailing purpose clause whose object is an intent
+# noun (sanctions / adverse media / compliance / screening / PEP / AML / …) so
+# the real entity (which precedes it) survives. Anchored to end-of-string with
+# a bounded suffix set, so a company legitimately named "Compliance Solutions
+# Inc" (noun not at end) is NOT stripped.
+_INTENT_PURPOSE_TAIL_RE = re.compile(
+    r"\s+(?:for|against|regarding|re)\s+"
+    r"(?:(?:an?|any|its?|their|possible|potential)\s+)?"
+    r"(?:"
+    r"sanctions?|sanctioned|"
+    r"adverse[\s-]?media|negative\s+news|negative\s+media|"
+    r"pep|peps|"
+    r"aml|kyc|cft|"
+    r"compliance|export[\s-]?controls?|"
+    r"watch[\s-]?lists?|"
+    r"screening|"
+    r"due\s+diligence|"
+    r"reputational|reputation|"
+    r"financial\s+crime|money\s+laundering"
+    r")"
+    r"(?:\s+(?:screen(?:ing)?|checks?|exposure|risks?|purposes?|reasons?|"
+    r"review|assessment|due\s+diligence|hits?))?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+
+# R-F2428 (2026-07-05, Blocker 2) — adverse-media / negative-news intent.
+# Live bug (a99e smoke): "Adverse media check on Wagner Group" matched NO tool
+# intent (adverse-media is absent from _COMPLIANCE_KW_RE / _SCREEN_KW /
+# _INVESTIGATE_KW) → routed to tool=None → answered from model memory, so
+# R-F2426's adverse angles never fired. This detector routes such phrasings to
+# deep_research with the adverse signal folded into the entity (R-F2426 flips
+# `_adverse_signalled` when the entity phrase carries an adverse term).
+_ADVERSE_MEDIA_KW_RE = re.compile(
+    r"\b(adverse[\s-]?media|negative\s+news|negative\s+media|"
+    r"reputational\s+(?:check|screen(?:ing)?|risk|due\s+diligence|review|profile)|"
+    r"negative\s+screening|derogatory\s+(?:information|media|news))\b",
+    re.IGNORECASE,
+)
+# Leading action verb / determiner in front of the adverse keyword when the
+# subject precedes it ("run an adverse media check", "screen X for adverse
+# media"). Stripped so the bare subject remains.
+_ADVERSE_LEAD_VERB_RE = re.compile(
+    r"^(?:please\s+|kindly\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:run|do|perform|conduct|check|screen|give\s+me|get\s+me|pull|fetch|"
+    r"provide|show\s+me|carry\s+out)?\s*"
+    r"(?:an?|any|the|some)?\s*",
+    re.IGNORECASE,
+)
+_ADVERSE_TRAIL_CONNECTOR_RE = re.compile(
+    r"\s+(?:for|on|of|about|against|into|re|regarding)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _extract_adverse_subject(msg: str, kw_match: "re.Match") -> str:
+    """R-F2428 — pull the real subject out of an adverse-media phrasing.
+
+    Handles both "adverse media check on <X>" (subject after a connector that
+    follows the keyword) and "<X> adverse media" (subject precedes the keyword).
+    Returns "" when no plausible subject is present (honest no-route, §14)."""
+    tail = msg[kw_match.end():]
+    m_after = re.search(
+        r"\b(?:on|for|of|about|against|into|re|regarding)\s+(.+?)\s*$",
+        tail, re.IGNORECASE,
+    )
+    if m_after and m_after.group(1).strip():
+        subj = m_after.group(1)
+    else:
+        # Subject precedes the keyword — drop a leading action verb/determiner
+        # and any trailing connector left dangling ("check X for" → "X").
+        subj = _ADVERSE_LEAD_VERB_RE.sub("", msg[:kw_match.start()])
+        subj = _ADVERSE_TRAIL_CONNECTOR_RE.sub("", subj)
+    subj = subj.strip(" .,:;-?!\"'\n")
+    subj = re.sub(r"^(?:on|for|of|about|the|a|an)\s+", "", subj, flags=re.IGNORECASE)
+    # Drop a leading interrogative so a definitional "what is adverse media"
+    # (no real subject) collapses to "" and honestly falls through to the
+    # generic investigate path instead of routing a question as the entity.
+    subj = re.sub(
+        r"^(?:what(?:'s|\s+is|\s+are)?|why|how|when|where|who|which|"
+        r"is|are|does|do|can|could|should|tell\s+me|give\s+me)\b\s*",
+        "", subj, flags=re.IGNORECASE,
+    )
+    return subj.strip(" .,:;-?!\"'\n")
+
 # Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
 # Procurement / tender intent — fires deep_research with a procurement-
 # scoped query. Conservative regex: requires both a procurement noun
@@ -5837,6 +5929,13 @@ def _detect_tool_intent(message: str) -> dict | None:
     _screen_slash = _SCREEN_SLASH_RE.match(msg)
     if _screen_slash:
         entity = _screen_slash.group(1).strip(" .,:;-?!\"'")
+        # R-F2427 (Blocker 1) — strip a trailing purpose clause so
+        # "/screen KTRV for sanctions" screens "KTRV", not "KTRV for sanctions".
+        _slash_purpose = _INTENT_PURPOSE_TAIL_RE.search(entity)
+        if _slash_purpose and _slash_purpose.start() > 0:
+            _slash_cand = entity[:_slash_purpose.start()].strip(" .,:;-?!\"'")
+            if _slash_cand and len(_slash_cand) >= 2:
+                entity = _slash_cand
         if entity and len(entity) >= 2:
             return {
                 "tool": "screen",
@@ -5844,6 +5943,46 @@ def _detect_tool_intent(message: str) -> dict | None:
                 "context": msg,
                 "_reason": "screen_slash_command",
             }
+
+    # ── R-F2428 (2026-07-05, Blocker 2) — adverse-media NLU → deep_research ──
+    # Runs on the ORIGINAL msg (before the R-F2427 trailing-purpose strip below)
+    # so a "<verb> X for adverse media" phrasing keeps its adverse signal. Doc
+    # attachments are excluded here so doc-review stays LLM-pure (§22a) — the
+    # doc-review skip further down handles the attached-doc case. Routes to
+    # deep_research with the adverse term folded into the entity so R-F2426's
+    # `_adverse_signalled` fires and the sanctions/war-crimes angles are issued.
+    if "[ATTACHED DOCUMENT" not in message:
+        _adv_m = _ADVERSE_MEDIA_KW_RE.search(msg)
+        if _adv_m:
+            _adv_subject = _extract_adverse_subject(msg, _adv_m)
+            _adv_low = _adv_subject.lower()
+            if (
+                _adv_subject
+                and 2 <= len(_adv_subject) <= 200
+                and "document" not in _adv_low
+                and "attached" not in _adv_low
+                and "this file" not in _adv_low
+            ):
+                return {
+                    "tool": "deep_research",
+                    "entity": f"{_adv_subject} adverse media"[:200],
+                    "context": msg,
+                    "_reason": "adverse_media_rf2428",
+                }
+
+    # ── R-F2427 (2026-07-05, Blocker 1) — strip a trailing INTENT/PURPOSE clause ──
+    # "Screen KTRV for sanctions" → the R-F1749 compliance NLU below grabbed the
+    # tail "for sanctions" and screened the literal word "sanctions". Removing a
+    # trailing "for <intent-noun>" purpose clause here (BEFORE R-F1749 and the
+    # has_screen extraction) leaves the real entity in place. Surgical: only a
+    # trailing purpose clause whose object is an intent noun is stripped; the
+    # remainder must still be non-trivial (a bare "screen for sanctions" with no
+    # entity is left untouched so it honestly falls through to no-entity).
+    _purpose_m = _INTENT_PURPOSE_TAIL_RE.search(msg)
+    if _purpose_m and _purpose_m.start() > 0:
+        _candidate = msg[:_purpose_m.start()].strip()
+        if _candidate and len(_candidate) >= 3:
+            msg = _candidate
 
     # ── R-F1749 (2026-06-20) — compliance / export-control NLU → real screen ──
     # The "Compliance" action chip emits the natural-language form
@@ -7228,6 +7367,66 @@ async def _screen_web_context(entity: str, *, budget: float = 9.0) -> str:
     except Exception as e:
         _log.debug("R-F2425 screen web-context failed for %r: %s", entity[:60], e)
         return ""
+
+
+def _screen_match_source_context(screen_r: dict, *, limit: int = 5) -> str:
+    """R-F2429 (2026-07-05, Blocker 3) — build a CITABLE grounding block from the
+    OpenSanctions matches ``fuzzy_screen`` ALREADY fetched this turn, with ZERO
+    extra network calls (pay-once, §15).
+
+    Root cause of the R-F2425 timeout: the screen web-leg fired a SECOND, separate
+    web search (2 queries) to find a citable source — but the same screen turn had
+    already POSTed to api.opensanctions.org/match/default → 200 OK and every match
+    dict carries a real source URL (``https://www.opensanctions.org/entities/<id>/``)
+    plus its list/dataset, jurisdictions and topics. Under load the redundant web
+    fetch competed for the event loop and timed out, so a genuinely-sanctioned
+    entity (KTRV / Sberbank / Kalashnikov Concern) landed 0.0 grounding even though
+    the citable source was already in hand. Surfacing the in-hand match URLs is the
+    structural fix — the web fetch becomes a fallback only when no match carried a
+    URL.
+
+    Returns "" when the screen was not performed (source unavailable — NOT a
+    clearance) or no match has a URL (genuinely-unlisted → honest empty, never a
+    fabricated source; §14 / never-false-clean)."""
+    if not isinstance(screen_r, dict) or not _screen_web_context_enabled():
+        return ""
+    # An unavailable source is UNVERIFIED, not a clearance, and carries no URL.
+    if screen_r.get("source_unavailable") or screen_r.get("screened") is False:
+        return ""
+    matches = screen_r.get("matches") or []
+    blocks: list[str] = []
+    for m in matches[:limit]:
+        if not isinstance(m, dict):
+            continue
+        url = (m.get("url") or "").strip()
+        if not url:
+            continue
+        name = (m.get("name") or "").strip()
+        _lists = m.get("lists") or ([m.get("list")] if m.get("list") else [])
+        lists = ", ".join(str(x) for x in _lists if x)[:200]
+        topics = ", ".join(str(t) for t in (m.get("topics") or [])[:6])
+        juris = ", ".join(
+            (j.get("label") or "") for j in (m.get("jurisdictions") or [])
+            if isinstance(j, dict) and j.get("label")
+        )[:200]
+        score = m.get("score")
+        blocks.append(
+            f"[opensanctions {len(blocks) + 1}] {name} (match score={score})\n"
+            f"    URL: {url}\n"
+            f"    Lists/datasets: {lists or 'OpenSanctions'}\n"
+            f"    Jurisdictions: {juris or 'n/a'}\n"
+            f"    Topics: {topics or 'n/a'}"
+        )
+    if not blocks:
+        return ""
+    body = "\n\n".join(blocks)
+    return (
+        "\n\n--- SANCTIONS SOURCE CONTEXT "
+        "(OpenSanctions primary-source matches already retrieved this turn — "
+        "cite the entity URL inline for each fact; a listing here is evidence of "
+        "designation, its absence is NOT a clearance) ---\n"
+        f"{body}\n--- End sanctions source context ---"
+    )
 
 
 async def _execute_tool(
@@ -9110,11 +9309,18 @@ async def _execute_tool(
                     f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
                     for m in top
                 ) or "  - no matches"
-            # R-F2425 — append a real web-search leg so a sanctioned/novel entity
-            # carries CITABLE web sources (OFAC/EU/UN listings, designation news)
-            # into the grounding context. fuzzy_screen + KB alone have no URL, so
-            # even a real designation lands 0.0 grounding. Env-gated, best-effort.
-            web_ctx = await _screen_web_context(intent["entity"])
+            # R-F2429 (Blocker 3) — surface the CITABLE source URLs from the
+            # OpenSanctions matches fuzzy_screen ALREADY fetched this turn (each
+            # match carries its opensanctions.org entity URL) with ZERO extra
+            # network calls (pay-once, §15). This replaces the redundant, load-
+            # competing R-F2425 web fetch that was timing out for listed entities
+            # (KTRV / Sberbank / Kalashnikov Concern).
+            match_ctx = _screen_match_source_context(r)
+            # R-F2425 — only fall back to a fresh web-search leg when the in-hand
+            # matches carried NO citable URL (genuinely-novel/unlisted entity or
+            # source_unavailable). Skipping it when matches exist removes the
+            # redundant fetch that was the root of the timeout.
+            web_ctx = match_ctx or await _screen_web_context(intent["entity"])
             return (
                 f"\n\n[TOOL: compliance_screen]\nEntity: {intent['entity']}\n"
                 f"Top matches:\n{top_str}\n"
