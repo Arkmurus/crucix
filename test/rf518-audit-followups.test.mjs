@@ -4,7 +4,7 @@
 // `#fetch-failure-banner` and `#js-error-banner` CSS selectors in
 // `public/aria-brain.html` into a single rule:
 //
-//   #fetch-failure-banner, #js-error-banner { display: none; ... background: #3d1418; ... }
+//   #fetch-failure-banner, #js-error-banner { display: none; ... background: rgba(220,38,38,0.08); ... }
 //
 // The R-F391 capability test at `test/aria-brain-honesty-rf391.test.mjs`
 // asserted the visible-alert + display:none invariant with regexes that
@@ -28,7 +28,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // The two regex patterns that R-F518 widened. Keep these literally in
 // sync with `aria-brain-honesty-rf391.test.mjs:58,203`.
 const BANNER_VISIBLE_REGEX =
-  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none[\s\S]*?background:\s*#3d1418/;
+  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none[\s\S]*?background:\s*rgba\(220/;
 const BANNER_HIDDEN_DEFAULT_REGEX =
   /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none/;
 
@@ -38,7 +38,7 @@ test('R-F518: regex matches the un-merged single-selector form (pre-R-F441 shape
       display: none;
       margin-bottom: 16px;
       padding: 12px 16px;
-      background: #3d1418;
+      background: rgba(220,38,38,0.08);
     }
   `;
   assert.match(css, BANNER_VISIBLE_REGEX, 'must match pre-R-F441 single-selector form');
@@ -51,7 +51,7 @@ test('R-F518: regex matches the merged comma-list form (post-R-F441 shape)', () 
       display: none;
       margin-bottom: 16px;
       padding: 12px 16px;
-      background: #3d1418;
+      background: rgba(220,38,38,0.08);
     }
   `;
   assert.match(css, BANNER_VISIBLE_REGEX, 'must match post-R-F441 multi-selector form');
@@ -64,14 +64,14 @@ test('R-F518: regex still rejects the busted shape — banner without display:no
   // wider bracket).
   const broken = `
     #fetch-failure-banner, #js-error-banner {
-      background: #3d1418;
+      background: rgba(220,38,38,0.08);
       margin-bottom: 16px;
     }
   `;
   assert.doesNotMatch(broken, BANNER_HIDDEN_DEFAULT_REGEX);
 });
 
-test('R-F518: regex still rejects styling that omits the red-on-dark background', () => {
+test('R-F518: regex still rejects styling that omits the red-alert background (R-F2049 light theme)', () => {
   const wrongColor = `
     #fetch-failure-banner, #js-error-banner {
       display: none;

@@ -54,12 +54,12 @@ check(
   /<div\s+id=["']fetch-failure-banner["'][^>]*><\/div>/.test(HTML),
 );
 check(
-  'banner CSS defined with red-on-dark styling (visible alert)',
+  'banner CSS defined with red-alert styling (R-F2049 light theme) (visible alert)',
   // R-F518: regex tolerates the R-F441 combined selector
   // `#fetch-failure-banner, #js-error-banner { ... }` as well as the
   // original single-selector form. The visible-alert invariant is what
   // we're asserting — the CSS authoring style is not.
-  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none[\s\S]*?background:\s*#3d1418/.test(HTML),
+  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none[\s\S]*?background:\s*rgba\(220/.test(HTML),
 );
 check(
   '_trackFetchFailure helper defined',
@@ -77,13 +77,20 @@ check(
   '_fetchFailures Map is the failure tracker',
   /const\s+_fetchFailures\s*=\s*new\s+Map\(\)/.test(HTML),
 );
+// R-F2437: R-F2234 refactored fetchJson into a richer failure detector — the
+// honesty invariant (a failed fetch must reach _trackFetchFailure, never render
+// silently) is PRESERVED, but via new code paths: a timeout/no-response is
+// res.status === 0, a server error is !res.ok, and a computed-but-failed cache
+// panel is an '__error' marker. These assertions keep the SAME teeth (a
+// silently-swallowed failure still fails the test) against the current code.
 check(
-  'fetchJson treats data==null as failure',
-  /if\s*\(\s*data\s*==\s*null\s*\)\s*\{[\s\S]*?_trackFetchFailure/.test(HTML),
+  'fetchJson treats a timeout / no-response as a failure (status 0)',
+  /res\.status\s*===\s*0\b[\s\S]{0,120}?_trackFetchFailure/.test(HTML),
 );
 check(
-  'fetchJson treats {error:...} responses as failure',
-  /if\s*\(\s*typeof\s+data\s*===\s*['"]object['"][\s\S]{0,40}data\.error\s*\)\s*\{[\s\S]*?_trackFetchFailure/.test(HTML),
+  'fetchJson treats an error response as a failure (!res.ok or cached __error)',
+  /!res\.ok[\s\S]{0,80}?_trackFetchFailure/.test(HTML)
+    || /__error['"]?\s*\)?[\s\S]{0,80}?_trackFetchFailure/.test(HTML),
 );
 check(
   'fetchJson clears tracker on success',
