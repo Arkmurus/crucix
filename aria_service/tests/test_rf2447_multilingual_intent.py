@@ -59,12 +59,15 @@ def test_multilingual_entity_routing():
         assert out["_reason"] == "llm_intent_fallback_rf2447"
 
 
-def test_query_tool_routing():
+def test_research_tool_uses_entity_key():
+    # Pass-1 contract: deep_research's arg is carried on "entity" (what
+    # _execute_tool reads), NOT "query" — matching _detect_tool_intent.
     llm = _StubLLM({"recherche sur le marché de la défense en Afrique":
                     '{"tool":"deep_research","arg":"defence market in Africa","confidence":0.75}'})
     out = _run("recherche sur le marché de la défense en Afrique", llm)
     assert out["tool"] == "deep_research"
-    assert out["query"] == "defence market in Africa"
+    assert out["entity"] == "defence market in Africa"
+    assert "query" not in out
 
 
 def test_plain_question_falls_through_to_none():
@@ -102,6 +105,62 @@ def test_confidence_threshold_is_tunable():
     llm = _StubLLM({"olha a Acme": '{"tool":"investigate","arg":"Acme","confidence":0.5}'})
     assert _run("olha a Acme", llm) is None                       # default 0.6
     assert _run("olha a Acme", llm, min_confidence=0.4) is not None
+
+
+def test_wired_helper_default_off_is_byte_identical(monkeypatch):
+    """The WIRED helper (routes/aria.py) with the flag OFF must return EXACTLY
+    what the English regex returns — no LLM call, no behaviour change."""
+    monkeypatch.delenv("ARIA_LLM_INTENT_FALLBACK", raising=False)
+    from aria_service.routes.aria import _detect_tool_intent_ml, _detect_tool_intent
+
+    class _Boom:
+        is_configured = True
+
+        async def complete(self, *a, **k):
+            raise AssertionError("LLM must NOT be called when flag is OFF")
+
+    for msg in ("hello there how are you", "/screen Acme Corp", "investigate Globex Ltd"):
+        got = asyncio.run(_detect_tool_intent_ml(msg, _Boom()))
+        assert got == _detect_tool_intent(msg), msg
+
+
+def test_wired_helper_flag_on_routes_multilingual(monkeypatch):
+    """Flag ON + configured LLM + non-English message with no regex hit → routes
+    via the multilingual interpreter; entity carried on the 'entity' key."""
+    monkeypatch.setenv("ARIA_LLM_INTENT_FALLBACK", "1")
+    from aria_service.routes import aria as A
+
+    class _LLM:
+        is_configured = True
+
+        async def complete(self, system, user, **k):
+            class _R:
+                text = '{"tool":"investigate","arg":"Acme Corp","confidence":0.9}'
+            return _R()
+
+    # a non-English phrasing the English regex misses
+    out = asyncio.run(A._detect_tool_intent_ml("investiga a empresa Acme Corp", _LLM()))
+    assert out is not None and out["tool"] == "investigate" and out["entity"] == "Acme Corp"
+
+
+def test_wired_helper_flag_on_non_command_falls_through(monkeypatch):
+    """Flag ON, a regex-miss NON-command (Portuguese 'thanks for the help') →
+    interpreter returns 'none' → helper returns None (falls through to chat).
+    Proves the fallback never hijacks non-commands even when it does run."""
+    monkeypatch.setenv("ARIA_LLM_INTENT_FALLBACK", "1")
+    from aria_service.routes import aria as A
+    assert A._detect_tool_intent("obrigado pela ajuda") is None  # regex misses it
+
+    class _LLM:
+        is_configured = True
+
+        async def complete(self, *a, **k):
+            class _R:
+                text = '{"tool":"none","confidence":0.0}'
+            return _R()
+
+    out = asyncio.run(A._detect_tool_intent_ml("obrigado pela ajuda", _LLM()))
+    assert out is None
 
 
 if __name__ == "__main__":

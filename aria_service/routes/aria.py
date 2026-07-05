@@ -7019,6 +7019,62 @@ _KNOWN_BLOCKING_DOMAINS = (
 )
 
 
+def _worth_intent_fallback(message: str) -> bool:
+    """R-F2447 cost guard: is it worth paying the (cheap, fail-safe) LLM intent
+    fallback for a message the English regex already MISSED?
+
+    Fires when the text is non-ASCII (accents/Arabic/CJK), OR short enough to
+    plausibly be a command — this is what catches ASCII non-English commands like
+    the roadmap's own "investiga a empresa Acme Corp" (Pass-2 caught that a
+    fluency-only guard skipped exactly this core case), OR shows a non-native
+    signal. Long ASCII English prose is skipped (an essay is not a missed tool
+    command; the regex already caught clear English commands). Cost note: with
+    the flag ON, short chat the regex misses costs one cheap classification →
+    "none" → falls through; the whole path is opt-in (default-OFF)."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if not msg.isascii():          # accents / Arabic / CJK => clearly not plain English
+        return True
+    if len(msg.split()) <= 12:     # a tool command is short (incl. ASCII non-English)
+        return True
+    try:
+        from ..intel.comprehension import detect_language_signal, LanguageSignal
+        return detect_language_signal(msg) != LanguageSignal.NATIVE_FLUENT
+    except Exception:
+        return False
+
+
+async def _detect_tool_intent_ml(message: str, llm) -> dict | None:
+    """R-F2447 Guardian Layer 3 — multilingual tool-intent with the LLM
+    interpreter as a FALLBACK after the English regex (`_detect_tool_intent`).
+
+    DEFAULT-OFF and byte-identical: with ``ARIA_LLM_INTENT_FALLBACK`` unset this
+    returns EXACTLY ``_detect_tool_intent(message)`` — no behaviour change, no
+    LLM call. When enabled it only fires if the regex found nothing AND the
+    message looks non-English AND the LLM is configured; any error / low
+    confidence / ``none`` falls through to normal chat (never hijacks a
+    question). The result is a ``_detect_tool_intent``-shaped dict."""
+    intent = _detect_tool_intent(message)
+    if intent is not None:
+        return intent
+    if (os.getenv("ARIA_LLM_INTENT_FALLBACK", "") or "").strip().lower() not in ("1", "true", "yes"):
+        return None
+    if not (llm and getattr(llm, "is_configured", False)):
+        return None
+    if not _worth_intent_fallback(message):
+        return None
+    try:
+        from ..intent.interpret import interpret_tool
+        out = await interpret_tool(message, llm)
+        if out is not None:
+            _log.info("R-F2447 multilingual intent fallback → %s", out.get("tool"))
+        return out
+    except Exception as e:  # fail-safe: never break chat routing
+        _log.debug("R-F2447 ml intent fallback error: %s", e)
+        return None
+
+
 def _is_blocking_domain(url: str) -> bool:
     if not url:
         return False
@@ -9811,7 +9867,7 @@ async def chat_ep(req: ChatRequest, request: Request):
             # 2026-05-27). The document reaches the LLM directly; an explicit
             # follow-up question without an attachment still triggers tools.
             if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
-                intent = _detect_tool_intent(req.message)
+                intent = await _detect_tool_intent_ml(req.message, llm)  # R-F2447 L3 multilingual fallback (default-OFF byte-identical)
                 if intent and llm and llm.is_configured:
                     tool_used = intent.get("tool")
                     _log.info("ARIA chat tool-use detected: %s", intent)
@@ -11300,7 +11356,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         # R-F948 — skip auto tool-crawl when a document is attached (see chat path).
         if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
             yield f'data: {json.dumps({"type":"progress","stage":"detecting","message":"Detecting intent…"})}\n\n'
-            intent = _detect_tool_intent(req.message)
+            intent = await _detect_tool_intent_ml(req.message, llm)  # R-F2447 L3 multilingual fallback (mirrors chat path §13)
             # R-F1713 — doc-review follow-up guard. Right after a document review,
             # a generic web-search-class intent on a follow-up ("what are your
             # recommendations, so no red flags?") is almost always ABOUT the

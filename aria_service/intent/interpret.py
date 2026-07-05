@@ -30,12 +30,17 @@ import re
 
 logger = logging.getLogger("aria.intent.interpret")
 
-# Core user-facing tools that benefit from multilingual routing. Names MUST match
-# the `tool` values routes/aria.py:_detect_tool_intent already emits/dispatches.
-_ENTITY_TOOLS = {"investigate", "screen", "profile", "dd_orchestrate"}
-_QUERY_TOOLS = {"deep_research", "tech_explain", "contract_analysis"}
+# Core user-facing tools that benefit from multilingual routing. Names + the
+# ARG KEY MUST match what routes/aria.py:_detect_tool_intent emits and
+# _execute_tool consumes. Audit (R-F2447 Pass-1): investigate/screen/profile/
+# dd_orchestrate/deep_research ALL key their argument on "entity" (see aria.py
+# 6517/6875/6924/6933 + _execute_tool intent.get("entity")). deep_research's arg
+# is a topic but is still carried in "entity". contract_analysis is EXCLUDED —
+# it is document-triggered (reads context/body, needs an attachment), not a
+# free-text command, so it must not be routed from a multilingual text intent.
+_ENTITY_TOOLS = {"investigate", "screen", "profile", "dd_orchestrate", "deep_research"}
 _BARE_TOOLS = {"help", "none"}
-_VALID = _ENTITY_TOOLS | _QUERY_TOOLS | _BARE_TOOLS
+_VALID = _ENTITY_TOOLS | _BARE_TOOLS
 
 # Default confidence floor — below this we fall through to chat (tunable via the
 # caller). Kept conservative: a false tool-route is worse than a missed one here
@@ -50,14 +55,12 @@ The tools:
 - "profile": build a profile / dossier on a company or person. arg = the entity name.
 - "dd_orchestrate": run full due diligence / a DD report on an entity. arg = the entity name.
 - "deep_research": open-ended research on a topic/question (not a single named entity). arg = the topic.
-- "tech_explain": explain a technical concept. arg = the concept.
-- "contract_analysis": review / analyse a contract or legal document. arg = short note.
 - "help": the user asks what ARIA can do / how to use it. arg = optional topic.
 - "none": ANYTHING ELSE — normal chat, a factual question, greetings, or unclear. When in ANY doubt, choose "none".
 
 Reply with ONLY a JSON object (no prose, no code fence):
-{"tool": one of ["investigate","screen","profile","dd_orchestrate","deep_research","tech_explain","contract_analysis","help","none"],
- "arg": the extracted entity/topic/note (string, "" if none),
+{"tool": one of ["investigate","screen","profile","dd_orchestrate","deep_research","help","none"],
+ "arg": the extracted entity/topic (string, "" if none),
  "confidence": 0.0 to 1.0}
 
 Rules:
@@ -124,12 +127,8 @@ async def interpret_tool(message: str, llm, *,
                  "_reason": "llm_intent_fallback_rf2447"}
     if tool in _ENTITY_TOOLS:
         if len(arg) < 2:
-            return None                 # never route an entity tool with no entity
-        out["entity"] = arg[:160]
-    elif tool in _QUERY_TOOLS:
-        if tool != "contract_analysis" and len(arg) < 2:
-            return None
-        out["query"] = arg[:400]
+            return None                 # never route an entity tool with no entity/topic
+        out["entity"] = arg[:200]       # the ARG KEY every entity/research tool reads
     elif tool == "help":
         out["topic"] = arg[:80].lower()
     return out
