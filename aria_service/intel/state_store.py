@@ -1726,7 +1726,30 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
         _schedule_reconnect_if_dead(e)
         return None
     if not row:
-        return None
+        # R-F2435 — cutover-safety: point-reads must be SYMMETRIC with the
+        # scan_keys/scan_json hot+cold UNION (R-F2413). A cold-prefix key not yet
+        # backfilled to the cold file — written after the backfill snapshot, or
+        # backfill incomplete — still lives in HOT during migration; without this
+        # fallback get()/get_json returns None for it at cutover even though scan
+        # finds it, so verified_facts / reasoning_library / audit entries would
+        # appear to VANISH at the flip. When the split is on and the COLD read
+        # just missed, retry the HOT conn. Flag OFF → _cold_read_conn is None →
+        # this block is skipped (byte-identical, dormant until flip).
+        if _HOTCOLD_SPLIT and _cold_read_conn is not None and _route_db(key) == "cold":
+            _hot = _get_read_conn()
+            if _hot is not None and _hot is not conn:
+                try:
+                    cur = await _hot.execute(
+                        "SELECT value, kind, expires_at FROM state WHERE key = ?",
+                        (key,),
+                    )
+                    row = await cur.fetchone()
+                    await cur.close()
+                except Exception as e:
+                    logger.warning("state_store: R-F2435 hot-fallback SELECT %s failed: %s", key, e)
+                    row = None
+        if not row:
+            return None
     value, kind, expires_at = row
     if _expired(expires_at):
         # Lazy expiry — drop the row on read. No python-level lock needed:
