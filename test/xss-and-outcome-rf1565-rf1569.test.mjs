@@ -19,7 +19,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -62,8 +62,12 @@ describe('R-F1565 §25a web delivery-outcome', () => {
       server.indexOf("app.get('/api/aria/unguarded-fallback/stats'")
     );
     assert.ok(route.length > 0, 'chat route located');
-    assert.match(route, /reportOutcome\('web',[^)]*'delivered_real_answer'/,
-      'success branch reports delivered_real_answer');
+    // R-F2436: the chat route now reports its outcome via classifyDeliveryOutcome(data)
+    // (R-F2405) — STRICTER than the old hardcoded 'delivered_real_answer' literal, because
+    // a timeout fallback is honestly NOT logged as delivered (§25). Assert the
+    // honest-classification wiring instead of the retired literal.
+    assert.match(route, /reportOutcome\('web',[^;]*'chat_answer',\s*classifyDeliveryOutcome/,
+      'success branch reports a classified delivery outcome (§25 honest classification)');
     assert.match(route, /reportOutcome\('web',[^)]*'error'/,
       'failure / fallback branch reports error');
   });
@@ -81,7 +85,11 @@ describe('R-F1569 stored-XSS — no user data in onclick JS strings', () => {
     assert.match(wl, /wl-act-dd|wl-act-remove/, 'delegated action classes present');
   });
 
-  it('coder.html close button uses data-attr + delegation, not onclick(filename)', () => {
+  // R-F2436: the ARIA Coder web UI (public/coder.html, R-F1189) was RETIRED —
+  // sidebar link removed + file deleted, superseded by the `aria` CLI. Skip this
+  // assertion when the page is absent so a retired-page test isn't a false red.
+  it('coder.html close button uses data-attr + delegation, not onclick(filename)',
+     { skip: existsSync(join(root, 'public/coder.html')) ? false : 'coder.html retired (R-F2436)' }, () => {
     const coder = read('public/coder.html');
     assert.doesNotMatch(coder, /onclick="closeFile\(\\?'/,
       'no inline onclick="closeFile(\'...\')" with interpolated filename');

@@ -85,8 +85,8 @@ test('R-F525: server.mjs /chat proxy timeout defaults to 600s (env-tunable)', ()
 test('R-F525: server.mjs /dd/orchestrate proxy timeout defaults to 600s', () => {
   assert.match(
     serverSrc,
-    /ARIA_DD_PROXY_TIMEOUT_MS[^']+'600000'/,
-    'server.mjs /dd/orchestrate proxy must default to 600000ms',
+    /ARIA_DD_PROXY_TIMEOUT_MS[^']+'810000'/,
+    'server.mjs /dd/orchestrate proxy must default to 810000ms (R-F1847 raised it from 600000 — deep DD legitimately runs ~10-15min)',
   );
 });
 
