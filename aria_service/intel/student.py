@@ -1159,6 +1159,40 @@ async def _study_weak_regional_cells(
             _floor = _floor_cells[0]
             if _floor not in _target_cells:
                 _target_cells.append(_floor)
+        # R-F2433 — seed-all-regions bootstrap (flag ARIA_STUDENT_SEED_ALL_REGIONS,
+        # DEFAULT OFF → byte-identical to the block above). The loop can otherwise
+        # only REINFORCE cells already in get_regional_heatmap(), which only lists
+        # cells that already have samples — so a region with 0 samples can never be
+        # bootstrapped (chicken-and-egg; today the store holds only 'balkans'). When
+        # ON, extend the target list with up to ARIA_STUDENT_SEED_BATCH (default 10)
+        # not-yet-existing TOPIC×REGION cells per session so the loop ATTEMPTS to
+        # ground each region. The crediting path below is UNCHANGED — a seeded cell
+        # is credited ONLY if detect_regions confirms real region content (the
+        # R-F1947 gate at `if _stored and _grounded`), so this is NOT metric-gaming;
+        # it only broadens what the loop tries to read. Cost is bounded by the same
+        # per-session Brave budget + the seed batch. Flip ONLY after the R-F2277
+        # persistence fix lands, else credited cells get wiped under write-ceiling.
+        if os.getenv("ARIA_STUDENT_SEED_ALL_REGIONS", "").strip().lower() in ("1", "true", "yes", "on"):
+            try:
+                _seed_batch = max(1, int(os.getenv("ARIA_STUDENT_SEED_BATCH", "10") or "10"))
+            except (TypeError, ValueError):
+                _seed_batch = 10
+            _seen_cells = {(c.get("topic"), c.get("region")) for c in _target_cells}
+            _added = 0
+            for _rg in REGIONS:
+                if _added >= _seed_batch:
+                    break
+                if _rg == "global":
+                    continue
+                for _tp in TOPICS:
+                    if _added >= _seed_batch:
+                        break
+                    if _tp == "general":
+                        continue
+                    if (_tp, _rg) not in _seen_cells:
+                        _target_cells.append({"topic": _tp, "region": _rg, "score": INITIAL_MASTERY})
+                        _seen_cells.add((_tp, _rg))
+                        _added += 1
         # R-F2392 §17/§21: Brave-escalated region sourcing. The R-F1947 stall is
         # that the FREE stack often cannot find region-specific content for a floor
         # cell, so detect_regions never confirms and the cell stays UNCREDITED no
