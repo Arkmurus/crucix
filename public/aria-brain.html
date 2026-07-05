@@ -2175,23 +2175,45 @@ async function loadHallucination() {
   el.innerHTML = html;
 }
 
+// R-F2424 — run loaders in bounded-concurrency batches instead of one big
+// Promise.all. When the primed aggregate is cold (401/anon/error) every loader
+// falls back to a per-path probe; firing all ~21 at once slams the single
+// aria-intel event loop / state_store writer simultaneously and compounds the
+// contention that trips the "DATA UNAVAILABLE" banner. Staggering caps the peak
+// to `size` concurrent requests with a short gap between waves, spreading the
+// load without meaningfully slowing the 5-min refresh. Self-contained
+// (Promise/setTimeout only) so it is unit-testable in isolation.
+async function runStaggered(loaders, size, gapMs) {
+  for (let i = 0; i < loaders.length; i += size) {
+    const batch = loaders.slice(i, i + size);
+    // allSettled: one failing panel must not abort its batch-mates.
+    await Promise.allSettled(batch.map(fn => fn()));
+    if (i + size < loaders.length && gapMs > 0) {
+      await new Promise(res => setTimeout(res, gapMs));
+    }
+  }
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   // R-F2234: prime the one-call aggregate FIRST. fetchJson() then reads panels
   // from it instead of firing ~24 separate requests. On 401/anon/error the
   // cache stays null and the loaders below fall back to per-path probes.
   await _primeDashboard();
-  await Promise.all([
-    loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
-    loadAmendments(), loadBreakers(), loadLayer5c(), loadPredictor(),
-    loadAudit(), loadHeatmap(), loadDLQ(), loadMastery(), loadComposite(),
-    loadCalibration(), loadSurface(), loadLearning(), loadSystemHealth(),
-    loadLlmCost(),
+  // R-F2424 — staggered (peak 3 concurrent, 250ms gap) rather than all-at-once.
+  // Order preserved: fast/critical panels first, heavy ones (coverage heatmap,
+  // learning, hallucination) land in later waves so they don't pile together.
+  await runStaggered([
+    loadHealth, loadMode, loadEngine, loadAdversarial,
+    loadAmendments, loadBreakers, loadLayer5c, loadPredictor,
+    loadAudit, loadHeatmap, loadDLQ, loadMastery, loadComposite,
+    loadCalibration, loadSurface, loadLearning, loadSystemHealth,
+    loadLlmCost,
     // R-F89/F88 panels added 2026-05-09
-    loadCoverageHeatmap(), loadFreshness(),
+    loadCoverageHeatmap, loadFreshness,
     // R-F407 panel added 2026-05-13
-    loadHallucination(),
-  ]);
+    loadHallucination,
+  ], 3, 250);
 }
 
 // Clear any stuck "Loading..." panels after 10 seconds
