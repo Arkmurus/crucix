@@ -1,0 +1,21 @@
+{
+  "ts": "2026-07-05T14:32:39Z",
+  "limit": 150,
+  "commits_seen": 150,
+  "scanned_this_run": 150,
+  "candidates": 89,
+  "verified_this_run": 35,
+  "total_verified_rows": 35,
+  "yield_rate_candidates": 0.3933,
+  "yield_rate_scanned": 0.2333,
+  "multi_file_verified": 9,
+  "drop_reasons": {
+    "no_source_file": 7,
+    "multi_or_zero_r_subject": 34,
+    "too_heavy_to_verify": 16,
+    "fix_error_nonimport": 25,
+    "parent_ambiguous:unresolved_import": 12,
+    "no_test_file": 20,
+    "parent_did_not_fail": 1
+  }
+}

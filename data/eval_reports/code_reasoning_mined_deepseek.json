@@ -1,0 +1,85 @@
+{
+  "model": "deepseek-chat",
+  "target": "https://api.deepseek.com/v1",
+  "tier": "mined_multi_file",
+  "ts": "2026-07-05T14:44:26Z",
+  "n_tasks": 7,
+  "resolved": 4,
+  "resolved_rate": 0.5714,
+  "latency_p50_s": 9.65,
+  "tokens_in": 17098,
+  "tokens_out": 10661,
+  "cost_usd": 0.0163,
+  "results": [
+    {
+      "r_number": "R-F2341",
+      "sha": "0d9574b653972b882d00b7b70a51a2dc250be6b0",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 11.48,
+      "resolved": true,
+      "windows_total": 3,
+      "windows_applied": 3
+    },
+    {
+      "r_number": "R-F2282",
+      "sha": "2126b6f9fdd74f38340501f93bdd561d775780f8",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 11.12,
+      "resolved": true,
+      "windows_total": 3,
+      "windows_applied": 3
+    },
+    {
+      "r_number": "R-F2192",
+      "sha": "3a9abdeae9bbd2572d59565bdc932a072f225852",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 4.74,
+      "resolved": true,
+      "windows_total": 2,
+      "windows_applied": 2
+    },
+    {
+      "r_number": "R-F2331",
+      "sha": "5066555c18c9f67868e95290a5c2574b28f1569b",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 9.65,
+      "resolved": false,
+      "windows_total": 2,
+      "windows_applied": 2
+    },
+    {
+      "r_number": "R-F2300",
+      "sha": "5078887e7fececf0e7eaba2bdaf349b49e8805bf",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 9.18,
+      "resolved": false,
+      "windows_total": 2,
+      "windows_applied": 2
+    },
+    {
+      "r_number": "R-F2167",
+      "sha": "7315cdfb5c1529b03d8171c2fd689820380f4489",
+      "multi_file": true,
+      "n_source": 6,
+      "latency_s": 16.41,
+      "resolved": false,
+      "windows_total": 7,
+      "windows_applied": 7
+    },
+    {
+      "r_number": "R-F2198",
+      "sha": "a37aaaba26ca706c641d4c8f7dc67ac265fa5873",
+      "multi_file": true,
+      "n_source": 2,
+      "latency_s": 8.56,
+      "resolved": true,
+      "windows_total": 3,
+      "windows_applied": 3
+    }
+  ]
+}
