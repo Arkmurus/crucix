@@ -1,22 +1,22 @@
 {
-  "model": "deepseek-chat",
-  "target": "https://api.deepseek.com/v1",
+  "model": "aria-code-sovereign-v0",
+  "target": "https://mygk3en16bctdu-8888.proxy.runpod.net/v1",
   "tier": "mined_multi_file",
-  "ts": "2026-07-05T17:40:33Z",
+  "ts": "2026-07-05T21:05:34Z",
   "n_tasks": 59,
-  "resolved": 21,
-  "resolved_rate": 0.3559,
-  "latency_p50_s": 11.08,
-  "tokens_in": 227695,
-  "tokens_out": 106673,
-  "cost_usd": 0.1788,
+  "resolved": 3,
+  "resolved_rate": 0.0508,
+  "latency_p50_s": 95.41,
+  "tokens_in": 0,
+  "tokens_out": 0,
+  "cost_usd": 0.0,
   "results": [
     {
       "r_number": "R-F1368",
       "sha": "051bcc3c4ee79f8e5a821819723a5b8e0ba07e2c",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 5.91,
+      "latency_s": 51.87,
       "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
@@ -26,7 +26,7 @@
       "sha": "072056f99f1a7cf5bf55184cfe441069c23ac7a2",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 6.54,
+      "latency_s": 50.37,
       "resolved": true,
       "windows_total": 2,
       "windows_applied": 2
@@ -36,7 +36,7 @@
       "sha": "08db5c91eb0e5323559a3f2810f7b20b5b9c2656",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 4.39,
+      "latency_s": 19.37,
       "resolved": false,
       "windows_total": 1,
       "windows_applied": 1
@@ -46,38 +46,38 @@
       "sha": "0952184eeb2f1b7c05fef5ec6abb0bb7900a8fb4",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 19.64,
-      "resolved": true,
+      "latency_s": 104.83,
+      "resolved": false,
       "windows_total": 8,
-      "windows_applied": 8
+      "windows_applied": 0
     },
     {
       "r_number": "R-F569",
       "sha": "0a2b868ae3a80875a61ad44e5d628cc6b1bfc7b8",
       "multi_file": true,
       "n_source": 6,
-      "latency_s": 19.15,
+      "latency_s": 109.31,
       "resolved": false,
       "windows_total": 8,
-      "windows_applied": 8
+      "windows_applied": 5
     },
     {
       "r_number": "R-F1812",
       "sha": "0bee716191ac893c49ec4ff8841b98e1430bab1d",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 20.74,
-      "resolved": true,
+      "latency_s": 97.68,
+      "resolved": false,
       "windows_total": 6,
-      "windows_applied": 6
+      "windows_applied": 4
     },
     {
       "r_number": "R-F2089",
       "sha": "0d17aadb60ef0b4a3dbf516a3ad930e9f38fa595",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 5.22,
-      "resolved": true,
+      "latency_s": 37.93,
+      "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
     },
@@ -86,7 +86,7 @@
       "sha": "0d5e31833798c1f45661ae1eb5a044aba85fa816",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 13.16,
+      "latency_s": 59.81,
       "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
@@ -96,8 +96,8 @@
       "sha": "0d9574b653972b882d00b7b70a51a2dc250be6b0",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.83,
-      "resolved": true,
+      "latency_s": 78.69,
+      "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
     },
@@ -106,28 +106,28 @@
       "sha": "0df769ff5e16ecbe36e80a9cb51aa89e49054241",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 16.21,
-      "resolved": true,
+      "latency_s": 100.1,
+      "resolved": false,
       "windows_total": 8,
-      "windows_applied": 8
+      "windows_applied": 6
     },
     {
       "r_number": "R-F415",
       "sha": "0e95a3e1a51173cf4d31219ec221088e038fcc2e",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 3.96,
+      "latency_s": 99.37,
       "resolved": false,
       "windows_total": 1,
-      "windows_applied": 1
+      "windows_applied": 0
     },
     {
       "r_number": "R-F393",
       "sha": "12b0b19c51d32931866ce7c5b76fc8ec7117f24f",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 9.02,
-      "resolved": true,
+      "latency_s": 55.65,
+      "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
     },
@@ -136,8 +136,8 @@
       "sha": "1f383a0fdca92283a1874cb68ca6f58c927cce60",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 7.27,
-      "resolved": true,
+      "latency_s": 46.86,
+      "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
     },
@@ -146,18 +146,18 @@
       "sha": "2126b6f9fdd74f38340501f93bdd561d775780f8",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 11.08,
+      "latency_s": 93.64,
       "resolved": false,
       "windows_total": 3,
-      "windows_applied": 3
+      "windows_applied": 2
     },
     {
       "r_number": "R-F859",
       "sha": "24a6e0b4b465a8ddd0c56b88ab5eba406e8244eb",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 10.11,
-      "resolved": true,
+      "latency_s": 39.82,
+      "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
     },
@@ -166,37 +166,37 @@
       "sha": "2dcd4717f86d85d3a2555b39ec1b0f33c8e947b2",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 17.31,
+      "latency_s": 100.07,
       "resolved": false,
       "windows_total": 6,
-      "windows_applied": 6
+      "windows_applied": 3
     },
     {
       "r_number": "R-F1437",
       "sha": "32f72a3996e137f373999e87a82c0717b1a81327",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 9.95,
+      "latency_s": 96.62,
       "resolved": true,
       "windows_total": 2,
-      "windows_applied": 2
+      "windows_applied": 1
     },
     {
       "r_number": "R-F529",
       "sha": "33cb4a31a834be6193c8c29a72e5f6bafa505693",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 7.61,
+      "latency_s": 95.12,
       "resolved": false,
       "windows_total": 3,
-      "windows_applied": 3
+      "windows_applied": 2
     },
     {
       "r_number": "R-F1462",
       "sha": "37b058b0541a471b268bef1834dc45cbcc20acf8",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 13.61,
+      "latency_s": 98.32,
       "resolved": false,
       "windows_total": 0,
       "windows_applied": 0
@@ -206,28 +206,28 @@
       "sha": "37f5cf28796d5f91ce080b0980c60e9ebba0aa5e",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 16.41,
+      "latency_s": 101.04,
       "resolved": false,
       "windows_total": 5,
-      "windows_applied": 5
+      "windows_applied": 3
     },
     {
       "r_number": "R-F1702",
       "sha": "38730444b43ba75b27db33a8d449377e9fa1634d",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.15,
+      "latency_s": 102.13,
       "resolved": false,
       "windows_total": 4,
-      "windows_applied": 4
+      "windows_applied": 3
     },
     {
       "r_number": "R-F2192",
       "sha": "3a9abdeae9bbd2572d59565bdc932a072f225852",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 4.93,
-      "resolved": true,
+      "latency_s": 30.57,
+      "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
     },
@@ -236,8 +236,8 @@
       "sha": "3dbd4700191e5ccf459dde40dbea10035b50bb38",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 11.74,
-      "resolved": true,
+      "latency_s": 86.03,
+      "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
     },
@@ -246,27 +246,27 @@
       "sha": "4068554121d47dfbeb714abe72edc14e4d4d2cd3",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 10.61,
+      "latency_s": 94.11,
       "resolved": false,
       "windows_total": 4,
-      "windows_applied": 4
+      "windows_applied": 1
     },
     {
       "r_number": "R-F1420",
       "sha": "41f6731513b15e277373d08e661fd406e4441142",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 8.6,
-      "resolved": true,
+      "latency_s": 91.82,
+      "resolved": false,
       "windows_total": 4,
-      "windows_applied": 4
+      "windows_applied": 3
     },
     {
       "r_number": "R-F826",
       "sha": "4810db21398cefb66e674d389624b56f88bdd5b2",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.79,
+      "latency_s": 81.81,
       "resolved": false,
       "windows_total": 4,
       "windows_applied": 4
@@ -276,7 +276,7 @@
       "sha": "49afcf510b27380c7c9849562059435203529dc9",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 4.1,
+      "latency_s": 22.49,
       "resolved": false,
       "windows_total": 1,
       "windows_applied": 1
@@ -286,7 +286,7 @@
       "sha": "4ad1d21663a0933a6c2074813712de1e0eae7d88",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 2.46,
+      "latency_s": 18.91,
       "resolved": false,
       "windows_total": 1,
       "windows_applied": 1
@@ -296,57 +296,57 @@
       "sha": "4b5019e44232f2dae93f33769ee3dc9e569b85bb",
       "multi_file": true,
       "n_source": 4,
-      "latency_s": 12.46,
+      "latency_s": 95.41,
       "resolved": false,
       "windows_total": 7,
-      "windows_applied": 7
+      "windows_applied": 6
     },
     {
       "r_number": "R-F934",
       "sha": "4b81b5f73fe40971d426a38b91cf03cc938447d6",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 26.82,
+      "latency_s": 92.6,
       "resolved": false,
       "windows_total": 4,
-      "windows_applied": 2
+      "windows_applied": 3
     },
     {
       "r_number": "R-F440",
       "sha": "4bd2e4bfa9bf91c4fcca408ee526f85b13d0661b",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 4.07,
+      "latency_s": 105.35,
       "resolved": false,
       "windows_total": 3,
-      "windows_applied": 3
+      "windows_applied": 2
     },
     {
       "r_number": "R-F526",
       "sha": "4cbe22626b2d15b4fba96f8a400284cdb5c40719",
       "multi_file": true,
       "n_source": 7,
-      "latency_s": 3.07,
+      "latency_s": 100.1,
       "resolved": false,
       "windows_total": 1,
-      "windows_applied": 1
+      "windows_applied": 0
     },
     {
       "r_number": "R-F2020",
       "sha": "4da5aa713c34290658d16b23ec1595a34995bfd6",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 18.46,
+      "latency_s": 100.93,
       "resolved": false,
       "windows_total": 6,
-      "windows_applied": 6
+      "windows_applied": 1
     },
     {
       "r_number": "R-F1468",
       "sha": "4e3d75013a06a772b4d293290f01b5c0190d8e19",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 8.37,
+      "latency_s": 69.49,
       "resolved": true,
       "windows_total": 4,
       "windows_applied": 4
@@ -356,17 +356,17 @@
       "sha": "5066555c18c9f67868e95290a5c2574b28f1569b",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 9.88,
+      "latency_s": 99.72,
       "resolved": false,
       "windows_total": 2,
-      "windows_applied": 2
+      "windows_applied": 0
     },
     {
       "r_number": "R-F2300",
       "sha": "5078887e7fececf0e7eaba2bdaf349b49e8805bf",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 7.93,
+      "latency_s": 47.02,
       "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
@@ -376,18 +376,18 @@
       "sha": "50cee2c233647108337f89b9ec1a88e95e268360",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.8,
-      "resolved": true,
+      "latency_s": 99.17,
+      "resolved": false,
       "windows_total": 6,
-      "windows_applied": 6
+      "windows_applied": 5
     },
     {
       "r_number": "R-F2056",
       "sha": "59cd166b222792973324ad72674af9443da754b2",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 7.7,
-      "resolved": true,
+      "latency_s": 49.27,
+      "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
     },
@@ -396,58 +396,58 @@
       "sha": "5bebc4d26a76d6fed9fafd57b8cf872bf4a11ee3",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.38,
+      "latency_s": 100.86,
       "resolved": false,
       "windows_total": 4,
-      "windows_applied": 4
+      "windows_applied": 1
     },
     {
       "r_number": "R-F1319",
       "sha": "5db325f6b69b69164d5349d7f73f312bb8f17801",
       "multi_file": true,
       "n_source": 25,
-      "latency_s": 22.03,
+      "latency_s": 108.26,
       "resolved": false,
       "windows_total": 25,
-      "windows_applied": 18
+      "windows_applied": 9
     },
     {
       "r_number": "R-F901",
       "sha": "6504cbd85cb8844f49b1443014f58152015f6ecf",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 13.74,
+      "latency_s": 105.38,
       "resolved": false,
       "windows_total": 4,
-      "windows_applied": 4
+      "windows_applied": 1
     },
     {
       "r_number": "R-F1920",
       "sha": "6d87d421d369301c2374a884fbab3cfc68256fa3",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 6.75,
+      "latency_s": 100.39,
       "resolved": false,
       "windows_total": 2,
-      "windows_applied": 2
+      "windows_applied": 1
     },
     {
       "r_number": "R-F2167",
       "sha": "7315cdfb5c1529b03d8171c2fd689820380f4489",
       "multi_file": true,
       "n_source": 6,
-      "latency_s": 16.95,
+      "latency_s": 103.33,
       "resolved": false,
       "windows_total": 7,
-      "windows_applied": 7
+      "windows_applied": 6
     },
     {
       "r_number": "R-F771",
       "sha": "74b813d637fab495b08ed6c5dda998cd5ebc9a5e",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 9.18,
-      "resolved": true,
+      "latency_s": 68.01,
+      "resolved": false,
       "windows_total": 4,
       "windows_applied": 4
     },
@@ -456,8 +456,8 @@
       "sha": "74dd57ed60fc2087a4f660348ddacdd3e7ce0440",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 16.35,
-      "resolved": true,
+      "latency_s": 109.61,
+      "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
     },
@@ -466,7 +466,7 @@
       "sha": "75b0b7f0356043c78e8fbff0c1d37b5c99d3d1b8",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 5.69,
+      "latency_s": 80.03,
       "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
@@ -476,7 +476,7 @@
       "sha": "78a7b951fc43025baa4b690a44ce347654134bae",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 15.33,
+      "latency_s": 100.26,
       "resolved": false,
       "windows_total": 4,
       "windows_applied": 4
@@ -486,8 +486,8 @@
       "sha": "7b1bae70fc2656d81ed5bb2c9aef996856002313",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 11.3,
-      "resolved": true,
+      "latency_s": 76.62,
+      "resolved": false,
       "windows_total": 5,
       "windows_applied": 5
     },
@@ -496,7 +496,7 @@
       "sha": "7d8fdb6ca267d35f00214e253e390c9f8c7a9887",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 6.11,
+      "latency_s": 44.89,
       "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
@@ -506,18 +506,18 @@
       "sha": "7dc3258c997d9fd1a5d23c4bd93a6fa63904bc86",
       "multi_file": true,
       "n_source": 9,
-      "latency_s": 22.7,
+      "latency_s": 113.83,
       "resolved": false,
       "windows_total": 51,
-      "windows_applied": 12
+      "windows_applied": 0
     },
     {
       "r_number": "R-F1213",
       "sha": "85d8db89e51a66d200842fa4fcfca1964fe1d47c",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 12.57,
-      "resolved": true,
+      "latency_s": 98.72,
+      "resolved": false,
       "windows_total": 4,
       "windows_applied": 4
     },
@@ -526,27 +526,27 @@
       "sha": "956c7f01247f88777aad81a25b270d0246a2e8fa",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 11.89,
+      "latency_s": 100.73,
       "resolved": false,
       "windows_total": 3,
-      "windows_applied": 3
+      "windows_applied": 0
     },
     {
       "r_number": "R-F1807",
       "sha": "967d5af778410dee07aeb2c5335c611fdfa31369",
       "multi_file": true,
       "n_source": 6,
-      "latency_s": 22.44,
+      "latency_s": 115.32,
       "resolved": false,
       "windows_total": 40,
-      "windows_applied": 14
+      "windows_applied": 0
     },
     {
       "r_number": "R-F1312",
       "sha": "96f8587f90268ee7785f2a70662fa953d8c37d00",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 4.92,
+      "latency_s": 40.91,
       "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
@@ -556,7 +556,7 @@
       "sha": "9acbdd7d242f2a8ea535d49ad6d36b1eaf42a596",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 10.66,
+      "latency_s": 88.66,
       "resolved": false,
       "windows_total": 3,
       "windows_applied": 3
@@ -566,7 +566,7 @@
       "sha": "9dc65e02b7315bca519b609d3b9a289262cc9df2",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 10.13,
+      "latency_s": 98.95,
       "resolved": false,
       "windows_total": 4,
       "windows_applied": 4
@@ -576,18 +576,18 @@
       "sha": "9eca98766156a4258d7b7a75bbfa1aa1968e85be",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 21.56,
+      "latency_s": 101.37,
       "resolved": false,
       "windows_total": 8,
-      "windows_applied": 8
+      "windows_applied": 3
     },
     {
       "r_number": "R-F1882",
       "sha": "9ff412f710c6517cb47d4b6dbeba8122ce90cfe4",
       "multi_file": true,
       "n_source": 2,
-      "latency_s": 5.75,
-      "resolved": true,
+      "latency_s": 35.59,
+      "resolved": false,
       "windows_total": 2,
       "windows_applied": 2
     },
@@ -596,10 +596,10 @@
       "sha": "a124e31046e92af3532d430c2c9382ef39e13a1c",
       "multi_file": true,
       "n_source": 3,
-      "latency_s": 15.48,
+      "latency_s": 99.02,
       "resolved": false,
       "windows_total": 3,
-      "windows_applied": 3
+      "windows_applied": 1
     }
   ]
 }
