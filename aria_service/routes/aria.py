@@ -24343,31 +24343,87 @@ async def sources_uptime_unsuspend_ep(request: Request):
 
 # ── Self-diagnostic (2026-04-18) ────────────────────────────────────────
 
+# R-F2423 — single-flight background regen for the self-diagnostic cache.
+# diagnostic/details must NEVER run the ~30s run_diagnostic() inline: its
+# per-module checks do _check_smoke(wait_for 30s) + a self-referential
+# _check_endpoint(httpx 15s), gathered → total latency ≈ the slowest module
+# (~30s) → far past fly's 8s proxy timeout → the command-centre
+# "DATA UNAVAILABLE" banner. The endpoint now always serves the cache and
+# refreshes it off the request path, single-flight so concurrent stale reads
+# never pile up multiple 30s runs.
+_diag_regen_lock = asyncio.Lock()
+
+
+async def _regen_self_diagnostic_bg() -> None:
+    """Fire-and-forget refresh of crucix:self_diagnostic:latest. Single-flight:
+    if a regen is already running, do nothing."""
+    if _diag_regen_lock.locked():
+        return
+    async with _diag_regen_lock:
+        try:
+            from ..intel import self_diagnostic as _sd
+            await _sd.run_diagnostic()  # writes the cache (self_diagnostic.py)
+        except Exception:
+            pass
+
+
 @router.get("/diagnostic/details")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def diagnostic_details_ep():
     """Full self-diagnostic report — per-module checks with notes.
-    Auth required. Dashboard uses this to render the traffic-light
-    grid. Regenerated every 15 minutes by SELF-DIAGNOSTIC-15MIN."""
+    Auth required. Dashboard uses this to render the traffic-light grid.
+
+    R-F2423: NEVER runs run_diagnostic() inline (~30s → >8s fly-proxy timeout
+    → command-centre DATA-UNAVAILABLE banner). Always serves the cached report
+    (regenerated every 15 min by SELF-DIAGNOSTIC-15MIN), flags staleness, and
+    kicks a single-flight background refresh when stale. The cache read is
+    time-bounded so even a saturated state_store (R-F2277) cannot make this
+    endpoint hang."""
     try:
-        from ..intel import self_diagnostic as _sd
-        # Serve cached result if recent, else re-run
+        from ..intel import redis_store as rs
+        latest = None
         try:
-            from ..intel import redis_store as rs
-            latest = await rs.get_json("crucix:self_diagnostic:latest")
-            if latest:
-                import time as _t
-                from datetime import datetime as _dt
-                gen_at = latest.get("generated_at")
-                if gen_at:
-                    age_s = _t.time() - _dt.fromisoformat(gen_at.replace("Z", "+00:00")).timestamp()
-                    if age_s < 120:
-                        latest["_from_cache"] = True
-                        latest["_cache_age_s"] = int(age_s)
-                        return latest
+            latest = await asyncio.wait_for(
+                rs.get_json("crucix:self_diagnostic:latest"), timeout=5.0
+            )
         except Exception:
-            pass
-        return await _sd.run_diagnostic()
+            latest = None
+
+        if latest:
+            import time as _t
+            from datetime import datetime as _dt
+            age_s = None
+            gen_at = latest.get("generated_at")
+            if gen_at:
+                try:
+                    age_s = _t.time() - _dt.fromisoformat(gen_at.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    age_s = None
+            # Stale threshold aligns with the 15-min SELF-DIAGNOSTIC-15MIN
+            # regen cadence (+ margin): the endpoint's background refresh is a
+            # SAFETY NET that only fires when the primary 15-min task has
+            # genuinely missed a cycle (~>20 min), not on every request — so it
+            # never piles redundant 30s self-checks onto an already-contended
+            # brain (R-F2277). Under healthy operation the cache is <=15 min old.
+            _STALE_S = 1200
+            latest["_from_cache"] = True
+            if age_s is not None:
+                latest["_cache_age_s"] = int(age_s)
+                latest["_stale"] = age_s >= _STALE_S
+                if age_s >= _STALE_S:
+                    asyncio.create_task(_regen_self_diagnostic_bg())
+            return latest
+
+        # No cache yet (fresh boot before the 15-min task ran, or the read timed
+        # out under load): never block on the ~30s run — placeholder + bg refresh.
+        asyncio.create_task(_regen_self_diagnostic_bg())
+        return {
+            "ok": True,
+            "_regenerating": True,
+            "modules": [],
+            "modules_checked": 0,
+            "note": "Self-diagnostic is regenerating — check back in ~30s.",
+        }
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
