@@ -25116,12 +25116,21 @@ async def stream_guards_stats_ep():
 #
 # Single endpoint so the dashboard panel can render both side-by-side
 # without two roundtrips.
-@router.get("/hallucination/stats")
-@fail_wire(module="aria", gap_type="engine_failure")
-async def hallucination_stats_ep():
-    """R-F407: combined hallucination + guard violation stats for the
-    operator dashboard. Reads from self_claim_guard (R-F401, post-
-    response) + stream_guard_observer (existing 5 output guards)."""
+# R-F2438 — hallucination/stats reads self_claim_guard + stream_guard_observer
+# stats, which SCAN state_store ledgers; under R-F2277 writer contention this
+# climbs to ~5s and crosses the 8s fly-proxy → command-centre DATA-UNAVAILABLE.
+# Serve the REAL last-computed stats from a short in-process cache with HONEST
+# staleness flags (_cache_age_s/_stale) + a single-flight background refresh, and
+# bound the cold compute — so the endpoint is always fast AND always returns REAL
+# (age-flagged) data, never fabricated. Bonus: fewer ledger scans = less
+# state_store read load, which itself eases the R-F2277 contention.
+_hall_cache: "tuple[float, dict] | None" = None
+_hall_lock = asyncio.Lock()
+_HALL_TTL_S = 60
+
+
+async def _compute_hallucination_stats() -> dict:
+    """The real computation — combined hallucination + guard-violation stats."""
     from ..intel import self_claim_guard as scg
     from ..intel import stream_guard_observer as sgo
     try:
@@ -25133,7 +25142,6 @@ async def hallucination_stats_ep():
     except Exception as e:
         sgo_stats = {"error": f"stream_guard_observer get_stats failed: {str(e)[:120]}"}
 
-    # Top-line summary the panel renders without drilling down.
     sc_24h = scg_stats.get("violations_24h_total", 0) if isinstance(scg_stats, dict) else 0
     sg_24h = sgo_stats.get("violations_24h_total", 0) if isinstance(sgo_stats, dict) else 0
     sc_turns = scg_stats.get("turns_observed_24h", 0) if isinstance(scg_stats, dict) else 0
@@ -25153,6 +25161,56 @@ async def hallucination_stats_ep():
         "stream_guards": sgo_stats,     # 5 output guards (observation-only)
         "_schema_version": "rf407.v1",
     }
+
+
+async def _refresh_hallucination_cache() -> None:
+    """Single-flight background refresh of _hall_cache. Never raises."""
+    global _hall_cache
+    if _hall_lock.locked():
+        return
+    async with _hall_lock:
+        try:
+            import time as _t
+            _hall_cache = (_t.time(), await _compute_hallucination_stats())
+        except Exception:
+            pass
+
+
+@router.get("/hallucination/stats")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def hallucination_stats_ep():
+    """R-F407: combined hallucination + guard-violation stats for the operator
+    dashboard. R-F2438: served from a 60s in-process cache (REAL data, honest
+    staleness flags) + single-flight background refresh + a bounded cold compute,
+    so state_store contention (R-F2277) can never push it past the 8s proxy."""
+    global _hall_cache
+    import time as _t
+    now = _t.time()
+    if _hall_cache is not None:
+        ts, result = _hall_cache
+        age = now - ts
+        out = dict(result)
+        out["_from_cache"] = True
+        out["_cache_age_s"] = int(age)
+        if age >= _HALL_TTL_S:
+            out["_stale"] = True
+            asyncio.create_task(_refresh_hallucination_cache())  # refresh for next caller
+        return out
+    # Cold cache: compute once, BOUNDED so it can never hang the proxy, then cache.
+    try:
+        result = await asyncio.wait_for(_compute_hallucination_stats(), timeout=7.0)
+        _hall_cache = (now, result)
+        return result
+    except (asyncio.TimeoutError, Exception):
+        asyncio.create_task(_refresh_hallucination_cache())
+        return {
+            "summary": {},
+            "self_claim_guard": {},
+            "stream_guards": {},
+            "_schema_version": "rf407.v1",
+            "_regenerating": True,
+            "note": "guard stats computing under load — check back shortly",
+        }
 
 
 # ── Composite Autonomy Scorer (Week 4) ───────────────────────────────────
