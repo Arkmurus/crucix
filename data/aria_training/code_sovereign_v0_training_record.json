@@ -1,0 +1,59 @@
+{
+  "record": "code_sovereign_v0 — first measured SFT cycle (paused, resume later)",
+  "date": "2026-07-05",
+  "status": "COMPLETE / NO-GO — DeepSeek stays on the coder path (R-F1366). Sovereign NOT activated.",
+  "r_numbers": {
+    "R-F2431": "code-reasoning eval harness (synthetic floor) + DeepSeek baseline (16/16 saturates)",
+    "R-F2434": "git-history fix miner (verified fail->pass) + mined multi-file eval tier",
+    "R-F2440": "code-SFT corpus builder + §24 pre-flight + Qwen-coder config + launch gate + autonomous prep",
+    "R-F2442": "RunPod pod-lifecycle de-risk (create/verify/terminate) — PASS",
+    "R-F2443": "on-pod SSH exec + sft_train adapter-emit de-risk — PASS ($0.02)",
+    "R-F2444": "real SFT+eval cycle runner (Qwen2.5-Coder-7B LoRA)"
+  },
+  "corpus": {
+    "verified_fixes_mined": 296,
+    "source": "git history ~1434 R-F commits touching aria_service (~20.6% verified yield)",
+    "method": "SWE-bench-style: parent(buggy)->test FAIL, fix->test PASS, in out-of-repo sandbox w/ bounded dep-closure",
+    "sft_train_pairs": 212,
+    "eval_tier_rows": 59,
+    "train_eval_disjoint": true,
+    "format": "oracle-localized edit windows (### WINDOW -> ### FIXED); train==eval task-parity",
+    "ceiling_note": "git-history method EXHAUSTED at 296 verified; claude_teacher corpus still ~empty"
+  },
+  "training_config": {
+    "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "method": "LoRA SFT (trl==0.12.2, transformers>=4.46)",
+    "lora_rank": 32, "lora_alpha": 64, "epochs": 3, "max_seq_len": 4096, "batch_size": 1,
+    "gpu": "RunPod A40 (~$0.44/hr)", "adapter_size_mb": 323
+  },
+  "result": {
+    "sovereign_resolved_rate": 0.0508,
+    "sovereign_resolved": "3/59",
+    "deepseek_bar": 0.3559,
+    "deepseek_resolved": "21/59",
+    "beats_bar": false,
+    "verdict": "NO-GO — 5.1% vs 35.6%. Data is the bottleneck; 212 pairs insufficient for a 7B on this task."
+  },
+  "cost": {"this_cycle_usd": 0.832, "total_session_usd_approx": 1.18},
+  "activation_gate": "sovereign resolved_rate on the frozen 59-row eval tier must be >= 0.356 (beat DeepSeek) before flipping ARIA_LLM_URL for the coder path.",
+  "harness_bugs_fixed_during_run": [
+    "Windows cp1252 decode crash reading pod SSH output -> encoding='utf-8', errors='replace'",
+    "long blocking SSH hangs after training -> run SFT detached (nohup) + poll",
+    "serving shim missing uvicorn/fastapi -> install serve deps up front (terminate had destroyed adapter)"
+  ],
+  "resume_next_time_levers": [
+    "MORE DATA (primary): git mine exhausted; grow via claude_teacher corpus accumulation or careful synthetic augmentation",
+    "BIGGER BASE: Qwen2.5-Coder-14B/32B (budget lever)",
+    "DPO on the resolved/unresolved verifiable signal atop SFT",
+    "DIAGNOSE the 5%: inspect code_reasoning_mined_sovereign_v0.json per-task (malformed edits vs wrong logic)"
+  ],
+  "saved_artifacts": {
+    "verified_corpus": "data/training/mined_code_fixes_verified.jsonl",
+    "sft_corpus": "data/training/code_sft_v1.jsonl",
+    "eval_tier": "data/eval/mined_code_eval_tier.jsonl",
+    "deepseek_bar_report": "data/eval_reports/code_reasoning_mined_deepseek.json",
+    "sovereign_report": "data/eval_reports/code_reasoning_mined_sovereign_v0.json",
+    "cycle_status": "data/eval_reports/code_sovereign_cycle_status.json",
+    "one_command_relaunch": "bash scripts/train/launch_code_cycle.sh (gates on SFT-READY) / python scripts/train/run_code_sovereign_cycle.py"
+  }
+}
