@@ -1,0 +1,321 @@
+{
+  "model": "deepseek-chat",
+  "target": "https://api.deepseek.com/v1",
+  "ts": "2026-07-05T13:33:43Z",
+  "n_tasks": 16,
+  "n_scored": 16,
+  "n_invalid": 0,
+  "resolved_rate": 1.0,
+  "compile_rate": 1.0,
+  "resolved": 16,
+  "compiled": 16,
+  "by_bug_class": {
+    "algorithm/boundary": {
+      "resolved": 1,
+      "total": 1
+    },
+    "algorithm/median": {
+      "resolved": 1,
+      "total": 1
+    },
+    "async/await": {
+      "resolved": 1,
+      "total": 1
+    },
+    "authz/fail-closed": {
+      "resolved": 1,
+      "total": 1
+    },
+    "boundary/clamp": {
+      "resolved": 1,
+      "total": 1
+    },
+    "dedup-guard": {
+      "resolved": 1,
+      "total": 1
+    },
+    "logic/regression-sensitive": {
+      "resolved": 1,
+      "total": 1
+    },
+    "merge/precedence": {
+      "resolved": 1,
+      "total": 1
+    },
+    "missing-import": {
+      "resolved": 1,
+      "total": 1
+    },
+    "mutable-default": {
+      "resolved": 1,
+      "total": 1
+    },
+    "nonetype/guard": {
+      "resolved": 1,
+      "total": 1
+    },
+    "off-by-one": {
+      "resolved": 1,
+      "total": 1
+    },
+    "parser/order": {
+      "resolved": 1,
+      "total": 1
+    },
+    "regex/classifier": {
+      "resolved": 1,
+      "total": 1
+    },
+    "registry/dedup": {
+      "resolved": 1,
+      "total": 1
+    },
+    "type/nested-access": {
+      "resolved": 1,
+      "total": 1
+    }
+  },
+  "by_tier": {
+    "floor": {
+      "resolved": 10,
+      "total": 10,
+      "rate": 1.0
+    },
+    "hard": {
+      "resolved": 6,
+      "total": 6,
+      "rate": 1.0
+    }
+  },
+  "latency_p50_s": 1.69,
+  "latency_p95_s": 2.48,
+  "tokens_in": 4580,
+  "tokens_out": 1172,
+  "cost_usd": 0.0025,
+  "results": [
+    {
+      "id": "cre-001-clamp-upper-bound",
+      "bug_class": "boundary/clamp",
+      "source_r": "R-F1926",
+      "task_invalid": false,
+      "parsed_files": [
+        "canary.py"
+      ],
+      "latency_s": 3.66,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-002-none-guard-crash",
+      "bug_class": "nonetype/guard",
+      "source_r": "R-F(coder-gold)",
+      "task_invalid": false,
+      "parsed_files": [
+        "scoring.py"
+      ],
+      "latency_s": 2.48,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-003-missing-import",
+      "bug_class": "missing-import",
+      "source_r": "R-F1464",
+      "task_invalid": false,
+      "parsed_files": [
+        "judge.py"
+      ],
+      "latency_s": 1.62,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-004-off-by-one-window",
+      "bug_class": "off-by-one",
+      "source_r": "R-F190",
+      "task_invalid": false,
+      "parsed_files": [
+        "window.py"
+      ],
+      "latency_s": 1.69,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-005-forgot-await",
+      "bug_class": "async/await",
+      "source_r": "R-F(async-misuse)",
+      "task_invalid": false,
+      "parsed_files": [
+        "asum.py"
+      ],
+      "latency_s": 1.94,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-006-nested-dict-access",
+      "bug_class": "type/nested-access",
+      "source_r": "R-F1674",
+      "task_invalid": false,
+      "parsed_files": [
+        "reward.py"
+      ],
+      "latency_s": 1.75,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-007-fail-closed-acl",
+      "bug_class": "authz/fail-closed",
+      "source_r": "R-F2401",
+      "task_invalid": false,
+      "parsed_files": [
+        "acl.py"
+      ],
+      "latency_s": 1.51,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-008-dedup-tool-names",
+      "bug_class": "dedup-guard",
+      "source_r": "R-F2398",
+      "task_invalid": false,
+      "parsed_files": [
+        "tools.py"
+      ],
+      "latency_s": 1.69,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-009-routing-regex-omission",
+      "bug_class": "regex/classifier",
+      "source_r": "R-F(22a doc-review routing)",
+      "task_invalid": false,
+      "parsed_files": [
+        "routing.py"
+      ],
+      "latency_s": 1.64,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "cre-010-duplicate-registration",
+      "bug_class": "registry/dedup",
+      "source_r": "R-F2278",
+      "task_invalid": false,
+      "parsed_files": [
+        "router.py"
+      ],
+      "latency_s": 1.53,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-011-mutable-default-arg",
+      "bug_class": "mutable-default",
+      "source_r": "R-F(state-leak)",
+      "task_invalid": false,
+      "parsed_files": [
+        "collect.py"
+      ],
+      "latency_s": 1.42,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-012-bracket-order",
+      "bug_class": "parser/order",
+      "source_r": "R-F(parser)",
+      "task_invalid": false,
+      "parsed_files": [
+        "brackets.py"
+      ],
+      "latency_s": 1.93,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-013-merge-override",
+      "bug_class": "merge/precedence",
+      "source_r": "R-F(config-merge)",
+      "task_invalid": false,
+      "parsed_files": [
+        "merge.py"
+      ],
+      "latency_s": 1.42,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-014-binary-search-boundary",
+      "bug_class": "algorithm/boundary",
+      "source_r": "R-F(search-boundary)",
+      "task_invalid": false,
+      "parsed_files": [
+        "bsearch.py"
+      ],
+      "latency_s": 1.84,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-015-backoff-cap-preserve",
+      "bug_class": "logic/regression-sensitive",
+      "source_r": "R-F(backoff)",
+      "task_invalid": false,
+      "parsed_files": [
+        "backoff.py"
+      ],
+      "latency_s": 1.47,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    },
+    {
+      "id": "creh-016-median-even",
+      "bug_class": "algorithm/median",
+      "source_r": "R-F(stats-median)",
+      "task_invalid": false,
+      "parsed_files": [
+        "median.py"
+      ],
+      "latency_s": 2.46,
+      "compiles": true,
+      "resolves": true,
+      "no_regression": true,
+      "resolved": true
+    }
+  ]
+}
