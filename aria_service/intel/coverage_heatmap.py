@@ -278,8 +278,27 @@ def _juris_synonyms(jurisdiction: str) -> list[str]:
     return [jurisdiction.lower()]
 
 
+# R-F2439 — domain-token overrides for domains whose snake_case split produces
+# tokens that can never match their real corpus vocabulary. _matches_cell needs
+# ALL tokens present, so "fatf_ml_typologies" → ["fatf","typologies"] demands a
+# fact literally contain the PLURAL "typologies" — even a fact saying "FATF
+# typology" (singular) fails. Override to the substring stem "typolog" (matches
+# typology/typologies) so genuine FATF-typology facts are counted. This is
+# FATF-specific (still requires "fatf" AND a typology stem) — it does NOT loosen
+# the match to count generic money-laundering facts, so it corrects an
+# under-report without inflating the metric.
+_DOMAIN_TOKEN_OVERRIDES: dict[str, list[str]] = {
+    "fatf_ml_typologies": ["fatf", "typolog"],
+}
+
+
 def _domain_tokens(domain: str) -> list[str]:
-    """Split a snake_case domain into significant lowercase tokens."""
+    """Significant lowercase tokens for a domain — an explicit override when the
+    snake_case split (R-F2439) would never match the real vocabulary, else the
+    tokens >= 3 chars from the snake_case name."""
+    override = _DOMAIN_TOKEN_OVERRIDES.get(domain)
+    if override is not None:
+        return override
     return [t for t in domain.lower().split("_") if len(t) >= 3]
 
 
