@@ -308,8 +308,8 @@ class DDVault:
         counts: dict[str, int] = {}
         for tbl in ("dd_cases", "dd_cross_references", "financial_profiles"):
             try:
-                before = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
-                conn.execute(f"DELETE FROM {tbl}")
+                before = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]  # nosec B608 - tbl comes from the fixed table tuple above.
+                conn.execute(f"DELETE FROM {tbl}")  # nosec B608 - tbl comes from the fixed table tuple above.
                 counts[tbl] = int(before)
             except Exception as e:
                 logger.warning("[dd_vault] clear_all(%s) failed: %s", tbl, e)

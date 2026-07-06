@@ -1558,8 +1558,8 @@ async def reconcile_cold(sample_n: int = 50) -> dict:
     mismatches: list[str] = []
     checked = 0
     try:
-        c = await hot.execute(
-            "SELECT key, value FROM state WHERE (" +
+        c = await hot.execute(  # nosec B608 - dynamic clause is generated placeholders for fixed cold-prefix values.
+            "SELECT key, value FROM state WHERE (" +  # nosec B608 - dynamic clause is generated placeholders for fixed prefixes.
             " OR ".join("key GLOB ?" for _ in _COLD_KEY_PREFIXES) +
             ") ORDER BY RANDOM() LIMIT ?",
             (*[p + "*" for p in _COLD_KEY_PREFIXES], int(sample_n)))
@@ -2260,8 +2260,8 @@ async def ltrim(key: str, start: int, stop: int) -> None:
         delete = [s for s in seqs if s not in keep]
         if delete:
             placeholders = ",".join("?" for _ in delete)
-            await _conn.execute(
-                f"DELETE FROM list_entries WHERE list_key = ? AND seq IN ({placeholders})",
+            await _conn.execute(  # nosec B608 - placeholders are generated for integer seq values; values stay parameterized.
+                f"DELETE FROM list_entries WHERE list_key = ? AND seq IN ({placeholders})",  # nosec B608 - generated placeholders only; seqs are parameterized.
                 (key, *delete),
             )
             await _conn.commit()

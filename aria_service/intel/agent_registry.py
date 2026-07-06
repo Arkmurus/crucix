@@ -631,8 +631,8 @@ class AgentRegistry:
                 params = [agent_id]
             
             if mark_read:
-                rows = conn.execute(
-                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "
+                rows = conn.execute(  # nosec B608 - where_clause is one of two fixed literals above; values stay parameterized.
+                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "  # nosec B608 - where_clause is one of two fixed literals above.
                     f"WHERE {where_clause} AND read_at IS NULL ORDER BY created_at DESC LIMIT ?",
                     params + [limit],
                 ).fetchall()
@@ -640,14 +640,14 @@ class AgentRegistry:
                 ids = [r["id"] for r in rows]
                 if ids:
                     placeholders = ','.join('?' * len(ids))
-                    conn.execute(
-                        f"UPDATE agent_messages SET read_at=? WHERE id IN ({placeholders})",
+                    conn.execute(  # nosec B608 - placeholders are generated from DB row IDs; values stay parameterized.
+                        f"UPDATE agent_messages SET read_at=? WHERE id IN ({placeholders})",  # nosec B608 - generated placeholders only; IDs are parameterized.
                         [time.time()] + ids,
                     )
                     conn.commit()
             else:
-                rows = conn.execute(
-                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "
+                rows = conn.execute(  # nosec B608 - where_clause is one of two fixed literals above; values stay parameterized.
+                    f"SELECT id, from_agent, payload, created_at FROM agent_messages "  # nosec B608 - where_clause is one of two fixed literals above.
                     f"WHERE {where_clause} AND read_at IS NULL ORDER BY created_at DESC LIMIT ?",
                     params + [limit],
                 ).fetchall()

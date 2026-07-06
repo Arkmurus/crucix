@@ -304,28 +304,25 @@ def check_sanctions(
 
     with store.connect() as conn:
         cur = conn.cursor()
-        params = []
-        where = []
-        if sources:
-            placeholders = ",".join(["?"] * len(sources))
-            where.append(f"e.source IN ({placeholders})")
-            params.extend(sources)
-        sql_where = (" AND " + " AND ".join(where)) if where else ""
+        source_filter = set(sources or [])
 
         # First pass — exact normalised-name match on the primary or any alias.
         cur.execute(
-            f"""
+            """
             SELECT e.id, e.source, e.source_uid, e.formatted_name,
                    e.normalised_name, e.entity_type, e.countries,
                    e.addresses, e.aliases, e.programs, e.raw_excerpt
             FROM entries e
             WHERE (e.normalised_name = ? OR e.id IN (
                 SELECT entry_id FROM aliases WHERE normalised = ?
-            )) {sql_where}
+            ))
             """,
-            [q_normalised, q_normalised, *params],
+            [q_normalised, q_normalised],
         )
-        exact_rows = cur.fetchall()
+        exact_rows = [
+            r for r in cur.fetchall()
+            if not source_filter or r[1] in source_filter
+        ]
         seen_ids = {r[0] for r in exact_rows}
 
         # Second pass — token-overlap candidates (cheap pre-filter via
@@ -333,29 +330,28 @@ def check_sanctions(
         # least one shared word in the normalised name; jaccard-score
         # them in Python.
         if q_entity_tokens:
-            placeholders = ",".join(["?"] * len(q_entity_tokens))
-            cur.execute(
-                f"""
+            for token in q_entity_tokens:
+                cur.execute(
+                    """
                 SELECT e.id, e.source, e.source_uid, e.formatted_name,
                        e.normalised_name, e.entity_type, e.countries,
                        e.addresses, e.aliases, e.programs, e.raw_excerpt
                 FROM entries e
                 WHERE e.id IN (
                     SELECT entry_id FROM aliases
-                    WHERE normalised LIKE ? {''.join([' OR normalised LIKE ?'] * (len(q_entity_tokens) - 1))}
-                ) {sql_where}
+                    WHERE normalised LIKE ?
+                )
                 LIMIT 500
-                """,
-                [
-                    *[f"%{t}%" for t in q_entity_tokens],
-                    *params,
-                ],
-            )
-            for r in cur.fetchall():
-                if r[0] in seen_ids:
-                    continue
-                seen_ids.add(r[0])
-                exact_rows.append(r)
+                    """,
+                    [f"%{token}%"],
+                )
+                for r in cur.fetchall():
+                    if r[0] in seen_ids:
+                        continue
+                    if source_filter and r[1] not in source_filter:
+                        continue
+                    seen_ids.add(r[0])
+                    exact_rows.append(r)
 
         for row in exact_rows:
             (entry_id, src, source_uid, formatted, norm, entity_type,

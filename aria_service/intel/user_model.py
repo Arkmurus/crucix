@@ -222,6 +222,12 @@ async def upsert_user(
             await conn.commit()
             return True
         # Update only provided fields
+        update_columns = {
+            "display_name": "display_name = ?",
+            "role": "role = ?",
+            "preferred_channel": "preferred_channel = ?",
+            "tone_preference": "tone_preference = ?",
+        }
         sets: list[str] = []
         vals: list[Any] = []
         for col, val in (
@@ -231,7 +237,7 @@ async def upsert_user(
             ("tone_preference", tone_preference),
         ):
             if val is not None:
-                sets.append(f"{col} = ?")
+                sets.append(update_columns[col])
                 vals.append(val)
         if max_initiative is not None:
             sets.append("max_initiative = ?")
@@ -241,8 +247,8 @@ async def upsert_user(
         sets.append("updated_at = ?")
         vals.append(now)
         vals.append(user_id)
-        await conn.execute(
-            f"UPDATE user_model SET {', '.join(sets)} WHERE user_id = ?",
+        await conn.execute(  # nosec B608 - SET fragments are fixed allowlist literals above.
+            f"UPDATE user_model SET {', '.join(sets)} WHERE user_id = ?",  # nosec B608 - SET fragments are fixed allowlist literals.
             tuple(vals),
         )
         await conn.commit()
@@ -302,10 +308,29 @@ async def _append_to_json_list(
         return False
     now = time.time()
     try:
-        cur = await conn.execute(
-            f"SELECT {column} FROM user_model WHERE user_id = ?",
-            (user_id,),
-        )
+        if column == "domain_strengths":
+            cur = await conn.execute(
+                "SELECT domain_strengths FROM user_model WHERE user_id = ?",
+                (user_id,),
+            )
+        elif column == "active_deals":
+            cur = await conn.execute(
+                "SELECT active_deals FROM user_model WHERE user_id = ?",
+                (user_id,),
+            )
+        elif column == "failure_log":
+            cur = await conn.execute(
+                "SELECT failure_log FROM user_model WHERE user_id = ?",
+                (user_id,),
+            )
+        elif column == "recency_window":
+            cur = await conn.execute(
+                "SELECT recency_window FROM user_model WHERE user_id = ?",
+                (user_id,),
+            )
+        else:
+            logger.warning("append %s for %s: rejected unknown column", column, user_id)
+            return False
         row = await cur.fetchone()
         await cur.close()
         if row is None:
@@ -322,11 +347,26 @@ async def _append_to_json_list(
         # Cap to most-recent N
         if len(current) > max_len:
             current = current[-max_len:]
-        await conn.execute(
-            f"UPDATE user_model SET {column} = ?, updated_at = ? "
-            f"WHERE user_id = ?",
-            (json.dumps(current), now, user_id),
-        )
+        if column == "domain_strengths":
+            await conn.execute(
+                "UPDATE user_model SET domain_strengths = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(current), now, user_id),
+            )
+        elif column == "active_deals":
+            await conn.execute(
+                "UPDATE user_model SET active_deals = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(current), now, user_id),
+            )
+        elif column == "failure_log":
+            await conn.execute(
+                "UPDATE user_model SET failure_log = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(current), now, user_id),
+            )
+        elif column == "recency_window":
+            await conn.execute(
+                "UPDATE user_model SET recency_window = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(current), now, user_id),
+            )
         await conn.commit()
         return True
     except Exception as exc:

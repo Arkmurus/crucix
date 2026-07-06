@@ -308,12 +308,32 @@ class AgentSignupVault:
         if sort_dir not in ("ASC", "DESC"):
             sort_dir = "DESC"
 
+        filter_columns = {
+            "status": "status = ?",
+            "agent_id": "agent_id = ?",
+            "site_type": "site_type = ?",
+        }
+        order_sql = {
+            ("created_at", "ASC"): "created_at ASC",
+            ("created_at", "DESC"): "created_at DESC",
+            ("updated_at", "ASC"): "updated_at ASC",
+            ("updated_at", "DESC"): "updated_at DESC",
+            ("site_name", "ASC"): "site_name ASC",
+            ("site_name", "DESC"): "site_name DESC",
+            ("status", "ASC"): "status ASC",
+            ("status", "DESC"): "status DESC",
+            ("agent_id", "ASC"): "agent_id ASC",
+            ("agent_id", "DESC"): "agent_id DESC",
+            ("last_verified_at", "ASC"): "last_verified_at ASC",
+            ("last_verified_at", "DESC"): "last_verified_at DESC",
+        }[(sort_by, sort_dir)]
+
         where_clauses: list[str] = []
         params: list[Any] = []
 
         for key, value in filters.items():
-            if value is not None and key in ("status", "agent_id", "site_type"):
-                where_clauses.append(f"{key} = ?")
+            if value is not None and key in filter_columns:
+                where_clauses.append(filter_columns[key])
                 params.append(value)
 
         if search:
@@ -322,7 +342,7 @@ class AgentSignupVault:
             params.extend([like, like, like])
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-        query = f"SELECT * FROM signups WHERE {where_sql} ORDER BY {sort_by} {sort_dir} LIMIT ? OFFSET ?"
+        query = f"SELECT * FROM signups WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?"  # nosec B608 - fragments are fixed allowlist literals; values stay parameterized.
         params.extend([limit, offset])
 
         rows = conn.execute(query, params).fetchall()
@@ -466,7 +486,10 @@ class AgentSignupVault:
             params.append(json.dumps(existing_meta))
 
         params.append(site_id)
-        conn.execute(f"UPDATE signups SET {', '.join(updates)} WHERE site_id = ?", params)
+        conn.execute(  # nosec B608 - updates contains only fixed assignment literals appended above.
+            f"UPDATE signups SET {', '.join(updates)} WHERE site_id = ?",  # nosec B608 - updates contains fixed assignment literals only.
+            params,
+        )
         conn.commit()
 
         # Wire to brain
