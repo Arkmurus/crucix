@@ -35,11 +35,11 @@ import logging
 import os
 import re
 import time
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from defusedxml import ElementTree as ET
 import httpx
 
 from . import redis_store as rs

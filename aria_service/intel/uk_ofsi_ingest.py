@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from defusedxml import ElementTree as ET
 from . import redis_store as rs
 
 logger = logging.getLogger("aria.uk_ofsi_ingest")

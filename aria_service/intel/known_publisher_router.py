@@ -166,10 +166,7 @@ async def _arxiv(url: str) -> dict:
 
     # Parse atom XML — lightweight, no need for full bs4
     try:
-        try:
-            from defusedxml import ElementTree as ET  # type: ignore
-        except ImportError:
-            from xml.etree import ElementTree as ET
+        from defusedxml import ElementTree as ET
         root = ET.fromstring(xml)
     except Exception as e:
         out["error"] = f"xml parse: {str(e)[:120]}"

@@ -55,10 +55,7 @@ _CACHE_LOCK = asyncio.Lock()
 
 def _parse_xml(xml_text: str) -> list[dict]:
     try:
-        try:
-            from defusedxml import ElementTree as ET  # type: ignore
-        except ImportError:
-            from xml.etree import ElementTree as ET
+        from defusedxml import ElementTree as ET
         root = ET.fromstring(xml_text)
     except Exception as e:
         logger.warning("[un_sc] XML parse failed: %s", e)

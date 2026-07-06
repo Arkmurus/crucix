@@ -22,10 +22,10 @@ import logging
 import os
 import random
 import time
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from defusedxml import ElementTree as ET
 import httpx
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 

@@ -25,11 +25,11 @@ from .engine_wiring import wire_failure
 
 import logging
 import re
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 
+from defusedxml import ElementTree as ET
 from . import redis_store as rs
 
 logger = logging.getLogger("aria.intel.source_scout")

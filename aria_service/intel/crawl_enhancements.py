@@ -835,10 +835,7 @@ async def fetch_structured_endpoint(url: str, timeout: float = 20.0) -> dict:
 
     elif "xml" in ct or url.lower().endswith(".xml"):
         try:
-            try:
-                from defusedxml import ElementTree as ET
-            except ImportError:
-                from xml.etree import ElementTree as ET
+            from defusedxml import ElementTree as ET
             root = ET.fromstring(text)
             out["kind"] = "xml"
             out["records"] = [{

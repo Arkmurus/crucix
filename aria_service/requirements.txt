@@ -55,6 +55,10 @@ aiosqlite>=0.19.0
 # missing, but lxml is ~10x faster on large pages.
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
+# R-F2370 — hardened XML parsing for RSS/sanctions/source-ingest paths.
+# These parse untrusted remote XML; stdlib ElementTree is vulnerable to
+# entity-expansion attacks. defusedxml is pure-Python and mandatory here.
+defusedxml>=0.7.1
 # R-F2204 — clean main-content extraction (readability-grade) for modern div-based sites;
 # wraps the regex extractor in researcher._extract_structured_html (best-effort, import-guarded).
 trafilatura>=1.8.0
@@ -118,4 +122,3 @@ playwright>=1.40.0
 # it loads from disk offline (HF_HUB_OFFLINE). Flag-gated (ARIA_VOICE_TRANSCRIBE_ENABLED).
 faster-whisper>=1.0.0
 tzdata>=2024.1  # R-F1335: IANA db for zoneinfo Europe/London (no-op where system tzdata exists)
-

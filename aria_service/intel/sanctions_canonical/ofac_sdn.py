@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import logging
 import time
-import xml.etree.ElementTree as ET
 from typing import Iterator
+
+from defusedxml import ElementTree as ET
 
 from . import store
 from .normalise import normalise_name
