@@ -1,0 +1,217 @@
+# ──────────────────────────────────────────────────────────────
+# BULLETPROOF PROSPECTOR CONFIG — ARIA INTELLIGENCE PLATFORM
+# Catches: dead loops, lock contention, import cycles,
+#          silent failures, and unreachable code.
+# ──────────────────────────────────────────────────────────────
+
+strictness: veryhigh
+
+doc-warnings: false
+test-warnings: false
+member-warnings: true
+autodetect: true
+
+max-line-length: 120
+
+# ---- Exclusions ----
+ignore-paths:
+  - .venv
+  - venv
+  - env
+  - .git
+  - __pycache__
+  - build
+  - dist
+  - .pytest_cache
+  - .mypy_cache
+  - .tox
+  - htmlcov
+  - coverage
+  - .idea
+  - .vscode
+  - logs
+  - data
+  - node_modules
+  - aria_cli/__pycache__
+  - aria_service/__pycache__
+  - .aria
+  - sessions
+  - migrations
+
+ignore-patterns:
+  - ^.*/test_.*\.py$
+  - ^.*/conftest\.py$
+  - ^.*/migrations/.*\.py$
+  - ^.*/scripts/.*\.py$
+  - ^.*/setup\.py$
+  - ^.*/__init__\.py$
+
+# =============================================================
+#  1.  PYLINT — Core static analysis (most important)
+# =============================================================
+pylint:
+  run: true
+  options:
+    # ── Complexity Limits ──
+    max-args: 6
+    max-locals: 20
+    max-returns: 6
+    max-branches: 12
+    max-statements: 60
+    max-parents: 7
+    max-attributes: 15
+    min-public-methods: 2
+    max-public-methods: 25
+    max-complexity: 10
+
+    # ── Naming Conventions ──
+    good-names: i,j,k,ex,Run,_,logger,db,app,req,res,url,id,key,msg,cmd,pid,uid
+    const-rgx: "(([A-Z_][A-Z0-9_]*)|(__.*__))$"
+    variable-rgx: "[a-z_][a-z0-9_]{2,30}$"
+    argument-rgx: "[a-z_][a-z0-9_]{2,30}$"
+    class-rgx: "[A-Z_][a-zA-Z0-9]+$"
+    function-rgx: "[a-z_][a-z0-9_]{2,40}$"
+    method-rgx: "[a-z_][a-z0-9_]{2,40}$"
+    attr-rgx: "[a-z_][a-z0-9_]{2,30}$"
+    module-rgx: "(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$"
+
+    # ── Import & Module Settings ──
+    allow-wildcard-with-all: false
+    allow-global-unused-imports: false
+    allow-any-import-level: false
+
+    # ── Output Format ──
+    reports: false
+    score: true
+
+  disable:
+    # ── Disabled for ARIA-specific reasons ──
+    - too-few-public-methods      # Not relevant for data classes
+    - missing-docstring           # We enforce docstrings in PR review
+    - line-too-long               # Handled by max-line-length
+    - too-many-lines              # Not useful for AI code
+    - fixme                       # TODO/FIXME are tracked separately
+    - no-else-return
+    - no-else-raise
+    - no-else-continue
+    - no-else-break
+    - import-outside-toplevel
+    - protected-access            # We use protected methods in RAG
+    - too-many-instance-attributes
+    - too-many-public-methods
+    - missing-function-docstring
+    - missing-class-docstring
+    - missing-module-docstring
+    - duplicate-code              # Too noisy; handled by code review
+    - no-self-use                 # Not relevant for some patterns
+
+  enable:
+    # ── Critical checks for ARIA ──
+    - unused-import               # Catches dead code
+    - unused-argument
+    - wildcard-import
+    - logging-format-interpolation
+    - broad-exception-caught      # Catches vague except clauses
+    - try-except-raise            # Ensures proper exception re-raising
+    - redefined-outer-name        # Catches shadowing issues
+    - redefined-builtin
+    - undefined-loop-variable
+    - unused-variable
+    - unused-argument
+    - unused-import
+    - global-variable-undefined
+    - global-statement
+    - import-error
+    - misplaced-future
+    - return-in-init
+    - property-with-parameters
+    - abstract-method
+    - super-init-not-called
+    - no-member
+    - not-callable
+    - assignment-from-no-return
+    - comparison-of-constants
+    - comparison-with-itself
+    - consider-using-f-string
+    - consider-using-join
+    - consider-using-in
+    - consider-using-set-comprehension
+    - consider-using-dict-comprehension
+    - consider-using-generator
+    - consider-using-with
+    - consider-using-sys-exit
+    - consider-iterating-dictionary
+    - consider-swap-variables
+
+# =============================================================
+#  2.  PYCODESTYLE — Style enforcement (was pep8)
+# =============================================================
+pycodestyle:
+  run: true
+  options:
+    max-line-length: 120
+    ignore:
+      - E402        # Module level import not at top (sometimes needed)
+      - E701        # Multiple statements on one line (colon)
+      - E731        # Lambda assignment
+
+# =============================================================
+#  3.  PyFlakes — Logic errors & unreachable code
+# =============================================================
+pyflakes:
+  run: true
+
+# =============================================================
+#  4.  MCCabe — Cyclomatic complexity
+# =============================================================
+mccabe:
+  run: true
+  options:
+    max-complexity: 10
+
+# =============================================================
+#  5.  Dodgy — Security & dangerous patterns
+# =============================================================
+dodgy:
+  run: true
+  # Scans for: eval, exec, pickle, hardcoded passwords, etc.
+
+# =============================================================
+#  6.  Vulture — Dead code detection
+# =============================================================
+vulture:
+  run: true
+  options:
+    min-confidence: 70
+    exclude:
+      - "**/__init__.py"
+      - "**/conftest.py"
+      - "**/test_*.py"
+
+# =============================================================
+#  7.  MyPy — Type checking
+# =============================================================
+mypy:
+  run: true
+  options:
+    ignore-missing-imports: true
+    follow-imports: silent
+    disallow-untyped-defs: false
+    check-untyped-defs: false
+    show-error-codes: true
+    warn-return-any: true
+    warn-unused-ignores: true
+    warn-redundant-casts: true
+    warn-unreachable: true
+    python-version: "3.13"
+
+# =============================================================
+#  8.  Bandit — Security vulnerability scan
+# =============================================================
+bandit:
+  run: true
+  options:
+    # severity: 0=low, 1=medium, 2=high
+    severity: 0
+    # confidence: 0=low, 1=medium, 2=high
+    confidence: 0
