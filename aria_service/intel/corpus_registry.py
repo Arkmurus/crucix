@@ -28,6 +28,7 @@ Public API
 Source dataclass shape mirrors the YAML entry exactly.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass, field

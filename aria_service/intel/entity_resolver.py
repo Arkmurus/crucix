@@ -30,6 +30,7 @@ has been collected. The chat path treats an empty resolver result as
 no-op (current behaviour).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

@@ -33,6 +33,7 @@ This is intentionally lightweight — no database, no billing system.
 It is a DoS / cost-runaway guardrail, not a commercial metering layer.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

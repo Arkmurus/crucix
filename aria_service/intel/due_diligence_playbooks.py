@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA — Due Diligence Operational Playbooks
 # aria_service/intel/due_diligence_playbooks.py

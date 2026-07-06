@@ -29,6 +29,7 @@ Flow
   – source_verifier counts inline citations against the stored source_url
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import logging

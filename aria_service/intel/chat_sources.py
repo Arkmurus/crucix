@@ -22,6 +22,7 @@ The output is capped at 50 sources per response to keep the
 frontend rail manageable.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import re
 from typing import Any

@@ -22,6 +22,7 @@ user-visible contradiction. Two public functions:
 Both functions are DIAGNOSTIC only — they never mutate state.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

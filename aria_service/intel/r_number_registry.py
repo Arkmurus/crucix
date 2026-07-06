@@ -23,6 +23,7 @@ R-F540: foundational. Every R-number from R-F555 onward must be reserved
 via this module before ship.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

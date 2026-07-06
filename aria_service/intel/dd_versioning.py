@@ -33,6 +33,7 @@ Operator override (split / merge of canonical_entity_id) is deferred to
 R-F575 — uncommon enough not to block ship.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import logging

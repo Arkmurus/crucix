@@ -3,6 +3,7 @@ Training Data Collection — records ARIA interactions for future LLM fine-tunin
 Ported from lib/aria/training_data.mjs.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

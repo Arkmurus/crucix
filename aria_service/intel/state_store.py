@@ -52,6 +52,7 @@ volume. If DLQ writes start dominating CPU, migrate to row-per-entry
 schema in a follow-up.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import builtins

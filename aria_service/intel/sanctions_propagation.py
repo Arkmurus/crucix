@@ -24,6 +24,7 @@ Design:
     We do NOT duplicate that; we wrap and interpret its output.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass, field

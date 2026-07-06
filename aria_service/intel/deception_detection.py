@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA v3.1 — Deception Detection Module
 # aria_service/intel/deception_detection.py

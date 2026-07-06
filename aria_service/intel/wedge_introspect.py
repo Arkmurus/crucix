@@ -25,6 +25,7 @@ what was on-CPU when the loop missed its heartbeat — almost always
 the wedge source.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

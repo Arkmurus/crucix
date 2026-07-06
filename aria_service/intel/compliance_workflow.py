@@ -29,6 +29,7 @@ STORAGE:
   Each case includes full audit trail of state transitions.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

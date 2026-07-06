@@ -6,6 +6,7 @@ a background task so absorb() returns immediately. Imported by brain_hook.py.
 Also provides auto_record_gap_from_text() for R-F1150 structural enforcement.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

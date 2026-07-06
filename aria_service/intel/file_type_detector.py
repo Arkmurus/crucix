@@ -23,6 +23,7 @@ Caller pattern (in aria/routes/aria.py /read-document):
         log + record telemetry; route by DETECTED type, not claim.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import io
 import logging

@@ -37,6 +37,7 @@ Public API
   await stats() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import json

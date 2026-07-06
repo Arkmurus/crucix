@@ -12,6 +12,7 @@ and Chinese suppliers — structural opportunity for UK-anchored
 advisory post-AUKUS signalling.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

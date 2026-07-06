@@ -20,6 +20,7 @@ Why this shape:
 API surface is unchanged — every existing caller works without edits.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import base64

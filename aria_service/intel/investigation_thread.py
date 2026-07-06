@@ -27,6 +27,7 @@ context as a [INVESTIGATION THREAD] context block. This is what makes
 resolved "Acme Corp".
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

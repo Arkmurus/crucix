@@ -13,6 +13,7 @@ Redis keys:
   crucix:response_cache:stats   — hit/miss counters
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import json

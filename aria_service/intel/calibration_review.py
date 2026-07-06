@@ -20,6 +20,7 @@ Redis key:
   crucix:calibration:baseline     — Week 4 baseline
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

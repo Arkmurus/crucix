@@ -28,6 +28,7 @@ Public API
   list_platforms() -> list[str]
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from typing import Optional

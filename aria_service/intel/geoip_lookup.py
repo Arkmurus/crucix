@@ -6,6 +6,7 @@ required. Falls back to DNS-based location hints when APIs are unavailable.
 Gate: ARIA_GEOIP_ENABLED=1 to enable (default ON).
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import json

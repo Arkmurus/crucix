@@ -7,6 +7,7 @@ Redis schema:
   crucix:aria:session:{sessionId}     — existing session storage (messages array)
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

@@ -15,6 +15,7 @@ nuance is preserved by using the native script + a transliteration
 fallback only where helpful.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 from typing import Iterable
 

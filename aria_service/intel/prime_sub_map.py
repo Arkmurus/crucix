@@ -35,6 +35,7 @@ Public API
   arkmurus_opportunities(prime: str, product: str = "") -> list[dict]
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 from typing import Any
 

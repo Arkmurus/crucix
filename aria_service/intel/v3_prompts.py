@@ -20,6 +20,7 @@ Feature-gated: ARIA_V3_PROMPTS_ENABLED env var (default ON).
 Injected via _build_calibrated_system_prompt() in aria_engine.py.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

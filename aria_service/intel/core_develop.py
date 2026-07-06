@@ -18,6 +18,7 @@ Hard lines (never auto):
 Every action is HMAC-audited via audit_log.record(self_improve_*).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json as _json
 import logging

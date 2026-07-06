@@ -45,6 +45,7 @@ Usage
     # ... proceed with fetch
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import ipaddress
 import logging

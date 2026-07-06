@@ -62,6 +62,7 @@ Public API
 Clause 22 text is exported for merging into the living constitution.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

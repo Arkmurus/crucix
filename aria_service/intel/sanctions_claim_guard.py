@@ -25,6 +25,7 @@ not after — otherwise the model could ignore the live result and go
 with its prior-recall answer.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

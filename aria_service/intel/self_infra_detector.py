@@ -27,6 +27,7 @@ of THE OPERATOR'S OWN deployment. It does NOT fire on:
   - troubleshooting questions about external systems
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import re
 

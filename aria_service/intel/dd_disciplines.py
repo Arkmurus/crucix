@@ -61,6 +61,7 @@ where possible. Where a procedure depends on operator-domain knowledge
 procedure says so explicitly. No fabricated sources.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from typing import Any

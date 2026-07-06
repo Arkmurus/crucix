@@ -1,3 +1,5 @@
+from .engine_wiring import wire_success
+
 # =============================================================================
 # ARIA — Global Export Control Framework
 # aria_service/intel/global_export_control.py

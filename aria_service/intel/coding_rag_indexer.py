@@ -24,6 +24,7 @@ Thread safety:
     convention where the caller wraps blocking ops in to_thread).
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import ast
 import hashlib

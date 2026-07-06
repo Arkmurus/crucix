@@ -8,6 +8,7 @@ Gate: ARIA_PORTAL_REGISTRY_ENABLED=1 to enable (default ON).
 Email: ARIA_PORTAL_EMAIL env var (default: aria@imaria.io).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import json

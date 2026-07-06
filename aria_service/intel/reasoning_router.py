@@ -46,6 +46,7 @@ The router is what makes that trajectory POSSIBLE — without it, every
 query would hit the cloud forever.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

@@ -22,6 +22,7 @@ For unknown documents, falls back to a generic schema that still pulls
 parties, dates, monetary values, and a structured summary.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

@@ -37,6 +37,7 @@ principles.py` modules.
 Behind ARIA_RESEARCHER_PRINCIPLES env var (default ON).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

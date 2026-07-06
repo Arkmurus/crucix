@@ -33,6 +33,7 @@ provides the at-the-spot fix; the warning block provides the audit trail.
 Behind ARIA_OFFICEHOLDER_GUARD env var (default ON). Disabled → no-op.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

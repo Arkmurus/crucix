@@ -15,6 +15,7 @@ Al Jubail Multi-Mission Surface Combatant programme cites 60%+
 localisation by end-of-programme.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass

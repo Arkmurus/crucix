@@ -42,6 +42,7 @@ Redis key:
   crucix:autonomy:baseline      — Week 4 baseline snapshot
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure, wire_success
 
 import logging
 import time

@@ -16,6 +16,7 @@ The catalogue is the single source of truth. To add a new pending item,
 append to `_PENDING_CATALOGUE` rather than scattering it across docs.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import os
 from typing import Any

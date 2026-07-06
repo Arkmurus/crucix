@@ -40,6 +40,7 @@ the authoritative `ticket_id` string (`GH-42` when GitHub succeeded)
 which is the ONLY form ARIA is permitted to quote in a reply.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

@@ -12,6 +12,7 @@ for classification — does NOT duplicate the regime data in
 global_export_control.py.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 from datetime import datetime, timezone

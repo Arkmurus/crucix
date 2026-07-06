@@ -14,6 +14,7 @@ Integration:
     MUST wrap in asyncio.to_thread()
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 from typing import Any, Optional

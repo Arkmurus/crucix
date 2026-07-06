@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA v3.1 — Counterparty Claim Ledger
 # aria_service/intel/counterparty_claim_ledger.py

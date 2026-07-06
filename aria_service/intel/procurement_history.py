@@ -22,6 +22,7 @@ own timeout + graceful failure path; the orchestrator treats empty/
 error as "no history found" not "clean".
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from datetime import datetime, timezone

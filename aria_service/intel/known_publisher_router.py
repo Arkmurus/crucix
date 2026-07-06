@@ -46,6 +46,7 @@ All adapters return the same shape for the caller:
 Zero LLM calls. Zero scraping. Just targeted API hits.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

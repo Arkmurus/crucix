@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA v3.1 — Verified Intelligence Pipeline
 # aria_service/intel/verified_intel.py

@@ -18,6 +18,7 @@ a miss, because an address flagged as virtual-office pushes the DD
 toward HIGH/NO-GO.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

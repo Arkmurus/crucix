@@ -20,6 +20,7 @@ downstream we should update entries here from that flow, but
 for now the seed is hand-curated to the 2026-04 baseline.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass

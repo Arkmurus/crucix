@@ -50,6 +50,7 @@ Public API
     pair_compare(a_iso2, b_iso2) → dict   # for cross-cultural deals
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass, field

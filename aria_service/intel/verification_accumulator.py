@@ -41,6 +41,7 @@ The response_hash is the chat_audit_log entry's `response_hash` field
 already part of the audit row — no new ID scheme to maintain.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure, wire_success
 
 import logging
 import time

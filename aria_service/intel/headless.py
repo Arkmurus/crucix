@@ -21,6 +21,7 @@ Fallback: if Lightpanda binary is not available (dev machines, tests),
 returns empty string and the caller falls back to httpx/archive as before.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

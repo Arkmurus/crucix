@@ -20,6 +20,7 @@ Redis keys:
   crucix:chat_audit:by_session    — secondary index by session_id
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import hmac

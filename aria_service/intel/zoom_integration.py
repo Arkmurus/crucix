@@ -24,6 +24,7 @@ Select: Server-to-Server OAuth → Add scopes:
 Feature-gated: ARIA_ZOOM_ENABLED env var (default ON when credentials set).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

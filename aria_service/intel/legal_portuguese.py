@@ -45,6 +45,7 @@ Why Portuguese-specific (beyond international_law / general civil-law):
     Portugal-PALOP commercial disputes
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

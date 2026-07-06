@@ -19,6 +19,7 @@ Cost: 1 HTTP request per DD. Default timeout 15s. Caps at 500
 records returned, 25 related domains surfaced after dedup.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

@@ -26,6 +26,7 @@ failed. Caller can treat None as "model output unusable, skip this
 entry" rather than crashing the surrounding pipeline.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

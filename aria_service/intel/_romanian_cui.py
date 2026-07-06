@@ -49,6 +49,7 @@ Anchors should be refreshed annually from ONRC bulletins as the rate
 changes. The interpolation between anchors is linear.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import re
 from dataclasses import dataclass

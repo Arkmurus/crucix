@@ -1,3 +1,5 @@
+from .engine_wiring import wire_success
+
 # =============================================================================
 # ARIA — Country Risk Indices Bundle
 # aria_service/intel/risk_indices.py

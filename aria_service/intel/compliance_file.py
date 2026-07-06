@@ -28,6 +28,7 @@ otherwise. The brain absorbs "compliance file composed for Deal X" so ARIA
 can answer questions about prior compositions from her own memory.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import hashlib
 import json

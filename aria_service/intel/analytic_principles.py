@@ -31,6 +31,7 @@ enough that the cost of always-on is negligible compared to the value.
 Behind ARIA_ANALYTIC_PRINCIPLES env var (default ON). Disabled → no-op.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

@@ -22,6 +22,7 @@ Past incident 2026-04-16: ARIA promised an OEM Export Director List
 within 12 hours. No code existed to produce it.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

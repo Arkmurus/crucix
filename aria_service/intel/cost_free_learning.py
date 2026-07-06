@@ -52,6 +52,7 @@ All four loops degrade gracefully when their input store is missing
 or returns empty — never raises.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import math

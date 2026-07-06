@@ -19,6 +19,7 @@ screen, knowledge base, neural memory) can index, query, and reason about.
 This is what gives ARIA "technical depth" — without it she's a glorified RSS reader.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

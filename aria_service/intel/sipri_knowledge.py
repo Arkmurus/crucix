@@ -17,6 +17,7 @@ Source: SIPRI Arms Transfers Database (public domain, CC BY 4.0)
 Last updated: 2026-04-13
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from .wire import fail_wire  # R-F1789 §21 brain-wiring

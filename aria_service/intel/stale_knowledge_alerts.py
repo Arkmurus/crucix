@@ -30,6 +30,7 @@ list of subjects whose pre-event answers should be treated as suspect.
 Behind ARIA_STALE_KNOWLEDGE_ALERTS env var (default ON).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

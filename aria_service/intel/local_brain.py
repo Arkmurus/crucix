@@ -43,6 +43,7 @@ The only external calls are to public data feeds (OpenSanctions, ACLED) which
 are cached locally — and even those have local fallbacks.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

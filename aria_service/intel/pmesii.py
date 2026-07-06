@@ -31,6 +31,7 @@ changes — this module only contributes a system-prompt addendum, it does
 not modify any other code path.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

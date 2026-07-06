@@ -13,6 +13,7 @@ Key capabilities:
 5. Next-step guidance — always provide actionable next steps
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 from typing import Any, Optional

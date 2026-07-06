@@ -16,6 +16,7 @@ Gives a 24h baseline of real stream-side violation counts so the
 rewrite-UX work can be scoped against real numbers, not guesses.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

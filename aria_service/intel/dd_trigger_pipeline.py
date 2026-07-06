@@ -28,6 +28,7 @@ Usage:
     result = await trigger_dd_for_entity("Acme Corp", "New sanctions hit")
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import json

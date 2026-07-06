@@ -17,6 +17,7 @@ Usage:
     # result = {"worst_severity": "amber", "summary": "...", "per_match": [...]}
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 
 # Topic → severity. Anything NOT in this map defaults to "info".

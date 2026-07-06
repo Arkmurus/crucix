@@ -35,6 +35,7 @@ Public surface
     async topic_completion(topic, **thresholds) -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from typing import Any

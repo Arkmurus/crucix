@@ -20,6 +20,7 @@ Seeded with the two known-bad run_ids from tonight's F3 incident so
 those assessments can no longer poison future chat turns.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

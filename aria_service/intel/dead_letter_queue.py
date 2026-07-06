@@ -14,6 +14,7 @@ API:
   POST /api/aria/autonomous/dlq/clear   — clear resolved entries
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

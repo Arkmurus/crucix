@@ -12005,7 +12005,7 @@ async def think_ep(req: ThinkRequest, request: Request):
             else:
                 await conversation_store.touch_conversation(req.session_id, req.user_id)
     except Exception as _e:
-        logger.debug("think persist failed (non-fatal): %s", _e)
+        _log.debug("think persist failed (non-fatal): %s", _e)
     return result
 
 

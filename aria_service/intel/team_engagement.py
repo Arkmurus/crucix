@@ -10,6 +10,7 @@ and actively hunts for better data sources. Every team member has unique
 knowledge that ARIA needs — her job is to extract it.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

@@ -22,6 +22,7 @@
 # =============================================================================
 
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

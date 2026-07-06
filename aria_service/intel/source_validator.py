@@ -42,6 +42,7 @@ Autonomy boundary (matches aria_autonomy_doctrine.md):
                                        silently trust a failing source")
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import hashlib
 import json

@@ -36,6 +36,7 @@ Why Gulf-specific (beyond international_law / generic Middle East):
     international arbitration awards
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

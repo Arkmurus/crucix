@@ -31,6 +31,7 @@ Why Turkish-specific (not folded into general international_law):
   - KVKK has distinct enforcement profile from GDPR
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

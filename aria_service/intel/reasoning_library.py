@@ -52,6 +52,7 @@ After 10000 conversations + symbolic reasoner: ~70% local.
 The library is the engine of ARIA's slow detachment from cloud reasoning.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import json

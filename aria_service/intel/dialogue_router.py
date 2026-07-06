@@ -29,6 +29,7 @@ The classifier is consumed at one chat-entry call-site in aria_engine
 zero circular-import risk.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import re
 from enum import Enum

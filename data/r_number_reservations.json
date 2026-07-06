@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2368,
+  "next_available": 2369,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17963,6 +17963,15 @@
       "r_number": "R-F2367",
       "title": "§24 eval-contamination pre-flight guard + quarantine contaminated DPO (dpo_v1 100%, dpo_v04 98% eval-derived) — a contaminated cycle must be impossible to run",
       "claimed_at": "2026-07-03T07:36:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2368",
+      "title": "fix prospector f821 undefined names",
+      "claimed_at": "2026-07-06T13:39:02Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

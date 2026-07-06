@@ -39,6 +39,7 @@ Task types supported
   - "compliance_screen"     — fuzzy_screen + investigate combo
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

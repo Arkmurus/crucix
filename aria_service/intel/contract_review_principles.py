@@ -31,6 +31,7 @@ on a query like "what should I check in a contract?" where there is no
 actual document.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

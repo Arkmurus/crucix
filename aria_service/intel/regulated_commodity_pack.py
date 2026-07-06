@@ -68,6 +68,7 @@ pointer rather than a fabricated answer. Clause 14 (no fabricated
 verifiable facts) discipline applies — when in doubt, refuse to assert.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

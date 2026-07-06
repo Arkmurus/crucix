@@ -45,6 +45,7 @@ Public API
     summary() -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

@@ -53,6 +53,7 @@ fire-and-forget means the user gets the immediate reply at full speed and
 the corrective facts land in the knowledge base for the NEXT reply.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import json

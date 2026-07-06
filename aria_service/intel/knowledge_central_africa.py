@@ -7,6 +7,7 @@ from conflict-zone markets (DRC) where ARIA requires a bright-line
 rule before any counterparty engagement.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

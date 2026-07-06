@@ -42,6 +42,7 @@ Autonomous cadence: CONSISTENCY-WEEKLY task in tasks.yaml fires on
 Sunday 05:00 UTC. Results go to Redis + mistake_ledger.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

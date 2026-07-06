@@ -21,6 +21,7 @@ seeing the flag — ARIA does NOT auto-decline, but it makes the risk
 visible and auditable.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

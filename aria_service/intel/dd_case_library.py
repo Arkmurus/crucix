@@ -21,6 +21,7 @@ verified filings, obtains ANCEX authorisation), update or remove the
 case.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from .wire import fail_wire  # R-F1789 §21 brain-wiring

@@ -79,6 +79,7 @@ Skip the summariser when:
 Behind ARIA_MEM0_ENABLED env var (default ON).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

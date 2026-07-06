@@ -13,6 +13,7 @@ NATO-adjacent; Bosnia carries OHR + EUFOR oversight. Albania + North
 Macedonia are NATO members.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

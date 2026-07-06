@@ -29,6 +29,7 @@ calls the adapter instead of just logging.
 Surfaces via GET /api/aria/learning/brier-drift.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import json
 import logging

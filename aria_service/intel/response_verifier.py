@@ -19,6 +19,7 @@ is not on every response.
 Called from routes/aria.py after source_verifier but before delivery.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

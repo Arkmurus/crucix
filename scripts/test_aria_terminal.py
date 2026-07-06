@@ -240,7 +240,7 @@ if __name__ == "__main__":
     # Step 2
     print("\n🔗 STEP 2: Bridge Comms")
     test_step2_bridge_initialization()
-    asyncio.run(test_step2_bridge_poll_empty())
+    asyncio.run(test_step2_bridge_poll_returns_list())
     asyncio.run(test_step2_bridge_send())
     
     # Step 3

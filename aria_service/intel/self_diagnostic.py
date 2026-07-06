@@ -47,6 +47,7 @@ Public API
   async alert_on_red(report: dict) -> None  # push CRITICAL pending_action
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import importlib

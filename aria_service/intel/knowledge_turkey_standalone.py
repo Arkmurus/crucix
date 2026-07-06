@@ -11,6 +11,7 @@ deals, SSB approvals) — ARIA cites live tender_monitor and
 competitor_tracker for those rather than baking them in here.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

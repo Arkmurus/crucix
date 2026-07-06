@@ -31,6 +31,7 @@ Public API
   def list_portals() -> list[dict]   # metadata only, no network
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

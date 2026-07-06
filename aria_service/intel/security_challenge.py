@@ -30,6 +30,7 @@ iterate; we cover the textbook categories and add new attacks when
 specific failures surface in production logs.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 from dataclasses import field
 from enum import Enum

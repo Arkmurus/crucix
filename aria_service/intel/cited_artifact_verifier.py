@@ -21,6 +21,7 @@ This is different from "false" — it means we have no record of the
 artifact. Operators decide whether absence is significant.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

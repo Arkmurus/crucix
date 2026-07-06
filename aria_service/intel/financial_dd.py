@@ -25,6 +25,7 @@ INTEGRATION:
   Returns findings + financial_summary for the DD report.
 """
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import re

@@ -3,6 +3,7 @@ Go-To-Market Strategy Engine.
 Ported from lib/aria/gtm_strategy.mjs.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 from .contacts import search_contacts
 

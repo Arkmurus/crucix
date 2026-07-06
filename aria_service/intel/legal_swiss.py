@@ -36,6 +36,7 @@ Why Swiss-specific (beyond international_law):
     Swiss banking
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

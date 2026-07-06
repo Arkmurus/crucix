@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA — Regional Compliance Blocs
 # aria_service/intel/regional_compliance.py

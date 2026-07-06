@@ -45,6 +45,7 @@ What it does NOT do
 Wiring: routes/aria.py post-LLM guard chain, after commitment_guard.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

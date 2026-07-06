@@ -10,6 +10,7 @@ We keep this module tiny on purpose — if the mem0 API grows, callers
 should import `mem0` directly rather than adding new functions here.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 from typing import Any
 

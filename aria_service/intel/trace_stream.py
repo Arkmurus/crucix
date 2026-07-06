@@ -56,6 +56,7 @@ Important caveats
   could be added if needed.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import contextvars
 import logging

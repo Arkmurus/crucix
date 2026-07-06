@@ -11,6 +11,7 @@ officials) are deliberately omitted — ARIA cites procurement_calendar
 and live tender_monitor/opensanctions for those.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

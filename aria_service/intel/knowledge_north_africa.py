@@ -10,6 +10,7 @@ client. Any intermediary active in BOTH Morocco and Algeria faces a
 proliferation / dual-exposure flag. See regional_bright_lines.py.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

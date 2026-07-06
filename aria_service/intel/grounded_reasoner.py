@@ -815,7 +815,7 @@ async def reason(message: str, context: Optional[dict] = None) -> ReasonResult:
 
 # ── Wire to brain ───────────────────────────────────────────────────────────
 
-from .engine_wiring import wire_success  # noqa: E402, wire_failure
+from .engine_wiring import wire_failure, wire_success  # noqa: E402
 
 wire_success(
     module="grounded_reasoner",

@@ -28,6 +28,7 @@ Public API
   async availability_ping() -> dict  # hit each source's is_available
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

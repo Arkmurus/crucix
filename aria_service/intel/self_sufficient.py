@@ -18,6 +18,7 @@ her own codebase, knowledge stores, and deterministic algorithms.
 External LLMs become an OPTIONAL accelerator, not a dependency.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import ast
 import logging

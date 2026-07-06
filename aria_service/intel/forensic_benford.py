@@ -77,6 +77,7 @@ Public API
         One-line operator-readable summary.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import math
 import re

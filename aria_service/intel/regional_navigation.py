@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA v3.1 — Regional Navigation Intelligence
 # aria_service/intel/regional_navigation.py

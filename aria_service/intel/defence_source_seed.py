@@ -20,6 +20,7 @@ Organised by domain so an operator can see at a glance what ARIA
 trusts a priori.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

@@ -48,6 +48,7 @@ Public API
   await forecast(task_type, domain, *, entity_type=None, context=None) -> dict
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from datetime import datetime, timezone

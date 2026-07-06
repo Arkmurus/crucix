@@ -15,6 +15,7 @@ Upgrades ARIA from "find exact words" to "find related concepts":
 Runs alongside keyword search (knowledge.py) — results are merged for best recall.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

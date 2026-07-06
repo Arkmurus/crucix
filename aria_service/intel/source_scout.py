@@ -21,6 +21,7 @@ Every addition goes through web_atlas.add_source() — audit-logged and
 visible in the 05:45 briefing.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

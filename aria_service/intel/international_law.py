@@ -1,3 +1,5 @@
+from .engine_wiring import wire_success
+
 # =============================================================================
 # ARIA v3.1 — International Law in Defence and Security
 # aria_service/intel/international_law.py

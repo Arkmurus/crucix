@@ -48,6 +48,7 @@ Each topic gets a 0..1 mastery score that grows from successful local
 answers and shrinks from divergence with cloud LLM teachers.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import logging

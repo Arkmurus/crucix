@@ -25,6 +25,7 @@ the prompt with every other addendum on every reply).
 Behind ARIA_NEGOTIATION_PRINCIPLES env var (default ON). Disabled → no-op.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

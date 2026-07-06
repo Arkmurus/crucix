@@ -30,6 +30,7 @@ Design notes:
   silently discards without a WARNING (no silent forget, §21).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import json

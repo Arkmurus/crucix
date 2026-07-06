@@ -23,6 +23,7 @@ correlations tend to be FASTER (weeks to a few months) because they
 represent reactive procurement in response to a crisis.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 from dataclasses import dataclass

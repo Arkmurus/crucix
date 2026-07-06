@@ -51,6 +51,7 @@ without re-litigating "does a deploy break gate #3?" every session (it does
 not).
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

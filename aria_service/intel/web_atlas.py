@@ -47,6 +47,7 @@ Public API
   await snapshot_to_yaml() — write mirror for self-improve path
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import json

@@ -13,6 +13,7 @@ Components:
   7. GATE E — live wedge monitor (auto-pause on regression)
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import ast
 import os

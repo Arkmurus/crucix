@@ -10,6 +10,8 @@ Anti-bot best practices:
   - Random delay helper for polite crawling
   - Rotate on every request to avoid fingerprinting
 """
+from .engine_wiring import wire_failure
+
 import random
 import asyncio
 

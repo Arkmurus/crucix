@@ -32,6 +32,7 @@ Supported formats:
   - Generic fallback (takes first plausible company-shape name)
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import re

@@ -10,6 +10,7 @@ Stability buyers vs AES bloc compliance handling diverges sharply.
 Bright-line rules below MUST be checked before any mandate.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 

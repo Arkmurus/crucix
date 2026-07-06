@@ -1,3 +1,5 @@
+from .engine_wiring import wire_failure
+
 # =============================================================================
 # ARIA v3.1 — Active Challenge Engine
 # aria_service/intel/active_challenge_engine.py

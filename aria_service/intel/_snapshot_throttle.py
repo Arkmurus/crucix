@@ -32,6 +32,7 @@ Usage:
     encoded = await run_in_thread_throttled(_encode_all, cache)
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import os

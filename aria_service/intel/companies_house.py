@@ -22,6 +22,7 @@ Feature-gated: ARIA_COMPANIES_HOUSE_ENABLED env var (default ON).
 Optional: COMPANIES_HOUSE_API_KEY for higher rate limits.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import os

@@ -40,6 +40,7 @@ What we DON'T do here
 - No LLM-as-judge (separate phase, will use this data as ground truth)
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import logging
 import time

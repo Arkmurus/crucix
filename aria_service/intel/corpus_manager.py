@@ -18,6 +18,7 @@ HOW IT WORKS:
 6. Regional gap detection identifies thin coverage areas
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 import asyncio
 import hashlib

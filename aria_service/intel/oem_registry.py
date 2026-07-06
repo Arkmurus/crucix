@@ -20,6 +20,7 @@ Selection criteria for this list (Phase-1, April 2026)
     bias. Turkey / Israel / Korea / NATO / Gulf all represented.
 """
 from __future__ import annotations
+from .engine_wiring import wire_failure
 
 # Phase-1 priority OEMs. Each entry is a tuple (name, country, capability_tags).
 # Names match the public brand the user would recognise — the research
