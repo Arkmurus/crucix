@@ -66,5 +66,23 @@ def test_empty_list():
     assert asyncio.run(_run_boot_inits([])) == []
 
 
+def test_hanging_init_is_bounded_and_other_init_runs(monkeypatch):
+    monkeypatch.setenv("ARIA_BOOT_INIT_TIMEOUT_S", "0.05")
+    calls = []
+
+    async def _hang():
+        await asyncio.sleep(10)
+
+    async def _ok():
+        calls.append("ok")
+
+    failed = asyncio.run(_run_boot_inits([
+        ("hung", _hang),
+        ("ok", _ok),
+    ]))
+    assert failed == ["hung"]
+    assert calls == ["ok"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

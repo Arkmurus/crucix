@@ -130,6 +130,7 @@ _WRITE_FLUSH_INTERVAL_S = float(os.getenv("ARIA_STATE_WRITE_FLUSH_INTERVAL_S", "
 _WAL_CHECKPOINT_INTERVAL_S = float(os.getenv("ARIA_WAL_CHECKPOINT_INTERVAL_S", "60"))
 _WAL_TRUNCATE_THRESHOLD_BYTES = int(
     os.getenv("ARIA_WAL_TRUNCATE_THRESHOLD_MB", "25")) * 1024 * 1024
+_WAL_CHECKPOINT_TIMEOUT_S = float(os.getenv("ARIA_WAL_CHECKPOINT_TIMEOUT_S", "2.5"))
 # Lazy lock — bound to whatever loop first acquires it. Required because the
 # module is imported BEFORE any event loop exists, and pytest spins up a new
 # loop per `asyncio.run(...)` test. Single-SQL operations don't need this
@@ -641,15 +642,50 @@ async def _maybe_checkpoint_wal() -> None:
         _before = _wal_file.stat().st_size if _wal_file.exists() else 0
         if _before < _WAL_TRUNCATE_THRESHOLD_BYTES:
             return  # small enough — let PASSIVE autocheckpoint handle it
-        await _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        await _conn.commit()
+        await asyncio.wait_for(
+            _bounded_wal_checkpoint("runtime"),
+            timeout=max(0.25, float(_WAL_CHECKPOINT_TIMEOUT_S)),
+        )
         _after = _wal_file.stat().st_size if _wal_file.exists() else 0
         if _before - _after > 20 * 1024 * 1024:
             logger.info(
                 "state_store: R-F2137 runtime WAL checkpoint reclaimed "
                 "%.1f MB -> %.1f MB", _before / 1e6, _after / 1e6)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "state_store: R-F2378 runtime WAL checkpoint exceeded %.1fs — "
+            "skipped to protect the write worker",
+            _WAL_CHECKPOINT_TIMEOUT_S,
+        )
     except Exception as e:
         logger.debug("state_store: R-F2137 runtime WAL checkpoint skipped: %s", e)
+
+
+async def _bounded_wal_checkpoint(reason: str = "maintenance") -> None:
+    """R-F2378 — run TRUNCATE checkpoint on a bounded maintenance connection.
+
+    ``PRAGMA wal_checkpoint(TRUNCATE)`` can wait behind readers/writers. Running
+    it on the main writer connection means ordinary state writes queue behind
+    maintenance. Use a short-lived connection with a short busy_timeout and a
+    total ``wait_for`` cap instead; failure just defers truncation to the next
+    maintenance tick.
+    """
+    if _DB_PATH is None:
+        return
+    timeout_s = max(0.25, float(_WAL_CHECKPOINT_TIMEOUT_S))
+
+    async def _run() -> None:
+        import aiosqlite
+        conn = await aiosqlite.connect(str(_DB_PATH))
+        try:
+            await conn.execute(f"PRAGMA busy_timeout={max(1, int(timeout_s * 1000))}")
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    await asyncio.wait_for(_run(), timeout=timeout_s)
 
 
 async def _reconnect() -> None:
@@ -1172,14 +1208,22 @@ async def connect(db_path: str | None = None) -> bool:
             await _read_conn.execute("PRAGMA wal_autocheckpoint=1000")
             _wal_file = _DB_PATH.with_name(_DB_PATH.name + "-wal")
             _wal_before = _wal_file.stat().st_size if _wal_file.exists() else 0
-            await _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            await _conn.commit()
+            await asyncio.wait_for(
+                _bounded_wal_checkpoint("boot"),
+                timeout=max(0.25, float(_WAL_CHECKPOINT_TIMEOUT_S)),
+            )
             _wal_after = _wal_file.stat().st_size if _wal_file.exists() else 0
             if _wal_before > 50 * 1024 * 1024:
                 logger.warning(
                     "state_store: R-F2116 reclaimed bloated WAL at boot: "
                     "%.1f MB -> %.1f MB (prevented crash-loop recurrence)",
                     _wal_before / 1e6, _wal_after / 1e6)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "state_store: R-F2378 boot WAL checkpoint exceeded %.1fs — "
+                "continuing boot; runtime maintenance will retry",
+                _WAL_CHECKPOINT_TIMEOUT_S,
+            )
         except Exception as e:
             # Never let WAL housekeeping block boot — autocheckpoint is the fallback.
             logger.warning("state_store: R-F2116 boot WAL checkpoint skipped: %s", e)

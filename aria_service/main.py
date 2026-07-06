@@ -314,21 +314,35 @@ async def _record_deploy_event() -> dict:
 
 
 async def _run_boot_inits(inits) -> list:
-    """R-F1421 — run each (name, async init_fn) in order, ISOLATING failures.
+    """R-F1421/R-F2378 — run boot init functions, isolating failures.
 
     Pre-R-F1421 the intel inits were bare `await x.init()` with no guard: one
     throw made the lifespan raise → uvicorn never reached `yield` → the app
     never served → TOTAL OUTAGE (the 2026-04-27 F28 class). A degraded-but-up
-    ARIA that surfaces which subsystem failed beats a fully-dark one. Returns
-    the list of failed subsystem names (empty = all ok). Module-level + pure
-    over its inputs so the isolation is unit-testable.
+    ARIA that surfaces which subsystem failed beats a fully-dark one.
+
+    R-F2378: run in parallel with a per-init timeout. Serial unbounded inits
+    made one slow state-store read (e.g. competitors.get burning its full 5s)
+    hold the entire pre-yield path hostage. Returned failure names preserve
+    input order for callers/tests.
     """
-    failed = []
-    for name, fn in inits:
+    timeout_s = max(0.25, float(_os.getenv("ARIA_BOOT_INIT_TIMEOUT_S", "5.0")))
+
+    async def _one(name, fn):
         try:
-            await fn()
+            await asyncio.wait_for(fn(), timeout=timeout_s)
+            return None
+        except asyncio.TimeoutError:
+            try:
+                logger.error(
+                    "[R-F2378] intel init '%s' timed out after %.1fs "
+                    "(degrading, staying up)",
+                    name, timeout_s,
+                )
+            except Exception:
+                pass
+            return name
         except Exception as e:  # noqa: BLE001 — isolate per-subsystem
-            failed.append(name)
             try:
                 logger.error(
                     "[R-F1421] intel init '%s' FAILED at boot (degrading, "
@@ -336,7 +350,10 @@ async def _run_boot_inits(inits) -> list:
                 )
             except Exception:
                 pass
-    return failed
+            return name
+
+    results = await asyncio.gather(*[_one(name, fn) for name, fn in inits])
+    return [name for name in results if name]
 
 
 async def _expiry_sweeper_loop() -> None:
@@ -407,16 +424,10 @@ from .intel import reasoning_library
 from .intel import proactive
 from .intel import rag_store
 from .intel import ocr as ocr_module
-# R-F786 (2026-05-21) — eager-import document_reader so the first
-# /api/aria/document/extract call doesn't pay the import cost on the
-# response loop. Wedge stack /data/wedge_stacks/wedge_677_1779379566.log
-# captured `extract_document_ep` blocked on `<module>` of
-# document_reader.py during a 17.91s stall — same pattern as R-F772
-# closed for counterparty_claim_ledger. document_reader pulls
-# PyMuPDF/fitz + OCR backends, which open shared libs and take
-# multi-second on cold import. Eager-loading at boot moves that cost
-# into the startup window where the event loop isn't serving traffic.
-from .intel import document_reader as _document_reader_module  # noqa: F401
+# R-F2378: document_reader pulls PyMuPDF/OCR backends and can take multiple
+# seconds, or worse under AV scanning, at cold import. Keep module import cheap;
+# lifespan schedules a background prewarm so the first document request is still
+# usually warm without blocking boot or test collection.
 from .intel import cost_tracker
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router, require_aria_token
@@ -674,6 +685,12 @@ async def lifespan(app: FastAPI):
             logger.warning("[R-F2259] reranker prewarm failed (non-fatal): %s", _rr_e)
     asyncio.create_task(_prewarm_heavy_imports())
 
+    # F28/R-F2378: use a fresh local alias before any lifespan env reads. A
+    # later local `import os as _os` makes `_os` function-local, so early `_os`
+    # references raise UnboundLocalError and silently degrade boot.
+    import os as _f28_os
+    _f28_os.environ.setdefault("NODE_OPTIONS", "--no-deprecation")
+
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
     # R-F762 (2026-05-20): capture the result so /health can flag the
     # backend as RED when connect fails. Pre-R-F762 a Redis-unreachable
@@ -685,7 +702,21 @@ async def lifespan(app: FastAPI):
     # /health.state_backend block shows backend (sqlite/upstash/memory)
     # + reachable bool + a status string for observers.
     try:
-        _state_connect_ok = await rs.connect(settings.redis_url)
+        _state_connect_timeout_s = max(
+            1.0,
+            float(_f28_os.getenv("ARIA_STATE_CONNECT_BOOT_TIMEOUT_S", "20.0")),
+        )
+        _state_connect_ok = await asyncio.wait_for(
+            rs.connect(settings.redis_url),
+            timeout=_state_connect_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "[R-F2378] state-backend connect exceeded %.1fs — falling back to "
+            "in-memory dict so lifespan reaches yield",
+            _state_connect_timeout_s,
+        )
+        _state_connect_ok = False
     except Exception as _state_e:
         logger.error(
             "[R-F762] state-backend connect raised — falling back to "
@@ -715,22 +746,6 @@ async def lifespan(app: FastAPI):
         logger.info("[R-F1178] Error ledger handler installed")
     except Exception as _elh_err:
         logger.warning("[R-F1178] Error ledger handler install failed: %s", _elh_err)
-
-    # F28 fix 2026-04-27: every Lightpanda / Playwright render emits
-    # `(node:NNN) [DEP0169] DeprecationWarning: url.parse() behavior is
-    # not standardized` from internal Node helpers. The warning is
-    # cosmetic — Playwright still works — but adds 3-4 noise lines per
-    # render. Set NODE_OPTIONS=--no-deprecation BEFORE any Node child
-    # is spawned to silence the lot.
-    #
-    # IMPORTANT: cannot reference module-level `_os` here. Python sees
-    # the `import os as _os` later in this function (rag_init_bg block)
-    # and treats `_os` as LOCAL for the whole function scope —
-    # referencing it before that assignment raises UnboundLocalError.
-    # That bug took prod down for 30s of restart-loop on commit
-    # 6c26e17 → fixed in this commit by using a fresh local alias.
-    import os as _f28_os
-    _f28_os.environ.setdefault("NODE_OPTIONS", "--no-deprecation")
 
     # B1 fix 2026-04-27: install the error-ledger logging handler so
     # WARNING+ aria.* logs auto-record into self_improve's error ledger.
@@ -1660,12 +1675,28 @@ async def lifespan(app: FastAPI):
             logger.warning("[OCR Pre-warm] failed: %s", e)
     ocr_prewarm_task = _bg_task(asyncio.create_task(_prewarm_ocr_bg(), name="ocr_prewarm"))
 
+    async def _prewarm_document_reader_bg():
+        try:
+            await asyncio.to_thread(__import__, "aria_service.intel.document_reader")
+            logger.info("[R-F2378] document_reader import prewarmed in background")
+        except Exception as e:
+            logger.warning("[R-F2378] document_reader prewarm failed (non-fatal): %s", e)
+    _bg_task(asyncio.create_task(_prewarm_document_reader_bg(), name="document_reader_prewarm"))
+
     # ── R-F2174: engine-role election ────────────────────────────────────
     # Resolve THIS worker's role BEFORE any singleton loop is decided below.
     # No-op (role stays 'all') unless ARIA_ENGINE_ELECTION=1. state_store is
     # connected by now (rs.connect above), and the election is fail-safe — any
     # error leaves the worker as 'all' so singletons always run somewhere.
-    await _elect_engine_role()
+    try:
+        _election_timeout_s = float(_os.getenv("ARIA_ENGINE_ELECTION_BOOT_TIMEOUT_S", "5.0"))
+        await asyncio.wait_for(_elect_engine_role(), timeout=max(0.5, _election_timeout_s))
+    except asyncio.TimeoutError:
+        globals()["_resolved_role"] = "all"
+        logger.warning(
+            "[R-F2378] engine election exceeded boot budget — falling back to ALL "
+            "and continuing startup"
+        )
     # R-F2219: release the pre-election singleton loops now that the role is known.
     if _election_complete is not None:
         _election_complete.set()
@@ -3082,70 +3113,72 @@ async def lifespan(app: FastAPI):
     # Even with both flags on, the engine runs in DRY_RUN mode by default
     # (set ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery to WhatsApp /
     # intel ledger). See aria_service/autonomous/AUTONOMOUS_ENGINE.md.
-    try:
-        from .autonomous import engine as autonomous_engine
-        # Hydrate the in-process runtime-override cache BEFORE checking
-        # is_enabled(). This lets /autonomous/enable keep the engine on
-        # after a redeploy when the env var is missing — the Redis flag
-        # survives restarts and gets picked up here on the next boot.
-        await autonomous_engine.refresh_runtime_override()
-        # R-F2184 — heal a LOST master flag at boot (env dropped + no override) so
-        # the engine actually STARTS rather than silently staying dark (the R-F2004
-        # outage class — a dropped ARIA_AUTONOMOUS_ENABLED killed the metabolism for
-        # 187h). Respects a deliberate override=0. Singleton role only.
-        if _runs_singletons():
-            try:
-                _are_res = await autonomous_engine.maybe_autorecover_master_switch()
-                if _are_res.get("recovered"):
-                    logger.warning("[R-F2184] boot: %s", _are_res.get("reason"))
-            except Exception as _are:
-                logger.debug("[R-F2184] boot autorecover failed: %s", _are)
-        if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
-            started = autonomous_engine.start_engine(getattr(app.state, "llm_provider", None))
-            if started:
+    async def _bootstrap_autonomous_engine_bg():
+        try:
+            from .autonomous import engine as autonomous_engine
+            # Hydrate the in-process runtime-override cache BEFORE checking
+            # is_enabled(). This lets /autonomous/enable keep the engine on
+            # after a redeploy when the env var is missing — the Redis flag
+            # survives restarts and gets picked up here on the next boot.
+            await autonomous_engine.refresh_runtime_override()
+            # R-F2184 — heal a LOST master flag at boot (env dropped + no override) so
+            # the engine actually STARTS rather than silently staying dark (the R-F2004
+            # outage class — a dropped ARIA_AUTONOMOUS_ENABLED killed the metabolism for
+            # 187h). Respects a deliberate override=0. Singleton role only.
+            if _runs_singletons():
+                try:
+                    _are_res = await autonomous_engine.maybe_autorecover_master_switch()
+                    if _are_res.get("recovered"):
+                        logger.warning("[R-F2184] boot: %s", _are_res.get("reason"))
+                except Exception as _are:
+                    logger.debug("[R-F2184] boot autorecover failed: %s", _are)
+            if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
+                started = autonomous_engine.start_engine(getattr(app.state, "llm_provider", None))
+                if started:
+                    logger.info(
+                        "Autonomous engine started (dry_run=%s) — see /api/aria/autonomous/status",
+                        autonomous_engine.is_dry_run(),
+                    )
+            else:
                 logger.info(
-                    "Autonomous engine started (dry_run=%s) — see /api/aria/autonomous/status",
-                    autonomous_engine.is_dry_run(),
+                    "Autonomous engine NOT started — set ARIA_AUTONOMOUS_ENABLED=1 "
+                    "or POST /api/aria/autonomous/enable to flip at runtime"
                 )
-        else:
-            logger.info(
-                "Autonomous engine NOT started — set ARIA_AUTONOMOUS_ENABLED=1 "
-                "or POST /api/aria/autonomous/enable to flip at runtime"
-            )
-            # Log a pending-action so the operator sees this in the next
-            # daily briefing. CRITICAL severity so it gets nudged now.
-            try:
-                from .intel import pending_actions as _pa
-                await _pa.record(
-                    promise=(
-                        "Autonomous learning loop should be running 24/7 — "
-                        "spider, metacog, research, style_learner, plus 65 "
-                        "scheduled tasks."
-                    ),
-                    reason=(
-                        "ARIA_AUTONOMOUS_ENABLED env var is not set on the "
-                        "Python backend (fly.io app aria-intel). The engine "
-                        "cannot run until the master switch is on."
-                    ),
-                    resolver_kind="operator_action",
-                    resolver_ref="ARIA_AUTONOMOUS_ENABLED",
-                    severity="CRITICAL",
-                    source="lifespan_bootstrap",
-                    operator_prompt=(
-                        "POST /api/aria/autonomous/enable to turn on the "
-                        "autonomous engine right now (survives redeploy via "
-                        "Redis). For a permanent fix, also run: "
-                        "fly secrets set ARIA_AUTONOMOUS_ENABLED=1 "
-                        "-a aria-intel"
-                    ),
-                )
-            except Exception as _pa_err:
-                logger.debug(
-                    "pending_actions record at bootstrap failed (non-fatal): %s",
-                    _pa_err,
-                )
-    except Exception as e:
-        logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
+                # Log a pending-action so the operator sees this in the next
+                # daily briefing. CRITICAL severity so it gets nudged now.
+                try:
+                    from .intel import pending_actions as _pa
+                    await _pa.record(
+                        promise=(
+                            "Autonomous learning loop should be running 24/7 — "
+                            "spider, metacog, research, style_learner, plus 65 "
+                            "scheduled tasks."
+                        ),
+                        reason=(
+                            "ARIA_AUTONOMOUS_ENABLED env var is not set on the "
+                            "Python backend (fly.io app aria-intel). The engine "
+                            "cannot run until the master switch is on."
+                        ),
+                        resolver_kind="operator_action",
+                        resolver_ref="ARIA_AUTONOMOUS_ENABLED",
+                        severity="CRITICAL",
+                        source="lifespan_bootstrap",
+                        operator_prompt=(
+                            "POST /api/aria/autonomous/enable to turn on the "
+                            "autonomous engine right now (survives redeploy via "
+                            "Redis). For a permanent fix, also run: "
+                            "fly secrets set ARIA_AUTONOMOUS_ENABLED=1 "
+                            "-a aria-intel"
+                        ),
+                    )
+                except Exception as _pa_err:
+                    logger.debug(
+                        "pending_actions record at bootstrap failed (non-fatal): %s",
+                        _pa_err,
+                    )
+        except Exception as e:
+            logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
+    _bg_task(asyncio.create_task(_bootstrap_autonomous_engine_bg(), name="autonomous_bootstrap"))
 
     # ── Defence source seed → web_atlas (2026-04-18) ────────────────
     # Bootstrap the curated Tier-1/1b/2 defence source catalogue into
@@ -3354,21 +3387,23 @@ async def lifespan(app: FastAPI):
     if not _runs_singletons():  # R-F2073 — coder is a singleton (one gap-queue drainer; N would race + N× cost)
         logger.info("[R-F2073] ARIA-Coder SKIPPED (ARIA_ROLE=%s)", _aria_role())
     else:
-        try:
-            from .autonomous.coder_entrypoint import start_aria_coder
-            _coder_tasks = await start_aria_coder(app.state)
-            if _coder_tasks:
-                aria_coder_tasks = _coder_tasks
-                logger.info(
-                    "[R-F803] ARIA-Coder started with %d background tasks",
-                    len(aria_coder_tasks),
+        async def _start_aria_coder_bg():
+            try:
+                from .autonomous.coder_entrypoint import start_aria_coder
+                _coder_tasks = await start_aria_coder(app.state)
+                if _coder_tasks:
+                    aria_coder_tasks.extend(_coder_tasks)
+                    logger.info(
+                        "[R-F803] ARIA-Coder started with %d background tasks",
+                        len(aria_coder_tasks),
+                    )
+            except Exception as _coder_e:
+                # Never let a coder-init exception block the lifespan — the engine
+                # is non-essential for chat / DD traffic.
+                logger.warning(
+                    "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
                 )
-        except Exception as _coder_e:
-            # Never let a coder-init exception block the lifespan — the engine
-            # is non-essential for chat / DD traffic.
-            logger.warning(
-                "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
-            )
+        _bg_task(asyncio.create_task(_start_aria_coder_bg(), name="aria_coder_start"))
 
     # R-F1207 — start Web Integrity Agent (24/7 endpoint monitoring)
     # Monitors all 14 web endpoints every 60s, validates inputs/outputs,
@@ -3381,21 +3416,24 @@ async def lifespan(app: FastAPI):
     if not _runs_singletons():  # R-F2073 — one monitor (N would N× probe every endpoint)
         logger.info("[R-F2073] Web Integrity Agent SKIPPED (ARIA_ROLE=%s)", _aria_role())
     else:
-        try:
-            from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
-            from .intel import brain_hook as _bh_wia
-            web_integrity_agent = WebIntegrityAgent(
-                aria_service_url=f"http://localhost:{settings.effective_port}",
-                brain_hook=_bh_wia,
-                redis_store=rs if _state_connect_ok else None,
-            )
-            await web_integrity_agent.start()
-            logger.info(
-                "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
-                len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
-            )
-        except Exception as _wia_e:
-            logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
+        async def _start_web_integrity_bg():
+            nonlocal web_integrity_agent
+            try:
+                from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
+                from .intel import brain_hook as _bh_wia
+                web_integrity_agent = WebIntegrityAgent(
+                    aria_service_url=f"http://localhost:{settings.effective_port}",
+                    brain_hook=_bh_wia,
+                    redis_store=rs if _state_connect_ok else None,
+                )
+                await web_integrity_agent.start()
+                logger.info(
+                    "[R-F1207] Web Integrity Agent started — monitoring %d endpoints every 60s",
+                    len(WEB_ENDPOINTS) + len(_WEB_ENDPOINTS_PUBLIC),
+                )
+            except Exception as _wia_e:
+                logger.warning("[R-F1207] Web Integrity Agent start failed (non-fatal): %s", _wia_e)
+        _bg_task(asyncio.create_task(_start_web_integrity_bg(), name="web_integrity_start"))
 
     # R-F1253 — auto-populate agent signup vault from portal registry on boot
     try:
@@ -3441,12 +3479,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
 
     # R-F1051 -- start self-healing infrastructure
-    try:
-        from .intel.self_healing import start_self_healing
-        await start_self_healing()
-        logger.info("[R-F1051] Self-healing infrastructure started")
-    except Exception as _heal_e:
-        logger.warning("[R-F1051] Self-healing start failed (non-fatal): %s", _heal_e)
+    async def _start_self_healing_bg():
+        try:
+            from .intel.self_healing import start_self_healing
+            await start_self_healing()
+            logger.info("[R-F1051] Self-healing infrastructure started")
+        except Exception as _heal_e:
+            logger.warning("[R-F1051] Self-healing start failed (non-fatal): %s", _heal_e)
+    _bg_task(asyncio.create_task(_start_self_healing_bg(), name="self_healing_start"))
 
     # R-F1146 -- start self-restart blackout detector
     try:
@@ -3472,11 +3512,13 @@ async def lifespan(app: FastAPI):
     if not _runs_singletons():  # R-F2073 singleton (one codebase guardian)
         logger.info("[R-F2073] Eagle Eye SKIPPED (ARIA_ROLE=%s)", _aria_role())
     else:
-        try:
-            from .intel import eagle_eye
-            await eagle_eye.start()
-        except Exception as _ee_err:
-            logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
+        async def _start_eagle_eye_bg():
+            try:
+                from .intel import eagle_eye
+                await eagle_eye.start()
+            except Exception as _ee_err:
+                logger.warning("[EagleEye] Start failed (non-fatal): %s", _ee_err)
+        _bg_task(asyncio.create_task(_start_eagle_eye_bg(), name="eagle_eye_start"))
 
     # R-F1552: start Wiring Monitor (M1-M5 background checks every hour)
     _wiring_monitor_task = None
@@ -3539,12 +3581,28 @@ async def lifespan(app: FastAPI):
 
 
     # ── Shutdown ─────────────────────────────────────────────────────────
+    async def _shutdown_await(label: str, awaitable, timeout_s: float = 5.0) -> None:
+        """R-F2378: teardown must not hang the lifespan after a degraded boot."""
+        try:
+            await asyncio.wait_for(awaitable, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[R-F2378] %s shutdown exceeded %.1fs (continuing teardown)",
+                label,
+                timeout_s,
+            )
+        except Exception as e:
+            logger.warning("%s shutdown failed (non-fatal): %s", label, e)
+
     # R-F1051 -- stop self-healing infrastructure
     try:
         from .intel.self_healing import stop_self_healing
-        await stop_self_healing()
-    except Exception as _heal_e:
-        logger.warning("[R-F1051] Self-healing shutdown failed (non-fatal): %s", _heal_e)
+        await _shutdown_await("[R-F1051] Self-healing", stop_self_healing())
+    except Exception as _heal_import_e:
+        logger.warning(
+            "[R-F1051] Self-healing shutdown import failed (non-fatal): %s",
+            _heal_import_e,
+        )
 
     # R-F1146 -- stop self-restart blackout detector
     try:
@@ -3556,11 +3614,8 @@ async def lifespan(app: FastAPI):
 
     # R-F1207 -- stop Web Integrity Agent
     if web_integrity_agent is not None:
-        try:
-            await web_integrity_agent.stop()
-            logger.info("[R-F1207] Web Integrity Agent stopped")
-        except Exception as _wia_e:
-            logger.warning("[R-F1207] Web Integrity Agent stop failed: %s", _wia_e)
+        await _shutdown_await("[R-F1207] Web Integrity Agent", web_integrity_agent.stop())
+        logger.info("[R-F1207] Web Integrity Agent stop attempted")
 
     # R-F1368 -- stop LLM health checker
     # R-F2158: was `llm_health_checker` (no underscore) — a name that is NEVER
@@ -3570,23 +3625,20 @@ async def lifespan(app: FastAPI):
     # That made shutdowns unclean → left a bloated WAL → the very state_store
     # boot/timeout symptoms the R-F2116/2137/2154 chain kept band-aiding.
     if _llm_health_checker is not None:
-        try:
-            await _llm_health_checker.stop()
-            logger.info("[R-F1368] LLM health checker stopped")
-        except Exception as _hc_e:
-            logger.warning("[R-F1368] LLM health checker stop failed: %s", _hc_e)
+        await _shutdown_await("[R-F1368] LLM health checker", _llm_health_checker.stop())
+        logger.info("[R-F1368] LLM health checker stop attempted")
 
     # R-F1550: stop Eagle Eye codebase guardian
     try:
         from .intel import eagle_eye
-        await eagle_eye.stop()
-    except Exception as _ee_err:
-        logger.warning("[EagleEye] Shutdown failed (non-fatal): %s", _ee_err)
+        await _shutdown_await("[EagleEye]", eagle_eye.stop())
+    except Exception as _ee_import_err:
+        logger.warning("[EagleEye] Shutdown import failed (non-fatal): %s", _ee_import_err)
 
     # R-F1890: stop the encode-offload worker process
     try:
         from .intel import encode_offload as _eo
-        _eo.stop()
+        await _shutdown_await("[R-F1890] encode-offload", asyncio.to_thread(_eo.stop))
     except Exception as _eo_err:
         logger.warning("[R-F1890] encode-offload stop failed (non-fatal): %s", _eo_err)
 
@@ -3601,9 +3653,9 @@ async def lifespan(app: FastAPI):
 
     try:
         from .autonomous import engine as _autonomous_engine
-        await _autonomous_engine.stop_engine()
+        await _shutdown_await("Autonomous engine", _autonomous_engine.stop_engine())
     except Exception as e:
-        logger.warning("Autonomous engine shutdown failed (non-fatal): %s", e)
+        logger.warning("Autonomous engine shutdown import failed (non-fatal): %s", e)
     # R-F803: cancel ARIA-Coder background tasks. The tasks own httpx
     # clients (SovereignLLM + FlyDeployer); cancel propagates aclose.
     for _t in aria_coder_tasks:
@@ -3649,20 +3701,44 @@ async def lifespan(app: FastAPI):
         weekly_report_task.cancel()
     if watchlist_rescreen_task:
         watchlist_rescreen_task.cancel()
+    # R-F2378: cancel every supervised background task, not just the legacy
+    # hand-maintained subset above. Startup tasks moved off the pre-yield path
+    # (ARIA-Coder scans, document-reader prewarm, web integrity start, etc.) can
+    # still be running when a smoke test or deploy shutdown exits immediately.
+    # Leaving them alive makes asyncio.run wait on executor/process cleanup and
+    # can hang graceful-stop. Cancel before durability flushes below.
+    try:
+        _current_task = asyncio.current_task()
+        _pending_bg = [
+            _task for _task in list(_BG_TASKS)
+            if _task is not _current_task and not _task.done()
+        ]
+        for _task in _pending_bg:
+            _task.cancel()
+        if _pending_bg:
+            await asyncio.wait_for(
+                asyncio.gather(*_pending_bg, return_exceptions=True),
+                timeout=5.0,
+            )
+            logger.info("[R-F2378] cancelled %d supervised background tasks", len(_pending_bg))
+    except asyncio.TimeoutError:
+        logger.warning("[R-F2378] supervised background task cancellation exceeded 5.0s")
+    except Exception as e:
+        logger.warning("[R-F2378] supervised background task cancellation failed: %s", e)
     # F94: flush any pending knowledge writes to disk before exit so the
     # last <FLUSH_DEBOUNCE_S of in-memory mutations aren't lost on a
     # clean shutdown / deploy.
     try:
-        await knowledge.shutdown()
+        await _shutdown_await("knowledge", knowledge.shutdown())
     except Exception as e:
-        logger.warning("knowledge.shutdown failed (non-fatal): %s", e)
+        logger.warning("knowledge shutdown setup failed (non-fatal): %s", e)
     # F110: same protection for the intel ledger — without this, the last
     # ~2s of channel/ingest signals (and any sweep-burst mid-flush) are
     # lost on every deploy.
     try:
-        await intel_ledger.shutdown()
+        await _shutdown_await("intel_ledger", intel_ledger.shutdown())
     except Exception as e:
-        logger.warning("intel_ledger.shutdown failed (non-fatal): %s", e)
+        logger.warning("intel_ledger shutdown setup failed (non-fatal): %s", e)
     # R-F2417: flush any coalesced mastery write (R-F2408) so a graceful
     # restart persists the last learning signal. When ARIA_MASTERY_COALESCE_SAVE
     # is OFF (default) this is a no-op inline save (nothing deferred); when ON it
@@ -3670,9 +3746,9 @@ async def lifespan(app: FastAPI):
     # Own try/except — a durability flush must NEVER block or raise during
     # shutdown (fly's graceful-stop window is short; F28/R-F2158 class).
     try:
-        await student.flush_mastery()
+        await _shutdown_await("[R-F2417] mastery flush", student.flush_mastery())
     except Exception as e:
-        logger.warning("[R-F2417] mastery flush failed (non-fatal): %s", e)
+        logger.warning("[R-F2417] mastery flush setup failed (non-fatal): %s", e)
     # R-F507: stop the crawler loop cleanly so we don't leak a fetch
     # across deploys. The loop checks the stop_event before sleeping;
     # if it's mid-fetch, the task.cancel() interrupt is also caught.
@@ -3686,9 +3762,9 @@ async def lifespan(app: FastAPI):
     # R-F504: close ARIA's own search index cleanly so WAL is flushed.
     try:
         from .search_index import db as _search_db_shut
-        await _search_db_shut.close()
+        await _shutdown_await("search_index", _search_db_shut.close())
     except Exception as e:
-        logger.warning("search_index.close failed (non-fatal): %s", e)
+        logger.warning("search_index.close setup failed (non-fatal): %s", e)
     logger.info("ARIA Service shutting down")
 
 

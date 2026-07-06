@@ -20,6 +20,82 @@ from __future__ import annotations
 import asyncio
 
 
+def test_lifespan_pre_yield_top_level_awaits_are_bounded():
+    """R-F2378 guard: startup must not add unbounded top-level pre-yield awaits."""
+    import ast
+    from pathlib import Path
+
+    src = Path("aria_service/main.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    lifespan_fn = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "lifespan"
+    )
+
+    class TopLevelAwaitVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.await_nodes = []
+            self.yield_lines = []
+
+        def visit_AsyncFunctionDef(self, node):
+            if node is lifespan_fn:
+                for stmt in node.body:
+                    self.visit(stmt)
+
+        def visit_FunctionDef(self, node):
+            return
+
+        def visit_ClassDef(self, node):
+            return
+
+        def visit_Lambda(self, node):
+            return
+
+        def visit_Await(self, node):
+            self.await_nodes.append(node)
+            self.generic_visit(node)
+
+        def visit_Yield(self, node):
+            self.yield_lines.append(node.lineno)
+
+        def visit_YieldFrom(self, node):
+            self.yield_lines.append(node.lineno)
+
+    visitor = TopLevelAwaitVisitor()
+    visitor.visit(lifespan_fn)
+    first_yield = min(visitor.yield_lines)
+    pre_yield_awaits = [
+        node for node in visitor.await_nodes
+        if node.lineno < first_yield
+    ]
+
+    def _is_allowed(node):
+        value = node.value
+        if not isinstance(value, ast.Call):
+            return False
+        func = value.func
+        if isinstance(func, ast.Name) and func.id == "_run_boot_inits":
+            return True
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "wait_for"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "asyncio"
+        ):
+            return True
+        return False
+
+    offenders = [
+        f"{node.lineno}: {ast.get_source_segment(src, node)}"
+        for node in pre_yield_awaits
+        if not _is_allowed(node)
+    ]
+    assert offenders == [], (
+        "R-F2378 regression: top-level pre-yield awaits in lifespan must be "
+        f"bounded with asyncio.wait_for or routed through _run_boot_inits: {offenders}"
+    )
+
+
 def test_lifespan_starts_and_shuts_down_cleanly():
     """Enter the lifespan, then exit. If any exception fires during
     the startup or shutdown phase, the test fails.
@@ -69,8 +145,30 @@ def test_module_level_os_alias_not_shadowed_in_lifespan():
     near the top of the function will fail the test BEFORE it can ship.
     """
     import inspect
+    import ast
     from aria_service import main
     src = inspect.getsource(main.lifespan)
+    tree = ast.parse(src)
+    local_os_import_line = min(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "os" and alias.asname == "_os"
+    )
+    early_os_refs = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+        and node.id == "_os"
+        and node.lineno < local_os_import_line
+    ]
+    assert early_os_refs == [], (
+        "F28/R-F2378 regression: lifespan references `_os` before its local "
+        f"`import os as _os` on line {local_os_import_line}. Use a fresh local "
+        f"alias such as `_f28_os` instead. Early refs: {early_os_refs}"
+    )
+
     # The F28 block must use a uniquely-scoped local alias, not _os.
     # If you change the variable name, update this assertion to match.
     if "NODE_OPTIONS" in src:
