@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2373,
+  "next_available": 2380,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18012,6 +18012,69 @@
       "r_number": "R-F2372",
       "title": "remove raw bidi controls",
       "claimed_at": "2026-07-06T14:48:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2373",
+      "title": "triage weak random usage",
+      "claimed_at": "2026-07-06T17:50:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2374",
+      "title": "Fix live web brain signal delivery and sweep telemetry",
+      "claimed_at": "2026-07-06T18:06:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2375",
+      "title": "Fix live web brain signal delivery and sweep telemetry unique",
+      "claimed_at": "2026-07-06T18:06:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2376",
+      "title": "Fix live web brain delivery and health telemetry",
+      "claimed_at": "2026-07-06T18:09:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2377",
+      "title": "fix adverse media search result normalization",
+      "claimed_at": "2026-07-06T18:49:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2378",
+      "title": "bound state store WAL checkpoints",
+      "claimed_at": "2026-07-06T18:55:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2379",
+      "title": "DD reports page — full button/touch-point verification and smoke test",
+      "claimed_at": "2026-07-06T21:54:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
