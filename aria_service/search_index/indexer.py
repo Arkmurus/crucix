@@ -50,7 +50,7 @@ _MAX_BODY_BYTES = 200_000  # 200 KB cap per document
 # Drop C0 control chars except \t \n \r; drop C1 controls; collapse
 # whitespace; strip zero-width characters that hide injected text.
 _CONTROL_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]")
-_ZWS_RX = re.compile(r"[​-‏‪-‮﻿]")
+_ZWS_RX = re.compile(r"[\u200b-\u200f\u202a-\u202e\ufeff]")
 _MULTI_WS_RX = re.compile(r"[ \t]{2,}")
 _MULTI_NL_RX = re.compile(r"\n{3,}")
 

@@ -440,6 +440,9 @@ _RAG_INGEST_MAX_BYTES = 1_048_576  # 1 MB hard cap
 
 # Lazy-loaded BeautifulSoup; fall back to regex if bs4 missing.
 _HTML_TAG_RE = __import__("re").compile(r"<[^>]+>")
+_HTML_DANGEROUS_BLOCK_RE = __import__("re").compile(
+    r"(?is)<(script|style|noscript)\b[^>]*>.*?</\1>"
+)
 _CONTROL_CHARS_RE = __import__("re").compile(
     # All C0/C1 control chars EXCEPT \n (\x0a), \r (\x0d), \t (\x09)
     r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"
@@ -448,7 +451,7 @@ _CONTROL_CHARS_RE = __import__("re").compile(
 # review but get parsed as regular text by the LLM. Includes ZWSP/ZWNJ/
 # ZWJ/word joiner/BOM/LRM/RLM/etc.
 _ZERO_WIDTH_RE = __import__("re").compile(
-    "[​‌‍⁠﻿‎‏‪-‮]"
+    r"[\u200b\u200c\u200d\u2060\ufeff\u200e\u200f\u202a-\u202e]"
 )
 
 
@@ -500,6 +503,7 @@ def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
     #    requirements.txt — but defensive).
     if "<" in text and ">" in text:
         try:
+            text = _HTML_DANGEROUS_BLOCK_RE.sub(" ", text)
             from bs4 import BeautifulSoup  # type: ignore
             soup = BeautifulSoup(text, "lxml")
             # Drop <script>, <style>, <noscript> entirely (their text
@@ -511,6 +515,7 @@ def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
             text = new_text
         except Exception:
             # Regex fallback — less precise but always works
+            text = _HTML_DANGEROUS_BLOCK_RE.sub(" ", text)
             new_text = _HTML_TAG_RE.sub(" ", text)
             meta["html_stripped"] = max(0, len(text) - len(new_text))
             text = new_text
@@ -528,7 +533,7 @@ def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
         text = _ZERO_WIDTH_RE.sub("", text)
 
     # 6. Collapse runs of whitespace — HTML strip often leaves "       "
-    text = __import__("re").sub(r"[ \t]+", " ", text)
+    text = __import__("re").sub(r" {2,}", " ", text)
     text = __import__("re").sub(r"\n{3,}", "\n\n", text)
     return text.strip(), meta
 
