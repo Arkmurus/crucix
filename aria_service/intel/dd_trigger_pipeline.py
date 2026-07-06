@@ -350,7 +350,7 @@ async def trigger_dd_for_entity(
         report = await _dd.orchestrate_dd(
             target=target,
             mode="quick",  # Quick mode for automated triggers
-            trace_id=f"auto_dd_{hashlib.md5(entity_name.encode()).hexdigest()[:8]}",
+            trace_id=f"auto_dd_{hashlib.md5(entity_name.encode(), usedforsecurity=False).hexdigest()[:8]}",
         )
 
         dd_succeeded = True

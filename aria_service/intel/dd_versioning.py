@@ -133,7 +133,7 @@ def _name_hash(name: str) -> str:
     norm = normalize_name(name)
     if not norm:
         return ""
-    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(norm.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 def _scrub_regnum(regnum: str) -> str:

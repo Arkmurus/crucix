@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2371,
+  "next_available": 2372,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -17990,6 +17990,15 @@
       "r_number": "R-F2370",
       "title": "replace unsafe xml parsing",
       "claimed_at": "2026-07-06T14:02:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2371",
+      "title": "triage weak hash usage",
+      "claimed_at": "2026-07-06T14:12:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

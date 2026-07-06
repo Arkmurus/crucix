@@ -664,7 +664,7 @@ class PowerShellMaster:
 
     async def create_session(self) -> PowerShellSession:
         """Create a persistent PowerShell session."""
-        session_id = hashlib.md5(os.urandom(32)).hexdigest()[:16]
+        session_id = hashlib.md5(os.urandom(32), usedforsecurity=False).hexdigest()[:16]
         await self.execute(f"$global:ARIA_SESSION_ID = '{session_id}'")
         session = PowerShellSession(
             id=session_id,

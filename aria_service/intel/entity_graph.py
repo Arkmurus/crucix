@@ -463,7 +463,7 @@ def _risk_rank(level: str) -> int:
 def _entity_id(entity_type: str, jurisdiction: str, identifier: str) -> str:
     """Generate a deterministic entity ID."""
     raw = f"{entity_type}:{jurisdiction}:{identifier}".lower().strip()
-    h = hashlib.md5(raw.encode()).hexdigest()[:10]
+    h = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:10]
     return f"{entity_type}:{h}"
 
 

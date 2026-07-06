@@ -111,7 +111,7 @@ def _infer_market(entity_name: str, claim: str) -> str:
 
 
 def _candidate_id(fact_id: str, template_key: str) -> str:
-    return hashlib.md5(f"{fact_id}:{template_key}".encode()).hexdigest()[:12]
+    return hashlib.md5(f"{fact_id}:{template_key}".encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 async def _existing_signatures() -> set[str]:

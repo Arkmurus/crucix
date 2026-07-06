@@ -228,7 +228,7 @@ _TIER_1A_REGISTRY_DOMAINS = {
 def _candidate_id(url: str) -> str:
     return hashlib.md5(
         f"{url}{datetime.now(timezone.utc).isoformat()}".encode()
-    ).hexdigest()[:12]
+    , usedforsecurity=False).hexdigest()[:12]
 
 
 async def _fetch(url: str, timeout: float = 10.0) -> tuple[int, str]:

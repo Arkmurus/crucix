@@ -1370,7 +1370,7 @@ async def store_fact(topic: str, content: str, source: str = "user",
     import hashlib as _hashlib
     _content_hash = _hashlib.sha1(
         (content[:300] or "").strip().lower().encode("utf-8")
-    ).hexdigest()[:16]
+    , usedforsecurity=False).hexdigest()[:16]
     _source_domain = ""
     try:
         _src_lower = (source or "").lower()

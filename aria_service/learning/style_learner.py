@@ -273,7 +273,7 @@ async def _save_exemplars(data: dict[str, list[dict[str, Any]]]) -> None:
 
 
 def _exemplar_hash(reply: str, user: str) -> str:
-    return hashlib.sha1((user[:200] + "||" + reply[:400]).encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return hashlib.sha1((user[:200] + "||" + reply[:400]).encode("utf-8", errors="ignore"), usedforsecurity=False).hexdigest()[:12]
 
 
 # ═══════════════════════════════════════════════════════════════════════

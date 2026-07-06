@@ -241,7 +241,7 @@ def _ensure() -> bool:
 def _generate_id(prefix: str, content: str) -> str:
     """Deterministic ID for dedup across re-indexes."""
     raw = f"{prefix}|{content}"
-    return f"{prefix}_{hashlib.md5(raw.encode('utf-8')).hexdigest()[:16]}"
+    return f"{prefix}_{hashlib.md5(raw.encode('utf-8'), usedforsecurity=False).hexdigest()[:16]}"
 
 
 # ── Public API: Indexing ──────────────────────────────────────────────────────

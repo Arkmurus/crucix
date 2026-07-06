@@ -1016,7 +1016,7 @@ class ARIAVerificationEngine:
 
         fact_id = hashlib.md5(
             f"{entity_name}{fact_type.value}{claim_value}".encode()
-        ).hexdigest()[:16]
+        , usedforsecurity=False).hexdigest()[:16]
 
         # Check for existing verified fact
         existing = self._load_fact(fact_id)

@@ -40,7 +40,7 @@ class CommandCache:
     def _key(self, command: str) -> str:
         """Generate a stable key, normalising whitespace."""
         norm = " ".join(command.split())
-        return hashlib.md5(norm.encode()).hexdigest()
+        return hashlib.md5(norm.encode(), usedforsecurity=False).hexdigest()
 
     def get(self, command: str) -> dict[str, Any] | None:
         """Return cached output if fresh, else None."""

@@ -291,7 +291,7 @@ class ARIACostMonitor:
         import hashlib
         request_id = hashlib.md5(
             f"{task_id}{time.time()}".encode()
-        ).hexdigest()[:12]
+        , usedforsecurity=False).hexdigest()[:12]
 
         cost = compute_cost(model, input_tokens, output_tokens)
 

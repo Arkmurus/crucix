@@ -125,7 +125,7 @@ async def ingest_pdf_multi_page(
         return out
 
     out["total_pages"] = doc.page_count
-    pdf_hash = hashlib.sha1(pdf_bytes[:1024] + pdf_bytes[-1024:]).hexdigest()[:12]
+    pdf_hash = hashlib.sha1(pdf_bytes[:1024] + pdf_bytes[-1024:], usedforsecurity=False).hexdigest()[:12]
 
     for page_idx in range(doc.page_count):
         # R-F2085 — yield the event loop between pages. The per-page work below

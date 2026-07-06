@@ -411,7 +411,7 @@ Return [] if no material claims found."""
                 claim_id = hashlib.md5(
                     f"{counterparty}{item.get('claim_summary', '')}"
                     f"{datetime.now().isoformat()}".encode()
-                ).hexdigest()[:12]
+                , usedforsecurity=False).hexdigest()[:12]
                 try:
                     cat = ClaimCategory[item.get("category", "CAPABILITY")]
                 except KeyError:
@@ -518,7 +518,7 @@ If no contradiction, return: {{"contradicts": false}}"""
             return Contradiction(
                 contradiction_id=hashlib.md5(
                     f"{new_claim.claim_id}{prior_claim.claim_id}".encode()
-                ).hexdigest()[:12],
+                , usedforsecurity=False).hexdigest()[:12],
                 claim_a=prior_claim,
                 claim_b=new_claim,
                 severity=ContradictionSeverity[

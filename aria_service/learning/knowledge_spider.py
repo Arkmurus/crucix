@@ -154,7 +154,7 @@ async def _mark_visited(url: str) -> None:
 
 
 def _url_hash(url: str) -> str:
-    return hashlib.sha1(url.lower().encode("utf-8", errors="ignore")).hexdigest()
+    return hashlib.sha1(url.lower().encode("utf-8", errors="ignore"), usedforsecurity=False).hexdigest()
 
 
 # ═══════════════════════════════════════════════════════════════════════

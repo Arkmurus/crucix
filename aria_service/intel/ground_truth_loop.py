@@ -283,7 +283,7 @@ class ARIAGroundTruthLoop:
         assessment_id = hashlib.md5(
             f"{assessment_type.value}{subject}"
             f"{datetime.now().isoformat()}".encode()
-        ).hexdigest()[:12]
+        , usedforsecurity=False).hexdigest()[:12]
 
         record = AssessmentRecord(
             assessment_id=assessment_id,
@@ -564,7 +564,7 @@ class ARIALivingConstitution:
 
         clause_id = hashlib.md5(
             f"{incident_description}{datetime.now().isoformat()}".encode()
-        ).hexdigest()[:12]
+        , usedforsecurity=False).hexdigest()[:12]
 
         clause = ConstitutionClause(
             clause_id=clause_id,
@@ -821,7 +821,7 @@ async def record_assessment_async(
 
     assessment_id = hashlib.md5(
         f"{assessment_type.value}{subject}{datetime.now().isoformat()}".encode()
-    ).hexdigest()[:12]
+    , usedforsecurity=False).hexdigest()[:12]
 
     record = {
         "assessment_id": assessment_id,

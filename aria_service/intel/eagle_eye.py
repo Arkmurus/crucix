@@ -202,7 +202,7 @@ class EagleEyeGuardian:
         for file_path in python_files:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
-                file_hash = hashlib.md5(content.encode()).hexdigest()
+                file_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
                 prev_hash = self.file_hashes.get(str(file_path))
                 is_changed = prev_hash != file_hash
 
@@ -245,7 +245,7 @@ class EagleEyeGuardian:
         self.change_history[str(file_path)].append({
             "timestamp": datetime.now().isoformat(),
             "size": len(content),
-            "hash": hashlib.md5(content.encode()).hexdigest(),
+            "hash": hashlib.md5(content.encode(), usedforsecurity=False).hexdigest(),
         })
         if len(self.change_history[str(file_path)]) > _MAX_CHANGE_HISTORY:
             self.change_history[str(file_path)] = self.change_history[str(file_path)][-_MAX_CHANGE_HISTORY:]
@@ -470,7 +470,7 @@ class EagleEyeGuardian:
     def _generate_id(self, prefix: str, file_path: Path, line: int) -> str:
         """Generate unique ID for a trouble spot."""
         raw = f"{file_path}{line}"
-        return f"{prefix}_{hashlib.md5(raw.encode()).hexdigest()[:8]}"
+        return f"{prefix}_{hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:8]}"
 
     def _save_metrics(self) -> None:
         """Save metrics to disk."""

@@ -303,7 +303,7 @@ async def run_hourly_journal() -> dict[str, Any]:
         },
         "hash": hashlib.sha1(
             f"{now.isoformat()}|{len(successes)}|{len(failures)}|{len(novelties)}".encode()
-        ).hexdigest()[:12],
+        , usedforsecurity=False).hexdigest()[:12],
     }
 
     # Persist — keep last _MAX_ENTRIES

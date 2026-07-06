@@ -216,7 +216,7 @@ def _severity(text: str, source_tier_score: float) -> float:
 
 
 def _hash_id(*parts: str) -> str:
-    h = hashlib.md5("|".join(p or "" for p in parts).encode()).hexdigest()[:12]
+    h = hashlib.md5("|".join(p or "" for p in parts).encode(), usedforsecurity=False).hexdigest()[:12]
     return h
 
 

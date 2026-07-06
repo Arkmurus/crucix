@@ -1037,7 +1037,7 @@ async def _query_memory(
                 _id = hashlib.sha1(
                     (h.get("source") or h.get("title") or h.get("text") or "")[:200]
                     .encode("utf-8")
-                ).hexdigest()[:12]
+                , usedforsecurity=False).hexdigest()[:12]
                 url = f"memory://{_id}"
             out.append(SearchResult(
                 title=(h.get("title") or h.get("source") or "memory")[:200],
@@ -1325,7 +1325,7 @@ def _search_cache_key(query: str, language: str) -> str:
     """Generate a cache key from query + language."""
     import hashlib
     raw = f"{query.lower().strip()}|{language}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 def _search_cache_get(key: str) -> list[SearchResult] | None:

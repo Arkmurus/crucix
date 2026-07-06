@@ -473,7 +473,7 @@ async def prepare_weak_topics(llm=None) -> int:
         announce_list = studyable[:3] if studyable else (starved[:3] if starved else [])
         ann_hash = _hl.sha1(
             ",".join(sorted(announce_list)).encode("utf-8")
-        ).hexdigest()[:12]
+        , usedforsecurity=False).hexdigest()[:12]
         last_hash = (await rs.get(LAST_MASTERY_PREP_HASH_KEY) or "").strip()
         if ann_hash == last_hash:
             logger.info(

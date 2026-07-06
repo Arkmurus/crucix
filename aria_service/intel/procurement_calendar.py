@@ -349,7 +349,7 @@ def _next_occurrence(anchor: datetime, cycle_days: int, recurrence: str, now: da
 
 
 def _event_id(iso2: str, event_type: str, title: str, anchor_date: str) -> str:
-    h = hashlib.md5(f"{iso2}|{event_type}|{title}|{anchor_date}".encode()).hexdigest()[:12]
+    h = hashlib.md5(f"{iso2}|{event_type}|{title}|{anchor_date}".encode(), usedforsecurity=False).hexdigest()[:12]
     return h
 
 

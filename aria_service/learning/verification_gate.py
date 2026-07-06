@@ -361,7 +361,7 @@ async def verify(
             "at": result["verified_at"],
             "hash": hashlib.sha1(
                 (primary_text[:500] + "||" + secondary_text[:500]).encode("utf-8", errors="ignore")
-            ).hexdigest()[:12],
+            , usedforsecurity=False).hexdigest()[:12],
         })
         await rs.set_json(_REDIS_RECENT_KEY, recent[-_MAX_RECENT:])
 

@@ -268,7 +268,7 @@ async def remove_url(url: str) -> bool:
     if removed:
         await save_registry(registry)
         # Clean up content hash
-        await rs.delete(f"{HASH_KEY_PREFIX}{hashlib.md5(url.encode()).hexdigest()}")
+        await rs.delete(f"{HASH_KEY_PREFIX}{hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()}")
     return removed
 
 
@@ -329,8 +329,8 @@ async def crawl_and_index(url: str, tier: str = "C") -> dict:
             return {"indexed": False, "chunks": 0, "error": "extraction empty"}
 
         # Check if content changed since last crawl
-        content_hash = hashlib.md5(text.encode()).hexdigest()
-        hash_key = f"{HASH_KEY_PREFIX}{hashlib.md5(url.encode()).hexdigest()}"
+        content_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
+        hash_key = f"{HASH_KEY_PREFIX}{hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()}"
         old_hash = await rs.get(hash_key)
         if old_hash == content_hash:
             return {"indexed": False, "chunks": 0, "unchanged": True}

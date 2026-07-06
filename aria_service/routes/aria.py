@@ -13213,7 +13213,7 @@ async def _read_document_ep_impl(request: Request):
     # arriving via two channels still dedupes).
     import hashlib as _hashlib
     _norm = (content or "").strip().encode("utf-8", errors="ignore")
-    _doc_hash = _hashlib.sha1(_norm).hexdigest()[:16]
+    _doc_hash = _hashlib.sha1(_norm, usedforsecurity=False).hexdigest()[:16]
     _dedupe_key = f"crucix:aria:read_doc_dedupe:{_doc_hash}"
     try:
         from ..intel import redis_store as _rs_dedup
@@ -26885,7 +26885,7 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
         _same = sum(1 for e in existing if _srcdom((e.get("site_url") or "").strip()) == _new_dom)
         if _cap > 0 and _same >= _cap:
             return {"success": False, "error": f"you already have {_same} source(s) from '{_new_dom}' — add a DIFFERENT domain to keep your intelligence diverse; multiple feeds from one site create repetitive, echo-chamber data."}
-    sid = "u_" + hashlib.sha1(f"{user_id}|{url}".encode()).hexdigest()[:16]
+    sid = "u_" + hashlib.sha1(f"{user_id}|{url}".encode(), usedforsecurity=False).hexdigest()[:16]
     # R-F2213 — probe the URL so the stored status is TRUTHFUL (§22). Pre-fix this
     # hardcoded status="verified" with NO fetch, so a typo/dead URL entered the poll
     # set already labelled "verified". The probe is SSRF-safe because validate_url

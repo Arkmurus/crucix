@@ -1279,7 +1279,7 @@ def inject_to_chromadb(chroma_collection) -> dict:
         for i, chunk in enumerate(chunks):
             if len(chunk) < 100:
                 continue
-            cid = hashlib.md5(f"regional_{name}_{i}".encode()).hexdigest()
+            cid = hashlib.md5(f"regional_{name}_{i}".encode(), usedforsecurity=False).hexdigest()
             try:
                 chroma_collection.add(
                     documents=[chunk], ids=[cid],

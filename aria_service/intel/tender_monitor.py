@@ -231,7 +231,7 @@ class TenderAlert:
             self.detected_at = datetime.now(timezone.utc).isoformat()
         if not self.id:
             # Generate deterministic ID from portal + title
-            h = hashlib.md5(f"{self.portal}:{self.title}".encode()).hexdigest()[:8]
+            h = hashlib.md5(f"{self.portal}:{self.title}".encode(), usedforsecurity=False).hexdigest()[:8]
             self.id = f"tender_{h}"
 
     def to_dict(self) -> dict:

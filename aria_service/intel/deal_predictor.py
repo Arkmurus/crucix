@@ -48,7 +48,7 @@ def _stable_deal_id(deal: dict[str, Any]) -> str:
     if deal.get("id"):
         return str(deal["id"])
     digest_src = "|".join(str(deal.get(k) or "") for k in ("name", "counterparty", "country", "type"))
-    return "deal_" + hashlib.sha1(digest_src.encode("utf-8")).hexdigest()[:12]
+    return "deal_" + hashlib.sha1(digest_src.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 def _deal_to_query(deal: dict[str, Any]) -> str:

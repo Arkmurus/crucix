@@ -352,7 +352,7 @@ async def record_task_cost(usd: float) -> None:
 def _entity_hash(entity: str) -> str:
     """Stable short hash of an entity string for dedup keys."""
     import hashlib
-    return hashlib.sha1((entity or "").strip().lower().encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1((entity or "").strip().lower().encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")

@@ -607,7 +607,7 @@ async def ingest_document(
     content_hashes = []
     for i, chunk in enumerate(chunks):
         cid = _hash_id(chunk, source)
-        chash = hashlib.sha1(chunk.strip().encode("utf-8")).hexdigest()[:16]
+        chash = hashlib.sha1(chunk.strip().encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
         meta = dict(base_meta)
         meta["chunk_index"] = i
         meta["chunk_count"] = len(chunks)

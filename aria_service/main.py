@@ -3246,7 +3246,7 @@ async def lifespan(app: FastAPI):
                 mod_path = _Path(__file__).parent / "intel" / f"{modname}.py"
                 if not mod_path.exists():
                     return ""
-                h = _hashlib.md5()
+                h = _hashlib.md5(usedforsecurity=False)
                 h.update(mod_path.read_bytes())
                 return h.hexdigest()
             except Exception:

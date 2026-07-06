@@ -40,7 +40,7 @@ _DEDUPE_KEY_PREFIX = "crucix:aria:capability_gaps:dedupe:"
 
 
 def _gap_fingerprint(gap_type: str, detail: str) -> str:
-    return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8")).hexdigest()
+    return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8"), usedforsecurity=False).hexdigest()
 
 VALID_GAP_TYPES = frozenset({
     "file_parse",

@@ -150,7 +150,7 @@ def _now() -> datetime:
 
 
 def _hash_id(*parts: str) -> str:
-    return hashlib.md5("|".join((p or "") for p in parts).encode()).hexdigest()[:12]
+    return hashlib.md5("|".join((p or "") for p in parts).encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 def _normalise(raw: dict) -> dict:
