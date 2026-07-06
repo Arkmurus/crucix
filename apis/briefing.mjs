@@ -5,7 +5,6 @@
 
 import './utils/env.mjs'; // Load API keys from .env
 import { pathToFileURL } from 'node:url';
-import { redisPush } from '../lib/persist/store.mjs';
 
 // Hooks injected by server.mjs after startup — zero coupling
 let _onSourceSuccess = null;
@@ -479,8 +478,9 @@ export async function fullBriefing() {
 // After a sweep, push top procurement/defence signals into the Python brain queue.
 // The brain reads from crucix:brain:incoming_signals and generates ML leads.
 
-const BRAIN_SIGNAL_KEY   = 'crucix:brain:incoming_signals';
 const BRAIN_SIGNAL_LIMIT = 30; // max signals pushed per sweep
+const BRAIN_SIGNAL_CONCURRENCY = 4;
+const BRAIN_SIGNAL_TIMEOUT_MS = 3000;
 
 // Source names that carry defence/procurement intelligence
 const BRAIN_SOURCE_WHITELIST = new Set([
@@ -502,6 +502,48 @@ function tobrainSignal(item, sourceName) {
     keywords:     item.keywords || item.tags || [],
     urgency:      item.urgency || item.priority || 'MEDIUM',
   };
+}
+
+function _brainSignalUrl() {
+  const base = (process.env.ARIA_SERVICE_URL || process.env.ARIA_BRAIN_URL || '').replace(/\/+$/, '');
+  return base ? `${base}/api/aria/brain/signal` : '';
+}
+
+function _brainSignalHeaders() {
+  const token = (
+    process.env.ARIA_INTERNAL_TOKEN
+    || process.env.ARIA_SERVICE_TOKEN
+    || process.env.ARIA_API_TOKEN
+    || ''
+  ).trim();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function _signalContent(signal) {
+  const title = signal.title || signal.content || 'Crucix briefing signal';
+  const body = signal.content && signal.content !== title ? `\n\n${signal.content}` : '';
+  return `${title}${body}`.slice(0, 1800);
+}
+
+async function _mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      try {
+        results[index] = await fn(items[index], index);
+      } catch (err) {
+        results[index] = { ok: false, error: err?.message || String(err) };
+      }
+    }
+  }));
+  return results;
 }
 
 export async function pushSignalsToBrain(sweepOutput) {
@@ -531,34 +573,47 @@ export async function pushSignalsToBrain(sweepOutput) {
 
     if (signals.length === 0) return;
 
-    // NOTE: redisPush is a no-op since Upstash retirement (R-F745).
-    // Real brain delivery is via pushSweepToARIA → /api/aria/ingest.
-    // R-F1165: report the skip to the brain so the gap_detector sees it.
-    console.log(`[Crucix Brain] ${signals.length} signals skipped (redisPush is no-op since Upstash retirement — use pushSweepToARIA instead)`);
-    // Fire-and-forget brain signal about the dead path
-    try {
-      const brainBase = process.env.ARIA_SERVICE_URL || '';
-      const brainToken = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
-      if (brainBase) {
-        fetch(`${brainBase}/api/aria/brain/signal`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(brainToken ? { 'Authorization': `Bearer ${brainToken}` } : {}),
+    const url = _brainSignalUrl();
+    if (!url) {
+      console.warn(`[Crucix Brain] ${signals.length} signals not delivered — ARIA_SERVICE_URL/ARIA_BRAIN_URL unset`);
+      return { delivered: 0, failed: signals.length, reason: 'missing_brain_url' };
+    }
+
+    const headers = _brainSignalHeaders();
+    const results = await _mapWithConcurrency(signals, BRAIN_SIGNAL_CONCURRENCY, async (signal) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          content: _signalContent(signal),
+          source: `briefing:${signal.source || 'unknown'}`,
+          signal_type: 'crucix_briefing_signal',
+          metadata: {
+            module: 'briefing.mjs',
+            title: signal.title,
+            url: signal.url,
+            market: signal.market,
+            published_at: signal.published_at,
+            urgency: signal.urgency,
+            keywords: signal.keywords,
           },
-          body: JSON.stringify({
-            content: `pushSignalsToBrain skipped ${signals.length} signals — redisPush is a no-op since Upstash retirement`,
-            source: 'briefing:pushSignalsToBrain',
-            signal_type: 'capability_gap',
-            metadata: { signals_count: signals.length, module: 'briefing.mjs' },
-          }),
-          signal: AbortSignal.timeout(3000),
-        }).catch(() => {});
+        }),
+        signal: AbortSignal.timeout(BRAIN_SIGNAL_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        return { ok: false, status: response.status };
       }
-    } catch (_) { /* best-effort */ }
+      return { ok: true, status: response.status };
+    });
+
+    const delivered = results.filter(r => r?.ok).length;
+    const failed = signals.length - delivered;
+    console.log(`[Crucix Brain] delivered ${delivered}/${signals.length} briefing signals to ARIA brain${failed ? ` (${failed} failed)` : ''}`);
+    return { delivered, failed };
   } catch (e) {
     // Non-fatal — brain integration should never break the sweep
     console.error('[Crucix Brain] Signal push failed (non-fatal):', e.message);
+    return { delivered: 0, failed: 0, error: e.message };
   }
 }
 

@@ -115,7 +115,9 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     # Health & status
     {"path": "/health/live", "method": "GET", "expected": {"build_rev"}, "critical": True},
     {"path": "/api/aria/health", "method": "GET", "expected": {"status"}, "critical": True},
-    {"path": "/api/aria/status", "method": "GET", "expected": {"status"}, "critical": False},
+    # R-F2376: removed stale /api/aria/status probe. Live localhost probe
+    # returned 404 every cycle; keeping it in the monitor created noise while
+    # still counting the cycle as passed.
 
     # Intelligence outputs
     # R-F1601: /self/assess/briefing exists but requires auth — the agent
@@ -130,7 +132,8 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
 
     # Self-improvement
     {"path": "/api/aria/self/staged", "method": "GET", "expected": {}, "critical": False},
-    {"path": "/api/aria/self/improvements", "method": "GET", "expected": {}, "critical": False},
+    # R-F2376: removed stale /api/aria/self/improvements probe. Production
+    # logs showed 404; /self/staged remains as the live staged queue probe.
 
     # Cost & autonomy
     {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"total", "monthly_cap"}, "critical": False},

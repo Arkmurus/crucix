@@ -193,6 +193,34 @@ from ..intel import honesty_judge
 
 import logging
 _log = logging.getLogger("aria.routes")
+_PREDICTOR_BLOCKS_24H_CACHE: dict[str, float | int] = {
+    "value": 0,
+    "expires_at": 0.0,
+}
+
+
+async def _get_predictor_blocks_24h_cached(ttl_s: float = 120.0) -> int:
+    """Return predictor block count without hammering state_store from health.
+
+    Live R-F2376 evidence: /health and /health/perf refreshes coincided with
+    `state_store.get(crucix:predictor:blocks:24h) timed out after 5s`. This
+    counter is diagnostic, not a safety gate, so serve a short stale value when
+    SQLite is contended instead of making every health poll queue another read.
+    """
+    now = time.monotonic()
+    cached_value = int(_PREDICTOR_BLOCKS_24H_CACHE.get("value", 0) or 0)
+    if now < float(_PREDICTOR_BLOCKS_24H_CACHE.get("expires_at", 0.0) or 0.0):
+        return cached_value
+    try:
+        raw = await rs.get("crucix:predictor:blocks:24h")
+        value = int(raw or 0)
+        _PREDICTOR_BLOCKS_24H_CACHE["value"] = value
+        _PREDICTOR_BLOCKS_24H_CACHE["expires_at"] = now + ttl_s
+        return value
+    except Exception as exc:
+        _PREDICTOR_BLOCKS_24H_CACHE["expires_at"] = now + min(ttl_s, 30.0)
+        _log.debug("predictor_blocks_24h cached fallback after state read failure: %s", exc)
+        return cached_value
 
 # R-F2138 — module-level auth context. Set by require_aria_token on every
 # authenticated request. True when the internal/service token was used,
@@ -23873,11 +23901,7 @@ async def health_check_ep():
     mode = (await om.get_mode()).name
 
     # Predictor blocks in 24h
-    blocks_24h = 0
-    try:
-        blocks_24h = int(await rs.get("crucix:predictor:blocks:24h") or 0)
-    except Exception:
-        pass
+    blocks_24h = await _get_predictor_blocks_24h_cached()
 
     # Circuit breaker summary
     breakers = cb.get_all_breakers()
@@ -25092,11 +25116,7 @@ async def predictor_block_rate_ep():
             domains[domain] = count
         except Exception:
             pass
-    blocks_24h = 0
-    try:
-        blocks_24h = int(await rs.get("crucix:predictor:blocks:24h") or 0)
-    except Exception:
-        pass
+    blocks_24h = await _get_predictor_blocks_24h_cached()
     return {"blocks_24h": blocks_24h, "by_domain": domains}
 
 

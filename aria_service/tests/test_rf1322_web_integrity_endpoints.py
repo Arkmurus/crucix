@@ -75,7 +75,6 @@ def test_known_endpoint_paths_exist():
         '/api/aria/report',
         '/api/aria/dd/watchlist/alerts/unread-count',
         '/api/aria/self/staged',
-        '/api/aria/self/improvements',
         '/api/aria/cost/monthly/status',
         '/autonomous/status',
         '/api/aria/adversarial/stats',
@@ -85,3 +84,10 @@ def test_known_endpoint_paths_exist():
         # The route might be defined with or without /api/aria prefix
         search_key = route.replace('/api/aria', '')
         assert search_key in routes, f"Route '{route}' (search_key='{search_key}') not found in routes/aria.py"
+
+
+def test_stale_404_probe_paths_removed():
+    """Live logs showed these monitor probes return 404 while still passing."""
+    source = _agent_source()
+    assert '"/api/aria/status"' not in source
+    assert '"/api/aria/self/improvements"' not in source

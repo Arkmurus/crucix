@@ -28,8 +28,8 @@ function _src() { return readFileSync(portalsPath, 'utf8'); }
 test('R-F578: outer-cap timeout is ≥60s', () => {
   const src = _src();
   // Look for the setTimeout(..., N) inside the timeoutPromise block
-  const m = src.match(/timeoutPromise[\s\S]{0,400}setTimeout\(\s*\(\)\s*=>\s*resolve\(\s*['"]TIMEOUT['"]\s*\)\s*,\s*(\d+)\s*\)/);
-  assert.ok(m, 'R-F578: could not find the outer-cap setTimeout call');
+  const m = src.match(/const\s+PORTAL_OUTER_TIMEOUT_MS\s*=\s*(\d+)/);
+  assert.ok(m, 'R-F578: could not find PORTAL_OUTER_TIMEOUT_MS');
   const ms = parseInt(m[1], 10);
   assert.ok(ms >= 60000,
     `R-F578 regression: outer cap dropped to ${ms}ms (<60000ms). ` +
@@ -65,4 +65,25 @@ test('R-F578: source is syntactically valid', () => {
   const close = (src.match(/\}/g) || []).length;
   assert.ok(Math.abs(open - close) < 10,
     `Brace imbalance: { = ${open}, } = ${close}`);
+});
+
+
+test('R-F2376: partial-timeout telemetry reports 60s and excludes placeholder market', () => {
+  const src = _src();
+  assert.ok(
+    src.includes('PORTAL_OUTER_TIMEOUT_MS / 1000') && src.includes('s internal timeout'),
+    'R-F2376: timeout log must be derived from the real 60s cap, not stale 25s text',
+  );
+  assert.ok(
+    src.includes("market: { name: '__timeout__' }"),
+    'R-F2376: partial drain must use an internal placeholder market',
+  );
+  assert.ok(
+    src.includes("if (market?.name === '__timeout__') continue;"),
+    'R-F2376: timeout placeholders must not be counted as failed real markets',
+  );
+  assert.ok(
+    !src.includes('25s internal timeout'),
+    'R-F2376: stale 25s timeout log text must not return',
+  );
 });

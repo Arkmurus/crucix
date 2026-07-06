@@ -13,6 +13,8 @@ import { withConcurrency, shouldSkip, recordFailure, recordSuccess } from '../..
 
 const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
+const PORTAL_OUTER_TIMEOUT_MS = 60000;
+const PARTIAL_DRAIN_TIMEOUT_MS = 100;
 
 // Markets worth portal-monitoring (skip very-low-priority + no portal)
 const PRIORITY_MARKETS = TARGET_MARKETS.filter(m =>
@@ -260,7 +262,7 @@ export async function briefing() {
   // we don't blow the parent's tally. Coverage was 4-19/28; expected
   // post-R-F578 is 26-28/28 every sweep.
   const timeoutPromise = new Promise(resolve =>
-    setTimeout(() => resolve('TIMEOUT'), 60000)
+    setTimeout(() => resolve('TIMEOUT'), PORTAL_OUTER_TIMEOUT_MS)
   );
 
   const raceResult = await Promise.race([
@@ -271,9 +273,15 @@ export async function briefing() {
   // If timeout hit, collect whatever has resolved so far
   let results;
   if (raceResult === 'TIMEOUT') {
-    console.log('[Portals] 25s internal timeout — collecting partial results');
+    console.log(`[Portals] ${PORTAL_OUTER_TIMEOUT_MS / 1000}s internal timeout — collecting partial results`);
     results = await Promise.allSettled(
-      marketPromises.map(p => Promise.race([p, new Promise(resolve => setTimeout(() => resolve({ market: { name: 'timeout' }, items: [], method: 'none' }), 100))]))
+      marketPromises.map(p => Promise.race([
+        p,
+        new Promise(resolve => setTimeout(
+          () => resolve({ market: { name: '__timeout__' }, items: [], method: 'timeout', skipped: true }),
+          PARTIAL_DRAIN_TIMEOUT_MS,
+        )),
+      ]))
     );
   } else {
     results = raceResult;
@@ -286,6 +294,7 @@ export async function briefing() {
   for (const result of results) {
     if (result.status !== 'fulfilled') continue;
     const { market, items, method } = result.value;
+    if (market?.name === '__timeout__') continue;
 
     sourceStatus[market.name] = method !== 'none' ? 'ok' : 'failed';
     marketCoverage[market.name] = { count: items.length, method };
