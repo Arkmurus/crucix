@@ -112,7 +112,7 @@ async def should_collect() -> bool:
     """Single sampling decision per turn."""
     if not is_enabled():
         return False
-    return random.random() < sample_rate()
+    return random.random() < sample_rate()  # nosec B311
 
 
 # ── The critique prompt ────────────────────────────────────────────────────

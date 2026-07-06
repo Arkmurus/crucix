@@ -110,8 +110,8 @@ class AdaptivePortalAgent:
             headless=True, args=_BROWSER_ARGS,
         )
         # Randomize viewport to avoid fingerprinting
-        width = random.randint(1200, 1600)
-        height = random.randint(800, 1000)
+        width = random.randint(1200, 1600)  # nosec B311
+        height = random.randint(800, 1000)  # nosec B311
         self._context = await self._browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -151,9 +151,9 @@ class AdaptivePortalAgent:
         await self._pause(0.1, 0.2)
         # Type character by character with random delays
         for char in text:
-            await element.type(char, delay=random.uniform(0.03, 0.12))
+            await element.type(char, delay=random.uniform(0.03, 0.12))  # nosec B311
             # Occasionally pause longer (like a human thinking)
-            if random.random() < 0.03:
+            if random.random() < 0.03:  # nosec B311
                 await self._pause(0.2, 0.5)
 
     async def _human_click(self, selector: str) -> None:
@@ -163,24 +163,24 @@ class AdaptivePortalAgent:
             return
         box = await element.bounding_box()
         if box:
-            target_x = box["x"] + box["width"] / 2 + random.randint(-5, 5)
-            target_y = box["y"] + box["height"] / 2 + random.randint(-5, 5)
-            await self._page.mouse.move(target_x, target_y, steps=random.randint(5, 15))
+            target_x = box["x"] + box["width"] / 2 + random.randint(-5, 5)  # nosec B311
+            target_y = box["y"] + box["height"] / 2 + random.randint(-5, 5)  # nosec B311
+            await self._page.mouse.move(target_x, target_y, steps=random.randint(5, 15))  # nosec B311
             await self._pause(0.2, 0.4)
         await element.click()
 
     async def _random_scroll(self) -> None:
         """Perform random scrolling to simulate human reading."""
-        scrolls = random.randint(1, 3)
+        scrolls = random.randint(1, 3)  # nosec B311
         for _ in range(scrolls):
-            distance = random.randint(100, 400)
-            direction = random.choice([-1, 1])
+            distance = random.randint(100, 400)  # nosec B311
+            direction = random.choice([-1, 1])  # nosec B311
             await self._page.evaluate(f"window.scrollBy(0, {distance * direction})")
             await self._pause(0.3, 0.8)
 
     async def _pause(self, min_s: float = 0.3, max_s: float = 1.0) -> None:
         """Pause like a human between actions."""
-        await asyncio.sleep(random.uniform(min_s, max_s))
+        await asyncio.sleep(random.uniform(min_s, max_s))  # nosec B311
 
     # ── Public API ─────────────────────────────────────────────────────────
 

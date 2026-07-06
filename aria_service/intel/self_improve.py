@@ -1592,7 +1592,7 @@ async def _study_own_code(llm) -> dict:
         return {"patterns_learned": 0}
 
     # Study 2 files per cycle
-    targets = random.sample(available, min(2, len(available)))
+    targets = random.sample(available, min(2, len(available)))  # nosec B311
     total_learned = 0
 
     for file_path in targets:

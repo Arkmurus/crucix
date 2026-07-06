@@ -128,7 +128,7 @@ class LLMEvalFramework:
         if sample_size and len(questions) > sample_size:
             import random
             random.seed(42)
-            questions = random.sample(questions, sample_size)
+            questions = random.sample(questions, sample_size)  # nosec B311
 
         logger.info("[llm_eval] Evaluating %s on %d questions...", model_a, len(questions))
         scores_a = await self._evaluate_model(model_a, questions)

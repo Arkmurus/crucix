@@ -203,7 +203,7 @@ async def self_study() -> list[dict]:
             return []
 
         # Sample random facts and look for connections
-        sample = random.sample(facts, min(20, len(facts)))
+        sample = random.sample(facts, min(20, len(facts)))  # nosec B311
 
         for i, fact_a in enumerate(sample):
             for fact_b in sample[i + 1:]:
@@ -316,7 +316,7 @@ async def run_learning_cycle() -> dict:
         logger.info("[continuous_learner] Learned %d/%d articles", learned, len(articles))
 
     # 2. Research a random topic
-    topic = random.choice(_RESEARCH_TOPICS)
+    topic = random.choice(_RESEARCH_TOPICS)  # nosec B311
     research = await research_topic(topic)
     if research:
         learned = await learn_from_research(research)
@@ -379,7 +379,7 @@ async def _research_loop() -> None:
     await asyncio.sleep(600)  # 10 min initial delay
     while True:
         try:
-            topic = random.choice(_RESEARCH_TOPICS)
+            topic = random.choice(_RESEARCH_TOPICS)  # nosec B311
             research = await research_topic(topic)
             if research:
                 await learn_from_research(research)

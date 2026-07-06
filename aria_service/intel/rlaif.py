@@ -99,7 +99,7 @@ async def should_evaluate() -> bool:
     if disabled, returns False regardless of sample rate."""
     if not is_enabled():
         return False
-    return random.random() < sample_rate()
+    return random.random() < sample_rate()  # nosec B311
 
 
 # ── The evaluation prompt ──────────────────────────────────────────────────

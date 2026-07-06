@@ -58,7 +58,7 @@ _USER_AGENTS = [
 ]
 
 def _random_ua() -> str:
-    return _random.choice(_USER_AGENTS)
+    return _random.choice(_USER_AGENTS)  # nosec B311
 
 # Maximum concurrent page fetches during crawl
 MAX_CONCURRENT_FETCHES = 5

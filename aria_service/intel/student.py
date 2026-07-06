@@ -957,7 +957,7 @@ async def self_quiz(num_questions: int = 5) -> dict:
         index,
         key=lambda c: (c.get("ts_last_used", 0), c.get("confidence_score", 0)),
     )[:num_questions * 3]
-    sample = random.sample(candidates, min(num_questions, len(candidates)))
+    sample = random.sample(candidates, min(num_questions, len(candidates)))  # nosec B311
 
     # R-F291: track silent-skip causes so the 0/0 quiz outcome stops being
     # diagnostically blind. Also self-heal orphan index entries on the spot
@@ -1474,7 +1474,7 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                 break  # one feed per weak tag is enough per session
     remaining_slots = max(0, 8 - len(forced_feeds))
     other_pool = [f for f in RESEARCH_FEEDS if f not in forced_feeds]
-    feeds_pool = forced_feeds + random.sample(
+    feeds_pool = forced_feeds + random.sample(  # nosec B311
         other_pool, min(remaining_slots, len(other_pool))
     )
     articles_to_read = []

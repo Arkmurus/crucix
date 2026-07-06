@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-import random
+import secrets
 import time
 from pathlib import Path
 
@@ -82,7 +82,7 @@ def _gen_id(seq: int) -> str:
     # 32 bits of entropy (pid folded in for cross-process spread) keeps ids
     # effectively unique even under bursty same-millisecond appends from both
     # parties — birthday collisions stay negligible at any realistic volume.
-    salt = (random.getrandbits(32) ^ (os.getpid() << 8)) & 0xFFFFFFFF
+    salt = (secrets.randbits(32) ^ (os.getpid() << 8)) & 0xFFFFFFFF
     return f"m{int(time.time() * 1000):x}{seq:03d}{salt:08x}"
 
 

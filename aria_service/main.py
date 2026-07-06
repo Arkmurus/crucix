@@ -4563,7 +4563,7 @@ async def ingest_sweep(request: Request):
 
     async def _learn_one(text: str, source: str) -> int:
         async with sem:
-            item_llm = llm if (sample_rate >= 1.0 or _random.random() < sample_rate) else None
+            item_llm = llm if (sample_rate >= 1.0 or _random.random() < sample_rate) else None  # nosec B311
             try:
                 result = await neural_memory.learn_from_text(text, source=source, llm=item_llm)
                 return result.get("neurons_activated", 0)

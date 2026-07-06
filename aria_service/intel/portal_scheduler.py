@@ -164,7 +164,7 @@ class PortalScheduler:
                            attempt_result.get("message", "unknown error")[:100])
 
             # Brief pause between attempts
-            await asyncio.sleep(random.uniform(*_ATTEMPT_DELAY_S))
+            await asyncio.sleep(random.uniform(*_ATTEMPT_DELAY_S))  # nosec B311
 
         # Update stats
         self._stats["total_runs"] += 1

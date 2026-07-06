@@ -112,12 +112,12 @@ async def _run(args) -> int:
         sample = list(records)
         print(f"[self_critique] {len(records)} records -> scoring ALL (filter mode)")
     else:
-        rng = random.Random(42)
+        rng = random.Random(42)  # nosec B311
         sample = []
         for t in sorted(by_topic):
             recs = by_topic[t]
             n = min(args.per_topic, len(recs))
-            sample.extend(rng.sample(recs, n))
+            sample.extend(rng.sample(recs, n))  # nosec B311
         print(f"[self_critique] {len(records)} records, {len(by_topic)} topics -> sampling {len(sample)}")
 
     import httpx
