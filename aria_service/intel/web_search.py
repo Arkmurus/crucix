@@ -2168,9 +2168,11 @@ def _wire_searxng_unhealthy(detail: str) -> None:
 async def get_search_health() -> dict:
     """Check which search backends are available.
 
-    R-F320 (2026-05-11): Brave removed. Health report no longer includes
-    a brave key — the dashboard panel and any operator code reading this
-    should treat absence as "Brave is gone, not down".
+    R-F2377 (2026-07-06): Brave Answers remains removed, but Brave Search
+    was restored as a scoped, user-facing DD/research backend in R-F2318.
+    Surface its runtime gate separately as ``brave_search`` so operators can
+    distinguish "poor DD data because Brave is unavailable/disabled" from
+    "Brave is available but the query/evidence path is weak".
 
     R-F1629 (2026-06-17): probe the self-hosted SearXNG (search_searxng
     adapter) in addition to the public SEARXNG_INSTANCES list. The public
@@ -2182,6 +2184,13 @@ async def get_search_health() -> dict:
         "google_news": False,
         "bing_news": False,
         "duckduckgo": True,  # always tried, may be rate-limited
+        "brave_search": {
+            "configured": bool(BRAVE_API_KEY),
+            "globally_disabled": bool(_BRAVE_GLOBALLY_OFF),
+            "scope_enabled": brave_is_enabled(),
+            "available_for_scoped_user_search": bool(BRAVE_API_KEY) and not bool(_BRAVE_GLOBALLY_OFF),
+            "mode": "scoped_primary_user_dd_research_search",
+        },
     }
     # R-F1629: probe self-hosted SearXNG first (primary backend)
     try:

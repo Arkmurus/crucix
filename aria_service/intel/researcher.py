@@ -37,6 +37,27 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.researcher")
 
+
+def _search_hit_to_dict(hit: Any) -> dict:
+    """Normalize web-search hits at DD/research boundaries.
+
+    ``web_search.search_multilingual()`` returns SearchResult dataclasses while
+    legacy DD/search helpers return dicts. Keep this adapter local so callers
+    can harden ingestion without changing the global search contract.
+    """
+    if isinstance(hit, dict):
+        return hit
+    return {
+        "title": getattr(hit, "title", "") or "",
+        "link": getattr(hit, "url", "") or "",
+        "url": getattr(hit, "url", "") or "",
+        "snippet": getattr(hit, "snippet", "") or "",
+        "source": getattr(hit, "source", "") or "",
+        "_credibility_tier": getattr(hit, "credibility_tier", ""),
+        "_relevance_score": getattr(hit, "relevance_score", None),
+        "_language": getattr(hit, "language", None),
+    }
+
 # ── GLOBAL Defence & Security Research Sources ───────────────────────────────
 
 RESEARCH_FEEDS = [
@@ -4327,7 +4348,8 @@ async def run_adverse_media_deep_search(
             continue
 
         # Capture top-N per template (per max_results_per_template)
-        for r in search_results[:max_results_per_template]:
+        for raw_hit in search_results[:max_results_per_template]:
+            r = _search_hit_to_dict(raw_hit)
             url = r.get("link") or r.get("url") or ""
             title = r.get("title", "")
             snippet = r.get("snippet", "")
