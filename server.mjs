@@ -2509,12 +2509,19 @@ async function pushSweepToARIA(data) {
   try {
     const body = JSON.stringify(data);
     bodySize = body.length;
-    await fetch(`${ARIA_SERVICE_URL}/api/aria/ingest`, {
+    const response = await fetch(`${ARIA_SERVICE_URL}/api/aria/ingest`, {
       method: 'POST',
-      headers: _ariaHeaders(),
+      headers: {
+        ..._ariaHeaders(),
+        'X-ARIA-Ingest-Async': '1',
+      },
       body,
       signal: AbortSignal.timeout(30000),
     });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`ingest_http_${response.status}: ${text.slice(0, 180)}`);
+    }
   } catch (e) {
     const elapsedMs = Date.now() - t0;
     const cause = (e && e.cause && typeof e.cause === 'object') ? e.cause : {};

@@ -51,6 +51,41 @@ def test_ingest_sweep_success_records_brain_signal(client, monkeypatch):
     )
 
 
+def test_ingest_sweep_async_ack_schedules_background_processing(client, monkeypatch):
+    """Node sweep ingest should not hold the request open for ledger/neural work.
+
+    The async header is the production path from aria-web. It must acknowledge
+    after payload validation and schedule the real ingest processor through the
+    background supervisor.
+    """
+    monkeypatch.setenv("ARIA_API_TOKEN", "test-token-rf2397")
+    scheduled: list[str] = []
+
+    async def fake_background(data):
+        scheduled.append(data["signals"][0]["text"])
+
+    def fake_bg_task(task, name="", factory=None):
+        scheduled.append(name or task.get_name())
+        return task
+
+    with patch("aria_service.main._process_sweep_ingest_background", side_effect=fake_background), \
+         patch("aria_service.main._bg_task", side_effect=fake_bg_task):
+        r = client.post(
+            "/api/aria/ingest",
+            json={"signals": [{"text": "async sweep signal"}], "news": []},
+            headers={
+                "Authorization": "Bearer test-token-rf2397",
+                "X-ARIA-Ingest-Async": "1",
+            },
+        )
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "accepted": True, "mode": "async"}
+    assert "sweep_ingest_async" in scheduled
+    from aria_service.main import app
+    assert app.state.current_data["signals"][0]["text"] == "async sweep signal"
+
+
 def test_ingest_sweep_anomaly_failure_signals_unsuccessful(client, monkeypatch):
     """A partial failure (anomaly_watch raised) must still reach the brain,
     flagged success=False — not be swallowed by the warning-only catch."""

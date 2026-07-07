@@ -4596,59 +4596,8 @@ async def zoom_webhook_ep(request: Request):
         return {"error": str(e)}
 
 
-@app.post("/api/aria/ingest", dependencies=[Depends(require_aria_token)])
-async def ingest_sweep(request: Request):
-    """Receive sweep data from Node.js server to update intel layers + neural network.
-
-    Auth-protected: writes to persistent intel/neural state, so this endpoint
-    must NOT be reachable without the bearer token. Mounted on `app` directly
-    rather than via `aria_router` for historical reasons, so the token check
-    is wired in explicitly here instead of inheriting it from the router.
-
-    Body parse is manual rather than `data: dict` so validation failures log
-    the offending payload (first 200 bytes) instead of returning an opaque
-    FastAPI 422. Past symptom: a single 422 appeared in the log with no way
-    to tell whether it was malformed JSON, a non-dict top-level, or a shape
-    mismatch from the WhatsApp mirror (which posts WA-shaped payloads here).
-    """
-    async def _record_sweep_failure(reason: str, detail: str) -> None:
-        # R-F973 (§21a): ingest_sweep is the largest Node→brain data path and
-        # its parse-failure branches were logger.warning-only (DARK) — ARIA had
-        # no coder-visible signal that sweeps were failing to ingest. Record a
-        # capability gap so the failure reaches the brain on the failure branch.
-        try:
-            from .intel import capability_gaps as _cg
-            await _cg.record_gap(
-                gap_type="file_parse",
-                detail=f"ingest_sweep {reason}: {detail[:300]}",
-                source="ingest_sweep",
-            )
-        except Exception as _cg_e:
-            logger.debug("ingest_sweep gap-record failed: %s", _cg_e)
-
-    try:
-        raw = await request.body()
-    except Exception as e:
-        logger.warning("ingest: body read failed: %s", e)
-        await _record_sweep_failure("body_read_failed", str(e))
-        raise HTTPException(status_code=400, detail="body_read_failed")
-
-    try:
-        data = json.loads(raw) if raw else {}
-    except Exception as e:
-        preview = (raw[:200] if raw else b"").decode("utf-8", errors="replace")
-        logger.warning("ingest: JSON parse failed (%s). Body first 200b: %r", e, preview)
-        await _record_sweep_failure("invalid_json", f"{e} | {preview}")
-        raise HTTPException(status_code=400, detail="invalid_json")
-
-    if not isinstance(data, dict):
-        logger.warning(
-            "ingest: expected dict body, got %s. Preview: %r",
-            type(data).__name__, str(data)[:200],
-        )
-        await _record_sweep_failure("expected_dict_body", f"got {type(data).__name__}")
-        raise HTTPException(status_code=400, detail="expected_dict_body")
-
+async def _process_sweep_ingest(data: dict) -> dict:
+    """Process accepted Node sweep data into ledger, neural memory, and anomaly watch."""
     app.state.current_data = data
     ledger_count = await intel_ledger.ingest_sweep_signals(data)
     comp_count = await competitors.scan_for_moves(data)
@@ -4739,6 +4688,79 @@ async def ingest_sweep(request: Request):
         "neurons_activated": neural_count,
         "anomaly_alerts_pushed": anomaly_alerts,
     }
+
+
+async def _record_sweep_ingest_failure(reason: str, detail: str) -> None:
+    try:
+        from .intel import capability_gaps as _cg
+        await _cg.record_gap(
+            gap_type="file_parse",
+            detail=f"ingest_sweep {reason}: {detail[:300]}",
+            source="ingest_sweep",
+        )
+    except Exception as _cg_e:
+        logger.debug("ingest_sweep gap-record failed: %s", _cg_e)
+
+
+async def _process_sweep_ingest_background(data: dict) -> None:
+    try:
+        result = await _process_sweep_ingest(data)
+        logger.info(
+            "ingest_sweep async complete: ledger=%s competitors=%s neurons=%s anomalies=%s",
+            result.get("ledger_signals_added"),
+            result.get("competitor_moves_added"),
+            result.get("neurons_activated"),
+            result.get("anomaly_alerts_pushed"),
+        )
+    except Exception as e:
+        logger.warning("ingest_sweep async processing failed: %s", e)
+        await _record_sweep_ingest_failure("async_processing_failed", str(e))
+
+
+@app.post("/api/aria/ingest", dependencies=[Depends(require_aria_token)])
+async def ingest_sweep(request: Request):
+    """Receive sweep data from Node.js server to update intel layers + neural network.
+
+    Auth-protected: writes to persistent intel/neural state, so this endpoint
+    must NOT be reachable without the bearer token. Mounted on `app` directly
+    rather than via `aria_router` for historical reasons, so the token check
+    is wired in explicitly here instead of inheriting it from the router.
+
+    Body parse is manual rather than `data: dict` so validation failures log
+    the offending payload (first 200 bytes) instead of returning an opaque
+    FastAPI 422. Past symptom: a single 422 appeared in the log with no way
+    to tell whether it was malformed JSON, a non-dict top-level, or a shape
+    mismatch from the WhatsApp mirror (which posts WA-shaped payloads here).
+    """
+    try:
+        raw = await request.body()
+    except Exception as e:
+        logger.warning("ingest: body read failed: %s", e)
+        await _record_sweep_ingest_failure("body_read_failed", str(e))
+        raise HTTPException(status_code=400, detail="body_read_failed")
+
+    try:
+        data = json.loads(raw) if raw else {}
+    except Exception as e:
+        preview = (raw[:200] if raw else b"").decode("utf-8", errors="replace")
+        logger.warning("ingest: JSON parse failed (%s). Body first 200b: %r", e, preview)
+        await _record_sweep_ingest_failure("invalid_json", f"{e} | {preview}")
+        raise HTTPException(status_code=400, detail="invalid_json")
+
+    if not isinstance(data, dict):
+        logger.warning(
+            "ingest: expected dict body, got %s. Preview: %r",
+            type(data).__name__, str(data)[:200],
+        )
+        await _record_sweep_ingest_failure("expected_dict_body", f"got {type(data).__name__}")
+        raise HTTPException(status_code=400, detail="expected_dict_body")
+
+    if request.headers.get("x-aria-ingest-async") == "1":
+        app.state.current_data = data
+        _bg_task(asyncio.create_task(_process_sweep_ingest_background(data), name="sweep_ingest_async"))
+        return {"ok": True, "accepted": True, "mode": "async"}
+
+    return await _process_sweep_ingest(data)
 
 
 # ── CLI entrypoint ───────────────────────────────────────────────────────────

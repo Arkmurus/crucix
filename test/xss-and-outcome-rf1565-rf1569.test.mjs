@@ -41,6 +41,17 @@ describe('R-F1565 dark-ops failure wiring', () => {
       'sweep-ingest catch routes through errorTracker.record (no longer console-only)');
   });
 
+  it('pushSweepToARIA asks Python for async ingest and treats non-2xx as failure', () => {
+    const fn = server.slice(
+      server.indexOf('async function pushSweepToARIA'),
+      server.indexOf('app.get(\'/api/aria/identity\'')
+    );
+    assert.match(fn, /'X-ARIA-Ingest-Async': '1'/,
+      'sweep ingest uses async acknowledgement so heavy brain work is off the request path');
+    assert.match(fn, /if \(!response\.ok\)/,
+      'non-2xx ingest acknowledgement is treated as a failed ingest');
+  });
+
   it('ariaProxy threw-catch is wired to the brain', () => {
     assert.match(server, /errorTracker\.record\(\s*'aria_intel_proxy'/,
       'aria-intel proxy threw-catch routes through errorTracker.record');
