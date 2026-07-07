@@ -564,6 +564,19 @@ function rowStatusPill(r, sev) {
 function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
 function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+function ddIsPlaceholderName(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return !text || ['(unknown)', '(unnamed)', 'unknown', 'unnamed', 'n/a', 'none', 'null'].includes(text);
+}
+
+function ddDisplayEntityName(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!ddIsPlaceholderName(text)) return text;
+  }
+  return '';
+}
+
 function renderTable(reports) {
   const content = document.getElementById('dd-content');
   if (!reports.length) {
@@ -583,7 +596,7 @@ function renderTable(reports) {
     const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
     const created = r.created_at || r.generated_at || r.timestamp || '';
     const entityType = r.entity_type || 'company';
-    const entityName = r.entity_name || '(unknown)';
+    const entityName = ddDisplayEntityName(r.entity_name, r.name, r.entity, r.query) || '(unknown)';
     const jur = r.jurisdiction || '';
 
     // Entity avatar color based on name
@@ -768,7 +781,13 @@ async function startRerun(btn, ctx) {
         Toast.show('Re-run did not start a new DD. Try New DD or refresh the page.', 'error', 7000);
         return;
       }
-      Toast.show('Re-run started for ' + (ctx.name || 'entity') + '. It appears below as Running', 'info', 6000);
+      const rerunEntityName = ddDisplayEntityName(
+        started.entity_name,
+        started.name,
+        body.name,
+        ctx && ctx.name,
+      );
+      Toast.show('Re-run started for ' + (rerunEntityName || 'the selected entity') + '. It appears below as Running', 'info', 6000);
       await loadReports();
     }
   } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
@@ -879,7 +898,8 @@ async function toggleDetail(row, runId) {
     // R-F2331: render from the STRUCTURED contract (each finding keeps its detail /
     // source / confidence / citations), NOT by re-parsing markdown. Markdown is fetched
     // lazily only for the Copy button.
-    const entityName = sv.entity_name || ((row.querySelector('.dd-entity-name') || {}).textContent) || '';
+    const rowEntityName = ((row.querySelector('.dd-entity-name') || {}).textContent) || '';
+    const entityName = ddDisplayEntityName(sv.entity_name, rowEntityName, sv.name, sv.entity, sv.query) || '(unknown)';
     const entityType = sv.entity_type || row.dataset.entityType || 'company';
     const jurisdiction = sv.jurisdiction || row.dataset.jur || undefined;
     const jurisdictionIso2 = sv.jurisdiction_iso2 || undefined;

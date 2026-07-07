@@ -52,6 +52,36 @@ test('R-F2380 DD re-run buttons force a real async rerun and reject cached cases
   );
 });
 
+test('R-F2410 DD re-run banner rejects unnamed placeholder names', () => {
+  const body = functionBody('startRerun');
+
+  assert.match(
+    html,
+    /function ddIsPlaceholderName\(value\)[\s\S]*'\(unnamed\)'[\s\S]*'unnamed'/,
+    'DD reports page must classify unnamed display values as placeholders',
+  );
+  assert.match(
+    body,
+    /const rerunEntityName = ddDisplayEntityName\(\s*started\.entity_name,\s*started\.name,\s*body\.name,\s*ctx && ctx\.name,\s*\);/,
+    're-run toast must prefer the backend-confirmed entity over stale UI context',
+  );
+  assert.doesNotMatch(
+    body,
+    /Re-run started for '\s*\+\s*\(ctx\.name \|\| 'entity'\)/,
+    're-run toast must not echo ctx.name directly because it can be "(unnamed)"',
+  );
+  assert.match(
+    html,
+    /const rowEntityName = \(\(row\.querySelector\('\.dd-entity-name'\) \|\| \{\}\)\.textContent\) \|\| '';/,
+    'expanded detail view must keep the visible row name as a fallback',
+  );
+  assert.match(
+    html,
+    /const entityName = ddDisplayEntityName\(sv\.entity_name, rowEntityName, sv\.name, sv\.entity, sv\.query\) \|\| '\(unknown\)';/,
+    'expanded detail rerun must not trust a structured "(unnamed)" over the visible row name',
+  );
+});
+
 test('R-F2380 DD delete buttons require verified deletion before success', () => {
   const verified = functionBody('deleteVerified');
   const remove = functionBody('removeDeletedReport');
