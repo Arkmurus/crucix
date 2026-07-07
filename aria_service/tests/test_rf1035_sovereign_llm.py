@@ -142,6 +142,31 @@ class TestSovereignLLM:
         asyncio.run(self.llm.write_tests({"title": "Fix"}, "new code", 9999))
         assert self.client.post.call_args[1]["json"]["prefer_model"] == "deepseek"
 
+    def test_write_reproduce_test_prefers_coder_main_llm(self):
+        """R-F2401: reproduce-test generation uses the same public LLM contract."""
+        self.client.post = AsyncMock(
+            return_value=_mock_response(
+                200,
+                {"test_code": "def test_reproduce_g1(): assert False"},
+            ),
+        )
+        from aria_service.autonomous.gap_detector import Gap, GapSeverity, GapType
+        gap = Gap(
+            gap_id="g1",
+            gap_type=GapType.MODULE_BUG,
+            severity=GapSeverity.HIGH,
+            title="Bug",
+            description="Null pointer",
+            module="test.py",
+        )
+        import asyncio
+        result = asyncio.run(self.llm.write_reproduce_test(gap, "test.py"))
+        payload = self.client.post.call_args[1]["json"]
+        assert result["test_code"].startswith("def test_reproduce")
+        assert payload["task"] == "test"
+        assert payload["prefer_model"] == "deepseek"
+        assert "must FAIL" in payload["prompt"]
+
     # ── analyse_failure ────────────────────────────────────────────────────
 
     def test_analyse_failure_returns_dict(self):

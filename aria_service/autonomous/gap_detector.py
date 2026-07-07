@@ -2069,26 +2069,8 @@ class GapDetector:
         if self._llm is None:
             return (False, "no LLM available to write reproduce test")
 
-        # Build a prompt for the LLM to write a reproduce test
-        import json as _json1680
-        _prompt = (
-            f"Write a single pytest test function that reproduces the following gap symptom "
-            f"in module '{module}'. The test must FAIL when run against the CURRENT (unfixed) "
-            f"code — it should assert the buggy behaviour exists.\n\n"
-            f"GAP TITLE: {gap.title}\n"
-            f"GAP DESCRIPTION: {gap.description}\n"
-            f"GAP TYPE: {gap.gap_type}\n"
-            f"MODULE: {module}\n"
-            f"ERROR TRACE: {gap.error_trace or 'N/A'}\n\n"
-            f"RULES:\n"
-            f"1. The test MUST fail on the current unfixed code (that proves the bug exists).\n"
-            f"2. Use only standard library + pytest — no live network calls.\n"
-            f"3. Mock external dependencies (httpx, Redis, file I/O) at the boundary.\n"
-            f"4. Name the test function `test_reproduce_{gap.gap_id[:12]}`.\n"
-            f"5. Reply with ONLY valid JSON: {{\"test_code\": \"complete test code\"}}\n"
-        )
         try:
-            _resp = await self._llm._call(prompt=_prompt, task="test")
+            _resp = await self._llm.write_reproduce_test(gap, module)
         except Exception as _e:
             return (False, f"LLM failed to write reproduce test: {_e}")
 

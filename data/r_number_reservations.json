@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2401,
+  "next_available": 2402,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18279,6 +18279,16 @@
       "r_number": "R-F2400",
       "title": "sovereign promotion gate",
       "claimed_at": "2026-07-07T15:30:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8817e7e9",
+      "notes": null,
+      "shipped_at": "2026-07-07T15:44:17Z"
+    },
+    {
+      "r_number": "R-F2401",
+      "title": "autonomous coder reproduce llm contract",
+      "claimed_at": "2026-07-07T15:54:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -100,7 +100,7 @@ async def test_auto_write_reproduce_rejects_gamed_test(monkeypatch):
     from aria_service.autonomous.gap_detector import GapDetector, Gap, GapSeverity
 
     class _MockLLM:
-        async def _call(self, prompt, task):
+        async def write_reproduce_test(self, gap, module):
             return {"test_code": "def test_reproduce_xxx(): assert True"}
 
     gap = Gap(
@@ -124,7 +124,7 @@ async def test_auto_write_reproduce_handles_llm_error(monkeypatch):
     from aria_service.autonomous.gap_detector import GapDetector, Gap, GapSeverity
 
     class _BrokenLLM:
-        async def _call(self, prompt, task):
+        async def write_reproduce_test(self, gap, module):
             raise RuntimeError("LLM unavailable")
 
     gap = Gap(
@@ -148,7 +148,7 @@ async def test_auto_write_reproduce_handles_empty_code(monkeypatch):
     from aria_service.autonomous.gap_detector import GapDetector, Gap, GapSeverity
 
     class _EmptyLLM:
-        async def _call(self, prompt, task):
+        async def write_reproduce_test(self, gap, module):
             return {"test_code": ""}
 
     gap = Gap(
@@ -164,3 +164,36 @@ async def test_auto_write_reproduce_handles_empty_code(monkeypatch):
     ok, msg = await detector._auto_write_reproduce_test(gap, gap.module)
     assert not ok
     assert "empty test code" in msg
+
+
+@pytest.mark.asyncio
+async def test_auto_write_reproduce_uses_public_llm_contract(monkeypatch):
+    """R-F2401: GapDetector must not call SovereignLLM._call directly."""
+    from aria_service.autonomous.gap_detector import Gap, GapDetector, GapSeverity
+
+    class _ContractLLM:
+        called = False
+
+        async def _call(self, prompt, task):
+            raise AssertionError("private _call contract should not be used")
+
+        async def write_reproduce_test(self, gap, module):
+            self.called = True
+            return {"test_code": "def test_reproduce_contract(): assert True"}
+
+    llm = _ContractLLM()
+    gap = Gap(
+        gap_id="test_contract_001",
+        gap_type="module_bug",
+        severity=GapSeverity.MEDIUM,
+        title="Contract test",
+        description="GapDetector must use the public reproduce-test LLM method",
+        module="aria_service/intel/test_module.py",
+    )
+
+    detector = GapDetector(None, llm=llm)
+    ok, msg = await detector._auto_write_reproduce_test(gap, gap.module)
+
+    assert llm.called
+    assert not ok
+    assert "PASSES on unfixed code" in msg or "gamed" in msg

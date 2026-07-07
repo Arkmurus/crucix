@@ -117,7 +117,7 @@ def _build_coder(redis, temp_repo: Path, fixed_code: str):
     from aria_service.autonomous.codebase_reader import CodebaseReader
     from aria_service.autonomous.self_coder import ARIACoder
 
-    llm = AsyncMock()
+    llm = MagicMock()
     llm.generate_fix_plan = AsyncMock(return_value={
         "title": "Fix calc.add to add instead of subtract",
         "approach": "Replace the subtraction with addition",
@@ -167,15 +167,31 @@ def _make_gap():
 
 
 async def _run_fix(coder, gap, gold_path: Path, fake_stage):
+    async def fake_can_task_run(*_args, **_kwargs):
+        return True, "ok"
+
+    async def fake_deploy_improvement(*_args, **_kwargs):
+        return {"success": True}
+
+    async def fake_claude_review(_plan):
+        return MagicMock(
+            is_flagged=False,
+            is_blocked=False,
+            review_disabled=True,
+            verdict=MagicMock(value="APPROVED"),
+            reasons=[],
+        )
+
+    async def fake_open_review_ticket(*_args, **_kwargs):
+        return None
+
     with patch("aria_service.autonomous.safety.can_task_run",
-               AsyncMock(return_value=(True, "ok"))), \
+               fake_can_task_run), \
          patch("aria_service.intel.self_improve.stage_improvement", fake_stage), \
-         patch("aria_service.intel.self_improve.deploy_improvement", AsyncMock()), \
-         patch.object(coder, "_claude_review", AsyncMock(return_value=MagicMock(
-             is_flagged=False, is_blocked=False, review_disabled=True,
-             verdict=MagicMock(value="APPROVED"), reasons=[],
-         ))), \
-         patch.object(coder, "_open_review_ticket", AsyncMock()):
+         patch("aria_service.intel.self_improve.deploy_improvement",
+               fake_deploy_improvement), \
+         patch.object(coder, "_claude_review", fake_claude_review), \
+         patch.object(coder, "_open_review_ticket", fake_open_review_ticket):
         return await coder.fix_gap(gap, operator_initiated=False)
 
 

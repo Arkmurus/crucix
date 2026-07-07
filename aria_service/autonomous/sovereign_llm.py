@@ -251,6 +251,31 @@ class SovereignLLM:
         )
 
     @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
+    async def write_reproduce_test(self, gap: Gap, module: str) -> dict[str, Any]:
+        """Generate one pytest that reproduces a gap on the current code."""
+        prompt = (
+            f"Write a single pytest test function that reproduces the following gap symptom "
+            f"in module '{module}'. The test must FAIL when run against the CURRENT (unfixed) "
+            f"code — it should assert the buggy behaviour exists.\n\n"
+            f"GAP TITLE: {gap.title}\n"
+            f"GAP DESCRIPTION: {gap.description}\n"
+            f"GAP TYPE: {gap.gap_type}\n"
+            f"MODULE: {module}\n"
+            f"ERROR TRACE: {gap.error_trace or 'N/A'}\n\n"
+            f"RULES:\n"
+            f"1. The test MUST fail on the current unfixed code (that proves the bug exists).\n"
+            f"2. Use only standard library + pytest — no live network calls.\n"
+            f"3. Mock external dependencies (httpx, Redis, file I/O) at the boundary.\n"
+            f"4. Name the test function `test_reproduce_{gap.gap_id[:12]}`.\n"
+            f"5. Reply with ONLY valid JSON: {{\"test_code\": \"complete test code\"}}\n"
+        )
+        return await self._call(
+            prompt=prompt,
+            task="test",
+            prefer_model=PREFER_MODEL,
+        )
+
+    @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def analyse_failure(
         self, error: str, code: str, attempt: int,
     ) -> dict[str, Any]:
