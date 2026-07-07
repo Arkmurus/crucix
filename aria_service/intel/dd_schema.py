@@ -266,9 +266,11 @@ class VerificationSection:
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
     # R-F393: honest-scope flags. Set by _run_verification.
-    # independent_source_verification_run is True only when
-    # source_verifier.py is actually invoked against LLM outputs
-    # (it is not, as of 2026-05-13; the integration is a placeholder).
+    # independent_source_verification_run means FULL independent re-verification
+    # of each claim against re-fetched external sources. R-F2413: this stays False
+    # — source_verifier IS invoked (R-F2282) but only for CITATION GROUNDING
+    # (were cited URLs fetched into evidence?), tracked separately by
+    # citation_grounding_rate; citation grounding is NOT full source verification.
     independent_source_verification_run: bool = False
     scope_note: str = ""
     # R-F2282: real source-verifier output. citation_grounding_rate = fraction of
@@ -1222,7 +1224,7 @@ def structured_view(r: dict) -> dict:
             ("Confidence floor", ver.get("confidence_floor")),
             ("Conflicts detected", len(ver.get("conflicts") or []) or None),
             ("Independent source verification",
-             ("run" if ver.get("independent_source_verification_run") else "not run (triangulation only)")),
+             ("run" if ver.get("independent_source_verification_run") else "not run (triangulation + citation grounding only)")),
             ("Citations grounded",
              (f"{ver.get('citations_grounded', 0)}/{ver.get('citations_checked', 0)}"
               if ver.get("citations_checked") else None)),

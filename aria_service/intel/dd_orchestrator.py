@@ -5908,10 +5908,14 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     What this function does NOT do (operator-visible via the new
     scope-flag fields on VerificationSection):
 
-      *  Independent URL re-fetch and claim re-check against external
-         sources — `source_verifier.py` exists but is not invoked from
-         the orchestrator. `independent_source_verification_run` is
-         set to False below to surface this honestly.
+      *  Independent claim re-check: it does NOT re-fetch external
+         sources to re-confirm each claim's truth. `source_verifier` IS
+         invoked (R-F2282) but only for citation grounding — checking
+         that URLs the report CITES were actually fetched into the
+         evidence set, not re-verifying the claims themselves. So
+         `independent_source_verification_run` stays False to surface
+         this honestly; citation grounding is reported separately via
+         `citation_grounding_rate`.
     """
     t0 = time.time()
     report.verification.meta.started_at = datetime.now(timezone.utc).isoformat()
@@ -6091,7 +6095,11 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
         _tool_context = "\n".join(_fetched_bits)
         _response_text = "\n".join(_cited_bits)
         _sv_res = _sv.verify_response(_response_text, _tool_context)
-        report.verification.independent_source_verification_run = True
+        # R-F2413: source_verifier does CITATION GROUNDING (were the URLs the
+        # report CITES actually fetched into the evidence set?), NOT full
+        # independent re-verification of each claim against external sources.
+        # So independent_source_verification_run stays False (honest); the
+        # citation-grounding result is surfaced by its own fields below.
         report.verification.citation_grounding_rate = _sv_res.get("grounded_rate")
         report.verification.citation_verdict = _sv_res.get("verdict") or ""
         report.verification.citations_checked = len(_sv_res.get("cited_urls") or [])
@@ -6099,10 +6107,12 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
         report.verification.scope_note = (
             "Layer 3 = (a) source triangulation: grounded_rate = fraction of "
             "material claims backed by >=2 independent sources (real per-list "
-            "sanctions + per-index country-risk counting, R-F2282); (b) independent "
-            "citation grounding via source_verifier: citation_grounding_rate = "
-            "fraction of URLs cited in the report's findings that were actually "
-            "retrieved into the evidence set."
+            "sanctions + per-index country-risk counting, R-F2282); (b) citation "
+            "grounding via source_verifier: citation_grounding_rate = fraction of "
+            "URLs cited in the report's findings that were actually retrieved into "
+            "the evidence set. It does NOT independently re-fetch external sources "
+            "to re-confirm each claim's truth (only that cited URLs are present in "
+            "the fetched evidence), so independent_source_verification_run is False."
         )
     except Exception as _sv_e:
         logger.warning("[R-F2282] source_verifier grounding failed: %s", _sv_e)

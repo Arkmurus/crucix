@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2413,
+  "next_available": 2414,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18390,14 +18390,24 @@
       "title": "harden grounded-rate: guard non-dict sanctions_screen (grade-A honesty metric crash-proof)",
       "claimed_at": "2026-07-07T21:44:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d0995520",
+      "notes": null,
+      "shipped_at": "2026-07-07T21:57:27Z"
     },
     {
       "r_number": "R-F2412",
       "title": "DD rerun block placeholder targets",
       "claimed_at": "2026-07-07T21:53:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2413",
+      "title": "restore honest Layer-3 label: citation-grounding vs independent source verification (grade-A honesty)",
+      "claimed_at": "2026-07-07T22:00:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
