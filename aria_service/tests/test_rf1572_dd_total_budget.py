@@ -172,7 +172,9 @@ def test_rf1572_rf409_escalation_is_budget_gated():
     src = pathlib.Path(
         "C:/code/crucix/aria_service/routes/aria.py"
     ).read_text(encoding="utf-8", errors="ignore")
-    idx = src.find("R-F409")
+    idx = src.find("# R-F409 auto-escalation")
+    if idx < 0:
+        idx = src.find("auto-escalate INSUFFICIENT_EVIDENCE")
     assert idx > 0
     # R-F1906: widened from idx+3500 → +6000. The R-F409 block grew (added
     # R-F1572 budget comments) so the gating line moved to ~+3746, just past the

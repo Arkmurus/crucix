@@ -57,6 +57,17 @@ def test_rf2383_grade_a_requires_grounded_independent_depth():
     report = {
         "risk_classification": "GREEN",
         "confidence_tag": "ASSESSED",
+        "identity": {
+            "registration_number": "12345678",
+            "registration_status": "active",
+            "sanctions_screen": {
+                "verified_sources": {"ofac": "clean", "ofsi": "clean"},
+            },
+        },
+        "compliance": {
+            "sanctions_regimes": ["US OFAC", "UK OFSI"],
+            "export_control": {"recommendation": "manual licence review"},
+        },
         "digital": {
             "press_coverage": press,
             "source_tier_breakdown": tiers,
@@ -81,3 +92,52 @@ def test_rf2383_grade_a_requires_grounded_independent_depth():
     assert qa["blocking_reasons"] == []
     assert qa["metrics"]["verified_sources"] == 6
     assert qa["metrics"]["quality_press"] == 3
+    assert qa["metrics"]["identity_authority_present"] is True
+    assert qa["metrics"]["export_control_checked"] is True
+
+
+def test_rf2383_search_depth_without_authority_is_not_grade_a():
+    """Search volume alone cannot earn Grade A without authority/freshness gates."""
+    press = []
+    tiers = {"T1": 5, "T2": 4, "T3": 3}
+    for tier, count in tiers.items():
+        for i in range(count):
+            press.append({
+                "url": f"https://source.example/{tier.lower()}/{i}",
+                "source_tier": tier,
+            })
+    report = {
+        "risk_classification": "GREEN",
+        "confidence_tag": "ASSESSED",
+        "identity": {
+            "sanctions_screen": {
+                "source_unavailable": True,
+                "error": "sanctions_source_unavailable",
+            },
+        },
+        "compliance": {},
+        "digital": {
+            "press_coverage": press,
+            "source_tier_breakdown": tiers,
+            "data_gaps": [],
+        },
+        "verification": {
+            "citations_checked": 12,
+            "citations_grounded": 12,
+            "citation_grounding_rate": 1.0,
+        },
+        "adverse_media": {
+            "ok": True,
+            "findings_count": 1,
+            "coverage_by_class": {"news_archive": 1},
+        },
+    }
+
+    qa = structured_view(report)["quality_assessment"]
+
+    assert qa["grade"] != "A", qa
+    reasons = " ".join(qa["blocking_reasons"])
+    assert "identity authority" in reasons
+    assert "sanctions screen source" in reasons
+    assert "export-control" in reasons
+    assert qa["metrics"]["sanctions_source_unavailable"] is True

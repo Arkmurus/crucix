@@ -933,6 +933,8 @@ def _sv_section(key, title, icon, section, highlights, *, kind="standard", evide
 
 def _quality_metrics(r: dict) -> dict:
     """Extract evidence-depth metrics from a persisted DD report dict."""
+    ident = (r or {}).get("identity") or {}
+    comp = (r or {}).get("compliance") or {}
     dig = (r or {}).get("digital") or {}
     ver = (r or {}).get("verification") or {}
     adverse = (r or {}).get("adverse_media") or {}
@@ -956,6 +958,23 @@ def _quality_metrics(r: dict) -> dict:
     adverse_run = bool(adverse and adverse.get("ok") is True)
     adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
     adverse_skipped = bool(adverse.get("skipped") or adverse.get("error")) if adverse else True
+    sanctions_screen = ident.get("sanctions_screen") or {}
+    sanctions_unavailable = bool(
+        sanctions_screen.get("source_unavailable")
+        or sanctions_screen.get("error") == "sanctions_source_unavailable"
+    )
+    export_control = comp.get("export_control") or {}
+    export_checked = bool(
+        export_control.get("recommendation")
+        or export_control.get("classification")
+        or export_control.get("findings")
+        or comp.get("sanctions_regimes")
+    )
+    identity_authority = bool(
+        ident.get("registration_number")
+        or ident.get("registration_status")
+        or sanctions_screen.get("verified_sources")
+    )
     return {
         "press_total": press_total,
         "verified_sources": verified_sources,
@@ -970,6 +989,10 @@ def _quality_metrics(r: dict) -> dict:
         "adverse_media_findings": adverse_findings,
         "adverse_media_skipped": adverse_skipped,
         "has_search_degradation_gap": _quality_has_search_gap(r),
+        "identity_authority_present": identity_authority,
+        "sanctions_source_unavailable": sanctions_unavailable,
+        "export_control_checked": export_checked,
+        "confidence_gate_triggered": bool((r or {}).get("confidence_gate_triggered")),
     }
 
 
@@ -1016,6 +1039,12 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
          f"only {metrics['press_total']} cited press/source item(s)"),
         (reputable < 5, 20,
          f"only {reputable} reputable independent source(s)"),
+        (not metrics["identity_authority_present"], 25,
+         "no Tier-1 identity authority, registry field, or sanctions verification source present"),
+        (metrics["sanctions_source_unavailable"], 25,
+         "sanctions screen source was unavailable or stale"),
+        (not metrics["export_control_checked"], 15,
+         "export-control or sanctions-regime check is not evidenced"),
         (metrics["unverified_sources"] > reputable, 10,
          "unverified sources outnumber reputable independent sources"),
         (metrics["own_site_sources"] and reputable == 0, 15,
@@ -1032,6 +1061,8 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
          "adverse-media deep search returned no findings/classes"),
         (metrics["has_search_degradation_gap"], 20,
          "report contains explicit search/coverage degradation gaps"),
+        (metrics["confidence_gate_triggered"], 25,
+         "confidence gate triggered — evidence is insufficient for Grade A"),
     ]
     return [(points, reason) for active, points, reason in candidates if active]
 
@@ -1056,6 +1087,16 @@ def _dd_quality_assessment(r: dict) -> dict:
         "score": score,
         "blocking_reasons": blockers,
         "metrics": public_metrics,
+        "grade_a_requirements": {
+            "min_cited_sources": 8,
+            "min_reputable_sources": 5,
+            "min_citation_grounding_rate": 0.8,
+            "requires_identity_authority": True,
+            "requires_fresh_sanctions_source": True,
+            "requires_export_control_or_sanctions_regime_check": True,
+            "requires_adverse_media_search": True,
+            "requires_confidence_gate_clear": True,
+        },
     }
 
 
