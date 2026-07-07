@@ -212,6 +212,13 @@ class TestGoldenIntelSignals:
         assert out["count"] == 1
         assert out["by_priority"]["HIGH"] == 1
         assert out["by_type"]["sanctions_change"] == 1
+        sig = out["signals"][0]
+        assert sig["quality_label"] == "decision-grade single-source"
+        assert sig["action_horizon"] == "0-72h"
+        assert sig["corroboration"] == "single-source"
+        assert sig["evidence_count"] == 1
+        assert "actionable sanctions change pattern" in sig["confidence_rationale"]
+        assert sig["evidence"]["count"] == 1
 
     @pytest.mark.asyncio
     async def test_recent_intel_signals_backfills_from_existing_articles(self, monkeypatch) -> None:

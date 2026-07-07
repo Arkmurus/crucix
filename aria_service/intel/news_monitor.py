@@ -689,6 +689,59 @@ def _build_intel_signal(article: dict) -> dict:
     }
 
 
+def _normalise_intel_signal(signal: dict) -> dict:
+    """Backfill decision metadata for persisted pre-R-F2392 signals."""
+    sig = dict(signal)
+    signal_type = str(sig.get("signal_type") or "situational_awareness")
+    priority = str(sig.get("priority") or "LOW").upper()
+    confidence = str(sig.get("confidence") or "LOW").upper()
+    evidence = sig.get("evidence") if isinstance(sig.get("evidence"), dict) else {}
+    try:
+        evidence_count = int(
+            sig.get("evidence_count")
+            or evidence.get("count")
+            or sig.get("source_count")
+            or 1
+        )
+    except (TypeError, ValueError):
+        evidence_count = 1
+    evidence_count = max(1, evidence_count)
+    corroboration = "corroborated" if evidence_count >= 2 else "single-source"
+    source_tier = str(
+        sig.get("source_tier")
+        or evidence.get("source_tier")
+        or "unclassified"
+    ).lower()
+    entities = sig.get("entities") if isinstance(sig.get("entities"), dict) else {}
+
+    sig["priority"] = priority
+    sig["confidence"] = confidence
+    sig.setdefault("quality_label", _quality_label(priority, confidence, evidence_count))
+    sig.setdefault(
+        "confidence_rationale",
+        _confidence_rationale(
+            source_tier=source_tier,
+            signal_type=signal_type,
+            entities=entities,
+            evidence_count=evidence_count,
+        ),
+    )
+    sig.setdefault("evidence_count", evidence_count)
+    sig.setdefault("corroboration", corroboration)
+    action_horizon = sig.get("action_horizon") or _action_horizon(signal_type, priority)
+    sig["action_horizon"] = action_horizon
+    sig.setdefault("urgency", "immediate" if action_horizon == "0-72h" else "near-term")
+
+    normalised_evidence = dict(evidence)
+    normalised_evidence.setdefault("source", sig.get("source") or "unknown")
+    normalised_evidence.setdefault("source_tier", source_tier or "unclassified")
+    normalised_evidence.setdefault("url", sig.get("url") or "")
+    normalised_evidence.setdefault("count", evidence_count)
+    normalised_evidence.setdefault("corroboration", corroboration)
+    sig["evidence"] = normalised_evidence
+    return sig
+
+
 async def _store_intel_signal(signal: dict) -> None:
     await rs.lpush(_INTEL_SIGNALS_KEY, json.dumps(signal, default=str))
     await rs.ltrim(_INTEL_SIGNALS_KEY, 0, _MAX_INTEL_SIGNALS - 1)
@@ -1271,9 +1324,10 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         try:
             sig = json.loads(r) if isinstance(r, str) else r
             if isinstance(sig, dict):
-                signals.append(sig)
+                signals.append(_normalise_intel_signal(sig))
         except Exception:
             continue
+    signals = [_normalise_intel_signal(sig) for sig in signals]
 
     by_priority: dict[str, int] = {}
     by_type: dict[str, int] = {}
