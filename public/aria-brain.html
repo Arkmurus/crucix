@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ARIA Brain — Command Control Centre</title>
+<title>ARIA Brain | Command Control Centre</title>
 <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
 <link rel="stylesheet" href="css/aria.css?v=15">
 <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -154,11 +154,11 @@
     if (!el) return;
     if (seen.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
     var rows = seen.slice(-5).map(function (e) {
-      return '<code>' + (e.where || 'error') + '</code> — ' + (e.msg || 'unknown');
+      return '<code>' + (e.where || 'error') + '</code>: ' + (e.msg || 'unknown');
     }).join('<br>');
     var more = seen.length > 5 ? ' <span style="color:#6b6862">(+' + (seen.length - 5) + ' earlier)</span>' : '';
     el.innerHTML =
-      '<strong>⚠️ Page-script error — UI handlers may not work.</strong> '
+      '<strong>⚠️ Page-script error. UI handlers may not work.</strong> '
       + 'Hard-refresh (Ctrl+Shift+R) often clears stale cache. Recent:' + more + '<br>' + rows;
     el.style.display = 'block';
   }
@@ -217,7 +217,7 @@ window.addEventListener('DOMContentLoaded', function () {
 
 <main id="app-main">
 
-<h1>ARIA Brain — Command Control Centre</h1>
+<h1>ARIA Brain: Command Control Centre</h1>
 <p class="subtitle">Real-time intelligence platform health, quality metrics, and audit trail</p>
 
 <!-- R-F391 (2026-05-13): honesty banner. Surfaces when one or more
@@ -284,7 +284,7 @@ window.addEventListener('DOMContentLoaded', function () {
        and operator can read attack ID, name, clauses, and action without
        squinting. -->
   <div class="card wide">
-    <h2>Pending Amendments — Operator Triage</h2>
+    <h2>Pending Amendments: Operator Triage</h2>
     <div id="amendments-queue" class="loading">Loading...</div>
   </div>
 
@@ -302,7 +302,7 @@ window.addEventListener('DOMContentLoaded', function () {
 
   <!-- Predictor -->
   <div class="card">
-    <h2>Predictor Forecasts <span style="font-size:11px;font-weight:400;color:#9b968c">· advisory only — does not block tasks (R-F181)</span></h2>
+    <h2>Predictor Forecasts <span style="font-size:11px;font-weight:400;color:#9b968c">· advisory only, does not block tasks (R-F181)</span></h2>
     <div id="predictor-metrics" class="loading">Loading...</div>
   </div>
 
@@ -353,7 +353,7 @@ window.addEventListener('DOMContentLoaded', function () {
        cells the autonomous engine should target next, based on
        domain freshness windows + structural coverage gaps. -->
   <div class="card wide">
-    <h2>Coverage Heatmap (Domain x Jurisdiction) <span class="badge" id="cov-score">—</span></h2>
+    <h2>Coverage Heatmap (Domain x Jurisdiction) <span class="badge" id="cov-score">-</span></h2>
     <div id="cov-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="cov-heatmap" class="loading">Loading…</div>
     <div id="cov-gaps" style="margin-top:14px"></div>
@@ -367,7 +367,7 @@ window.addEventListener('DOMContentLoaded', function () {
   <!-- R-F88 (2026-05-09): per-domain freshness tracker — shows which
        domains haven't seen a refresh within their max-staleness window. -->
   <div class="card wide">
-    <h2>Domain Freshness <span class="badge" id="fresh-stale-count">—</span></h2>
+    <h2>Domain Freshness <span class="badge" id="fresh-stale-count">-</span></h2>
     <div id="fresh-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="fresh-list" class="loading">Loading…</div>
   </div>
@@ -380,7 +380,7 @@ window.addEventListener('DOMContentLoaded', function () {
        at-a-glance — closes the "is ARIA hallucinating right now?"
        question that hurt team trust at MVP launch. -->
   <div class="card wide" id="hallucination-panel">
-    <h2>Hallucination & Guard Violations <span class="badge" id="halluc-rate-badge">—</span></h2>
+    <h2>Hallucination & Guard Violations <span class="badge" id="halluc-rate-badge">-</span></h2>
     <div id="halluc-summary" style="margin-bottom:10px;font-size:0.85em;color:#6b6862">Loading…</div>
     <div id="halluc-metrics" class="loading">Loading…</div>
     <div style="margin-top:10px;font-size:0.75em;color:#6b6862;line-height:1.55">
@@ -406,13 +406,13 @@ window.addEventListener('DOMContentLoaded', function () {
 
   <!-- LLM Cost — month-to-date spend + per-provider/feature/model breakdown -->
   <div class="card wide" id="llm-cost-panel">
-    <h2>LLM Cost (Month-to-Date) <span id="llm-cost-badge" class="badge">—</span></h2>
+    <h2>LLM Cost (Month-to-Date) <span id="llm-cost-badge" class="badge">-</span></h2>
     <div id="llm-cost-metrics" class="loading">Loading...</div>
   </div>
 
   <!-- System Health — self-diagnostic traffic-light grid -->
   <div class="card wide" id="system-health-panel">
-    <h2>System Health <span id="health-overall-badge" class="badge">—</span></h2>
+    <h2>System Health <span id="health-overall-badge" class="badge">-</span></h2>
     <div id="system-health-metrics" class="loading">Loading...</div>
   </div>
 
@@ -526,7 +526,7 @@ function _renderFetchFailureBanner() {
     const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
     const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
     html +=
-      `<strong>⚠️ DATA UNAVAILABLE — ${entries.length} ${noun} failed to fetch.</strong> `
+      `<strong>⚠️ DATA UNAVAILABLE: ${entries.length} ${noun} failed to fetch.</strong> `
       + `The panels below may show fallback values (zeros, "DOWN", "--") that are `
       + `<em>not real measurements</em>. Likely causes: fly.io proxy timeout or `
       + `backend overload. Affected: ${head}${more}.`;
@@ -537,8 +537,8 @@ function _renderFetchFailureBanner() {
     const noun = n === 1 ? 'panel requires' : 'panels require';
     const hasToken = !!(window.API && API.token && API.token());
     const msg = hasToken
-      ? `🔒 <strong>${n} operator ${noun} re-authentication</strong> — your session may have expired. Sign in again to load them. (These are not "down".)`
-      : `🔒 <strong>${n} operator ${noun} sign-in</strong> to display. This is expected for a signed-out viewer — the endpoints are reachable, just protected.`;
+      ? `🔒 <strong>${n} operator ${noun} re-authentication</strong>. Your session may have expired. Sign in again to load them. (These are not "down".)`
+      : `🔒 <strong>${n} operator ${noun} sign-in</strong> to display. This is expected for a signed-out viewer: the endpoints are reachable, just protected.`;
     html += (html ? '<div style="height:8px"></div>' : '') + msg;
   }
   banner.innerHTML = html;
@@ -648,7 +648,7 @@ async function loadHealth() {
     metricRow('Grounded Rate', pct(q.grounded_rate), scoreClass(q.grounded_rate)) +
     metricRow('Adversarial Score', pct(q.adversarial_score), scoreClass(q.adversarial_score, 0.8, 0.5)) +
     metricRow('Predictor Blocks (24h)', q.predictor_blocks_24h || 0, q.predictor_blocks_24h > 3 ? 'bad' : 'good') +
-    metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ' — ' + coreWeak.join(', ') : ''), coreWeak.length ? 'warn' : 'good') +
+    metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ': ' + coreWeak.join(', ') : ''), coreWeak.length ? 'warn' : 'good') +
     metricRow('Weak Topics (all)', (q.weak_topics || []).join(', ') || 'None', q.weak_topics?.length ? 'warn' : 'good');
 }
 
@@ -667,7 +667,7 @@ async function loadMode() {
   if (d.history?.length) {
     html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Recent transitions:</div>';
     d.history.slice(0, 5).forEach(h => {
-      html += `<div style="font-size:0.75em;padding:2px 0">${h.from} → ${h.to} — ${h.reason} (${h.at})</div>`;
+      html += `<div style="font-size:0.75em;padding:2px 0">${h.from} → ${h.to}: ${h.reason} (${h.at})</div>`;
     });
   }
   document.getElementById('mode-metrics').innerHTML = html;
@@ -699,7 +699,7 @@ async function loadAdversarial() {
   const d = await fetchJson('/adversarial/stats');
   if (!d) { document.getElementById('adversarial-metrics').innerHTML = '<span class="neutral">No data yet</span>'; return; }
   const last = d.last_run;
-  if (!last) { document.getElementById('adversarial-metrics').innerHTML = '<span class="neutral">No runs yet — first audit Wed 06:00 UTC</span>'; return; }
+  if (!last) { document.getElementById('adversarial-metrics').innerHTML = '<span class="neutral">No runs yet. First audit Wed 06:00 UTC.</span>'; return; }
   document.getElementById('adversarial-metrics').innerHTML =
     metricRow('Overall Score', pct(last.overall_score), scoreClass(last.overall_score, 0.8, 0.5)) +
     metricRow('Passed', `${last.passed}/${last.total_attacks}`, last.passed === last.total_attacks ? 'good' : 'warn') +
@@ -725,7 +725,7 @@ async function loadAmendments() {
   const el = document.getElementById('amendments-queue');
   if (!d) {
     // R-F103 (2026-05-09): explicit cause when endpoint returns null
-    el.innerHTML = '<span class="neutral">Endpoint unavailable — '
+    el.innerHTML = '<span class="neutral">Endpoint unavailable. '
                  + '/adversarial/amendments returned no data. The queue '
                  + 'is in Redis at <code>aria:adversarial:amendments_queue</code>; '
                  + 'check fly logs for connection issues.</span>';
@@ -733,7 +733,7 @@ async function loadAmendments() {
   }
   const amendments = d.amendments || [];
   if (!amendments.length) {
-    el.innerHTML = '<span class="good">No pending amendments — queue clean</span>';
+    el.innerHTML = '<span class="good">No pending amendments. Queue clean.</span>';
     return;
   }
   // R-F103 (2026-05-09): added bulk-reject button + better explainer
@@ -743,8 +743,8 @@ async function loadAmendments() {
         + 'Operator triage: each amendment is a constitutional change candidate '
         + 'staged from a failed adversarial attack. Reject invalid ones with a '
         + 'reason (audit-logged). Accepting means deploying via '
-        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md — '
-        + 'do that from the CLI (no UI button — manual deploy is the safety gate).</div>';
+        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md. '
+        + 'Do that from the CLI (no UI button; manual deploy is the safety gate).</div>';
   // Bulk-reject UI
   // R-F527 (2026-05-14): data-action delegation replaces inline onclick.
   // Operator reported "no engagement" on Approve/Reject even after R-F471
@@ -797,12 +797,12 @@ async function loadAmendments() {
       + `<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;flex:1;min-width:0">`
       + `<span style="color:#6b6862">Clauses: `
       + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
-      + `${escapeHtml(clauses) || '—'}</span></span>`
+      + `${escapeHtml(clauses) || '-'}</span></span>`
       + `<span style="color:#6b6862">Fails: `
       + `<span style="color:${failColor};font-weight:600">${failCount}×</span></span>`
       + `<span style="color:#6b6862">Last failed: `
       + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
-      + `${escapeHtml(lastFailed) || '—'}</span></span>`
+      + `${escapeHtml(lastFailed) || '-'}</span></span>`
       + `</div>`
       // Right: actions
       // R-F527 (2026-05-14): data-action delegation. See bulk-reject
@@ -973,7 +973,7 @@ async function bulkRejectStale() {
     sub: `About to reject ${stale.length} amendment(s) older than 7 days. `
        + `All rejections are audit-logged with the reason below.`,
     notesLabel: 'Reason (required)',
-    notesPlaceholder: 'e.g. "stale candidate — superseded by R-F59/F80 expansion"',
+    notesPlaceholder: 'e.g. "stale candidate, superseded by R-F59/F80 expansion"',
     submitLabel: `Reject ${stale.length}`,
     danger: true,
   });
@@ -1002,7 +1002,7 @@ async function bulkRejectStale() {
 // the failure surfaces precisely instead of looking dead.
 async function rejectAmendment(attackId) {
   if (!attackId) {
-    showOperatorToast('Reject: no attackId — internal bug, report it.', 'error');
+    showOperatorToast('Reject: no attackId (internal bug, report it).', 'error');
     return;
   }
   let r;
@@ -1013,12 +1013,12 @@ async function rejectAmendment(attackId) {
          + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
          + `constitution unchanged for this attack.`,
       notesLabel: 'Reason (required)',
-      notesPlaceholder: 'e.g. "ARIA already handles this attack correctly — no clause change needed"',
+      notesPlaceholder: 'e.g. "ARIA already handles this attack correctly, no clause change needed"',
       submitLabel: 'Reject',
       danger: true,
     });
   } catch (e) {
-    showOperatorToast('Reject: modal failed — ' + (e && e.message || e), 'error');
+    showOperatorToast('Reject: modal failed: ' + (e && e.message || e), 'error');
     return;
   }
   if (!r || !r.confirmed) return;
@@ -1029,7 +1029,7 @@ async function rejectAmendment(attackId) {
       { attack_id: attackId, reason: r.notes },
     );
   } catch (e) {
-    showOperatorToast('Reject: network threw — ' + (e && e.message || e), 'error');
+    showOperatorToast('Reject: network threw: ' + (e && e.message || e), 'error');
     return;
   }
   if (!resp || !resp.ok) {
@@ -1055,7 +1055,7 @@ async function rejectAmendment(attackId) {
 // callers.
 async function approveAmendment(attackId) {
   if (!attackId) {
-    showOperatorToast('Approve: no attackId — internal bug, report it.', 'error');
+    showOperatorToast('Approve: no attackId (internal bug, report it).', 'error');
     return;
   }
   let r;
@@ -1068,12 +1068,12 @@ async function approveAmendment(attackId) {
          + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
       phrase: 'APPROVE',
       notesLabel: 'Approval notes (required, audit-logged)',
-      notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably — needs new clause"',
+      notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably, needs new clause"',
       submitLabel: 'Approve & stage',
       danger: false,
     });
   } catch (e) {
-    showOperatorToast('Approve: modal failed — ' + (e && e.message || e), 'error');
+    showOperatorToast('Approve: modal failed: ' + (e && e.message || e), 'error');
     return;
   }
   if (!r || !r.confirmed) return;
@@ -1084,7 +1084,7 @@ async function approveAmendment(attackId) {
       { attack_id: attackId, notes: r.notes },
     );
   } catch (e) {
-    showOperatorToast('Approve: network threw — ' + (e && e.message || e), 'error');
+    showOperatorToast('Approve: network threw: ' + (e && e.message || e), 'error');
     return;
   }
   if (!resp || !resp.ok) {
@@ -1167,7 +1167,7 @@ async function loadLayer5c() {
   const tiers = d.by_tier || {};
   const scanned = d.runs_scanned || 0;
   if (!scanned) {
-    el.innerHTML = '<span class="neutral">No Layer 5c runs yet — first DD with commercial_coherence will populate this panel</span>';
+    el.innerHTML = '<span class="neutral">No Layer 5c runs yet. First DD with commercial_coherence will populate this panel.</span>';
     return;
   }
   const green = tiers.GREEN || 0;
@@ -1210,7 +1210,7 @@ async function loadPredictor() {
 async function loadAudit() {
   const d = await fetchJson('/chat-audit/stats');
   if (!d || d.error) {
-    document.getElementById('audit-metrics').innerHTML = '<span class="neutral">No audit data yet — populates after first chat</span>';
+    document.getElementById('audit-metrics').innerHTML = '<span class="neutral">No audit data yet. Populates after the first chat.</span>';
     document.getElementById('audit-recent').innerHTML = '<span class="neutral">No entries yet</span>';
     return;
   }
@@ -1232,14 +1232,14 @@ async function loadAudit() {
     rhtml += '</table>';
     document.getElementById('audit-recent').innerHTML = rhtml;
   } else {
-    document.getElementById('audit-recent').innerHTML = '<span class="neutral">No audit entries yet — will populate after first chat</span>';
+    document.getElementById('audit-recent').innerHTML = '<span class="neutral">No audit entries yet. Will populate after the first chat.</span>';
   }
 }
 
 async function loadHeatmap() {
   const d = await fetchJson('/student/mastery/heatmap');
   if (!d || !d.heatmap || !Object.keys(d.heatmap).length) {
-    document.getElementById('heatmap').innerHTML = '<span class="neutral">No regional data yet — populates as ARIA processes region-specific queries</span>';
+    document.getElementById('heatmap').innerHTML = '<span class="neutral">No regional data yet. Populates as ARIA processes region-specific queries.</span>';
     return;
   }
   // Collect all regions
@@ -1261,7 +1261,7 @@ async function loadHeatmap() {
   const _rc = regionList.length;
   const _caption = '<div style="margin-bottom:8px;font-size:0.78em;color:#9b968c;line-height:1.5">'
     + '<strong>Region-specific coverage</strong> (Phase&nbsp;A gate&nbsp;#2). '
-    + 'A cell near 50% means that topic has <em>not been measured for that region yet</em> — not low competence. '
+    + 'A cell near 50% means that topic has <em>not been measured for that region yet</em>, not low competence. '
     + 'Topic mastery (how well ARIA knows each subject) is tracked separately in the Mastery panel above. '
     + _rc + ' region' + (_rc === 1 ? '' : 's') + ' ' + (_rc === 1 ? 'has' : 'have') + ' regional samples so far'
     + (_cells.length ? ('; ' + _nearInit + '/' + _cells.length + ' cell' + (_nearInit === 1 ? '' : 's') + ' still at the ~50% initial scaffold') : '')
@@ -1365,7 +1365,7 @@ async function loadComposite() {
   const pending = Object.values(signals).filter(v => v == null).length;
   const pendingFrac = pending / totalSig;
   const tierEffective = (pendingFrac >= 0.25 && d.tier > 2) ? 2 : d.tier;
-  const tierNameEff = (pendingFrac >= 0.25 && d.tier > 2) ? 'MEDIUM (capped — signal-pending)' : d.tier_name;
+  const tierNameEff = (pendingFrac >= 0.25 && d.tier > 2) ? 'MEDIUM (capped, signal-pending)' : d.tier_name;
   cb.textContent = `SCORE: ${pct(d.composite_score)} ${tierNameEff}`;
   const cls = tierEffective >= 4 ? 'badge-green' : tierEffective >= 3 ? 'badge-green' : tierEffective >= 2 ? 'badge-yellow' : 'badge-red';
   cb.className = `badge ${cls}`;
@@ -1381,7 +1381,7 @@ async function loadComposite() {
   for (const [sig, val] of Object.entries(signals)) {
     const w = weights[sig] ? ` (${(weights[sig]*100).toFixed(0)}%)` : '';
     const display = val != null ? pct(val) : '50%*';
-    const note = val == null ? ' <span style="font-size:0.75em;color:#6b6862">(default — no data yet)</span>' : '';
+    const note = val == null ? ' <span style="font-size:0.75em;color:#6b6862">(default, no data yet)</span>' : '';
     html += `<div class="metric"><span class="label">${sig}${w}</span><span class="value neutral">${display}${note}</span></div>`;
   }
   if (pending > 0) {
@@ -1398,7 +1398,7 @@ async function loadCalibration() {
   const d = await fetchJson('/calibration/review');
   if (!d || d.calibration_status === 'insufficient_data') {
     document.getElementById('calibration-metrics').innerHTML =
-      '<span class="neutral">Insufficient data — needs adversarial audit + honesty judge verdicts</span>';
+      '<span class="neutral">Insufficient data. Needs adversarial audit plus honesty judge verdicts.</span>';
     return;
   }
   const statusCls = {well_calibrated:'good', acceptable:'warn', overconfident:'bad', underconfident:'warn'}[d.calibration_status] || 'neutral';
@@ -1473,7 +1473,7 @@ async function loadSurface() {
                      : verdict === 'SINGLE_POINT' ? 'warn'
                      : 'bad';
     html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#f5f4ef; border:1px solid #e9e6df; border-radius:6px">';
-    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor — ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
+    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor: ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
     const providerChips = (resilience.providers || []).map(p => {
       const cls = p.status === 'active' ? 'good' : (p.status === 'cooling' ? 'warn' : 'neutral');
       return `<span class="value ${cls}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${p.name}: ${p.status}</span>`;
@@ -1495,7 +1495,7 @@ async function loadSurface() {
     } else if (mem.claim_ledger_available) {
       memBits.push('claim-ledger: available');
     }
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Memory — ${memBits.join(' · ')}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Memory: ${memBits.join(' · ')}</div>`;
     html += '</div>';
   }
 
@@ -1522,7 +1522,7 @@ async function loadSurface() {
   if (waStatus === 'GATED' && (queue.wa_mirror_missing_env || []).length) {
     html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
   } else if (waStatus === 'DEFERRED') {
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Intentionally off — unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Intentionally off. Unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
   }
   html += metricRow('Stale facts',        queue.stale_facts ?? 0,
                     (queue.stale_facts ?? 0) > 0 ? 'warn' : 'good');
@@ -1538,7 +1538,7 @@ async function loadSurface() {
   html += '</div>';
 
   html += '</div>';
-  html += `<div style="margin-top:10px;font-size:0.75em;color:#9b968c">Per aria_autonomy_doctrine.md — internal actions auto-allowed; client-facing drafts only; no auto-spend.</div>`;
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#9b968c">Per aria_autonomy_doctrine.md: internal actions auto-allowed; client-facing drafts only; no auto-spend.</div>`;
 
   el.innerHTML = html;
   el.classList.remove('loading');
@@ -1585,7 +1585,7 @@ async function loadLearning() {
   // consumed by any live model. They're corpus for the future R-F92
   // fine-tune run (RunPod, ~$30-45). Without this caveat the headline
   // implied "active learning" when the JSONL files are inert until SFT.
-  html += `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;font-style:italic">corpus for R-F92 fine-tune — no model currently consumes these</div>`;
+  html += `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;font-style:italic">corpus for R-F92 fine-tune (no model currently consumes these)</div>`;
   html += metricRow('Spider fetches 24h',       sp.fetches_24h ?? 0, 'neutral');
   html += metricRow('Spider ingests 24h',       sp.ingests_24h ?? 0,
                     (sp.ingests_24h ?? 0) > 0 ? 'good' : 'neutral');
@@ -1651,7 +1651,7 @@ async function loadLearning() {
   const qnClosed = (qn.closed_count != null)
     ? qn.closed_count
     : (qn.items || []).filter(q => q.investigation_status === 'closed').length;
-  html += metricRow('DD runs quarantined — open', qnOpen,
+  html += metricRow('DD runs quarantined (open)', qnOpen,
                     qnOpen > 0 ? 'warn' : 'good');
   if (qnClosed > 0) {
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">+ ${qnClosed} closed (seed, F3-incident)</div>`;
@@ -1713,7 +1713,7 @@ async function loadLearning() {
 
   html += '</div>';
   html += `<div style="margin-top:10px;font-size:0.75em;color:#9b968c">`;
-  html += `Endpoints — <a href="/api/aria/learning/stats" style="color:#2563eb">/learning/stats</a> · `;
+  html += `Endpoints: <a href="/api/aria/learning/stats" style="color:#2563eb">/learning/stats</a> · `;
   html += `<a href="/api/aria/verification/stats" style="color:#2563eb">/verification/stats</a> · `;
   html += `<a href="/api/aria/dd/quarantine" style="color:#2563eb">/dd/quarantine</a> · `;
   html += `<a href="/api/aria/autonomy/surface" style="color:#2563eb">/autonomy/surface</a>`;
@@ -1731,7 +1731,7 @@ async function loadLlmCost() {
   if (!d || d.error) {
     badge.textContent = 'NO DATA';
     badge.className = 'badge badge-yellow';
-    el.innerHTML = '<span class="neutral">No cost data yet — populates after first LLM call this month</span>';
+    el.innerHTML = '<span class="neutral">No cost data yet. Populates after the first LLM call this month.</span>';
     el.classList.remove('loading');
     return;
   }
@@ -1772,7 +1772,7 @@ async function loadLlmCost() {
   html += `<div style="height:100%;width:${utilWidth}%;background:${utilBarColour};transition:width .3s"></div>`;
   html += `</div>`;
   if (d.warn_only) {
-    html += `<div class="warn" style="font-size:0.8em;margin-bottom:8px">⚠ WARN-ONLY mode — cap will not block</div>`;
+    html += `<div class="warn" style="font-size:0.8em;margin-bottom:8px">⚠ WARN-ONLY mode: cap will not block</div>`;
   }
 
   // Side-by-side breakdowns
@@ -1905,7 +1905,7 @@ async function loadSystemHealth() {
   if (!d || !d.overall) {
     badge.textContent = 'UNKNOWN';
     badge.className = 'badge badge-yellow';
-    el.innerHTML = '<span class="neutral">Diagnostic not yet run — fires every 15min</span>';
+    el.innerHTML = '<span class="neutral">Diagnostic not yet run. Fires every 15min.</span>';
     el.classList.remove('loading');
     return;
   }
@@ -1958,12 +1958,12 @@ async function loadCoverageHeatmap() {
   const gapEl = document.getElementById('cov-gaps');
   const scoreBadge = document.getElementById('cov-score');
   if (!d || !d.matrix) {
-    el.innerHTML = '<span class="neutral">No coverage data yet — endpoint unavailable.</span>';
+    el.innerHTML = '<span class="neutral">No coverage data yet. Endpoint unavailable.</span>';
     el.classList.remove('loading');
     sumEl.innerHTML = '';
     return;
   }
-  const score = d.coverage_score == null ? '—' : (d.coverage_score * 100).toFixed(0) + '%';
+  const score = d.coverage_score == null ? '-' : (d.coverage_score * 100).toFixed(0) + '%';
   scoreBadge.textContent = score;
   scoreBadge.className = 'badge ' + scoreClass(d.coverage_score || 0);
   const summary = d.summary || {};
@@ -2047,7 +2047,7 @@ async function loadFreshness() {
   const sumEl = document.getElementById('fresh-summary');
   const badge = document.getElementById('fresh-stale-count');
   if (!d || !d.domains) {
-    el.innerHTML = '<span class="neutral">No freshness data yet — populates as ingest paths fire (R-F96).</span>';
+    el.innerHTML = '<span class="neutral">No freshness data yet. Populates as ingest paths fire (R-F96).</span>';
     el.classList.remove('loading');
     return;
   }
@@ -2083,10 +2083,10 @@ async function loadFreshness() {
   domains.slice(0, 30).forEach(rec => {
     const cls = rec.is_stale ? 'bad' : 'good';
     const stat = rec.is_stale ? 'STALE' : 'FRESH';
-    const hours = rec.hours_since_refresh != null ? `${rec.hours_since_refresh}h ago` : '—';
-    const win = rec.max_staleness_hours ? `${rec.max_staleness_hours}h` : '—';
+    const hours = rec.hours_since_refresh != null ? `${rec.hours_since_refresh}h ago` : '-';
+    const win = rec.max_staleness_hours ? `${rec.max_staleness_hours}h` : '-';
     const dom = rec.domain || '';
-    const src = rec.last_refresh_source || '—';
+    const src = rec.last_refresh_source || '-';
     html += `<tr>
       <td style="font-family:'Cascadia Code',monospace;color:#7c3aed;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(dom)}">${escapeHtml(dom)}</td>
       <td style="white-space:nowrap"><span class="${cls}">${stat}</span></td>
@@ -2117,7 +2117,7 @@ async function loadHallucination() {
   const sumEl = document.getElementById('halluc-summary');
   const badge = document.getElementById('halluc-rate-badge');
   if (!d) {
-    el.innerHTML = '<span class="bad">Failed to load — endpoint unavailable</span>';
+    el.innerHTML = '<span class="bad">Failed to load. Endpoint unavailable.</span>';
     return;
   }
   const sum = d.summary || {};
@@ -2177,8 +2177,8 @@ async function loadHallucination() {
     html += '<table style="font-size:0.78em;margin-top:4px"><tr>'
           + '<th>When</th><th>Pattern</th><th>Phrase</th><th>Trace</th></tr>';
     for (const r of recent.slice(0, 20)) {
-      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString() : '—';
-      const pat = r.pattern_id || r.guard || '—';
+      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString() : '-';
+      const pat = r.pattern_id || r.guard || '-';
       const phrase = (r.phrase || r.snippet || '').slice(0, 60);
       const trace = (r.trace_id || '').slice(0, 8);
       html += `<tr><td style="white-space:nowrap">${escapeHtml(ts)}</td>`
@@ -2239,7 +2239,7 @@ async function refreshAll() {
 function clearStuckLoading() {
   document.querySelectorAll('.loading').forEach(el => {
     if (el.textContent.trim() === 'Loading...') {
-      el.innerHTML = '<span class="neutral">No data — check connection</span>';
+      el.innerHTML = '<span class="neutral">No data. Check connection.</span>';
       el.classList.remove('loading');
     }
   });

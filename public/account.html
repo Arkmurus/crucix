@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Account & Billing — ARIA</title>
+  <title>Account & Billing | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -167,7 +167,7 @@
           <div class="pf-field"><label for="pf-companyCountry">Country</label><input id="pf-companyCountry" type="text" maxlength="80"></div>
           <div class="pf-field pf-span2"><label for="pf-sector">Sector</label>
             <select id="pf-sector">
-              <option value="">— select —</option>
+              <option value="">Select…</option>
               <option value="defence_broker">Defence broker / dealer / agent</option>
               <option value="oem_export">OEM (defence manufacturer)</option>
               <option value="government_acquisition">Government / acquisition / intel</option>
@@ -188,7 +188,7 @@
 
     <div class="acct-banner info" id="acct-billing-disabled" style="display:none">
       <i class="bi bi-info-circle"></i>
-      <span>Subscription billing isn't configured on this deployment yet — paid tiers will appear once it's enabled. You can keep using the free tier as normal.</span>
+      <span>Subscription billing isn't configured on this deployment yet. Paid tiers will appear once it's enabled. You can keep using the free tier as normal.</span>
     </div>
 
     <div class="acct-banner" id="acct-past-due" style="display:none">
@@ -199,9 +199,9 @@
     <div class="acct-tier" id="acct-tier-card" style="display:none">
       <div class="acct-tier-row">
         <div>
-          <div class="acct-tier-name" id="acct-tier-name">—</div>
+          <div class="acct-tier-name" id="acct-tier-name">-</div>
           <div class="acct-tier-price" id="acct-tier-price"></div>
-          <div style="margin-top:8px"><span class="acct-tier-status none" id="acct-tier-status">—</span></div>
+          <div style="margin-top:8px"><span class="acct-tier-status none" id="acct-tier-status">-</span></div>
         </div>
         <div class="acct-actions" id="acct-actions">
           <!-- populated by JS -->
@@ -237,7 +237,7 @@
         <div id="keys-just-created" style="display:none;margin:10px 0 14px;padding:12px;
              background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.25);border-radius:8px">
           <div style="font-size:12px;color:#15803d;margin-bottom:6px;font-weight:600">
-            <i class="bi bi-check-circle-fill"></i> Key created — copy now, you won't see it again
+            <i class="bi bi-check-circle-fill"></i> Key created. Copy now, you won't see it again
           </div>
           <code id="keys-just-created-value"
                 style="display:block;padding:8px;background:#f2f0e9;border:1px solid var(--sc-border);border-radius:6px;
@@ -520,7 +520,7 @@ Sidebar.init('account');
     function renderKeys(keys) {
       const listEl = document.getElementById('keys-list');
       if (!keys.length) {
-        listEl.innerHTML = '<div style="padding:8px 0">No keys yet — create one above.</div>';
+        listEl.innerHTML = '<div style="padding:8px 0">No keys yet. Create one above.</div>';
         return;
       }
       listEl.innerHTML = '';
@@ -579,14 +579,14 @@ Sidebar.init('account');
   if (params.get('checkout') === 'ok') {
     var ok = document.createElement('div');
     ok.className = 'acct-banner info';
-    ok.innerHTML = '<i class="bi bi-check-circle-fill"></i><span>Subscription activated — your tier will refresh in a few seconds as Stripe confirms the payment.</span>';
+    ok.innerHTML = '<i class="bi bi-check-circle-fill"></i><span>Subscription activated. Your tier will refresh in a few seconds as Stripe confirms the payment.</span>';
     document.querySelector('.acct-shell').insertBefore(ok, document.querySelector('.acct-shell').firstChild.nextSibling);
     // Refresh tier in 5s to pick up the webhook update
     setTimeout(() => location.reload(), 5000);
   } else if (params.get('checkout') === 'cancelled') {
     var c = document.createElement('div');
     c.className = 'acct-banner';
-    c.innerHTML = '<i class="bi bi-info-circle"></i><span>Checkout cancelled — no payment was taken.</span>';
+    c.innerHTML = '<i class="bi bi-info-circle"></i><span>Checkout cancelled. No payment was taken.</span>';
     document.querySelector('.acct-shell').insertBefore(c, document.querySelector('.acct-shell').firstChild.nextSibling);
   }
 })();
@@ -643,7 +643,7 @@ Sidebar.init('account');
       if (!r.ok || !u || !u.id) { msg((u && u.error) || 'Could not save.'); btn.disabled = false; return; }
       paint(u); cacheUser(u); syncHeader(u);
       msg('Profile saved ✓', true);
-    } catch (e) { msg('Network error — please try again.'); }
+    } catch (e) { msg('Network error. Please try again.'); }
     btn.disabled = false;
   });
 

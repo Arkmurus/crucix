@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BD Intelligence — ARIA</title>
+  <title>BD Intelligence | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
   <link rel="stylesheet" href="css/aria.css?v=15">
@@ -111,7 +111,7 @@ document.getElementById('bd-tabs').addEventListener('click', function(e) {
 });
 
 function openShare(text, url) {
-  shareText = text + (url ? '\n\n' + url : '') + '\n\n— ARIA Intelligence · imaria.io';
+  shareText = text + (url ? '\n\n' + url : '') + '\n\n· ARIA Intelligence · imaria.io';
   document.getElementById('share-preview').textContent = truncate(shareText, 180);
   document.getElementById('share-sheet').classList.add('open');
 }
@@ -158,7 +158,7 @@ function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
 
 // R-F229 (2026-05-11) — freshness pill helper. Renders "X min/hr/d ago"
 // from any of the common timestamp fields. Returns empty string when no
-// timestamp is available so cards from legacy data don't render "—".
+// timestamp is available so cards from legacy data don't render "-".
 function freshnessPill(item) {
   if (!item || typeof item !== 'object') return '';
   var ts = item.fetchedAt || item.fetched_at || item.timestamp || item.ts
@@ -180,7 +180,7 @@ function freshnessPill(item) {
 
 async function load() {
   var data = await API.get('/api/bd-intelligence');
-  if (!data) { document.getElementById('bd-sub').textContent = 'No data — run a sweep first'; return; }
+  if (!data) { document.getElementById('bd-sub').textContent = 'No data. Run a sweep first'; return; }
   bdData = data;
 
   var tenders = data.tenders || [];
@@ -220,7 +220,7 @@ async function load() {
   if (brain) {
     var bHtml = '';
     // R-F2002 — honesty banner: this panel is AI-generated from live signals.
-    bHtml += '<div style="font-size:11px;color:#57534b;background:rgba(234,88,12,0.08);border-left:3px solid rgba(234,88,12,0.4);border-radius:0 6px 6px 0;padding:7px 10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> AI-generated from live signals. Named buyers, OEMs, deal values and dates are estimates — verify independently before acting.</div>';
+    bHtml += '<div style="font-size:11px;color:#57534b;background:rgba(234,88,12,0.08);border-left:3px solid rgba(234,88,12,0.4);border-radius:0 6px 6px 0;padding:7px 10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> AI-generated from live signals. Named buyers, OEMs, deal values and dates are estimates; verify independently before acting.</div>';
     // Weekly priority
     if (brain.weeklyPriority && brain.weeklyPriority.action) {
       var wp = brain.weeklyPriority;
@@ -243,7 +243,7 @@ async function load() {
     if (brain.marketIntelligence && brain.marketIntelligence.length) {
       bHtml += '<h4 style="color:#57534b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Market Intelligence</h4>';
       brain.marketIntelligence.forEach(function(m) {
-        bHtml += renderCard(m.market + ' — ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', m.market + ': ' + (m.signal||'') + (m.recommendation ? '\nRecommendation: ' + m.recommendation : ''));
+        bHtml += renderCard(m.market + ': ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', m.market + ': ' + (m.signal||'') + (m.recommendation ? '\nRecommendation: ' + m.recommendation : ''));
       });
     }
     // Knowledge gaps
@@ -266,7 +266,7 @@ async function load() {
     if (brain.confidence != null) bHtml += '<div style="text-align:right;font-size:11px;color:#9b968c;margin-top:8px">Brain confidence: '+Math.round(brain.confidence*100)+'%</div>';
     document.getElementById('panel-brain').innerHTML = bHtml || '<p class="text-muted">Brain analysis available after next sweep.</p>';
   } else {
-    document.getElementById('panel-brain').innerHTML = '<p class="text-muted">Brain strategy not available — requires LLM to be configured and a completed sweep.</p>';
+    document.getElementById('panel-brain').innerHTML = '<p class="text-muted">Brain strategy not available; requires LLM to be configured and a completed sweep.</p>';
   }
 
   // ── Sales Leads panel (grid cards like opportunities) ──
@@ -280,15 +280,15 @@ async function load() {
       (l.signalCount > 0 ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:24px;font-weight:800;color:var(--sc-prime)">' + l.signalCount + '</span><span style="font-size:11px;color:#9b968c">intel signals</span></div>' : '') +
       '<div style="font-size:13px;font-weight:600;color:var(--sc-heading);margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||l.market||'',120)) + '</div>' +
       (l.summary ? '<p style="font-size:12px;color:#57534b;line-height:1.6;margin-bottom:8px;border-top:1px solid var(--sc-border);padding-top:10px">' + escHtml(truncate(l.summary,300)) + '</p>' : '') +
-      (l.source==='Brain' ? '<div style="font-size:11px;color:#9b968c;margin-top:6px"><i class="bi bi-info-circle"></i> AI-generated from live signals — verify independently</div>' : '') +
+      (l.source==='Brain' ? '<div style="font-size:11px;color:#9b968c;margin-top:6px"><i class="bi bi-info-circle"></i> AI-generated from live signals; verify independently</div>' : '') +
       '</div></div>';
-  }).join('') + '</div>' : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
+  }).join('') + '</div>' : '<p class="text-muted">No qualified leads yet. Leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
 
   // ── Tenders panel (grid cards) ──
   document.getElementById('panel-tenders').innerHTML = tenders.length ? '<div class="sc-grid-3">' + tenders.map(function(t) {
     var qBadge = t.leadQuality==='HOT'?'sc-badge-prime':t.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(t.market||'Global') + freshnessPill(t) + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ' — ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
+      escHtml(t.market||'Global') + freshnessPill(t) + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ', ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:var(--sc-prime)">' + (t.score||0) + '</div>' +
       '<div style="font-size:11px;color:#9b968c">/ 100<br>Score</div></div>' +
@@ -297,12 +297,12 @@ async function load() {
       (t.summary ? '<p style="font-size:12px;color:#57534b;line-height:1.5;margin-bottom:8px;border-top:1px solid var(--sc-border);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
       (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
       '</div></div>';
-  }).join('') + '</div>' : '<p class="text-muted">No tenders found — tenders are extracted from procurement feeds during sweeps.</p>';
+  }).join('') + '</div>' : '<p class="text-muted">No tenders found. Tenders are extracted from procurement feeds during sweeps.</p>';
 
   // ── Ideas panel (grid cards) ──
   document.getElementById('panel-ideas').innerHTML = ideas.length ? '<div class="sc-grid-3">' + ideas.map(function(i) {
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '<button class="ic-share" data-sharetext="' + escHtml((i.market||'') + ' — ' + (i.type||'IDEA') + ' (Score: ' + (i.score||0) + ')\n' + (i.rationale||'') + (i.actionStep ? '\nAction: ' + i.actionStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
+      (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '<button class="ic-share" data-sharetext="' + escHtml((i.market||'') + ', ' + (i.type||'IDEA') + ' (Score: ' + (i.score||0) + ')\n' + (i.rationale||'') + (i.actionStep ? '\nAction: ' + i.actionStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:var(--sc-prime)">' + (i.score||0) + '</div>' +
       '<div style="font-size:11px;color:#9b968c">/ 100<br>Score</div></div>' +
@@ -312,7 +312,7 @@ async function load() {
       (i.rationale ? '<p style="font-size:12px;color:#57534b;line-height:1.6;border-top:1px solid var(--sc-border);padding-top:8px;margin-bottom:8px">' + escHtml(truncate(i.rationale,180)) + '</p>' : '') +
       (i.actionStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(234,88,12,0.08);border-left:3px solid rgba(234,88,12,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#c2410c"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ea580c;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(i.actionStep,150)) + '</div>' : '') +
       '</div></div>';
-  }).join('') + '</div>' : '<p class="text-muted">No strategic ideas — ideas are generated from multi-source intelligence convergence.</p>';
+  }).join('') + '</div>' : '<p class="text-muted">No strategic ideas yet. Ideas are generated from multi-source intelligence convergence.</p>';
 
   // Pipeline
   loadPipeline();
@@ -328,8 +328,8 @@ async function loadPipeline() {
       <td><strong>${escHtml(d.title||d.company||'')}</strong></td>
       <td>${escHtml(d.market||d.country||'')}</td>
       <td>${chip(d.stage||'prospect','sc-badge-muted')}</td>
-      <td>${d.value?`$${Math.round(d.value/1e6)}M`:'—'}</td>
-      <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'—'}</td>
+      <td>${d.value?`$${Math.round(d.value/1e6)}M`:'-'}</td>
+      <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'-'}</td>
       <td><button class="ic-share" data-sharetext="${escHtml((d.market||'')+ ': '+(d.title||d.company||'')+' | Stage: '+(d.stage||'')+(d.value?' | Value: $'+Math.round(d.value/1e6)+'M':'')+(d.winProb?' | Fit(est): '+Math.round(d.winProb*100)+'%':''))}"><i class="bi bi-share"></i></button></td>
     </tr>`).join('')}
     </tbody></table></div>` :

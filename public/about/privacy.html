@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARIA — Privacy Policy</title>
+  <title>ARIA | Privacy Policy</title>
   <link rel="icon" type="image/png" href="../images/fav-icon/icon.png">
   <link rel="stylesheet" href="../css/aria.css?v=15">
   <link rel="stylesheet" href="../fonts/bootstrap-icons/font-css.css">
@@ -47,12 +47,12 @@
   <div class="legal-meta">Effective date: <strong>To be determined upon legal review.</strong> Operator: ARIA Intelligence Limited.</div>
 
   <div class="draft-banner">
-    <strong>DRAFT — pending legal counsel review</strong>
+    <strong>DRAFT: pending legal counsel review</strong>
     This document is a working draft. It describes ARIA's actual data flows as implemented in the codebase, but it has not yet been reviewed or approved by external counsel. Do not rely on it for compliance decisions. Email <a href="mailto:support@imaria.io">support@imaria.io</a> with any questions while the final policy is being prepared.
   </div>
 
   <h2>1. Who we are</h2>
-  <p>ARIA is operated by <strong>ARIA Intelligence Limited</strong>, a company registered in England &amp; Wales. ARIA is a domain-specialised AI assistant for security and defence due-diligence work — see <a href="/model-card.html">the model card</a> for the capability statement.</p>
+  <p>ARIA is operated by <strong>ARIA Intelligence Limited</strong>, a company registered in England &amp; Wales. ARIA is a domain-specialised AI assistant for security and defence due-diligence work. See <a href="/model-card.html">the model card</a> for the capability statement.</p>
   <p>Contact for any privacy enquiry, data subject access request (DSAR), or data deletion request: <a href="mailto:support@imaria.io">support@imaria.io</a> (alias of <code>support@imaria.io</code> until a dedicated mailbox is provisioned).</p>
 
   <h2>2. What this policy covers</h2>
@@ -63,7 +63,7 @@
     <li>Send us an email at any address we operate (<code>support@imaria.io</code>, <code>support@imaria.io</code>, <code>aria@imaria.io</code>).</li>
     <li>Receive a daily intelligence briefing or watchlist alert from us.</li>
   </ul>
-  <p>It does <strong>not</strong> cover personal data about <em>third parties</em> that you ask ARIA to research (e.g. counterparty due-diligence subjects). That content is processed under your instructions; you are the controller of that data and we act as your processor — see §10.</p>
+  <p>It does <strong>not</strong> cover personal data about <em>third parties</em> that you ask ARIA to research (e.g. counterparty due-diligence subjects). That content is processed under your instructions; you are the controller of that data and we act as your processor (see §10).</p>
 
   <h2>3. What personal data we collect</h2>
 
@@ -77,7 +77,7 @@
       <tr><td><strong>Conversation content</strong></td><td>The messages you send to ARIA + ARIA's replies</td><td>Generated when you use the product</td></tr>
       <tr><td><strong>Document uploads</strong></td><td>PDFs, DOCX, XLSX, images you upload for analysis</td><td>Generated when you upload</td></tr>
       <tr><td><strong>Communication preferences</strong></td><td>Notification toggles (digest, flash, push, Telegram), Telegram username</td><td>Optional</td></tr>
-      <tr><td><strong>Billing identifiers</strong></td><td>Stripe customer ID + subscription ID once you subscribe (no card data — Stripe holds those)</td><td>Optional / generated on subscribe</td></tr>
+      <tr><td><strong>Billing identifiers</strong></td><td>Stripe customer ID + subscription ID once you subscribe (no card data; Stripe holds those)</td><td>Optional / generated on subscribe</td></tr>
     </tbody>
   </table>
 
@@ -86,18 +86,18 @@
     <thead><tr><th>Category</th><th>Examples</th></tr></thead>
     <tbody>
       <tr><td><strong>Usage telemetry</strong></td><td>Daily message counts, daily upload counts, monthly DD-run counts (the per-user quota counters in <code>lib/billing/quotas.mjs</code> and <code>aria_service/intel/user_quota.py</code>)</td></tr>
-      <tr><td><strong>Audit-log entries</strong></td><td>Each material claim ARIA produces with timestamp, source citations, confidence tag, source-tier breakdown — hash-chained and HMAC-signed (see model card §7)</td></tr>
-      <tr><td><strong>Cost telemetry</strong></td><td>Per-call LLM cost (provider, model, input/output tokens, latency) — used for the monthly cap enforcement</td></tr>
+      <tr><td><strong>Audit-log entries</strong></td><td>Each material claim ARIA produces with timestamp, source citations, confidence tag, source-tier breakdown: hash-chained and HMAC-signed (see model card §7)</td></tr>
+      <tr><td><strong>Cost telemetry</strong></td><td>Per-call LLM cost (provider, model, input/output tokens, latency), used for the monthly cap enforcement</td></tr>
       <tr><td><strong>Server logs</strong></td><td>HTTP request method / path / status / IP address / user-agent for the duration the host (fly.io / seenode) retains them</td></tr>
     </tbody>
   </table>
 
   <h2>4. Why we process this data (legal bases)</h2>
   <ol>
-    <li><strong>Performance of contract</strong> (UK GDPR Art. 6(1)(b)) — we process account identifiers, conversation content, and document uploads to provide ARIA's service to you.</li>
-    <li><strong>Legitimate interests</strong> (Art. 6(1)(f)) — we process telemetry, audit-log entries, and cost data to operate, secure, and improve the service. Our legitimate interest is balanced against your privacy by quota caps, audit-log access controls, and minimisation (see §6).</li>
-    <li><strong>Legal obligation</strong> (Art. 6(1)(c)) — we retain audit-log entries to support compliance audits that you (or your customer's compliance officer) may need to evidence.</li>
-    <li><strong>Consent</strong> (Art. 6(1)(a)) — for optional fields (organisation context, use-case context, communication preferences) and for marketing communications. You may withdraw consent at any time via <a href="mailto:support@imaria.io">support@imaria.io</a> or the in-product settings.</li>
+    <li><strong>Performance of contract</strong> (UK GDPR Art. 6(1)(b)): we process account identifiers, conversation content, and document uploads to provide ARIA's service to you.</li>
+    <li><strong>Legitimate interests</strong> (Art. 6(1)(f)): we process telemetry, audit-log entries, and cost data to operate, secure, and improve the service. Our legitimate interest is balanced against your privacy by quota caps, audit-log access controls, and minimisation (see §6).</li>
+    <li><strong>Legal obligation</strong> (Art. 6(1)(c)): we retain audit-log entries to support compliance audits that you (or your customer's compliance officer) may need to evidence.</li>
+    <li><strong>Consent</strong> (Art. 6(1)(a)): for optional fields (organisation context, use-case context, communication preferences) and for marketing communications. You may withdraw consent at any time via <a href="mailto:support@imaria.io">support@imaria.io</a> or the in-product settings.</li>
   </ol>
 
   <h2>5. Who we share data with</h2>
@@ -117,7 +117,7 @@
       <tr><td><strong>Email providers</strong> (operator's IMAP/SMTP)</td><td>Inbound email ingestion + transactional email</td><td>Email content sent to <code>aria@imaria.io</code>; outbound notifications.</td></tr>
     </tbody>
   </table>
-  <p>We do <strong>not</strong> sell personal data. We do not use your conversation content to train external LLMs (we have no agreement to send training data to providers — the chat round-trip alone is in scope).</p>
+  <p>We do <strong>not</strong> sell personal data. We do not use your conversation content to train external LLMs (we have no agreement to send training data to providers; the chat round-trip alone is in scope).</p>
 
   <h2>6. How long we keep data</h2>
   <table class="legal-table">
@@ -128,7 +128,7 @@
       <tr><td>Document uploads</td><td>Bound to the conversation that ingested them; deleted when that conversation is deleted.</td></tr>
       <tr><td>Audit-log entries</td><td>Retained as long as the account exists for evidentiary integrity (these are the hash-chained entries; deleting them would break the chain). On account closure, your audit-log entries are retained in pseudonymised form (user_id only, no email) for 6 years to satisfy potential compliance/legal hold periods.</td></tr>
       <tr><td>Telemetry counters</td><td>Daily counters keyed by UTC date with TTL of 36 hours; monthly counters with 35-day TTL.</td></tr>
-      <tr><td>Server logs</td><td>Per host retention (fly.io / seenode default; typically 7–30 days).</td></tr>
+      <tr><td>Server logs</td><td>Per host retention (fly.io / seenode default; typically 7-30 days).</td></tr>
       <tr><td>Backup snapshots</td><td>Off-host email backups retained per <code>ARIA_BACKUP_RETENTION_DAYS</code> (default 30 days).</td></tr>
     </tbody>
   </table>
@@ -136,14 +136,14 @@
   <h2>7. Your rights</h2>
   <p>Under UK GDPR / EU GDPR you have the right to:</p>
   <ul>
-    <li><strong>Access</strong> your personal data — request a copy via <a href="mailto:support@imaria.io">support@imaria.io</a>.</li>
-    <li><strong>Rectify</strong> inaccurate data — most fields are editable in the account page (<code>/account.html</code>). Others can be corrected via the same email.</li>
-    <li><strong>Erase</strong> your data — close your account by emailing <a href="mailto:support@imaria.io">support@imaria.io</a>. We will delete your account record + conversations + uploads within 30 days; audit-log entries pseudonymise on the same schedule.</li>
-    <li><strong>Restrict</strong> processing — pause specific processing categories (e.g. opt out of telemetry) by contacting us.</li>
-    <li><strong>Portability</strong> — receive your data in a machine-readable format (JSON) within 30 days of request.</li>
-    <li><strong>Object</strong> — object to processing based on legitimate interests; we will weigh and respond.</li>
-    <li><strong>Withdraw consent</strong> — for any processing based on consent.</li>
-    <li><strong>Lodge a complaint</strong> — with the UK ICO (<a href="https://ico.org.uk/">ico.org.uk</a>) or your local supervisory authority.</li>
+    <li><strong>Access</strong> your personal data: request a copy via <a href="mailto:support@imaria.io">support@imaria.io</a>.</li>
+    <li><strong>Rectify</strong> inaccurate data: most fields are editable in the account page (<code>/account.html</code>). Others can be corrected via the same email.</li>
+    <li><strong>Erase</strong> your data: close your account by emailing <a href="mailto:support@imaria.io">support@imaria.io</a>. We will delete your account record + conversations + uploads within 30 days; audit-log entries pseudonymise on the same schedule.</li>
+    <li><strong>Restrict</strong> processing: pause specific processing categories (e.g. opt out of telemetry) by contacting us.</li>
+    <li><strong>Portability:</strong> receive your data in a machine-readable format (JSON) within 30 days of request.</li>
+    <li><strong>Object:</strong> object to processing based on legitimate interests; we will weigh and respond.</li>
+    <li><strong>Withdraw consent:</strong> for any processing based on consent.</li>
+    <li><strong>Lodge a complaint:</strong> with the UK ICO (<a href="https://ico.org.uk/">ico.org.uk</a>) or your local supervisory authority.</li>
   </ul>
 
   <h2>8. International transfers</h2>
@@ -151,7 +151,7 @@
 
   <h2>9. Security</h2>
   <ul>
-    <li>Passwords are hashed with PBKDF2-SHA-512 (100,000 iterations) — we never see your plaintext password.</li>
+    <li>Passwords are hashed with PBKDF2-SHA-512 (100,000 iterations), so we never see your plaintext password.</li>
     <li>Authentication uses HMAC-SHA-256 signed JWTs; the signing secret is mandatory in production (<code>JWT_SECRET</code> env var; the codebase hard-fails at boot if unset).</li>
     <li>Audit-log entries are HMAC-SHA-256 signed; the production fingerprint is published in the model card.</li>
     <li>API endpoints are bearer-token protected; tokens are constant-time compared.</li>

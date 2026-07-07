@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign In — ARIA Intelligence</title>
+  <title>Sign In | ARIA Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <style>
@@ -183,7 +183,7 @@
       window.location.href = '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Sign In'; btn.disabled = false;
-      showError('Unexpected error — please try again.');
+      showError('Unexpected error. Please try again.');
       console.error('doLogin error:', e);
     }
   }
@@ -204,7 +204,7 @@
       window.location.href = '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Verify Code'; btn.disabled = false;
-      showError('Unexpected error — please try again.');
+      showError('Unexpected error. Please try again.');
       console.error('do2FA error:', e);
     }
   }

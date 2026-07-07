@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Signup Vault — ARIA</title>
+  <title>Agent Signup Vault | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -14,7 +14,7 @@
   <div class="sc-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
       <h1 class="sc-page-title"><i class="bi bi-key"></i> Agent Signup Vault</h1>
-      <p class="sc-page-sub">Every site/portal that DD agents have signed up to — unified registry.</p>
+      <p class="sc-page-sub">Every site/portal that DD agents have signed up to: a unified registry.</p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <!-- R-F2192 — admin: clear ALL vault entries -->
@@ -42,11 +42,11 @@
       <div class="sc-mod-body">
         <div id="add-site-error" class="sc-mod-err"></div>
         <div class="sc-mod-field">
-          <label>Source name <span class="opt">— required</span></label>
+          <label>Source name <span class="opt">(required)</span></label>
           <input id="as-name" type="text" placeholder="e.g. SIPRI Arms Transfers DB">
         </div>
         <div class="sc-mod-field">
-          <label>Source URL <span class="opt">— required</span></label>
+          <label>Source URL <span class="opt">(required)</span></label>
           <input id="as-url" type="url" placeholder="https://…">
         </div>
         <div class="sc-mod-field">
@@ -62,15 +62,15 @@
         </div>
         <div class="sc-mod-hint"><i class="bi bi-stars"></i><span><b>Website</b> &amp; <b>RSS</b> feed News Monitor as vault-curated intel. <b>Portal</b>/<b>API</b> are catalogued for operator credentials and are not source-monitor duplicates.</span></div>
         <div class="sc-mod-field">
-          <label>API key / credential <span class="opt">— optional, for authenticated sites</span></label>
+          <label>API key / credential <span class="opt">(optional, for authenticated sites)</span></label>
           <input id="as-cred" type="text" autocomplete="off" placeholder="API key, token, or login reference">
         </div>
         <div class="sc-mod-field">
-          <label>Topics / region <span class="opt">— optional, improves relevance</span></label>
+          <label>Topics / region <span class="opt">(optional, improves relevance)</span></label>
           <input id="as-topics" type="text" placeholder="e.g. sanctions, africa, naval">
         </div>
         <div class="sc-mod-field">
-          <label>Notes <span class="opt">— optional</span></label>
+          <label>Notes <span class="opt">(optional)</span></label>
           <textarea id="as-notes" rows="2" placeholder="Why this source is relevant…"></textarea>
         </div>
       </div>
@@ -83,15 +83,15 @@
 
   <!-- Summary row -->
   <div class="sc-grid-4 mb-16" id="vault-summary">
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="vault-total">—</div><div class="sc-stat-label">Total Sites</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="vault-total">-</div><div class="sc-stat-label">Total Sites</div></div></div>
     <!-- R-F2076: cards now map to the brain's real status vocabulary (was Registered/Pending/Failed, none of which the brain emits → 42/43 sites were invisible) -->
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="vault-verified">—</div><div class="sc-stat-label">Verified</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass-split"></i></div><div><div class="sc-stat-value" id="vault-needs-operator">—</div><div class="sc-stat-label">Needs Operator</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-plug"></i></div><div><div class="sc-stat-value" id="vault-open-api">—</div><div class="sc-stat-label">Open API</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="vault-verified">-</div><div class="sc-stat-label">Verified</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass-split"></i></div><div><div class="sc-stat-value" id="vault-needs-operator">-</div><div class="sc-stat-label">Needs Operator</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-plug"></i></div><div><div class="sc-stat-value" id="vault-open-api">-</div><div class="sc-stat-label">Open API</div></div></div>
   </div>
   <div class="sc-grid-2 mb-24" id="vault-summary-2">
-    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-declined">—</div><div class="sc-stat-label">Declined</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="vault-stale">—</div><div class="sc-stat-label">Stale (30d+)</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-declined">-</div><div class="sc-stat-label">Declined</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="vault-stale">-</div><div class="sc-stat-label">Stale (30d+)</div></div></div>
   </div>
 
   <!-- Filter bar -->
@@ -177,7 +177,7 @@ function statusHtml(status) {
 }
 
 function fmtDate(ts) {
-  if (!ts) return '<span style="color:#9b968c">—</span>';
+  if (!ts) return '<span style="color:#9b968c">-</span>';
   const d = new Date(ts * 1000);
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -356,13 +356,13 @@ setInterval(loadVault, 60000);
       const r = await authed('/api/aria/vault', { method: 'DELETE' });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.success) {
-        if (window.Toast) Toast.show('Vault cleared — ' + (d.deleted || 0) + ' removed.', 'success');
+        if (window.Toast) Toast.show('Vault cleared: ' + (d.deleted || 0) + ' removed.', 'success');
         loadVault();
       } else {
         if (window.Toast) Toast.show((d && d.error) || ('Clear failed (HTTP ' + r.status + ').'), 'error');
       }
     } catch (e) {
-      if (window.Toast) Toast.show('Clear failed — ' + (e.message || 'network error'), 'error');
+      if (window.Toast) Toast.show('Clear failed: ' + (e.message || 'network error'), 'error');
     } finally {
       clearBtn.disabled = false; clearBtn.innerHTML = '<i class="bi bi-trash"></i> Clear all';
     }

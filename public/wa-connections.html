@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WhatsApp Connections — ARIA</title>
+  <title>WhatsApp Connections | ARIA</title>
   <style>
     *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -222,7 +222,7 @@
         ...opts,
       });
       if (res.status === 401) {
-        throw new Error('Not signed in — log in to imaria.io first, then reload this page.');
+        throw new Error('Not signed in. Log in to imaria.io first, then reload this page.');
       }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -251,7 +251,7 @@
     }
 
     function formatTime(ts) {
-      if (!ts) return '—';
+      if (!ts) return '-';
       return new Date(ts).toLocaleString();
     }
 
@@ -324,7 +324,7 @@
           method: 'POST',
           body: JSON.stringify({ name }),
         });
-        showToast('Account created' + (data.qr ? ' — showing QR code' : ''));
+        showToast('Account created' + (data.qr ? ' (showing QR code)' : ''));
         await refresh();
         if (data.qr_html) {
           showQrRaw(data.account.id, data.qr_html);
@@ -373,10 +373,10 @@
         } else if (data.qr) {
           document.getElementById('qrTitle').textContent = 'QR Code';
           document.getElementById('qrContent').innerHTML = `<div class="qr-frame"><svg width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="white"/><text x="128" y="128" text-anchor="middle" font-size="12" fill="#666">QR data available</text><text x="128" y="148" text-anchor="middle" font-size="10" fill="#999">Install qrcode package for SVG</text></svg></div>`;
-          document.getElementById('qrStatus').textContent = 'QR code ready — scan within 60 seconds';
+          document.getElementById('qrStatus').textContent = 'QR code ready. Scan within 60 seconds';
         } else {
           document.getElementById('qrTitle').textContent = 'No QR Available';
-          document.getElementById('qrContent').innerHTML = '<p style="color:#6b6862;padding:20px">' + (data.account?.status === 'connected' ? 'Already connected — no QR needed' : 'No QR code yet. Try again in a few seconds.') + '</p>';
+          document.getElementById('qrContent').innerHTML = '<p style="color:#6b6862;padding:20px">' + (data.account?.status === 'connected' ? 'Already connected. No QR needed' : 'No QR code yet. Try again in a few seconds.') + '</p>';
         }
       } catch (e) {
         document.getElementById('qrTitle').textContent = 'Error';

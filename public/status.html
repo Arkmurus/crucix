@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARIA — System Status</title>
+  <title>ARIA | System Status</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -93,7 +93,7 @@
 <div class="st-shell">
 
   <div class="st-eyebrow">System status</div>
-  <h1 class="st-title">ARIA — current state</h1>
+  <h1 class="st-title">ARIA: current state</h1>
 
   <div id="banner" class="st-banner operational">
     <div class="st-banner-icon"><i class="bi bi-check-circle-fill"></i></div>
@@ -105,7 +105,7 @@
   </div>
 
   <div class="st-uptime">
-    <div class="st-uptime-pct" id="uptime-pct">—%</div>
+    <div class="st-uptime-pct" id="uptime-pct">-%</div>
     <div class="st-uptime-label">Estimated uptime over the last 30 days</div>
   </div>
 
@@ -121,7 +121,7 @@
   <div id="recent-incidents"><div class="st-empty">No resolved incidents in the last 30 days.</div></div>
 
   <div class="st-footer">
-    Last updated: <span id="generated-at">—</span> · Operator: ARIA Intelligence Limited.
+    Last updated: <span id="generated-at">-</span> · Operator: ARIA Intelligence Limited.
     Companion documents: <a href="/model-card.html">Model card</a> · <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
 </div>
@@ -141,7 +141,7 @@
 
 <script>
 function fmt(d) {
-  if (!d) return '—';
+  if (!d) return '-';
   var dt = new Date(d);
   return dt.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
@@ -216,7 +216,7 @@ function renderIncidents(list, target, emptyMsg) {
 
     // Uptime
     document.getElementById('uptime-pct').textContent =
-      (data.uptime30dPct !== undefined ? data.uptime30dPct.toFixed(2) : '—') + '%';
+      (data.uptime30dPct !== undefined ? data.uptime30dPct.toFixed(2) : '-') + '%';
 
     // Bridge row
     if (data.bridge) {
@@ -239,7 +239,7 @@ function renderIncidents(list, target, emptyMsg) {
   } catch (err) {
     console.error('[Status] load failed:', err);
     document.getElementById('banner-status').textContent = 'Status check failed';
-    document.getElementById('banner-summary').textContent = 'Unable to load /api/status — the page itself is up but live data is unavailable.';
+    document.getElementById('banner-summary').textContent = 'Unable to load /api/status. The page itself is up but live data is unavailable.';
   }
 })();
 </script>

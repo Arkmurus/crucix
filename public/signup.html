@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Create Account — ARIA Intelligence</title>
+  <title>Create Account | ARIA Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <style>
@@ -244,11 +244,11 @@
             <div class="sc-field">
               <label>Company size</label>
               <select id="companySize">
-                <option value="">— select —</option>
+                <option value="">Select…</option>
                 <option value="≤10">≤10</option>
-                <option value="11-50">11–50</option>
-                <option value="51-200">51–200</option>
-                <option value="201-1000">201–1000</option>
+                <option value="11-50">11-50</option>
+                <option value="51-200">51-200</option>
+                <option value="201-1000">201-1000</option>
                 <option value="1000+">1000+</option>
               </select>
             </div>
@@ -257,7 +257,7 @@
           <div class="sc-field">
             <label>Sector</label>
             <select id="sector">
-              <option value="">— select —</option>
+              <option value="">Select…</option>
               <option value="defence_broker">Defence broker / dealer / agent</option>
               <option value="oem_export">OEM (defence manufacturer)</option>
               <option value="government_acquisition">Government / acquisition / intel</option>
@@ -337,10 +337,10 @@
           <div class="sc-field">
             <label>Volume estimate</label>
             <select id="volumeEstimate">
-              <option value="">— select —</option>
+              <option value="">Select…</option>
               <option value="few_per_week">A few queries per week</option>
-              <option value="daily">Daily (10–50/day)</option>
-              <option value="heavy">Heavy (50–500/day)</option>
+              <option value="daily">Daily (10-50/day)</option>
+              <option value="heavy">Heavy (50-500/day)</option>
               <option value="enterprise">Enterprise (500+/day)</option>
             </select>
           </div>
@@ -508,7 +508,7 @@
           var _h2 = document.getElementById('pending-heading'); if (_h2) _h2.textContent = "You're in! 🎉";
           var _ic2 = document.getElementById('pending-icon'); if (_ic2) _ic2.innerHTML = '&#9989;';
           var _cl2 = document.getElementById('pending-checklist'); if (_cl2) _cl2.style.display = 'none';
-          document.getElementById('pending-msg').textContent = 'Hi ' + fullName + ', your account is active — welcome to ARIA. Taking you in…';
+          document.getElementById('pending-msg').textContent = 'Hi ' + fullName + ', your account is active. Welcome to ARIA. Taking you in…';
           if (result.data.token) {
             try { localStorage.setItem('crucix_token', result.data.token); if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user)); } catch (e) {}
             setTimeout(function(){ window.location.href = '/dashboard.html'; }, 1400);
@@ -521,7 +521,7 @@
       }
     } catch (e) {
       btn.textContent = 'Create Account'; btn.disabled = false;
-      showError('Unexpected error — please try again.');
+      showError('Unexpected error. Please try again.');
       console.error('doRegister error:', e);
     }
   }
@@ -559,7 +559,7 @@
         var _h = document.getElementById('pending-heading'); if (_h) _h.textContent = "You're in! 🎉";
         var _ic = document.getElementById('pending-icon'); if (_ic) _ic.innerHTML = '&#9989;';
         var _cl = document.getElementById('pending-checklist'); if (_cl) _cl.style.display = 'none';
-        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your account is active — welcome to ARIA. Taking you in…';
+        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your account is active. Welcome to ARIA. Taking you in…';
         if (result.data.token) {
           try {
             localStorage.setItem('crucix_token', result.data.token);
@@ -570,11 +570,11 @@
           setTimeout(function(){ window.location.href = '/signin?email=' + encodeURIComponent(window._pendingEmail || ''); }, 1800);
         }
       } else {
-        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your email is verified. Your account is pending review — we’ll email you the moment it’s active.';
+        document.getElementById('pending-msg').textContent = 'Hi ' + window._pendingFullName + ', your email is verified. Your account is pending review. We’ll email you the moment it’s active.';
       }
     } catch (e) {
       btn.textContent = 'Verify Email'; btn.disabled = false;
-      document.getElementById('verify-error').textContent = 'Unexpected error — please try again.';
+      document.getElementById('verify-error').textContent = 'Unexpected error. Please try again.';
       document.getElementById('verify-error').style.display = 'block';
     }
   });
@@ -593,7 +593,7 @@
         btn.style.pointerEvents = 'auto';
       }, 3000);
     } catch (e) {
-      btn.textContent = 'Failed — try again';
+      btn.textContent = 'Failed, try again';
       btn.style.pointerEvents = 'auto';
     }
   });

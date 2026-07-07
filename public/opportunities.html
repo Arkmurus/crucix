@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Opportunities — ARIA</title>
+  <title>Opportunities | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
   <link rel="stylesheet" href="css/aria.css?v=15">
@@ -48,7 +48,7 @@ async function load() {
         <div class="sc-card-title" style="font-size:15px">
           ${o.lusophone?'<i class="bi bi-flag"></i>':''} ${escHtml(o.market)}
         </div>
-        <span class="sc-badge ${tierCls}">Tier ${escHtml(tierStr||'—')}</span>
+        <span class="sc-badge ${tierCls}">Tier ${escHtml(tierStr||'-')}</span>
       </div>
       <div class="sc-card-body">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
@@ -63,7 +63,7 @@ async function load() {
           ${o.procurementNeeds.slice(0,4).map(n=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(n)}</span>`).join('')}
         </div>`:''}
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span class="sc-badge ${compliance}">${escHtml(o.complianceStatus||'—')}</span>
+          <span class="sc-badge ${compliance}">${escHtml(o.complianceStatus||'-')}</span>
           ${o.devFinanceActivity?`<span class="sc-badge sc-badge-blue" style="font-size:11px">Dev Finance</span>`:''}
           ${o.explorerSignals>0?`<span class="sc-badge sc-badge-muted" style="font-size:11px">${o.explorerSignals} intel signal${o.explorerSignals!==1?'s':''}</span>`:''}
         </div>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>News Monitor — ARIA</title>
+  <title>News Monitor | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -96,10 +96,10 @@
 
   <!-- KPI Tiles -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">—</div><div class="sc-stat-label">Recent Articles</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="kpi-sources">—</div><div class="sc-stat-label">Sources</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-tags"></i></div><div><div class="sc-stat-value" id="kpi-categories">—</div><div class="sc-stat-label">Categories</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="kpi-last-poll">—</div><div class="sc-stat-label">Last Poll</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">-</div><div class="sc-stat-label">Recent Articles</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="kpi-sources">-</div><div class="sc-stat-label">Sources</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-tags"></i></div><div><div class="sc-stat-value" id="kpi-categories">-</div><div class="sc-stat-label">Categories</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="kpi-last-poll">-</div><div class="sc-stat-label">Last Poll</div></div></div>
   </div>
 
   <!-- Category filter -->
@@ -246,9 +246,9 @@
     // the real total → the KPI used to contradict its own chart. Fall back to the
     // fetched page length only if stats is unavailable.
     const recentTrue = (stats && typeof stats.recent_articles === 'number') ? stats.recent_articles : (articles ? articles.length : null);
-    document.getElementById('kpi-total').textContent = recentTrue == null ? '—' : recentTrue;
-    document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '—';
-    document.getElementById('kpi-categories').textContent = stats && stats.categories ? stats.categories.length : '—';
+    document.getElementById('kpi-total').textContent = recentTrue == null ? '-' : recentTrue;
+    document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '-';
+    document.getElementById('kpi-categories').textContent = stats && stats.categories ? stats.categories.length : '-';
     document.getElementById('kpi-last-poll').textContent = articles && articles.length ? 'Active' : 'Waiting…';
     document.getElementById('source-count').textContent = stats ? stats.total_sources : '80+';
   }
@@ -271,7 +271,7 @@
       const banner = document.getElementById('fetch-failure-banner');
       banner.style.display = 'block';
       banner.textContent = 'Failed to load news data: ' + (err.message || 'unknown error') + '. The hourly poll may not have run yet.';
-      document.getElementById('articles-list').innerHTML = '<div class="empty-state"><i class="bi bi-cloud-slash"></i><p>Could not load articles. The news monitor may still be initializing — click <strong>Poll Now</strong> to trigger the first poll.</p></div>';
+      document.getElementById('articles-list').innerHTML = '<div class="empty-state"><i class="bi bi-cloud-slash"></i><p>Could not load articles. The news monitor may still be initializing. Click <strong>Poll Now</strong> to trigger the first poll.</p></div>';
     }
   }
 

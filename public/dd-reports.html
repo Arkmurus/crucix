@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DD Reports — ARIA</title>
+  <title>DD Reports | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -383,7 +383,7 @@
         <div class="sc-mod-body">
           <div id="dd-run-error" class="sc-mod-err"></div>
           <div class="sc-mod-field">
-            <label>Entity name <span class="opt">— required</span></label>
+            <label>Entity name <span class="opt">(required)</span></label>
             <input id="dd-r-name" type="text" placeholder="e.g. Acme Defence GmbH">
           </div>
           <div class="sc-mod-field">
@@ -396,20 +396,20 @@
           </div>
           <div class="sc-mod-row">
             <div class="sc-mod-field">
-              <label>Jurisdiction <span class="opt">— optional</span></label>
+              <label>Jurisdiction <span class="opt">(optional)</span></label>
               <input id="dd-r-jur" type="text" placeholder="e.g. Germany">
             </div>
             <div class="sc-mod-field">
-              <label>Registration no. <span class="opt">— optional</span></label>
+              <label>Registration no. <span class="opt">(optional)</span></label>
               <input id="dd-r-reg" type="text" placeholder="e.g. HRB 12345">
             </div>
           </div>
           <div class="sc-mod-field">
-            <label>Company website <span class="opt">— optional, helps find the right company</span></label>
+            <label>Company website <span class="opt">(optional, helps find the right company)</span></label>
             <input id="dd-r-url" type="url" placeholder="e.g. https://company.com">
           </div>
           <div class="sc-mod-field">
-            <label>Product / transaction context <span class="opt">— optional, sharpens risk scoring</span></label>
+            <label>Product / transaction context <span class="opt">(optional, sharpens risk scoring)</span></label>
             <input id="dd-r-prod" type="text" placeholder="e.g. Bayraktar TB2 UAVs + munitions">
           </div>
           <div class="sc-mod-field">
@@ -417,7 +417,7 @@
             <div class="sc-optgrid">
               <button type="button" class="sc-optcard active" data-mode="standard">
                 <div class="t"><i class="bi bi-lightning-charge"></i> Standard</div>
-                <div class="d">Core 7-layer screen — sanctions, registry, identity &amp; risk. Fast.</div>
+                <div class="d">Core 7-layer screen: sanctions, registry, identity &amp; risk. Fast.</div>
               </button>
               <button type="button" class="sc-optcard" data-mode="deep">
                 <div class="t"><i class="bi bi-grid-3x3-gap-fill"></i> Deep / Full</div>
@@ -546,7 +546,7 @@ function fmtDate(d) {
 }
 
 function severityPill(sev) {
-  if (!sev) return '<span class="dd-pill unknown">—</span>';
+  if (!sev) return '<span class="dd-pill unknown">-</span>';
   const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
   return '<span class="dd-pill ' + cls + '">' + sev.replace(/_/g, ' ') + '</span>';
 }
@@ -571,7 +571,7 @@ function renderTable(reports) {
     const q = (document.getElementById('dd-search') || {}).value || '';
     content.innerHTML = q.trim()
       ? '<div class="dd-empty"><i class="bi bi-search"></i>No reports match “' + escText(q.trim()) + '”. Try a different name, or clear the search.</div>'
-      : '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one — or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
+      : '<div class="dd-empty"><i class="bi bi-folder2-open"></i>No DD reports yet. Click "New DD" to start one, or run a DD via the chat (e.g. "screen Acme Defence GmbH from Germany").</div>';
     return;
   }
   // R-F2281 — removed the standalone Entity/Severity/Version·Last Run column-header
@@ -763,7 +763,7 @@ async function startRerun(btn, ctx) {
         Toast.show('Re-run did not start a new DD. Try New DD or refresh the page.', 'error', 7000);
         return;
       }
-      Toast.show('Re-run started for ' + (ctx.name || 'entity') + ' — it appears below as Running', 'info', 6000);
+      Toast.show('Re-run started for ' + (ctx.name || 'entity') + '. It appears below as Running', 'info', 6000);
       await loadReports();
     }
   } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
@@ -1026,8 +1026,8 @@ async function toggleDetail(row, runId) {
             tone: pass ? 'success' : 'danger',
             bodyHtml:
               '<div class="sc-alert ' + (pass ? 'sc-alert-success' : 'sc-alert-danger') + '">'
-              + (pass ? '<strong>PASS</strong> — this report is intact and matches its cryptographic seal.'
-                      : '<strong>FAIL</strong> — ' + escText(data2.reason || 'the integrity check did not pass.')) + '</div>'
+              + (pass ? '<strong>PASS.</strong> This report is intact and matches its cryptographic seal.'
+                      : '<strong>FAIL:</strong> ' + escText(data2.reason || 'the integrity check did not pass.')) + '</div>'
               + (data2.hash_valid !== undefined
                   ? '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px 18px;align-items:baseline">'
                     + kv('Hash valid', data2.hash_valid) + kv('Signature valid', data2.signature_valid) + '</div>'
@@ -1056,7 +1056,7 @@ async function toggleDetail(row, runId) {
           const data2 = await r.json();
           const proof = data2.proof || {};
           const kv = (k, v) => '<span style="color:var(--sc-muted);font-size:12.5px">' + escText(k) + '</span>'
-            + '<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + escText(v || '—') + '</span>';
+            + '<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + escText(v || '-') + '</span>';
           Modal.info({
             title: 'Cryptographic proof',
             icon: 'bi-file-lock', tone: 'vls',
@@ -1095,7 +1095,7 @@ async function toggleDetail(row, runId) {
             + '<span style="color:var(--sc-muted);font-size:12px">' + escText((v.generated_at || '').slice(0, 10)) + '</span>'
             + '</div>').join('');
           Modal.info({
-            title: 'Case file — version history',
+            title: 'Case file: version history',
             message: (data2.total_versions || versions.length) + ' version' + ((data2.total_versions || versions.length) === 1 ? '' : 's'),
             icon: 'bi-diagram-2', tone: 'vls',
             bodyHtml: '<div style="font-size:13px">' + (rows || '<span style="color:var(--sc-muted)">No versions recorded.</span>') + '</div>',
@@ -1401,7 +1401,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
           '<p style="margin:0 0 2px;font-weight:600">' + _nm + '</p>' +
           '<p style="color:#64748b;margin:8px 0 14px;font-size:14px">Running in the background (a few minutes). ' +
             'It now appears in your reports below as <b>Running</b> and updates to the full report automatically ' +
-            'when complete — you can safely close this window.</p>' +
+            'when complete. You can safely close this window.</p>' +
           '<p id="dd-run-live" style="color:#7c3aed;font-weight:600;margin:0 0 16px">⏳ Running…</p>' +
           '<button type="button" class="sc-btn sc-btn-primary" id="dd-run-doneclose">Close</button>' +
         '</div>';
@@ -1427,7 +1427,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
               await loadReports();
               if (liveEl) liveEl.innerHTML = (st === 'failed')
                 ? '<span style="color:#dc2626">✗ DD failed: ' + String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>'
-                : '<span style="color:#16a34a">✓ Complete — see your reports below.</span>';
+                : '<span style="color:#16a34a">✓ Complete. See your reports below.</span>';
               if (window.Toast) Toast.show(
                 st === 'failed' ? ('DD failed for ' + name)
                                : ('Due diligence complete for ' + name + '.'),
@@ -1465,7 +1465,7 @@ document.getElementById('dd-vls-key-btn').addEventListener('click', async () => 
     // Copy to clipboard
     await navigator.clipboard.writeText(pem);
     btn.innerHTML = '<i class="bi bi-check2"></i> Copied to clipboard';
-    Toast.show('VLS public key copied — share it for third-party verification', 'success');
+    Toast.show('VLS public key copied. Share it for third-party verification', 'success');
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
   } catch (err) {
     Toast.show('VLS key error: ' + err.message, 'error');
@@ -1485,7 +1485,7 @@ function openRunFromUrl() {
     // R-F2316 — the run isn't in the loaded top-100 (older, aged out, or a shared
     // report). Previously this no-op'd silently (chat's "View full report" appeared
     // to do nothing). Tell the user instead of leaving them on a dead click.
-    if (window.Toast) Toast.show('That report isn’t in your current list — search the company name to open it.', 'info');
+    if (window.Toast) Toast.show('That report isn’t in your current list. Search the company name to open it.', 'info');
   } catch (e) { /* best-effort deep-link */ }
 }
 loadReports().then(openRunFromUrl);

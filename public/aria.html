@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARIA — Intelligence</title>
+  <title>ARIA | Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -680,7 +680,7 @@
       <div class="welcome" id="welcome">
         <div class="welcome-mark">A</div>
         <h2 id="welcome-greeting">How can I help you today?</h2>
-        <p>I'm ARIA, your defence market analyst — procurement, intelligence, compliance, and strategy.</p>
+        <p>I'm ARIA, your defence market analyst: procurement, intelligence, compliance, and strategy.</p>
       </div>
     </div>
   </div>
@@ -1088,7 +1088,7 @@ function updateEntityRail() {
 
     var nameEl = document.getElementById('entity-rail-name');
     var typeEl = document.getElementById('entity-rail-type');
-    if (nameEl) nameEl.textContent = entity.name || '(sources detected — no entity name yet)';
+    if (nameEl) nameEl.textContent = entity.name || '(sources detected, no entity name yet)';
     if (typeEl) typeEl.textContent = entity.type && entity.type !== 'unknown' ? entity.type : '';
 
     var srcSection = document.getElementById('entity-rail-sources-section');
@@ -1325,7 +1325,7 @@ function renderDDStatusCard(runId, container) {
         paint('bi-arrow-repeat', 'spin', d.entity_name || 'Due diligence', 'running' + elapsed(d.started_at), '');
         if (tries < MAX) setTimeout(poll, 5000);
         else paint('bi-hourglass-split', 'warn', d.entity_name || 'Due diligence', 'still running',
-          'Taking longer than usual — it will appear in your <a href="/dd-reports.html">DD Reports</a> when ready.');
+          'Taking longer than usual. It will appear in your <a href="/dd-reports.html">DD Reports</a> when ready.');
         return;
       }
       if (d && d.status === 'failed') {
@@ -1354,7 +1354,7 @@ async function exportMsgAsPdf(btn) {
   if (!msgEl) return;
   var idx = parseInt(msgEl.dataset.msgIndex, 10);
   if (!Number.isFinite(idx)) {
-    Toast.show('Cannot export — message index missing.', 'error');
+    Toast.show('Cannot export. Message index missing.', 'error');
     return;
   }
   var orig = btn.innerHTML;
@@ -1599,7 +1599,7 @@ async function send(text, opts) {
     });
 
     if (!resp.ok) {
-      streamBody.innerHTML = md('Error: ' + resp.status + ' — ' + (await resp.text().catch(function(){return '';})).slice(0,200));
+      streamBody.innerHTML = md('Error: ' + resp.status + ': ' + (await resp.text().catch(function(){return '';})).slice(0,200));
       streamBadge.remove();
       sending = false; resize(); ta.focus();
       return;
@@ -1684,7 +1684,7 @@ async function send(text, opts) {
             // retry of a genuinely failed request.
             if (ConnectionMonitor.isConnReason(_r467_reason) && !fullText) {
               _streamConnError = true;
-              streamBody.innerHTML = md('Connection interrupted — reconnecting…');
+              streamBody.innerHTML = md('Connection interrupted, reconnecting…');
               try { ConnectionMonitor.lost(); } catch (_) {}
             } else {
               fullText = (fullText ? fullText + '\n\n' : '')
@@ -1716,7 +1716,7 @@ async function send(text, opts) {
           // user can decide whether to retry.
           if (window._ariaSseMalformedThisStream >= 5 && streamBadge && !streamBadge.dataset.degradedShown) {
             try {
-              streamBadge.textContent = '⚠ degraded stream — ' + window._ariaSseMalformedThisStream + ' bad events';
+              streamBadge.textContent = '⚠ degraded stream: ' + window._ariaSseMalformedThisStream + ' bad events';
               streamBadge.style.opacity = '1';
               streamBadge.dataset.degradedShown = '1';
             } catch (_) {}
@@ -1759,7 +1759,7 @@ async function send(text, opts) {
       // R-F1697 — a connectivity failure (often a deploy restart) becomes a
       // self-healing reconnect: show the banner + poll health, and tell the
       // user to retry once back (the Regenerate button is added in finally).
-      streamBody.innerHTML = md('Connection interrupted — reconnecting…');
+      streamBody.innerHTML = md('Connection interrupted, reconnecting…');
       if (streamBadge) streamBadge.remove();
       console.error('[ARIA stream]', err);
       if (ConnectionMonitor.isConnErr(err)) ConnectionMonitor.lost();
@@ -2271,7 +2271,7 @@ var Convos = (function() {
           console.error('[Convos] rename', err);
           c.title = current;
           newTitleLine.textContent = current;
-          Toast.show('Couldn’t rename — reverted.', 'error');
+          Toast.show('Couldn’t rename. Reverted.', 'error');
         });
     }
     function cancel() {
@@ -2301,7 +2301,7 @@ var Convos = (function() {
       if (rows.length && term) {
         msg = 'No matches for “' + escHtml(searchTerm) + '”.';
       } else {
-        msg = 'No conversations yet — start chatting and they’ll appear here.';
+        msg = 'No conversations yet. Start chatting and they’ll appear here.';
       }
       var emptyDiv = document.createElement('div');
       emptyDiv.className = 'convos-empty';
@@ -2403,7 +2403,7 @@ var Convos = (function() {
     fail.className = 'convos-empty';
     var detail = (lastErr && lastErr.message) ? lastErr.message : 'unknown error';
     var span = document.createElement('div');
-    span.textContent = 'Couldn’t reach the server — your conversations are safe.';
+    span.textContent = 'Couldn’t reach the server, but your conversations are safe.';
     span.title = 'Failed to load conversations: ' + detail;
     var retryBtn = document.createElement('button');
     retryBtn.className = 'convos-load-older';
@@ -2578,7 +2578,7 @@ var Convos = (function() {
             console.error('[Convos] delete', err);
             rows.splice(Math.min(idx, rows.length), 0, removed);
             render();
-            Toast.show('Couldn’t delete “' + escHtml(title) + '” — restored.', 'error');
+            Toast.show('Couldn’t delete “' + escHtml(title) + '” (restored).', 'error');
           });
       }
     );

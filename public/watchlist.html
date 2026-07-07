@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Watchlist — ARIA</title>
+  <title>Watchlist | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -147,7 +147,7 @@ function openAddModal() {
       + '<input id="wl-add-name" class="wl-search" style="width:100%;min-width:0;margin-bottom:14px" placeholder="e.g. Assan Group" autocomplete="off">'
       + '<div style="display:flex;gap:12px">'
       + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Type</label>'
-      + '<select id="wl-add-type" class="wl-search" style="width:100%;min-width:0"><option value="">—</option><option value="company">Company</option><option value="person">Person</option><option value="vessel">Vessel</option><option value="aircraft">Aircraft</option></select></div>'
+      + '<select id="wl-add-type" class="wl-search" style="width:100%;min-width:0"><option value="">-</option><option value="company">Company</option><option value="person">Person</option><option value="vessel">Vessel</option><option value="aircraft">Aircraft</option></select></div>'
       + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Jurisdiction</label>'
       + '<input id="wl-add-juris" class="wl-search" style="width:100%;min-width:0" placeholder="ISO2, e.g. GB" maxlength="2" autocomplete="off"></div>'
       + '</div>'
@@ -292,7 +292,7 @@ function renderTable(entries) {
   // R-F2076 (2026-06-28 audit) — surface the most important field, `last_risk`
   // (the backend returns RED/AMBER/AMBER-LIGHT/GREEN), which the table previously
   // never showed; and read the real timestamp field `added_at` (was `last_checked`,
-  // which the backend doesn't emit → column was always "—", looking never-screened).
+  // which the backend doesn't emit → column was always "-", looking never-screened).
   let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Last Checked</th><th>Actions</th></tr></thead><tbody>';
   for (const e of entries) {
     const risk = String(e.last_risk || '').toUpperCase();
@@ -302,11 +302,11 @@ function renderTable(entries) {
     const riskColor = riskCls === 'red' ? '#b91c1c' : riskCls === 'amber' ? '#c2410c' : riskCls === 'green' ? '#15803d' : '#9b968c';
     const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(risk) + '</span>' : '<span style="color:#9b968c">not screened</span>';
     const lastTs = e.last_checked || e.added_at;
-    const lastChecked = lastTs ? new Date(lastTs).toLocaleString() : '—';
+    const lastChecked = lastTs ? new Date(lastTs).toLocaleString() : '-';
     html += '<tr class="wl-row">' +
       '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong></td>' +
-      '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '—') + '</td>' +
-      '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '—') + '</td>' +
+      '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '-') + '</td>' +
+      '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '-') + '</td>' +
       '<td>' + riskPill + '</td>' +
       '<td style="color:var(--sc-muted);font-size:12px">' + lastChecked + '</td>' +
       '<td>' +
@@ -380,7 +380,7 @@ async function runDD(name, btn) {
       body: JSON.stringify({ name: name, mode: 'standard', type: 'company', async_mode: true }),
     });
     if (r.ok) {
-      Toast.show('DD started for "' + name + '" — see DD Reports when it completes', 'info', 6000);
+      Toast.show('DD started for "' + name + '". See DD Reports when it completes', 'info', 6000);
       await loadWatchlist();
       await loadAlerts();
     } else {

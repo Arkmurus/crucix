@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — ARIA</title>
+  <title>Admin | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
   <link rel="stylesheet" href="css/aria.css?v=15">
@@ -114,9 +114,9 @@ document.getElementById('btn-test-telegram').addEventListener('click', async fun
     });
     var d = await r.json().catch(function(){ return { error: 'invalid response' }; });
     if (r.ok && d.sent) {
-      showMsg('ok', '✓ Telegram alerter OK — message sent at ' + (d.sent_at || 'now') + '. Check your Telegram.');
+      showMsg('ok', '✓ Telegram alerter OK. Message sent at ' + (d.sent_at || 'now') + '. Check your Telegram.');
     } else if (d.configured === false) {
-      showMsg('err', '✗ Not configured — TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set on the server. See env-check: ' + JSON.stringify(d.env_check || {}));
+      showMsg('err', '✗ Not configured: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set on the server. See env-check: ' + JSON.stringify(d.env_check || {}));
     } else {
       showMsg('err', '✗ Telegram send failed: ' + (d.error || d.reason || r.status));
     }
@@ -157,7 +157,7 @@ document.getElementById('btn-test-email').addEventListener('click', async functi
         var ids = [];
         if (adminOk && d.adminEmail.messageId) ids.push('admin=' + d.adminEmail.messageId);
         if (userOk  && d.testEmail.messageId)  ids.push('test=' + d.testEmail.messageId);
-        showMsg('ok', '✓ Email alerter OK — Admin: ' + (adminOk ? 'sent' : 'failed') + ', Test: ' + (userOk ? 'sent' : 'failed') + (ids.length ? ' [' + ids.join(', ') + ']' : ''));
+        showMsg('ok', '✓ Email alerter OK. Admin: ' + (adminOk ? 'sent' : 'failed') + ', Test: ' + (userOk ? 'sent' : 'failed') + (ids.length ? ' [' + ids.join(', ') + ']' : ''));
       } else {
         var adminReason = (d.adminEmail && d.adminEmail.reason) || '';
         var userReason  = (d.testEmail  && d.testEmail.reason)  || '';
@@ -242,8 +242,8 @@ document.addEventListener('click', async function(e) {
     try {
       var r = await fetch('/api/admin/users/' + id + '/approve', { method: 'POST', headers: headers, body: '{}' });
       var d = {}; try { d = await r.json(); } catch(x) {}
-      if (r.ok) { showAlert('User approved — welcome email sent'); loadUsers(); }
-      else { showAlert((d.error || 'Failed — HTTP ' + r.status), 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
+      if (r.ok) { showAlert('User approved. Welcome email sent'); loadUsers(); }
+      else { showAlert((d.error || 'Failed, HTTP ' + r.status), 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
     } catch (x) { showAlert('Network error', 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
   }
   else if (action === 'reject') {

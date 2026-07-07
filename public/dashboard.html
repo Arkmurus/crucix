@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Intelligence Brief — ARIA</title>
+  <title>Intelligence Brief | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
   <link rel="stylesheet" href="css/aria.css?v=15">
@@ -37,15 +37,15 @@
 
   <!-- R-F2016: source provenance — this dashboard shows ARIA's brain data -->
   <p style="margin:-4px 0 18px;color:var(--sc-muted);font-size:12px;line-height:1.5">
-    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong> — live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:var(--sc-prime)">View detailed brain stats</a>
+    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong>. Live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:var(--sc-prime)">View detailed brain stats</a>
   </p>
 
   <!-- KPI Tiles — ARIA's actual capabilities -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">—</div><div class="sc-stat-label">DD Reports</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">—</div><div class="sc-stat-label">Watchlist</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">—</div><div class="sc-stat-label">Active Deals</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">-</div><div class="sc-stat-label">DD Reports</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">-</div><div class="sc-stat-label">Watchlist</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">-</div><div class="sc-stat-label">Active Deals</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">-</div><div class="sc-stat-label">Opportunities</div></div></div>
   </div>
 
   <!-- R-F2385 — Golden Intel: decision-grade signals promoted from global news -->
@@ -95,7 +95,7 @@
     </div>
     <div id="brief-content" style="display:none">
       <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
-        <i class="bi bi-info-circle"></i> Live multi-source OSINT sweep (Node intelligence tier) — conflict correlation, defence tenders and source health — distinct from ARIA's brain knowledge base above.
+        <i class="bi bi-info-circle"></i> Live multi-source OSINT sweep (Node intelligence tier): conflict correlation, defence tenders and source health, distinct from ARIA's brain knowledge base above.
       </p>
       <div class="sc-card-body">
         <!-- R-F2411 — real intelligence tiles. Replaced the VIX / Brent /
@@ -106,10 +106,10 @@
              no fabricated deltas from stub feeds (OFAC/export-control sweep
              feeds are stubs and are deliberately NOT surfaced here). -->
         <div class="sc-grid-4 mb-16" id="sweep-kpi-row">
-          <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-exclamation-octagon" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-critical">—</div><div class="sc-stat-label">Critical Alerts</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="kpi-conflict">—</div><div class="sc-stat-label">Conflict Signals</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-briefcase"></i></div><div><div class="sc-stat-value" id="kpi-tenders">—</div><div class="sc-stat-label">Active Tenders</div></div></div>
-          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-hdd-network"></i></div><div><div class="sc-stat-value" id="kpi-srchealth">—</div><div class="sc-stat-label">Source Health</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-exclamation-octagon" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-critical">-</div><div class="sc-stat-label">Critical Alerts</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="kpi-conflict">-</div><div class="sc-stat-label">Conflict Signals</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-briefcase"></i></div><div><div class="sc-stat-value" id="kpi-tenders">-</div><div class="sc-stat-label">Active Tenders</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-hdd-network"></i></div><div><div class="sc-stat-value" id="kpi-srchealth">-</div><div class="sc-stat-label">Source Health</div></div></div>
         </div>
         <!-- R-F2414 — personalisation spine: live signals matching THE USER's watchlist -->
         <div id="wl-signal-match" style="display:none;margin-bottom:12px"></div>
@@ -238,7 +238,7 @@ function _renderFetchFailureBanner() {
     .join(', ');
   const noun = _fetchFailures.size === 1 ? 'endpoint' : 'endpoints';
   banner.innerHTML =
-    `<strong>⚠️ DATA UNAVAILABLE — ${_fetchFailures.size} ${noun} failed to fetch.</strong> `
+    `<strong>⚠️ DATA UNAVAILABLE: ${_fetchFailures.size} ${noun} failed to fetch.</strong> `
     + `Panels below may show stale or fallback values. Likely causes: fly.io proxy timeout, `
     + `auth flap, or backend overload. Affected: ${head}.`;
   banner.style.display = 'block';
@@ -267,7 +267,7 @@ function toggleBrief() {
 
 // ── Severity pill helper ──
 function severityPill(sev) {
-  if (!sev) return '<span class="sc-badge sc-badge-muted">—</span>';
+  if (!sev) return '<span class="sc-badge sc-badge-muted">-</span>';
   const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
   const map = { 'hard_stop': 'sc-badge-red', 'red': 'sc-badge-red', 'amber-light': 'sc-badge-orange', 'amber-dark': 'sc-badge-orange', 'green': 'sc-badge-green' };
   return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
@@ -339,7 +339,7 @@ function renderGoldenIntel(data) {
 function provenanceBadge(sourceCount) {
   const n = Number(sourceCount) || 0;
   if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Corroborated across ' + n + ' independent sources">✓ corroborated · ' + n + ' sources</span>';
-  return '<span class="sc-badge sc-badge-muted" title="Seen in a single source — treat as unconfirmed">single-source</span>';
+  return '<span class="sc-badge sc-badge-muted" title="Seen in a single source (treat as unconfirmed)">single-source</span>';
 }
 
 // ── R-F2414 — watchlist matcher (personalisation spine). Flags live signals
@@ -502,7 +502,7 @@ async function loadData() {
     } else {
       ddList.innerHTML = reports.map(function(r) {
         const name = r.entity_name || 'Unknown';
-        const risk = r.risk_classification || '—';
+        const risk = r.risk_classification || '-';
         const date = r.generated_at || r.created_at || '';
         const dateStr = date ? new Date(date).toLocaleDateString() : '';
         return '<div style="padding:10px 0;border-bottom:1px solid var(--sc-border);display:flex;align-items:center;gap:10px">'
@@ -568,7 +568,7 @@ async function loadData() {
         elSh.style.color = (ok / tot) < 0.85 ? '#dc2626' : (ok < tot ? '#ea580c' : '');
         elSh.title = (tot - ok) + ' source(s) degraded';
       } else {
-        elSh.textContent = '—';
+        elSh.textContent = '-';
       }
     } catch (e) { /* health is best-effort; leave the tile at its placeholder */ }
 
@@ -714,7 +714,7 @@ async function runSweep() {
     // Check if sweep already running
     var health = await API.get('/api/health');
     if (health && health.sweepInProgress) {
-      Toast.show('Sweep already running — waiting for it to finish…', 'info');
+      Toast.show('Sweep already running, waiting for it to finish…', 'info');
     } else {
       var result = await API.post('/api/sweep', {});
       if (!result.ok) {
@@ -722,7 +722,7 @@ async function runSweep() {
         btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
         return;
       }
-      Toast.show('Sweep triggered — monitoring progress…', 'info');
+      Toast.show('Sweep triggered, monitoring progress…', 'info');
     }
 
     // Poll /api/health until sweepInProgress goes false
@@ -741,12 +741,12 @@ async function runSweep() {
       } catch (e) {
         clearInterval(poll);
         btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-        Toast.show('Lost connection — refresh the page', 'error');
+        Toast.show('Lost connection. Refresh the page', 'error');
       }
     }, 3000);
   } catch (e) {
     btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-    Toast.show('Sweep failed — try again', 'error');
+    Toast.show('Sweep failed. Try again', 'error');
     console.error('runSweep error:', e);
   }
 }
@@ -842,7 +842,7 @@ loadData();
     if (r.ok && data && data.success) {
       ['src-name', 'src-url', 'src-notes'].forEach(function (id) { document.getElementById(id).value = ''; });
       modal.style.display = 'none';
-      if (window.Toast) Toast.show('Source added — it starts feeding the intel chain on the next poll.', 'success');
+      if (window.Toast) Toast.show('Source added. It starts feeding the intel chain on the next poll.', 'success');
       loadMySources();
     } else {
       errEl.textContent = (data && data.error) || ('Failed to add (HTTP ' + r.status + ').');

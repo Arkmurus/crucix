@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Source Health — ARIA</title>
+  <title>Source Health | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   
   <link rel="stylesheet" href="css/aria.css?v=15">
@@ -70,11 +70,11 @@
       <div class="sc-mod-body">
         <div id="add-src-error" class="sc-mod-err"></div>
         <div class="sc-mod-field">
-          <label>Source name <span class="opt">— required</span></label>
-          <input id="add-src-name" type="text" placeholder="e.g. Defense News — Air">
+          <label>Source name <span class="opt">(required)</span></label>
+          <input id="add-src-name" type="text" placeholder="e.g. Defense News (Air)">
         </div>
         <div class="sc-mod-field">
-          <label>Source URL <span class="opt">— required</span></label>
+          <label>Source URL <span class="opt">(required)</span></label>
           <input id="add-src-url" type="url" placeholder="https://…">
         </div>
         <div class="sc-mod-field">
@@ -96,10 +96,10 @@
 
   <!-- Summary row -->
   <div class="sc-grid-4 mb-24">
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="src-ok">—</div><div class="sc-stat-label">Active Sources</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="src-err">—</div><div class="sc-stat-label">Failed Sources</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="src-warn">—</div><div class="sc-stat-label">Degraded</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="src-last">—</div><div class="sc-stat-label">Last Check</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="src-ok">-</div><div class="sc-stat-label">Active Sources</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="src-err">-</div><div class="sc-stat-label">Failed Sources</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="src-warn">-</div><div class="sc-stat-label">Degraded</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="src-last">-</div><div class="sc-stat-label">Last Check</div></div></div>
   </div>
 
   <!-- R-F58/R-F2384: source uptime, brain-bridge + per-sector breakdown -->
@@ -129,7 +129,7 @@
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Source uptime check fires automatically daily 02:00 UTC via the
       <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">SOURCE-UPTIME-DAILY</code> autonomous task.
-      Empty list = check hasn't fired yet (post-deploy / cold start) — click <em>Run source check</em> to populate immediately.
+      Empty list = check hasn't fired yet (post-deploy / cold start): click <em>Run source check</em> to populate immediately.
     </div>
   </div>
 
@@ -141,7 +141,7 @@
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-bookmark-star"></i> Curated defence source catalogue (R-F137)</div>
-      <span id="catalogue-total" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
+      <span id="catalogue-total" class="sc-pill sc-pill-info" style="font-size:12px">-</span>
     </div>
     <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
@@ -158,7 +158,7 @@
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-building"></i> OEM slot pool (R-F138)</div>
-      <span id="oem-summary" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
+      <span id="oem-summary" class="sc-pill sc-pill-info" style="font-size:12px">-</span>
     </div>
     <div id="oem-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
@@ -169,7 +169,7 @@
 
   <div class="sc-card mt-24">
     <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-people"></i> Brain absorb — per-sector (R-F56)</div>
+      <div class="sc-card-title"><i class="bi bi-people"></i> Brain absorb: per-sector (R-F56)</div>
     </div>
     <div id="sector-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
   </div>
@@ -199,7 +199,7 @@ function escHtml(s) {
 
 // Helper: format ISO date to readable
 function fmtDateTime(iso) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
@@ -216,7 +216,7 @@ async function loadBridge() {
     const healthy = !!data.healthy;
     const dotColor = healthy ? '#16a34a' : (data.has_token === false ? '#dc2626' : '#ea580c');
     const stateLabel = healthy ? 'Healthy'
-                     : (data.has_token === false ? 'Misconfigured — ARIA_API_TOKEN unset on this server'
+                     : (data.has_token === false ? 'Misconfigured: ARIA_API_TOKEN unset on this server'
                                                  : 'Degraded: ' + escHtml(data.reason || 'unknown'));
     el.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
@@ -224,10 +224,10 @@ async function loadBridge() {
         '<strong>' + stateLabel + '</strong>' +
       '</div>' +
       '<div style="font-size:12.5px;color:var(--sc-muted)">' +
-        'Endpoint: <code>' + escHtml(data.url || '—') + '</code> · ' +
-        'Status: ' + (data.status != null ? data.status : '—') + ' · ' +
+        'Endpoint: <code>' + escHtml(data.url || '-') + '</code> · ' +
+        'Status: ' + (data.status != null ? data.status : '-') + ' · ' +
         'Has token: ' + (data.has_token ? 'yes' : 'no') + ' · ' +
-        'Last check: ' + (data.timestamp ? fmtDateTime(data.timestamp) : '—') +
+        'Last check: ' + (data.timestamp ? fmtDateTime(data.timestamp) : '-') +
       '</div>';
   } catch (e) {
     el.textContent = 'Bridge state load error: ' + e.message;
@@ -339,7 +339,7 @@ async function loadOemPool() {
       const barColour = pct > 0 ? '#16a34a' : '#ea580c';
       html += '<tr>'
             + '<td><strong>' + escHtml(oem) + '</strong></td>'
-            + '<td style="font-size:11.5px;color:var(--sc-muted)">' + escHtml(s.hq || '—') + '</td>'
+            + '<td style="font-size:11.5px;color:var(--sc-muted)">' + escHtml(s.hq || '-') + '</td>'
             + '<td style="text-align:right">' + s.filled + '</td>'
             + '<td style="text-align:right">' + s.total + '</td>'
             + '<td><div style="background:#e9e6df;height:6px;border-radius:3px;overflow:hidden;width:120px">'
@@ -359,7 +359,7 @@ function updateSourceSummary(data, sources, counts) {
   document.getElementById('src-ok').textContent = counts.ok;
   document.getElementById('src-err').textContent = counts.err;
   document.getElementById('src-warn').textContent = counts.warn;
-  document.getElementById('src-last').textContent = lastRun.ran_at ? fmtDateTime(lastRun.ran_at) : '—';
+  document.getElementById('src-last').textContent = lastRun.ran_at ? fmtDateTime(lastRun.ran_at) : '-';
 }
 
 // R-F58/R-F2384: unified source monitors from /api/aria/sources/uptime
@@ -370,7 +370,7 @@ async function loadSourceMonitors() {
     const data = await API.get('/api/aria/sources/uptime');
     if (!data) {
       updateSourceSummary({}, [], { ok: 0, err: 0, warn: 0 });
-      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No data — source monitor endpoint unreachable.</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No data. Source monitor endpoint unreachable.</td></tr>';
       return;
     }
     const sources = data.sources || data.uptime || [];
@@ -416,12 +416,12 @@ async function loadSourceMonitors() {
       const errShort = String(lastErr || '').slice(0, 60);
 
       html += '<tr class="pysrc-row">' +
-        '<td class="pysrc-name"><strong>' + escHtml(s.name || s.source || '—') + '</strong></td>' +
+        '<td class="pysrc-name"><strong>' + escHtml(s.name || s.source || '-') + '</strong></td>' +
         '<td><span class="pysrc-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
-        '<td class="pysrc-time">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
+        '<td class="pysrc-time">' + (lastOk ? fmtDateTime(lastOk) : '-') + '</td>' +
         '<td class="pysrc-err" title="' + escHtml(String(lastErr || '')) + '">' +
           (isErr ? '<span class="pysrc-err-icon"><i class="bi bi-exclamation-circle"></i></span>' : '') +
-          escHtml(errShort || '—') +
+          escHtml(errShort || '-') +
         '</td>' +
         '<td class="pysrc-susp">' + (isSusp ? '<span class="pysrc-badge pysrc-badge-susp">Suspended</span>' : '<span style="color:var(--sc-muted);font-size:12px">Active</span>') + '</td>' +
       '</tr>';
@@ -452,14 +452,14 @@ async function loadSectorStats() {
       const successPct = v.total ? Math.round((v.success / v.total) * 100) : 0;
       const topModules = Object.entries(v.by_module || {}).sort((a, b) => b[1] - a[1]).slice(0, 3)
         .map(([m, n]) => m + ' (' + n + ')').join(', ');
-      const lastTs = v.last_signal_at ? new Date(v.last_signal_at * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—';
+      const lastTs = v.last_signal_at ? new Date(v.last_signal_at * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-';
       html += '<tr>' +
         '<td><strong>' + escHtml(k) + '</strong></td>' +
         '<td>' + (v.total || 0) + '</td>' +
         '<td style="color:#15803d">' + (v.success || 0) + ' (' + successPct + '%)</td>' +
         '<td style="color:#b91c1c">' + (v.fail || 0) + '</td>' +
         '<td style="font-size:11.5px;color:var(--sc-muted)">' + lastTs + '</td>' +
-        '<td style="font-size:12px;color:var(--sc-text)">' + escHtml(topModules || '—') + '</td>' +
+        '<td style="font-size:12px;color:var(--sc-text)">' + escHtml(topModules || '-') + '</td>' +
       '</tr>';
     }
     html += '</tbody></table>';
@@ -495,7 +495,7 @@ async function loadAdversarial() {
     const lastPct = _passPct(last);
     const lastTs = last && (last.run_at || last.timestamp || last.ts);
 
-    let bigPct = lastPct == null ? '—' : lastPct.toFixed(1) + '%';
+    let bigPct = lastPct == null ? '-' : lastPct.toFixed(1) + '%';
     let pctColor = '#7c3aed';
     if (lastPct != null) {
       pctColor = lastPct >= 95 ? '#16a34a' : lastPct >= 85 ? '#c2410c' : '#b91c1c';
@@ -507,7 +507,7 @@ async function loadAdversarial() {
         const p = _passPct(r);
         const ts = r.run_at || r.timestamp || r.ts || '';
         const c = p == null ? '#9b968c' : p >= 95 ? '#16a34a' : p >= 85 ? '#c2410c' : '#b91c1c';
-        return '<div style="display:inline-block;text-align:center;margin-right:14px"><div style="font-size:14px;font-weight:700;color:' + c + '">' + (p == null ? '—' : p.toFixed(1) + '%') + '</div><div style="font-size:10.5px;color:var(--sc-muted)">' + (ts ? fmtDateTime(ts).slice(0, 10) : '—') + '</div></div>';
+        return '<div style="display:inline-block;text-align:center;margin-right:14px"><div style="font-size:14px;font-weight:700;color:' + c + '">' + (p == null ? '-' : p.toFixed(1) + '%') + '</div><div style="font-size:10.5px;color:var(--sc-muted)">' + (ts ? fmtDateTime(ts).slice(0, 10) : '-') + '</div></div>';
       }).join('');
     }
 
@@ -519,7 +519,7 @@ async function loadAdversarial() {
         '<div>' +
           '<div style="font-size:12px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latest pass rate</div>' +
           '<div style="font-size:34px;font-weight:800;color:' + pctColor + ';line-height:1">' + bigPct + '</div>' +
-          '<div style="font-size:11.5px;color:var(--sc-muted);margin-top:4px">' + (lastTs ? 'Run ' + fmtDateTime(lastTs) : 'No run recorded yet — click "Run weekly suite" or wait for the Wed/Sun 10:00 UTC schedule.') + '</div>' +
+          '<div style="font-size:11.5px;color:var(--sc-muted);margin-top:4px">' + (lastTs ? 'Run ' + fmtDateTime(lastTs) : 'No run recorded yet. Click "Run weekly suite" or wait for the Wed/Sun 10:00 UTC schedule.') + '</div>' +
         '</div>' +
         (trendHtml ?
           '<div style="border-left:1px solid var(--sc-border);padding-left:24px"><div style="font-size:12px;color:var(--sc-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Last 4 runs</div>' +
