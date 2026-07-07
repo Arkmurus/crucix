@@ -48,6 +48,20 @@
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">—</div><div class="sc-stat-label">Opportunities</div></div></div>
   </div>
 
+  <!-- R-F2385 — Golden Intel: decision-grade signals promoted from global news -->
+  <div class="sc-card mb-24" id="golden-intel-card">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-stars"></i> Golden Intel</div>
+      <a href="/news.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">Raw feed</a>
+    </div>
+    <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
+      <i class="bi bi-info-circle"></i> Promoted signals from ARIA's monitored news sources. Each item is reduced to the decision, confidence, impact, action, and evidence.
+    </p>
+    <div class="sc-card-body" id="golden-intel-list" style="max-height:520px;overflow-y:auto">
+      <div class="sc-loading-state"><div class="sc-spinner"></div>Loading decision signals…</div>
+    </div>
+  </div>
+
   <!-- Main two-col: DD Activity + Watchlist -->
   <div class="sc-grid-2 mb-24">
     <!-- Recent DD Activity -->
@@ -259,6 +273,60 @@ function severityPill(sev) {
   return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
 }
 
+function priorityBadge(priority) {
+  const p = String(priority || 'LOW').toUpperCase();
+  const cls = p === 'HIGH' ? 'sc-badge-red' : p === 'MEDIUM' ? 'sc-badge-orange' : 'sc-badge-muted';
+  return '<span class="sc-badge ' + cls + '">' + escHtml(p) + '</span>';
+}
+
+function confidenceBadge(confidence) {
+  const c = String(confidence || 'LOW').toUpperCase();
+  const cls = c === 'HIGH' ? 'sc-badge-green' : c === 'MEDIUM' ? 'sc-badge-prime' : 'sc-badge-muted';
+  return '<span class="sc-badge ' + cls + '">' + escHtml(c) + ' confidence</span>';
+}
+
+function actionHref(action, target) {
+  const a = String(action || '').toLowerCase();
+  const q = encodeURIComponent(target || '');
+  if (a.includes('compliance') || a.includes('country risk')) return '/dd-reports.html?entity=' + q;
+  if (a.includes('opportunity') || a.includes('procurement')) return '/opportunities.html';
+  if (a.includes('competitor') || a.includes('programme') || a.includes('monitor')) return '/bd-intelligence.html';
+  return '/news.html';
+}
+
+function renderGoldenIntel(data) {
+  const el = document.getElementById('golden-intel-list');
+  if (!el) return;
+  const signals = (data && Array.isArray(data.signals)) ? data.signals : [];
+  if (!signals.length) {
+    el.innerHTML = '<p class="text-muted" style="padding:8px">No promoted intel signals yet. ARIA will populate this after the next news poll finds decision-grade items.</p>';
+    return;
+  }
+  el.innerHTML = signals.slice(0, 8).map(function (s) {
+    const target = s.target || (s.entities && ((s.entities.oems || [])[0] || (s.entities.countries || [])[0])) || s.source || 'Signal';
+    const href = actionHref(s.recommended_action, target);
+    const evidence = s.url && /^https?:\/\//i.test(s.url)
+      ? '<a href="' + escHtml(s.url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--sc-prime);text-decoration:none">Evidence</a>'
+      : '<span style="color:var(--sc-muted)">Evidence retained</span>';
+    return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
+      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+      + priorityBadge(s.priority)
+      + confidenceBadge(s.confidence)
+      + '<span class="sc-badge sc-badge-muted">' + escHtml(String(s.signal_type || 'signal').replace(/_/g, ' ')) + '</span>'
+      + '<span style="font-size:11px;color:#9b968c;margin-left:auto">' + escHtml(s.source_tier || 'unclassified') + '</span>'
+      + '</div>'
+      + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
+      + '<div style="font-size:12px;color:var(--sc-muted);margin-bottom:6px"><strong style="color:var(--sc-text)">Target:</strong> ' + escHtml(target) + '</div>'
+      + '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(s.why_it_matters || '') + '</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">'
+      + '<a href="' + escHtml(href) + '" class="sc-btn sc-btn-primary sc-btn-sm">' + escHtml(s.recommended_action || 'Review') + '</a>'
+      + evidence
+      + '<span style="color:#9b968c">' + escHtml(s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '') + '</span>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
 // ── R-F2414 — provenance badge. Makes cross-source corroboration VISIBLE:
 // a single-source signal is honestly labelled unconfirmed. ARIA's honesty
 // moat vs black-box feeds is that the user can SEE how well a signal is
@@ -315,7 +383,7 @@ function authed(path) {
 
 async function loadData() {
   // ── Load ARIA Brain data (DD reports, watchlist, pipeline) ──
-  const [ddRes, wlRes, pipeRes, oppRes, sweepRes] = await Promise.allSettled([
+  const [ddRes, wlRes, pipeRes, oppRes, sweepRes, intelRes] = await Promise.allSettled([
     authed('/api/aria/dd/reports?limit=100'),
     authed('/api/aria/dd/watchlist'),
     // R-F2076 (2026-06-28 audit) — was '/api/aria/bd-intelligence/pipeline' which
@@ -333,6 +401,7 @@ async function loadData() {
     // stricter procurement-backed metric; it is no longer the headline KPI.)
     authed('/api/opportunities'),
     API.get('/api/data'),
+    authed('/api/aria/intel/signals/recent?limit=20'),
   ]);
 
   // R-F2080 (2026-06-28) — restore the R-F466 loud-fail wiring the R-F2049
@@ -351,6 +420,7 @@ async function loadData() {
   _track('/api/aria/dd/reports', ddRes);
   _track('/api/aria/dd/watchlist', wlRes);
   _track('/api/opportunities', oppRes);
+  _track('/api/aria/intel/signals/recent', intelRes);
 
   // R-F2040 — parse each fetch Response body EXACTLY ONCE. A Response body is a
   // one-shot stream; the KPI section and the list section below were each calling
@@ -359,8 +429,10 @@ async function loadData() {
   // stuck on "Loading…" while the (first-read) KPI counts rendered fine. Read
   // once into ddData/wlData here and reuse everywhere.
   let ddData = null, wlData = null;
+  let intelData = null;
   if (ddRes.status === 'fulfilled' && ddRes.value.ok) ddData = await ddRes.value.json().catch(() => null);
   if (wlRes.status === 'fulfilled' && wlRes.value.ok) wlData = await wlRes.value.json().catch(() => null);
+  if (intelRes.status === 'fulfilled' && intelRes.value.ok) intelData = await intelRes.value.json().catch(() => null);
 
   // ── KPI Tiles ──
   // DD Reports count
@@ -413,6 +485,8 @@ async function loadData() {
   // ── Last updated ──
   const lu = document.getElementById('last-updated');
   lu.textContent = 'Updated: ' + new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+
+  renderGoldenIntel(intelData);
 
   // ── Recent DD Activity ──
   const ddList = document.getElementById('dd-list');

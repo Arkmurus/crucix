@@ -141,4 +141,12 @@ describe('R-F2077 PART B — static regression locks (the 7 audit fixes)', () =>
     assert.ok(!/authed\(\s*['"]\/api\/aria\/opportunities['"]/.test(dash),
       'dashboard must NOT read the divergent brain /api/aria/opportunities for the headline KPI');
   });
+  it('#9 dashboard Golden Intel reads promoted decision signals, not raw news only', () => {
+    const dash = read('public/dashboard.html');
+    assert.ok(/id="golden-intel-card"/.test(dash), 'dashboard must render the Golden Intel card');
+    assert.ok(/\/api\/aria\/intel\/signals\/recent\?limit=20/.test(dash),
+      'dashboard must read promoted intel signals');
+    assert.ok(/why_it_matters/.test(dash) && /recommended_action/.test(dash),
+      'Golden Intel must show impact and action fields');
+  });
 });

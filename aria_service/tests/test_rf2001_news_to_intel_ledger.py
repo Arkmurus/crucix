@@ -9,11 +9,13 @@ Tests:
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from aria_service.intel.news_monitor import _feed_to_brain
+from aria_service.intel import news_monitor as nm
+from aria_service.intel.news_monitor import _build_intel_signal, _feed_to_brain
 
 
 class TestNewsToIntelLedgerBridge:
@@ -122,3 +124,83 @@ class TestNewsToIntelLedgerBridge:
             await _feed_to_brain(article)
             assert "Kenya" in captured["payload"]["summary"]
             assert captured["payload"]["type"] == "news"
+
+
+class TestGoldenIntelSignals:
+    """R-F2385 capability tests for news → dashboard-grade intel signals."""
+
+    def test_build_intel_signal_promotes_procurement_action(self) -> None:
+        article = {
+            "title": "Angola launches armoured vehicle tender",
+            "summary": "Angola defence ministry opened a procurement tender for new armoured vehicles.",
+            "source": "US DoD Daily Contracts",
+            "url": "https://example.com/angola-tender",
+            "category": "defence_global",
+            "language": "en",
+            "tier": "tier_1b",
+            "topics": ["defence", "procurement"],
+            "detected_at": "2026-07-07T10:00:00Z",
+        }
+
+        sig = _build_intel_signal(article)
+
+        assert sig["signal_type"] == "active_tender"
+        assert sig["priority"] == "HIGH"
+        assert sig["confidence"] in {"MEDIUM", "HIGH"}
+        assert sig["target"] == "Angola"
+        assert sig["recommended_action"] == "Qualify opportunity"
+        assert sig["evidence"]["url"] == "https://example.com/angola-tender"
+
+    @pytest.mark.asyncio
+    async def test_feed_to_brain_stores_promoted_signal(self, monkeypatch) -> None:
+        article = {
+            "title": "Nigeria defence budget increases",
+            "summary": "Nigeria approved a defence spending allocation for new aircraft.",
+            "source": "DefenseWeb",
+            "url": "https://example.com/nigeria-budget",
+            "category": "defence_regional",
+            "language": "en",
+            "tier": "tier_2",
+            "topics": ["defence"],
+            "detected_at": "2026-07-07T10:00:00Z",
+        }
+        stored = {}
+
+        async def _capture_signal(signal):
+            stored["signal"] = signal
+
+        async def _ok_add_signal(_payload):
+            return "ok"
+
+        monkeypatch.setattr(nm, "_store_intel_signal", _capture_signal)
+        with patch.object(
+            __import__("aria_service.intel.intel_ledger", fromlist=["add_signal"]),
+            "add_signal",
+            _ok_add_signal,
+        ):
+            await _feed_to_brain(article)
+
+        assert stored["signal"]["signal_type"] == "budget_movement"
+        assert stored["signal"]["why_it_matters"]
+        assert stored["signal"]["recommended_action"] == "Monitor procurement path"
+
+    @pytest.mark.asyncio
+    async def test_recent_intel_signals_contract(self, monkeypatch) -> None:
+        signal = {
+            "signal_type": "sanctions_change",
+            "priority": "HIGH",
+            "confidence": "HIGH",
+            "title": "New sanctions designation",
+        }
+
+        async def _fake_lrange(_key, _start, _end):
+            return [json.dumps(signal)]
+
+        monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
+
+        out = await nm.get_recent_intel_signals(limit=5)
+
+        assert out["schema_version"] == "rf2385.v1"
+        assert out["count"] == 1
+        assert out["by_priority"]["HIGH"] == 1
+        assert out["by_type"]["sanctions_change"] == 1

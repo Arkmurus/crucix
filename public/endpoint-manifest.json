@@ -156,6 +156,7 @@
   "GET /api/aria/hypotheses",
   "GET /api/aria/identity",
   "GET /api/aria/independence",
+  "GET /api/aria/intel/signals/recent",
   "GET /api/aria/knowledge",
   "GET /api/aria/knowledge/contradictions",
   "GET /api/aria/knowledge/inventory",

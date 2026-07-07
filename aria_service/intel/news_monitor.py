@@ -33,11 +33,9 @@ import hashlib
 import json
 import logging
 import os
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 from defusedxml import ElementTree as ET
 import httpx
@@ -57,7 +55,9 @@ _STATS_CACHE_TTL = 30.0  # seconds
 _SEEN_URLS_KEY = "crucix:news_monitor:seen_urls"
 _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
 _ARTICLES_KEY = "crucix:news_monitor:articles"
+_INTEL_SIGNALS_KEY = "crucix:news_monitor:intel_signals"
 _MAX_ARTICLES = 1000
+_MAX_INTEL_SIGNALS = 500
 _MAX_SEEN_URLS = 50000
 
 # ── HTTP client ───────────────────────────────────────────────────────────────
@@ -65,6 +65,81 @@ _TIMEOUT_S = 15
 _MAX_RETRIES = 2
 
 _http_client: Optional[httpx.AsyncClient] = None
+
+_SIGNAL_RULES: list[tuple[str, list[str], str, str]] = [
+    (
+        "active_tender",
+        ["tender", "rfp", "rfq", "procurement", "bid", "solicitation"],
+        "Procurement activity may create a near-term commercial window.",
+        "Qualify opportunity",
+    ),
+    (
+        "contract_award",
+        ["contract award", "awarded", "signed a contract", "order for", "deal with"],
+        "A contract award changes competitor position, customer budget, or follow-on demand.",
+        "Review competitor impact",
+    ),
+    (
+        "sanctions_change",
+        [
+            "sanction", "embargo", "blacklist", "designated",
+            "asset freeze", "export control",
+        ],
+        "Compliance status may have changed and should be checked before engagement.",
+        "Run compliance review",
+    ),
+    (
+        "conflict_escalation",
+        [
+            "attack", "conflict", "insurgent", "military operation",
+            "offensive", "strike",
+        ],
+        "Security conditions may affect delivery risk, end-use risk, or market timing.",
+        "Assess country risk",
+    ),
+    (
+        "budget_movement",
+        [
+            "budget", "spending", "appropriation", "allocation",
+            "funding", "defence expenditure",
+        ],
+        "Budget movement can signal upcoming procurement or programme acceleration.",
+        "Monitor procurement path",
+    ),
+    (
+        "political_transition",
+        ["minister", "cabinet", "election", "appointed", "reshuffle", "inaugurated"],
+        "Decision-maker change can reset priorities, approvals, and relationship strategy.",
+        "Refresh stakeholder map",
+    ),
+    (
+        "competitor_activity",
+        [
+            "baykar", "aselsan", "elbit", "norinco", "catic",
+            "rosoboronexport", "rheinmetall", "leonardo",
+        ],
+        "Competitor movement can affect positioning, urgency, and pricing strategy.",
+        "Review competitive posture",
+    ),
+    (
+        "programme_signal",
+        [
+            "programme", "program", "delivery", "modernisation",
+            "upgrade", "fleet", "capability",
+        ],
+        "Programme movement can indicate future sustainment, replacement, or partner demand.",
+        "Track programme",
+    ),
+]
+
+_SOURCE_TIER_POINTS = {
+    "tier_1a": 40,
+    "tier_1b": 34,
+    "tier_2": 28,
+    "tier_3": 18,
+    "tier_4": 10,
+    "tier_5": 0,
+}
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -442,6 +517,135 @@ async def _store_article(article: dict) -> None:
     await rs.ltrim(_ARTICLES_KEY, 0, _MAX_ARTICLES - 1)
 
 
+def _article_text(article: dict) -> str:
+    return " ".join(
+        str(article.get(k, "") or "") for k in ("title", "summary", "full_text")
+    ).strip()
+
+
+def _extract_article_entities(text: str) -> dict:
+    try:
+        from . import intel_ledger as _il
+        return _il._extract_entities(text)  # noqa: SLF001 - shared ledger rules.
+    except Exception:
+        return {"countries": [], "products": [], "oems": []}
+
+
+def _classify_article_signal(
+    text: str,
+    category: str,
+    topics: list | str,
+) -> tuple[str, str, str]:
+    low = text.lower()
+    for signal_type, needles, why, action in _SIGNAL_RULES:
+        if any(n in low for n in needles):
+            return signal_type, why, action
+    joined_topics = " ".join(topics) if isinstance(topics, list) else str(topics or "")
+    topic_low = f"{category} {joined_topics}".lower()
+    if any(n in topic_low for n in ("defence", "procurement", "market_intel", "security")):
+        return (
+            "market_watch",
+            "Defence or security coverage may affect market timing, risk, or positioning.",
+            "Monitor signal",
+        )
+    return (
+        "situational_awareness",
+        "Contextual reporting retained as source evidence, but no immediate action is implied.",
+        "Review if relevant",
+    )
+
+
+def _signal_priority(signal_type: str, entities: dict, tier: str) -> str:
+    high_types = {
+        "active_tender",
+        "contract_award",
+        "sanctions_change",
+        "conflict_escalation",
+    }
+    if signal_type in high_types and (entities.get("countries") or entities.get("oems")):
+        return "HIGH"
+    if tier in ("tier_1a", "tier_1b") and signal_type in high_types | {"budget_movement"}:
+        return "HIGH"
+    if signal_type == "situational_awareness":
+        return "LOW"
+    return "MEDIUM"
+
+
+def _confidence(score: int) -> str:
+    if score >= 72:
+        return "HIGH"
+    if score >= 50:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _build_intel_signal(article: dict) -> dict:
+    """Promote one raw article into a decision-grade signal for the web UI."""
+    text = _article_text(article)
+    title = str(article.get("title", "") or "Untitled").strip()
+    source = str(article.get("source", "") or "unknown").strip()
+    tier = str(article.get("tier", "") or "").strip().lower()
+    category = str(article.get("category", "") or "unknown").strip()
+    topics = article.get("topics", []) or []
+    signal_type, why, action = _classify_article_signal(text, category, topics)
+    entities = _extract_article_entities(text)
+    entity_hits = (
+        len(entities.get("countries") or [])
+        + len(entities.get("products") or [])
+        + len(entities.get("oems") or [])
+    )
+    tier_score = _SOURCE_TIER_POINTS.get(tier, 12)
+    action_score = 28 if signal_type not in ("situational_awareness", "market_watch") else 12
+    entity_score = min(18, entity_hits * 6)
+    summary_score = 8 if len(text) >= 180 else 3
+    score = max(0, min(100, tier_score + action_score + entity_score + summary_score))
+    priority = _signal_priority(signal_type, entities, tier)
+    target = (
+        (entities.get("oems") or [None])[0]
+        or (entities.get("countries") or [None])[0]
+        or source
+    )
+    return {
+        "id": _article_hash(f"{article.get('url', '')}|{signal_type}|{title}"),
+        "signal_type": signal_type,
+        "priority": priority,
+        "confidence": _confidence(score),
+        "score": score,
+        "title": title[:220],
+        "decision_summary": title[:220],
+        "why_it_matters": why,
+        "recommended_action": action,
+        "target": target,
+        "source": source,
+        "source_tier": tier or "unclassified",
+        "category": category,
+        "language": article.get("language", "en"),
+        "url": article.get("url", ""),
+        "published": article.get("published", ""),
+        "detected_at": article.get("detected_at") or datetime.now(timezone.utc).isoformat(),
+        "entities": entities,
+        "evidence": {
+            "source": source,
+            "source_tier": tier or "unclassified",
+            "url": article.get("url", ""),
+        },
+    }
+
+
+async def _store_intel_signal(signal: dict) -> None:
+    await rs.lpush(_INTEL_SIGNALS_KEY, json.dumps(signal, default=str))
+    await rs.ltrim(_INTEL_SIGNALS_KEY, 0, _MAX_INTEL_SIGNALS - 1)
+
+
+async def _promote_article_signal(article: dict) -> None:
+    """Best-effort promotion from raw article to dashboard decision signal."""
+    try:
+        signal = _build_intel_signal(article)
+        await _store_intel_signal(signal)
+    except Exception:
+        logger.debug("[news_monitor] intel signal promotion failed", exc_info=True)
+
+
 async def _feed_to_brain(article: dict) -> None:
     """Feed article to ARIA's brain for analysis.
 
@@ -482,6 +686,11 @@ async def _feed_to_brain(article: dict) -> None:
         })
     except Exception:
         logger.debug("[news_monitor] intel_ledger feed failed", exc_info=True)
+
+    # R-F2385 — product-grade promotion layer. The raw article still lands in
+    # the audit feed, but the user-facing surface now gets a concise signal with
+    # priority, confidence, why-it-matters, action, entities, and evidence.
+    await _promote_article_signal(article)
 
     # R-F2190: VAULT sources feed CONTENT into the brain (RAG/knowledge), not just the
     # correlator ledger — so a manually-added website (vault.html "Add Site") becomes
@@ -942,6 +1151,36 @@ async def get_recent_articles(limit: int = 50) -> list[dict]:
         except Exception:
             continue
     return articles
+
+
+@fail_wire(module="news_monitor", gap_type="source_failure")
+async def get_recent_intel_signals(limit: int = 20) -> dict:
+    """Return decision-grade signals promoted from the raw news feed."""
+    capped = max(1, min(int(limit or 20), 100))
+    raw = await rs.lrange(_INTEL_SIGNALS_KEY, 0, capped - 1)
+    signals = []
+    for r in raw:
+        try:
+            sig = json.loads(r) if isinstance(r, str) else r
+            if isinstance(sig, dict):
+                signals.append(sig)
+        except Exception:
+            continue
+
+    by_priority: dict[str, int] = {}
+    by_type: dict[str, int] = {}
+    for sig in signals:
+        pri = str(sig.get("priority") or "UNKNOWN").upper()
+        typ = str(sig.get("signal_type") or "unknown")
+        by_priority[pri] = by_priority.get(pri, 0) + 1
+        by_type[typ] = by_type.get(typ, 0) + 1
+    return {
+        "signals": signals,
+        "count": len(signals),
+        "by_priority": by_priority,
+        "by_type": by_type,
+        "schema_version": "rf2385.v1",
+    }
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")

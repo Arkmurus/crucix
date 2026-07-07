@@ -26080,6 +26080,14 @@ async def news_stats_ep() -> dict:
     return await news_monitor.get_stats()
 
 
+@router.get("/intel/signals/recent")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def intel_signals_recent_ep(limit: int = 20) -> dict:
+    """Return promoted, decision-grade intel signals for dashboard display."""
+    from ..intel import news_monitor
+    return await news_monitor.get_recent_intel_signals(limit=limit)
+
+
 @router.post("/news/poll")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def news_poll_ep(categories: str = "") -> dict:
