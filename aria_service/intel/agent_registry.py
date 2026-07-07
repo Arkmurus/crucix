@@ -298,6 +298,13 @@ class AgentRegistry:
             "last_heartbeat": now,
             "metadata": metadata or {},
         }
+        # R-F2393: determine first registration BEFORE the upsert. The old
+        # order checked _db_get_agent() after _db_register(), so it always saw
+        # an existing row and never wired the first-registration success signal.
+        try:
+            was_registered = self._db_get_agent(agent_id) is not None
+        except Exception:
+            was_registered = False
         # R-F1446: write to dedicated DB first (fast, no lock contention)
         db_ok = False
         try:
@@ -335,9 +342,7 @@ class AgentRegistry:
             # retries. The brain signal was firing on every register() call,
             # including retries from heartbeat ticks, making the success rate
             # appear as 32% when it was actually 100% on the DB side.
-            # Check if this agent was already registered (heartbeat tick vs first reg)
-            existing = self._db_get_agent(agent_id)
-            if existing is None:
+            if not was_registered:
                 # R-F1166 — wire success to brain (best-effort, non-blocking)
                 try:
                     wire_success(

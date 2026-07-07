@@ -3540,7 +3540,11 @@ async def lifespan(app: FastAPI):
     if _runs_singletons():  # R-F2073 singleton
         try:
             from .intel import wiring_monitor as _wm
-            _wiring_monitor_task = _wm.start_monitor()
+            _wiring_monitor_task = _bg_task(
+                _wm.start_monitor(),
+                name="wiring_monitor",
+                factory=_wm.monitor_loop,
+            )
         except Exception as _wm_err:
             logger.warning("[R-F1552] Wiring Monitor start failed (non-fatal): %s", _wm_err)
     else:
@@ -3551,8 +3555,20 @@ async def lifespan(app: FastAPI):
     if _runs_singletons():  # R-F2073 singleton
         try:
             from .intel.autonomous_scheduler import AutonomousScheduler
-            _scheduler = AutonomousScheduler()
-            _scheduler_task = asyncio.create_task(_scheduler.start(), name="autonomous_scheduler")
+            async def _autonomous_scheduler_loop():
+                _scheduler = AutonomousScheduler()
+                await _scheduler.start()
+                try:
+                    while True:
+                        await asyncio.sleep(3600)
+                finally:
+                    await _scheduler.stop()
+
+            _scheduler_task = _bg_task(
+                asyncio.create_task(_autonomous_scheduler_loop(), name="autonomous_scheduler"),
+                name="autonomous_scheduler",
+                factory=_autonomous_scheduler_loop,
+            )
         except Exception as _sched_err:
             logger.warning("[R-F1574] Autonomous Scheduler start failed (non-fatal): %s", _sched_err)
     else:

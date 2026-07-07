@@ -120,6 +120,30 @@ async def test_register_and_unregister():
     assert len(agents) == 0, f"Expected 0 agents after unregister, got {len(agents)}"
 
 
+async def test_register_wires_first_registration_once(monkeypatch):
+    """First registration must reach brain wiring; re-registration must not spam."""
+    from aria_service.intel import agent_registry as ar
+
+    calls = []
+
+    def _capture_success(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(ar, "wire_success", _capture_success)
+    reg = _make_registry()
+
+    ok = await reg.register("wired_agent", "test_type", "starting")
+    assert ok is True
+    ok = await reg.register("wired_agent", "test_type", "heartbeat retry")
+    assert ok is True
+
+    assert len(calls) == 1
+    assert calls[0]["module"] == "agent_registry"
+    assert calls[0]["entity_name"] == "wired_agent"
+
+    await reg.unregister("wired_agent")
+
+
 async def test_heartbeat_and_task_update():
     """Heartbeat updates last_heartbeat and current_task."""
     reg = _make_registry()

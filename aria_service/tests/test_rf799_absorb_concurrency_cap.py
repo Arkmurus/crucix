@@ -28,7 +28,7 @@ def _reset_breaker():
 
 
 def _patch_tiers(monkeypatch, mastery=None, knowledge=None, neural=None):
-    from aria_service.intel import student, knowledge as kn, neural_memory
+    from aria_service.intel import student, knowledge as kn, neural_memory, memory_wal
 
     async def _ok(*a, **kw):
         return None
@@ -43,6 +43,7 @@ def _patch_tiers(monkeypatch, mastery=None, knowledge=None, neural=None):
     monkeypatch.setattr(kn, "store_fact", knowledge or _ok_dict)
     monkeypatch.setattr(neural_memory, "learn_from_text", neural or _ok_dict)
     monkeypatch.setattr(brain_hook, "_record_signal", _record_signal)
+    monkeypatch.setattr(memory_wal, "record_pending_fact", lambda **_kw: "ok")
     monkeypatch.setattr(brain_hook, "BRAIN_HOOK_ENABLED", True)
 
 
@@ -50,6 +51,18 @@ def _reset_semaphore():
     """Force re-creation of the semaphore so each test gets a fresh one
     bound to its own event loop with current _ABSORB_CONCURRENCY."""
     brain_hook._absorb_concurrency_sem = None
+    brain_hook._pending_absorb = 0
+    brain_hook._dropped_absorb = 0
+
+
+async def _absorb_and_wait(**kwargs):
+    """Drive absorb() and wait for the real background tier task to settle."""
+    result = await brain_hook.absorb(**kwargs)
+    for _ in range(200):
+        if brain_hook._pending_absorb == 0:
+            return result
+        await asyncio.sleep(0.01)
+    return result
 
 
 _LONG = "Long enough to pass the 50-char neural-tier gate easily."
@@ -63,7 +76,7 @@ def test_rf799_disabled_when_concurrency_zero(monkeypatch):
     monkeypatch.setattr(brain_hook, "_ABSORB_CONCURRENCY", 0)
     _patch_tiers(monkeypatch)
 
-    result = asyncio.run(brain_hook.absorb(
+    result = asyncio.run(_absorb_and_wait(
         module="dd_orchestrator", summary=_LONG, detail=_LONG,
     ))
     assert result["mastery_ok"] is True
@@ -79,7 +92,7 @@ def test_rf799_low_concurrency_no_contention_succeeds(monkeypatch):
     monkeypatch.setattr(brain_hook, "_ABSORB_CONCURRENCY", 2)
     _patch_tiers(monkeypatch)
 
-    result = asyncio.run(brain_hook.absorb(
+    result = asyncio.run(_absorb_and_wait(
         module="dd_orchestrator", summary=_LONG, detail=_LONG,
     ))
     assert result["mastery_ok"] is True
@@ -110,10 +123,9 @@ def test_rf799_contention_triggers_fail_fast_skip(monkeypatch):
     _patch_tiers(monkeypatch, mastery=_slow_mastery)
 
     async def _exercise():
-        # Holder absorbs first — will acquire the semaphore and block.
-        holder = asyncio.create_task(brain_hook.absorb(
-            module="holder", summary=_LONG, detail=_LONG,
-        ))
+        # Holder absorb returns immediately; its background tier task acquires
+        # the semaphore and blocks inside _slow_mastery.
+        holder = await brain_hook.absorb(module="holder", summary=_LONG, detail=_LONG)
         # Wait until holder is actually inside the tier section.
         await started.wait()
 
@@ -124,9 +136,16 @@ def test_rf799_contention_triggers_fail_fast_skip(monkeypatch):
             module="contender", summary=_LONG, detail=_LONG,
         )
         elapsed = time.monotonic() - t0
+        for _ in range(100):
+            if contender["errors"]:
+                break
+            await asyncio.sleep(0.01)
         # Release holder so the test can finish cleanly.
         release.set()
-        await holder
+        for _ in range(200):
+            if brain_hook._pending_absorb == 0:
+                break
+            await asyncio.sleep(0.01)
         return contender, elapsed
 
     contender, elapsed = asyncio.run(_exercise())
@@ -155,7 +174,7 @@ def test_rf799_holder_completes_normally(monkeypatch):
     monkeypatch.setattr(brain_hook, "_ABSORB_CONCURRENCY", 1)
     _patch_tiers(monkeypatch)
 
-    result = asyncio.run(brain_hook.absorb(
+    result = asyncio.run(_absorb_and_wait(
         module="dd_orchestrator", summary=_LONG, detail=_LONG,
     ))
     assert result["mastery_ok"] is True
@@ -174,10 +193,10 @@ def test_rf799_semaphore_released_after_completion(monkeypatch):
     _patch_tiers(monkeypatch)
 
     # Run sequentially — second should not see contention.
-    r1 = asyncio.run(brain_hook.absorb(
+    r1 = asyncio.run(_absorb_and_wait(
         module="m1", summary=_LONG, detail=_LONG,
     ))
-    r2 = asyncio.run(brain_hook.absorb(
+    r2 = asyncio.run(_absorb_and_wait(
         module="m2", summary=_LONG, detail=_LONG,
     ))
     assert r1["mastery_ok"] is True
@@ -200,12 +219,12 @@ def test_rf799_released_on_tier_exception(monkeypatch):
     _patch_tiers(monkeypatch, mastery=_raise)
 
     # First call hits the exception, semaphore must be released.
-    r1 = asyncio.run(brain_hook.absorb(
+    r1 = asyncio.run(_absorb_and_wait(
         module="m1", summary=_LONG, detail=_LONG,
     ))
     # Second call should still complete (semaphore was released).
     _patch_tiers(monkeypatch)  # reset to OK stubs
-    r2 = asyncio.run(brain_hook.absorb(
+    r2 = asyncio.run(_absorb_and_wait(
         module="m2", summary=_LONG, detail=_LONG,
     ))
     assert r2["mastery_ok"] is True
