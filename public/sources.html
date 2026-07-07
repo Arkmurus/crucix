@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
-    /* Python-side source table — card-style rows with status badges */
+    /* Source monitor table — card-style rows with status badges */
     .pysrc-row td { padding: 10px 14px !important; vertical-align: middle; border-bottom: 1px solid var(--sc-border); }
     .pysrc-row:last-child td { border-bottom: none; }
     .pysrc-row:hover td { background: rgba(124,58,237,0.03); }
@@ -99,22 +99,10 @@
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="src-ok">—</div><div class="sc-stat-label">Active Sources</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="src-err">—</div><div class="sc-stat-label">Failed Sources</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="src-warn">—</div><div class="sc-stat-label">Degraded</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="src-last">—</div><div class="sc-stat-label">Last Sweep</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="src-last">—</div><div class="sc-stat-label">Last Check</div></div></div>
   </div>
 
-  <div class="sc-card">
-    <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-server"></i> Node-side sources (sweep)</div>
-    </div>
-    <div style="padding:0">
-      <table class="sc-table" id="src-table">
-        <thead><tr><th>Source</th><th>Status</th><th>Reliability</th><th>Latency</th><th>Fetches</th></tr></thead>
-        <tbody id="src-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- R-F58: brain-bridge + Python sources + per-sector breakdown -->
+  <!-- R-F58/R-F2384: source uptime, brain-bridge + per-sector breakdown -->
 
   <div class="sc-card mt-24">
     <div class="sc-card-header">
@@ -125,11 +113,11 @@
 
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
-      <div class="sc-card-title"><i class="bi bi-cpu"></i> Python-side sources (fly brain)</div>
+      <div class="sc-card-title"><i class="bi bi-cpu"></i> ARIA source monitors</div>
       <button class="sc-btn sc-btn-sm" id="btn-run-pysrc"
         style="background:transparent;border:1px solid var(--sc-border-strong);color:var(--sc-text);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer"
-        title="Manually trigger source uptime ping (R-F102)">
-        <i class="bi bi-play-fill"></i> Run uptime ping
+        title="Manually trigger source uptime check (R-F102)">
+        <i class="bi bi-play-fill"></i> Run source check
       </button>
     </div>
     <div style="padding:0">
@@ -139,16 +127,16 @@
       </table>
     </div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
-      Source uptime ping fires automatically daily 02:00 UTC via the
+      Source uptime check fires automatically daily 02:00 UTC via the
       <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">SOURCE-UPTIME-DAILY</code> autonomous task.
-      Empty list = ping hasn't fired yet (post-deploy / cold start) — click <em>Run uptime ping</em> to populate immediately.
+      Empty list = check hasn't fired yet (post-deploy / cold start) — click <em>Run source check</em> to populate immediately.
     </div>
   </div>
 
   <!-- R-F143 (2026-05-10) — Curated source catalogue panel.
        The 188 sources ARIA seeds into web_atlas at startup were
-       invisible because /sources.html only showed Node-side sweep
-       sources + Python-side uptime monitor. Now reads
+       invisible because /sources.html only showed the old sweep
+       sources + uptime monitor. Now reads
        /api/aria/sources/seed/catalogue. -->
   <div class="sc-card mt-24">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
@@ -217,44 +205,6 @@ function fmtDateTime(iso) {
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
   } catch(e) { return iso; }
-}
-
-async function loadSources() {
-  const data = await API.get('/api/source-health');
-  if (!data) return;
-  const sources = data.sources || [];
-  const ok   = sources.filter(s => s.lastStatus === 'ok').length;
-  const err  = sources.filter(s => s.lastStatus === 'error').length;
-  const warn = sources.filter(s => s.reliability !== null && s.reliability < 80 && s.lastStatus !== 'error').length;
-  document.getElementById('src-ok').textContent   = ok;
-  document.getElementById('src-err').textContent  = err;
-  document.getElementById('src-warn').textContent = warn;
-  document.getElementById('src-last').textContent = data.asOf ? fmtDateTime(data.asOf) : '—';
-
-  document.getElementById('src-body').innerHTML = sources.map(s => {
-    const isOk  = s.lastStatus === 'ok';
-    const isErr = s.lastStatus === 'error';
-    const isWarn = !isOk && !isErr;
-
-    // Status badge
-    let badgeClass = 'pysrc-badge-ok';
-    let badgeLabel = 'Healthy';
-    if (isErr) { badgeClass = 'pysrc-badge-err'; badgeLabel = 'Error'; }
-    else if (isWarn) { badgeClass = 'pysrc-badge-warn'; badgeLabel = 'Degraded'; }
-
-    const reliColor = s.reliability === null ? '#9b968c'
-                    : s.reliability >= 80   ? '#16a34a'
-                    : s.reliability >= 50   ? '#ea580c' : '#dc2626';
-
-    return '<tr class="pysrc-row">' +
-      '<td class="pysrc-name"><strong>' + escHtml(s.name || '') + '</strong></td>' +
-      '<td><span class="pysrc-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
-      '<td><span style="font-size:13px;font-weight:600;color:' + reliColor + '">' +
-        (s.reliability !== null ? s.reliability + '%' : '—') + '</span></td>' +
-      '<td class="pysrc-time">' + (s.lastMs ? s.lastMs + 'ms' : '—') + '</td>' +
-      '<td class="pysrc-time">' + (s.ok || 0) + 'ok / ' + (s.fail || 0) + 'fail</td>' +
-    '</tr>';
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No source data yet — run a sweep first</td></tr>';
 }
 
 // R-F58: brain-bridge state pulled from R-F45's /api/brain-absorb/verify
@@ -404,16 +354,29 @@ async function loadOemPool() {
   }
 }
 
-// R-F58: Python-side sources from /api/aria/sources/uptime
+function updateSourceSummary(data, sources, counts) {
+  const lastRun = (data && data.last_run) || {};
+  document.getElementById('src-ok').textContent = counts.ok;
+  document.getElementById('src-err').textContent = counts.err;
+  document.getElementById('src-warn').textContent = counts.warn;
+  document.getElementById('src-last').textContent = lastRun.ran_at ? fmtDateTime(lastRun.ran_at) : '—';
+}
+
+// R-F58/R-F2384: unified source monitors from /api/aria/sources/uptime
 // R-F2258: redesigned with card layout, status badges, visual hierarchy
-async function loadPythonSources() {
+async function loadSourceMonitors() {
   const body = document.getElementById('pysrc-body');
   try {
     const data = await API.get('/api/aria/sources/uptime');
-    if (!data) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No data — fly endpoint unreachable.</td></tr>'; return; }
+    if (!data) {
+      updateSourceSummary({}, [], { ok: 0, err: 0, warn: 0 });
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No data — source monitor endpoint unreachable.</td></tr>';
+      return;
+    }
     const sources = data.sources || data.uptime || [];
     if (!sources.length) {
-      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No Python sources reported yet.</td></tr>';
+      updateSourceSummary(data, sources, { ok: 0, err: 0, warn: 0 });
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">No source monitor rows reported yet.</td></tr>';
       return;
     }
 
@@ -422,6 +385,7 @@ async function loadPythonSources() {
     const errCount  = sources.filter(s => { const st = s.status || s.state || (s.last_ok ? 'ok' : 'unknown'); return st === 'error' || st === 'failed' || st === 'down'; }).length;
     const suspCount = sources.filter(s => s.suspended || s.disabled).length;
     const warnCount = sources.length - okCount - errCount;
+    updateSourceSummary(data, sources, { ok: okCount, err: errCount, warn: warnCount });
 
     // Summary row
     let html = '<tr class="pysrc-summary"><td colspan="5" style="padding:12px 16px;background:var(--sc-bg)">' +
@@ -575,10 +539,10 @@ async function loadAdversarial() {
 // so the operator can populate the table without waiting for daily cron.
 document.getElementById('btn-run-pysrc').addEventListener('click', async function() {
   const btn = this;
-  if (!confirm('Run an uptime ping across all Python-side sources now? Takes ~30-60s.')) return;
+  if (!confirm('Run a source uptime check across all monitored sources now? Takes ~30-60s.')) return;
   const orig = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Pinging…';
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking…';
   try {
     const resp = await fetch('/api/aria/sources/uptime/run', {
       method: 'POST',
@@ -587,7 +551,7 @@ document.getElementById('btn-run-pysrc').addEventListener('click', async functio
     if (!resp.ok) {
       alert('Ping failed (HTTP ' + resp.status + '). Check fly logs for details.');
     } else {
-      await loadPythonSources();
+      await loadSourceMonitors();
     }
   } catch (err) {
     alert('Ping error: ' + err.message);
@@ -619,20 +583,18 @@ document.getElementById('btn-run-adv').addEventListener('click', async function(
   btn.innerHTML = orig;
 });
 
-loadSources();
 loadBridge();
 loadCatalogue();
 loadOemPool();
-loadPythonSources();
+loadSourceMonitors();
 loadSectorStats();
 loadAdversarial();
 
 // Auto-refresh every 60s (adversarial runs are infrequent enough that
 // 60s is excessive — bump to 5 min on the adversarial fetch only).
 setInterval(() => {
-  loadSources();
   loadBridge();
-  loadPythonSources();
+  loadSourceMonitors();
   loadCatalogue();   // R-F143
   loadOemPool();     // R-F143
   loadSectorStats();

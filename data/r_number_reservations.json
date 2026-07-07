@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2384,
+  "next_available": 2385,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18115,6 +18115,16 @@
       "r_number": "R-F2383",
       "title": "DD report quality gate",
       "claimed_at": "2026-07-07T06:40:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bdbb605f",
+      "notes": null,
+      "shipped_at": "2026-07-07T06:47:55Z"
+    },
+    {
+      "r_number": "R-F2384",
+      "title": "Consolidate source health to Python",
+      "claimed_at": "2026-07-07T06:53:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
