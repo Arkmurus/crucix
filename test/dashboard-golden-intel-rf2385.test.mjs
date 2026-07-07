@@ -20,6 +20,10 @@ for (const marker of [
   'renderGoldenIntel',
   'why_it_matters',
   'recommended_action',
+  'quality_label',
+  'confidence_rationale',
+  'action_horizon',
+  'corroboration',
 ]) {
   assert.ok(HTML.includes(marker), `dashboard must include ${marker}`);
 }
@@ -35,6 +39,11 @@ const INTEL = {
     signal_type: 'active_tender',
     priority: 'HIGH',
     confidence: 'HIGH',
+    quality_label: 'decision-grade single-source',
+    confidence_rationale: 'high-trust source tier; actionable active tender pattern; named entity extracted; single-source',
+    action_horizon: '0-72h',
+    corroboration: 'single-source',
+    evidence_count: 1,
     decision_summary: 'Angola launches armoured vehicle tender',
     why_it_matters: 'Procurement activity may create a near-term commercial window.',
     recommended_action: 'Qualify opportunity',
@@ -133,6 +142,12 @@ assert.match(html, /HIGH/);
 assert.match(html, /HIGH confidence/);
 assert.match(html, /Procurement activity may create a near-term commercial window/);
 assert.match(html, /Qualify opportunity/);
+assert.match(html, /decision-grade single-source/);
+assert.match(html, /Horizon:/);
+assert.match(html, /0-72h/);
+assert.match(html, /Evidence:/);
+assert.match(html, /single-source/);
+assert.match(html, /high-trust source tier/);
 assert.match(html, /Evidence/);
 assert.match(html, /tier_1b/);
 

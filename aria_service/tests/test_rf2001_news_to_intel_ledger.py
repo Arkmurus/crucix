@@ -150,7 +150,13 @@ class TestGoldenIntelSignals:
         assert sig["confidence"] in {"MEDIUM", "HIGH"}
         assert sig["target"] == "Angola"
         assert sig["recommended_action"] == "Qualify opportunity"
+        assert sig["quality_label"] == "decision-grade single-source"
+        assert sig["action_horizon"] == "0-72h"
+        assert sig["corroboration"] == "single-source"
+        assert "high-trust source tier" in sig["confidence_rationale"]
+        assert "actionable active tender pattern" in sig["confidence_rationale"]
         assert sig["evidence"]["url"] == "https://example.com/angola-tender"
+        assert sig["evidence"]["count"] == 1
 
     @pytest.mark.asyncio
     async def test_feed_to_brain_stores_promoted_signal(self, monkeypatch) -> None:
@@ -184,6 +190,7 @@ class TestGoldenIntelSignals:
         assert stored["signal"]["signal_type"] == "budget_movement"
         assert stored["signal"]["why_it_matters"]
         assert stored["signal"]["recommended_action"] == "Monitor procurement path"
+        assert stored["signal"]["action_horizon"] == "3-14d"
 
     @pytest.mark.asyncio
     async def test_recent_intel_signals_contract(self, monkeypatch) -> None:
@@ -248,4 +255,6 @@ class TestGoldenIntelSignals:
         sig = out["signals"][0]
         assert sig["decision_summary"] == "Angola launches armoured vehicle tender"
         assert sig["recommended_action"] == "Qualify opportunity"
+        assert sig["quality_label"] == "decision-grade single-source"
+        assert sig["confidence_rationale"]
         assert sig["evidence"]["url"] == "https://example.com/angola-tender"

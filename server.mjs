@@ -358,6 +358,30 @@ if (smtpConfigured) {
 // ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
 // The old telegram.mjs has `handlers = { '/brief': () => this._handleBrief() }` which
 // calls this method on the instance — patching here wins regardless of prototype version.
+async function fetchGoldenIntelForBrief(limit = 5) {
+  if (!ARIA_SERVICE_URL) return [];
+  try {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/intel/signals/recent?limit=${limit}`, {
+      headers: _ariaHeaders(),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return Array.isArray(data.signals) ? data.signals : [];
+  } catch (e) {
+    console.warn('[Telegram] Golden Intel brief fetch failed:', e.message);
+    return [];
+  }
+}
+
+function telegramBriefText(value, limit = 140) {
+  return String(value || '')
+    .replace(/[*_`[\]()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
+}
+
 telegramAlerter._handleBrief = async function() {
   console.log('[Telegram] _handleBrief() called — server.mjs monkey-patch ARKMURUS 8-section');
   try {
@@ -371,6 +395,7 @@ telegramAlerter._handleBrief = async function() {
     const oil = data.energy || {};
     const corrs = data.correlations || [];
     const critCorrs = corrs.filter(c => c.severity === 'critical' || c.severity === 'high');
+    const goldenIntel = await fetchGoldenIntelForBrief(5);
 
     let msg = `*ARKMURUS INTELLIGENCE BRIEF*\n_${ts} London_\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
@@ -409,6 +434,22 @@ telegramAlerter._handleBrief = async function() {
         }
         msg += `_Enable LLM (ANTHROPIC_API_KEY) for full trade ideas with instruments and invalidation criteria._\n\n`;
       }
+    }
+
+    if (goldenIntel.length > 0) {
+      msg += `*GOLDEN INTEL — DECISION SIGNALS*\n`;
+      for (const s of goldenIntel.slice(0, 3)) {
+        const title = telegramBriefText(s.decision_summary || s.title || 'Untitled signal', 120);
+        const action = telegramBriefText(s.recommended_action || 'Review', 80);
+        const target = telegramBriefText(s.target || s.source || 'market', 60);
+        const quality = telegramBriefText(s.quality_label || 'context', 60);
+        const horizon = telegramBriefText(s.action_horizon || 'monitor', 30);
+        const evidence = telegramBriefText(s.corroboration || 'single-source', 40);
+        msg += `▸ *${title}*\n`;
+        msg += `  ${s.priority || 'LOW'}/${s.confidence || 'LOW'} · ${quality} · Horizon: ${horizon} · Evidence: ${evidence}\n`;
+        msg += `  Target: ${target} · Action: ${action}\n`;
+      }
+      msg += `\n`;
     }
 
     // ── 2. EXECUTIVE THESIS ───────────────────────────────────────────────────

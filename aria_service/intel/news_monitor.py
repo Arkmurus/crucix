@@ -579,6 +579,46 @@ def _confidence(score: int) -> str:
     return "LOW"
 
 
+def _action_horizon(signal_type: str, priority: str) -> str:
+    if signal_type in {"sanctions_change", "conflict_escalation"} or priority == "HIGH":
+        return "0-72h"
+    if signal_type in {"active_tender", "contract_award", "budget_movement"}:
+        return "3-14d"
+    return "monitor"
+
+
+def _quality_label(priority: str, confidence: str, evidence_count: int) -> str:
+    if priority == "HIGH" and confidence == "HIGH" and evidence_count >= 2:
+        return "decision-grade corroborated"
+    if priority == "HIGH" and confidence in {"HIGH", "MEDIUM"}:
+        return "decision-grade single-source"
+    if confidence == "HIGH":
+        return "watch-grade"
+    return "context"
+
+
+def _confidence_rationale(
+    *,
+    source_tier: str,
+    signal_type: str,
+    entities: dict,
+    evidence_count: int,
+) -> str:
+    parts = []
+    if source_tier in {"tier_1a", "tier_1b"}:
+        parts.append("high-trust source tier")
+    elif source_tier in {"tier_2", "tier_3"}:
+        parts.append("curated source tier")
+    else:
+        parts.append("unverified source tier")
+    if signal_type not in {"situational_awareness", "market_watch"}:
+        parts.append(f"actionable {signal_type.replace('_', ' ')} pattern")
+    if entities.get("countries") or entities.get("oems") or entities.get("products"):
+        parts.append("named entity extracted")
+    parts.append("corroborated" if evidence_count >= 2 else "single-source")
+    return "; ".join(parts)
+
+
 def _build_intel_signal(article: dict) -> dict:
     """Promote one raw article into a decision-grade signal for the web UI."""
     text = _article_text(article)
@@ -600,17 +640,32 @@ def _build_intel_signal(article: dict) -> dict:
     summary_score = 8 if len(text) >= 180 else 3
     score = max(0, min(100, tier_score + action_score + entity_score + summary_score))
     priority = _signal_priority(signal_type, entities, tier)
+    confidence = _confidence(score)
+    evidence_count = int(article.get("evidence_count") or article.get("source_count") or 1)
     target = (
         (entities.get("oems") or [None])[0]
         or (entities.get("countries") or [None])[0]
         or source
     )
+    action_horizon = _action_horizon(signal_type, priority)
+    quality_label = _quality_label(priority, confidence, evidence_count)
     return {
         "id": _article_hash(f"{article.get('url', '')}|{signal_type}|{title}"),
         "signal_type": signal_type,
         "priority": priority,
-        "confidence": _confidence(score),
+        "confidence": confidence,
         "score": score,
+        "quality_label": quality_label,
+        "confidence_rationale": _confidence_rationale(
+            source_tier=tier,
+            signal_type=signal_type,
+            entities=entities,
+            evidence_count=evidence_count,
+        ),
+        "evidence_count": evidence_count,
+        "corroboration": "corroborated" if evidence_count >= 2 else "single-source",
+        "action_horizon": action_horizon,
+        "urgency": "immediate" if action_horizon == "0-72h" else "near-term",
         "title": title[:220],
         "decision_summary": title[:220],
         "why_it_matters": why,
@@ -628,6 +683,8 @@ def _build_intel_signal(article: dict) -> dict:
             "source": source,
             "source_tier": tier or "unclassified",
             "url": article.get("url", ""),
+            "count": evidence_count,
+            "corroboration": "corroborated" if evidence_count >= 2 else "single-source",
         },
     }
 
@@ -671,6 +728,7 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
     candidates.sort(
         key=lambda s: (
             priority_rank.get(str(s.get("priority", "LOW")), 2),
+            0 if str(s.get("quality_label", "")).startswith("decision-grade") else 1,
             1 if s.get("signal_type") == "situational_awareness" else 0,
             -int(s.get("score", 0) or 0),
             str(s.get("detected_at", "")),
