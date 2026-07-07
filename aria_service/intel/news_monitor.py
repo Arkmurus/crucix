@@ -637,6 +637,48 @@ async def _store_intel_signal(signal: dict) -> None:
     await rs.ltrim(_INTEL_SIGNALS_KEY, 0, _MAX_INTEL_SIGNALS - 1)
 
 
+async def _persist_backfilled_intel_signals(signals: list[dict]) -> None:
+    """Persist backfilled Golden Intel without blocking the dashboard request."""
+    for signal in signals:
+        try:
+            await _store_intel_signal(signal)
+        except Exception:
+            logger.debug("[news_monitor] intel signal backfill persist failed", exc_info=True)
+            return
+
+
+async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
+    """Derive Golden Intel from existing raw articles when promotion storage is empty."""
+    scan_limit = max(limit * 5, min(_MAX_ARTICLES, 100))
+    raw = await rs.lrange(_ARTICLES_KEY, 0, max(0, scan_limit - 1))
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    for r in raw:
+        try:
+            article = json.loads(r) if isinstance(r, str) else r
+        except Exception:
+            continue
+        if not isinstance(article, dict):
+            continue
+        signal = _build_intel_signal(article)
+        signal_id = str(signal.get("id", ""))
+        if signal_id in seen:
+            continue
+        seen.add(signal_id)
+        candidates.append(signal)
+
+    priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    candidates.sort(
+        key=lambda s: (
+            priority_rank.get(str(s.get("priority", "LOW")), 2),
+            1 if s.get("signal_type") == "situational_awareness" else 0,
+            -int(s.get("score", 0) or 0),
+            str(s.get("detected_at", "")),
+        )
+    )
+    return candidates[:limit]
+
+
 async def _promote_article_signal(article: dict) -> None:
     """Best-effort promotion from raw article to dashboard decision signal."""
     try:
@@ -1158,7 +1200,15 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
     """Return decision-grade signals promoted from the raw news feed."""
     capped = max(1, min(int(limit or 20), 100))
     raw = await rs.lrange(_INTEL_SIGNALS_KEY, 0, capped - 1)
-    signals = []
+    backfilled: list[dict] = []
+    if not raw:
+        try:
+            backfilled = await _backfill_intel_signals_from_articles(capped)
+            if backfilled:
+                asyncio.create_task(_persist_backfilled_intel_signals(backfilled))
+        except Exception:
+            logger.debug("[news_monitor] intel signal backfill failed", exc_info=True)
+    signals = list(backfilled)
     for r in raw:
         try:
             sig = json.loads(r) if isinstance(r, str) else r

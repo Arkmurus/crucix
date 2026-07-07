@@ -9,6 +9,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -204,3 +205,47 @@ class TestGoldenIntelSignals:
         assert out["count"] == 1
         assert out["by_priority"]["HIGH"] == 1
         assert out["by_type"]["sanctions_change"] == 1
+
+    @pytest.mark.asyncio
+    async def test_recent_intel_signals_backfills_from_existing_articles(self, monkeypatch) -> None:
+        """R-F2391: Golden Intel must not stay empty after raw-news-only deploys."""
+        article = {
+            "title": "Angola launches armoured vehicle tender",
+            "summary": "Angola defence ministry opened a procurement tender for new armoured vehicles.",
+            "source": "US DoD Daily Contracts",
+            "url": "https://example.com/angola-tender",
+            "category": "defence_global",
+            "language": "en",
+            "tier": "tier_1b",
+            "topics": ["defence", "procurement"],
+            "detected_at": "2026-07-07T10:00:00Z",
+        }
+        stored_signals: list[str] = []
+
+        async def _fake_lrange(key, _start, _end):
+            if key == nm._INTEL_SIGNALS_KEY:  # noqa: SLF001 - verifies real storage key.
+                return list(stored_signals)
+            if key == nm._ARTICLES_KEY:  # noqa: SLF001 - drives raw-article fallback.
+                return [json.dumps(article)]
+            return []
+
+        async def _fake_lpush(key, value):
+            assert key == nm._INTEL_SIGNALS_KEY  # noqa: SLF001
+            stored_signals.insert(0, value)
+
+        async def _fake_ltrim(_key, _start, _end):
+            return None
+
+        monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
+        monkeypatch.setattr(nm.rs, "lpush", _fake_lpush)
+        monkeypatch.setattr(nm.rs, "ltrim", _fake_ltrim)
+
+        out = await nm.get_recent_intel_signals(limit=5)
+        await asyncio.sleep(0)
+
+        assert out["count"] == 1
+        assert stored_signals, "backfill must persist promoted signals for later reads"
+        sig = out["signals"][0]
+        assert sig["decision_summary"] == "Angola launches armoured vehicle tender"
+        assert sig["recommended_action"] == "Qualify opportunity"
+        assert sig["evidence"]["url"] == "https://example.com/angola-tender"
