@@ -121,13 +121,22 @@ async def get_autonomous_loop_status() -> dict[str, Any]:
 
 # ── Security Scanner ──────────────────────────────────────────────────────
 
-async def run_security_scan() -> dict[str, Any]:
-    """Scan ARIA's own codebase for security vulnerabilities."""
+def _iter_security_scan_files(root) -> list:
+    import pathlib
+    return [
+        f for f in root.rglob("*.py")
+        if ".venv" not in str(f) and "node_modules" not in str(f)
+    ]
+
+
+def _run_security_scan_sync() -> dict[str, Any]:
+    """Scan ARIA's own codebase for security vulnerabilities synchronously."""
     import pathlib
     import re
-    
+
     root = pathlib.Path(__file__).parent.parent.parent
     findings = []
+    python_files = _iter_security_scan_files(root)
     
     # Pattern 1: Hardcoded secrets
     secret_patterns = [
@@ -138,9 +147,7 @@ async def run_security_scan() -> dict[str, Any]:
     ]
     
     for pattern, label in secret_patterns:
-        for f in root.rglob("*.py"):
-            if ".venv" in str(f) or "node_modules" in str(f):
-                continue
+        for f in python_files:
             try:
                 content = f.read_text(encoding="utf-8", errors="replace")
                 for m in re.finditer(pattern, content):
@@ -155,9 +162,7 @@ async def run_security_scan() -> dict[str, Any]:
                 continue
     
     # Pattern 2: eval/exec usage
-    for f in root.rglob("*.py"):
-        if ".venv" in str(f) or "node_modules" in str(f):
-            continue
+    for f in python_files:
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
             for dangerous in ["eval(", "exec(", "compile("]:
@@ -172,9 +177,7 @@ async def run_security_scan() -> dict[str, Any]:
             continue
     
     # Pattern 3: Routes without auth
-    for f in root.rglob("*.py"):
-        if ".venv" in str(f) or "node_modules" in str(f):
-            continue
+    for f in python_files:
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
             for m in re.finditer(r'@router\.(get|post|put|delete)\(["\']([^"\']+)', content):
@@ -199,6 +202,32 @@ async def run_security_scan() -> dict[str, Any]:
         "low": len([f for f in findings if f["severity"] == "LOW"]),
         "findings": findings[:50],
     }
+
+
+async def run_security_scan() -> dict[str, Any]:
+    """Scan ARIA's own codebase for security vulnerabilities off the event loop."""
+    try:
+        result = await asyncio.to_thread(_run_security_scan_sync)
+        try:
+            wire_success(
+                module="ecosystem_dashboard",
+                summary=f"security scan completed with {result.get('total_findings', 0)} findings",
+                source_id="ecosystem_dashboard:security_scan:R-F2394",
+            )
+        except Exception:
+            pass
+        return result
+    except Exception as exc:
+        try:
+            wire_failure(
+                module="ecosystem_dashboard",
+                detail=f"security scan failed: {exc}",
+                gap_type="engine_failure",
+                source="ecosystem_dashboard:security_scan",
+            )
+        except Exception:
+            pass
+        raise
 
 
 # ── Adversarial Agent Suite ───────────────────────────────────────────────

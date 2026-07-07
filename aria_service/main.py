@@ -698,7 +698,7 @@ async def lifespan(app: FastAPI):
                 await _rr.prewarm()
         except Exception as _rr_e:
             logger.warning("[R-F2259] reranker prewarm failed (non-fatal): %s", _rr_e)
-    asyncio.create_task(_prewarm_heavy_imports())
+    _bg_task(asyncio.create_task(_prewarm_heavy_imports(), name="heavy_import_prewarm"))
 
     # F28/R-F2378: use a fresh local alias before any lifespan env reads. A
     # later local `import os as _os` makes `_os` function-local, so early `_os`
@@ -1980,57 +1980,57 @@ async def lifespan(app: FastAPI):
 
     # Register research engine
     if research_enabled:
-        asyncio.create_task(_register_agent(
+        _bg_task(asyncio.create_task(_register_agent(
             "research_engine", "autonomous_research",
             "RSS feeds → fact extraction → hypothesis validation (every 30min)",
-        ))
+        ), name="register_agent_research_engine"))
 
     # Register self-improvement engine
     # R-F2208: register UNCONDITIONALLY. The loop (below) now re-checks the LLM
     # per-cycle, so the agent must be known to the registry even if the provider
     # wasn't configured at the instant lifespan ran (resilience-layer init race).
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "self_improve", "autonomous_self_improve",
         "Error-ledger analysis → bug detection → auto-fix → auto-deploy (every 2h)",
-    ))
+    ), name="register_agent_self_improve"))
 
     # Register student loops
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "student_quiz", "student_brain",
         "Self-quiz on weak topics, mastery tracking (every 3h)",
-    ))
-    asyncio.create_task(_register_agent(
+    ), name="register_agent_student_quiz"))
+    _bg_task(asyncio.create_task(_register_agent(
         "student_reading", "student_brain",
         "Study articles on weak topics (every 6h)",
-    ))
-    asyncio.create_task(_register_agent(
+    ), name="register_agent_student_reading"))
+    _bg_task(asyncio.create_task(_register_agent(
         "library_consolidation", "student_brain",
         "Archive stale reasoning cases (daily)",
-    ))
+    ), name="register_agent_library_consolidation"))
 
     # Register proactive watch
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "proactive_watch", "proactive_engine",
         "Daily briefing trigger + mastery prep (hourly)",
-    ))
+    ), name="register_agent_proactive_watch"))
 
     # Register weekly report
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "weekly_report", "reporting_engine",
         "Weekly learning report (Monday 06-08 UTC)",
-    ))
+    ), name="register_agent_weekly_report"))
 
     # Register watchlist re-screen
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "watchlist_rescreen", "dd_engine",
         "Re-screen DD watchlist entities against sanctions/PEP (daily)",
-    ))
+    ), name="register_agent_watchlist_rescreen"))
 
     # Register tender monitor
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "tender_monitor", "procurement_engine",
         "Crawl defence procurement portals (every 6h)",
-    ))
+    ), name="register_agent_tender_monitor"))
 
     # R-F1282: web_crawler registration removed — the UniversalWebCrawler
     # class is only used on-demand from company_investigator (and those
@@ -2106,11 +2106,11 @@ async def lifespan(app: FastAPI):
         check_interval_s=3600,
         critical=False,
     )
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "web_integrity", "monitoring",
         "24/7 endpoint monitoring, input/output validation, error pattern detection",
         contract=_web_integrity_contract,
-    ))
+    ), name="register_agent_web_integrity"))
 
     # R-F1554: register contracts for all background agents
     _research_contract = AgentContract(
@@ -2290,26 +2290,26 @@ async def lifespan(app: FastAPI):
                     "R-F1561: contract registration failed for %s",
                     getattr(_c, "agent_id", "?"),
                 )
-    asyncio.create_task(_register_all_contracts())
+    _bg_task(asyncio.create_task(_register_all_contracts(), name="register_all_contracts"))
 
     # Register self-healing with its binding contract
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "self_healing", "infrastructure",
         "Health checks, circuit breakers, auto-recovery, ecosystem repair",
         contract=_self_healing_contract,
-    ))
+    ), name="register_agent_self_healing"))
 
     # R-F1574: register autonomous scheduler agent
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "autonomous_scheduler", "scheduler",
         "DD trigger monitor, gap fixing, self-diagnostics, adversarial tests (scheduled)",
-    ))
+    ), name="register_agent_autonomous_scheduler"))
 
     # R-F1574: register wiring monitor agent
-    asyncio.create_task(_register_agent(
+    _bg_task(asyncio.create_task(_register_agent(
         "wiring_monitor", "monitoring",
         "Wire balance audit, compliance screener probe, brain signal path integrity (hourly)",
-    ))
+    ), name="register_agent_wiring_monitor"))
 
     # Start autonomous self-improvement loop (every 2 hours)
     self_improve_task = None
@@ -3484,7 +3484,7 @@ async def lifespan(app: FastAPI):
             # lifespan(), so the earlier asyncio.create_task at line ~450
             # raised UnboundLocalError -> lifespan startup failed -> the app
             # never bound :8000 -> deploy failed / OUTAGE. Same class as R-F1441.
-            asyncio.create_task(_delayed_auto_register(_auto_reg))
+            _bg_task(asyncio.create_task(_delayed_auto_register(_auto_reg), name="portal_auto_register"))
         except Exception as _reg_e:
             logger.warning("[R-F1444] Auto-registration launch failed (non-fatal): %s", _reg_e)
 
@@ -3801,6 +3801,14 @@ async def lifespan(app: FastAPI):
         await _shutdown_await("search_index", _search_db_shut.close())
     except Exception as e:
         logger.warning("search_index.close setup failed (non-fatal): %s", e)
+    # R-F2394: close SQLite state-store connections/read-pool so local smoke
+    # tests and graceful stops do not leave non-daemon aiosqlite worker threads
+    # alive after the lifespan context exits.
+    try:
+        from .intel import state_store as _state_store_shut
+        await _shutdown_await("state_store", _state_store_shut.close())
+    except Exception as e:
+        logger.warning("state_store.close setup failed (non-fatal): %s", e)
     logger.info("ARIA Service shutting down")
 
 

@@ -80,6 +80,27 @@ if _collisions:
 
 logger = logging.getLogger("aria.state_store")
 
+
+def _ensure_aiosqlite_daemon_workers(aiosqlite_module: Any) -> None:
+    """Ensure aiosqlite worker threads cannot keep the process alive."""
+    try:
+        connection_cls = aiosqlite_module.core.Connection
+        if getattr(connection_cls, "_aria_daemon_patch", False):
+            return
+        original_init = connection_cls.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            try:
+                self._thread.daemon = True
+            except Exception:
+                pass
+
+        connection_cls.__init__ = _patched_init
+        connection_cls._aria_daemon_patch = True
+    except Exception:
+        pass
+
 # ─────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────
@@ -539,6 +560,7 @@ async def _open_cold_store() -> None:
     if _DB_PATH is None:
         return
     import aiosqlite
+    _ensure_aiosqlite_daemon_workers(aiosqlite)
     _COLD_DB_PATH = _DB_PATH.with_name("aria_knowledge_store.db")
     _cold_conn = await asyncio.wait_for(aiosqlite.connect(str(_COLD_DB_PATH)), timeout=30.0)
     await _cold_conn.execute("PRAGMA busy_timeout=120000")
@@ -676,6 +698,7 @@ async def _bounded_wal_checkpoint(reason: str = "maintenance") -> None:
 
     async def _run() -> None:
         import aiosqlite
+        _ensure_aiosqlite_daemon_workers(aiosqlite)
         conn = await aiosqlite.connect(str(_DB_PATH))
         try:
             await conn.execute(f"PRAGMA busy_timeout={max(1, int(timeout_s * 1000))}")
@@ -711,7 +734,7 @@ async def _reconnect() -> None:
     _reconnect_in_progress = True
     try:
         import aiosqlite
-
+        _ensure_aiosqlite_daemon_workers(aiosqlite)
         old = _conn
         if old is not None:
             try:
@@ -1146,6 +1169,7 @@ async def connect(db_path: str | None = None) -> bool:
     _reset_lock()
     try:
         import aiosqlite
+        _ensure_aiosqlite_daemon_workers(aiosqlite)
     except ImportError:
         logger.error(
             "state_store: aiosqlite not installed. Add `aiosqlite>=0.19` "
@@ -1307,6 +1331,28 @@ async def close() -> None:
     
     R-F1541: flushes pending writes before closing."""
     global _conn, _read_conn, _read_pool, _cold_conn, _cold_read_conn, _cold_queue
+    close_timeout_s = max(0.25, float(os.getenv("ARIA_STATE_CLOSE_TIMEOUT_S", "2.0") or "2.0"))
+
+    async def _close_aiosqlite_conn(conn: Any, label: str) -> None:
+        if conn is None:
+            return
+        try:
+            await asyncio.wait_for(conn.close(), timeout=close_timeout_s)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning(
+                "state_store: %s close exceeded %.1fs — queued stop sentinel and continuing teardown",
+                label,
+                close_timeout_s,
+            )
+            try:
+                fut = conn.stop()
+                if fut is not None:
+                    await asyncio.wait_for(fut, timeout=0.25)
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.warning("state_store: %s close failed: %s", label, exc)
+
     # Flush any pending writes first
     try:
         await _flush_write_queue()
@@ -1324,29 +1370,18 @@ async def close() -> None:
     except Exception:
         pass
     for _cc in (_cold_conn, _cold_read_conn):
-        if _cc is not None:
-            try:
-                await _cc.close()
-            except Exception:
-                pass
+        await _close_aiosqlite_conn(_cc, "cold connection")
     _cold_conn = None
     _cold_read_conn = None
     _cold_queue = None
     # R-F2242: close every pool member (was the single _read_conn).
-    for _rc in (_read_pool or ([_read_conn] if _read_conn else [])):
-        try:
-            await _rc.close()
-        except Exception:
-            pass
+    for _idx, _rc in enumerate(_read_pool or ([_read_conn] if _read_conn else [])):
+        await _close_aiosqlite_conn(_rc, f"read connection {_idx}")
     _read_pool = []
     _read_conn = None
     # R-F1541: _write_conn removed — all writes go through the bounded queue
-    if _conn:
-        try:
-            await _conn.close()
-        except Exception:
-            pass
-        _conn = None
+    await _close_aiosqlite_conn(_conn, "write connection")
+    _conn = None
 
 
 async def sweep_expired() -> int:
@@ -1680,6 +1715,7 @@ async def _ensure_read_conn() -> None:
         return
     try:
         import aiosqlite
+        _ensure_aiosqlite_daemon_workers(aiosqlite)
         # R-F2242: rebuild the whole read pool (a write-side reset / 'closed
         # database' typically kills all read connections together). PRAGMAs via
         # the shared helper (R-F2132 boot-deadlock guard).

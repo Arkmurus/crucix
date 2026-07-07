@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
@@ -84,60 +85,88 @@ def _find_repo_root() -> Optional[Path]:
     return None
 
 
+def _repo_files(root: Path) -> list[Path]:
+    """Return tracked repo files with a bounded filesystem fallback."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=max(1.0, float(os.getenv("ARIA_PROJECT_CONTEXT_TIMEOUT_S", "10.0") or "10.0")),
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            return [root / line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    except Exception as exc:
+        logger.debug("[coder_entrypoint] git ls-files context scan unavailable: %s", exc)
+
+    skipped = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache"}
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in skipped]
+        base = Path(dirpath)
+        files.extend(base / name for name in filenames)
+    return files
+
+
+def _analyse_project_context_sync(root: Path) -> dict[str, Any]:
+    """Gather project-level stats for the coder startup log synchronously."""
+    files = _repo_files(root)
+    py_files = [f for f in files if f.suffix == ".py"]
+    js_files = [f for f in files if f.suffix in {".mjs", ".js"}]
+    test_files = [
+        f for f in py_files
+        if f.name.startswith("test_") or f.name.endswith("_test.py")
+    ]
+
+    ctx: dict[str, Any] = {
+        "python_files": len(py_files),
+        "js_files": len(js_files),
+        "test_files": len(test_files),
+    }
+
+    total_lines = 0
+    for f in py_files[:200]:
+        try:
+            total_lines += f.read_text(errors="replace").count("\n")
+        except Exception:
+            pass
+    ctx["total_lines"] = total_lines
+
+    endpoints = 0
+    for f in py_files:
+        try:
+            rel = f.relative_to(root)
+        except ValueError:
+            continue
+        if "routes" not in rel.parts:
+            continue
+        try:
+            endpoints += f.read_text(errors="replace").count("@router.")
+        except Exception:
+            pass
+    ctx["endpoints"] = endpoints
+
+    ctx["aria_modules"] = sum(
+        1 for f in py_files
+        if "intel" in f.relative_to(root).parts
+    )
+    return ctx
+
+
 async def _analyse_project_context() -> dict[str, Any]:
-    """Gather project-level stats for the coder startup log.
-    
+    """Gather project-level stats for the coder startup log off the event loop.
+
     Extracted from ARIA_Coder_Complete.zip project_context.py — provides
     the coder with awareness of codebase size and endpoint count at startup.
-    Uses Path-based operations only (no subprocess) per constitutional rules.
     """
     global _REPO_ROOT
     if _REPO_ROOT is None:
         _REPO_ROOT = _find_repo_root()
     if _REPO_ROOT is None:
         return {"error": "no repo root found"}
-
-    ctx: dict[str, Any] = {}
-
-    # File counts
-    try:
-        ctx["python_files"] = len(list(_REPO_ROOT.rglob("*.py")))
-        ctx["js_files"] = len(list(_REPO_ROOT.rglob("*.mjs"))) + len(list(_REPO_ROOT.rglob("*.js")))
-        ctx["test_files"] = len(list(_REPO_ROOT.rglob("test_*.py"))) + len(list(_REPO_ROOT.rglob("*_test.py")))
-    except Exception:
-        pass
-
-    # LOC estimate (first 200 .py files)
-    try:
-        total_lines = 0
-        for f in list(_REPO_ROOT.rglob("*.py"))[:200]:
-            try:
-                total_lines += f.read_text(errors="replace").count("\n")
-            except Exception:
-                pass
-        ctx["total_lines"] = total_lines
-    except Exception:
-        pass
-
-    # ARIA-specific: count route endpoints
-    try:
-        endpoints = 0
-        for f in _REPO_ROOT.rglob("routes/*.py"):
-            try:
-                endpoints += f.read_text(errors="replace").count("@router.")
-            except Exception:
-                pass
-        ctx["endpoints"] = endpoints
-    except Exception:
-        pass
-
-    # Intel module count
-    try:
-        ctx["aria_modules"] = len(list(_REPO_ROOT.rglob("intel/*.py")))
-    except Exception:
-        pass
-
-    return ctx
+    return await asyncio.to_thread(_analyse_project_context_sync, _REPO_ROOT)
 
 
 class _RedisStoreAdapter:

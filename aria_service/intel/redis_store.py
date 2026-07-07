@@ -44,6 +44,7 @@ from typing import Any, Optional
 try:
     import aiosqlite.core as _ac
     _orig_worker = _ac._connection_worker_thread
+    _orig_connection_init = _ac.Connection.__init__
 
     def _patched_worker(tx):
         try:
@@ -54,7 +55,18 @@ try:
                 pass
             else:
                 raise
+
+    def _patched_connection_init(self, *args, **kwargs):
+        _orig_connection_init(self, *args, **kwargs)
+        try:
+            self._thread.daemon = True
+        except Exception:
+            pass
+
     _ac._connection_worker_thread = _patched_worker
+    if not getattr(_ac.Connection, "_aria_daemon_patch", False):
+        _ac.Connection.__init__ = _patched_connection_init
+        _ac.Connection._aria_daemon_patch = True
 except Exception:
     pass
 

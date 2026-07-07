@@ -157,6 +157,60 @@ NO_AUTODEPLOY_FILES: set[str] = {
 # R-F996 — dynamically populate MODIFIABLE_FILES with ALL project files
 # so the coder can improve any part of the codebase.
 _MODIFIABLE_INITIALIZED = False
+_MODIFIABLE_SUFFIXES = (".py", ".mjs", ".js", ".yaml", ".toml", ".json", ".md")
+_MODIFIABLE_SKIP_DIRS = {".venv", "node_modules", ".git", "__pycache__", ".pytest_cache"}
+
+
+def _normalise_repo_path(root: Path, path: Path | str) -> str | None:
+    """Return a forward-slash repo-relative path, or None when excluded."""
+    try:
+        rel_path = path if isinstance(path, Path) else Path(path)
+        if rel_path.is_absolute():
+            rel_path = rel_path.relative_to(root)
+    except ValueError:
+        return None
+    parts = rel_path.parts
+    if any(part in _MODIFIABLE_SKIP_DIRS for part in parts):
+        return None
+    rel = str(rel_path).replace("\\", "/")
+    if not rel.endswith(_MODIFIABLE_SUFFIXES):
+        return None
+    return rel
+
+
+def _collect_modifiable_files_sync(root: Path) -> set[str]:
+    """Collect candidate files without blocking the event loop."""
+    timeout_s = max(1.0, float(os.getenv("ARIA_MODIFIABLE_SCAN_TIMEOUT_S", "10.0") or "10.0"))
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--", *[f"*{suffix}" for suffix in _MODIFIABLE_SUFFIXES]],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            files = {
+                rel
+                for line in proc.stdout.splitlines()
+                for rel in [_normalise_repo_path(root, line.strip())]
+                if rel is not None
+            }
+            if files:
+                return files
+    except Exception as exc:
+        logger.debug("[self_improve] git ls-files modifiable scan unavailable: %s", exc)
+
+    files: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in _MODIFIABLE_SKIP_DIRS]
+        base = Path(dirpath)
+        for filename in filenames:
+            rel = _normalise_repo_path(root, base / filename)
+            if rel is not None:
+                files.add(rel)
+    return files
 
 
 async def _ensure_modifiable_files() -> None:
@@ -164,17 +218,32 @@ async def _ensure_modifiable_files() -> None:
     global _MODIFIABLE_INITIALIZED
     if _MODIFIABLE_INITIALIZED:
         return
-    _MODIFIABLE_INITIALIZED = True
-    import pathlib
-    root = pathlib.Path(__file__).parent.parent.parent
-    for pattern in ("**/*.py", "**/*.mjs", "**/*.js", "**/*.yaml", "**/*.toml", "**/*.json", "**/*.md"):
-        for p in root.glob(pattern):
-            parts = p.relative_to(root).parts
-            if any(skip in parts for skip in (".venv", "node_modules", ".git", "__pycache__", ".pytest_cache")):
-                continue
-            rel = str(p.relative_to(root)).replace("\\", "/")
-            MODIFIABLE_FILES.add(rel)
-    logger.info("[self_improve] R-F996: MODIFIABLE_FILES populated with %d files", len(MODIFIABLE_FILES))
+    root = Path(__file__).parent.parent.parent
+    try:
+        files = await asyncio.to_thread(_collect_modifiable_files_sync, root)
+        MODIFIABLE_FILES.update(files)
+        _MODIFIABLE_INITIALIZED = True
+        logger.info("[self_improve] R-F996: MODIFIABLE_FILES populated with %d files", len(MODIFIABLE_FILES))
+        try:
+            wire_success(
+                module="self_improve",
+                summary=f"MODIFIABLE_FILES populated with {len(MODIFIABLE_FILES)} files",
+                source_id="self_improve:modifiable_scan:R-F2394",
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        _MODIFIABLE_INITIALIZED = False
+        try:
+            wire_failure(
+                module="self_improve",
+                detail=f"MODIFIABLE_FILES scan failed: {exc}",
+                gap_type="agent_cycle_failure",
+                source="self_improve:modifiable_scan",
+            )
+        except Exception:
+            pass
+        raise
 
 
 # R-F1363 — directories where the coder may CREATE brand-new files. MODIFIABLE_FILES
