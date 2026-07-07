@@ -52,8 +52,12 @@ def _clear_caches():
 # ═══════════════════════════ FIX A ═══════════════════════════════════════════
 
 def test_rf2234_aggregate_shape_and_failing_panel(monkeypatch):
-    """One failing panel must NOT 500 the aggregate — it becomes an {__error}
-    marker; a good panel returns its payload; keys ⊆ registry keys."""
+    """One failing panel must NOT 500 the aggregate.
+
+    R-F2390: aggregate-side failures are omitted from panels and reported in
+    omitted, so the frontend falls back to the real endpoint before declaring
+    a user-visible endpoint failure.
+    """
     async def _good():
         return {"value": 42}
 
@@ -69,14 +73,15 @@ def test_rf2234_aggregate_shape_and_failing_panel(monkeypatch):
     assert blob["ok"] is True
     assert "generated_at" in blob
     assert "panels" in blob
+    assert "omitted" in blob
     panels = blob["panels"]
     # keys ⊆ the registry keys
     assert set(panels.keys()) <= set(registry.keys())
     # good panel → real payload
     assert panels["/good"] == {"value": 42}
-    # failing panel → {__error} marker, NOT omitted, NOT a 500
-    assert isinstance(panels["/bad"], dict) and "__error" in panels["/bad"]
-    assert "panel exploded" in panels["/bad"]["__error"]
+    # failing panel → omitted, NOT a cached endpoint-failure marker, NOT a 500
+    assert "/bad" not in panels
+    assert "panel exploded" in blob["omitted"]["/bad"]
 
 
 def test_rf2234_second_call_within_ttl_is_cached(monkeypatch):

@@ -80,17 +80,16 @@ check(
 // R-F2437: R-F2234 refactored fetchJson into a richer failure detector — the
 // honesty invariant (a failed fetch must reach _trackFetchFailure, never render
 // silently) is PRESERVED, but via new code paths: a timeout/no-response is
-// res.status === 0, a server error is !res.ok, and a computed-but-failed cache
-// panel is an '__error' marker. These assertions keep the SAME teeth (a
-// silently-swallowed failure still fails the test) against the current code.
+// res.status === 0 and a server error is !res.ok. R-F2390 deliberately removed
+// aggregate-side cached '__error' markers; omitted aggregate panels now fall
+// through to the real HTTP endpoint before the banner declares failure.
 check(
   'fetchJson treats a timeout / no-response as a failure (status 0)',
   /res\.status\s*===\s*0\b[\s\S]{0,120}?_trackFetchFailure/.test(HTML),
 );
 check(
-  'fetchJson treats an error response as a failure (!res.ok or cached __error)',
-  /!res\.ok[\s\S]{0,80}?_trackFetchFailure/.test(HTML)
-    || /__error['"]?\s*\)?[\s\S]{0,80}?_trackFetchFailure/.test(HTML),
+  'fetchJson treats an error response as a failure (!res.ok)',
+  /!res\.ok[\s\S]{0,80}?_trackFetchFailure/.test(HTML),
 );
 check(
   'fetchJson clears tracker on success',

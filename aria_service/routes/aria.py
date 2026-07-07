@@ -25769,10 +25769,14 @@ async def brain_dashboard_ep():
     45s), and returns:
 
         {"ok": true, "generated_at": <iso>, "cache_age_s": <float>,
-         "panels": {"<path>": <payload> | {"__error": "..."}, ...}}
+         "panels": {"<path>": <payload>, ...},
+         "omitted": {"<path>": "timeout/error reason", ...}}
 
-    A panel that timed out/raised yields {"__error": "..."} (NOT omitted) so
-    the frontend can distinguish "computed-but-failed" from "not in registry".
+    R-F2390: if an aggregate-side panel call times out/raises, omit that panel
+    from `panels` and report the reason in `omitted`. The frontend already falls
+    back to the real HTTP endpoint when a path is absent. That keeps the red
+    "endpoint failed" banner grounded in the actual endpoint response instead
+    of a stale aggregate-side `{__error}` marker.
     """
     now = time.monotonic()
     hit = _DASHBOARD_AGG_CACHE.get("blob")
@@ -25789,20 +25793,22 @@ async def brain_dashboard_ep():
     async def _one(path: str, factory):
         try:
             res = await asyncio.wait_for(factory(), timeout=_DASHBOARD_PANEL_TIMEOUT_S)
-            return path, res
+            return path, res, None
         except asyncio.TimeoutError:
-            return path, {"__error": f"timeout >{_DASHBOARD_PANEL_TIMEOUT_S:.0f}s"}
+            return path, None, f"timeout >{_DASHBOARD_PANEL_TIMEOUT_S:.0f}s"
         except Exception as e:  # noqa: BLE001 — one panel must never sink the blob
-            return path, {"__error": str(e)[:200]}
+            return path, None, str(e)[:200]
 
     results = await asyncio.gather(*[_one(p, f) for p, f in registry.items()])
-    panels = {p: r for p, r in results}
+    panels = {p: r for p, r, err in results if err is None}
+    omitted = {p: err for p, _r, err in results if err is not None}
 
     blob = {
         "ok": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cache_age_s": 0.0,
         "panels": panels,
+        "omitted": omitted,
     }
     # Cache only a fully-built blob (we always build one here).
     _DASHBOARD_AGG_CACHE["blob"] = (time.monotonic(), blob)
@@ -25812,7 +25818,7 @@ async def brain_dashboard_ep():
         from ..intel.engine_wiring import wire_success
         wire_success(
             module="brain_dashboard",
-            summary=f"Dashboard aggregate: {len(panels)} panels",
+            summary=f"Dashboard aggregate: {len(panels)} panels, {len(omitted)} omitted",
             source_id="brain_dashboard:R-F2234",
         )
     except Exception:
