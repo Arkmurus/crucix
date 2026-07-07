@@ -1294,10 +1294,18 @@ async def _study_weak_regional_cells(
             _stored = 0
             if _grounded:
                 for (_val, _ctx) in _url_facts:
+                    _fact_content = (_ctx or _val)[:800]
+                    # R-F2462 — pre-filter: knowledge.store_fact rejects content
+                    # <50 chars (R-F1526), but the old code still bumped _stored on
+                    # a reject, so regional mastery was credited for facts that
+                    # never landed. Skip them so _stored (and the mastery credit
+                    # below) reflects REAL stores only, and skip the wasted write.
+                    if len(_fact_content.strip()) < 50:
+                        continue
                     try:
                         await kb.store_fact(
                             topic=f"{_tphrase} {_rphrase}: {_val[:60]}",
-                            content=(_ctx or _val)[:800],
+                            content=_fact_content,
                             source=f"reading_region:{_topic}:{_region}",
                             confidence="ASSESSED",
                         )

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2462,
+  "next_available": 2464,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18566,6 +18566,24 @@
       "commit_sha": "f5a6b047",
       "notes": null,
       "shipped_at": "2026-07-07T23:22:31Z"
+    },
+    {
+      "r_number": "R-F2462",
+      "title": "student reading-loop: pre-filter too-short facts + fix mastery-credit-on-reject",
+      "claimed_at": "2026-07-07T23:30:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2463",
+      "title": "portal registry: in-memory cooldown to skip recently-failed registrations",
+      "claimed_at": "2026-07-07T23:30:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

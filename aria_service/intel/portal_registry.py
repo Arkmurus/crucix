@@ -1079,6 +1079,14 @@ async def get_registered_portals() -> list[dict]:
 # ── Registration workflows ─────────────────────────────────────────────
 
 
+# R-F2463 — back off a portal after a failed registration so the autonomous
+# scheduler stops retrying a CAPTCHA/403/404 portal every cycle (wasted HTTP +
+# state writes that feed state_store write-pressure). In-memory; resets on
+# restart, which is itself a natural retry point.
+_REG_FAIL_COOLDOWN_S = float(os.getenv("ARIA_PORTAL_REG_FAIL_COOLDOWN_S", "3600"))
+_reg_fail_cooldown: dict[str, float] = {}
+
+
 @fail_wire(module="portal_registry", gap_type="registry_lookup")
 async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, Any]:
     """Register ARIA for a portal account.
@@ -1098,6 +1106,13 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
     portal = next((p for p in PORTALS if p.id == portal_id), None)
     if not portal:
         return {"success": False, "error": f"Unknown portal: {portal_id}"}
+
+    # R-F2463 — skip a portal that failed registration within the cooldown window.
+    _cd = _reg_fail_cooldown.get(portal_id)
+    if _cd is not None and (time.monotonic() - _cd) < _REG_FAIL_COOLDOWN_S:
+        _left = int((_REG_FAIL_COOLDOWN_S - (time.monotonic() - _cd)) / 60)
+        return {"success": False, "cooldown": True,
+                "error": f"Registration for {portal_id} on cooldown after a recent failure — retry in ~{_left}min"}
 
     # R-F1729: portals whose anti-bot blocks the headless browser onboard over
     # httpx. _httpx_onboard self-handles the already-registered case (login-first
@@ -1200,6 +1215,7 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
     # into registration failures (previously all failures were masked as
     # 'prepared' with no brain signal — §25 proprioception violation).
     if not result.get("success"):
+        _reg_fail_cooldown[portal_id] = time.monotonic()  # R-F2463 — back off before the next retry
         try:
             from .engine_wiring import wire_failure as _wf1692
             _wf1692(
