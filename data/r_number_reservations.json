@@ -18537,9 +18537,10 @@
       "title": "aria-wa: batch fix medium+low static-review findings (injection wrapper, send-retry, outcomes, leaks, cruft)",
       "claimed_at": "2026-07-07T22:54:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1a17e8d1",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:07:23Z"
     },
     {
       "r_number": "R-F2460",

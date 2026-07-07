@@ -2943,9 +2943,16 @@ async def _run_identity(
                         "designation_date": h.get("designation_date") or "",
                     })
                 screen["matches"] = _existing
-            # Always declare uk_ofsi as a verified source when the
-            # lookup completed (zero hits is still a verified clean).
-            if not (_ofsi_result or {}).get("error"):
+            # Declare uk_ofsi a verified source ONLY when the lookup ran against
+            # CURRENT data (zero hits is then a verified clean). R-F2460: a STALE /
+            # unavailable OFSI snapshot (mark_stale_if_expired sets stale=True +
+            # source_unavailable=True but leaves error=None) did NOT freshly
+            # screen — labelling it verified-clean in the per-source table is a
+            # never-false-clean breach. The direct-adapter loop already writes the
+            # SANCTIONS_SOURCE_UNVERIFIED marker that forces the headline non-GREEN;
+            # this guard stops the misleading "verified" label on the same outage.
+            _ofsi = _ofsi_result or {}
+            if not _ofsi.get("error") and not _ofsi.get("stale") and not _ofsi.get("source_unavailable"):
                 _vs = list(screen.get("verified_sources") or [])
                 if "uk_ofsi" not in _vs:
                     _vs.append("uk_ofsi")

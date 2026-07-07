@@ -119,16 +119,25 @@ def _classify_inherited_risk(
 async def _screen_one_relative(
     relative_name: str, threshold: float
 ) -> dict[str, Any] | None:
-    """Screen a single related party by name. Returns the top match
-    or None if nothing above threshold."""
+    """Screen a single related party by name.
+
+    Returns the top match, None if nothing above threshold, or a
+    ``{"_source_unavailable": True}`` sentinel when the screen did NOT run.
+    R-F2461: fuzzy_screen soft-returns ``source_unavailable`` / ``screened=False``
+    WITHOUT raising, and an exception is likewise a non-screen — neither may be
+    read as 'no hit', which would silently drop an inherited sanctions risk
+    (a FATF R.12 false clean). The caller surfaces the sentinel as UNVERIFIED.
+    """
     try:
         from . import sanctions as _s
         screen = await _s.fuzzy_screen(relative_name, threshold=threshold)
+        if screen.get("source_unavailable") or screen.get("screened") is False:
+            return {"_source_unavailable": True}
         matches = screen.get("matches") or []
         return matches[0] if matches else None
     except Exception as e:
         logger.debug("rca screen of %r failed: %s", relative_name, e)
-        return None
+        return {"_source_unavailable": True}
 
 
 async def screen_with_relatives(
@@ -198,6 +207,8 @@ async def screen_with_relatives(
         }
 
     relatives_screened = 0
+    relatives_unverified = 0
+    unverified_relatives: list[str] = []
     inherited: list[dict[str, Any]] = []
 
     if depth >= 1:
@@ -210,8 +221,14 @@ async def screen_with_relatives(
                 rel_kind = rel.get("kind", "relatedTo")
                 if not rel_name:
                     continue
-                relatives_screened += 1
                 rel_match = await _screen_one_relative(rel_name, threshold)
+                # R-F2461: a relative the source could NOT screen must NOT be read
+                # as 'no inherited risk' (FATF R.12 false clean) — track separately.
+                if isinstance(rel_match, dict) and rel_match.get("_source_unavailable"):
+                    relatives_unverified += 1
+                    unverified_relatives.append(rel_name)
+                    continue
+                relatives_screened += 1
                 cls = _classify_inherited_risk(primary_name, rel_name, rel_kind, rel_match)
                 if cls:
                     inherited.append(cls)
@@ -240,16 +257,28 @@ async def screen_with_relatives(
             f"{len(inherited)} related party/parties."
         )
 
+    # R-F2461 — never-false-clean: if any related party could NOT be screened,
+    # the inherited-risk picture is INCOMPLETE; the narrative above must not
+    # stand as a clean bill for those relatives.
+    if relatives_unverified:
+        narrative += (
+            f" NOTE: {relatives_unverified} related party/parties could NOT be "
+            f"screened (source unavailable) — inherited-risk assessment INCOMPLETE, "
+            f"NOT a clearance."
+        )
+
     out = {
-        "name":               name,
-        "ok":                 True,
-        "primary_screen":     primary,
-        "primary_matches":    len(matches),
-        "relatives_screened": relatives_screened,
-        "inherited_risks":    inherited,
-        "narrative":          narrative,
-        "depth":              depth,
-        "threshold":          threshold,
+        "name":                name,
+        "ok":                  True,
+        "primary_screen":      primary,
+        "primary_matches":     len(matches),
+        "relatives_screened":  relatives_screened,
+        "relatives_unverified": relatives_unverified,
+        "unverified_relatives": unverified_relatives,
+        "inherited_risks":     inherited,
+        "narrative":           narrative,
+        "depth":               depth,
+        "threshold":           threshold,
     }
 
     # Brain absorption — any inherited risk is a knowledge fact worth
