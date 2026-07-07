@@ -18212,9 +18212,10 @@
       "title": "agent worker contract robustness",
       "claimed_at": "2026-07-07T10:59:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ceaa658f",
+      "notes": null,
+      "shipped_at": "2026-07-07T11:22:20Z"
     }
   ]
 }
