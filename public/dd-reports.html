@@ -873,6 +873,14 @@ async function toggleDetail(row, runId) {
     const jurisdiction = sv.jurisdiction || row.dataset.jur || undefined;
     const canonicalId = sv.canonical_entity_id || '';
     const sections = sv.sections;
+    const qa = sv.quality_assessment || null;
+    const qaReasons = qa && Array.isArray(qa.blocking_reasons) ? qa.blocking_reasons : [];
+    const qaGrade = qa && qa.grade ? String(qa.grade) : '';
+    const qaScore = qa && Number.isFinite(Number(qa.score)) ? String(qa.score) : '';
+    const qaSummary = qaReasons.length
+      ? '<p class="dd-hero-line" style="color:#fbbf24">Quality blocked by: ' +
+          escText(qaReasons.slice(0, 3).join('; ')) + '</p>'
+      : '';
     const _v = { risk: sv.risk_classification || 'UNKNOWN', bottom: sv.bottom_line || '', ghost: '', grounded: '' };
     // ── R-F2331 render helpers ──
     const _sevMap = { hard_stop:['#7f1d1d','#fff','HARD STOP'], red:['#dc2626','#fff','RED'], amber:['#ea580c','#fff','AMBER'], amber_dark:['#ea580c','#fff','AMBER'], amber_light:['#f59e0b','#111','AMBER'], info:['#2563eb','#fff','INFO'] };
@@ -896,7 +904,9 @@ async function toggleDetail(row, runId) {
         '<div class="dd-hero-main">' +
           '<h2>' + escText(entityName) + '</h2>' +
           (_v.bottom ? '<p class="dd-hero-line">' + escText(_v.bottom) + '</p>' : '') +
+          qaSummary +
           '<div class="dd-hero-stats">' +
+            (qaGrade ? '<span class="dd-hs"><b>Quality</b> Grade ' + escText(qaGrade) + (qaScore ? ' · ' + escText(qaScore) + '/100' : '') + '</span>' : '') +
             (_v.ghost ? '<span class="dd-hs"><b>Ghost</b> ' + escText(_v.ghost) + '</span>' : '') +
             (_v.grounded ? '<span class="dd-hs"><b>Grounded</b> ' + escText(_v.grounded) + '</span>' : '') +
             (canonicalId ? '<span class="dd-hs"><b>Case</b> ' + escText(canonicalId.slice(0, 18)) + '</span>' : '') +

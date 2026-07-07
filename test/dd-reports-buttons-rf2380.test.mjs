@@ -101,3 +101,21 @@ test('DD report detail data-action controls are all wired to handlers', () => {
     'showVaultCase rows must be wired by delegated click handling',
   );
 });
+
+test('R-F2383 DD detail renders structured quality assessment', () => {
+  assert.match(
+    html,
+    /const qa = sv\.quality_assessment \|\| null;/,
+    'detail view must read the backend quality_assessment contract',
+  );
+  assert.match(
+    html,
+    /<b>Quality<\/b> Grade /,
+    'quality grade must be visible in the report hero stats',
+  );
+  assert.match(
+    html,
+    /Quality blocked by:/,
+    'non-A reports must surface blocking evidence gaps in the hero',
+  );
+});

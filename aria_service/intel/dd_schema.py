@@ -931,6 +931,134 @@ def _sv_section(key, title, icon, section, highlights, *, kind="standard", evide
     }
 
 
+def _quality_metrics(r: dict) -> dict:
+    """Extract evidence-depth metrics from a persisted DD report dict."""
+    dig = (r or {}).get("digital") or {}
+    ver = (r or {}).get("verification") or {}
+    adverse = (r or {}).get("adverse_media") or {}
+    tier_breakdown = dig.get("source_tier_breakdown") or {}
+    press_total = len(dig.get("press_coverage") or [])
+    verified_sources = int(tier_breakdown.get("T1", 0)) + int(tier_breakdown.get("T2", 0))
+    quality_press = int(tier_breakdown.get("T3", 0))
+    own_site = int(tier_breakdown.get("ENTITY_SITE", 0))
+    memory_only = int(tier_breakdown.get("MEMORY_ONLY", 0))
+    unverified = max(
+        0,
+        sum(int(v) for v in tier_breakdown.values())
+        - verified_sources - quality_press - own_site - memory_only,
+    )
+
+    citations_checked = int(ver.get("citations_checked") or 0)
+    citations_grounded = int(ver.get("citations_grounded") or 0)
+    citation_rate = ver.get("citation_grounding_rate")
+    if not isinstance(citation_rate, (int, float)) and citations_checked:
+        citation_rate = citations_grounded / max(citations_checked, 1)
+    adverse_run = bool(adverse and adverse.get("ok") is True)
+    adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
+    adverse_skipped = bool(adverse.get("skipped") or adverse.get("error")) if adverse else True
+    return {
+        "press_total": press_total,
+        "verified_sources": verified_sources,
+        "quality_press": quality_press,
+        "unverified_sources": unverified,
+        "own_site_sources": own_site,
+        "memory_only_sources": memory_only,
+        "citations_checked": citations_checked,
+        "citations_grounded": citations_grounded,
+        "citation_grounding_rate": citation_rate,
+        "adverse_media_run": adverse_run,
+        "adverse_media_findings": adverse_findings,
+        "adverse_media_skipped": adverse_skipped,
+        "has_search_degradation_gap": _quality_has_search_gap(r),
+    }
+
+
+def _quality_has_search_gap(r: dict) -> bool:
+    """Return True when the report admits live-search degradation."""
+    dig = (r or {}).get("digital") or {}
+    digital_gaps = [str(g) for g in (dig.get("data_gaps") or []) if g]
+    summary_gaps = [str(g) for g in ((r or {}).get("data_gaps_summary") or []) if g]
+    severe_gap_text = " ".join(digital_gaps + summary_gaps).lower()
+    return any(token in severe_gap_text for token in (
+        "search unavailable", "web returned 0", "coverage gap",
+        "rag memory only", "blocked or silent",
+    ))
+
+
+def _quality_grade(score: int, blockers: list[str]) -> str:
+    """Map an evidence-depth score to an operator-facing grade."""
+    if score >= 85 and not blockers:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 50:
+        return "C"
+    return "D"
+
+
+def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
+    """Return score penalties and reasons for DD evidence-depth weaknesses."""
+    reputable = metrics["verified_sources"] + metrics["quality_press"]
+    citation_rate = metrics["citation_grounding_rate"]
+    low_citation_rate = (
+        metrics["citations_checked"]
+        and isinstance(citation_rate, (int, float))
+        and citation_rate < 0.8
+    )
+    citation_rate_text = f"{citation_rate:.0%}" if isinstance(citation_rate, (int, float)) else "unknown"
+    adverse_empty = (
+        not metrics["adverse_media_skipped"]
+        and metrics["adverse_media_run"]
+        and metrics["adverse_media_findings"] == 0
+    )
+    candidates = [
+        (metrics["press_total"] < 8, 20,
+         f"only {metrics['press_total']} cited press/source item(s)"),
+        (reputable < 5, 20,
+         f"only {reputable} reputable independent source(s)"),
+        (metrics["unverified_sources"] > reputable, 10,
+         "unverified sources outnumber reputable independent sources"),
+        (metrics["own_site_sources"] and reputable == 0, 15,
+         "evidence is own-site/self-reported without independent corroboration"),
+        (metrics["memory_only_sources"], 15,
+         "live web returned memory-only evidence"),
+        (metrics["citations_checked"] == 0, 20,
+         "no citations were grounded by source verifier"),
+        (low_citation_rate, 15,
+         f"citation grounding rate below 80% ({citation_rate_text})"),
+        (metrics["adverse_media_skipped"], 15,
+         "structured adverse-media deep search did not run"),
+        (adverse_empty, 10,
+         "adverse-media deep search returned no findings/classes"),
+        (metrics["has_search_degradation_gap"], 20,
+         "report contains explicit search/coverage degradation gaps"),
+    ]
+    return [(points, reason) for active, points, reason in candidates if active]
+
+
+def _dd_quality_assessment(r: dict) -> dict:
+    """Assess whether a persisted DD report has Grade-A evidence depth.
+
+    This is an evidence-sufficiency grade, not the risk classification. A GREEN
+    report can still be low-grade if it rests on sparse, ungrounded, or
+    self-reported evidence.
+    """
+    metrics = _quality_metrics(r or {})
+    penalties = _quality_penalties(metrics)
+    blockers = [reason for _, reason in penalties]
+    score = 100 - sum(points for points, _ in penalties)
+    score = max(0, min(100, score))
+    public_metrics = dict(metrics)
+    public_metrics.pop("adverse_media_skipped", None)
+    public_metrics.pop("has_search_degradation_gap", None)
+    return {
+        "grade": _quality_grade(score, blockers),
+        "score": score,
+        "blocking_reasons": blockers,
+        "metrics": public_metrics,
+    }
+
+
 @fail_wire(module="dd_schema", gap_type="engine_failure")
 def structured_view(r: dict) -> dict:
     """Build a DECISION-FIRST, evidence-rich render contract from a persisted DD report
@@ -1075,6 +1203,7 @@ def structured_view(r: dict) -> dict:
         "orchestrator_mode": r.get("orchestrator_mode"),
         "canonical_entity_id": r.get("canonical_entity_id"),
         "version_number": r.get("version_number") or 1,
+        "quality_assessment": _dd_quality_assessment(r),
         "next_actions": [a for a in (r.get("next_actions") or []) if a],
         "data_gaps_summary": [g for g in (r.get("data_gaps_summary") or []) if g],
         "sections": sections,
