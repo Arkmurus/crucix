@@ -1253,6 +1253,13 @@ async function askARIA(message, senderJid, chatId = null, requestId = null) {
     const elapsed = Date.now() - t0;
     const outcome = e.message.includes('timed out') || e.message.includes('timeout') ? 'timeout_fallback' : 'error';
     reportOutcome('wa', rid, 'chat_response', outcome, elapsed, e.message);
+    // R-F2422 §25 — mark the rid failed so the holding/apology sendReply does NOT
+    // overwrite this failure with delivered_real_answer (parity with the R-F1965
+    // fix on the askARIAAsync path). The R-F1413 callback still reports
+    // delivered_real_answer DIRECTLY (not via the _failedOutcomeReqIds-gated
+    // sendReply) if the deep job later finishes, so a genuine later delivery is
+    // still recorded correctly.
+    _markFailedOutcome(rid);
     // R-F1572 — on a poll timeout the brain job keeps running and the
     // async-complete-and-push callback (R-F1413) still delivers when it
     // finishes — and R-F1572's DD budget makes it finish inside the window.
@@ -2123,6 +2130,12 @@ async function startListener() {
 
   // ── THE CORE: receive every group message ──────────────────────────────────
   sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(sock, null, ev));
+
+  // R-F2422 — arm the connection watchdog on EVERY (re)start. It was armed once
+  // at boot and NULLED after its first fire without re-arming, so a second silent
+  // WS drop went uncaught (WA stayed dead until a human noticed). _startWatchdog
+  // clears any prior timer first → idempotent, safe to call on every start.
+  _startWatchdog();
 }
 
 // R-F1930 (C1): the inbound message pipeline, factored out of startListener so
@@ -2426,6 +2439,16 @@ async function onMessagesUpsert(sock, account, ev) {
         } else {
           groupName = senderName || chatId;
         }
+      }
+
+      // R-F2422 §25 — dedup BEFORE the media dispatch. Baileys refires the same
+      // message on reconnect; the old check (below, R-F1152) sat AFTER the
+      // image/doc/voice handlers, so a refired media message was downloaded +
+      // OCR'd/parsed + LLM-analysed + replied TWICE (double reply + double spend).
+      // Gate ALL processing (text AND media) here.
+      if (_isDuplicateMessage(chatId, senderJid, msg.messageTimestamp)) {
+        console.log(`[ARIA Listener] Dedup skipped message from ${senderName} in ${groupName}`);
+        continue;
       }
 
       // ── R-F2061 — RESPOND ONLY WHEN CALLED ───────────────────────────────
@@ -2836,11 +2859,8 @@ async function onMessagesUpsert(sock, account, ev) {
         (msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now())
       ).toISOString();
 
-      // R-F1152 — dedup: skip if we've already processed this message
-      if (_isDuplicateMessage(chatId, senderJid, msg.messageTimestamp)) {
-        console.log(`[ARIA Listener] Dedup skipped message from ${senderName} in ${groupName}`);
-        continue;
-      }
+      // R-F2422 — dedup now runs ABOVE the media dispatch (moved from here) so a
+      // Baileys message refired on reconnect is skipped before media processing.
 
       // Log to console
       console.log(`[${groupName}] ${senderName}: ${text.slice(0, 100)}`);
