@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const MVP_PAGES = [
+  'public/account.html',
+  'public/admin.html',
   'public/dd-reports.html',
   'public/dashboard.html',
   'public/vault.html',

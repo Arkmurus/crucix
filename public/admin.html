@@ -247,7 +247,12 @@ document.addEventListener('click', async function(e) {
     } catch (x) { showAlert('Network error', 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
   }
   else if (action === 'reject') {
-    if (!confirm('Reject and remove this user?')) return;
+    const ok = await Modal.confirm({
+      title: 'Reject this user?',
+      message: 'Reject and remove this pending user account.',
+      okLabel: 'Reject user',
+    });
+    if (!ok) return;
     try {
       var r2 = await fetch('/api/admin/users/' + id + '/reject', { method: 'POST', headers: headers, body: '{}' });
       if (r2.ok) { showAlert('User rejected'); loadUsers(); } else showAlert('Reject failed', 'error');
@@ -260,7 +265,12 @@ document.addEventListener('click', async function(e) {
     } catch (x) { showAlert('Network error', 'error'); }
   }
   else if (action === 'delete') {
-    if (!confirm('Permanently delete this user?')) return;
+    const ok = await Modal.confirm({
+      title: 'Delete this user?',
+      message: 'Permanently delete this user account. This cannot be undone.',
+      okLabel: 'Delete user',
+    });
+    if (!ok) return;
     try {
       var r4 = await fetch('/api/admin/users/' + id, { method: 'DELETE', headers: headers });
       if (r4.ok) { showAlert('User deleted'); loadUsers(); } else showAlert('Delete failed', 'error');

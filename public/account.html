@@ -430,14 +430,14 @@ Sidebar.init('account');
       if (!resp.ok) {
         // R-F2327 — use the app Toast (not raw alert) at the money moment.
         var m1 = 'Checkout failed: ' + (data.error || resp.status);
-        (typeof Toast !== 'undefined') ? Toast.show(m1, 'error', 6000) : alert(m1);
+        Toast.show(m1, 'error', 6000);
         btn.disabled = false; btn.textContent = orig;
         return;
       }
       window.location.href = data.url;
     } catch (err) {
       var m2 = 'Checkout error: ' + err.message;
-      (typeof Toast !== 'undefined') ? Toast.show(m2, 'error', 6000) : alert(m2);
+      Toast.show(m2, 'error', 6000);
       btn.disabled = false; btn.textContent = orig;
     }
   }
@@ -455,13 +455,13 @@ Sidebar.init('account');
       });
       var data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        alert('Portal error: ' + (data.error || resp.status));
+        Toast.show('Portal error: ' + (data.error || resp.status), 'error', 6000);
         btn.disabled = false; btn.textContent = orig;
         return;
       }
       window.location.href = data.url;
     } catch (err) {
-      alert('Portal error: ' + err.message);
+      Toast.show('Portal error: ' + err.message, 'error', 6000);
       btn.disabled = false; btn.textContent = orig;
     }
   }
@@ -500,7 +500,7 @@ Sidebar.init('account');
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
-          alert('Key creation failed: ' + (data.error || r.status));
+          Toast.show('Key creation failed: ' + (data.error || r.status), 'error', 6000);
           return;
         }
         const banner = document.getElementById('keys-just-created');
@@ -511,7 +511,7 @@ Sidebar.init('account');
         const listResp = await fetch('/api/keys/', { headers }).then(r => r.json()).catch(() => ({}));
         renderKeys(listResp.keys || []);
       } catch (err) {
-        alert('Key creation error: ' + err.message);
+        Toast.show('Key creation error: ' + err.message, 'error', 6000);
       } finally {
         btn.disabled = false; btn.textContent = orig;
       }
@@ -545,14 +545,19 @@ Sidebar.init('account');
             + 'color:#b91c1c;font-size:11px';
           btn.textContent = 'Revoke';
           btn.onclick = async function() {
-            if (!confirm('Revoke "' + (k.name || 'this key') + '"? This cannot be undone.')) return;
+            const ok = await Modal.confirm({
+              title: 'Revoke API key?',
+              message: 'Revoke "' + (k.name || 'this key') + '". This cannot be undone.',
+              okLabel: 'Revoke',
+            });
+            if (!ok) return;
             btn.disabled = true; btn.textContent = 'Revoking…';
             try {
               await fetch('/api/keys/' + encodeURIComponent(k.id), { method: 'DELETE', headers });
               const r = await fetch('/api/keys/', { headers }).then(r => r.json()).catch(() => ({}));
               renderKeys(r.keys || []);
             } catch (err) {
-              alert('Revoke failed: ' + err.message);
+              Toast.show('Revoke failed: ' + err.message, 'error', 6000);
               btn.disabled = false; btn.textContent = 'Revoke';
             }
           };
