@@ -606,7 +606,7 @@ function renderTable(reports) {
         '<i class="bi bi-people-fill"></i> shared</span>';
     }
 
-    html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '" tabindex="0" role="button" aria-expanded="false" aria-label="Open DD report for ' + escAttr(entityName) + '">' +
+    html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '" data-entity-type="' + escAttr(entityType) + '" data-jur="' + escAttr(jur) + '" tabindex="0" role="button" aria-expanded="false" aria-label="Open DD report for ' + escAttr(entityName) + '">' +
         '<div class="dd-row-inner">' +
           '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
           '<div class="dd-entity-info">' +
@@ -706,11 +706,29 @@ function renderTable(reports) {
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(runId), { method: 'DELETE' });
         if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; return; }
+        const deleted = await r.json().catch(() => ({}));
+        if (!deleteVerified(deleted)) {
+          Toast.show('Delete did not remove a report. Refreshing list…', 'error');
+          btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig;
+          await loadReports();
+          return;
+        }
+        removeDeletedReport(runId);
         Toast.show('Report deleted', 'success');
-        await loadReports();
+        await loadReports(true);
       } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; }
     });
   });
+}
+
+function deleteVerified(result) {
+  return !!(result && result.ok === true && (result.blob_deleted || Number(result.index_entries_removed || 0) > 0));
+}
+
+function removeDeletedReport(runId) {
+  _allReports = (_allReports || []).filter(r => r && r.run_id !== runId);
+  _expandedRow = null;
+  applySearch();
 }
 
 // R-F2293 — shared re-run helper: carries identifying context (jurisdiction /
@@ -728,11 +746,17 @@ async function startRerun(btn, ctx) {
   try {
     // R-F2352 — send `type` (orchestrate_dd's R-F659 gate requires it); keep entity_type
     // for back-compat. Row/detail callers pass entity_type in ctx.
-    const body = Object.assign({ mode: 'standard', async_mode: true }, ctx); // R-F2271 fire-and-poll
+    const body = Object.assign({ mode: 'standard', async_mode: true, force: true }, ctx); // R-F2271 fire-and-poll
+    if (!body.mode) body.mode = 'standard';
     if (ctx && ctx.entity_type && !body.type) body.type = ctx.entity_type;
     const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
     if (!r.ok) { Toast.show('Re-run failed (HTTP ' + r.status + ')', 'error'); }
     else {
+      const started = await r.json().catch(() => ({}));
+      if (!started || started.existing_case || !started.run_id || started.status !== 'running') {
+        Toast.show('Re-run did not start a new DD. Try New DD or refresh the page.', 'error', 7000);
+        return;
+      }
       Toast.show('Re-run started for ' + (ctx.name || 'entity') + ' — it appears below as Running', 'info', 6000);
       await loadReports();
     }
@@ -845,6 +869,8 @@ async function toggleDetail(row, runId) {
     // source / confidence / citations), NOT by re-parsing markdown. Markdown is fetched
     // lazily only for the Copy button.
     const entityName = sv.entity_name || ((row.querySelector('.dd-entity-name') || {}).textContent) || '';
+    const entityType = sv.entity_type || row.dataset.entityType || 'company';
+    const jurisdiction = sv.jurisdiction || row.dataset.jur || undefined;
     const canonicalId = sv.canonical_entity_id || '';
     const sections = sv.sections;
     const _v = { risk: sv.risk_classification || 'UNKNOWN', bottom: sv.bottom_line || '', ghost: '', grounded: '' };
@@ -941,8 +967,16 @@ async function toggleDetail(row, runId) {
       try {
         const r = await authed('/api/aria/dd/report/' + encodeURIComponent(rid), { method: 'DELETE' });
         if (!r.ok) { Toast.show('Delete failed (HTTP ' + r.status + ')', 'error'); b.disabled = false; b.innerHTML = orig; return; }
+        const deleted = await r.json().catch(() => ({}));
+        if (!deleteVerified(deleted)) {
+          Toast.show('Delete did not remove a report. Refreshing list…', 'error');
+          b.disabled = false; b.innerHTML = orig;
+          await loadReports();
+          return;
+        }
+        removeDeletedReport(rid);
         Toast.show('Report deleted', 'success');
-        await loadReports();
+        await loadReports(true);
       } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); b.disabled = false; b.innerHTML = orig; }
     });
     detailRow.querySelector('[data-action="rerun"]').addEventListener('click', async (e) => {
@@ -950,8 +984,8 @@ async function toggleDetail(row, runId) {
       // from the structured view so the re-run screens the SAME entity, not a bare name.
       await startRerun(e.currentTarget, {
         name: entityName,
-        jurisdiction: sv.jurisdiction || undefined,
-        entity_type: sv.entity_type || undefined,
+        jurisdiction,
+        entity_type: entityType,
         mode: sv.orchestrator_mode || undefined,
       });
     });
