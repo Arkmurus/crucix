@@ -2937,11 +2937,22 @@ async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
 
 async def stats() -> dict:
     """Return basic backend stats for the /health endpoint."""
+    hot_depth = _QUEUED_WRITES.qsize() if _QUEUED_WRITES is not None else 0
+    cold_depth = _cold_queue.qsize() if _cold_queue is not None else 0
+    queue_stats = {
+        "hot": hot_depth,
+        "cold": cold_depth,
+        "total": hot_depth + cold_depth,
+        "max": _WRITE_QUEUE_MAX,
+        "hot_cold_split": bool(_HOTCOLD_SPLIT and _cold_queue is not None),
+    }
     if _conn is None:
         return {
             "backend": "sqlite",
             "configured": False,
             "db_path": str(_DB_PATH) if _DB_PATH else None,
+            "write_queue_depth": queue_stats["total"],
+            "write_queue": queue_stats,
         }
     try:
         cur = await _conn.execute(
@@ -2962,6 +2973,8 @@ async def stats() -> dict:
             "expired_pending_sweep": expired or 0,
             "value_bytes_total": total_bytes or 0,
             "file_bytes": file_bytes,
+            "write_queue_depth": queue_stats["total"],
+            "write_queue": queue_stats,
         }
     except Exception as e:
         logger.warning("state_store: stats failed: %s", e)

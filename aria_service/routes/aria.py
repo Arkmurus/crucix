@@ -15558,6 +15558,19 @@ async def coder_status_ep(fix_id: str, request: Request):
     return await coder.get_progress(fix_id)
 
 
+@router.get("/coder/scoreboard")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def coder_scoreboard_ep(request: Request):
+    """Live autonomous-improvement scoreboard."""
+    coder = getattr(request.app.state, "aria_coder", None)
+    if coder is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ARIA-Coder engine not started",
+        )
+    return await coder.get_scoreboard()
+
+
 @router.get("/coder/gaps")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def coder_gaps_ep(request: Request):

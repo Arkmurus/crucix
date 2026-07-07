@@ -278,6 +278,10 @@ class ErrorLedgerExtractor:
         if "dd_orchestrator" in module or "layer" in lowered:
             gap_type = GapType.DD_LAYER_FAILURE
             severity = GapSeverity.CRITICAL
+        elif "event loop stalled" in lowered or "loop stalled" in lowered:
+            gap_type = GapType.PERFORMANCE
+            severity = GapSeverity.HIGH
+            title = f"Event-loop stall in {module}"
         elif any(t in lowered for t in ("parse", "pdf", "document")):
             gap_type = GapType.DOCUMENT_PARSE
             title = f"Document parse failure in {module}"
@@ -307,8 +311,10 @@ class ErrorLedgerExtractor:
         # tracebackless log:warning shed → guaranteed-non-gold fuel.
         if gap_type is GapType.MODULE_BUG:
             _has_traceback = bool((trace or "").strip())
-            _is_error_level = etype.lower().startswith(("log:error", "log:critical"))
-            if not _has_traceback and not _is_error_level:
+            _etype_lower = etype.lower()
+            _is_error_level = _etype_lower.startswith(("log:error", "log:critical"))
+            _is_named_exception = bool(etype) and not _etype_lower.startswith(("log:", "warning"))
+            if not _has_traceback and not _is_error_level and not _is_named_exception:
                 return None
 
         return Gap(

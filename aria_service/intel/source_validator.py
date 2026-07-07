@@ -224,6 +224,68 @@ _TIER_1A_REGISTRY_DOMAINS = {
     "sanctionslist.ofsi.hmtreasury.gov.uk",
 }
 
+_LOW_VALUE_MEMORY_DOMAINS = {
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "medium.com",
+    "pinterest.com",
+    "quora.com",
+    "reddit.com",
+    "tiktok.com",
+    "tumblr.com",
+    "wikipedia.org",
+    "wordpress.com",
+    "x.com",
+    "youtube.com",
+}
+
+
+def _domain_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+async def memory_ingest_allowed(
+    url: str,
+    credibility_tier: int | None = None,
+) -> tuple[bool, str]:
+    """Return whether a generic web result may enter intelligence memory.
+
+    Tier-1/2 search results can enter directly. Low-value/general web domains
+    must have been approved by source_validator first; otherwise they are useful
+    as transient search context only, not permanent intelligence memory.
+    """
+    try:
+        host = (urlparse(url).hostname or "").lower().lstrip("www.")
+    except Exception:
+        return False, "invalid_url"
+    if not host:
+        return False, "missing_domain"
+    try:
+        tier_value = int(credibility_tier) if credibility_tier is not None else None
+    except (TypeError, ValueError):
+        tier_value = None
+    if tier_value is not None and tier_value <= 2:
+        return True, "trusted_credibility_tier"
+    if any(_domain_matches(host, d) for d in _TIER_1A_REGISTRY_DOMAINS):
+        return True, "tier_1a_registry_domain"
+    low_value = any(_domain_matches(host, d) for d in _LOW_VALUE_MEMORY_DOMAINS)
+    if not low_value:
+        return True, "not_low_value_domain"
+    try:
+        history = await rs.get_json(_K_HISTORY) or []
+    except Exception:
+        history = []
+    for cand in history:
+        cand_domain = str(cand.get("domain") or "").lower().lstrip("www.")
+        status = str(cand.get("validation_status") or "")
+        if _domain_matches(host, cand_domain) and status in {
+            ValidationStatus.APPROVED.value,
+            ValidationStatus.AUTO_APPROVED.value,
+        }:
+            return True, "source_validator_approved"
+    return False, "low_value_domain_unapproved"
+
 
 def _candidate_id(url: str) -> str:
     return hashlib.md5(

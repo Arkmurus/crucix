@@ -238,6 +238,36 @@ async def _heartbeat_ticker() -> None:
         from ..intel.agent_registry import AgentRegistry
         from ..intel.agent_contract import AgentContract
 
+        # R-F2403: the coder declares gap_detector as a dependency, so the
+        # dependency must have its own contract or self_healing reports
+        # dependency_no_contract even when the detector is healthy.
+        _gap_detector_contract = AgentContract(
+            agent_id="gap_detector",
+            version="1.0.0",
+            directives=[
+                "Scan production signal stores for structured capability gaps",
+                "Publish latest scan results for operator visibility",
+                "Deduplicate attempted and fixed gaps before the coder acts",
+                "Wire both success and failure to the brain",
+            ],
+            inputs=[
+                "error_log",
+                "chat_audit",
+                "capability_gaps",
+                "mistake_ledger",
+                "repository static analysis",
+            ],
+            outputs=["Gap objects", "latest gap snapshot", "attempt/fixed sentinels"],
+            error_modes=[
+                "signal_store_unavailable - skip source and continue",
+                "malformed_signal - ignore entry and continue",
+                "reproduce_test_unavailable - block autonomous fix",
+            ],
+            dependencies=[],
+            check_interval_s=900,
+            critical=False,
+        )
+
         # R-F1898: define a binding contract for the coder
         _coder_contract = AgentContract(
             agent_id="aria_coder",
@@ -265,6 +295,11 @@ async def _heartbeat_ticker() -> None:
         # Register in the agent registry (non-fatal if it fails)
         _reg = AgentRegistry()
         try:
+            try:
+                from ..intel.agent_contract import CONTRACT_REGISTRY
+                await CONTRACT_REGISTRY.register_contract(_gap_detector_contract)
+            except Exception:
+                logger.debug("[coder_entrypoint] gap_detector contract registration failed (non-fatal)")
             await _reg.register(
                 agent_id="aria_coder",
                 agent_type="autonomous_coder",

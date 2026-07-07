@@ -88,6 +88,7 @@ APPROVAL_TIMEOUT_S = 1800       # 30 minutes
 
 APPROVAL_KEY_PREFIX = "crucix:aria:coder:approval:"
 ERROR_LEDGER_COUNT_KEY = "crucix:aria:error_ledger:count"
+SCOREBOARD_KEY = "crucix:aria:coder:scoreboard"
 
 
 @dataclass
@@ -464,9 +465,37 @@ class ARIACoder:
 
         for gap in actionable[:MAX_GAPS_PER_CYCLE]:
             await self.gap_detector.mark_attempted(gap.gap_id)
+            await self._record_scoreboard(
+                "claimed",
+                gap,
+                reason="attempt_started",
+            )
             result = await self.fix_gap(gap)
 
             if result.success and result.r_number is not None:
+                outcome = (result.training_pair or {}).get("outcome", "")
+                gold = bool((result.training_pair or {}).get("gold"))
+                await self._record_scoreboard(
+                    "fixed",
+                    gap,
+                    r_number=result.r_number,
+                    outcome=outcome,
+                    gold=gold,
+                )
+                if outcome == "staged_for_review":
+                    await self._record_scoreboard(
+                        "staged",
+                        gap,
+                        r_number=result.r_number,
+                        outcome=outcome,
+                    )
+                if gold:
+                    await self._record_scoreboard(
+                        "gold",
+                        gap,
+                        r_number=result.r_number,
+                        outcome=outcome,
+                    )
                 await self.gap_detector.mark_fixed(gap.gap_id, result.r_number)
                 # R-F2241 — close the write-back loop. mark_fixed only writes a
                 # `crucix:aria:gap:fixed:<detector_sha>` sentinel in a DISJOINT
@@ -496,6 +525,11 @@ class ARIACoder:
                     except Exception as e:
                         logger.warning("[aria_coder] harvester failed: %s", e)
             else:
+                await self._record_scoreboard(
+                    "blocked",
+                    gap,
+                    reason=result.failure_reason or "unknown",
+                )
                 logger.info(
                     "[aria_coder] gap %s not fixed: %s",
                     gap.gap_id, result.failure_reason,
@@ -1205,6 +1239,8 @@ class ARIACoder:
                 Path(_gp).parent.mkdir(parents=True, exist_ok=True)
                 with open(_gp, "a", encoding="utf-8") as _gf:
                     _gf.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+                training_pair["gold"] = bool(_rec["gold"])
+                training_pair["reward"] = _rec.get("reward", {})
                 logger.info("[R-F1674] verifiable-reward captured gold=%s tests_ran=%s R-F%s",
                             _rec["gold"], _rec["reward"]["tests_ran"], r_number)
             except Exception as _e:
@@ -1508,6 +1544,46 @@ class ARIACoder:
         except Exception as e:
             logger.debug("[aria_coder] _publish_progress redis error: %s", e)
 
+    async def _record_scoreboard(
+        self,
+        bucket: str,
+        gap: Gap,
+        *,
+        reason: str = "",
+        r_number: int | None = None,
+        outcome: str = "",
+        gold: bool = False,
+    ) -> None:
+        """Update the live autonomous-improvement scoreboard from real outcomes."""
+        try:
+            raw = await self.redis.get(SCOREBOARD_KEY)
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            board = json.loads(raw) if raw else {}
+            if not isinstance(board, dict):
+                board = {}
+            counts = board.setdefault("counts", {})
+            counts[bucket] = int(counts.get(bucket, 0) or 0) + 1
+            event = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "bucket": bucket,
+                "gap_id": gap.gap_id,
+                "gap_type": gap.gap_type,
+                "module": gap.module,
+                "title": gap.title[:160],
+                "reason": reason[:240],
+                "r_number": r_number,
+                "outcome": outcome,
+                "gold": bool(gold),
+            }
+            recent = board.setdefault("recent", [])
+            recent.insert(0, event)
+            board["recent"] = recent[:50]
+            board["updated_at"] = event["ts"]
+            await self.redis.setex(SCOREBOARD_KEY, 30 * 86400, json.dumps(board))
+        except Exception as e:
+            logger.debug("[aria_coder] scoreboard update failed: %s", e)
+
     @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
     async def get_progress(self, fix_id: str) -> dict:
         """R-F824: return latest event + full history for fix_id."""
@@ -1540,6 +1616,23 @@ class ARIACoder:
             "latest": latest, "history": history,
         }
 
+
+    @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
+    async def get_scoreboard(self) -> dict:
+        """Return the live autonomous-improvement scoreboard."""
+        try:
+            raw = await self.redis.get(SCOREBOARD_KEY)
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            board = json.loads(raw) if raw else {}
+            if not isinstance(board, dict):
+                board = {}
+        except Exception:
+            board = {}
+        board.setdefault("counts", {})
+        board.setdefault("recent", [])
+        board.setdefault("updated_at", None)
+        return board
 
 
     async def _open_review_ticket(

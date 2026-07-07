@@ -996,6 +996,27 @@ async def add_search_results_batch(items: list[dict]) -> int:
         return 0
     if not await _ensure_async() or _documents_collection is None:
         return 0
+    filtered: list[dict] = []
+    for it in items:
+        url = str(it.get("url") or "")
+        metadata = it.get("metadata") or {}
+        tier = metadata.get("credibility_tier")
+        if url:
+            try:
+                from . import source_validator as _sv
+                allowed, reason = await _sv.memory_ingest_allowed(url, tier)
+            except Exception:
+                allowed, reason = False, "source_validator_unavailable"
+            if not allowed:
+                logger.info(
+                    "RAG batch ingest skipped unapproved low-value source %s (%s)",
+                    url[:120], reason,
+                )
+                continue
+        filtered.append(it)
+    items = filtered
+    if not items:
+        return 0
     ids: list[str] = []
     docs: list[str] = []
     metas: list[dict] = []
