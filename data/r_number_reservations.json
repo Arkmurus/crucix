@@ -18331,9 +18331,10 @@
       "title": "autonomous evidence hardening followup",
       "claimed_at": "2026-07-07T19:28:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bec1cae7",
+      "notes": null,
+      "shipped_at": "2026-07-07T19:44:09Z"
     }
   ]
 }
