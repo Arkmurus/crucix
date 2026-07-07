@@ -18202,9 +18202,10 @@
       "title": "golden intel platform capability",
       "claimed_at": "2026-07-07T10:23:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5136f941",
+      "notes": null,
+      "shipped_at": "2026-07-07T10:54:09Z"
     }
   ]
 }
