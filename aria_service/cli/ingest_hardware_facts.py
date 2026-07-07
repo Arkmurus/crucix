@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # ── Key facts extracted from hardware library ─────────────────────────────
@@ -192,8 +193,16 @@ HARDWARE_FACTS = [
 ]
 
 
+def _require_http_scheme(url: str) -> None:
+    """B310: refuse non-HTTP(S) URL schemes (file:, ftp:, ...) before urlopen."""
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"refusing non-HTTP(S) URL scheme {scheme!r}: {url!r}")
+
+
 def _post(url: str, body: dict, token: str, timeout: int = 30) -> tuple[int, dict | str]:
     """POST JSON to ARIA /api/aria/teach endpoint."""
+    _require_http_scheme(url)
     import json as _json
     data = _json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
@@ -205,7 +214,7 @@ def _post(url: str, body: dict, token: str, timeout: int = 30) -> tuple[int, dic
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
             raw = resp.read().decode("utf-8", errors="replace")
             try:
                 return resp.status, _json.loads(raw)

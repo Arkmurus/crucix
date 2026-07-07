@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +57,13 @@ CONFIG_DIR = Path.home() / ".aria"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 # ── Config ─────────────────────────────────────────────────────────────────
+
+
+def _require_http_scheme(url: str) -> None:
+    """B310: refuse non-HTTP(S) URL schemes (file:, ftp:, ...) before urlopen."""
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"refusing non-HTTP(S) URL scheme {scheme!r}: {url!r}")
 
 
 def _load_config() -> dict:
@@ -105,6 +113,7 @@ def _request(
 ) -> dict:
     server = _get_server()
     url = f"{server}{path}"
+    _require_http_scheme(url)
     token = _get_token()
 
     headers = {
@@ -119,7 +128,7 @@ def _request(
 
     try:
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         status = e.code
@@ -624,6 +633,7 @@ class AriaTUI(App):
         server = _get_server()
         token = _get_token()
         url = f"{server}/api/aria/chat/stream"
+        _require_http_scheme(url)
 
         headers = {
             "Content-Type": "application/json",
@@ -647,7 +657,7 @@ class AriaTUI(App):
             response_text = ""
             buffer = ""
 
-            with urllib.request.urlopen(req, timeout=180) as resp:
+            with urllib.request.urlopen(req, timeout=180) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
                 while True:
                     chunk = resp.read(4096)
                     if not chunk:

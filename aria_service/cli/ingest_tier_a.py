@@ -65,9 +65,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
+import socket
 import sys
 import time
 import urllib.error
@@ -126,8 +128,42 @@ _ASSET_PATH_FRAGMENTS = (
 
 # ── HTTP helpers ────────────────────────────────────────────────────────
 
+def _guard_url(url: str, *, allow_internal: bool) -> None:
+    """B310/SSRF guard (stdlib only). Refuse non-HTTP(S) schemes always;
+    unless allow_internal, also refuse URLs that resolve to loopback,
+    private, link-local, reserved, multicast or unspecified IPs.
+
+    _http_get follows links extracted from fetched index pages (the
+    sub_index strategy), so a malicious page could otherwise point the
+    crawler at internal infrastructure or the cloud metadata endpoint
+    (169.254.169.254). API POSTs (allow_internal=True) legitimately target
+    an internal ARIA endpoint, so only their scheme is validated.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError(f"refusing non-HTTP(S) URL scheme: {url!r}")
+    if allow_internal:
+        return
+    host = parsed.hostname
+    if not host:
+        raise ValueError(f"URL has no host: {url!r}")
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        raise ValueError(f"cannot resolve host {host!r}: {exc}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_loopback or ip.is_private or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise ValueError(f"refusing URL resolving to non-public IP {ip}: {url!r}")
+
+
 def _http_get(url: str, *, timeout: int = DEFAULT_TIMEOUT_S) -> tuple[int, bytes, str]:
     """Fetch a URL. Returns (status_code, body_bytes, content_type)."""
+    try:
+        _guard_url(url, allow_internal=False)
+    except ValueError as exc:
+        return -1, b"", str(exc)[:200]
     req = urllib.request.Request(
         url,
         headers={
@@ -137,7 +173,7 @@ def _http_get(url: str, *, timeout: int = DEFAULT_TIMEOUT_S) -> tuple[int, bytes
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme/SSRF validated by _guard_url above)
             content_type = resp.headers.get("Content-Type", "")
             return resp.status, resp.read(), content_type
     except urllib.error.HTTPError as e:
@@ -148,6 +184,7 @@ def _http_get(url: str, *, timeout: int = DEFAULT_TIMEOUT_S) -> tuple[int, bytes
 
 def _http_post_json(url: str, body: dict, token: str, timeout: int) -> tuple[int, dict | str]:
     """POST a JSON body to the ingest endpoint."""
+    _guard_url(url, allow_internal=True)
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -160,7 +197,7 @@ def _http_post_json(url: str, body: dict, token: str, timeout: int) -> tuple[int
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme/SSRF validated by _guard_url above)
             raw = resp.read().decode("utf-8", errors="replace")
             try:
                 return resp.status, json.loads(raw)

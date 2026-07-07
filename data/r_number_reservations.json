@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2409,
+  "next_available": 2410,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18360,6 +18360,16 @@
       "r_number": "R-F2408",
       "title": "fix 56 modules: hoist dead post-return wire_success above return (reachable §21 wiring)",
       "claimed_at": "2026-07-07T20:41:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "694775fc",
+      "notes": null,
+      "shipped_at": "2026-07-07T21:00:18Z"
+    },
+    {
+      "r_number": "R-F2409",
+      "title": "B310: scheme allowlist + SSRF guard on urlopen call sites (ingest CLIs + aria clients)",
+      "claimed_at": "2026-07-07T21:05:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -48,6 +48,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -69,8 +70,16 @@ def _guess_mimetype(path: Path) -> str:
     }.get(ext, "application/octet-stream")
 
 
+def _require_http_scheme(url: str) -> None:
+    """B310: refuse non-HTTP(S) URL schemes (file:, ftp:, ...) before urlopen."""
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"refusing non-HTTP(S) URL scheme {scheme!r}: {url!r}")
+
+
 def _post(url: str, body: dict, token: str, timeout: int) -> tuple[int, dict | str]:
     """POST a JSON body and return (status_code, parsed_or_text)."""
+    _require_http_scheme(url)
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -82,7 +91,7 @@ def _post(url: str, body: dict, token: str, timeout: int) -> tuple[int, dict | s
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
             raw = resp.read().decode("utf-8", errors="replace")
             try:
                 return resp.status, json.loads(raw)

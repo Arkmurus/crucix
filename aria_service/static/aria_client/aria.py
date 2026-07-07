@@ -23,6 +23,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import shutil
 import platform
@@ -53,6 +54,13 @@ def c(code: str, text: str) -> str:
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
+
+
+def _require_http_scheme(url: str) -> None:
+    """B310: refuse non-HTTP(S) URL schemes (file:, ftp:, ...) before urlopen."""
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"refusing non-HTTP(S) URL scheme {scheme!r}: {url!r}")
 
 
 def _load_config() -> dict:
@@ -97,6 +105,7 @@ class AriaError(Exception):
 def _request(method: str, path: str, body: Optional[dict] = None, timeout: int = 60) -> dict:
     server = _get_server()
     url = f"{server}{path}"
+    _require_http_scheme(url)
     token = _get_token()
     headers = {
         "Content-Type": "application/json",
@@ -108,7 +117,7 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: int =
     data = json.dumps(body).encode("utf-8") if body else None
     try:
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         status = e.code
@@ -194,6 +203,7 @@ def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> l
     server = _get_server()
     token = _get_token()
     url = f"{server}/api/aria/chat/stream"
+    _require_http_scheme(url)
 
     headers = {
         "Content-Type": "application/json",
@@ -216,7 +226,7 @@ def send_coder_task_stream(task: str, code: str = "", session_id: str = "") -> l
 
     try:
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:  # nosec B310 (scheme validated by _require_http_scheme above)
             buffer = ""
             while True:
                 try:
