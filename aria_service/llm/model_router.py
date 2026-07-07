@@ -16,11 +16,14 @@ is TWO-TRACK, not "sovereign primary for everything":
 
 DEFAULT-SAFE (§16 activation is operator-gated): with ARIA_LLM_URL UNSET this
 module is a pure pass-through — every synthesis call is byte-identical to today's
-DeepSeek-only path. The operator flips ONE env var (ARIA_LLM_URL=<endpoint>) to
-activate two-track; unset to roll back. No behaviour changes until that flip.
+DeepSeek-only path. With ARIA_LLM_URL SET, the R-F2400 promotion gate defaults to
+SHADOW: ARIA's sovereign model generates alongside DeepSeek but does not serve
+users until an explicit promotion stage allows canary or serving.
 
 Ramp knobs (see docs/aria_llm_v01_activation.md):
     ARIA_LLM_URL            base URL of the served sovereign endpoint (the flip)
+    ARIA_LLM_PROMOTION_STAGE=shadow|canary|serve
+                            promotion gate; default shadow when URL is set
     ARIA_LLM_SHADOW=1       SHADOW: generate sovereign ALONGSIDE but ship DeepSeek
                             to users; log the grounded-rate comparison (zero user
                             risk validation)
@@ -78,6 +81,36 @@ def _shadow() -> bool:
     return _truthy(os.getenv("ARIA_LLM_SHADOW"))
 
 
+def promotion_stage() -> str:
+    """Current sovereign promotion stage.
+
+    ``shadow`` is the safe default once ARIA_LLM_URL is configured: the model can
+    be measured live without serving users. ``canary`` enables percentage-based
+    grounded serving via ARIA_LLM_CANARY_PCT. ``serve`` routes all grounded
+    synthesis to sovereign, with DeepSeek fallback on error. ``off`` forces
+    DeepSeek while keeping the endpoint configured for probes.
+    """
+    raw = (os.getenv("ARIA_LLM_PROMOTION_STAGE") or "shadow").strip().lower()
+    aliases = {
+        "0": "off",
+        "disable": "off",
+        "disabled": "off",
+        "deepseek": "off",
+        "1": "shadow",
+        "measure": "shadow",
+        "shadow-only": "shadow",
+        "2": "canary",
+        "pilot": "canary",
+        "3": "serve",
+        "serving": "serve",
+        "sovereign": "serve",
+    }
+    stage = aliases.get(raw, raw)
+    if stage not in {"off", "shadow", "canary", "serve"}:
+        return "shadow"
+    return stage
+
+
 def two_track_active() -> bool:
     """True iff the router should two-track (sovereign for grounded synthesis only).
 
@@ -109,7 +142,7 @@ def is_grounded_synthesis(message: str = "", context: str = "") -> bool:
 
 def _canary_pct() -> int:
     try:
-        v = int((os.getenv("ARIA_LLM_CANARY_PCT") or "100").strip())
+        v = int((os.getenv("ARIA_LLM_CANARY_PCT") or "10").strip())
     except (TypeError, ValueError):
         return 100
     return max(0, min(100, v))
@@ -145,8 +178,13 @@ def route_decision(message: str = "", context: str = "", *, canary_key: str = ""
         return "deepseek"
     if not is_grounded_synthesis(message, context):
         return "deepseek"
-    if _shadow():
+    stage = promotion_stage()
+    if stage == "off":
+        return "deepseek"
+    if _shadow() or stage == "shadow":
         return "shadow"
+    if stage == "serve":
+        return "sovereign"
     if not _in_canary(canary_key):
         return "deepseek"
     return "sovereign"
@@ -325,6 +363,7 @@ def summary() -> dict[str, Any]:
         "purpose": "R-F2410 two-track: sovereign for grounded synthesis, DeepSeek coverage/fallback",
         "sovereign_configured": sovereign_configured(),
         "two_track_active": two_track_active(),
+        "promotion_stage": promotion_stage(),
         "shadow": _shadow(),
         "canary_pct": _canary_pct(),
         "primary_all": _primary_all(),

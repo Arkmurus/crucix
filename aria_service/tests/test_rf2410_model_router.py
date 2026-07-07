@@ -18,7 +18,8 @@ import pytest
 from aria_service.llm import model_router as mr
 from aria_service.llm.provider import LLMResult
 
-_ENV = ("ARIA_LLM_URL", "ARIA_LLM_SHADOW", "ARIA_LLM_CANARY_PCT",
+_ENV = ("ARIA_LLM_URL", "ARIA_LLM_PROMOTION_STAGE",
+        "ARIA_LLM_SHADOW", "ARIA_LLM_CANARY_PCT",
         "ARIA_LLM_PRIMARY_ALL", "ARIA_LLM_ROUTER_DISABLED", "ARIA_LLM_TIMEOUT")
 
 
@@ -37,6 +38,17 @@ def test_sovereign_configured_reflects_flag(monkeypatch):
     assert mr.sovereign_configured() is True            # the one-var flip
     monkeypatch.setenv("ARIA_LLM_URL", "   ")           # whitespace-only = not configured
     assert mr.sovereign_configured() is False
+
+
+def test_promotion_stage_defaults_and_aliases(monkeypatch):
+    monkeypatch.delenv("ARIA_LLM_PROMOTION_STAGE", raising=False)
+    assert mr.promotion_stage() == "shadow"
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "pilot")
+    assert mr.promotion_stage() == "canary"
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "sovereign")
+    assert mr.promotion_stage() == "serve"
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "garbage")
+    assert mr.promotion_stage() == "shadow"
 
 
 def test_is_grounded_synthesis_detects_retrieved_context():
@@ -109,20 +121,39 @@ async def test_flag_unset_always_deepseek(monkeypatch):
     assert called["sov"] is False   # sovereign endpoint never touched
 
 
-# ── flag SET + grounded -> sovereign ─────────────────────────────────────────
+# ── flag SET + grounded -> shadow by default ─────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_grounded_routes_to_sovereign(monkeypatch):
+async def test_grounded_defaults_to_shadow_not_user_serving(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
-    _mock_sovereign_ok(monkeypatch)
+    seen = {"sov": False}
+    async def _c(prompt, *, system="", max_tokens=2048, temperature=0.3, timeout=None, **kw):
+        seen["sov"] = True
+        return {"ok": True, "text": "SOV", "model": "aria-llm", "tokens_in": 1, "tokens_out": 1}
+    monkeypatch.setattr(mr.aria_llm_provider, "complete", _c)
     base = _BaseLLM()
     assert mr.two_track_active() is True
+    assert mr.promotion_stage() == "shadow"
+    assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX) == "shadow"
+    r = await mr.complete_synthesis(base, "sys", "user", message=_GROUNDED_MSG,
+                                    context=_GROUNDED_CTX)
+    assert r.text == "DEEPSEEK-ANSWER"
+    assert seen["sov"] is True
+    assert base.complete_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_grounded_routes_to_sovereign_only_when_promoted(monkeypatch):
+    monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "serve")
+    _mock_sovereign_ok(monkeypatch)
+    base = _BaseLLM()
     assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX) == "sovereign"
     r = await mr.complete_synthesis(base, "sys", "user", message=_GROUNDED_MSG,
                                     context=_GROUNDED_CTX)
     assert r.text == "SOVEREIGN-GROUNDED-ANSWER"
     assert r.routed_via == "sovereign"
-    assert base.complete_calls == 0   # DeepSeek not called
+    assert base.complete_calls == 0
 
 
 # ── flag SET + closed-book -> DeepSeek ───────────────────────────────────────
@@ -143,6 +174,7 @@ async def test_closed_book_stays_deepseek(monkeypatch):
 @pytest.mark.asyncio
 async def test_sovereign_error_falls_back_operational(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "serve")
     _mock_sovereign_error(monkeypatch)
     wired = {}
     monkeypatch.setattr(mr, "wire_failure",
@@ -180,6 +212,7 @@ async def test_shadow_ships_deepseek_but_runs_sovereign(monkeypatch):
 @pytest.mark.asyncio
 async def test_canary_zero_and_hundred(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "canary")
     _mock_sovereign_ok(monkeypatch)
     monkeypatch.setenv("ARIA_LLM_CANARY_PCT", "0")
     assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX, canary_key="s1") == "deepseek"
@@ -219,6 +252,7 @@ async def test_stream_unset_is_deepseek(monkeypatch):
 @pytest.mark.asyncio
 async def test_stream_grounded_routes_to_sovereign(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "serve")
     async def _s(prompt, *, system="", max_tokens=2048, temperature=0.3, **kw):
         for c in ("SOV", "-STREAM"):
             yield c
@@ -238,6 +272,7 @@ async def test_stream_grounded_routes_to_sovereign(monkeypatch):
 @pytest.mark.asyncio
 async def test_stream_sovereign_pretoken_error_falls_back(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "serve")
     async def _s(prompt, *, system="", max_tokens=2048, temperature=0.3, **kw):
         raise RuntimeError("connection refused")
         yield  # pragma: no cover

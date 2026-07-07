@@ -258,11 +258,12 @@ sites (§13 mirror): `aria_engine.py` `aria_chat` (`complete_synthesis`) and
 ### Env knobs
 | Var | Effect |
 |---|---|
-| `ARIA_LLM_URL` | **the flip** — base URL of the served sovereign endpoint (e.g. `https://<pod>-8888.proxy.runpod.net/v1`) |
+| `ARIA_LLM_URL` | Base URL of the sovereign endpoint (e.g. `https://<pod>-8888.proxy.runpod.net/v1`). URL alone enters safe shadow by default; it does not serve users without promotion. |
 | `ARIA_LLM_MODEL` | served model id (`aria-llm-grounded-dpo-v1`) |
 | `ARIA_LLM_KEY` | optional bearer token for the endpoint |
-| `ARIA_LLM_SHADOW=1` | SHADOW: generate sovereign alongside, **ship DeepSeek**, log grounded-rate compare |
-| `ARIA_LLM_CANARY_PCT=N` | CANARY: route N% (0-100) of grounded turns to sovereign (stable per session) |
+| `ARIA_LLM_PROMOTION_STAGE` | Promotion gate: `shadow` (default), `canary`, `serve`, or `off`. |
+| `ARIA_LLM_SHADOW=1` | Legacy/explicit SHADOW override: generate sovereign alongside, **ship DeepSeek**, log grounded-rate compare |
+| `ARIA_LLM_CANARY_PCT=N` | CANARY: route N% (0-100) of grounded turns to sovereign when `ARIA_LLM_PROMOTION_STAGE=canary` (stable per session; default 10) |
 | `ARIA_LLM_TIMEOUT` | per-call sovereign budget in s (default 40) before fallback |
 | `ARIA_LLM_ROUTER_DISABLED=1` | hard-off: DeepSeek only even if URL set (incident kill-switch) |
 | `ARIA_LLM_PRIMARY_ALL=1` | legacy R-F93 escape hatch — sovereign primary for ALL turns (NOT the default) |
@@ -300,9 +301,10 @@ class; A100 only on training days.
 
 ## Activation flip / rollback
 ```bash
-# ACTIVATE (operator, after Phase A close + go): set on aria-intel
+# ACTIVATE SHADOW (operator, after Phase A close + go): set on aria-intel
 flyctl secrets set ARIA_LLM_URL="https://<pod>-8888.proxy.runpod.net/v1" \
-                   ARIA_LLM_MODEL="aria-llm-grounded-dpo-v1" -a aria-intel
+                   ARIA_LLM_MODEL="aria-llm-grounded-dpo-v1" \
+                   ARIA_LLM_PROMOTION_STAGE=shadow -a aria-intel
 # ROLLBACK (instant, safe): unset → byte-identical DeepSeek-only
 flyctl secrets unset ARIA_LLM_URL -a aria-intel
 # INCIDENT kill-switch (keep URL, force DeepSeek):
@@ -311,28 +313,30 @@ flyctl secrets set ARIA_LLM_ROUTER_DISABLED=1 -a aria-intel
 
 ## SHADOW → CANARY → FULL ramp (SAFE sequence — documented, execute later)
 
-**Stage A — SHADOW** (`ARIA_LLM_URL` set + `ARIA_LLM_SHADOW=1`): sovereign
-generates on every live grounded turn *alongside* DeepSeek; the router logs a
-grounded-rate comparison to the brain but **ships DeepSeek's answer** — zero user
-risk. Run ≥3-5 days.
+**Stage A — SHADOW** (`ARIA_LLM_URL` set + `ARIA_LLM_PROMOTION_STAGE=shadow`,
+which is the default): sovereign generates on every live grounded turn
+*alongside* DeepSeek; the router logs a grounded-rate comparison to the brain but
+**ships DeepSeek's answer** — zero user risk. Run ≥3-5 days.
 - **GO criteria → CANARY:** live sovereign grounded-rate ≥ DeepSeek's on the same
   turns (the eval lift reproduces live); sovereign endpoint uptime/health stable;
   p95 sovereign latency ≤ ~1.5× DeepSeek.
 - **NO-GO:** grounded-rate not actually higher live, or endpoint flaps → stay
   DeepSeek, investigate (serving config / prompt), do not proceed.
 
-**Stage B — CANARY** (`ARIA_LLM_SHADOW` unset, `ARIA_LLM_CANARY_PCT=10` → 25 → 50):
-sovereign SERVES a small % of grounded turns to real users; DeepSeek serves the
-rest and all fallbacks. Watch grounded_rate, fallback rate, latency, user signals.
+**Stage B — CANARY** (`ARIA_LLM_PROMOTION_STAGE=canary`,
+`ARIA_LLM_CANARY_PCT=10` → 25 → 50): sovereign SERVES a small percentage of
+grounded turns to real users; DeepSeek serves the rest and all fallbacks. Watch
+grounded_rate, fallback rate, latency, user signals.
 - **GO criteria → raise %/FULL:** fallback rate low (<~5%); grounded_rate on
   served turns beats the DeepSeek control slice; latency acceptable; no honesty
   regressions (abstention/over-claim within eval bounds).
 - **NO-GO / ROLLBACK:** fallback rate high, latency bad, or any grounded/honesty
   regression → lower `ARIA_LLM_CANARY_PCT` or unset `ARIA_LLM_URL`.
 
-**Stage C — FULL** (`ARIA_LLM_CANARY_PCT=100`, the default when set): sovereign
-serves all grounded synthesis; DeepSeek remains coverage + fallback. Keep watching
-grounded_rate + fallback rate; rollback is always `unset ARIA_LLM_URL`.
+**Stage C — GROUNDED SERVE** (`ARIA_LLM_PROMOTION_STAGE=serve`): sovereign
+serves all grounded synthesis; DeepSeek remains coverage + fallback. Keep
+watching grounded_rate + fallback rate; rollback is always
+`ARIA_LLM_PROMOTION_STAGE=off` or `unset ARIA_LLM_URL`.
 
 **Standing invariant at every stage:** closed-book/general/coverage turns and ALL
 fallbacks stay on DeepSeek; a sovereign failure is **operational**, never degraded.
