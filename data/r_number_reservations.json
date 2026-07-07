@@ -18341,9 +18341,10 @@
       "title": "dd rerun lineage preservation",
       "claimed_at": "2026-07-07T20:02:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "20896c82",
+      "notes": null,
+      "shipped_at": "2026-07-07T20:19:03Z"
     }
   ]
 }
