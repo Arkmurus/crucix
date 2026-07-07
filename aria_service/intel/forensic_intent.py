@@ -253,13 +253,22 @@ async def _dispatch(tool: str, args: dict) -> dict:
         if not addr:
             return _need(tool, "a wallet address")
         from . import crypto_sanctions as _cs
-        hits = await _cs.screen_wallet(addr)
-        if not hits:
-            body = f"No sanctions match for `{addr}` in the OpenSanctions wallet index."
+        # R-F2418: screen_wallet() returns [] for BOTH "no match" AND "index
+        # unavailable" — narrating [] as "no match" is a false clean. Use the
+        # checked API and honour source_unavailable (never-false-clean).
+        _res = await _cs.screen_wallet_checked(addr)
+        if _res.get("source_unavailable"):
+            body = (f"⚠️ COULD NOT VERIFY `{addr}` — the OpenSanctions crypto-wallet "
+                    f"index is currently unavailable. This is NOT a clearance; "
+                    f"re-screen when the index is reachable.")
         else:
-            body = f"⚠️ {len(hits)} match(es) for `{addr}`:\n" + "\n".join(
-                f"• {h.get('entity_name','?')} ({h.get('chain','?')}) "
-                f"{'/'.join(h.get('topics') or [])}".strip() for h in hits[:10])
+            hits = _res.get("hits") or []
+            if not hits:
+                body = f"No sanctions match for `{addr}` in the OpenSanctions wallet index."
+            else:
+                body = f"⚠️ {len(hits)} match(es) for `{addr}`:\n" + "\n".join(
+                    f"• {h.get('entity_name','?')} ({h.get('chain','?')}) "
+                    f"{'/'.join(h.get('topics') or [])}".strip() for h in hits[:10])
         return _ok(tool, header, body)
 
     if tool == "benford":

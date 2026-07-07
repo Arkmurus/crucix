@@ -1407,13 +1407,26 @@ async def _run_identity_person(
         else:
             variants_to_screen = [name]
 
+        _unavailable_variants: list[str] = []
         for variant in variants_to_screen:
             if not variant or len(variant) < 4:
                 continue
             try:
                 _scr = await _screen_fn(variant) if _screen_fn else {"matches": []}
-                screened_variants.append(variant)
                 report.identity.meta.subcalls += 1
+                # R-F2416: fuzzy_screen / screen_with_aliases SOFT-return on an
+                # unavailable source (screened=False / source_unavailable=True)
+                # WITHOUT raising. Counting such a variant as "screened" would
+                # make _screen_ok True and stamp every list CLEAN on a screen
+                # that never ran — a never-false-clean breach on the PERSON path
+                # (the company direct-adapter loop is already guarded at ~:2223).
+                # Only a variant that ACTUALLY screened counts.
+                if isinstance(_scr, dict) and (
+                    _scr.get("screened") is False or _scr.get("source_unavailable")
+                ):
+                    _unavailable_variants.append(variant)
+                    continue
+                screened_variants.append(variant)
                 _matches = _scr.get("matches") or []
                 # Tag each match with which variant surfaced it for audit
                 for _m in _matches:
@@ -1422,19 +1435,24 @@ async def _run_identity_person(
                 all_matches.extend(_matches)
             except Exception as _e:
                 logger.warning("Person screen failed for variant '%s': %s", variant, _e)
+                _unavailable_variants.append(variant)
 
         # Store the aggregate screen result on the report for renderers.
         # R-F287 (2026-05-11): include explicit per-source verified-status
         # so the LLM renderer can NEVER fabricate "NOT CHECKED" claims for
         # sources OpenSanctions actually queried. screen_succeeded reflects
         # whether AT LEAST ONE variant was screened — if all variants
-        # crashed, the screen genuinely failed and per-source UNAVAILABLE
-        # is the honest answer.
+        # crashed OR the source was unavailable, the screen genuinely failed
+        # and per-source UNAVAILABLE is the honest answer.
         from ._sanctions_classify import derive_verified_sources as _dvs
         _screen_ok = len(screened_variants) > 0
+        # R-F2416: attempted ≥1 real variant but NONE actually screened → the
+        # sanctions/PEP source was unavailable; the screen did NOT run.
+        _sanctions_unverified = (not _screen_ok) and bool(_unavailable_variants)
         report.identity.sanctions_screen = {
             "matches": all_matches,
             "variants_screened": screened_variants,
+            "source_unavailable": _sanctions_unverified,
             "verified_sources": _dvs(all_matches, screen_succeeded=_screen_ok),
         }
 
@@ -1473,6 +1491,30 @@ async def _run_identity_person(
                 detail=classified["summary"] + " — informational only, not a refusal ground.",
                 source="sanctions.person_screen",
                 confidence="ASSESSED",
+            ))
+        elif _sanctions_unverified:
+            # R-F2416: the sanctions/PEP source was unavailable for EVERY name
+            # variant, so the screen did NOT run. An empty match list here is
+            # NOT a clearance. Write the SANCTIONS_SOURCE_UNVERIFIED marker (the
+            # synthesis freshness-gate 6b1 keys off it to force GREEN→AMBER for
+            # persons too) and emit an amber UNVERIFIED finding instead of CLEAN.
+            report.identity.data_gaps.append(
+                "person sanctions screen: SANCTIONS_SOURCE_UNVERIFIED — index "
+                "unavailable for all name variants, NOT screened (re-screen "
+                "required, not a clearance)"
+            )
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=f"Sanctions + PEP screen UNVERIFIED for {name} — source unavailable",
+                detail=(
+                    f"The sanctions/PEP index was unavailable for all name variant(s) "
+                    f"attempted ({', '.join(_unavailable_variants[:8])}), so {name} could "
+                    f"NOT be screened against OFAC SDN, UK OFSI, EU Consolidated, UN 1267, "
+                    f"ICC, Interpol Red Notices or OpenSanctions PEP data. Treat as UNKNOWN, "
+                    f"NOT a clearance — re-screen when the source is reachable."
+                ),
+                source="sanctions.person_screen",
+                confidence="UNCERTAIN",
             ))
         else:
             report.identity.findings.append(Finding(
@@ -8943,13 +8985,37 @@ async def _orchestrate_dd_impl(
                        or target.get("crypto_wallet") or "").strip()
             if _wallet:
                 from . import crypto_sanctions as _crypto
-                _cw = await asyncio.wait_for(_crypto.screen_wallet(_wallet), timeout=_clamp(6))
+                # R-F2418: screen_wallet() collapses "no match" and "index
+                # unavailable" to [] — an unavailable index would read as a clean
+                # crypto screen (false clean). Use the checked API and surface
+                # source_unavailable as an UNVERIFIED gap + amber, never as clean.
+                _res = await asyncio.wait_for(_crypto.screen_wallet_checked(_wallet), timeout=_clamp(6))
+                _cw = _res.get("hits") or []
                 try:
-                    report.crypto_screen = {"wallet": _wallet[:12] + "…", "matches": _cw or []}  # type: ignore[attr-defined]
+                    report.crypto_screen = {  # type: ignore[attr-defined]
+                        "wallet": _wallet[:12] + "…", "matches": _cw,
+                        "source_unavailable": bool(_res.get("source_unavailable")),
+                    }
                 except Exception:
                     pass
                 _prim_ran.append("crypto_screen")
-                if _cw:
+                if _res.get("source_unavailable"):
+                    report.identity.data_gaps.append(
+                        "crypto wallet screen: SANCTIONS_SOURCE_UNVERIFIED — OpenSanctions "
+                        "wallet index unavailable, wallet NOT screened (not a clearance)"
+                    )
+                    report.identity.findings.append(Finding(
+                        severity="amber",
+                        title="Crypto wallet sanctions screen UNVERIFIED — index unavailable",
+                        detail=(
+                            "The crypto-wallet sanctions index was unavailable, so the "
+                            "supplied wallet could NOT be screened. This is NOT a clearance "
+                            "— re-screen when the index is reachable."
+                        ),
+                        source="crypto_sanctions.screen",
+                        confidence="UNCERTAIN",
+                    ))
+                elif _cw:
                     logger.warning("[dd_orchestrator] CRYPTO wallet hit on %s: %d match(es)",
                                    report.identity.entity_name or "?", len(_cw))
         except Exception as _e:

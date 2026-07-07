@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2416,
+  "next_available": 2419,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18428,6 +18428,33 @@
       "r_number": "R-F2415",
       "title": "fix record_gap callers: module=/description= kwargs dont exist (web_integrity + self_healing gap recording TypeError)",
       "claimed_at": "2026-07-07T22:21:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2416",
+      "title": "person DD never-false-clean: source-unavailable must not stamp CLEAN",
+      "claimed_at": "2026-07-07T22:27:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2417",
+      "title": "canonical sanctions staleness gate: age from newest SUCCESSFUL refresh",
+      "claimed_at": "2026-07-07T22:27:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2418",
+      "title": "crypto wallet screen: unavailable index must not read as clean (2 callers)",
+      "claimed_at": "2026-07-07T22:27:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

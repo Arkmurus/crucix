@@ -159,6 +159,33 @@ def _freshest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
     return max(0.0, now - freshest_ts)
 
 
+def _data_age_seconds(in_scope: list[str] | None) -> float | None:
+    """Age (seconds) of the freshest ACTUAL data row among the in-scope sources,
+    read from ``entries.last_refreshed`` via ``store.newest_entry_refresh``.
+
+    R-F2417: fallback for the H1 staleness gate. When every in-scope source's
+    LATEST refresh ATTEMPT failed, ``_freshest_refresh_age_seconds`` returns None
+    (all non-success rows skipped) even though the store still holds genuinely
+    stale rows — which previously fell through to CLEAR. This reports the TRUE
+    data age so that outage is judged stale instead of 'freshness unknown'.
+    Returns None only when there is no data at all."""
+    now = time.time()
+    newest: float | None = None
+    scope: list[str | None] = list(in_scope) if in_scope else [None]  # None → whole store
+    for src in scope:
+        try:
+            ts = store.newest_entry_refresh(src)
+        except Exception:
+            continue
+        if ts is None:
+            continue
+        if newest is None or ts > newest:
+            newest = ts
+    if newest is None:
+        return None
+    return max(0.0, now - newest)
+
+
 def _country_aliases() -> dict[str, set[str]]:
     """Map common jurisdiction names to a set of country-string aliases
     that may appear in the canonical store's countries field."""
@@ -482,6 +509,14 @@ def check_sanctions(
                 # fixtures working). Downgrade only when we KNOW the freshest
                 # successful refresh is older than the threshold.
                 age = _freshest_refresh_age_seconds(in_scope)
+                # R-F2417: age is None when EVERY in-scope source's latest refresh
+                # ATTEMPT failed (all skipped as non-success). That must NOT fall
+                # through to CLEAR over stale rows — fall back to the TRUE data age
+                # (entries.last_refreshed), which is immune to failed-attempt
+                # masking. Gated on _has_refresh_metadata() so pure direct-seed
+                # stores (fixtures, no refresh_log) keep the soft/unknown path.
+                if age is None and _has_refresh_metadata():
+                    age = _data_age_seconds(in_scope)
                 if age is not None and age > _max_staleness_seconds():
                     verdict = "INSUFFICIENT_DATA"
                     store_unavailable = True

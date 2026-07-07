@@ -279,3 +279,30 @@ def count_entries(source: str | None = None) -> int:
         else:
             cur.execute("SELECT COUNT(*) FROM entries")
         return int(cur.fetchone()[0])
+
+
+def newest_entry_refresh(source: str | None = None) -> float | None:
+    """Unix ts of the most recent successful data parse (``entries.last_refreshed``),
+    optionally scoped to one source. ``None`` when the store holds no rows.
+
+    R-F2417: this reflects the TRUE age of the rows currently being screened and
+    is immune to failed-refresh-attempt masking. ``refresh_log`` records ATTEMPTS
+    (which can keep FAILING over still-present old data, so the freshest
+    *successful* refresh_log row can be absent), whereas ``entries.last_refreshed``
+    is only ever written when rows are actually (re)parsed. The H1 staleness gate
+    falls back to this so a sustained refresh outage over stale rows is judged on
+    real data age instead of being treated as 'freshness unknown' → false-clean.
+    """
+    with connect() as conn:
+        cur = conn.cursor()
+        if source:
+            cur.execute("SELECT MAX(last_refreshed) FROM entries WHERE source = ?", (source,))
+        else:
+            cur.execute("SELECT MAX(last_refreshed) FROM entries")
+        row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
