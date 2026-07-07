@@ -157,6 +157,44 @@ async def test_rerun_route_rejects_unresolved_placeholder_before_async_start(mon
 
 
 @pytest.mark.asyncio
+async def test_rerun_route_preserves_real_entity_when_name_is_placeholder(monkeypatch):
+    from aria_service.routes import aria as aria_routes
+    from aria_service.intel import dd_orchestrator as ddo
+
+    marked = {}
+
+    async def fake_mark_dd_running(run_id, entity_name, mode="standard", canonical_entity_id=None, **kwargs):
+        marked["run_id"] = run_id
+        marked["entity_name"] = entity_name
+        marked["canonical_entity_id"] = canonical_entity_id
+
+    async def fake_start_trace(**kwargs):
+        return "trace_test"
+
+    def fake_create_task(coro):
+        coro.close()
+        return object()
+
+    monkeypatch.setattr(aria_routes, "get_llm", lambda req: object())
+    monkeypatch.setattr(aria_routes.trace_stream, "start_trace", fake_start_trace)
+    monkeypatch.setattr(aria_routes.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(ddo, "mark_dd_running", fake_mark_dd_running)
+
+    response = await dd_orchestrate_ep(_JsonRequest({
+        "name": "(unknown)",
+        "entity": "Modirum Gespi",
+        "entity_type": "company",
+        "async_mode": True,
+        "force": True,
+    }))
+
+    assert response["status"] == "running"
+    assert response["entity_name"] == "Modirum Gespi"
+    assert marked["entity_name"] == "Modirum Gespi"
+    assert marked["canonical_entity_id"]
+
+
+@pytest.mark.asyncio
 async def test_persist_pins_explicit_canonical_id_when_regnum_was_dropped(monkeypatch):
     from aria_service.intel import dd_orchestrator as ddo
     from aria_service.intel import redis_store as rs

@@ -766,6 +766,15 @@ def _dd_placeholder_entity_name(value: Any) -> bool:
     return str(value or "").strip().lower() in _DD_PLACEHOLDER_ENTITY_NAMES
 
 
+def _dd_first_real_entity_name(*values: Any) -> str:
+    """Return the first non-placeholder DD entity name from candidate fields."""
+    for value in values:
+        text = str(value or "").strip()
+        if text and not _dd_placeholder_entity_name(text):
+            return text
+    return ""
+
+
 async def _hydrate_dd_rerun_lineage(body: dict) -> None:
     """Carry prior DD identity into an explicit re-run body.
 
@@ -860,7 +869,7 @@ async def dd_orchestrate_ep(req: Request):
     if body.get("entity_type") and not body.get("type"):
         body["type"] = body["entity_type"]
 
-    _resolved_entity_name = body.get("name") or body.get("entity") or ""
+    _resolved_entity_name = _dd_first_real_entity_name(body.get("name"), body.get("entity"))
     if _dd_placeholder_entity_name(_resolved_entity_name):
         raise HTTPException(
             status_code=422,
@@ -869,6 +878,10 @@ async def dd_orchestrate_ep(req: Request):
                 "New DD with the entity name; placeholder names cannot be re-run."
             ),
         )
+    if _dd_placeholder_entity_name(body.get("name")):
+        body["name"] = _resolved_entity_name
+    if _dd_placeholder_entity_name(body.get("entity")):
+        body["entity"] = _resolved_entity_name
 
     # R-F1655: check the DD vault for existing cases on this entity
     # before running a new DD. If found, return the existing summary
