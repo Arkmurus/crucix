@@ -18096,9 +18096,10 @@
       "title": "prospector windows ignore hygiene",
       "claimed_at": "2026-07-07T06:22:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "24ea860c",
+      "notes": null,
+      "shipped_at": "2026-07-07T06:25:42Z"
     }
   ]
 }
