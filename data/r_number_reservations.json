@@ -18232,9 +18232,10 @@
       "title": "grade a dd evidence gate",
       "claimed_at": "2026-07-07T13:08:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8377fae9",
+      "notes": null,
+      "shipped_at": "2026-07-07T13:29:07Z"
     }
   ]
 }
