@@ -225,13 +225,13 @@ class MemoryLeakDetector:
                 gap_type="performance",
                 severity=3,
                 title=f"Memory leak detected: {analysis['growth_rate_mb_per_interval']:.1f}MB/interval",
-                description=(
+                detail=(
                     f"Sustained memory growth detected: "
                     f"{analysis['growth_rate_mb_per_interval']:.1f}MB per interval, "
                     f"current={analysis['current_memory_mb']:.1f}MB, "
                     f"peak={analysis['peak_memory_mb']:.1f}MB"
                 ),
-                module="memory_leak_detector",
+                source="memory_leak_detector",
             ))
         except Exception:
             pass

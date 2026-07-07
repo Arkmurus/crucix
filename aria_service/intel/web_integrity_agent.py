@@ -920,8 +920,8 @@ class WebIntegrityAgent:
             from . import capability_gaps as _cg
             await _cg.record_gap(
                 gap_type="web_integrity_failure",
-                module=f"web_integrity:{check.endpoint}",
-                description=f"CRITICAL: {check.method} {check.endpoint} failed: "
+                title=f"web_integrity:{check.endpoint}",
+                detail=f"CRITICAL: {check.method} {check.endpoint} failed: "
                             f"{'; '.join(check.errors)[:200]}",
                 severity="HIGH",
                 source="web_integrity_agent",
@@ -963,8 +963,8 @@ class WebIntegrityAgent:
                 from . import capability_gaps as _cg
                 await _cg.record_gap(
                     gap_type=f"web_integrity_{pattern.error_type}",
-                    module=f"web_integrity:{pattern.endpoint}",
-                    description=(
+                    title=f"web_integrity:{pattern.endpoint}",
+                    detail=(
                         f"Recurring {pattern.error_type} on {pattern.endpoint} "
                         f"({pattern.count} occurrences). "
                         f"Example: {pattern.examples[0] if pattern.examples else 'N/A'}"
@@ -1216,8 +1216,8 @@ class WebIntegrityAgent:
             from . import capability_gaps as _cg
             await _cg.record_gap(
                 gap_type="credential_expired",
-                module=f"portal:{portal_id}",
-                description=(
+                title=f"portal:{portal_id}",
+                detail=(
                     f"Credentials for {portal_name} ({portal_id}) have expired. "
                     f"Re-registration needed to maintain data access."
                 ),

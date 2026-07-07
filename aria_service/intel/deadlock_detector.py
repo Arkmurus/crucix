@@ -177,11 +177,11 @@ class DeadlockDetector:
                 gap_type="performance",
                 severity=4,
                 title=f"Deadlock detected: {len(deadlocks)} thread(s) stuck",
-                description=(
+                detail=(
                     f"Thread(s) idle beyond {self.timeout}s timeout: {names}. "
                     f"Longest idle: {max(dl['idle_seconds'] for dl in deadlocks):.0f}s"
                 ),
-                module="deadlock_detector",
+                source="deadlock_detector",
             ))
         except Exception:
             pass

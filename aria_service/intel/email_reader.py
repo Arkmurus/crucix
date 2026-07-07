@@ -97,10 +97,10 @@ async def read_emails(max_emails: int = _MAX_EMAILS_PER_POLL) -> list[dict]:
         )
         try:
             from .capability_gaps import record_gap
-            record_gap(
-                gap_id="email_reader_imap_not_configured",
+            await record_gap(
+                gap_type="missing_capability",
                 title="Email IMAP not configured",
-                description=(
+                detail=(
                     "Email reader cannot connect to IMAP. "
                     "Set ARIA_EMAIL_IMAP_HOST (or ARIA_EMAIL_HOST), "
                     "ARIA_EMAIL_IMAP_USER (or ARIA_EMAIL_USER), and "

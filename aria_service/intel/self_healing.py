@@ -1077,8 +1077,8 @@ class SelfHealingOrchestrator:
                                 if v.severity == "CRITICAL":
                                     await _cg.record_gap(
                                         gap_type="contract_violation",
-                                        module=f"agent:{agent_id}",
-                                        description=(
+                                        title=f"agent:{agent_id}",
+                                        detail=(
                                             f"CRITICAL contract violation for {agent_id}: "
                                             f"{v.description[:200]}"
                                         ),
