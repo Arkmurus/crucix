@@ -1,0 +1,89 @@
+{
+  "version": "R-F2398",
+  "page": "public/index.html",
+  "positioning": "ARIA is being built as a sovereign-grade defence intelligence platform. Today it combines live OSINT, sanctions, procurement, vault-curated sources and structured DD into evidence-graded reports, with source health and confidence visible on every material finding.",
+  "claims": [
+    {
+      "id": "sovereign_grade_roadmap",
+      "label": "Sovereign-grade roadmap",
+      "status": "roadmap",
+      "public_wording": "Sovereign-grade roadmap; cloud-assisted today; private and sovereign specialist modes are the independence path.",
+      "evidence": [
+        "public/model-card.html:109",
+        "aria_service/intel/reasoning_router.py",
+        "aria_service/tests/test_rf2410_model_router.py"
+      ],
+      "required_to_call_complete": [
+        "Production router exposes a configured sovereign model path",
+        "Landing page distinguishes sovereign mode from cloud-assisted mode",
+        "Capability card reports which model class served the output"
+      ]
+    },
+    {
+      "id": "evidence_graded_dd",
+      "label": "Evidence-graded DD",
+      "status": "live_hardening",
+      "public_wording": "Structured DD reports expose quality grade, source tiering, confidence and blockers.",
+      "evidence": [
+        "aria_service/intel/dd_schema.py:1070",
+        "aria_service/intel/dd_schema.py:1247",
+        "public/dd-reports.html:863"
+      ],
+      "required_to_call_complete": [
+        "Every DD report view renders quality_assessment",
+        "Grade-A blockers are visible before export",
+        "Partial reports cannot be presented as complete"
+      ]
+    },
+    {
+      "id": "live_source_health",
+      "label": "Live source health",
+      "status": "live_degraded",
+      "public_wording": "Live OSINT, sanctions, procurement and vault-curated sources are monitored with source-health scoring.",
+      "evidence": [
+        "apis/briefing.mjs:145",
+        "apis/briefing.mjs:462",
+        "server.mjs:1558",
+        "public/sources.html:370"
+      ],
+      "required_to_call_complete": [
+        "Source health is visible on dashboard and sources page",
+        "Degraded sources are excluded or down-weighted in confirmed findings",
+        "Reliability below threshold is visible to the user"
+      ]
+    },
+    {
+      "id": "vault_curated_sources",
+      "label": "Vault-curated sources",
+      "status": "live_hardening",
+      "public_wording": "User/admin-added vault sites feed curated source monitoring without duplicating built-in ARIA source monitors.",
+      "evidence": [
+        "server.mjs:2603",
+        "public/vault.html:326",
+        "public/sources.html:654",
+        "aria_service/tests/test_vault_brain_ingest_rf2190.py"
+      ],
+      "required_to_call_complete": [
+        "Vault website scrape reaches dashboard output",
+        "Vault content reaches brain/RAG ingestion",
+        "Vault sources remain distinct from built-in source uptime monitors"
+      ]
+    },
+    {
+      "id": "audit_verifiable_reports",
+      "label": "Audit-verifiable reports",
+      "status": "conditional",
+      "public_wording": "PDF reports can be signed and verified when the report-signing key is configured.",
+      "evidence": [
+        "server.mjs:5926",
+        "lib/reports/routes.mjs:140",
+        "lib/reports/sign.mjs:17"
+      ],
+      "required_to_call_complete": [
+        "REPORT_SIGNING_KEY present in production",
+        "Unsigned exports carry a visible warning",
+        "Verification endpoint is reachable and documented"
+      ]
+    }
+  ]
+}
