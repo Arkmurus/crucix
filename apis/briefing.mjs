@@ -142,6 +142,69 @@ const SOURCE_TIMEOUT_OVERRIDES = {
   SecEdgar: 40_000,
 };
 
+export function buildSourceHealthSummary(sources) {
+  const items = Array.isArray(sources) ? sources : [];
+  const ok = items.filter(s => s.status === 'ok');
+  const partial = items.filter(s => s.status === 'partial');
+  const failed = items.filter(s => s.status === 'error' || s.status === 'timeout' || s.status === 'failed');
+  const suspended = items.filter(s => s.status === 'suspended');
+
+  const degraded = [
+    ...partial.map(s => ({
+      name: s.name || 'unknown',
+      status: 'partial',
+      durationMs: s.durationMs || 0,
+      failedSubsources: s.subStatus?.failed || [],
+      subStatus: s.subStatus || null,
+      error: s.error || null,
+    })),
+    ...failed.map(s => ({
+      name: s.name || 'unknown',
+      status: s.status || 'error',
+      durationMs: s.durationMs || 0,
+      failedSubsources: s.subStatus?.failed || [],
+      subStatus: s.subStatus || null,
+      error: s.error || null,
+    })),
+    ...suspended.map(s => ({
+      name: s.name || 'unknown',
+      status: 'suspended',
+      durationMs: s.durationMs || 0,
+      failedSubsources: [],
+      subStatus: null,
+      error: s.error || null,
+    })),
+  ];
+
+  const total = items.length;
+  const available = ok.length + partial.length;
+  const unavailable = failed.length + suspended.length;
+  const degradedRatio = total > 0 ? (partial.length + unavailable) / total : 0;
+  const unavailableRatio = total > 0 ? unavailable / total : 0;
+  const severity = unavailableRatio >= 0.2 || failed.length >= 5
+    ? 'critical'
+    : degradedRatio >= 0.2 || failed.length > 0 || partial.length >= 3
+      ? 'degraded'
+      : partial.length > 0
+        ? 'watch'
+        : 'healthy';
+
+  return {
+    total,
+    ok: ok.length,
+    partial: partial.length,
+    failed: failed.length,
+    suspended: suspended.length,
+    available,
+    unavailable,
+    degradedRatio: Number(degradedRatio.toFixed(3)),
+    unavailableRatio: Number(unavailableRatio.toFixed(3)),
+    severity,
+    degraded: degraded.slice(0, 20),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export async function runSource(name, fn, ...args) {
   // GAP 11: Skip suspended sources — with a probation probe so
   // auto-recovery can actually fire.
@@ -396,9 +459,10 @@ export async function fullBriefing() {
   // some sub-sources failed but data flowed, 'error'/'timeout' = nothing
   // useful came back, 'suspended' = pruner short-circuited the call.
   // sourcesOk now means truly-OK; partial/failed are separate buckets.
-  const okCount       = sources.filter(s => s.status === 'ok').length;
-  const partialCount  = sources.filter(s => s.status === 'partial').length;
-  const failedCount   = sources.filter(s => s.status === 'error' || s.status === 'timeout' || s.status === 'failed').length;
+  const sourceHealth = buildSourceHealthSummary(sources);
+  const okCount       = sourceHealth.ok;
+  const partialCount  = sourceHealth.partial;
+  const failedCount   = sourceHealth.failed;
 
   const output = {
     crucix: {
@@ -441,7 +505,8 @@ export async function fullBriefing() {
         totalAlerts:      allAlerts.length,
         crossConfirmed:   confirmedCount,
       }
-    }
+    },
+    sourceHealth,
   };
 
   // Name the failing / suspended / partial sources. R-F34 added the partial
@@ -528,6 +593,31 @@ function _signalContent(signal) {
   return `${title}${body}`.slice(0, 1800);
 }
 
+function _sourceHealthPayload(sourceHealth) {
+  if (!sourceHealth || sourceHealth.severity === 'healthy') return null;
+  const degraded = Array.isArray(sourceHealth.degraded) ? sourceHealth.degraded : [];
+  const top = degraded.slice(0, 8).map(s => {
+    const failed = s.failedSubsources?.length ? ` failed sub-sources: ${s.failedSubsources.slice(0, 5).join(', ')}` : '';
+    const err = s.error ? ` error: ${String(s.error).slice(0, 160)}` : '';
+    return `${s.name}=${s.status}${failed}${err}`;
+  });
+  const content = [
+    `Intel source health is ${sourceHealth.severity}.`,
+    `${sourceHealth.ok}/${sourceHealth.total} sources fully OK; ${sourceHealth.partial} partial; ${sourceHealth.failed} failed; ${sourceHealth.suspended} suspended.`,
+    top.length ? `Degraded sources: ${top.join(' | ')}` : '',
+  ].filter(Boolean).join('\n');
+  return {
+    content: content.slice(0, 1800),
+    source: 'briefing:source_health',
+    signal_type: 'crucix_source_health',
+    metadata: {
+      module: 'briefing.mjs',
+      urgency: sourceHealth.severity === 'critical' ? 'HIGH' : 'MEDIUM',
+      source_health: sourceHealth,
+    },
+  };
+}
+
 async function _mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
@@ -571,33 +661,39 @@ export async function pushSignalsToBrain(sweepOutput) {
       if (signals.length >= BRAIN_SIGNAL_LIMIT) break;
     }
 
-    if (signals.length === 0) return;
+    const healthPayload = _sourceHealthPayload(sweepOutput?.sourceHealth);
+    if (signals.length === 0 && !healthPayload) return;
 
     const url = _brainSignalUrl();
     if (!url) {
-      console.warn(`[Crucix Brain] ${signals.length} signals not delivered — ARIA_SERVICE_URL/ARIA_BRAIN_URL unset`);
-      return { delivered: 0, failed: signals.length, reason: 'missing_brain_url' };
+      const totalQueued = signals.length + (healthPayload ? 1 : 0);
+      console.warn(`[Crucix Brain] ${totalQueued} signals not delivered — ARIA_SERVICE_URL/ARIA_BRAIN_URL unset`);
+      return { delivered: 0, failed: totalQueued, reason: 'missing_brain_url' };
     }
 
     const headers = _brainSignalHeaders();
-    const results = await _mapWithConcurrency(signals, BRAIN_SIGNAL_CONCURRENCY, async (signal) => {
+    const payloads = [
+      ...(healthPayload ? [healthPayload] : []),
+      ...signals.map(signal => ({
+        content: _signalContent(signal),
+        source: `briefing:${signal.source || 'unknown'}`,
+        signal_type: 'crucix_briefing_signal',
+        metadata: {
+          module: 'briefing.mjs',
+          title: signal.title,
+          url: signal.url,
+          market: signal.market,
+          published_at: signal.published_at,
+          urgency: signal.urgency,
+          keywords: signal.keywords,
+        },
+      })),
+    ];
+    const results = await _mapWithConcurrency(payloads, BRAIN_SIGNAL_CONCURRENCY, async (payload) => {
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          content: _signalContent(signal),
-          source: `briefing:${signal.source || 'unknown'}`,
-          signal_type: 'crucix_briefing_signal',
-          metadata: {
-            module: 'briefing.mjs',
-            title: signal.title,
-            url: signal.url,
-            market: signal.market,
-            published_at: signal.published_at,
-            urgency: signal.urgency,
-            keywords: signal.keywords,
-          },
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(BRAIN_SIGNAL_TIMEOUT_MS),
       });
       if (!response.ok) {
@@ -607,9 +703,11 @@ export async function pushSignalsToBrain(sweepOutput) {
     });
 
     const delivered = results.filter(r => r?.ok).length;
-    const failed = signals.length - delivered;
-    console.log(`[Crucix Brain] delivered ${delivered}/${signals.length} briefing signals to ARIA brain${failed ? ` (${failed} failed)` : ''}`);
-    return { delivered, failed };
+    const failed = payloads.length - delivered;
+    console.log(`[Crucix Brain] delivered ${delivered}/${payloads.length} briefing signals to ARIA brain${failed ? ` (${failed} failed)` : ''}`);
+    const result = { delivered, failed };
+    if (healthPayload) result.healthQueued = true;
+    return result;
   } catch (e) {
     // Non-fatal — brain integration should never break the sweep
     console.error('[Crucix Brain] Signal push failed (non-fatal):', e.message);
