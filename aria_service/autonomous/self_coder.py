@@ -801,13 +801,33 @@ class ARIACoder:
                         "[aria_coder] R-F1460 hallucinated-API gate found issues in %s: %s",
                         target, "; ".join(api_reasons),
                     )
-                    # Log but don't block — the test phase will catch runtime errors.
-                    # The gate is advisory for now; a hard block would be too aggressive
-                    # for new files where the target doesn't exist yet.
                     for reason in api_reasons:
                         logger.warning(
                             "[aria_coder] R-F1460 potential hallucinated API: %s", reason,
                         )
+                    try:
+                        from aria_service.intel.engine_wiring import wire_failure as _wf2399
+                        _wf2399(
+                            module="aria_coder",
+                            detail=(
+                                f"Generated code blocked by hallucinated-API gate "
+                                f"for {target}: {'; '.join(api_reasons[:3])}"
+                            ),
+                            gap_type="hallucinated_api",
+                            source="aria_coder:hallucinated_api_gate",
+                        )
+                    except Exception:
+                        pass
+                    return FixResult(
+                        success=False,
+                        fix_id=fix_id,
+                        gap_id=gap.gap_id,
+                        r_number=r_number,
+                        failure_reason=(
+                            "Hallucinated-API gate blocked generated code: "
+                            + "; ".join(api_reasons)
+                        ),
+                    )
 
             # STEP 5 — tests for each modified file
             await self._publish_progress(

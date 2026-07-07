@@ -2,9 +2,10 @@
 ARIA Reasoning Router — the orchestrator that gradually replaces DeepSeek.
 
 This is the BRAIN OF ARIA's REASONING. Every chat call routes through here
-before touching any LLM. The router tries each reasoning source in order of
-cost (cheapest first), stops at the first high-confidence answer, and only
-escalates to a cloud LLM as the last resort.
+before touching any LLM. Low-risk stable questions still try local sources in
+cost order. High-stakes/current questions use the R-F2399 grounded-first
+contract: cached prose is deferred until grounded/current evidence paths have
+had a chance to answer.
 
 Routing pipeline
 ════════════════
@@ -13,6 +14,7 @@ Routing pipeline
     1. SYMBOLIC REASONER     — pure rules, instant, free, deterministic
         ↓ (no match)
     2. REASONING LIBRARY     — past Q→A pairs with semantic match
+                               (deferred for grounded-first questions)
         ↓ (no match above threshold)
     3. LOCAL_BRAIN           — rule-based intent router for common queries
         ↓ (no match)
@@ -69,6 +71,17 @@ LIBRARY_MIN_CONFIDENCE = 0.78
 LOCAL_BRAIN_MIN_CONFIDENCE = 0.65
 OLLAMA_MIN_CONFIDENCE = 0.60
 
+_GROUNDED_FIRST_RE = re.compile(
+    r"\b(?:"
+    r"due.?diligence|dd report|sanctions?|ofac|sdn|pep|aml|kyc|compliance|"
+    r"procurement|tender|contract award|defen[cs]e|military|export control|"
+    r"current|latest|today|yesterday|this week|live|news|breaking|monitor|"
+    r"investigate|research|background.?check|screen|vet|watchlist|risk|"
+    r"company|corporate|registry|beneficial owner|litigation|adverse media"
+    r")\b",
+    re.I,
+)
+
 # 2026-04-25: self-introspection detection moved to the shared
 # self_infra_detector module so the three layers (chat router, retrieval,
 # reasoning router) read from one canonical regex. Stage 0 bypass below
@@ -77,6 +90,62 @@ OLLAMA_MIN_CONFIDENCE = 0.60
 from . import self_infra_detector as _sid
 from .wire import fail_wire  # R-F1788 §21 brain-wiring
 _SELF_INFRA_INTROSPECTION_RE = _sid.SELF_INFRA_INTROSPECTION_RE
+
+
+def _requires_grounded_first(question: str) -> bool:
+    """Return True when cached prose must not outrank current evidence."""
+    return bool(_GROUNDED_FIRST_RE.search(question or ""))
+
+
+async def _try_reasoning_library(
+    question: str,
+    trace: list[dict],
+    started: float,
+) -> dict | None:
+    """Try the case library and return a routed answer, or None on no match."""
+    try:
+        lib = await reasoning_library.find_match(question, threshold=LIBRARY_MIN_CONFIDENCE)
+        trace.append({
+            "stage": "reasoning_library",
+            "matched": lib.get("match", False),
+            "confidence": lib.get("score", 0),
+            "method": lib.get("method"),
+        })
+        if lib.get("match") and lib.get("case"):
+            case = lib["case"]
+            response = case.get("response", "")
+            if response:
+                # Add a tiny provenance note so the user knows it's from the library
+                provenance = (
+                    f"\n\n_↻ Retrieved from ARIA's reasoning library "
+                    f"(prior {case.get('source_brain','llm')}, "
+                    f"confidence {case.get('confidence_tag','?')}, "
+                    f"used {case.get('access_count', 0)+1}x)._"
+                )
+                await _record_routing("reasoning_library")
+                return {
+                    "answered": True,
+                    "response": response + provenance,
+                    "source": "reasoning_library",
+                    "confidence": lib["score"],
+                    "library_case_id": case.get("id"),
+                    "intent": case.get("intent"),
+                    "trace": trace,
+                    "duration_ms": int((time.time() - started) * 1000),
+                    "independent": True,
+                    "llm_calls_avoided": 1,
+                }
+    except Exception as e:
+        logger.warning("reasoning_library failed: %s", e)
+        trace.append({"stage": "reasoning_library", "error": str(e)})
+        # R-F1745 — wire failure to brain
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="reasoning_router", detail=f"reasoning_library: {e}",
+                gap_type="source_failure", source="reasoning_router:try_local_reasoning")
+        except Exception:
+            pass
+    return None
 
 
 # ── Stats tracking ──────────────────────────────────────────────────────────
@@ -169,6 +238,7 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
 
     trace: list[dict] = []
     started = time.time()
+    grounded_first = _requires_grounded_first(question)
 
     # ── Stage 0: Self-infra introspection bypass ──────────────────────────
     # Skip every local reasoning source for questions about the operator's
@@ -258,48 +328,16 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
             pass
 
     # ── Stage 2: Reasoning library (case-based retrieval) ────────────────
-    try:
-        lib = await reasoning_library.find_match(question, threshold=LIBRARY_MIN_CONFIDENCE)
+    if grounded_first:
         trace.append({
             "stage": "reasoning_library",
-            "matched": lib.get("match", False),
-            "confidence": lib.get("score", 0),
-            "method": lib.get("method"),
+            "deferred": True,
+            "reason": "grounded_first_contract",
         })
-        if lib.get("match") and lib.get("case"):
-            case = lib["case"]
-            response = case.get("response", "")
-            if response:
-                # Add a tiny provenance note so the user knows it's from the library
-                provenance = (
-                    f"\n\n_↻ Retrieved from ARIA's reasoning library "
-                    f"(prior {case.get('source_brain','llm')}, "
-                    f"confidence {case.get('confidence_tag','?')}, "
-                    f"used {case.get('access_count', 0)+1}x)._"
-                )
-                await _record_routing("reasoning_library")
-                return {
-                    "answered": True,
-                    "response": response + provenance,
-                    "source": "reasoning_library",
-                    "confidence": lib["score"],
-                    "library_case_id": case.get("id"),
-                    "intent": case.get("intent"),
-                    "trace": trace,
-                    "duration_ms": int((time.time() - started) * 1000),
-                    "independent": True,
-                    "llm_calls_avoided": 1,
-                }
-    except Exception as e:
-        logger.warning("reasoning_library failed: %s", e)
-        trace.append({"stage": "reasoning_library", "error": str(e)})
-        # R-F1745 — wire failure to brain
-        try:
-            from .engine_wiring import wire_failure as _wf
-            _wf(module="reasoning_router", detail=f"reasoning_library: {e}",
-                gap_type="source_failure", source="reasoning_router:try_local_reasoning")
-        except Exception:
-            pass
+    else:
+        library_answer = await _try_reasoning_library(question, trace, started)
+        if library_answer:
+            return library_answer
 
     # ── Stage 3: Local brain (rule-based intent router) ──────────────────
     try:
@@ -492,6 +530,12 @@ async def try_local_reasoning(question: str, *, silent: bool = False,
     except Exception as _ic_err:
         logger.debug("Company investigator failed (continuing escalation): %s", _ic_err)
         trace.append({"stage": "company_investigator", "error": str(_ic_err)[:120]})
+
+    if grounded_first:
+        library_answer = await _try_reasoning_library(question, trace, started)
+        if library_answer:
+            library_answer["grounded_first_deferred"] = True
+            return library_answer
 
     # ── Stage 5: Local Ollama reasoning model ────────────────────────────
     # Only attempt if Ollama is reachable AND a reasoning model is loaded.

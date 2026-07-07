@@ -112,9 +112,9 @@ def test_rf599_bypass_runs_before_library_stage_in_code():
     assert fn_idx > 0, "try_local_reasoning not found"
     body = src[fn_idx:fn_idx + 8000]
     bypass_idx = body.find("self_capability_bypass")
-    library_idx = body.find("reasoning_library.find_match")
+    library_idx = body.find("_try_reasoning_library")
     assert bypass_idx > 0, "R-F599 bypass marker not in try_local_reasoning"
-    assert library_idx > 0, "reasoning_library.find_match call not found"
+    assert library_idx > 0, "_try_reasoning_library call not found"
     assert bypass_idx < library_idx, (
         "R-F599 CRITICAL: bypass runs AFTER reasoning_library — the "
         "cache regression returns."
