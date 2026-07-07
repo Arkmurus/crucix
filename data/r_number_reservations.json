@@ -18172,9 +18172,10 @@
       "title": "full web ui smoke guard",
       "claimed_at": "2026-07-07T08:31:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "931cebf9",
+      "notes": null,
+      "shipped_at": "2026-07-07T08:50:51Z"
     }
   ]
 }
