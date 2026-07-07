@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2460,
+  "next_available": 2462,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18536,6 +18536,24 @@
       "r_number": "R-F2459",
       "title": "aria-wa: batch fix medium+low static-review findings (injection wrapper, send-retry, outcomes, leaks, cruft)",
       "claimed_at": "2026-07-07T22:54:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2460",
+      "title": "OFSI verified_sources: stale/unavailable snapshot must not be labeled verified-clean",
+      "claimed_at": "2026-07-07T23:03:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2461",
+      "title": "RCA relative screen: source-unavailable must surface UNVERIFIED not no-hit (FATF R.12)",
+      "claimed_at": "2026-07-07T23:03:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
