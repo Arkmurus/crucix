@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2404,
+  "next_available": 2405,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18310,6 +18310,16 @@
       "r_number": "R-F2403",
       "title": "autonomous evidence reliability v2",
       "claimed_at": "2026-07-07T18:57:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d0a6d5a",
+      "notes": null,
+      "shipped_at": "2026-07-07T19:14:04Z"
+    },
+    {
+      "r_number": "R-F2404",
+      "title": "strip em/en dashes from public web copy (de-AI landing + pages)",
+      "claimed_at": "2026-07-07T19:09:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
