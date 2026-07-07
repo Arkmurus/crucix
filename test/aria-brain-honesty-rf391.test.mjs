@@ -92,6 +92,10 @@ check(
   /!res\.ok[\s\S]{0,80}?_trackFetchFailure/.test(HTML),
 );
 check(
+  'legacy aggregate error markers fall through to the direct endpoint probe',
+  /__error[\s\S]{0,80}delete\s+_dashboardCache\[path\][\s\S]{0,220}API\.probe\('\/api\/aria' \+ path\)/.test(HTML),
+);
+check(
   'fetchJson clears tracker on success',
   /_trackFetchSuccess\(path\)/.test(HTML),
 );

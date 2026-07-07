@@ -470,11 +470,11 @@ const _authGated = new Set();      // path (401/403 — auth, not down)
 // every panel server-side ONCE (cached) so we no longer fan out ~24 requests
 // per refresh at aria-intel (single worker / single event loop / single
 // aiosqlite read connection) → the 24-way burst that produced 25s timeouts.
-// _dashboardCache is a map of path→payload (or {__error} marker) primed once
-// per refresh; fetchJson() reads it first and only falls back to a direct
-// per-path probe when the path is absent (registry omission) or the aggregate
-// itself was unavailable (anonymous viewer / auth flap / error).
-let _dashboardCache = null;   // { "<path>": payload | {__error}, ... } | null
+// _dashboardCache is a map of path→payload primed once per refresh; fetchJson()
+// reads it first and falls back to a direct per-path probe when the path is
+// absent, stale, legacy-error-marked, or the aggregate itself was unavailable
+// (anonymous viewer / auth flap / error).
+let _dashboardCache = null;   // { "<path>": payload, ... } | null
 let _dashboardCacheAt = 0;    // Date.now() of the last successful prime
 
 async function _primeDashboard() {
@@ -547,17 +547,17 @@ function _renderFetchFailureBanner() {
 
 async function fetchJson(path) {
   // R-F2234: serve from the one-call aggregate when this path was computed
-  // server-side. A cached {__error} marker is a genuine "computed-but-failed"
-  // (treat as failure); a real payload is a success; a path NOT in the cache
-  // (registry omission or cache null) falls through to the direct probe below.
+  // server-side. R-F2390: only the real HTTP endpoint can justify the red
+  // failure banner. If an older aggregate response contains a legacy error
+  // marker, drop that cache entry and fall through to the direct probe below.
   if (_dashboardCache && Object.prototype.hasOwnProperty.call(_dashboardCache, path)) {
     const panel = _dashboardCache[path];
     if (panel && typeof panel === 'object' && '__error' in panel) {
-      _trackFetchFailure(path, String(panel.__error).slice(0, 80));
-      return null;
+      delete _dashboardCache[path];
+    } else {
+      _trackFetchSuccess(path);
+      return panel;
     }
-    _trackFetchSuccess(path);
-    return panel;
   }
   const res = await API.probe('/api/aria' + path);
   // Auth-gated (401/403): reachable but protected. NOT "unreachable".
