@@ -5940,7 +5940,10 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     # structurally capping grounded_rate regardless of how many lists corroborated.
     _ss = report.identity.sanctions_screen or {}
     if _ss:
-        _vsrc = _ss.get("verified_sources") or {}
+        # R-F2411: the live pipeline sets sanctions_screen as a dict (see
+        # _screen_identity), but guard the shape so a legacy/list-shaped screen
+        # can never crash the grounded-rate honesty metric for the whole report.
+        _vsrc = (_ss.get("verified_sources") or {}) if isinstance(_ss, dict) else {}
         # count only lists actually QUERIED (CLEAN/HIT), never UNAVAILABLE ones.
         _checked_lists = [
             k for k, v in _vsrc.items()

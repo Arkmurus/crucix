@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2410,
+  "next_available": 2412,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18370,6 +18370,25 @@
       "r_number": "R-F2409",
       "title": "B310: scheme allowlist + SSRF guard on urlopen call sites (ingest CLIs + aria clients)",
       "claimed_at": "2026-07-07T21:05:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f23cc1a3",
+      "notes": null,
+      "shipped_at": "2026-07-07T21:21:49Z"
+    },
+    {
+      "r_number": "R-F2410",
+      "title": "DD rerun banner placeholder fix",
+      "claimed_at": "2026-07-07T21:43:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2411",
+      "title": "harden grounded-rate: guard non-dict sanctions_screen (grade-A honesty metric crash-proof)",
+      "claimed_at": "2026-07-07T21:44:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
