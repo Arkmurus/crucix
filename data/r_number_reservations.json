@@ -18438,27 +18438,30 @@
       "title": "person DD never-false-clean: source-unavailable must not stamp CLEAN",
       "claimed_at": "2026-07-07T22:27:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": " [COLLISION: number pre-used in git history (7cb7e0fb/4dc24b52); shipped in bea59157, dup accepted per operator]"
+      "status": "shipped",
+      "commit_sha": "bea59157",
+      "notes": " [COLLISION: number pre-used in git history (7cb7e0fb/4dc24b52); shipped in bea59157, dup accepted per operator]",
+      "shipped_at": "2026-07-07T23:22:29Z"
     },
     {
       "r_number": "R-F2417",
       "title": "canonical sanctions staleness gate: age from newest SUCCESSFUL refresh",
       "claimed_at": "2026-07-07T22:27:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": " [COLLISION: number pre-used in git history (7cb7e0fb/4dc24b52); shipped in bea59157, dup accepted per operator]"
+      "status": "shipped",
+      "commit_sha": "bea59157",
+      "notes": " [COLLISION: number pre-used in git history (7cb7e0fb/4dc24b52); shipped in bea59157, dup accepted per operator]",
+      "shipped_at": "2026-07-07T23:22:29Z"
     },
     {
       "r_number": "R-F2418",
       "title": "crypto wallet screen: unavailable index must not read as clean (2 callers)",
       "claimed_at": "2026-07-07T22:27:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bea59157",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:22:30Z"
     },
     {
       "r_number": "R-F2419",
@@ -18508,9 +18511,10 @@
       "title": "auth internal-flag cross-tenant IDOR: module-global -> ContextVar (fail-closed)",
       "claimed_at": "2026-07-07T22:48:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d1a2e4cb",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:22:30Z"
     },
     {
       "r_number": "R-F2457",
@@ -18528,9 +18532,10 @@
       "title": "training-data export endpoints: operator-only gate (cross-tenant corpus)",
       "claimed_at": "2026-07-07T22:48:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d1a2e4cb",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:22:31Z"
     },
     {
       "r_number": "R-F2459",
@@ -18547,18 +18552,20 @@
       "title": "OFSI verified_sources: stale/unavailable snapshot must not be labeled verified-clean",
       "claimed_at": "2026-07-07T23:03:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f5a6b047",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:22:31Z"
     },
     {
       "r_number": "R-F2461",
       "title": "RCA relative screen: source-unavailable must surface UNVERIFIED not no-hit (FATF R.12)",
       "claimed_at": "2026-07-07T23:03:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f5a6b047",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:22:31Z"
     }
   ]
 }
