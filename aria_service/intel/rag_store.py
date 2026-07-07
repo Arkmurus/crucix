@@ -538,6 +538,36 @@ def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
     return text.strip(), meta
 
 
+def _url_candidate(value: str | None) -> str:
+    """Return value only when it is a direct HTTP(S) URL."""
+    raw = str(value or "").strip()
+    if raw.lower().startswith(("http://", "https://")):
+        return raw
+    return ""
+
+
+async def _memory_ingest_allowed(
+    *,
+    url: str = "",
+    source: str = "",
+    credibility_tier: int | None = None,
+) -> tuple[bool, str]:
+    """Gate URL-backed memory writes through source_validator.
+
+    Non-URL documents are first-party/manual/corpus memory and are left alone.
+    URL-backed generic web memory must pass source_validator's low-value-domain
+    rule before it enters the persistent RAG document or fact collections.
+    """
+    candidate_url = _url_candidate(url) or _url_candidate(source)
+    if not candidate_url:
+        return True, "no_url"
+    try:
+        from . import source_validator as _sv
+        return await _sv.memory_ingest_allowed(candidate_url, credibility_tier)
+    except Exception:
+        return False, "source_validator_unavailable"
+
+
 @fail_wire(module="rag_store", gap_type="embedder_failure")
 async def ingest_document(
     text: str,
@@ -560,6 +590,23 @@ async def ingest_document(
         market: Country/region tag for filtering.
         extra_metadata: Anything else to attach to every chunk.
     """
+    tier = (extra_metadata or {}).get("credibility_tier")
+    allowed, gate_reason = await _memory_ingest_allowed(
+        url=url,
+        source=source,
+        credibility_tier=tier,
+    )
+    if not allowed:
+        logger.info(
+            "RAG document ingest skipped unapproved low-value source %s (%s)",
+            (url or source)[:120], gate_reason,
+        )
+        return {
+            "ingested": False,
+            "reason": gate_reason,
+            "source": source,
+            "url": url,
+        }
     if not await _ensure_async():
         return {"ingested": False, "error": "rag_store_unavailable"}
     # R-F410 (2026-05-13) — sanitize BEFORE the length check so HTML
@@ -873,6 +920,13 @@ async def ingest_fact(
     Called by knowledge.store_fact() so the RAG facts collection stays
     in sync with the canonical Redis knowledge base.
     """
+    allowed, gate_reason = await _memory_ingest_allowed(source=source)
+    if not allowed:
+        logger.info(
+            "RAG fact ingest skipped unapproved low-value source %s (%s)",
+            source[:120], gate_reason,
+        )
+        return False
     if not await _ensure_async():
         return False
     # R-F410 sanitize the content (NOT the topic — topic is canonical)
@@ -949,6 +1003,16 @@ async def add_facts_batch(facts: list[dict]) -> int:
         # R-F410 sanitize per-fact content before length check + upsert
         content, _ = _sanitize_ingest_text(content)
         topic = f.get("topic") or ""
+        allowed, gate_reason = await _memory_ingest_allowed(
+            source=f.get("source") or "",
+            credibility_tier=f.get("credibility_tier"),
+        )
+        if not allowed:
+            logger.info(
+                "RAG batch fact ingest skipped unapproved low-value source %s (%s)",
+                str(f.get("source") or "")[:120], gate_reason,
+            )
+            continue
         if not content or len(content) < 10:
             continue
         ids.append(f.get("fact_id") or _hash_id(content, f.get("source", "")))
@@ -999,18 +1063,19 @@ async def add_search_results_batch(items: list[dict]) -> int:
     filtered: list[dict] = []
     for it in items:
         url = str(it.get("url") or "")
+        source = str(it.get("source") or "")
         metadata = it.get("metadata") or {}
         tier = metadata.get("credibility_tier")
-        if url:
-            try:
-                from . import source_validator as _sv
-                allowed, reason = await _sv.memory_ingest_allowed(url, tier)
-            except Exception:
-                allowed, reason = False, "source_validator_unavailable"
+        if url or _url_candidate(source):
+            allowed, reason = await _memory_ingest_allowed(
+                url=url,
+                source=source,
+                credibility_tier=tier,
+            )
             if not allowed:
                 logger.info(
                     "RAG batch ingest skipped unapproved low-value source %s (%s)",
-                    url[:120], reason,
+                    (url or source)[:120], reason,
                 )
                 continue
         filtered.append(it)

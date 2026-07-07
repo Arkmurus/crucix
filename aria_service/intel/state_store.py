@@ -2939,12 +2939,21 @@ async def stats() -> dict:
     """Return basic backend stats for the /health endpoint."""
     hot_depth = _QUEUED_WRITES.qsize() if _QUEUED_WRITES is not None else 0
     cold_depth = _cold_queue.qsize() if _cold_queue is not None else 0
+    total_depth = hot_depth + cold_depth
+    total_capacity = _WRITE_QUEUE_MAX * (2 if _cold_queue is not None else 1)
     queue_stats = {
         "hot": hot_depth,
         "cold": cold_depth,
-        "total": hot_depth + cold_depth,
+        "total": total_depth,
         "max": _WRITE_QUEUE_MAX,
+        "capacity": total_capacity,
+        "headroom": max(0, total_capacity - total_depth),
+        "utilization": round(total_depth / total_capacity, 4) if total_capacity else 0.0,
+        "hot_utilization": round(hot_depth / _WRITE_QUEUE_MAX, 4) if _WRITE_QUEUE_MAX else 0.0,
+        "cold_utilization": round(cold_depth / _WRITE_QUEUE_MAX, 4) if _WRITE_QUEUE_MAX else 0.0,
         "hot_cold_split": bool(_HOTCOLD_SPLIT and _cold_queue is not None),
+        "hot_worker_alive": bool(_WRITE_WORKER_TASK and not _WRITE_WORKER_TASK.done()),
+        "cold_worker_alive": bool(_COLD_WORKER_TASK and not _COLD_WORKER_TASK.done()),
     }
     if _conn is None:
         return {

@@ -68,7 +68,7 @@ def test_source_validator_allows_approved_low_value_memory_domain(monkeypatch):
 
 def test_rag_batch_ingest_calls_source_validator_gate():
     src = Path("aria_service/intel/rag_store.py").read_text(encoding="utf-8")
-    assert "memory_ingest_allowed(url, tier)" in src
+    assert "_memory_ingest_allowed(" in src
     assert "low-value source" in src
 
 

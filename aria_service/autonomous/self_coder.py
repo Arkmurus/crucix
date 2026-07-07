@@ -89,6 +89,7 @@ APPROVAL_TIMEOUT_S = 1800       # 30 minutes
 APPROVAL_KEY_PREFIX = "crucix:aria:coder:approval:"
 ERROR_LEDGER_COUNT_KEY = "crucix:aria:error_ledger:count"
 SCOREBOARD_KEY = "crucix:aria:coder:scoreboard"
+SCOREBOARD_BUCKETS = ("claimed", "fixed", "staged", "gold", "blocked")
 
 
 @dataclass
@@ -1563,7 +1564,13 @@ class ARIACoder:
             if not isinstance(board, dict):
                 board = {}
             counts = board.setdefault("counts", {})
+            if bucket not in SCOREBOARD_BUCKETS:
+                bucket = "blocked"
             counts[bucket] = int(counts.get(bucket, 0) or 0) + 1
+            blocked_by_reason = board.setdefault("blocked_by_reason", {})
+            if bucket == "blocked":
+                reason_key = (reason or "unknown")[:120]
+                blocked_by_reason[reason_key] = int(blocked_by_reason.get(reason_key, 0) or 0) + 1
             event = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "bucket": bucket,
@@ -1580,6 +1587,7 @@ class ARIACoder:
             recent.insert(0, event)
             board["recent"] = recent[:50]
             board["updated_at"] = event["ts"]
+            board["schema_version"] = 2
             await self.redis.setex(SCOREBOARD_KEY, 30 * 86400, json.dumps(board))
         except Exception as e:
             logger.debug("[aria_coder] scoreboard update failed: %s", e)
@@ -1629,9 +1637,13 @@ class ARIACoder:
                 board = {}
         except Exception:
             board = {}
-        board.setdefault("counts", {})
+        counts = board.setdefault("counts", {})
+        for bucket in SCOREBOARD_BUCKETS:
+            counts.setdefault(bucket, 0)
+        board.setdefault("blocked_by_reason", {})
         board.setdefault("recent", [])
         board.setdefault("updated_at", None)
+        board.setdefault("schema_version", 2)
         return board
 
 
