@@ -49,21 +49,21 @@
       <h1 class="sc-page-title"><i class="bi bi-reception-4"></i> Source Health</h1>
       <p class="sc-page-sub">Real-time status of all intelligence data sources</p>
     </div>
-    <!-- R-F2194 — add an intel source that ARIA auto-ingests (data output + intel + DD) -->
+    <!-- R-F2194/R-F2386 — add a non-duplicate vault-curated Website/RSS source. -->
     <button id="btn-add-intel-source" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
       <i class="bi bi-plus-lg"></i> Add intel source
     </button>
   </div>
 
-  <!-- R-F2194 — Add intel source modal. Feeds the SAME robust vault pipeline (R-F2190/2191):
-       a website/feed added here is auto-scraped → dashboard data output + brain RAG (intel). -->
+  <!-- R-F2194/R-F2386 — Add intel source modal. Feeds the vault pipeline when
+       the URL is not already covered by the built-in source monitor catalogue. -->
   <div id="add-src-modal" class="sc-mod-overlay">
     <div class="sc-mod">
       <div class="sc-mod-head">
         <div class="sc-mod-ico"><i class="bi bi-rss"></i></div>
         <div>
           <h3>Add an intel source</h3>
-          <p>ARIA auto-ingests it into the live data output and its intelligence knowledge (RAG).</p>
+          <p>ARIA adds unique Website/RSS sources to vault-curated News Monitor intel.</p>
         </div>
         <button id="add-src-close" class="sc-mod-x" type="button" aria-label="Close">&times;</button>
       </div>
@@ -85,11 +85,11 @@
           </div>
           <input id="add-src-type" type="hidden" value="website">
         </div>
-        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span>Grade-A intel comes from real sources — this one starts feeding ARIA on the next sweep.</span></div>
+        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span>News Monitor reads unique Website/RSS additions as <b>vault_curated</b> intel. Existing ARIA catalogue sources are blocked to avoid duplicated signal.</span></div>
       </div>
       <div class="sc-mod-foot">
         <button type="button" class="sc-btn sc-btn-outline" id="add-src-cancel">Cancel</button>
-        <button type="button" class="sc-btn sc-btn-primary" id="add-src-submit"><i class="bi bi-plus-lg"></i> Add &amp; start ingesting</button>
+        <button type="button" class="sc-btn sc-btn-primary" id="add-src-submit"><i class="bi bi-plus-lg"></i> Add source</button>
       </div>
     </div>
   </div>
@@ -602,8 +602,8 @@ setInterval(() => {
 setInterval(loadAdversarial, 5 * 60 * 1000);
 </script>
 <script>
-// R-F2194 — "Add intel source" → the robust vault ingestion pipeline (R-F2190/2191).
-// A website/feed added here is auto-scraped into the dashboard data output + brain RAG.
+  // R-F2194/R-F2386 — "Add intel source" → the vault ingestion pipeline.
+  // The backend rejects duplicates against the built-in ARIA source monitor catalogue.
 (function () {
   function slugId(name, url) {
     var host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
@@ -640,12 +640,17 @@ setInterval(loadAdversarial, 5 * 60 * 1000);
     submit.disabled = true; submit.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
     var body = { site_id: slugId(name, url), site_name: name, site_url: url, agent_id: 'admin_manual', site_type: type, status: 'verified' };
     var res = await API.post('/api/aria/vault', body);
-    submit.disabled = false; submit.innerHTML = '<i class="bi bi-plus-lg"></i> Add &amp; start ingesting';
+    submit.disabled = false; submit.innerHTML = '<i class="bi bi-plus-lg"></i> Add source';
     if (res.ok && res.data && res.data.success) {
       document.getElementById('add-src-name').value = '';
       document.getElementById('add-src-url').value = '';
       closeM();
-      if (window.Toast) Toast.show('Source added — ARIA will start ingesting it.', 'success');
+      if (window.Toast) {
+        var msg = res.data.duplicate
+          ? 'Source already exists in the vault.'
+          : (res.data.message || 'Source added to vault-curated News Monitor.');
+        Toast.show(msg, res.data.duplicate ? 'info' : 'success');
+      }
     } else {
       if (errEl) { errEl.textContent = (res.data && res.data.error) || ('Failed (HTTP ' + res.status + ').'); errEl.style.display = 'block'; }
     }

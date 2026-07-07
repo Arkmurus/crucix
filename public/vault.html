@@ -60,7 +60,7 @@
           <input id="as-type" type="hidden" value="website">
           <input id="as-status" type="hidden" value="verified">
         </div>
-        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span><b>Website</b> &amp; <b>RSS</b> are auto-ingested into data output, intel &amp; DD. <b>Portal</b>/<b>API</b> are catalogued (may need credentials).</span></div>
+        <div class="sc-mod-hint"><i class="bi bi-stars"></i><span><b>Website</b> &amp; <b>RSS</b> feed News Monitor as vault-curated intel. <b>Portal</b>/<b>API</b> are catalogued for operator credentials and are not source-monitor duplicates.</span></div>
         <div class="sc-mod-field">
           <label>API key / credential <span class="opt">— optional, for authenticated sites</span></label>
           <input id="as-cred" type="text" autocomplete="off" placeholder="API key, token, or login reference">
@@ -293,11 +293,17 @@ setInterval(loadVault, 60000);
     return base.slice(0, 60) || ('site_' + Date.now());
   }
 
+  function defaultStatusForType(siteType) {
+    if (siteType === 'api') return 'open_api';
+    if (siteType === 'portal') return 'needs_operator';
+    return 'verified';
+  }
+
   document.getElementById('as-submit').addEventListener('click', async () => {
     const name = document.getElementById('as-name').value.trim();
     const url = document.getElementById('as-url').value.trim();
     const site_type = document.getElementById('as-type').value;
-    const status = document.getElementById('as-status').value;
+    const status = defaultStatusForType(site_type);
     const notes = document.getElementById('as-notes').value.trim();
     const cred = document.getElementById('as-cred').value.trim();          // R-F2052
     const topics = document.getElementById('as-topics').value.trim();      // R-F2052
@@ -323,7 +329,12 @@ setInterval(loadVault, 60000);
       // R-F2052 — clear the form so the next open is fresh
       ['as-name', 'as-url', 'as-cred', 'as-topics', 'as-notes'].forEach(id => { document.getElementById(id).value = ''; });
       close();
-      if (window.Toast) Toast.show('Site added to the vault.', 'success');
+      if (window.Toast) {
+        const msg = res.data.duplicate
+          ? 'Site already exists in the vault.'
+          : (res.data.message || 'Site added to the vault.');
+        Toast.show(msg, res.data.duplicate ? 'info' : 'success');
+      }
       loadVault();
     } else {
       errEl.textContent = (res.data && res.data.error) || ('Failed to add (HTTP ' + res.status + ').');

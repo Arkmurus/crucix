@@ -26697,6 +26697,72 @@ async def sources_health_ep() -> dict:
 # ── R-F1231: Agent Signup Vault endpoints ─────────────────────────────
 
 
+def _normalise_vault_source_url(url: str) -> str:
+    """Return a stable comparison key for vault/source-monitor URLs."""
+    from urllib.parse import urlparse, urlunparse
+
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "https").lower()
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+        host = f"{host}:{port}"
+    path = parsed.path or ""
+    if path != "/":
+        path = path.rstrip("/")
+    return urlunparse((scheme, host, path, "", parsed.query, ""))
+
+
+def _vault_ingestion_contract(site_type: str) -> dict[str, Any]:
+    """Describe where a vault row will flow after it is saved."""
+    feed_type = (site_type or "").lower() in {"rss", "website"}
+    return {
+        "ingestion_enabled": feed_type,
+        "output": "news_monitor.vault_curated" if feed_type else "vault.catalogue",
+        "message": (
+            "Website/RSS source will be read by News Monitor and promoted into dashboard intel."
+            if feed_type
+            else "Portal/API source is catalogued for operator credentials and is not auto-ingested."
+        ),
+    }
+
+
+def _find_vault_source_duplicate(vault: Any, *, site_id: str, site_url: str) -> dict[str, Any] | None:
+    """Find an existing vault row by id or normalised URL."""
+    existing_by_id = vault.get(site_id)
+    if existing_by_id:
+        return existing_by_id
+    target = _normalise_vault_source_url(site_url)
+    if not target:
+        return None
+    for entry in vault.list(limit=1000):
+        if _normalise_vault_source_url(entry.get("site_url", "")) == target:
+            return entry
+    return None
+
+
+def _find_source_monitor_duplicate(site_url: str) -> dict[str, Any] | None:
+    """Return the built-in News Monitor source matching this URL, if any."""
+    target = _normalise_vault_source_url(site_url)
+    if not target:
+        return None
+    from ..intel import news_monitor
+
+    for name, url, category, _lang, tier, topics in news_monitor.NEWS_SOURCES:
+        if _normalise_vault_source_url(url) == target:
+            return {
+                "name": name,
+                "url": url,
+                "category": category,
+                "tier": tier,
+                "topics": topics,
+            }
+    return None
+
+
 @router.get("/vault/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def vault_stats_ep() -> dict:
@@ -26762,23 +26828,54 @@ async def vault_list_ep(
 async def vault_record_ep(request: Request) -> dict:
     """Record a new signup in the vault."""
     from ..intel.agent_signup_vault import get_vault
+    from ..intel import security as _sec
 
     body = await request.json()
     vault = get_vault()
+    site_id = (body.get("site_id") or "").strip()
+    site_name = (body.get("site_name") or "").strip()
+    site_url = (body.get("site_url") or "").strip()
+    agent_id = (body.get("agent_id") or "").strip()
+    site_type = (body.get("site_type") or "portal").strip().lower()
+    contract = _vault_ingestion_contract(site_type)
+    if not site_id or not site_name or not site_url or not agent_id:
+        return {"success": False, "error": "site_id, site_name, site_url and agent_id are required"}
+    ok, why = _sec.validate_url(site_url)
+    if not ok:
+        return {"success": False, "error": f"unsafe URL: {why}"}
+    monitor_duplicate = _find_source_monitor_duplicate(site_url)
+    if monitor_duplicate:
+        return {
+            "success": False,
+            "duplicate": True,
+            "duplicate_scope": "aria_source_monitor",
+            "error": f"Already monitored by ARIA source catalogue: {monitor_duplicate['name']}",
+            "existing": monitor_duplicate,
+            **contract,
+        }
+    vault_duplicate = _find_vault_source_duplicate(vault, site_id=site_id, site_url=site_url)
+    if vault_duplicate:
+        return {
+            "success": True,
+            "duplicate": True,
+            "duplicate_scope": "vault",
+            "entry": vault_duplicate,
+            **_vault_ingestion_contract(vault_duplicate.get("site_type", site_type)),
+        }
     try:
         entry = vault.record(
-            site_id=body["site_id"],
-            site_name=body["site_name"],
-            site_url=body["site_url"],
-            agent_id=body["agent_id"],
-            site_type=body.get("site_type", "portal"),
+            site_id=site_id,
+            site_name=site_name,
+            site_url=site_url,
+            agent_id=agent_id,
+            site_type=site_type,
             agent_type=body.get("agent_type", "dd"),
             status=body.get("status", "pending"),
             credential_ref=body.get("credential_ref"),
             notes=body.get("notes"),
             metadata=body.get("metadata"),
         )
-        return {"success": True, "entry": entry}
+        return {"success": True, "entry": entry, **contract}
     except (ValueError, KeyError) as e:
         return {"success": False, "error": str(e)}
 
