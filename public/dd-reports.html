@@ -722,7 +722,11 @@ function renderTable(reports) {
 }
 
 function deleteVerified(result) {
-  return !!(result && result.ok === true && (result.blob_deleted || Number(result.index_entries_removed || 0) > 0));
+  return !!(result && result.ok === true && (
+    result.blob_deleted
+    || result.vault_deleted
+    || Number(result.index_entries_removed || 0) > 0
+  ));
 }
 
 function removeDeletedReport(runId) {

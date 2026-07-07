@@ -369,13 +369,13 @@ class DDVault:
     def delete_case(self, canonical_entity_id: str) -> bool:
         """Delete a case and its cross-references."""
         conn = self._get_conn()
-        conn.execute("DELETE FROM dd_cases WHERE canonical_entity_id = ?", (canonical_entity_id,))
-        conn.execute(
+        case_cursor = conn.execute("DELETE FROM dd_cases WHERE canonical_entity_id = ?", (canonical_entity_id,))
+        ref_cursor = conn.execute(
             "DELETE FROM dd_cross_references WHERE source_entity = ? OR target_entity = ?",
             (canonical_entity_id, canonical_entity_id),
         )
         conn.commit()
-        return conn.total_changes > 0
+        return int(case_cursor.rowcount or 0) + int(ref_cursor.rowcount or 0) > 0
 
     # ── Cross-references ─────────────────────────────────────────────────
 

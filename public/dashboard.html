@@ -798,9 +798,21 @@ loadData();
       }).join('');
       listEl.querySelectorAll('.src-del').forEach(function (b) {
         b.addEventListener('click', async function () {
-          if (!confirm('Remove this source?')) return;
+          const ok = await Modal.confirm({
+            title: 'Remove this source?',
+            message: 'This removes the source from your personal feed list.',
+            okLabel: 'Remove',
+          });
+          if (!ok) return;
+          b.disabled = true;
           const r2 = await authed('/api/aria/user/sources/' + encodeURIComponent(b.dataset.id), { method: 'DELETE' });
-          if (r2.ok) loadMySources(); else alert('Failed to remove.');
+          if (r2.ok) {
+            Toast.show('Source removed.', 'success');
+            loadMySources();
+          } else {
+            Toast.show('Failed to remove source.', 'error');
+            b.disabled = false;
+          }
         });
       });
     } catch (e) { listEl.innerHTML = '<p class="text-muted" style="padding:8px">Network error loading sources.</p>'; }

@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -10778,16 +10779,27 @@ async def delete_report(run_id: str) -> dict:
     if not run_id or not isinstance(run_id, str):
         raise ValueError("run_id required")
     blob_existed = False
+    report_blob: dict | None = None
     try:
+        report_blob = await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
         blob_existed = await rs.delete(REPORT_REDIS_KEY.format(run_id=run_id))
     except Exception as e:
         logger.warning("delete_report blob delete failed for %s: %s", run_id, e)
     removed_from_index = 0
+    canonical_ids: set[str] = set()
 
     def _remove(index):
-        nonlocal removed_from_index
+        nonlocal removed_from_index, canonical_ids
         before = len(index)
-        index = [e for e in index if not (isinstance(e, dict) and e.get("run_id") == run_id)]
+        kept = []
+        for entry in index:
+            if isinstance(entry, dict) and entry.get("run_id") == run_id:
+                cid = (entry.get("canonical_entity_id") or "").strip()
+                if cid:
+                    canonical_ids.add(cid)
+                continue
+            kept.append(entry)
+        index = kept
         removed_from_index = before - len(index)
         return index
     # R-F2343 — atomic removal under the index lock so a concurrent DD start/completion
@@ -10797,13 +10809,38 @@ async def delete_report(run_id: str) -> dict:
         "[dd_orchestrator] R-F162 delete_report %s: blob=%s index_entries=%d",
         run_id, blob_existed, removed_from_index,
     )
-    # R-F1980: also remove from the persistent vault
+    if isinstance(report_blob, dict):
+        cid = (report_blob.get("canonical_entity_id") or "").strip()
+        if cid:
+            canonical_ids.add(cid)
+        identity = report_blob.get("identity") if isinstance(report_blob.get("identity"), dict) else {}
+        ident_cid = (identity.get("canonical_entity_id") or "").strip() if identity else ""
+        if ident_cid:
+            canonical_ids.add(ident_cid)
+    # R-F2387: also remove from the persistent vault using the canonical case key,
+    # not the run_id. Passing run_id here left vault-backed reports visible after
+    # a refresh/rebuild, so the frontend appeared to need multiple delete attempts.
+    vault_deleted = False
     try:
         from .dd_vault import get_vault as _get_dd_vault
         _vault = _get_dd_vault()
-        # Find the canonical_entity_id for this run_id from the index
-        # (we already have the updated index minus this entry)
-        _vault.delete_case(run_id)
+        if not canonical_ids:
+            for case in _vault.list_all(limit=500):
+                if case.get("latest_report_id") == run_id:
+                    cid = (case.get("canonical_entity_id") or "").strip()
+                    if cid:
+                        canonical_ids.add(cid)
+                    continue
+                try:
+                    previous = json.loads(case.get("previous_report_ids") or "[]")
+                except Exception:
+                    previous = []
+                if run_id in previous:
+                    cid = (case.get("canonical_entity_id") or "").strip()
+                    if cid:
+                        canonical_ids.add(cid)
+        for cid in canonical_ids:
+            vault_deleted = _vault.delete_case(cid) or vault_deleted
     except Exception as e:
         logger.debug("delete_report vault cleanup failed (non-fatal): %s", e)
     return {
@@ -10811,6 +10848,8 @@ async def delete_report(run_id: str) -> dict:
         "run_id": run_id,
         "blob_deleted": bool(blob_existed),
         "index_entries_removed": removed_from_index,
+        "vault_deleted": bool(vault_deleted),
+        "canonical_entity_ids_deleted": sorted(canonical_ids),
     }
 
 

@@ -345,7 +345,12 @@ setInterval(loadVault, 60000);
   // R-F2192 — admin: clear ALL vault entries (manual + auto-discovered)
   const clearBtn = document.getElementById('btn-clear-vault');
   if (clearBtn) clearBtn.addEventListener('click', async () => {
-    if (!confirm('Remove ALL sites / data points from the vault? This cannot be undone.')) return;
+    const ok = await Modal.confirm({
+      title: 'Clear the vault?',
+      message: 'Remove ALL sites and data points from the vault. This cannot be undone.',
+      okLabel: 'Clear all',
+    });
+    if (!ok) return;
     clearBtn.disabled = true; clearBtn.textContent = 'Clearing…';
     try {
       const r = await authed('/api/aria/vault', { method: 'DELETE' });

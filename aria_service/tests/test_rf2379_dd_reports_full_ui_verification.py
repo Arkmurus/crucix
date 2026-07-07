@@ -719,11 +719,23 @@ def test_dd_reports_detail_view_rerun_wired():
 
 
 def test_dd_reports_detail_view_delete_wired():
-    """The delete button must call /api/aria/dd/vault/case/:cid."""
+    """The delete button must call the by-run DD report delete endpoint."""
     html = _read("dd-reports.html")
-    assert "/api/aria/dd/vault/case/" in html, (
-        "dd-reports.html does not call /api/aria/dd/vault/case/ (delete needs it)"
+    assert "/api/aria/dd/report/" in html, (
+        "dd-reports.html does not call /api/aria/dd/report/ (delete needs it)"
     )
+    assert "{ method: 'DELETE' }" in html, "dd-reports.html delete path is missing DELETE method"
+
+
+def test_dd_reports_delete_removes_row_without_manual_refresh():
+    """R-F2387 — any verified backend delete layer must remove the row locally."""
+    html = _read("dd-reports.html")
+    assert "function deleteVerified(result)" in html
+    assert "result.vault_deleted" in html, (
+        "deleteVerified must accept persistent vault deletion, not only Redis/index deletion"
+    )
+    assert "removeDeletedReport(runId)" in html
+    assert "removeDeletedReport(rid)" in html
 
 
 def test_dd_reports_detail_view_vls_wired():

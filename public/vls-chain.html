@@ -283,7 +283,7 @@ async function showPublicKey() {
   try {
     const r = await authed('/api/aria/dd/vls/key');
     if (!r.ok) {
-      alert('Failed to load VLS public key (HTTP ' + r.status + ')');
+      Toast.show('Failed to load VLS public key (HTTP ' + r.status + ')', 'error', 7000);
       keyBtn.disabled = false; keyBtn.innerHTML = orig;
       return;
     }
@@ -314,7 +314,7 @@ async function showPublicKey() {
     keyBtn.innerHTML = '<i class="bi bi-check2"></i> Key loaded';
     setTimeout(() => { keyBtn.innerHTML = orig; keyBtn.disabled = false; }, 2000);
   } catch (err) {
-    alert('Error: ' + err.message);
+    Toast.show('VLS key error: ' + err.message, 'error', 7000);
     keyBtn.disabled = false; keyBtn.innerHTML = orig;
   }
 }

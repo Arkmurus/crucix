@@ -539,7 +539,12 @@ async function loadAdversarial() {
 // so the operator can populate the table without waiting for daily cron.
 document.getElementById('btn-run-pysrc').addEventListener('click', async function() {
   const btn = this;
-  if (!confirm('Run a source uptime check across all monitored sources now? Takes ~30-60s.')) return;
+  const ok = await Modal.confirm({
+    title: 'Run source check?',
+    message: 'Run a source uptime check across all monitored sources now. This can take 30-60 seconds.',
+    okLabel: 'Run check',
+  });
+  if (!ok) return;
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking…';
@@ -549,12 +554,13 @@ document.getElementById('btn-run-pysrc').addEventListener('click', async functio
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') },
     });
     if (!resp.ok) {
-      alert('Ping failed (HTTP ' + resp.status + '). Check fly logs for details.');
+      Toast.show('Ping failed (HTTP ' + resp.status + '). Check fly logs for details.', 'error', 7000);
     } else {
       await loadSourceMonitors();
+      Toast.show('Source check completed.', 'success');
     }
   } catch (err) {
-    alert('Ping error: ' + err.message);
+    Toast.show('Ping error: ' + err.message, 'error', 7000);
   }
   btn.disabled = false;
   btn.innerHTML = orig;
@@ -562,7 +568,12 @@ document.getElementById('btn-run-pysrc').addEventListener('click', async functio
 
 document.getElementById('btn-run-adv').addEventListener('click', async function() {
   const btn = this;
-  if (!confirm('Run a fresh adversarial suite now? Each attack is an LLM round-trip + verifier check; can take 2-5 minutes.')) return;
+  const ok = await Modal.confirm({
+    title: 'Run adversarial suite?',
+    message: 'Run a fresh adversarial suite now. Each attack is an LLM round-trip plus verifier check and can take 2-5 minutes.',
+    okLabel: 'Run suite',
+  });
+  if (!ok) return;
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
@@ -572,12 +583,13 @@ document.getElementById('btn-run-adv').addEventListener('click', async function(
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') },
     });
     if (!resp.ok) {
-      alert('Run failed (HTTP ' + resp.status + ').');
+      Toast.show('Run failed (HTTP ' + resp.status + ').', 'error', 7000);
     } else {
       await loadAdversarial();
+      Toast.show('Adversarial suite completed.', 'success');
     }
   } catch (err) {
-    alert('Run error: ' + err.message);
+    Toast.show('Run error: ' + err.message, 'error', 7000);
   }
   btn.disabled = false;
   btn.innerHTML = orig;

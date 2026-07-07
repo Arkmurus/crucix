@@ -108,3 +108,34 @@ async def test_delete_report_atomic_removal(fake_rs, monkeypatch):
     assert r["index_entries_removed"] == 1
     ids = {e["run_id"] for e in fake_rs.get("crucix:dd:report_index", [])}
     assert "dd_D" not in ids
+
+
+@pytest.mark.asyncio
+async def test_delete_report_uses_canonical_vault_key(fake_rs, monkeypatch):
+    """R-F2387 — deleting a DD row must remove the persistent vault case too."""
+    import aria_service.intel.dd_vault as dv
+
+    deleted = []
+
+    class _V:
+        def list_all(self, limit=500):
+            return []
+
+        def delete_case(self, cid):
+            deleted.append(cid)
+            return cid == "company:acme:GB"
+
+    monkeypatch.setattr(dv, "get_vault", lambda: _V())
+    fake_rs[ddo.REPORT_INDEX_KEY] = [
+        {"run_id": "dd_Z", "canonical_entity_id": "company:acme:GB", "entity_name": "Acme"},
+    ]
+    fake_rs[ddo.REPORT_REDIS_KEY.format(run_id="dd_Z")] = {
+        "run_id": "dd_Z",
+        "canonical_entity_id": "company:acme:GB",
+    }
+
+    out = await ddo.delete_report("dd_Z")
+
+    assert out["vault_deleted"] is True
+    assert out["canonical_entity_ids_deleted"] == ["company:acme:GB"]
+    assert deleted == ["company:acme:GB"]
