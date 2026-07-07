@@ -39,12 +39,13 @@ ignore-paths:
   - migrations
 
 ignore-patterns:
-  - ^.*/test_.*\.py$
-  - ^.*/conftest\.py$
-  - ^.*/migrations/.*\.py$
-  - ^.*/scripts/.*\.py$
-  - ^.*/setup\.py$
-  - ^.*/__init__\.py$
+  - (^|.*[\\/])tests[\\/].*\.py$
+  - (^|.*[\\/])test_.*\.py$
+  - (^|.*[\\/])conftest\.py$
+  - (^|.*[\\/])migrations[\\/].*\.py$
+  - (^|.*[\\/])scripts[\\/].*\.py$
+  - (^|.*[\\/])setup\.py$
+  - (^|.*[\\/])__init__\.py$
 
 # =============================================================
 #  1.  PYLINT — Core static analysis (most important)

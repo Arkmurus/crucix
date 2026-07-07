@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2380,
+  "next_available": 2382,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18075,6 +18075,26 @@
       "r_number": "R-F2379",
       "title": "DD reports page — full button/touch-point verification and smoke test",
       "claimed_at": "2026-07-06T21:54:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2e459f90",
+      "notes": null,
+      "shipped_at": "2026-07-06T22:07:52Z"
+    },
+    {
+      "r_number": "R-F2380",
+      "title": "dd reports buttons live wiring",
+      "claimed_at": "2026-07-07T06:10:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bbb3ab48",
+      "notes": null,
+      "shipped_at": "2026-07-07T06:21:16Z"
+    },
+    {
+      "r_number": "R-F2381",
+      "title": "prospector windows ignore hygiene",
+      "claimed_at": "2026-07-07T06:22:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
