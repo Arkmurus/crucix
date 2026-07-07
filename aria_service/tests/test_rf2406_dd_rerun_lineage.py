@@ -32,6 +32,19 @@ def test_structured_view_exposes_rerun_identity_fields():
     assert view["website_url"] == "https://acme.example"
 
 
+def test_structured_view_uses_target_name_before_unnamed_placeholder():
+    report = {
+        "run_id": "dd_prev",
+        "canonical_entity_id": "company:GB:12345678",
+        "target": {"name": "Acme Ltd", "website_url": "https://acme.example"},
+        "identity": {"entity_name": "", "entity_type": "company"},
+    }
+
+    view = structured_view(report)
+
+    assert view["entity_name"] == "Acme Ltd"
+
+
 @pytest.mark.asyncio
 async def test_rerun_lineage_hydrates_missing_identity(monkeypatch):
     previous = {
@@ -69,6 +82,34 @@ async def test_rerun_lineage_hydrates_missing_identity(monkeypatch):
     assert body["website_url"] == "https://acme.example"
     assert body["website"] == "https://acme.example"
     assert body["_rerun_lineage"]["previous_run_id"] == "dd_prev"
+
+
+@pytest.mark.asyncio
+async def test_rerun_lineage_overwrites_unnamed_display_placeholder(monkeypatch):
+    previous = {
+        "run_id": "dd_prev",
+        "canonical_entity_id": "company:GB:12345678",
+        "target": {"name": "Acme Ltd", "website_url": "https://acme.example"},
+        "identity": {"entity_name": "", "entity_type": "company"},
+    }
+
+    async def fake_get_json(key):
+        return previous
+
+    from aria_service.intel import redis_store as rs
+    monkeypatch.setattr(rs, "get_json", fake_get_json)
+
+    body = {
+        "name": "(unnamed)",
+        "entity_type": "company",
+        "previous_run_id": "dd_prev",
+        "force": True,
+    }
+    await _hydrate_dd_rerun_lineage(body)
+
+    assert body["name"] == "Acme Ltd"
+    assert body["entity"] == "Acme Ltd"
+    assert body["_rerun_lineage"]["entity_name"] == "Acme Ltd"
 
 
 @pytest.mark.asyncio

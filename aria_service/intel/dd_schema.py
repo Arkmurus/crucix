@@ -1230,14 +1230,24 @@ def structured_view(r: dict) -> dict:
     ]
     sections = [s for s in sections if s]
 
+    target = r.get("target") if isinstance(r.get("target"), dict) else {}
+    entity_name = (
+        ident.get("entity_name")
+        or r.get("entity_name")
+        or target.get("name")
+        or target.get("entity")
+        or target.get("query")
+        or "(unnamed)"
+    )
+
     return {
         "run_id": r.get("run_id"),
-        "entity_name": ident.get("entity_name") or (r.get("target") or {}).get("query") or "(unnamed)",
+        "entity_name": entity_name,
         "entity_type": ident.get("entity_type"),
         "jurisdiction": ident.get("jurisdiction"),
         "jurisdiction_iso2": ident.get("jurisdiction_iso2"),
         "registration_number": ident.get("registration_number"),
-        "website_url": (r.get("target") or {}).get("website_url") or (r.get("target") or {}).get("website") or (r.get("target") or {}).get("url"),
+        "website_url": target.get("website_url") or target.get("website") or target.get("url"),
         "risk_classification": r.get("risk_classification") or "",
         "bottom_line": r.get("bottom_line") or "",
         "recommendation": r.get("recommendation") or "",

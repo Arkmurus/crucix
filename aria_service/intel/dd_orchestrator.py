@@ -10376,9 +10376,7 @@ async def list_reports(
         if not isinstance(entry, dict):
             continue
         name = (entry.get("entity_name") or "").strip()
-        if not name:
-            continue
-        _ok, _ = _validate_entity_name(name)
+        _ok, _ = _validate_entity_name(name) if name else (False, "blank entity_name")
         if _ok:
             continue
         # Bad name in index — try to repair from the full report blob.
@@ -10391,6 +10389,31 @@ async def list_reports(
             blob = None
         if not isinstance(blob, dict):
             continue
+        # Probe candidates: first prefer the original structured target name,
+        # then URL/domain hints. Blank/placeholder index names from older runs
+        # must self-heal here or the UI re-run button preserves "(unnamed)".
+        candidate_names = []
+        for src_key in ("target", "target_input"):
+            ti = blob.get(src_key) if isinstance(blob.get(src_key), dict) else None
+            if not ti:
+                continue
+            for k in ("name", "entity", "query"):
+                v = (ti.get(k) or "").strip()
+                if v:
+                    candidate_names.append(v)
+        ident = blob.get("identity") or {}
+        if isinstance(ident, dict):
+            v = (ident.get("entity_name") or "").strip()
+            if v:
+                candidate_names.append(v)
+
+        new_name: str | None = None
+        for raw_name in candidate_names:
+            ok2, _ = _validate_entity_name(raw_name)
+            if ok2:
+                new_name = raw_name
+                break
+
         # Probe candidates: ARKDDReport already stores the raw trigger
         # input as `target`, so we read website / url / domain from there
         # first. Fall back to the legacy `target_input` key (some older
@@ -10404,15 +10427,15 @@ async def list_reports(
                 v = (ti.get(k) or "").strip() if ti else ""
                 if v:
                     cand_sources.append(v)
-        # Fallback: scan identity.findings for any URL-shaped string.
-        ident = blob.get("identity") or {}
+        # Fallback: scan identity for any URL-shaped string.
         for fld in ("website", "url", "domain"):
             v = (ident.get(fld) or "").strip() if isinstance(ident, dict) else ""
             if v:
                 cand_sources.append(v)
 
-        new_name: str | None = None
         for raw in cand_sources:
+            if new_name:
+                break
             try:
                 from urllib.parse import urlparse as _urlparse
                 seed = raw if "://" in raw else f"https://{raw}"

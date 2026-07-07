@@ -772,13 +772,24 @@ async def _hydrate_dd_rerun_lineage(body: dict) -> None:
     ident = previous.get("identity") if isinstance(previous.get("identity"), dict) else {}
     target = previous.get("target") if isinstance(previous.get("target"), dict) else {}
 
+    def _placeholder(value: Any) -> bool:
+        text = str(value or "").strip().lower()
+        return text in {"", "(unknown)", "(unnamed)", "unknown", "unnamed", "n/a", "none", "null"}
+
     def _fill(key: str, value: Any) -> None:
-        if value not in (None, "") and not body.get(key):
+        if value not in (None, "") and _placeholder(body.get(key)):
             body[key] = value
 
+    prior_name = (
+        ident.get("entity_name")
+        or previous.get("entity_name")
+        or target.get("name")
+        or target.get("entity")
+        or target.get("query")
+    )
     _fill("canonical_entity_id", previous.get("canonical_entity_id") or ident.get("canonical_entity_id"))
-    _fill("name", ident.get("entity_name") or previous.get("entity_name"))
-    _fill("entity", ident.get("entity_name") or previous.get("entity_name"))
+    _fill("name", prior_name)
+    _fill("entity", prior_name)
     _fill("type", ident.get("entity_type"))
     _fill("entity_type", ident.get("entity_type"))
     _fill("jurisdiction", ident.get("jurisdiction"))
@@ -790,7 +801,7 @@ async def _hydrate_dd_rerun_lineage(body: dict) -> None:
     body["_rerun_lineage"] = {
         "previous_run_id": previous_run_id,
         "canonical_entity_id": body.get("canonical_entity_id"),
-        "entity_name": ident.get("entity_name") or previous.get("entity_name"),
+        "entity_name": prior_name,
         "jurisdiction": ident.get("jurisdiction"),
         "jurisdiction_iso2": ident.get("jurisdiction_iso2"),
         "registration_number": ident.get("registration_number"),
