@@ -222,18 +222,30 @@ async def _get_predictor_blocks_24h_cached(ttl_s: float = 120.0) -> int:
         _log.debug("predictor_blocks_24h cached fallback after state read failure: %s", exc)
         return cached_value
 
-# R-F2138 — module-level auth context. Set by require_aria_token on every
-# authenticated request. True when the internal/service token was used,
-# False when the user-facing API token was used. Defaults to True (unrestricted)
-# for backward compatibility with callers that bypass require_aria_token
-# (public-bypass paths, tests without auth middleware).
-_AUTH_IS_INTERNAL: bool = True
+# R-F2138 / R-F2456 — per-REQUEST auth context. True when the internal/service
+# token authenticated the request, False for the user-facing API token.
+# R-F2456: this was a module GLOBAL, which is process-wide and shared across all
+# concurrent requests — a request's value could be raced/overwritten by a
+# concurrent request between its own auth check and a later read across an await
+# boundary, fail-OPEN to a cross-tenant read of the DD vault (external caller with
+# no user_id). A ContextVar binds the value to the request's task context so it
+# CANNOT be clobbered by another request. Set by require_aria_token, which runs in
+# the request's task (via the async _router_auth_dep below) so the .set()
+# propagates to the endpoint. Defaults True (unrestricted) ONLY for callers that
+# bypass auth entirely (public-bypass paths, tests without the auth dep) — an
+# external API caller always runs auth, which sets it False.
+from contextvars import ContextVar as _ContextVar
+_auth_is_internal_var: "_ContextVar[bool]" = _ContextVar("aria_auth_is_internal", default=True)
 
 # Router-wide bearer-token enforcement. The require_aria_token dependency
 # is defined below; the forward reference works because FastAPI resolves
 # dependencies at request time, not import time. Soft-rollout: no-op when
 # ARIA_API_TOKEN is unset, enforces when set.
-def _router_auth_dep(request: Request) -> None:
+async def _router_auth_dep(request: Request) -> None:
+    # R-F2456: async so require_aria_token runs in the REQUEST's task context
+    # (not a threadpool worker) — that is what lets the _auth_is_internal_var.set()
+    # it performs propagate to the endpoint + _dd_owned_entity_ids. require_aria_token
+    # is CPU-only (hmac / getenv / header parse), safe to run inline on the loop.
     require_aria_token(request)
 
 router = APIRouter(prefix="/api/aria", tags=["aria"], dependencies=[Depends(_router_auth_dep)])
@@ -287,6 +299,10 @@ _OPERATOR_ONLY_RE = re.compile(
     r"|coder/(?!rag/)|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
+    # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
+    # aggregated across ALL tenants' chats with no user scoping — a cross-tenant
+    # corpus exfil. Operator-token only (the shared service token must not reach it).
+    r"|training-data/"
     # R-F2374: destructive DD/brain wipes — the shared SERVICE token (held by
     # aria-web + aria-wa) must NOT reach these; only the OPERATOR token. These
     # were gated at the web tier only, so any service-token holder calling
@@ -434,9 +450,9 @@ def require_aria_token(request: Request) -> None:
     # unrestricted) from external (user-facing API token, must scope).
     # Internal token = service-to-service (WA listener, web proxy, CLI).
     # API token = user-facing (external callers, must have user_id).
-    global _AUTH_IS_INTERNAL
+    # R-F2456: bind to the request's task context (was a racy module global).
     _api_tok = _aria_token()
-    _AUTH_IS_INTERNAL = bool(_api_tok and not _hmac.compare_digest(presented, _api_tok))
+    _auth_is_internal_var.set(bool(_api_tok and not _hmac.compare_digest(presented, _api_tok)))
 
     # R-F2139 — Per-service token scoping: ON by default when ARIA_OPERATOR_TOKEN
     # is set. Control/destructive routes require the OPERATOR token — the shared
@@ -1286,14 +1302,15 @@ async def dd_case_archive_stats_ep():
 # (not the internal service token), return empty set — an external caller without
 # a user_id must not see everything. Internal callers (WA listener, web proxy, CLI)
 # carry the internal token and keep the unrestricted path.
-# Uses _AUTH_IS_INTERNAL (set by require_aria_token on the current request's state)
-# to distinguish token types. Falls back to unrestricted (True) when no auth context
-# is available (legacy callers, tests without auth middleware).
+# Uses _auth_is_internal_var (set per-request by require_aria_token) to distinguish
+# token types. Falls back to unrestricted (True) when no auth context is available
+# (legacy callers, tests without auth middleware).
 async def _dd_owned_entity_ids(user_id: str, user_email_domain: str = ""):
     if not user_id:
         # R-F2138: external (API token) caller with no user_id → deny.
         # Internal (service token) caller → unrestricted (keep existing behaviour).
-        if not _AUTH_IS_INTERNAL:
+        # R-F2456: read the per-request ContextVar (was a racy module global).
+        if not _auth_is_internal_var.get():
             return set()
         return None
     from ..intel import dd_orchestrator
