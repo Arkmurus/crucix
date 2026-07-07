@@ -18400,9 +18400,10 @@
       "title": "DD rerun block placeholder targets",
       "claimed_at": "2026-07-07T21:53:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ca4d240b",
+      "notes": null,
+      "shipped_at": "2026-07-07T22:05:22Z"
     },
     {
       "r_number": "R-F2413",
