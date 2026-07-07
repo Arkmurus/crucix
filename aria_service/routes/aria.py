@@ -749,6 +749,54 @@ def _brave_scope(fn):
     return _wrapped
 
 
+async def _hydrate_dd_rerun_lineage(body: dict) -> None:
+    """Carry prior DD identity into an explicit re-run body.
+
+    Re-runs must version the same case even when the browser only has a
+    previous run id. The persisted report is the source of truth for identity
+    fields that are easy to lose in display rows: canonical id, ISO2
+    jurisdiction, registration number, and website.
+    """
+    previous_run_id = (body.get("previous_run_id") or body.get("rerun_of_run_id") or "").strip()
+    if not previous_run_id:
+        return
+    try:
+        from ..intel import redis_store as rs
+        from ..intel import dd_orchestrator as _ddo
+        previous = await rs.get_json(_ddo.REPORT_REDIS_KEY.format(run_id=previous_run_id))
+    except Exception as exc:
+        _log.debug("DD re-run lineage hydrate failed for %s: %s", previous_run_id, exc)
+        return
+    if not isinstance(previous, dict):
+        return
+    ident = previous.get("identity") if isinstance(previous.get("identity"), dict) else {}
+    target = previous.get("target") if isinstance(previous.get("target"), dict) else {}
+
+    def _fill(key: str, value: Any) -> None:
+        if value not in (None, "") and not body.get(key):
+            body[key] = value
+
+    _fill("canonical_entity_id", previous.get("canonical_entity_id") or ident.get("canonical_entity_id"))
+    _fill("name", ident.get("entity_name") or previous.get("entity_name"))
+    _fill("entity", ident.get("entity_name") or previous.get("entity_name"))
+    _fill("type", ident.get("entity_type"))
+    _fill("entity_type", ident.get("entity_type"))
+    _fill("jurisdiction", ident.get("jurisdiction"))
+    _fill("jurisdiction_iso2", ident.get("jurisdiction_iso2"))
+    _fill("registration_number", ident.get("registration_number"))
+    _fill("website_url", target.get("website_url") or target.get("website") or target.get("url"))
+    if body.get("website_url") and not body.get("website"):
+        body["website"] = body["website_url"]
+    body["_rerun_lineage"] = {
+        "previous_run_id": previous_run_id,
+        "canonical_entity_id": body.get("canonical_entity_id"),
+        "entity_name": ident.get("entity_name") or previous.get("entity_name"),
+        "jurisdiction": ident.get("jurisdiction"),
+        "jurisdiction_iso2": ident.get("jurisdiction_iso2"),
+        "registration_number": ident.get("registration_number"),
+    }
+
+
 @router.post("/dd/orchestrate")
 @fail_wire(module="aria", gap_type="engine_failure")
 @_brave_scope
@@ -854,6 +902,8 @@ async def dd_orchestrate_ep(req: Request):
     if body.get("website_url") and not body.get("website"):
         body["website"] = body["website_url"]
 
+    await _hydrate_dd_rerun_lineage(body)
+
     # R-F2352 — the RE-RUN paths (row + detail buttons) send `entity_type`, but the
     # orchestrator's R-F659 gate requires `target['type']`. Without this mapping every
     # re-run fast-failed in the background ("R-F659: entity_type missing") — the DD never
@@ -878,7 +928,7 @@ async def dd_orchestrate_ep(req: Request):
         _email_domain = (body.get("user_email_domain") or "").strip().lower() or (
             _email_lower.split("@")[-1] if _email_lower and "@" in _email_lower else None)
         await _ddo.mark_dd_running(
-            _run_id, _ent, mode, locals().get("_canonical"),
+            _run_id, _ent, mode, body.get("canonical_entity_id") or locals().get("_canonical"),
             user_id=_req_user_id, user_email_lower=_email_lower,
             user_email_domain=_email_domain, share_to_company=_share_to_company,
         )

@@ -626,7 +626,7 @@ function renderTable(reports) {
             '</div>' +
             sharedBadge +
             '<div class="dd-row-actions">' +
-              '<button class="dd-row-action-btn dd-rerun-btn" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-type="' + escAttr(entityType) + '" title="Re-run DD" aria-label="Re-run DD for ' + escAttr(entityName) + '"><i class="bi bi-arrow-clockwise"></i></button>' +
+              '<button class="dd-row-action-btn dd-rerun-btn" data-run-id="' + escAttr(r.run_id) + '" data-canonical-id="' + escAttr(r.canonical_entity_id || '') + '" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-jur-iso2="' + escAttr(r.jurisdiction_iso2 || '') + '" data-reg="' + escAttr(r.registration_number || '') + '" data-website="' + escAttr(r.website_url || r.website || '') + '" data-type="' + escAttr(entityType) + '" title="Re-run DD" aria-label="Re-run DD for ' + escAttr(entityName) + '"><i class="bi bi-arrow-clockwise"></i></button>' +
               '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown" aria-label="Copy report markdown"><i class="bi bi-clipboard"></i></button>' +
               '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report" aria-label="Delete report for ' + escAttr(entityName) + '"><i class="bi bi-trash"></i></button>' +
             '</div>' +
@@ -659,7 +659,12 @@ function renderTable(reports) {
       e.stopPropagation();
       await startRerun(btn, {
         name: btn.dataset.entity,
+        previous_run_id: btn.dataset.runId || undefined,
+        canonical_entity_id: btn.dataset.canonicalId || undefined,
         jurisdiction: btn.dataset.jur || undefined,
+        jurisdiction_iso2: btn.dataset.jurIso2 || undefined,
+        registration_number: btn.dataset.reg || undefined,
+        website_url: btn.dataset.website || undefined,
         entity_type: btn.dataset.type || undefined,
       });
     });
@@ -877,6 +882,9 @@ async function toggleDetail(row, runId) {
     const entityName = sv.entity_name || ((row.querySelector('.dd-entity-name') || {}).textContent) || '';
     const entityType = sv.entity_type || row.dataset.entityType || 'company';
     const jurisdiction = sv.jurisdiction || row.dataset.jur || undefined;
+    const jurisdictionIso2 = sv.jurisdiction_iso2 || undefined;
+    const registrationNumber = sv.registration_number || undefined;
+    const websiteUrl = sv.website_url || undefined;
     const canonicalId = sv.canonical_entity_id || '';
     const sections = sv.sections;
     const qa = sv.quality_assessment || null;
@@ -1000,7 +1008,12 @@ async function toggleDetail(row, runId) {
       // from the structured view so the re-run screens the SAME entity, not a bare name.
       await startRerun(e.currentTarget, {
         name: entityName,
+        previous_run_id: runId,
+        canonical_entity_id: canonicalId || undefined,
         jurisdiction,
+        jurisdiction_iso2: jurisdictionIso2,
+        registration_number: registrationNumber,
+        website_url: websiteUrl,
         entity_type: entityType,
         mode: sv.orchestrator_mode || undefined,
       });

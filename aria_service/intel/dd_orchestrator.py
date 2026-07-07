@@ -6938,12 +6938,32 @@ async def _persist_report(report: ARKDDReport) -> None:
         version_diff = None
         existing_index: list[dict] = []
         try:
-            canonical_id = _ver.canonical_entity_id_from_report(report)
+            _lineage = report.target.get("_rerun_lineage") if isinstance(report.target, dict) else {}
+            if isinstance(_lineage, dict):
+                if not (report.identity.entity_name or "").strip() and _lineage.get("entity_name"):
+                    report.identity.entity_name = _lineage.get("entity_name")
+                if not report.identity.jurisdiction and _lineage.get("jurisdiction"):
+                    report.identity.jurisdiction = _lineage.get("jurisdiction")
+                if not report.identity.jurisdiction_iso2 and _lineage.get("jurisdiction_iso2"):
+                    report.identity.jurisdiction_iso2 = _lineage.get("jurisdiction_iso2")
+                if not report.identity.registration_number and _lineage.get("registration_number"):
+                    report.identity.registration_number = _lineage.get("registration_number")
+            else:
+                _lineage = {}
+            canonical_id = (report.target.get("canonical_entity_id") if isinstance(report.target, dict) else None) or _ver.canonical_entity_id_from_report(report)
             existing_index = await rs.get_json(REPORT_INDEX_KEY) or []
             if canonical_id:
                 version_number, previous_run_id = _ver.resolve_version_chain(
                     canonical_id, existing_index,
                 )
+            _explicit_previous = (_lineage.get("previous_run_id") or (report.target.get("previous_run_id") if isinstance(report.target, dict) else None) or "").strip()
+            if canonical_id and _explicit_previous and not previous_run_id:
+                previous_run_id = _explicit_previous
+                previous_body = await rs.get_json(REPORT_REDIS_KEY.format(run_id=previous_run_id)) or {}
+                try:
+                    version_number = max(int(previous_body.get("version_number") or 1) + 1, 2)
+                except Exception:
+                    version_number = 2
         except Exception as _ver_err:
             logger.debug("dd_orchestrator: version resolve failed: %s", _ver_err)
             existing_index = []
@@ -7018,6 +7038,15 @@ async def _persist_report(report: ARKDDReport) -> None:
                 # dashboard table expects so the library renders both.
                 "entity_name": report.identity.entity_name,
                 "jurisdiction": report.identity.jurisdiction,
+                "jurisdiction_iso2": report.identity.jurisdiction_iso2,
+                "registration_number": report.identity.registration_number,
+                "website_url": (
+                    report.target.get("website_url")
+                    or report.target.get("website")
+                    or report.target.get("url")
+                    if isinstance(report.target, dict) else None
+                ),
+                "entity_type": report.identity.entity_type,
                 # R-F130 (2026-05-10): write `severity` + `risk` +
                 # `risk_classification` together so the library table
                 # column populates regardless of which key the renderer
