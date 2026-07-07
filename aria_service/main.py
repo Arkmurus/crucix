@@ -114,6 +114,21 @@ def _runs_singletons() -> bool:
     return _aria_role() in ("engine", "all", "")
 
 
+def _portal_registration_enabled() -> bool:
+    """Return True only when autonomous portal signup is explicitly enabled.
+
+    R-F2389: portal registration uses a real browser agent and is valuable only
+    after the MVP data plane is stable. Keep curated vault/source ingestion live,
+    but make human-like portal signup opt-in so it cannot starve brain endpoints.
+    """
+    return (_os.getenv("ARIA_PORTAL_REGISTRATION_ENABLED", "0") or "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def _singleton_task(factory, name: str) -> "asyncio.Task | None":
     """R-F2073 — start a SINGLETON background loop, but ONLY on a process that
     owns the singletons (engine / all-in-one). On a 'web' role process the loop
@@ -3547,6 +3562,11 @@ async def lifespan(app: FastAPI):
     _portal_scheduler_task = None
     if not _runs_singletons():  # R-F2073 singleton (registers on external portals)
         logger.info("[R-F2073] Portal registration scheduler SKIPPED (ARIA_ROLE=%s)", _aria_role())
+    elif not _portal_registration_enabled():
+        logger.info(
+            "[R-F2389] Portal registration scheduler DISABLED "
+            "via ARIA_PORTAL_REGISTRATION_ENABLED=0; vault/source ingestion remains active"
+        )
     else:
         try:
             from .intel.portal_scheduler import autonomous_registration_loop as _portal_loop

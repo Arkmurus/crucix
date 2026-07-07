@@ -12,6 +12,23 @@ import time
 from aria_service.intel.portal_scheduler import PortalScheduler
 
 
+def test_rf2389_portal_registration_is_opt_in(monkeypatch):
+    """MVP boot must not start browser-based portal signup unless enabled."""
+    from aria_service import main
+
+    monkeypatch.delenv("ARIA_PORTAL_REGISTRATION_ENABLED", raising=False)
+    assert main._portal_registration_enabled() is False
+
+    monkeypatch.setenv("ARIA_PORTAL_REGISTRATION_ENABLED", "1")
+    assert main._portal_registration_enabled() is True
+
+    monkeypatch.setenv("ARIA_PORTAL_REGISTRATION_ENABLED", "true")
+    assert main._portal_registration_enabled() is True
+
+    monkeypatch.setenv("ARIA_PORTAL_REGISTRATION_ENABLED", "0")
+    assert main._portal_registration_enabled() is False
+
+
 def test_scheduler_imports():
     """The scheduler module imports cleanly."""
     from aria_service.intel.portal_scheduler import PortalScheduler, autonomous_registration_loop
