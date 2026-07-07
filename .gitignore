@@ -154,6 +154,8 @@ data/training/_*.jsonl
 data/training/*.partial.jsonl
 # eval scratch (_v0_2_verdict.txt, ...)
 data/eval_reports/_*
+# generated Prospector rerun bundles; source eval reports remain tracked
+data/eval_reports/prospector_*/
 # partial eval outputs
 data/eval_reports/*.partial.jsonl
 # eval/test capture dumps (_eval_*.out, _rf*.out, ...)
