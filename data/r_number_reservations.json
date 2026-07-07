@@ -18251,9 +18251,10 @@
       "title": "async sweep ingest ack",
       "claimed_at": "2026-07-07T14:19:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e9ccdb7",
+      "notes": null,
+      "shipped_at": "2026-07-07T14:23:25Z"
     }
   ]
 }
