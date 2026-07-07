@@ -18290,9 +18290,10 @@
       "title": "autonomous coder reproduce llm contract",
       "claimed_at": "2026-07-07T15:54:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a3d77ee0",
+      "notes": null,
+      "shipped_at": "2026-07-07T16:13:01Z"
     }
   ]
 }
